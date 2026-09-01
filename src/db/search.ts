@@ -215,7 +215,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
 
   const bm25Ids = bm25SearchIds(db, query, pool)
   const entityIds = entitySearchIds ? entitySearchIds(query, pool) : []
-  const merged = rrfMerge([vecIds.map(v => v.id), bm25Ids, entityIds])
+  const merged = rrfMerge([vecIds.map(v => v.id), bm25Ids, entityIds]).slice(0, topK)
   return fetchThoughtsByIds(
     db,
     merged.map(m => m.id),

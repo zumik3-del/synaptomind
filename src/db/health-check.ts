@@ -160,12 +160,17 @@ export function findDuplicateEdges(db: Database): DuplicateEdge[] {
 
 export function findClusterViolations(db: Database): ClusterViolation[] {
   return db.prepare(`
-    SELECT t.id AS thought_id, t.content, e.type AS edge_type,
+    SELECT DISTINCT
+      t.id AS thought_id, t.content, e.type AS edge_type,
       CASE WHEN e.source_id = t.id THEN e.target_id ELSE e.source_id END AS other_id
     FROM thoughts t
     JOIN edges e ON (e.source_id = t.id OR e.target_id = t.id)
+    JOIN thoughts o ON o.id = CASE WHEN e.source_id = t.id THEN e.target_id ELSE e.source_id END
     WHERE t.is_cluster = 0
-      AND e.type IN ('cluster', 'references')
+      AND (
+        (e.type = 'cluster')
+        OR (e.type = 'references' AND o.is_cluster = 1)
+      )
   `).all() as ClusterViolation[]
 }
 

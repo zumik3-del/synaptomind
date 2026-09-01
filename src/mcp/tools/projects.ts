@@ -19,9 +19,22 @@ export function registerProjectTools(server: McpServer) {
   server.tool('create_project', 'Create a new project', {
     name: z.string().describe('Project name'),
     description: z.string().optional().describe('Project description'),
-    local_path: z.string().optional().describe('Local filesystem path for auto-resolution from cwd')
+    local_path: z.string().optional().describe('Local filesystem path for auto-resolution from cwd'),
+    git_repo_url: z.string().optional().describe('Git repo URL (HTTPS or SSH)'),
+    is_git_linked: z.boolean().optional().describe('Mark project as git-linked'),
+    git_auto_sync: z.boolean().optional().describe('Enable auto-sync for git-linked project'),
+    git_sync_interval_ms: z.number().optional().describe('Git sync interval in milliseconds')
   }, async (args) => {
-    const project = createProjectService({ name: args.name, description: args.description, local_path: args.local_path })
+    const isGitLinked = args.git_repo_url ? (args.is_git_linked ?? true) : args.is_git_linked
+    const project = createProjectService({
+      name: args.name,
+      description: args.description,
+      local_path: args.local_path,
+      git_repo_url: args.git_repo_url,
+      is_git_linked: isGitLinked,
+      git_auto_sync: args.git_auto_sync,
+      git_sync_interval_ms: args.git_sync_interval_ms
+    })
     return jsonResult(project)
   })
 
@@ -30,12 +43,18 @@ export function registerProjectTools(server: McpServer) {
     name: z.string().optional().describe('New name'),
     description: z.string().optional().describe('New description'),
     git_repo_url: z.string().optional().describe('Git repo URL (HTTPS or SSH)'),
+    is_git_linked: z.boolean().optional().describe('Mark project as git-linked'),
+    git_auto_sync: z.boolean().optional().describe('Enable auto-sync for git-linked project'),
+    git_sync_interval_ms: z.number().optional().describe('Git sync interval in milliseconds'),
     local_path: z.string().optional().describe('Local filesystem path for auto-resolution from cwd')
   }, async (args) => {
     updateProjectService(args.project_id, {
       name: args.name,
       description: args.description,
       git_repo_url: args.git_repo_url,
+      is_git_linked: args.git_repo_url ? (args.is_git_linked ?? true) : args.is_git_linked,
+      git_auto_sync: args.git_auto_sync,
+      git_sync_interval_ms: args.git_sync_interval_ms,
       local_path: args.local_path
     })
     return jsonResult({ success: true, project_id: args.project_id })
