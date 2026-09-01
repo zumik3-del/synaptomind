@@ -1,4 +1,12 @@
-import { createProject, deleteProject, getProject, listProjects, updateProject } from '../db/projects'
+import {
+  createProject,
+  deleteProject,
+  getProject,
+  listProjects,
+  resolveProject,
+  resolveProjectByPath,
+  updateProject
+} from '../db/projects'
 import { getDb } from '../db'
 import { ValidationError } from './errors'
 
@@ -17,6 +25,7 @@ export function createProjectService(data: {
   git_repo_url?: string | null
   git_auto_sync?: boolean
   git_sync_interval_ms?: number | null
+  local_path?: string | null
 }) {
   if (!data.name?.trim()) {
     throw new ValidationError('name is required')
@@ -36,6 +45,7 @@ export function updateProjectService(
     git_repo_url?: string | null
     git_auto_sync?: boolean
     git_sync_interval_ms?: number | null
+    local_path?: string | null
   }
 ) {
   updateProject(getDb(), id, data)
@@ -43,4 +53,12 @@ export function updateProjectService(
 
 export function deleteProjectService(id: string): boolean {
   return deleteProject(getDb(), id)
+}
+
+export function resolveProjectService(cwd: string) {
+  return resolveProject(getDb(), cwd) ?? null
+}
+
+export function resolveProjectByPathService(cwd: string) {
+  return resolveProjectByPath(getDb(), cwd) ?? null
 }

@@ -4,14 +4,25 @@ import { config } from '../../config'
 import { searchThoughts, searchThoughtsGrouped } from '../../services/search.service'
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getThoughtById, createThoughtWithUrlLinks, updateThoughtById, archiveThoughtById, deleteThoughtById, listThoughtsService } from '../../services/thoughts.service'
+import { resolveProjectService } from '../../services/projects.service'
 import { jsonResult, errorResult } from './utils'
 
 export function registerThoughtTools(server: McpServer) {
+  function resolveProjectId(projectId?: string, cwd?: string): string | undefined {
+    if (projectId) return projectId
+    if (cwd) {
+      const project = resolveProjectService(cwd)
+      if (project) return project.id
+    }
+    return undefined
+  }
+
   server.tool('search_thoughts', 'Semantic search across thoughts', {
     query: z.string().describe('Search query'),
     top_k: z.number().optional().describe('Max results (default 10)'),
     status: z.string().optional().describe('Filter by status'),
     project_id: z.string().optional().describe('Filter by project'),
+    cwd: z.string().optional().describe('Working directory to auto-resolve project when project_id is not provided'),
     tag: z.string().optional().describe('Filter by tag'),
     cluster: z.enum(['only', 'exclude']).optional().describe('Cluster filter: only (clusters only), exclude (exclude clusters)'),
     group_by_cluster: z.boolean().optional().describe('Group results by cluster'),
@@ -24,7 +35,7 @@ export function registerThoughtTools(server: McpServer) {
       query: args.query,
       topK,
       statusFilter: args.status,
-      projectFilter: args.project_id,
+      projectFilter: resolveProjectId(args.project_id, args.cwd),
       tagFilter: args.tag,
       clusterFilter: args.cluster,
       minImportance: args.min_importance,
@@ -49,12 +60,13 @@ export function registerThoughtTools(server: McpServer) {
   server.tool('get_thought_timeline', 'List thoughts with pagination', {
     status: z.string().optional().describe('Filter by status'),
     project_id: z.string().optional().describe('Filter by project'),
+    cwd: z.string().optional().describe('Working directory to auto-resolve project when project_id is not provided'),
     limit: z.number().optional().describe('Max results (default 50)'),
     offset: z.number().optional().describe('Offset for pagination')
   }, async (args) => {
     const thoughts = listThoughtsService({
       status: args.status as any,
-      project_id: args.project_id,
+      project_id: resolveProjectId(args.project_id, args.cwd),
       limit: args.limit,
       offset: args.offset
     })
@@ -66,12 +78,13 @@ export function registerThoughtTools(server: McpServer) {
     tags: z.array(z.string()).optional().describe('Tags'),
     status: z.string().optional().describe('Status (draft/active/archived)'),
     project_id: z.string().optional().describe('Project ID'),
+    cwd: z.string().optional().describe('Working directory to auto-resolve project when project_id is not provided'),
     parent_id: z.string().optional().describe('Parent thought ID'),
     is_profile: z.boolean().optional().describe('Mark as profile thought'),
     url_links: z.array(z.object({ text: z.string(), url: z.string() })).optional().describe('URL links')
   }, async (args) => {
     const thought = createThoughtWithUrlLinks(
-      { content: args.content, tags: args.tags, status: args.status as any, project_id: args.project_id, is_profile: args.is_profile },
+      { content: args.content, tags: args.tags, status: args.status as any, project_id: resolveProjectId(args.project_id, args.cwd), is_profile: args.is_profile },
       { parentId: args.parent_id, urlLinks: args.url_links }
     )
     return jsonResult(thought)

@@ -5,7 +5,8 @@ import {
   createProjectService,
   updateProjectService,
   deleteProjectService,
-  getProjectService
+  getProjectService,
+  resolveProjectService
 } from '../../services/projects.service'
 import { jsonResult, errorResult } from './utils'
 
@@ -17,9 +18,10 @@ export function registerProjectTools(server: McpServer) {
 
   server.tool('create_project', 'Create a new project', {
     name: z.string().describe('Project name'),
-    description: z.string().optional().describe('Project description')
+    description: z.string().optional().describe('Project description'),
+    local_path: z.string().optional().describe('Local filesystem path for auto-resolution from cwd')
   }, async (args) => {
-    const project = createProjectService({ name: args.name, description: args.description })
+    const project = createProjectService({ name: args.name, description: args.description, local_path: args.local_path })
     return jsonResult(project)
   })
 
@@ -27,9 +29,15 @@ export function registerProjectTools(server: McpServer) {
     project_id: z.string().describe('Project ID'),
     name: z.string().optional().describe('New name'),
     description: z.string().optional().describe('New description'),
-    git_repo_url: z.string().optional().describe('Git repo URL (HTTPS or SSH)')
+    git_repo_url: z.string().optional().describe('Git repo URL (HTTPS or SSH)'),
+    local_path: z.string().optional().describe('Local filesystem path for auto-resolution from cwd')
   }, async (args) => {
-    updateProjectService(args.project_id, { name: args.name, description: args.description, git_repo_url: args.git_repo_url })
+    updateProjectService(args.project_id, {
+      name: args.name,
+      description: args.description,
+      git_repo_url: args.git_repo_url,
+      local_path: args.local_path
+    })
     return jsonResult({ success: true, project_id: args.project_id })
   })
 
@@ -71,5 +79,19 @@ export function registerProjectTools(server: McpServer) {
       moved_to: project.thought_count > 0 ? 'Default project' : undefined
     }
     return jsonResult(result)
+  })
+
+  server.tool('resolve_project', 'Resolve project from a filesystem path (matches local_path or git remote URL)', {
+    cwd: z.string().describe('Working directory path to resolve project from')
+  }, async (args) => {
+    try {
+      const project = resolveProjectService(args.cwd)
+      if (!project) {
+        return errorResult(`No project found for path: ${args.cwd}`)
+      }
+      return jsonResult({ id: project.id, name: project.name, local_path: project.local_path })
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : 'Failed to resolve project')
+    }
   })
 }
