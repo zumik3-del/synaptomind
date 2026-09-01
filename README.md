@@ -4,7 +4,7 @@ Self-hosted persistent memory for AI assistants. It remembers project decisions,
 
 Lightweight thought-graph engine. Capture, link, cluster, and retrieve thoughts via HTTP API or MCP server.
 
-More than notes — a graph engine that links, clusters, and evolves your thoughts over time, with smart notes that surface and promote themselves based on conditions you define. AI-native from the start — ships as an MCP server with 30+ tools, so your AI agents can directly capture, search, and traverse your thought graph.
+More than notes — a graph engine that links, clusters, and evolves your thoughts over time, with smart notes that surface and promote themselves based on conditions you define. AI-native from the start — ships as an MCP server with 35 tools, so your AI agents can directly capture, search, and traverse your thought graph.
 
 ## Use Cases
 
@@ -88,7 +88,7 @@ Both the HTTP API and MCP HTTP transport require bearer token auth.
 | `SYNAPTOMIND_SECRET` | Primary auth token for API + MCP |
 | `SYNAPTOMIND_SERVICE_TOKEN` | Secondary token (optional, for service-to-service) |
 
-If neither is set, random UUID tokens are generated at startup — **one for the API, one for MCP** (they are separate). The generated tokens are printed to stderr on startup.
+If neither is set, a random UUID token is generated at startup and shared by both the API and MCP transport. The generated token is printed to stderr on startup.
 
 ```bash
 # Set a persistent token (recommended for production)
@@ -109,7 +109,7 @@ export SYNAPTOMIND_SECRET=my-secret-token
 - **Graph storage** — thoughts, edges, projects, tags, smart notes
 - **Hybrid search** — vector (vec0) + BM25 (FTS5) + entity matching
 - **Local embeddings** — `@huggingface/transformers`, no API keys
-- **MCP server** — 30+ tools, stdio + HTTP transport
+- **MCP server** — 35 tools, stdio + HTTP transport
 - **Auto-clustering** — batch grouping by embedding proximity
 - **Background jobs** — decay, dreamer, self-improve, git sync
 
@@ -167,12 +167,10 @@ Add to `~/.config/opencode/opencode.json`:
 ```json
 {
   "mcp": {
-    "servers": {
-      "synaptomind": {
-        "type": "http",
-        "url": "http://127.0.0.1:3006/mcp",
-        "headers": { "Authorization": "Bearer YOUR_TOKEN" }
-      }
+    "synaptomind": {
+      "type": "remote",
+      "url": "http://127.0.0.1:3006/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
     }
   }
 }
@@ -198,14 +196,13 @@ docker compose up -d
 
 The Docker image builds from source. Volumes mount `./data` and `./config.json`.
 
-Set `SYNAPTOMIND_SECRET` in your docker-compose environment for persistent auth:
+Set `SYNAPTOMIND_SECRET` in a `.env` file for persistent auth:
 
-```yaml
-environment:
-  - SYNAPTOMIND_SECRET=your-secret-token
+```bash
+echo "SYNAPTOMIND_SECRET=your-secret-token" > .env
 ```
 
-Without it, a random token is generated on each restart and printed to `docker logs`.
+See `.env.example` for all available environment variables. Without it, a random token is generated on each restart and printed to `docker logs`.
 
 ## Config
 
@@ -262,19 +259,23 @@ curl http://127.0.0.1:3005/health
 
 ## MCP Tools
 
-The MCP server exposes 30+ tools organized by domain:
+The MCP server exposes 35 tools organized by domain:
 
 | Category | Tools |
 |----------|-------|
-| Thoughts | create, get, update, search, merge, archive, link, chain |
-| Graph | thought_graph, cluster, auto_cluster |
-| Projects | create, list, update, assign |
-| Smart Notes | create, list, evaluate, promote |
-| Slots | get context slots (persona, goals, decisions) |
-| Frontier | what-to-do-next ranking |
-| Profile | user profile stats |
-| Telemetry | patterns, frequency, analytics |
-| Health | graph health audit |
+| Thoughts | `create_thought`, `get_thought`, `update_thought`, `search_thoughts`, `get_thought_timeline`, `archive_thought`, `assign_thought_to_project` |
+| Graph | `link_thoughts`, `merge_thoughts`, `get_chain`, `get_context`, `get_thought_graph` |
+| Clusters | `cluster`, `auto_cluster`, `recall_clusters` |
+| Projects | `create_project`, `list_projects`, `update_project`, `delete_project` |
+| Smart Notes | `create_smart_note`, `list_smart_notes`, `eval_smart_notes`, `promote_smart_note`, `delete_smart_note` |
+| Context | `get_slots`, `get_frontier`, `get_profile` |
+| Primers | `manage_primers` |
+| Crystals | `crystallize` |
+| Telemetry | `get_telemetry`, `analyze_telemetry` |
+| Health | `health_check` |
+| Git | `git_index_commits` |
+| Guide | `guide_thoughts` |
+| Config | `get_config` |
 
 ## Testing
 
