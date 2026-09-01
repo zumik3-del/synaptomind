@@ -30,10 +30,14 @@ export function createProjectService(data: {
   if (!data.name?.trim()) {
     throw new ValidationError('name is required')
   }
-  if (data.is_git_linked && !data.git_repo_url?.trim()) {
+  const normalized = { ...data }
+  if (normalized.is_git_linked === undefined && normalized.git_repo_url !== undefined) {
+    normalized.is_git_linked = Boolean(normalized.git_repo_url?.trim())
+  }
+  if (normalized.is_git_linked && !normalized.git_repo_url?.trim()) {
     throw new ValidationError('git_repo_url is required when the project is git-linked')
   }
-  return createProject(getDb(), data)
+  return createProject(getDb(), normalized)
 }
 
 export function updateProjectService(
@@ -48,7 +52,21 @@ export function updateProjectService(
     local_path?: string | null
   }
 ) {
-  updateProject(getDb(), id, data)
+  const db = getDb()
+  const normalized = { ...data }
+  if (normalized.is_git_linked === undefined && normalized.git_repo_url !== undefined) {
+    normalized.is_git_linked = Boolean(normalized.git_repo_url?.trim())
+  }
+
+  const existing = getProject(db, id)
+  const effectiveRepoUrl = normalized.git_repo_url !== undefined
+    ? normalized.git_repo_url
+    : existing?.git_repo_url
+  if (normalized.is_git_linked && !effectiveRepoUrl?.trim()) {
+    throw new ValidationError('git_repo_url is required when the project is git-linked')
+  }
+
+  updateProject(db, id, normalized)
 }
 
 export function deleteProjectService(id: string): boolean {

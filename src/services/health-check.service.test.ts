@@ -50,6 +50,57 @@ test('detects self-loop edges', () => {
   expect(selfLoop!.severity).toBe('critical')
 })
 
+function clusterViolationCount(): number {
+  const report = runHealthCheck()
+  const structural = report.categories.find(c => c.name === 'structural_integrity')
+  return structural!.checks.find(c => c.name === 'cluster_constraint_violations')!.count
+}
+
+test('allows cluster membership edges from a cluster to a regular thought', () => {
+  const cluster = seedThought({ content: 'valid cluster', is_cluster: 1 })
+  const member = seedThought({ content: 'valid member' })
+  seedEdge(cluster, member, 'cluster')
+
+  expect(clusterViolationCount()).toBe(0)
+})
+
+test('allows references between thoughts of the same cluster kind', () => {
+  const regularA = seedThought({ content: 'regular A' })
+  const regularB = seedThought({ content: 'regular B' })
+  const clusterA = seedThought({ content: 'cluster A', is_cluster: 1 })
+  const clusterB = seedThought({ content: 'cluster B', is_cluster: 1 })
+  seedEdge(regularA, regularB, 'references')
+  seedEdge(clusterA, clusterB, 'references')
+
+  expect(clusterViolationCount()).toBe(0)
+})
+
+test('reports each invalid regular edge involving a cluster once', () => {
+  const cluster = seedThought({ content: 'cluster', is_cluster: 1 })
+  const regular = seedThought({ content: 'regular' })
+  seedEdge(cluster, regular, 'related')
+
+  expect(clusterViolationCount()).toBe(1)
+})
+
+test('reports an invalid cluster edge between regular thoughts once', () => {
+  const regularA = seedThought({ content: 'regular A' })
+  const regularB = seedThought({ content: 'regular B' })
+  seedEdge(regularA, regularB, 'cluster')
+
+  expect(clusterViolationCount()).toBe(1)
+})
+
+test('detects mixed references and cluster edges targeting clusters', () => {
+  const clusterA = seedThought({ content: 'cluster A', is_cluster: 1 })
+  const clusterB = seedThought({ content: 'cluster B', is_cluster: 1 })
+  const regular = seedThought({ content: 'regular' })
+  seedEdge(clusterA, regular, 'references')
+  seedEdge(clusterA, clusterB, 'cluster')
+
+  expect(clusterViolationCount()).toBe(2)
+})
+
 test('detects empty clusters', () => {
   seedThought({ content: 'empty cluster', is_cluster: 1 })
 
