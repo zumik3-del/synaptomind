@@ -102,6 +102,14 @@ test("createProjectService requires repo url when git-linked", () => {
 	).toThrow(ValidationError);
 });
 
+test("createProjectService infers git linking from a repo url", () => {
+	const p = createProjectService({
+		name: "inferred",
+		git_repo_url: "https://github.com/user/inferred",
+	});
+	expect(p.is_git_linked).toBeTruthy();
+});
+
 test("updateProjectService applies git fields", () => {
 	const p = createProjectService({ name: "plain" });
 	updateProjectService(p.id, {
@@ -111,6 +119,33 @@ test("updateProjectService applies git fields", () => {
 	const updated = getProjectService(p.id);
 	expect(updated?.is_git_linked).toBeTruthy();
 	expect(updated?.git_repo_url).toBe("https://github.com/user/repo");
+});
+
+test("updateProjectService infers git linking from a repo url", () => {
+	const p = createProjectService({ name: "plain", local_path: "/work/plain" });
+	updateProjectService(p.id, {
+		git_repo_url: "https://github.com/user/repo",
+	});
+	const updated = getProjectService(p.id);
+	expect(updated?.is_git_linked).toBeTruthy();
+	expect(updated?.git_repo_url).toBe("https://github.com/user/repo");
+	expect(updated?.local_path).toBe("/work/plain");
+});
+
+test("updateProjectService disables git linking when the repo url is cleared", () => {
+	const p = createProjectService({
+		name: "linked",
+		git_repo_url: "https://github.com/user/repo",
+	});
+	updateProjectService(p.id, { git_repo_url: "" });
+	const updated = getProjectService(p.id);
+	expect(updated?.is_git_linked).toBeFalsy();
+	expect(updated?.git_repo_url).toBe("");
+});
+
+test("updateProjectService requires a repo url when enabling git linking", () => {
+	const p = createProjectService({ name: "plain" });
+	expect(() => updateProjectService(p.id, { is_git_linked: true })).toThrow(ValidationError);
 });
 
 test("updateProjectService without git fields does not clear them", () => {
