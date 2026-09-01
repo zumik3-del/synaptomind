@@ -6,10 +6,11 @@ INSTALL_DIR="${SYNAPTOMIND_DIR:-/opt/synaptomind}"
 
 echo "[synaptomind] Deploying from ${REPO_URL}..."
 
-# Clone or pull
+# Clone or update
 if [ -d "$INSTALL_DIR/.git" ]; then
-  echo "[synaptomind] Pulling latest..."
-  git -C "$INSTALL_DIR" pull --ff-only
+  echo "[synaptomind] Fetching latest..."
+  git -C "$INSTALL_DIR" fetch origin
+  git -C "$INSTALL_DIR" reset --hard origin/main
 else
   echo "[synaptomind] Cloning..."
   git clone "$REPO_URL" "$INSTALL_DIR"
