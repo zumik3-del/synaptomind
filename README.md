@@ -24,7 +24,7 @@ Agent: [semantic search → finds the JWT thought]
 
 You: "What should I do next?"
 
-Agent: [uses Frontier → ranks "Implement refresh token rotation" as top action]
+Agent: [uses Frontier → ranks "Implement refresh token rotation" as the top action]
 ```
 
 This is the core loop: **capture → link → retrieve → act**. No manual organization needed — the graph connects related thoughts automatically.
@@ -51,7 +51,7 @@ The embedder runs as a child process spawned by the main process. It communicate
 bun install
 ```
 
-This also runs `postinstall` which downloads the `vec0.so` SQLite extension from [sqlite-vec releases](https://github.com/asg017/sqlite-vec). The binary is platform-specific (Linux/macOS, x86_64/aarch64) and is not committed to the repository.
+This also runs `postinstall`, which downloads the `vec0.so` SQLite extension from [sqlite-vec releases](https://github.com/asg017/sqlite-vec). The binary is platform-specific (Linux/macOS, x86_64/aarch64) and is not committed to the repository.
 
 ### 2. Configure
 
@@ -202,7 +202,7 @@ See `.env.example` for all available environment variables. Without a `.env` fil
 
 ## Config
 
-All settings in `config.json`. Priority: env vars > config.json > defaults.
+All settings are in `config.json`. Priority: env vars > config.json > defaults.
 
 See `config.json.example` for all options. Auth tokens are configured via env vars only (`SYNAPTOMIND_SECRET`, `SYNAPTOMIND_SERVICE_TOKEN`).
 
