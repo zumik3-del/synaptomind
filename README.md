@@ -1,10 +1,6 @@
 # SynaptoMind
 
-Self-hosted persistent memory for AI assistants. It remembers project decisions, goals, and unfinished tasks across sessions, finds related context, and keeps all data locally.
-
-Lightweight thought-graph engine. Capture, link, cluster, and retrieve thoughts via HTTP API or MCP server.
-
-More than notes — a graph engine that links, clusters, and evolves your thoughts over time, with smart notes that surface and promote themselves based on conditions you define. AI-native from the start — ships as an MCP server with 35 tools, so your AI agents can directly capture, search, and traverse your thought graph.
+Self-hosted persistent memory for AI assistants. Capture, link, cluster, and retrieve thoughts via HTTP API or MCP server. Remembers project decisions, goals, and unfinished tasks across sessions, finds related context, and keeps all data locally. Ships as an MCP server, so your AI agents can directly capture, search, and traverse your thought graph.
 
 ## Use Cases
 
@@ -40,7 +36,7 @@ SynaptoMind runs as **two processes**:
 1. **Main process** — HTTP API (Hono) + MCP server (stdio/HTTP) + background jobs
 2. **Embedder subprocess** — local embedding generation via `@huggingface/transformers` (IPC)
 
-The embedder runs as a child process spawned by the main process. It communicates via Bun IPC and handles model loading, embedding generation, and idle timeout. The main process manages all HTTP/IO, database operations, and background tasks.
+The embedder runs as a child process spawned by the main process. It communicates via Bun IPC (Inter-Process Communication) and handles model loading, embedding generation, and idle timeout. The main process manages all HTTP/IO, database operations, and background tasks.
 
 ## Quick Start
 
@@ -55,7 +51,7 @@ The embedder runs as a child process spawned by the main process. It communicate
 bun install
 ```
 
-This also runs `postinstall` which downloads the `vec0.so` SQLite extension from [sqlite-vec releases](https://github.com/asg017/sqlite-vec). The binary is platform-specific (linux/macOS, x86_64/aarch64) and is not committed to the repository.
+This also runs `postinstall` which downloads the `vec0.so` SQLite extension from [sqlite-vec releases](https://github.com/asg017/sqlite-vec). The binary is platform-specific (Linux/macOS, x86_64/aarch64) and is not committed to the repository.
 
 ### 2. Configure
 
@@ -178,7 +174,7 @@ Add to `~/.config/opencode/opencode.json`:
 
 ### Stdio Transport
 
-For clients that prefer stdio, point to the binary directly:
+For clients that prefer stdio, point to the source directly:
 
 ```json
 {
@@ -194,7 +190,7 @@ For clients that prefer stdio, point to the binary directly:
 docker compose up -d
 ```
 
-The Docker image builds from source. Volumes mount `./data` and `./config.json`.
+The Docker image builds from source. Volumes are mounted for `./data` and `./config.json`.
 
 Set `SYNAPTOMIND_SECRET` in a `.env` file for persistent auth:
 
@@ -202,7 +198,7 @@ Set `SYNAPTOMIND_SECRET` in a `.env` file for persistent auth:
 echo "SYNAPTOMIND_SECRET=your-secret-token" > .env
 ```
 
-See `.env.example` for all available environment variables. Without it, a random token is generated on each restart and printed to `docker logs`.
+See `.env.example` for all available environment variables. Without a `.env` file, a random token is generated on each restart and printed to `docker logs`.
 
 ## Config
 
@@ -233,7 +229,7 @@ If the file is not found, the server falls back to default instructions and logs
 
 ## API Examples
 
-All `/api/*` endpoints require `Authorization: Bearer <token>` header. See [Authentication](#authentication) above.
+All `/api/*` endpoints require an `Authorization: Bearer <token>` header. See [Authentication](#authentication) above.
 
 ### Create a thought
 
@@ -259,7 +255,7 @@ curl http://127.0.0.1:3005/health
 
 ## MCP Tools
 
-The MCP server exposes 35 tools organized by domain:
+The MCP server exposes tools organized by domain:
 
 | Category | Tools |
 |----------|-------|
