@@ -25,6 +25,7 @@ import v028 from './v028-fts5'
 import v029 from './v029-thought-url-links'
 import v030 from './v030-thought-entities'
 import v031 from './v031-thoughts-status-index'
+import v032 from './v032-local-path'
 
 export interface Migration {
   version: number
@@ -56,5 +57,6 @@ export const migrations: Migration[] = [
   v028,
   v029,
   v030,
-  v031
+  v031,
+  v032
 ].sort((a, b) => a.version - b.version)

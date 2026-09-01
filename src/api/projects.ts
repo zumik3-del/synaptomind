@@ -5,12 +5,21 @@ import {
   deleteProjectService,
   getProjectService,
   listProjectsService,
+  resolveProjectService,
   updateProjectService
 } from '../services/projects.service'
 
 export const projectsRouter = new Hono()
 
 projectsRouter.get('/', c => c.json(listProjectsService()))
+
+projectsRouter.get('/resolve', c => {
+  const path = c.req.query('path')
+  if (!path) return c.json({ error: 'path query parameter is required' }, 400)
+  const project = resolveProjectService(path)
+  if (!project) return c.json({ error: 'No project found for path' }, 404)
+  return c.json({ id: project.id, name: project.name, local_path: project.local_path })
+})
 
 projectsRouter.post('/', async c => {
   const body = await c.req.json<{
@@ -20,6 +29,7 @@ projectsRouter.post('/', async c => {
     git_repo_url?: string | null
     git_auto_sync?: boolean
     git_sync_interval_ms?: number | null
+    local_path?: string | null
   }>()
   try {
     return c.json(createProjectService(body), 201)
@@ -40,6 +50,7 @@ projectsRouter.patch('/:id', async c => {
     git_repo_url?: string | null
     git_auto_sync?: boolean
     git_sync_interval_ms?: number | null
+    local_path?: string | null
   }>()
   updateProjectService(id, body)
   return c.json({ success: true })

@@ -21,6 +21,7 @@ export {
   deleteProjectService,
   getProjectService,
   listProjectsService,
+  resolveProjectService,
   updateProjectService
 } from './projects.service'
 export type { GroupedResult, SearchServiceOptions } from './search.service'
