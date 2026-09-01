@@ -105,6 +105,27 @@ All settings in `config.json`. Priority: env vars > config.json > defaults.
 
 See `config.json.example` for all options. Auth tokens are configured via env vars only (`SYNAPTOMIND_SECRET`, `SYNAPTOMIND_SERVICE_TOKEN`).
 
+## Custom Instructions
+
+The MCP server sends instructions to the AI agent on startup. By default, it uses built-in instructions. To customize them:
+
+1. Create a markdown file (e.g., `instructions.md`)
+2. Set the path in `config.json`:
+
+```json
+"mcp": {
+  "instructionsFile": "./instructions.md"
+}
+```
+
+Or via environment variable:
+
+```bash
+export SYNAPTOMIND_MCP_INSTRUCTIONS_FILE=./instructions.md
+```
+
+If the file is not found, the server falls back to default instructions and logs a warning.
+
 ## API Examples
 
 All `/api/*` endpoints require `Authorization: Bearer <token>` header. See [Authentication](#authentication) above.

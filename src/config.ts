@@ -4,7 +4,7 @@ import { join } from 'path'
 interface Config {
   contentLanguage: string
   server: { port: number; host: string }
-  mcp: { httpPort: number }
+  mcp: { httpPort: number; instructionsFile?: string }
   db: { path: string }
   logDbPath: string
   embedder: {
@@ -40,7 +40,7 @@ interface Config {
 export const defaults: Config = {
   contentLanguage: 'en',
   server: { port: 3005, host: '127.0.0.1' },
-  mcp: { httpPort: 3006 },
+  mcp: { httpPort: 3006, instructionsFile: '' },
   db: { path: './data/synaptomind.db' },
   logDbPath: '',
   embedder: {
@@ -89,6 +89,7 @@ export const envMappings: EnvMapping[] = [
   { env: 'SYNAPTOMIND_HOST', path: 'server.host', type: 'string' },
 
   { env: 'SYNAPTOMIND_MCP_HTTP_PORT', path: 'mcp.httpPort', type: 'int' },
+  { env: 'SYNAPTOMIND_MCP_INSTRUCTIONS_FILE', path: 'mcp.instructionsFile', type: 'string' },
 
   { env: 'SYNAPTOMIND_DB_PATH', path: 'db.path', type: 'string' },
   { env: 'SYNAPTOMIND_LOG_DB_PATH', path: 'logDbPath', type: 'string' },
