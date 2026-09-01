@@ -1,6 +1,10 @@
 # SynaptoMind
 
+Where ideas find each other.
+
 Lightweight thought-graph engine. Capture, link, cluster, and retrieve thoughts via HTTP API or MCP server.
+
+More than notes — a graph engine that links, clusters, and evolves your thoughts over time, with smart notes that surface and promote themselves based on conditions you define. AI-native from the start — ships as an MCP server with 30+ tools, so your AI agents can directly capture, search, and traverse your thought graph.
 
 ## Architecture
 
