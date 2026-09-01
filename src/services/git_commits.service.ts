@@ -157,6 +157,15 @@ export async function indexGitCommits(input: IndexCommitsInput = {}): Promise<In
 // API — no local clone, no credentials (anonymous GET; repo must be public).
 export { isRemoteUrl }
 
+function isGitHub(host: string): boolean {
+  return host === 'github.com'
+}
+
+function repoApiBase(host: string, owner: string, repo: string): string {
+  if (isGitHub(host)) return `https://api.github.com/repos/${owner}/${repo}`
+  return `https://${host}/api/v1/repos/${owner}/${repo}`
+}
+
 export function parseRemoteRepo(url: string): { host: string; owner: string; repo: string } | null {
   // normalizeRepoKey already rewrites ssh/git@ and forces https, so we only
   // need to split host from the rest and divide the rest on the LAST slash —
@@ -211,17 +220,18 @@ export async function indexGitCommitsFromRemote(
   const parsed = parseRemoteRepo(url)
   if (!parsed) throw new ValidationError(`cannot parse repo url: ${url}`)
   validateHost(parsed.host)
-  const base = `https://${parsed.host}/api/v1/repos/${parsed.owner}/${parsed.repo}/commits`
+  const base = `${repoApiBase(parsed.host, parsed.owner, parsed.repo)}/commits`
   // A7: page through the commits API instead of relying on a single large
   // `limit` that the server may clamp — otherwise big repos silently lose history.
   const perPage = 100
+  const pageParam = isGitHub(parsed.host) ? 'per_page' : 'limit'
   const collected: Array<{
     sha: string
     commit?: { message?: string; author?: { name?: string; date?: string }; committer?: { date?: string } }
   }> = []
   let page = 1
   while (collected.length < limit) {
-    const res = (await fetchJson(`${base}?limit=${perPage}&page=${page}`)) as Response
+    const res = (await fetchJson(`${base}?${pageParam}=${perPage}&page=${page}`)) as Response
     if (!res.ok) {
       throw new ValidationError(`commits API ${res.status} for ${parsed.owner}/${parsed.repo} (repo must be public)`)
     }
@@ -282,7 +292,7 @@ export async function checkGitRepo(url: string): Promise<{
   const parsed = parseRemoteRepo(url)
   if (!parsed) throw new ValidationError(`cannot parse repo url: ${url}`)
   validateHost(parsed.host)
-  const api = `https://${parsed.host}/api/v1/repos/${parsed.owner}/${parsed.repo}`
+  const api = repoApiBase(parsed.host, parsed.owner, parsed.repo)
   const res = (await fetchJson(api)) as Response
   if (res.status === 404) {
     throw new ValidationError(`repo not found or private: ${parsed.owner}/${parsed.repo}`)
