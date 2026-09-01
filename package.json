@@ -1,0 +1,28 @@
+{
+  "name": "synaptomind",
+  "version": "0.2.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "start:stdio": "bun run src/index.ts --stdio",
+    "dev": "bun --watch run src/index.ts",
+    "build": "bun run tsc --noEmit",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "lint": "bunx biome check src/",
+    "postinstall": "bash scripts/setup-vec0.sh"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "hono": "^4.13.5",
+    "uuid": "^14.0.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.11",
+    "@types/bun": "^1.4.0",
+    "typescript": "^7.0.2"
+  }
+}

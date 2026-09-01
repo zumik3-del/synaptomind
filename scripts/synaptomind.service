@@ -1,0 +1,34 @@
+[Unit]
+Description=SynaptoMind — Thought Graph Engine
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=synaptomind
+Group=synaptomind
+WorkingDirectory=/opt/synaptomind
+ExecStart=/usr/bin/env bun run src/index.ts
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Environment
+Environment=NODE_ENV=production
+Environment=SYNAPTOMIND_DB_PATH=/var/lib/synaptomind/synaptomind.db
+Environment=SYNAPTOMIND_LOG_DB_PATH=/var/lib/synaptomind/logs.db
+Environment=SYNAPTOMIND_EMBEDDER_CACHE_DIR=/var/lib/synaptomind/huggingface
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/synaptomind /opt/synaptomind
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

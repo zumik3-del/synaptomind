@@ -1,0 +1,76 @@
+{
+  "contentLanguage": "en",
+  "server": {
+    "port": 3005,
+    "host": "127.0.0.1"
+  },
+  "mcp": {
+    "httpPort": 3006
+  },
+  "db": {
+    "path": "./data/synaptomind.db"
+  },
+  "logDbPath": "",
+  "embedder": {
+    "model": "Xenova/multilingual-e5-small",
+    "dimensions": 384,
+    "pollIntervalMs": 7000,
+    "cacheDir": "./data/huggingface",
+    "idleTimeoutMs": 600000,
+    "precache": false
+  },
+  "thoughts": {
+    "softLimit": 500,
+    "hardLimit": 600
+  },
+  "decay": {
+    "rate": 0.95,
+    "archiveThreshold": 0.1,
+    "archiveMinAgeDays": 30,
+    "intervalMs": 86400000
+  },
+  "smartNotes": {
+    "autoPromote": false,
+    "evalIntervalMs": 3600000
+  },
+  "primer": {
+    "promoteThreshold": 5,
+    "topN": 3
+  },
+  "verify": {
+    "enabled": true,
+    "driftThreshold": 0.25,
+    "staleWarnDays": 30
+  },
+  "autoCluster": {
+    "minAgeDays": 3,
+    "minSimilarity": 0.3,
+    "minMembers": 3,
+    "dryRun": false
+  },
+  "autoLink": {
+    "minSimilarity": 0.65,
+    "maxEdgesPerRun": 20,
+    "minEntityOverlap": 1,
+    "dryRun": false
+  },
+  "selfImprove": {
+    "enabled": false,
+    "intervalMs": 86400000,
+    "orphanThreshold": 0.5,
+    "activationThreshold": 0.3,
+    "hitsThreshold": 5,
+    "maxMergesPerRun": 3,
+    "maxPromotesPerRun": 5,
+    "maxPrimerPromotesPerRun": 3
+  },
+  "slots": {
+    "defaultMaxChars": 2000,
+    "hardLimit": 20000
+  },
+  "git": {
+    "defaultLimit": 500,
+    "allowedRepos": [],
+    "allowedHosts": ["github.com", "gitlab.com", "codeberg.org", "forgejo.*"]
+  }
+}

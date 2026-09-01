@@ -1,0 +1,21 @@
+services:
+  synaptomind:
+    build: .
+    container_name: synaptomind
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3005:3005"
+      - "127.0.0.1:3006:3006"
+    volumes:
+      - ./data:/app/data
+      - ./config.json:/app/config.json:ro
+    environment:
+      - SYNAPTOMIND_DB_PATH=/app/data/synaptomind.db
+      - SYNAPTOMIND_LOG_DB_PATH=/app/data/logs.db
+      - SYNAPTOMIND_EMBEDDER_CACHE_DIR=/app/data/huggingface
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3005/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

@@ -1,0 +1,9 @@
+arch_plan.md
+AGENTS.md
+config.json
+data/
+node_modules/
+*.db
+*.db-wal
+*.db-shm
+vec0.so
