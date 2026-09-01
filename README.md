@@ -51,7 +51,7 @@ The embedder runs as a child process spawned by the main process. It communicate
 bun install
 ```
 
-This also runs `postinstall` which downloads the `vec0.so` SQLite extension from [sqlite-vec releases](https://github.com/asg017/sqlite-vec). The binary is platform-specific (linux/macOS, x86_64/aarch64) and is not committed to the repository.
+This also runs `postinstall` which downloads the `vec0.so` SQLite extension from [sqlite-vec releases](https://github.com/asg017/sqlite-vec). The binary is platform-specific (Linux/macOS, x86_64/aarch64) and is not committed to the repository.
 
 ### 2. Configure
 
@@ -190,7 +190,7 @@ For clients that prefer stdio, point to the source directly:
 docker compose up -d
 ```
 
-The Docker image builds from source. Volumes mount `./data` and `./config.json`.
+The Docker image builds from source. Volumes are mounted for `./data` and `./config.json`.
 
 Set `SYNAPTOMIND_SECRET` in a `.env` file for persistent auth:
 
@@ -198,7 +198,7 @@ Set `SYNAPTOMIND_SECRET` in a `.env` file for persistent auth:
 echo "SYNAPTOMIND_SECRET=your-secret-token" > .env
 ```
 
-See `.env.example` for all available environment variables. Without it, a random token is generated on each restart and printed to `docker logs`.
+See `.env.example` for all available environment variables. Without a `.env` file, a random token is generated on each restart and printed to `docker logs`.
 
 ## Config
 
@@ -229,7 +229,7 @@ If the file is not found, the server falls back to default instructions and logs
 
 ## API Examples
 
-All `/api/*` endpoints require `Authorization: Bearer <token>` header. See [Authentication](#authentication) above.
+All `/api/*` endpoints require an `Authorization: Bearer <token>` header. See [Authentication](#authentication) above.
 
 ### Create a thought
 
