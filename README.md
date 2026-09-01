@@ -1,10 +1,37 @@
 # SynaptoMind
 
-Where ideas find each other.
+Self-hosted persistent memory for AI assistants. It remembers project decisions, goals, and unfinished tasks across sessions, finds related context, and keeps all data locally.
 
 Lightweight thought-graph engine. Capture, link, cluster, and retrieve thoughts via HTTP API or MCP server.
 
 More than notes — a graph engine that links, clusters, and evolves your thoughts over time, with smart notes that surface and promote themselves based on conditions you define. AI-native from the start — ships as an MCP server with 30+ tools, so your AI agents can directly capture, search, and traverse your thought graph.
+
+## Use Cases
+
+- **Coding agent memory** — your AI assistant remembers architecture decisions, bug root causes, and TODO items between sessions. No more re-explaining context.
+- **Project journal** — track decisions, goals, and unfinished work as a connected graph instead of scattered notes and chat history.
+- **Idea graph** — capture thoughts and let SynaptoMind find connections you missed. Related ideas surface automatically through semantic search.
+- **MCP memory backend** — plug persistent memory into any AI agent via MCP or HTTP API. Works with Cursor, Claude Desktop, OpenCode, and any MCP-compatible client.
+
+## Example: Auth Decision Across Sessions
+
+```
+You: "Remember: we chose JWT for auth, refresh tokens stored in httpOnly cookies"
+
+Agent: [creates thought, tags: auth, jwt, security]
+
+--- new session ---
+
+You: "What did we decide about auth?"
+
+Agent: [semantic search → finds the JWT thought]
+
+You: "What should I do next?"
+
+Agent: [uses Frontier → ranks "Implement refresh token rotation" as top action]
+```
+
+This is the core loop: **capture → link → retrieve → act**. No manual organization needed — the graph connects related thoughts automatically.
 
 ## Architecture
 
@@ -85,6 +112,83 @@ export SYNAPTOMIND_SECRET=my-secret-token
 - **MCP server** — 30+ tools, stdio + HTTP transport
 - **Auto-clustering** — batch grouping by embedding proximity
 - **Background jobs** — decay, dreamer, self-improve, git sync
+
+## Key Concepts
+
+These are the building blocks that make SynaptoMind more than a note-taking app:
+
+| Concept | What it does |
+|---------|-------------|
+| **Thoughts** | Individual notes or ideas. Each gets an embedding for semantic search and can be linked to other thoughts. |
+| **Smart Notes** | Thoughts with surface conditions. They automatically surface when relevant context arrives — e.g., "remind me about auth when I start a new session" — and promote themselves when enough evidence accumulates. |
+| **Slots** | Context windows that summarize your state: who you are (persona), what you're working on (goals), what decisions were made (architecture_decisions). AI agents read these on startup to get oriented. |
+| **Frontier** | A ranking of "what to do next" based on your thought graph. Surfaces the most actionable, connected, and timely items. |
+| **Primer** | A compact summary of your project designed for quick context injection. Promotes the most relevant thoughts into a single document. |
+| **Crystals** | Compressed markdown documents generated from clusters of thoughts — runbooks, decision logs, or overviews. Useful for sharing or documenting. |
+
+## Connecting MCP Clients
+
+SynaptoMind ships as an MCP server. Here's how to connect popular clients:
+
+### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "synaptomind": {
+      "url": "http://127.0.0.1:3006/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+### Cursor
+
+Add to `.cursor/mcp.json` in your project or global config:
+
+```json
+{
+  "mcpServers": {
+    "synaptomind": {
+      "url": "http://127.0.0.1:3006/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+### OpenCode
+
+Add to `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "synaptomind": {
+        "type": "http",
+        "url": "http://127.0.0.1:3006/mcp",
+        "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+      }
+    }
+  }
+}
+```
+
+### Stdio Transport
+
+For clients that prefer stdio, point to the binary directly:
+
+```json
+{
+  "command": "bun",
+  "args": ["run", "/path/to/synaptomind/src/index.ts", "--stdio"],
+  "env": { "SYNAPTOMIND_SECRET": "your-token" }
+}
+```
 
 ## Docker
 
