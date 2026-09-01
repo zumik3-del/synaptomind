@@ -9,6 +9,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./config.json:/app/config.json:ro
+    env_file:
+      - .env
     environment:
       - SYNAPTOMIND_DB_PATH=/app/data/synaptomind.db
       - SYNAPTOMIND_LOG_DB_PATH=/app/data/logs.db

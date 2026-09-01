@@ -7,3 +7,4 @@ node_modules/
 *.db-wal
 *.db-shm
 vec0.so
+.env
