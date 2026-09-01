@@ -109,7 +109,7 @@ export SYNAPTOMIND_SECRET=my-secret-token
 - **Graph storage** — thoughts, edges, projects, tags, smart notes
 - **Hybrid search** — vector (vec0) + BM25 (FTS5) + entity matching
 - **Local embeddings** — `@huggingface/transformers`, no API keys
-- **MCP server** — 35 tools, stdio + HTTP transport
+- **MCP server** — stdio + HTTP transport
 - **Auto-clustering** — batch grouping by embedding proximity
 - **Background jobs** — decay, dreamer, self-improve, git sync
 
