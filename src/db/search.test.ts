@@ -136,6 +136,23 @@ test("rrfMerge fuses two ranked lists, boosting shared ids", () => {
 	expect(merged[merged.length - 1].id).toBe("z");
 });
 
+test("hybrid search respects topK without vector search", () => {
+	const db = getDb();
+	for (let i = 0; i < 6; i++) {
+		seedThought({ content: `TOPK_MARKER shared keyword ${i}` });
+	}
+
+	const results = searchThoughts(db, {
+		embedding: new Float32Array(0),
+		query: "TOPK_MARKER",
+		topK: 3,
+		statusFilter: "active",
+		hybrid: true,
+	});
+
+	expect(results).toHaveLength(3);
+});
+
 itVec(
 	"hybrid search surfaces an exact-keyword thought even with a useless embedding",
 	() => {
