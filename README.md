@@ -184,6 +184,10 @@ For clients that prefer stdio, point to the source directly:
 }
 ```
 
+### Codex (OpenAI)
+
+See [docs/codex-plugin.md](docs/codex-plugin.md) for installation and usage.
+
 ## Docker
 
 ```bash
