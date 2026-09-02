@@ -34,7 +34,7 @@ function shortContent(content: string, limit = 120): string {
  * Frontier (issue #219) — a deterministic "what to do next" ranking over the
  * thought graph. Candidates are directive/todo-tagged thoughts plus ready
  * smart notes. Replaced thoughts (incoming `replaces` edge) are dropped;
- * upstream candidates block their dependents via parent/develops edges.
+ * upstream candidates block their dependents via `depends_on` edges.
  *
  * priority ∈ [0,1] = 0.5·importance + 0.25·ready + 0.15·unblocked + age bonus.
  */
@@ -95,11 +95,11 @@ export function getFrontier(input: FrontierInput = {}): { items: FrontierItem[] 
   )
   for (const id of replaced) candidates.delete(id)
 
-  // 4) upstream blocking inside the candidate set (parent/develops)
+  // 4) upstream blocking inside the candidate set (depends_on)
   const upstreamOf = new Map<string, string[]>()
   for (const edge of getAllActiveEdges(d)) {
     if (!candidates.has(edge.source_id) || !candidates.has(edge.target_id)) continue
-    if (edge.type !== 'parent' && edge.type !== 'develops') continue
+    if (edge.type !== 'depends_on') continue
     upstreamOf.set(edge.target_id, [...(upstreamOf.get(edge.target_id) ?? []), edge.source_id])
   }
 

@@ -71,7 +71,7 @@ export function registerGraphTools(server: McpServer) {
   server.tool('link_thoughts', 'Create a directed edge between thoughts', {
     source_id: z.string().describe('Source thought ID'),
     target_id: z.string().describe('Target thought ID'),
-    type: z.enum(['related', 'parent', 'develops', 'replaces', 'cluster', 'references']).optional().describe('Edge type: related (default), parent, develops, replaces, cluster, references')
+    type: z.enum(['related', 'parent', 'develops', 'replaces', 'cluster', 'references', 'depends_on']).optional().describe('Edge type: related (default), parent, develops, replaces, cluster, references, depends_on')
   }, async (args) => {
     const edge = createEdgeService(args.source_id, args.target_id, args.type)
     return jsonResult(edge)

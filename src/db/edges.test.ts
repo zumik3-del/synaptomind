@@ -23,6 +23,16 @@ test("createEdge links two thoughts", () => {
 	expect(edge.type).toBe("develops");
 });
 
+test("createEdge supports depends_on type", () => {
+	const db = getDb();
+	const src = seedThought();
+	const tgt = seedThought();
+	const edge = createEdge(db, src, tgt, "depends_on");
+	expect(edge.source_id).toBe(src);
+	expect(edge.target_id).toBe(tgt);
+	expect(edge.type).toBe("depends_on");
+});
+
 test("createEdge defaults type to related", () => {
 	const db = getDb();
 	const src = seedThought();
@@ -123,6 +133,7 @@ test("self-loop edge is rejected for every type (issue #157)", () => {
 		"develops",
 		"cluster",
 		"references",
+		"depends_on",
 	]) {
 		expect(() => createEdge(db, id, id, type)).toThrow(
 			"cannot link a thought to itself",
@@ -132,7 +143,7 @@ test("self-loop edge is rejected for every type (issue #157)", () => {
 
 test("reverse directed edge is rejected (issue #157)", () => {
 	const db = getDb();
-	for (const type of ["parent", "replaces", "develops"]) {
+	for (const type of ["parent", "replaces", "develops", "depends_on"]) {
 		const a = seedThought();
 		const b = seedThought();
 		createEdge(db, a, b, type);
@@ -248,6 +259,9 @@ test("regular edge types cannot involve clusters", () => {
 	);
 	expect(() => createEdge(db, cluster, normal, "related")).toThrow(
 		"Cluster thoughts cannot have 'related' edges",
+	);
+	expect(() => createEdge(db, cluster, normal, "depends_on")).toThrow(
+		"Cluster thoughts cannot have 'depends_on' edges",
 	);
 });
 
