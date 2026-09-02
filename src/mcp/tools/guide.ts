@@ -7,7 +7,7 @@ SynaptoMind is a lightweight thought-graph engine for capturing, linking, cluste
 ## Core Concepts
 
 - **Thoughts** — atomic pieces of knowledge with content, tags, status (draft/active/archived)
-- **Edges** — directed relationships between thoughts (related, parent, develops, replaces, cluster)
+- **Edges** — directed relationships between thoughts (related, parent, develops, replaces, cluster, references, depends_on)
 - **Clusters** — groups of related thoughts linked via cluster edges
 - **Projects** — organizational containers for thoughts
 - **Smart Notes** — dormant thoughts that surface when conditions are met
@@ -26,11 +26,13 @@ SynaptoMind is a lightweight thought-graph engine for capturing, linking, cluste
 
 ## Edge Types
 
-- \`related\` — thematic connection without hierarchy
-- \`parent\` — broader category → specific instance
-- \`develops\` — new thought builds on old one
-- \`replaces\` — old thought is outdated
-- \`cluster\` — cluster membership`
+- \`related\` — general association, no specific semantic meaning
+- \`parent\` — hierarchical sub-thought
+- \`develops\` — conceptual evolution
+- \`replaces\` — supersedes outdated thought
+- \`cluster\` — A contains B as member
+- \`references\` — mutual link between clusters
+- \`depends_on\` — A blocked until B done`
 
 export function registerGuideTools(server: McpServer) {
   server.tool('guide_thoughts', 'Get started with the thought system', {}, async () => {
