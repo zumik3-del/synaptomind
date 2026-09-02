@@ -1,0 +1,35 @@
+{
+  "name": "synaptomind",
+  "version": "0.1.0",
+  "description": "Persistent project memory via SynaptoMind thought graph",
+  "author": {
+    "name": "zumik3-del",
+    "url": "https://github.com/zumik3-del"
+  },
+  "homepage": "https://github.com/zumik3-del/synaptomind",
+  "repository": "https://github.com/zumik3-del/synaptomind",
+  "license": "MIT",
+  "keywords": [
+    "synaptomind",
+    "memory",
+    "thought-graph",
+    "project-context",
+    "decisions",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "SynaptoMind",
+    "shortDescription": "Search and save project memory, decisions, and context.",
+    "longDescription": "SynaptoMind is a thought-graph engine that gives your coding agent persistent project memory. It remembers past decisions, architecture choices, unresolved work, and project context across sessions. This skill routes relevant questions to the SynaptoMind MCP server without requiring you to name internal tools.",
+    "developerName": "zumik3-del",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": [
+      "What did we previously decide about this project?",
+      "What should I work on next?",
+      "Search my project memory for context about this codebase"
+    ],
+    "websiteURL": "https://github.com/zumik3-del/synaptomind"
+  }
+}
