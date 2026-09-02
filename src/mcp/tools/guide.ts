@@ -14,7 +14,7 @@ const GUIDE_TEXT = `# SynaptoMind — Thought Graph Engine
 | Prioritize | \`get_frontier\` (importance + readiness + dependencies) |
 | Compress | \`crystallize\` (runbook/decision-log/overview) |
 | Maintain | \`health_check\` (audit + auto-fix) |
-| Reflect | session reflection → slots update |
+| Reflect | \`reflect_session\` (summary, goals, decisions, pending) |
 
 ## Workflow
 
@@ -24,7 +24,7 @@ const GUIDE_TEXT = `# SynaptoMind — Thought Graph Engine
 4. **Schedule** review — attach smart notes to thoughts that should surface later
 5. **Cluster** related work — groups are excluded from frontier, keeping it focused
 6. **Prioritize** — use \`get_frontier\` to find what to do next
-7. **Reflect** at session end — capture decisions, pending items, goals
+7. **Reflect** at natural breakpoints — call \`reflect_session\` after decisions, tasks, or architectural work
 
 ## Thoughts
 
@@ -131,7 +131,8 @@ Bucketing: draft → "Open questions", tag \`gotcha\` → "Gotchas", rest → ma
 
 ## Session Reflection
 
-At session end, update slots with:
+Call \`reflect_session\` at natural breakpoints (after a decision, a task, or architectural work).
+Records outcomes into slots and creates thoughts:
 - \`summary\` — appends to project_context slot
 - \`goals_delta\` — add/remove from active_goals (prefix "closed:" to remove)
 - \`decisions\` — creates active thoughts with tag \`decision\`
