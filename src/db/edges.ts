@@ -14,7 +14,7 @@ export interface Edge {
   created_at: string
 }
 
-const VALID_EDGE_TYPES = new Set(['related', 'parent', 'replaces', 'develops', 'cluster', 'references'])
+const VALID_EDGE_TYPES = new Set(['related', 'parent', 'replaces', 'develops', 'cluster', 'references', 'depends_on'])
 
 export function isValidEdgeType(type: string): boolean {
   return VALID_EDGE_TYPES.has(type)
