@@ -3,7 +3,7 @@
 // so the user can see it. The tool works correctly — this is a display limitation.
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { config, defaults, envMappings } from '../../config'
+import { config, DEFAULTS, ENV_MAPPINGS } from '../../config'
 
 function formatValue(val: unknown): string {
   if (val === null || val === undefined) return '-'
@@ -44,11 +44,11 @@ const SECTION_LABELS: Record<string, string> = {
 
 function buildConfigDisplay(): string {
   const c: Record<string, any> = config as any
-  const d: Record<string, any> = defaults as any
+  const d: Record<string, any> = DEFAULTS as any
 
   const sections = new Map<string, Array<{ path: string; env: string }>>()
 
-  for (const mapping of envMappings) {
+  for (const mapping of ENV_MAPPINGS) {
     const topKey = mapping.path.split('.')[0]
     const section = SECTION_LABELS[topKey] || topKey
     if (!sections.has(section)) sections.set(section, [])

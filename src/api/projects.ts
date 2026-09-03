@@ -9,7 +9,7 @@ import {
   updateProjectService
 } from '../services/projects.service'
 
-export const projectsRouter = new Hono()
+const projectsRouter = new Hono()
 
 projectsRouter.get('/', c => c.json(listProjectsService()))
 
@@ -67,3 +67,5 @@ projectsRouter.delete('/:id', c => {
   if (!deleted) return c.json({ error: 'Project not found' }, 404)
   return c.json({ success: true })
 })
+
+export { projectsRouter }

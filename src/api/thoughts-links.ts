@@ -8,15 +8,15 @@ import {
   upsertThoughtUrlLink
 } from '../db/thought_url_links'
 
-export const linksRouter = new Hono()
+const thoughtLinksRouter = new Hono()
 
-linksRouter.get('/:id/links', c => {
+thoughtLinksRouter.get('/:id/links', c => {
   const db = getDb()
   const id = c.req.param('id')
   return c.json(getThoughtUrlLinks(db, id))
 })
 
-linksRouter.get('/links/batch', c => {
+thoughtLinksRouter.get('/links/batch', c => {
   const db = getDb()
   const raw = c.req.query('ids')
   if (!raw) return c.json({ error: 'ids query parameter is required' }, 400)
@@ -29,7 +29,7 @@ linksRouter.get('/links/batch', c => {
   return c.json(map)
 })
 
-linksRouter.post('/:id/links', async c => {
+thoughtLinksRouter.post('/:id/links', async c => {
   const db = getDb()
   const id = c.req.param('id')
   const body = await c.req.json<{ key: string; url: string; label?: string; sort_order?: number }>()
@@ -39,7 +39,7 @@ linksRouter.post('/:id/links', async c => {
   return c.json(link, 201)
 })
 
-linksRouter.delete('/:id/links/:key', c => {
+thoughtLinksRouter.delete('/:id/links/:key', c => {
   const db = getDb()
   const id = c.req.param('id')
   const key = c.req.param('key')
@@ -47,3 +47,5 @@ linksRouter.delete('/:id/links/:key', c => {
   if (!ok) return c.json({ error: 'Not found' }, 404)
   return c.json({ success: true })
 })
+
+export { thoughtLinksRouter }
