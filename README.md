@@ -122,6 +122,8 @@ These are the building blocks that make SynaptoMind more than a note-taking app:
 | **Primer** | A compact summary of your project designed for quick context injection. Promotes the most relevant thoughts into a single document. |
 | **Crystals** | Compressed markdown documents generated from clusters of thoughts — runbooks, decision logs, or overviews. Useful for sharing or documenting. |
 
+For step-by-step usage examples (creating projects, working on tasks, deferred awakening, reflections, etc.), see [docs/SCENARIOS.md](docs/SCENARIOS.md).
+
 ## Connecting MCP Clients
 
 SynaptoMind ships as an MCP server. Here's how to connect popular clients:
