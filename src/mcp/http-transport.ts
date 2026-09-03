@@ -4,6 +4,7 @@ import { serve } from 'bun'
 import { checkBearerAuth, getValidTokens } from '../auth'
 import { createMcpServer } from './server'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { EventStore, StreamId, EventId } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 
 interface Session {
@@ -19,6 +20,36 @@ export interface McpHttpHandle {
 
 const MAX_SESSIONS = 100
 const SESSION_TTL_MS = 3600_000
+const KEEPALIVE_MS = 10_000
+
+class InMemoryEventStore implements EventStore {
+  private events = new Map<EventId, { streamId: StreamId; message: unknown }>()
+
+  private generateEventId(streamId: StreamId): EventId {
+    return `${streamId}_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`
+  }
+
+  async storeEvent(streamId: StreamId, message: unknown): Promise<EventId> {
+    const eventId = this.generateEventId(streamId)
+    this.events.set(eventId, { streamId, message })
+    return eventId
+  }
+
+  async replayEventsAfter(lastEventId: EventId, { send }: { send: (eventId: EventId, message: unknown) => Promise<void> }): Promise<StreamId> {
+    if (!lastEventId || !this.events.has(lastEventId)) return ''
+
+    const streamId = this.events.get(lastEventId)!.streamId
+    const sorted = [...this.events.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    let found = false
+
+    for (const [id, { streamId: sId, message }] of sorted) {
+      if (sId !== streamId) continue
+      if (id === lastEventId) { found = true; continue }
+      if (found) await send(id, message as any)
+    }
+    return streamId
+  }
+}
 
 export function startMcpHttpServer(host: string, port: number): McpHttpHandle {
   const app = new Hono()
@@ -67,6 +98,8 @@ export function startMcpHttpServer(host: string, port: number): McpHttpHandle {
     const mcpServer = createMcpServer()
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
+      keepAliveMs: KEEPALIVE_MS,
+      eventStore: new InMemoryEventStore(),
       onsessioninitialized: (id) => {
         sessions.set(id, { server: mcpServer, transport, lastAccess: Date.now() })
       },
