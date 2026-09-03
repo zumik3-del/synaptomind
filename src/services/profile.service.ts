@@ -40,7 +40,7 @@ function summaryTopic(tags: Thought['tags']): string | null {
  *
  * Groups profile thoughts by their `@profile-*` sub-tag (`@profile` alone →
  * "general"), concatenates contents per group (no LLM — plain aggregation per
- * the issue's "не требуется" list), and replaces the previous auto-generated
+ * the issue's "not required" list), and replaces the previous auto-generated
  * summaries so repeated runs stay idempotent.
  *
  * Every topic group produces a summary — including singletons (#221): the
