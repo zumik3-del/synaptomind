@@ -4,11 +4,11 @@ import { join } from 'node:path'
 import { v7 as uuidv7 } from 'uuid'
 import { config } from '../config'
 
-const _MAX_LOG_ROWS = 5000
+const MAX_LOG_ROWS = 5000
 const CLEANUP_INTERVAL = 100
 
-const _SENSITIVE_SUBSTRINGS = ['token', 'key', 'secret', 'password', 'auth']
-const _SAFE_SUBSTRINGS = ['token_count', 'tokenizer', 'tokenize', 'keyboard', 'keyring']
+const SENSITIVE_SUBSTRINGS = ['token', 'key', 'secret', 'password', 'auth']
+const SAFE_SUBSTRINGS = ['token_count', 'tokenizer', 'tokenize', 'keyboard', 'keyring']
 
 let db: Database | null = null
 let cleanupCounter = 0
@@ -77,7 +77,7 @@ function autoCleanup(): void {
       `DELETE FROM logs WHERE id NOT IN (
         SELECT id FROM logs ORDER BY created_at DESC LIMIT ?
       )`,
-      [_MAX_LOG_ROWS]
+      [MAX_LOG_ROWS]
     )
   } catch (e) {
     console.debug('[logs] Cleanup skipped:', e)
@@ -107,7 +107,7 @@ function sanitizeMetadata(metadata: Record<string, unknown> | undefined): Record
   const cleaned: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(metadata)) {
     const kl = k.toLowerCase()
-    if (_SENSITIVE_SUBSTRINGS.some(sub => kl.includes(sub)) && !_SAFE_SUBSTRINGS.some(sub => kl.includes(sub))) {
+    if (SENSITIVE_SUBSTRINGS.some(sub => kl.includes(sub)) && !SAFE_SUBSTRINGS.some(sub => kl.includes(sub))) {
       cleaned[k] = '***'
     } else {
       cleaned[k] = v

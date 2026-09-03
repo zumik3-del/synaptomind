@@ -4,7 +4,7 @@ import { getDb } from '../db'
 import { withTelemetry } from '../logging'
 import { getThoughtById, mergeThoughtsService } from '../services/thoughts.service'
 
-export const mergeRouter = new Hono()
+const mergeRouter = new Hono()
 
 mergeRouter.post('/:targetId/merge', async c => {
   return withTelemetry(c, { action: 'link', toolName: 'merge_thoughts' }, async c2 => {
@@ -31,3 +31,5 @@ mergeRouter.post('/:targetId/merge', async c => {
     return c2.json(result)
   })
 })
+
+export { mergeRouter }

@@ -16,14 +16,14 @@ import {
   pruneThoughtUrlLinksService,
   updateThoughtById
 } from '../services/thoughts.service'
-import { linksRouter } from './thoughts-links'
+import { thoughtLinksRouter } from './thoughts-links'
 import { mergeRouter } from './thoughts-merge'
 import { searchRouter } from './thoughts-search'
 
 const thoughtsRouter = new Hono()
 
 thoughtsRouter.route('/', searchRouter)
-thoughtsRouter.route('/', linksRouter)
+thoughtsRouter.route('/', thoughtLinksRouter)
 thoughtsRouter.route('/', mergeRouter)
 
 thoughtsRouter.get('/timeline', c => {
