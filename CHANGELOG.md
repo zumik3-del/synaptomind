@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/zumik3-del/synaptomind/compare/synaptomind-v0.3.0...synaptomind-v0.3.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* correct release-please version output and rename CI workflow ([#47](https://github.com/zumik3-del/synaptomind/issues/47)) ([cd9af1e](https://github.com/zumik3-del/synaptomind/commit/cd9af1e33637134fa9d64c0f8122b03b029c8590))
+
 ## [0.3.0](https://github.com/zumik3-del/synaptomind/compare/synaptomind-v0.2.0...synaptomind-v0.3.0) (2026-09-04)
 
 
