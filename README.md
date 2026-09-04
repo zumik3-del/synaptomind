@@ -7,137 +7,32 @@
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://ghcr.io/zumik3-del/synaptomind)
 [![Bun](https://img.shields.io/badge/bun-runtime-%23000000?logo=bun)](https://bun.sh)
 
-Self-hosted persistent memory for AI assistants. Capture, link, cluster, and retrieve thoughts via HTTP API or MCP server. Remembers project decisions, goals, and unfinished tasks across sessions, finds related context, and keeps all data locally. Ships as an MCP server, so your AI agents can directly capture, search, and traverse your thought graph.
+**Local persistent memory for AI agents.** Your agent remembers decisions, goals, and context across sessions — via MCP or HTTP API. Data stays on your machine.
 
-## Use Cases
-
-- **Coding agent memory** — your AI assistant remembers architecture decisions, bug root causes, and TODO items between sessions. No more re-explaining context.
-- **Project journal** — track decisions, goals, and unfinished work as a connected graph instead of scattered notes and chat history.
-- **Idea graph** — capture thoughts and let SynaptoMind find connections you missed. Related ideas surface automatically through semantic search.
-- **MCP memory backend** — plug persistent memory into any AI agent via MCP or HTTP API. Works with Cursor, Claude Desktop, OpenCode, and any MCP-compatible client.
-
-## Example: Auth Decision Across Sessions
-
-```
-You: "Remember: we chose JWT for auth, refresh tokens stored in httpOnly cookies"
-
-Agent: [creates thought, tags: auth, jwt, security]
-
---- new session ---
-
-You: "What did we decide about auth?"
-
-Agent: [semantic search → finds the JWT thought]
-
-You: "What should I do next?"
-
-Agent: [uses Frontier → ranks "Implement refresh token rotation" as the top action]
+```mermaid
+graph LR
+    A[AI Agent] -->|MCP / HTTP| B[SynaptoMind]
+    B --> C[(SQLite)]
+    C --> D[vec0 — vector search]
+    C --> E[FTS5 — full-text search]
+    C --> F[Graph — edges & links]
 ```
 
-This is the core loop: **capture → link → retrieve → act**. No manual organization needed — the graph connects related thoughts automatically.
+**Works with** Claude Desktop · Cursor · OpenCode · Codex · any MCP client
 
-## Architecture
+---
 
-SynaptoMind runs as **two processes**:
-
-1. **Main process** — HTTP API (Hono) + MCP server (stdio/HTTP) + background jobs
-2. **Embedder subprocess** — local embedding generation via `@huggingface/transformers` (IPC)
-
-The embedder runs as a child process spawned by the main process. It communicates via Bun IPC (Inter-Process Communication) and handles model loading, embedding generation, and idle timeout. The main process manages all HTTP/IO, database operations, and background tasks.
-
-## Quick Start
-
-### Prerequisites
-
-- [Bun](https://bun.sh/) runtime
-- Internet connection (for initial setup)
-
-### 1. Install dependencies
+## Try in 2 minutes
 
 ```bash
+git clone https://github.com/zumik3-del/synaptomind.git && cd synaptomind
 bun install
-```
-
-This also runs `postinstall`, which downloads the `vec0.so` SQLite extension from [sqlite-vec releases](https://github.com/asg017/sqlite-vec). The binary is platform-specific (Linux/macOS, x86_64/aarch64) and is not committed to the repository.
-
-### 2. Configure
-
-```bash
-cp config.json.example config.json
-```
-
-Edit `config.json` to customize settings. Key options:
-
-- `server.port` — HTTP API port (default: 3005)
-- `server.host` — bind address (default: 127.0.0.1)
-- `mcp.httpPort` — MCP HTTP transport port (default: 3006)
-- `embedder.model` — HuggingFace model for embeddings (default: Xenova/multilingual-e5-small)
-- `db.path` — SQLite database path (default: ./data/synaptomind.db)
-
-All settings can be overridden via environment variables (see `src/config.ts` for the full mapping).
-
-### 3. Start
-
-```bash
 bun run src/index.ts
 ```
 
-## Authentication
+Server starts on `http://127.0.0.1:3005`. MCP endpoint: `http://127.0.0.1:3006/mcp`.
 
-Both the HTTP API and MCP HTTP transport require bearer token auth.
-
-| Env var | Purpose |
-|---------|---------|
-| `SYNAPTOMIND_SECRET` | Primary auth token for API + MCP |
-| `SYNAPTOMIND_SERVICE_TOKEN` | Secondary token (optional, for service-to-service) |
-
-If neither is set, a random UUID token is generated at startup and shared by both the API and MCP transport. The generated token is printed to stderr on startup.
-
-```bash
-# Set a persistent token (recommended for production)
-export SYNAPTOMIND_SECRET=my-secret-token
-```
-
-### Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `http://127.0.0.1:3005` | HTTP API (requires auth) |
-| `http://127.0.0.1:3006/mcp` | MCP HTTP transport (requires auth) |
-| `http://127.0.0.1:3005/health` | Health check (no auth) |
-| stdio | MCP stdio transport (`bun run src/index.ts --stdio`) |
-
-## Features
-
-- **Graph storage** — thoughts, edges, projects, tags, smart notes
-- **Hybrid search** — vector (vec0) + BM25 (FTS5) + entity matching
-- **Local embeddings** — `@huggingface/transformers`, no API keys
-- **MCP server** — stdio + HTTP transport
-- **Auto-clustering** — batch grouping by embedding proximity
-- **Background jobs** — decay, dreamer, self-improve, git sync
-
-## Key Concepts
-
-These are the building blocks that make SynaptoMind more than a note-taking app:
-
-| Concept | What it does |
-|---------|-------------|
-| **Thoughts** | Individual notes or ideas. Each gets an embedding for semantic search and can be linked to other thoughts. |
-| **Smart Notes** | Thoughts with surface conditions. They automatically surface when relevant context arrives — e.g., "remind me about auth when I start a new session" — and promote themselves when enough evidence accumulates. |
-| **Slots** | Context windows that summarize your state: who you are (persona), what you're working on (goals), what decisions were made (architecture_decisions). AI agents read these on startup to get oriented. |
-| **Frontier** | A ranking of "what to do next" based on your thought graph. Surfaces the most actionable, connected, and timely items. |
-| **Primer** | A compact summary of your project designed for quick context injection. Promotes the most relevant thoughts into a single document. |
-| **Crystals** | Compressed markdown documents generated from clusters of thoughts — runbooks, decision logs, or overviews. Useful for sharing or documenting. |
-
-For step-by-step usage examples (creating projects, working on tasks, deferred awakening, reflections, etc.), see [docs/SCENARIOS.md](docs/SCENARIOS.md).
-
-## Connecting MCP Clients
-
-SynaptoMind ships as an MCP server. Here's how to connect popular clients:
-
-### Claude Desktop
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Connect your client — add to Claude Desktop config (`claude_desktop_config.json`):
 
 ```json
 {
@@ -150,7 +45,133 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-### Cursor
+The token is printed to stderr on first startup. That's it — your agent now has persistent memory.
+
+---
+
+## Use Cases
+
+- **Coding agent memory** — architecture decisions, bug root causes, TODOs persist between sessions
+- **Project journal** — decisions and goals as a connected graph, not scattered notes
+- **Idea graph** — capture thoughts, let semantic search find connections you missed
+- **MCP memory backend** — plug persistent memory into any MCP-compatible agent
+
+---
+
+## Example: Auth Decision Across Sessions
+
+```
+You: "Remember: we chose JWT for auth, refresh tokens in httpOnly cookies"
+
+Agent: [create_thought — tags: auth, jwt, security]
+
+--- new session ---
+
+You: "What did we decide about auth?"
+
+Agent: [search_thoughts "auth decision" → finds JWT thought with full context]
+
+You: "What should I do next?"
+
+Agent: [get_frontier → "Implement refresh token rotation" ranked #1]
+```
+
+Core loop: **capture → link → retrieve → act**. No manual organization — the graph connects related thoughts automatically.
+
+```mermaid
+sequenceDiagram
+    participant U as You
+    participant A as Agent
+    participant S as SynaptoMind
+
+    U->>A: "Remember JWT for auth"
+    A->>S: create_thought(content, tags)
+    S-->>A: thought_id
+    
+    Note over U,A: --- new session ---
+    
+    U->>A: "What about auth?"
+    A->>S: search_thoughts("auth")
+    S-->>A: JWT thought + context chain
+    A->>S: get_frontier()
+    S-->>A: ranked next actions
+```
+
+---
+
+## SynaptoMind vs Alternatives
+
+| Feature | SynaptoMind | Basic Memory | Mem0 | Zep | Cognee |
+|---------|:-----------:|:------------:|:----:|:---:|:------:|
+| **Self-hosted** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Local-first** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **No API keys needed** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Knowledge graph** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Vector search** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Full-text search** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **MCP server** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Smart notes (auto-surfacing)** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Frontier (next-action ranking)** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Local embeddings** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Runtime** | Bun | Python | Python | Python | Python |
+| **License** | MIT | AGPL-3.0 | Apache-2.0 | Apache-2.0 | Apache-2.0 |
+
+**What makes SynaptoMind different:** Graph-native thought storage with semantic search, smart notes that auto-surface when relevant, and Frontier ranking — all running locally with zero external dependencies. MIT licensed.
+
+---
+
+## Features
+
+<details>
+<summary><strong>Core concepts — what makes this more than a note app</strong></summary>
+
+| Concept | What it does |
+|---------|-------------|
+| **Thoughts** | Individual notes/ideas. Each gets an embedding for semantic search and links to other thoughts. |
+| **Smart Notes** | Thoughts with surface conditions. They auto-surface when relevant context arrives — e.g., "remind me about auth when I start a session" — and self-promote when enough evidence accumulates. |
+| **Slots** | Context windows summarizing your state: persona, goals, architecture decisions. Agents read these on startup. |
+| **Frontier** | Ranks "what to do next" based on your thought graph. Most actionable, connected, timely items first. |
+| **Primer** | Compact project summary for quick context injection. Promotes the most relevant thoughts into one document. |
+| **Crystals** | Compressed markdown from thought clusters — runbooks, decision logs, overviews. |
+
+</details>
+
+<details>
+<summary><strong>Technical capabilities</strong></summary>
+
+- **Graph storage** — thoughts, edges, projects, tags, smart notes in SQLite
+- **Hybrid search** — vector (vec0) + BM25 (FTS5) + entity matching
+- **Local embeddings** — `@huggingface/transformers`, no API keys
+- **MCP server** — stdio + HTTP transport
+- **Auto-clustering** — batch grouping by embedding proximity
+- **Background jobs** — decay, dreamer, self-improve, git sync
+
+</details>
+
+---
+
+## Connecting MCP Clients
+
+<details>
+<summary><strong>Claude Desktop</strong></summary>
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "synaptomind": {
+      "url": "http://127.0.0.1:3006/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Cursor</strong></summary>
 
 Add to `.cursor/mcp.json` in your project or global config:
 
@@ -165,7 +186,10 @@ Add to `.cursor/mcp.json` in your project or global config:
 }
 ```
 
-### OpenCode
+</details>
+
+<details>
+<summary><strong>OpenCode</strong></summary>
 
 Add to `~/.config/opencode/opencode.json`:
 
@@ -181,9 +205,12 @@ Add to `~/.config/opencode/opencode.json`:
 }
 ```
 
-### Stdio Transport
+</details>
 
-For clients that prefer stdio, point to the source directly:
+<details>
+<summary><strong>Stdio transport</strong></summary>
+
+For clients that prefer stdio:
 
 ```json
 {
@@ -193,11 +220,44 @@ For clients that prefer stdio, point to the source directly:
 }
 ```
 
-### Codex (OpenAI)
+</details>
+
+<details>
+<summary><strong>Codex (OpenAI)</strong></summary>
 
 See [docs/codex-plugin.md](docs/codex-plugin.md) for installation and usage.
 
-## Docker
+</details>
+
+---
+
+## Configuration
+
+All settings in `config.json`. Priority: env vars > config.json > defaults.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `server.port` | 3005 | HTTP API port |
+| `server.host` | 127.0.0.1 | Bind address |
+| `mcp.httpPort` | 3006 | MCP HTTP transport port |
+| `embedder.model` | Xenova/multilingual-e5-small | HuggingFace embedding model |
+| `db.path` | ./data/synaptomind.db | SQLite database path |
+
+Auth tokens via env vars only:
+
+| Env var | Purpose |
+|---------|---------|
+| `SYNAPTOMIND_SECRET` | Primary auth token (API + MCP) |
+| `SYNAPTOMIND_SERVICE_TOKEN` | Secondary token (optional) |
+
+Without these, a random UUID is generated at startup and printed to stderr.
+
+See `config.json.example` for all options. Custom MCP instructions: [docs below](#custom-instructions).
+
+---
+
+<details>
+<summary><strong>Docker</strong></summary>
 
 ### From source (development)
 
@@ -205,11 +265,11 @@ See [docs/codex-plugin.md](docs/codex-plugin.md) for installation and usage.
 docker compose up -d
 ```
 
-The Docker image builds from source. Volumes are mounted for `./data` and `./config.json`.
+Volumes mount `./data` and `./config.json`.
 
 ### Published image (production)
 
-Edit `docker-compose.yml` — uncomment the `image` line and comment out `build`:
+Edit `docker-compose.yml` — uncomment `image`, comment `build`:
 
 ```yaml
 image: ghcr.io/zumik3-del/synaptomind:0.2.1
@@ -222,17 +282,16 @@ docker compose pull && docker compose up -d
 
 ### Auth
 
-Set `SYNAPTOMIND_SECRET` in a `.env` file for persistent auth:
-
 ```bash
 echo "SYNAPTOMIND_SECRET=your-secret-token" > .env
 ```
 
-See `.env.example` for all available environment variables. Without a `.env` file, a random token is generated on each restart and printed to `docker logs`.
+See `.env.example` for all variables. Without `.env`, a random token is generated per restart.
 
-## Installation (server)
+</details>
 
-For deploying on a remote server, use the included scripts.
+<details>
+<summary><strong>Server installation</strong></summary>
 
 ### Prerequisites
 
@@ -246,9 +305,7 @@ For deploying on a remote server, use the included scripts.
 bash scripts/deploy.sh
 ```
 
-This clones the repo to `/opt/synaptomind`, checks out the latest release tag, installs dependencies, and starts the container. Edit `config.json` and `.env` before starting.
-
-Options:
+Clones to `/opt/synaptomind`, checks out latest release, installs deps, starts container.
 
 ```bash
 bash scripts/deploy.sh              # latest release tag
@@ -262,44 +319,14 @@ bash scripts/deploy.sh --dev        # main branch (development)
 bash scripts/update.sh
 ```
 
-Shows your current version vs the latest release, lists changes, and asks for confirmation before updating.
+Shows current vs latest version, lists changes, asks for confirmation.
 
-### Version
+</details>
 
-```bash
-bun run src/index.ts --version
-```
+<details>
+<summary><strong>API reference</strong></summary>
 
-## Config
-
-All settings are in `config.json`. Priority: env vars > config.json > defaults.
-
-See `config.json.example` for all options. Auth tokens are configured via env vars only (`SYNAPTOMIND_SECRET`, `SYNAPTOMIND_SERVICE_TOKEN`).
-
-## Custom Instructions
-
-The MCP server sends instructions to the AI agent on startup. By default, it uses built-in instructions. To customize them:
-
-1. Create a markdown file (e.g., `instructions.md`)
-2. Set the path in `config.json`:
-
-```json
-"mcp": {
-  "instructionsFile": "./instructions.md"
-}
-```
-
-Or via environment variable:
-
-```bash
-export SYNAPTOMIND_MCP_INSTRUCTIONS_FILE=./instructions.md
-```
-
-If the file is not found, the server falls back to default instructions and logs a warning.
-
-## API Examples
-
-All `/api/*` endpoints require an `Authorization: Bearer <token>` header. See [Authentication](#authentication) above.
+All `/api/*` endpoints require `Authorization: Bearer <token>` header.
 
 ### Create a thought
 
@@ -323,9 +350,10 @@ curl "http://127.0.0.1:3005/api/thoughts/search?q=session+retrospective&limit=5"
 curl http://127.0.0.1:3005/health
 ```
 
-## MCP Tools
+</details>
 
-The MCP server exposes tools organized by domain:
+<details>
+<summary><strong>MCP tools</strong></summary>
 
 | Category | Tools |
 |----------|-------|
@@ -343,18 +371,54 @@ The MCP server exposes tools organized by domain:
 | Guide | `guide_thoughts` |
 | Config | `get_config` |
 
-## Testing
+</details>
 
-```bash
-bun test
+---
+
+## Custom Instructions
+
+The MCP server sends instructions to the AI agent on startup. To customize:
+
+1. Create a markdown file (e.g., `instructions.md`)
+2. Set the path in `config.json`:
+
+```json
+"mcp": {
+  "instructionsFile": "./instructions.md"
+}
 ```
 
-## Linting
+Or via env var:
 
 ```bash
-bunx biome check src/
+export SYNAPTOMIND_MCP_INSTRUCTIONS_FILE=./instructions.md
 ```
+
+Falls back to default instructions if file not found.
+
+---
+
+## Development
+
+```bash
+bun test          # run tests
+bunx biome check src/   # lint (advisory)
+```
+
+For step-by-step usage scenarios, see [docs/SCENARIOS.md](docs/SCENARIOS.md).
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
 [MIT](LICENSE)
+
+---
+
+## Topics
+
+`mcp` `mcp-server` `ai-memory` `agent-memory` `llm-memory` `persistent-memory` `self-hosted` `local-first` `knowledge-graph` `semantic-search` `ai-agents` `sqlite` `rag`
