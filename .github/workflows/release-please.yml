@@ -36,7 +36,7 @@ jobs:
         with:
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.release.outputs.tag_name }}
+            ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version }}
             ghcr.io/${{ github.repository }}:latest
           build-args: |
-            VERSION=${{ steps.release.outputs.tag_name }}
+            VERSION=${{ steps.release.outputs.version }}

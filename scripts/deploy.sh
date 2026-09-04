@@ -15,16 +15,28 @@ elif [ -n "$VERSION" ]; then
   echo "[synaptomind] Deploying v${TARGET}..."
 else
   # Default: deploy latest release tag
+  # On fresh install, clone bare to detect tags from remote
   if [ -d "$INSTALL_DIR/.git" ]; then
     git -C "$INSTALL_DIR" fetch --tags origin 2>/dev/null || true
-  fi
-  TARGET=$(git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | head -1)
-  if [ -z "$TARGET" ]; then
-    TARGET="main"
-    echo "[synaptomind] No tags found, deploying main..."
   else
-    echo "[synaptomind] Deploying latest release: ${TARGET}..."
+    echo "[synaptomind] Detecting latest release tag..."
+    git clone --filter=blob:none --bare "$REPO_URL" "$INSTALL_DIR.tmp-bare" 2>/dev/null || true
+    if [ -d "$INSTALL_DIR.tmp-bare" ]; then
+      TARGET=$(git -C "$INSTALL_DIR.tmp-bare" tag --sort=-v:refname 2>/dev/null | head -1)
+      rm -rf "$INSTALL_DIR.tmp-bare"
+    fi
   fi
+
+  # If tag was not yet determined (existing repo or bare clone failed)
+  if [ -z "${TARGET:-}" ]; then
+    TARGET=$(git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | head -1)
+  fi
+
+  if [ -z "${TARGET:-}" ]; then
+    echo "[synaptomind] Error: no release tags found. Use --dev to install from main."
+    exit 1
+  fi
+  echo "[synaptomind] Deploying latest release: ${TARGET}..."
 fi
 
 # Clone or update
@@ -36,8 +48,7 @@ if [ -d "$INSTALL_DIR/.git" ]; then
 else
   echo "[synaptomind] Cloning..."
   git clone "$REPO_URL" "$INSTALL_DIR"
-  cd "$INSTALL_DIR"
-  git checkout "$TARGET"
+  git -C "$INSTALL_DIR" checkout "$TARGET"
 fi
 
 cd "$INSTALL_DIR"

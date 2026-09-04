@@ -23,7 +23,7 @@ Open an issue with the `enhancement` label. Describe the problem you want to sol
 
 ### Submitting Changes
 
-1. Fork the repo and create a branch from `dev`.
+1. Fork the repo and create a feature branch from `main`.
 2. Make your changes following the code conventions below.
 3. Run `bun test` to make sure tests pass.
 4. Run `bunx biome check src/` for lint (advisory, not blocking).
