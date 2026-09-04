@@ -37,6 +37,13 @@ test("GET /health returns ok", async () => {
 	expect(body.status).toBe("ok");
 });
 
+test("GET /health returns version", async () => {
+	const res = await request("/health");
+	const body = (await res.json()) as Record<string, unknown>;
+	expect(body.version).toBeString();
+	expect(body.version).toMatch(/^\d+\.\d+\.\d+$/);
+});
+
 test("GET /api/stats returns thought counts", async () => {
 	seedThought({ content: "active one" });
 	seedThought({ content: "active two" });

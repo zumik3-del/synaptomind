@@ -1,23 +1,29 @@
-import { mkdirSync } from 'fs'
-import { dirname } from 'path'
-import { serve } from 'bun'
-import { app } from './app'
-import { config } from './config'
-import { initDb } from './db/init'
-import { startEmbedderProcess, stopEmbedderProcess } from './embedder/client'
-import { closeLogDb } from './logging'
-import { startMcpHttpServer } from './mcp/http-transport'
-import { createMcpServer } from './mcp/server'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { startDecayJob, stopDecayJob } from './services/decay.service'
-import { startDreamerJob, stopDreamerJob } from './services/dreamer.service'
-import { startGitSyncJob, stopGitSyncJob } from './services/git_sync.service'
-import { startSelfImproveJob, stopSelfImproveJob } from './services/self-improve.service'
+import { VERSION } from './version'
+
+if (process.argv.includes('--version') || process.argv.includes('-v')) {
+  console.log(`synaptomind v${VERSION}`)
+  process.exit(0)
+}
+
+const { mkdirSync } = await import('fs')
+const { dirname } = await import('path')
+const { serve } = await import('bun')
+const { app } = await import('./app')
+const { config } = await import('./config')
+const { initDb } = await import('./db/init')
+const { startEmbedderProcess, stopEmbedderProcess } = await import('./embedder/client')
+const { closeLogDb } = await import('./logging')
+const { startMcpHttpServer } = await import('./mcp/http-transport')
+const { createMcpServer } = await import('./mcp/server')
+const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js')
+const { startDecayJob, stopDecayJob } = await import('./services/decay.service')
+const { startDreamerJob, stopDreamerJob } = await import('./services/dreamer.service')
+const { startGitSyncJob, stopGitSyncJob } = await import('./services/git_sync.service')
+const { startSelfImproveJob, stopSelfImproveJob } = await import('./services/self-improve.service')
 
 const isStdio = process.argv.includes('--stdio')
 
-const pkg = JSON.parse(await Bun.file(`${import.meta.dir}/../package.json`).text()) as { version: string }
-console.error(`[synaptomind] v${pkg.version} — starting...`)
+console.error(`[synaptomind] v${VERSION} — starting...`)
 
 try {
   mkdirSync(dirname(config.db.path), { recursive: true })

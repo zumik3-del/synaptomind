@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { readFileSync } from 'fs'
 import { config } from '../config'
+import { VERSION } from '../version'
 import { registerThoughtTools } from './tools/thoughts'
 import { registerGraphTools } from './tools/graph'
 import { registerProjectTools } from './tools/projects'
@@ -15,8 +16,6 @@ import { registerGitCommitTools } from './tools/git-commits'
 import { registerGuideTools } from './tools/guide'
 import { registerConfigTools } from './tools/config'
 import { registerHealthCheckTools } from './tools/health-check'
-
-const pkg = JSON.parse(await Bun.file(`${import.meta.dir}/../../package.json`).text()) as { version: string }
 
 const defaultInstructions = [
   'SynaptoMind is the persistent memory for this project.',
@@ -66,7 +65,7 @@ export function createMcpServer(): McpServer {
   const server = new McpServer(
     {
       name: 'synaptomind',
-      version: pkg.version
+      version: VERSION
     },
     {
       instructions: loadInstructions()
