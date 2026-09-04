@@ -7,6 +7,7 @@ on:
 jobs:
   commitlint:
     name: "Lint · commit message"
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
