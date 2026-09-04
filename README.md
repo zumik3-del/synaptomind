@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://ghcr.io/zumik3-del/synaptomind)
 [![Bun](https://img.shields.io/badge/bun-runtime-%23000000?logo=bun)](https://bun.sh)
+[![codecov](https://codecov.io/gh/zumik3-del/synaptomind/branch/main/graph/badge.svg)](https://codecov.io/gh/zumik3-del/synaptomind)
 
 Self-hosted persistent memory for AI assistants. Capture, link, cluster, and retrieve thoughts via HTTP API or MCP server. Remembers project decisions, goals, and unfinished tasks across sessions, finds related context, and keeps all data locally. Ships as an MCP server, so your AI agents can directly capture, search, and traverse your thought graph.
 
