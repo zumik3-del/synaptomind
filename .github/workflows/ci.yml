@@ -7,6 +7,7 @@ on:
 jobs:
   commitlint:
     name: "Lint · commit message"
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +45,7 @@ jobs:
         run: bun test --coverage --coverage-reporter text --coverage-reporter lcov
 
       - name: "Upload coverage to Coveralls"
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: coverallsapp/github-action@v2
         with:
           github-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
