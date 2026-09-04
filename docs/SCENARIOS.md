@@ -3,7 +3,7 @@
 ## Scenario 1: Creating a New Project
 
 ```
-1. create_project(name="my-app", description="Project description", cwd="/path/to/project")
+1. create_project(name="my-app", description="Project description", local_path="/path/to/project")
    → project created, bound to a local path
 
 2. create_project(name="my-app", git_repo_url="https://github.com/user/my-app", is_git_linked=true)
@@ -21,7 +21,7 @@
    )
    → project context is persisted
    → goals and decisions available via get_slots
-   → frontier shows next steps
+   → next: create todo/directive thoughts to populate frontier
 ```
 
 ## Scenario 2: Session Start — Context Loading
@@ -31,7 +31,7 @@ Agent boots → get_slots →
   sees persona (from profile thoughts),
   active_goals,
   project_context (previous reflections),
-  pending_items (dormant tasks),
+  pending_items (ready deferred tasks),
   architecture_decisions (from examples)
 → understands what was decided before and what's on the queue
 ```
@@ -62,9 +62,10 @@ reflect_session(pending=["write auth tests", "update docs"], wake_days=7)
 create_thought("check load", tags=["todo"])
 create_smart_note(thought_id, {type: "project_status", days: 14})
   → thought sleeps as draft
-  → when someone updates thoughts in the project within 14 days
-  → project_status fires → thought wakes up
-  → useful for "remind me when the project becomes active again"
+  → project_status checks MAX(updated_at) across all non-archived thoughts in the project
+  → NOTE: the thought itself counts as activity, so the condition may fire immediately
+  → intended use: "remind me when the project becomes active again"
+  → known limitation: own thought creation can satisfy the condition on first evaluation
 ```
 
 ## Scenario 6: Task Completion — Reflection
@@ -82,7 +83,7 @@ reflect_session(
 What happens inside:
 - `summary` → appended to `project_context` slot (with timestamp)
 - `goals_delta` → updates `active_goals` (new ones added, `closed:` — removed)
-- `decisions` → creates **active** thoughts with tag `decision` (visible in frontier immediately)
+- `decisions` → creates **active** thoughts with tag `decision` (knowledge graph, not in frontier — frontier only surfaces directive/todo tags and ready smart notes)
 - `pending` → creates **draft** thoughts with tag `pending` + smart_note for N days (will wake up later)
 
 ## Scenario 7: Frontier — What to Do Next
@@ -91,8 +92,8 @@ What happens inside:
 get_frontier()
   → candidates: active/draft thoughts with directive/todo tags + ready smart notes
   → excluded: clusters, crystals, profile summaries, replaced thoughts
-  → priority = 0.5·importance + 0.25·ready + 0.15·unblocked + age_bonus
-  → depends_on blocks: target won't surface until source is done
+  → priority = 0.5·importance + 0.25·ready + 0.15·unblocked + recency_bonus (newer = higher)
+  → depends_on: blocked items lose the 0.15 unblocked bonus but still surface with lower priority and blocked_by metadata
 ```
 
 ## Scenario 8: Grouping and Compression
@@ -123,10 +124,10 @@ decay job → importance decreases by rate (0.95) every 24h
 thought_verify → marks stale_draft as obsolete
 
 self-improve → detects:
-  orphan_writes → thoughts created without project binding
-  low_activation_rate → many drafts, few promotions
-  zero_clusters → no clusters with a large thought count
-  → auto-corrects
+  orphan_writes → thoughts created without project binding (advisory only)
+  low_activation_rate → many drafts, few promotions (auto-promotes old drafts)
+  zero_clusters → no clusters with a large thought count (auto-triggers clustering)
+  → some checks auto-fix, others recommend manual review
 ```
 
 ---
