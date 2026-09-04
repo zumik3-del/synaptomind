@@ -21,7 +21,15 @@ fi
 
 # Fetch tags and find latest release
 git fetch --tags origin 2>/dev/null || true
-LATEST_TAG=$(git tag --sort=-v:refname | head -1)
+
+# Determine if current version is a prerelease
+if echo "$CURRENT" | grep -qE '-(alpha|beta|rc)\.'; then
+  IS_PRERELEASE=true
+  LATEST_TAG=$(git tag --sort=-v:refname 2>/dev/null | grep -E '-(alpha|beta|rc)\.' | head -1)
+else
+  IS_PRERELEASE=false
+  LATEST_TAG=$(git tag --sort=-v:refname 2>/dev/null | grep -v '-' | head -1)
+fi
 
 if [ -z "$LATEST_TAG" ]; then
   echo "[update] No releases found. Repository has no tags."
@@ -29,10 +37,10 @@ if [ -z "$LATEST_TAG" ]; then
   exit 1
 fi
 
-LATEST=${LATEST_TAG#v}
+LATEST="$LATEST_TAG"
 
-echo "[update] Current:  v${CURRENT}"
-echo "[update] Latest:   v${LATEST}"
+echo "[update] Current:  ${CURRENT}"
+echo "[update] Latest:   ${LATEST}"
 
 if [ "$CURRENT" = "$LATEST" ]; then
   echo "[update] Already up to date."
@@ -40,13 +48,13 @@ if [ "$CURRENT" = "$LATEST" ]; then
 fi
 
 echo ""
-echo "[update] Changes since v${CURRENT}:"
+echo "[update] Changes since ${CURRENT}:"
 echo "---"
-git log "v${CURRENT}..${LATEST_TAG}" --oneline --no-merges 2>/dev/null | head -30
+git log "${CURRENT}..${LATEST_TAG}" --oneline --no-merges 2>/dev/null | head -30
 echo "---"
 
 echo ""
-read -p "[update] Update to v${LATEST}? (y/N) " -n 1 -r
+read -p "[update] Update to ${LATEST}? (y/N) " -n 1 -r
 echo
 
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -61,5 +69,5 @@ echo "[update] Installing dependencies..."
 bun install
 
 echo ""
-echo "[update] Done. Now at v${LATEST}."
+echo "[update] Done. Now at ${LATEST}."
 echo "[update] Restart synaptomind to apply."

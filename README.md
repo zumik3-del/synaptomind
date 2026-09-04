@@ -308,8 +308,9 @@ bash scripts/deploy.sh
 Clones to `/opt/synaptomind`, checks out latest release, installs deps, starts container.
 
 ```bash
-bash scripts/deploy.sh              # latest release tag
-bash scripts/deploy.sh v0.2.1       # specific version
+bash scripts/deploy.sh              # latest stable release
+bash scripts/deploy.sh --alpha      # latest prerelease (alpha/beta/rc)
+bash scripts/deploy.sh 0.2.1        # specific version
 bash scripts/deploy.sh --dev        # main branch (development)
 ```
 
