@@ -24,9 +24,10 @@ jobs:
         run: bun run tsc --noEmit
 
       - name: "Test: bun test"
-        run: bun test --coverage
+        run: bun test --coverage --coverage-reporter text --coverage-reporter lcov
 
       - name: "Upload coverage to Codecov"
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
