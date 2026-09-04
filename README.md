@@ -192,11 +192,28 @@ See [docs/codex-plugin.md](docs/codex-plugin.md) for installation and usage.
 
 ## Docker
 
+### From source (development)
+
 ```bash
 docker compose up -d
 ```
 
 The Docker image builds from source. Volumes are mounted for `./data` and `./config.json`.
+
+### Published image (production)
+
+Edit `docker-compose.yml` — uncomment the `image` line and comment out `build`:
+
+```yaml
+image: ghcr.io/zumik3-del/synaptomind:0.2.1
+# build: .
+```
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+### Auth
 
 Set `SYNAPTOMIND_SECRET` in a `.env` file for persistent auth:
 
@@ -205,6 +222,46 @@ echo "SYNAPTOMIND_SECRET=your-secret-token" > .env
 ```
 
 See `.env.example` for all available environment variables. Without a `.env` file, a random token is generated on each restart and printed to `docker logs`.
+
+## Installation (server)
+
+For deploying on a remote server, use the included scripts.
+
+### Prerequisites
+
+- [Bun](https://bun.sh/)
+- Docker + Docker Compose
+- Git
+
+### First install
+
+```bash
+bash scripts/deploy.sh
+```
+
+This clones the repo to `/opt/synaptomind`, checks out the latest release tag, installs dependencies, and starts the container. Edit `config.json` and `.env` before starting.
+
+Options:
+
+```bash
+bash scripts/deploy.sh              # latest release tag
+bash scripts/deploy.sh v0.2.1       # specific version
+bash scripts/deploy.sh --dev        # main branch (development)
+```
+
+### Updating
+
+```bash
+bash scripts/update.sh
+```
+
+Shows your current version vs the latest release, lists changes, and asks for confirmation before updating.
+
+### Version
+
+```bash
+bun run src/index.ts --version
+```
 
 ## Config
 
