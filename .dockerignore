@@ -1,0 +1,38 @@
+# Version control
+.git/
+.gitignore
+
+# CI/CD
+.github/
+.release-please-manifest.json
+release-please-config.json
+
+# Dev tools
+.opencode/
+.husky/
+biome.json
+commitlint.config.js
+
+# Docs
+*.md
+LICENSE
+docs/
+
+# Data (mounted as volume at runtime)
+data/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (mounted at runtime)
+.env
+.env.*
+config.json
+
+# Tests
+tests/
+*.test.ts
