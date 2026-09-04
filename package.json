@@ -12,7 +12,8 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "lint": "bunx biome check src/",
-    "postinstall": "bash scripts/setup-vec0.sh"
+    "postinstall": "bash scripts/setup-vec0.sh",
+    "prepare": "husky"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -22,7 +23,10 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
     "@types/bun": "^1.4.0",
+    "husky": "^9.1.7",
     "typescript": "^7.0.2"
   }
 }

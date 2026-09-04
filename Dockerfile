@@ -11,6 +11,10 @@ COPY tsconfig.json ./
 COPY src/ src/
 COPY config.json.example config.json
 
+ARG VERSION=dev
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/zumik3-del/synaptomind"
+
 ENV NODE_ENV=production
 ENV SYNAPTOMIND_DB_PATH=/app/data/synaptomind.db
 ENV SYNAPTOMIND_LOG_DB_PATH=/app/data/logs.db

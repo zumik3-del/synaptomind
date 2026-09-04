@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { getDb } from '../db'
 import { isEmbedderReady } from '../embedder/client'
+import { VERSION } from '../version'
 import { authMiddleware } from './middleware/auth'
 import { rateLimitMiddleware } from './middleware/rate-limit'
 import { errorHandler } from './middleware/error-handler'
@@ -72,7 +73,7 @@ export function createApp(): Hono {
     checks.embedder = isEmbedderReady() ? 'ok' : 'not ready'
 
     const ok = checks.database === 'ok'
-    return c.json({ status: ok ? 'ok' : 'degraded', checks })
+    return c.json({ status: ok ? 'ok' : 'degraded', version: VERSION, checks })
   })
 
   return app

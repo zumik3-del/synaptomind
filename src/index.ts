@@ -13,11 +13,16 @@ import { startDecayJob, stopDecayJob } from './services/decay.service'
 import { startDreamerJob, stopDreamerJob } from './services/dreamer.service'
 import { startGitSyncJob, stopGitSyncJob } from './services/git_sync.service'
 import { startSelfImproveJob, stopSelfImproveJob } from './services/self-improve.service'
+import { VERSION } from './version'
+
+if (process.argv.includes('--version') || process.argv.includes('-v')) {
+  console.log(`synaptomind v${VERSION}`)
+  process.exit(0)
+}
 
 const isStdio = process.argv.includes('--stdio')
 
-const pkg = JSON.parse(await Bun.file(`${import.meta.dir}/../package.json`).text()) as { version: string }
-console.error(`[synaptomind] v${pkg.version} — starting...`)
+console.error(`[synaptomind] v${VERSION} — starting...`)
 
 try {
   mkdirSync(dirname(config.db.path), { recursive: true })

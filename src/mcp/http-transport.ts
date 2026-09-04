@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { serve } from 'bun'
 import { checkBearerAuth, getValidTokens } from '../auth'
 import { createMcpServer } from './server'
+import { VERSION } from '../version'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { EventStore, StreamId, EventId } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
@@ -112,7 +113,7 @@ export function startMcpHttpServer(host: string, port: number): McpHttpHandle {
     return transport.handleRequest(c.req.raw)
   })
 
-  app.get('/health', c => c.json({ status: 'ok', transport: 'mcp-http' }))
+  app.get('/health', c => c.json({ status: 'ok', version: VERSION, transport: 'mcp-http' }))
 
   const server = serve({
     fetch: app.fetch,
