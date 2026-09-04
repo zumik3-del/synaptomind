@@ -115,7 +115,6 @@ sequenceDiagram
 | **Local embeddings** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Runtime** | Bun | Python | Python | Python | Python |
 | **License** | MIT | AGPL-3.0 | Apache-2.0 | Apache-2.0 | Apache-2.0 |
-| **Stars** | — | ~3.9k | ~64.7k | ~3k | ~2k |
 
 **What makes SynaptoMind different:** Graph-native thought storage with semantic search, smart notes that auto-surface when relevant, and Frontier ranking — all running locally with zero external dependencies. MIT licensed.
 
