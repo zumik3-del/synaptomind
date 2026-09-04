@@ -32,7 +32,7 @@ export interface Migration {
   apply: (db: Database, opts: { isMemory: boolean; dimensions: number }) => void
 }
 
-export const migrations: Migration[] = [
+export const MIGRATIONS: Migration[] = [
   v002,
   v003,
   v004,

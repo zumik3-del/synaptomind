@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { config } from '../config'
 import { clearDb, getDb, setDb } from './container'
-import { migrations } from './migrations'
+import { MIGRATIONS } from './migrations'
 
 let vecLoaded = false
 
@@ -125,7 +125,7 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
 
   let current = getVersion()
 
-  for (const migration of migrations) {
+  for (const migration of MIGRATIONS) {
     if (current >= migration.version) continue
     const run = d.transaction(() => migration.apply(d, { isMemory, dimensions }))
     run()

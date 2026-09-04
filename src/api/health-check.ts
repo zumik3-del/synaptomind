@@ -3,7 +3,7 @@ import { withTelemetry } from '../logging'
 import { runHealthCheck } from '../services/health-check.service'
 import type { Severity } from '../services/health-check.service'
 
-export const healthCheckRouter = new Hono()
+const healthCheckRouter = new Hono()
 
 healthCheckRouter.get('/health-check', c => {
   return withTelemetry(c, { action: 'read', toolName: 'health_check' }, c2 => {
@@ -13,3 +13,5 @@ healthCheckRouter.get('/health-check', c => {
     return c2.json(report)
   })
 })
+
+export { healthCheckRouter }

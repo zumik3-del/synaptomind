@@ -4,7 +4,7 @@ import { type EntityType, listEntities } from '../services/entity.service'
 import { searchThoughts, searchThoughtsGrouped } from '../services/search.service'
 import { postProcessSearchResults } from '../services/search_postprocess.service'
 
-export const searchRouter = new Hono()
+const searchRouter = new Hono()
 
 interface HintItem {
   id: string
@@ -76,3 +76,5 @@ searchRouter.get('/entities', c => {
   const type = typeParam && ['code', 'tag', 'wiki', 'term'].includes(typeParam) ? (typeParam as EntityType) : undefined
   return c.json(listEntities({ type, limit }))
 })
+
+export { searchRouter }

@@ -1,5 +1,8 @@
 services:
   synaptomind:
+    # Option A: use published image (recommended for production)
+    # image: ghcr.io/zumik3-del/synaptomind:0.3.0
+    # Option B: build from source (default for development)
     build: .
     container_name: synaptomind
     restart: unless-stopped

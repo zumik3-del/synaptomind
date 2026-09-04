@@ -37,7 +37,7 @@ interface Config {
   git: { defaultLimit: number; allowedRepos: string[]; allowedHosts: string[] }
 }
 
-export const defaults: Config = {
+export const DEFAULTS: Config = {
   contentLanguage: 'en',
   server: { port: 3005, host: '127.0.0.1' },
   mcp: { httpPort: 3006, instructionsFile: '' },
@@ -82,7 +82,7 @@ export interface EnvMapping {
   type: EnvType
 }
 
-export const envMappings: EnvMapping[] = [
+export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_CONTENT_LANGUAGE', path: 'contentLanguage', type: 'string' },
 
   { env: 'SYNAPTOMIND_PORT', path: 'server.port', type: 'int' },
@@ -208,9 +208,9 @@ function loadFileConfig(): Partial<Config> {
 }
 
 function applyEnvOverrides(fileConfig: Partial<Config>): Config {
-  const merged = deepMerge(defaults as Record<string, any>, fileConfig as Record<string, any>)
+  const merged = deepMerge(DEFAULTS as Record<string, any>, fileConfig as Record<string, any>)
 
-  for (const { env, path, type } of envMappings) {
+  for (const { env, path, type } of ENV_MAPPINGS) {
     const raw = process.env[env]
     if (raw === undefined) continue
     const value = parseValue(raw, type)
