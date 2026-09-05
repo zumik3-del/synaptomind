@@ -160,6 +160,57 @@ test("listThoughts returns empty when no thoughts match filter", () => {
 	expect(result).toHaveLength(0);
 });
 
+// Content-hash deduplication tests (issue #58)
+
+test("createThought dedup: same content returns existing thought", () => {
+	const db = getDb();
+	const first = createThought(db, { content: "duplicate me" });
+	const second = createThought(db, { content: "duplicate me" });
+	expect(second.id).toBe(first.id);
+});
+
+test("createThought dedup: different content creates new thought", () => {
+	const db = getDb();
+	const first = createThought(db, { content: "unique one" });
+	const second = createThought(db, { content: "unique two" });
+	expect(second.id).not.toBe(first.id);
+});
+
+test("createThought dedup: same content different project creates new thought", () => {
+	const db = getDb();
+	const p = createProject(db, { name: "Project A" });
+	const first = createThought(db, { content: "shared content", project_id: "default" });
+	const second = createThought(db, { content: "shared content", project_id: p.id });
+	expect(second.id).not.toBe(first.id);
+});
+
+test("createThought dedup: archived thought is not a duplicate", () => {
+	const db = getDb();
+	const first = createThought(db, { content: "will be archived" });
+	archiveThought(db, first.id);
+	const second = createThought(db, { content: "will be archived" });
+	expect(second.id).not.toBe(first.id);
+	expect(second.status).toBe("draft");
+});
+
+test("createThought dedup: tags are updated on duplicate", () => {
+	const db = getDb();
+	const first = createThought(db, { content: "tagged", tags: ["v1"] });
+	const second = createThought(db, { content: "tagged", tags: ["v2"] });
+	expect(second.id).toBe(first.id);
+	expect(second.tags.map((t) => t.name)).toEqual(["v2"]);
+});
+
+test("createThought: content_hash is stored in db", () => {
+	const db = getDb();
+	const t = createThought(db, { content: "hash me" });
+	const row = db
+		.prepare("SELECT content_hash FROM thoughts WHERE id = ?")
+		.get(t.id) as { content_hash: string };
+	expect(row.content_hash).toBeString();
+	expect(row.content_hash.length).toBe(64);
+});
+
 test("createThought with custom status and source", () => {
 	const db = getDb();
 	const t = createThought(db, {

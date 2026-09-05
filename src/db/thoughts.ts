@@ -1,4 +1,5 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
+import { createHash } from 'node:crypto'
 import { v7 as uuidv7 } from 'uuid'
 import { resolveDefaultProjectId } from './projects'
 import { getThoughtTags, getThoughtTagsBatch, pruneOrphanTags, setThoughtTags, type Tag } from './tags'
@@ -74,6 +75,10 @@ export function rowToThought(row: Record<string, unknown>): Thought {
 const THOUGHT_ROW_SQL =
   'SELECT t.*, p.name as project_name FROM thoughts t LEFT JOIN projects p ON t.project_id = p.id WHERE t.id = ?'
 
+function computeContentHash(content: string, projectId: string): string {
+  return createHash('sha256').update(content + projectId).digest('hex')
+}
+
 export function getThoughtRow(db: Database, id: string): Thought | undefined {
   const row = db.prepare(THOUGHT_ROW_SQL).get(id) as Record<string, unknown> | undefined
   if (!row) return undefined
@@ -92,17 +97,32 @@ export function parseTags(raw: string | string[] | undefined): string[] | undefi
 
 export function createThought(db: Database, data: CreateThoughtInput): Thought {
   const run = db.transaction(() => {
-    const id = uuidv7()
     const now = new Date().toISOString()
-
     const projectId = data.project_id ?? resolveDefaultProjectId(db)
+    const contentHash = computeContentHash(data.content, projectId)
+
+    const existing = db
+      .prepare(
+        `SELECT id FROM thoughts WHERE content_hash = ? AND status IN ('draft', 'active') AND project_id = ? LIMIT 1`
+      )
+      .get(contentHash, projectId) as { id: string } | undefined
+
+    if (existing) {
+      if (data.tags && data.tags.length > 0) {
+        setThoughtTags(db, existing.id, data.tags)
+      }
+      db.prepare(`UPDATE thoughts SET updated_at = ? WHERE id = ?`).run(now, existing.id)
+      return existing.id
+    }
+
+    const id = uuidv7()
     const isCluster = toBit(data.is_cluster)
     const isProfile = toBit(data.is_profile)
 
     db.prepare(`
-      INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, data.content, data.status ?? 'draft', data.source ?? null, projectId, isCluster, isProfile, now, now)
+      INSERT INTO thoughts (id, content, status, source, project_id, content_hash, is_cluster, is_profile, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, data.content, data.status ?? 'draft', data.source ?? null, projectId, contentHash, isCluster, isProfile, now, now)
 
     if (data.tags && data.tags.length > 0) {
       setThoughtTags(db, id, data.tags)
