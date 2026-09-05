@@ -36,7 +36,8 @@ export function registerMemoryRecall(server: McpServer) {
     exclude_flagged: z.boolean().optional().describe('Exclude flagged thoughts'),
     hybrid: z.boolean().optional().describe('Use hybrid search'),
     thought_id: z.string().optional().describe('Thought ID (required for chain action)'),
-    direction: z.enum(['upstream', 'downstream', 'both']).optional().describe('Traversal direction (default: both)')
+    direction: z.enum(['upstream', 'downstream', 'both']).optional().describe('Traversal direction (default: both)'),
+    max_degree: z.number().optional().describe('Max edges to return for chain/context (default 50)')
   }, async (args) => {
     const action = args.action ?? 'search'
     const projectFilter = resolveProjectId(args.project_id, args.cwd)
@@ -69,14 +70,14 @@ export function registerMemoryRecall(server: McpServer) {
       }
 
       if (action === 'context') {
-        const context = getContextService(args.query)
+        const context = getContextService(args.query, args.max_degree)
         if (!context) return errorResult(`No thoughts matching '${args.query}'`)
         return jsonResult(context)
       }
 
       if (action === 'chain') {
         if (!args.thought_id) return errorResult('thought_id is required for chain action')
-        const chain = getChainService(args.thought_id, args.direction)
+        const chain = getChainService(args.thought_id, args.direction, args.max_degree)
         if (!chain) return errorResult(`Thought '${args.thought_id}' not found`)
         return jsonResult(chain)
       }
