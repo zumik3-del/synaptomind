@@ -35,17 +35,18 @@ function resetIdleTimer() {
   }, config.embedder.idleTimeoutMs)
 }
 
-function findPendingEmbeddings(): { id: string; content: string }[] {
+function findPendingEmbeddings(): { id: string; content: string; contentHash: string }[] {
   const db = getDb()
   return db
     .prepare(`
-    SELECT p.thought_id AS id, t.content FROM pending_embeddings p
+    SELECT p.thought_id AS id, t.content, t.content_hash AS contentHash
+    FROM pending_embeddings p
     JOIN thoughts t ON t.id = p.thought_id
     WHERE p.is_error = 0
     ORDER BY p.created_at
     LIMIT ?
   `)
-    .all(BATCH_SIZE) as { id: string; content: string }[]
+    .all(BATCH_SIZE) as { id: string; content: string; contentHash: string }[]
 }
 
 function sweepOrphanedThoughts(): { id: string; content: string }[] {
@@ -95,13 +96,19 @@ function handleFailedItem(id: string, error: string) {
   }
 }
 
-function insertEmbedding(id: string, embedding: Float32Array) {
+function insertEmbedding(id: string, embedding: Float32Array, expectedHash: string) {
   const db = getDb()
+  const current = db.prepare('SELECT content_hash FROM thoughts WHERE id = ?').get(id) as { content_hash: string } | undefined
+  if (current && current.content_hash !== expectedHash) {
+    insertLog('info', 'embedding', `Stale embedding skipped for ${id} — content changed during batch`, { thought_id: id })
+    return false
+  }
   db.run('DELETE FROM vec_thoughts WHERE id = ?', [id])
   db.run(
     'INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)',
     [id, Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength)]
   )
+  return true
 }
 
 function reschedule() {
@@ -132,7 +139,7 @@ async function processBatch(): Promise<void> {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
       try {
-        insertEmbedding(row.id, embeddings[i])
+        insertEmbedding(row.id, embeddings[i], row.contentHash)
         succeeded.push(row.id)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)

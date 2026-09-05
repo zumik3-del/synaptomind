@@ -27,7 +27,7 @@ mergeRouter.post('/:targetId/merge', async c => {
       })
     }
 
-    const result = mergeThoughtsService(targetId, body.source_id, body.merged_content, body.merged_tags, body.project_id)
+    const result = mergeThoughtsService({ targetId, sourceId: body.source_id, mergedContent: body.merged_content, mergedTags: body.merged_tags, projectId: body.project_id })
     return c2.json(result)
   })
 })

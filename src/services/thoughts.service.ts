@@ -156,13 +156,16 @@ export interface MergeResult {
   transferredEdges: number
 }
 
-export function mergeThoughtsService(
-  targetId: string,
-  sourceId: string,
-  mergedContent?: string,
-  mergedTags?: string[],
+export interface MergeThoughtsOptions {
+  targetId: string
+  sourceId: string
+  mergedContent?: string
+  mergedTags?: string[]
   projectId?: string
-): MergeResult {
+}
+
+export function mergeThoughtsService(options: MergeThoughtsOptions): MergeResult {
+  const { targetId, sourceId, mergedContent, mergedTags, projectId } = options
   if (sourceId === targetId) {
     throw new ValidationError('source_id and target_id must be different')
   }

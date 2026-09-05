@@ -139,29 +139,29 @@ test('pruneThoughtUrlLinksService removes links not in content', () => {
 
 test('mergeThoughtsService throws for same source and target', () => {
   const id = seedThought()
-  expect(() => mergeThoughtsService(id, id)).toThrow(ValidationError)
+  expect(() => mergeThoughtsService({ targetId: id, sourceId: id })).toThrow(ValidationError)
 })
 
 test('mergeThoughtsService throws for missing source', () => {
   const target = seedThought()
-  expect(() => mergeThoughtsService(target, 'nonexistent')).toThrow(NotFoundError)
+  expect(() => mergeThoughtsService({ targetId: target, sourceId: 'nonexistent' })).toThrow(NotFoundError)
 })
 
 test('mergeThoughtsService throws for missing target', () => {
   const source = seedThought()
-  expect(() => mergeThoughtsService('nonexistent', source)).toThrow(NotFoundError)
+  expect(() => mergeThoughtsService({ targetId: 'nonexistent', sourceId: source })).toThrow(NotFoundError)
 })
 
 test('mergeThoughtsService throws for archived source', () => {
   const source = seedThought({ status: 'archived' })
   const target = seedThought()
-  expect(() => mergeThoughtsService(target, source)).toThrow(ValidationError)
+  expect(() => mergeThoughtsService({ targetId: target, sourceId: source })).toThrow(ValidationError)
 })
 
 test('mergeThoughtsService throws for profile source', () => {
   const source = seedThought({ is_profile: 1 })
   const target = seedThought()
-  expect(() => mergeThoughtsService(target, source)).toThrow(ValidationError)
+  expect(() => mergeThoughtsService({ targetId: target, sourceId: source })).toThrow(ValidationError)
 })
 
 test('mergeThoughtsService merges content and transfers edges', () => {
@@ -169,7 +169,7 @@ test('mergeThoughtsService merges content and transfers edges', () => {
   const target = seedThought({ content: 'target thought' })
   const third = seedThought()
   seedEdge(source, third, 'related')
-  const result = mergeThoughtsService(target, source, 'merged content', ['tag1'])
+  const result = mergeThoughtsService({ targetId: target, sourceId: source, mergedContent: 'merged content', mergedTags: ['tag1'] })
   expect(result.target.content).toBe('merged content')
   expect(result.transferredEdges).toBe(1)
   // Source should be archived
@@ -181,7 +181,7 @@ test('mergeThoughtsService handles preview mode (no content/tags)', () => {
   const source = seedThought({ content: 'source' })
   const target = seedThought({ content: 'target' })
   // When no mergedContent and no mergedTags, it should do an update with empty object
-  const result = mergeThoughtsService(target, source)
+  const result = mergeThoughtsService({ targetId: target, sourceId: source })
   expect(result.target.id).toBe(target)
   expect(result.transferredEdges).toBe(0)
 })
