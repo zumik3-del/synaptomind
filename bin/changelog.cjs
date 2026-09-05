@@ -30,7 +30,7 @@ for (var i = 1; i < tags.length; i++) {
 
 	md += '\n## ' + tag + '\n\n';
 
-	var cmd = 'git log ' + prevTag + '..' + tag + ' --no-merges --pretty=format:%h|%H|%ad|%s --date=short';
+	var cmd = "git log " + prevTag + ".." + tag + " --no-merges --pretty=format:'%h|%H|%ad|%s' --date=short";
 	var output = cp.execSync(cmd, { encoding: 'utf8' }).trim();
 	if (!output) continue;
 
@@ -56,7 +56,7 @@ for (var i = 1; i < tags.length; i++) {
 	});
 }
 
-md += '\n## ' + lastTag + '\n\n> ' + formatDate(cp.execSync('git log -1 --format=%ad --date=short ' + lastTag, { encoding: 'utf8' }).trim()) + '\n\n- Initial release\n';
+md += '\n## ' + lastTag + '\n\n> ' + formatDate(cp.execSync("git log -1 --format='%ad' --date=short " + lastTag, { encoding: 'utf8' }).trim()) + '\n\n- Initial release\n';
 
 fs.writeFileSync('CHANGELOG.md', md);
 
