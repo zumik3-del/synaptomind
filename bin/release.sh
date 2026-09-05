@@ -11,7 +11,7 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 PACKAGE_VERSION=$(node -p "require('./package.json').version")
-TAG="v$PACKAGE_VERSION"
+TAG="$PACKAGE_VERSION"
 LONGVER="Version $PACKAGE_VERSION"
 
 echo "$LONGVER"
