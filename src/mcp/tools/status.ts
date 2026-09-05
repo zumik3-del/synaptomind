@@ -5,17 +5,7 @@ import { getFrontier } from '../../services/frontier.service'
 import { getProfileService } from '../../services/profile.service'
 import { config, DEFAULTS, ENV_MAPPINGS } from '../../config'
 import { runHealthCheck } from '../../services/health-check.service'
-import { resolveProjectService } from '../../services/projects.service'
-import { jsonResult, errorResult } from './utils'
-
-function resolveProjectId(projectId?: string, cwd?: string): string | undefined {
-  if (projectId) return projectId
-  if (cwd) {
-    const project = resolveProjectService(cwd)
-    if (project) return project.id
-  }
-  return undefined
-}
+import { jsonResult, errorResult, resolveProjectId } from './utils'
 
 function formatValue(val: unknown): string {
   if (val === null || val === undefined) return '-'

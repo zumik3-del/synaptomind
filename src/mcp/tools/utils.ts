@@ -1,3 +1,5 @@
+import { resolveProjectService } from '../../services/projects.service'
+
 type McpTextContent = { type: 'text'; text: string }
 
 export function jsonResult(data: unknown): { content: McpTextContent[] } {
@@ -6,4 +8,13 @@ export function jsonResult(data: unknown): { content: McpTextContent[] } {
 
 export function errorResult(message: string): { content: McpTextContent[]; isError: true } {
   return { content: [{ type: 'text' as const, text: message }], isError: true }
+}
+
+export function resolveProjectId(projectId?: string, cwd?: string): string | undefined {
+  if (projectId) return projectId
+  if (cwd) {
+    const project = resolveProjectService(cwd)
+    if (project) return project.id
+  }
+  return undefined
 }

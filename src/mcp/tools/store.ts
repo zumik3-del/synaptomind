@@ -6,7 +6,6 @@ import {
   updateThoughtById
 } from '../../services/thoughts.service'
 import { createEdgeService } from '../../services/edges.service'
-import { resolveProjectService } from '../../services/projects.service'
 import {
   createSmartNoteService,
   listSmartNotesWithReady,
@@ -14,15 +13,59 @@ import {
   promoteSmartNote,
   deleteSmartNote
 } from '../../services/smart_notes.service'
-import { jsonResult, errorResult } from './utils'
+import type { SurfaceCondition } from '../../db/smart_notes'
+import { jsonResult, errorResult, resolveProjectId } from './utils'
 
-function resolveProjectId(projectId?: string, cwd?: string): string | undefined {
-  if (projectId) return projectId
-  if (cwd) {
-    const project = resolveProjectService(cwd)
-    if (project) return project.id
+type StoreArgs = Record<string, unknown>
+
+const actionHandlers: Record<string, (args: StoreArgs) => unknown> = {
+  create(args) {
+    if (!args.content) throw new Error('content is required for create action')
+    return createThoughtWithUrlLinks(
+      { content: args.content as string, tags: args.tags as string[] | undefined, status: args.status as any, project_id: resolveProjectId(args.project_id as string, args.cwd as string), is_profile: args.is_profile as boolean | undefined },
+      { parentId: args.parent_id as string | undefined, urlLinks: args.url_links as { text: string; url: string }[] | undefined }
+    )
+  },
+
+  update(args) {
+    if (!args.thought_id) throw new Error('thought_id is required for update action')
+    const updated = updateThoughtById(args.thought_id as string, {
+      content: args.content as string | undefined, tags: args.tags as string[] | undefined, status: args.status as any, project_id: resolveProjectId(args.project_id as string, args.cwd as string), is_profile: args.is_profile as boolean | undefined
+    })
+    if (!updated) throw new Error(`Thought '${args.thought_id}' not found`)
+    return updated
+  },
+
+  link(args) {
+    if (!args.thought_id) throw new Error('thought_id is required for link action (source)')
+    if (!args.target_id) throw new Error('target_id is required for link action')
+    return createEdgeService(args.thought_id as string, args.target_id as string, args.edge_type as any)
+  },
+
+  smart_note_create(args) {
+    if (!args.thought_id) throw new Error('thought_id is required for smart_note_create action')
+    if (!args.surface_condition) throw new Error('surface_condition is required for smart_note_create action')
+    return createSmartNoteService(args.thought_id as string, args.surface_condition as SurfaceCondition)
+  },
+
+  smart_note_list() {
+    return listSmartNotesWithReady()
+  },
+
+  smart_note_eval() {
+    return evalAllSmartNotes()
+  },
+
+  smart_note_promote(args) {
+    if (!args.note_id) throw new Error('note_id is required for smart_note_promote action')
+    return promoteSmartNote(args.note_id as string)
+  },
+
+  smart_note_delete(args) {
+    if (!args.note_id) throw new Error('note_id is required for smart_note_delete action')
+    deleteSmartNote(args.note_id as string)
+    return { deleted: true }
   }
-  return undefined
 }
 
 export function registerMemoryStore(server: McpServer) {
@@ -50,64 +93,10 @@ export function registerMemoryStore(server: McpServer) {
     surface_condition: z.record(z.string(), z.any()).optional().describe('REQUIRED ONLY for "smart_note_create". IGNORED for all other actions.'),
     note_id: z.string().optional().describe('REQUIRED ONLY for "smart_note_promote" and "smart_note_delete". IGNORED for all other actions.')
   }, async (args) => {
-    const projectFilter = resolveProjectId(args.project_id, args.cwd)
-
     try {
-      if (args.action === 'create') {
-        if (!args.content) return errorResult('content is required for create action')
-        const thought = createThoughtWithUrlLinks(
-          { content: args.content, tags: args.tags, status: args.status as any, project_id: projectFilter, is_profile: args.is_profile },
-          { parentId: args.parent_id, urlLinks: args.url_links }
-        )
-        return jsonResult(thought)
-      }
-
-      if (args.action === 'update') {
-        if (!args.thought_id) return errorResult('thought_id is required for update action')
-        const updated = updateThoughtById(args.thought_id, {
-          content: args.content, tags: args.tags, status: args.status as any, project_id: projectFilter, is_profile: args.is_profile
-        })
-        if (!updated) return errorResult(`Thought '${args.thought_id}' not found`)
-        return jsonResult(updated)
-      }
-
-      if (args.action === 'link') {
-        if (!args.thought_id) return errorResult('thought_id is required for link action (source)')
-        if (!args.target_id) return errorResult('target_id is required for link action')
-        const edge = createEdgeService(args.thought_id, args.target_id, args.edge_type)
-        return jsonResult(edge)
-      }
-
-      if (args.action === 'smart_note_create') {
-        if (!args.thought_id) return errorResult('thought_id is required for smart_note_create action')
-        if (!args.surface_condition) return errorResult('surface_condition is required for smart_note_create action')
-        const note = createSmartNoteService(args.thought_id, args.surface_condition as any)
-        return jsonResult(note)
-      }
-
-      if (args.action === 'smart_note_list') {
-        const notes = listSmartNotesWithReady()
-        return jsonResult(notes)
-      }
-
-      if (args.action === 'smart_note_eval') {
-        const results = evalAllSmartNotes()
-        return jsonResult(results)
-      }
-
-      if (args.action === 'smart_note_promote') {
-        if (!args.note_id) return errorResult('note_id is required for smart_note_promote action')
-        const result = promoteSmartNote(args.note_id)
-        return jsonResult(result)
-      }
-
-      if (args.action === 'smart_note_delete') {
-        if (!args.note_id) return errorResult('note_id is required for smart_note_delete action')
-        deleteSmartNote(args.note_id)
-        return jsonResult({ deleted: true })
-      }
-
-      return errorResult(`Unknown action: ${args.action}`)
+      const handler = actionHandlers[args.action as string]
+      if (!handler) return errorResult(`Unknown action: ${args.action}`)
+      return jsonResult(handler(args))
     } catch (err) {
       return errorResult(err instanceof Error ? err.message : 'memory_store failed')
     }

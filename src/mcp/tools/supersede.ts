@@ -6,17 +6,7 @@ import {
   deleteThoughtById,
   mergeThoughtsService
 } from '../../services/thoughts.service'
-import { resolveProjectService } from '../../services/projects.service'
-import { jsonResult, errorResult } from './utils'
-
-function resolveProjectId(projectId?: string, cwd?: string): string | undefined {
-  if (projectId) return projectId
-  if (cwd) {
-    const project = resolveProjectService(cwd)
-    if (project) return project.id
-  }
-  return undefined
-}
+import { jsonResult, errorResult, resolveProjectId } from './utils'
 
 export function registerMemorySupersede(server: McpServer) {
   server.tool('memory_supersede', `Version and supersede thoughts. Actions:

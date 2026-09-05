@@ -2,17 +2,7 @@ import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { reflectSession } from '../../services/slots.service'
 import { listThoughtsService } from '../../services/thoughts.service'
-import { resolveProjectService } from '../../services/projects.service'
-import { jsonResult, errorResult } from './utils'
-
-function resolveProjectId(projectId?: string, cwd?: string): string | undefined {
-  if (projectId) return projectId
-  if (cwd) {
-    const project = resolveProjectService(cwd)
-    if (project) return project.id
-  }
-  return undefined
-}
+import { jsonResult, errorResult, resolveProjectId } from './utils'
 
 export function registerMemoryReflect(server: McpServer) {
   server.tool('memory_reflect', `Session management and history. Actions:
