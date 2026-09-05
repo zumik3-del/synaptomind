@@ -137,7 +137,7 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
     if (!storedDims) {
       d.prepare(`INSERT INTO _meta (key, value) VALUES ('embedder_dimensions', ?)`).run(String(dimensions))
     } else if (parseInt(storedDims.value, 10) !== dimensions) {
-      console.log(
+      console.error(
         `[db] dimensions changed ${storedDims.value} → ${dimensions}, rebuilding vec_thoughts (all embeddings will be re-generated)`
       )
       d.run(`DROP TABLE IF EXISTS vec_thoughts`)
