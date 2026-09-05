@@ -7,7 +7,7 @@ import {
   findCircularChains, findBrokenParentChains, findReplacesChains,
   findMissingEmbeddings, findDeadPrimers, findImportanceOutliers,
   getGraphStats, deleteEdges, deleteThoughts,
-  type OrphanEdge, type SelfLoopEdge, type EmptyCluster, type OrphanedClusterMember, type TooShortThought, type TestRemnant,
+  type OrphanEdge, type SelfLoopEdge, type EmptyCluster, type OrphanedClusterMember, type TestRemnant,
 } from '../db/health-check'
 import type { Database } from 'bun:sqlite'
 
@@ -88,7 +88,7 @@ const CONNECTIVITY_CHECKS: CheckDef[] = [
 
 const CONTENT_CHECKS: CheckDef[] = [
   { name: 'duplicate_content', severity: 'info', finder: findDuplicateContent },
-  { name: 'too_short_content', severity: 'info', finder: findTooShort, auto_fixable: true },
+  { name: 'too_short_content', severity: 'info', finder: findTooShort },
   { name: 'test_remnants', severity: 'info', finder: findTestRemnants, auto_fixable: true },
   { name: 'stale_drafts', severity: 'info', finder: findStaleDrafts },
   { name: 'untagged_thoughts', severity: 'info', finder: findUntagged },
@@ -185,11 +185,6 @@ function runAutoFix(db: Database, categories: CategoryResult[]): void {
         }
         case 'test_remnants': {
           const ids = (check.details as TestRemnant[]).map(t => t.id)
-          deleteThoughts(db, ids)
-          break
-        }
-        case 'too_short_content': {
-          const ids = (check.details as TooShortThought[]).map(t => t.id)
           deleteThoughts(db, ids)
           break
         }

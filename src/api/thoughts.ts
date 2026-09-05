@@ -10,7 +10,6 @@ import { getLastSelfImproveStatus, runSelfImproveJob } from '../services/self-im
 import {
   archiveThoughtById,
   createThoughtWithParent,
-  deleteThoughtById,
   getThoughtById,
   listThoughtsService,
   pruneThoughtUrlLinksService,
@@ -167,8 +166,7 @@ thoughtsRouter.delete('/:id', c => {
     const thought = getThoughtById(id)
     if (!thought) return c2.json({ error: 'Not found' }, 404)
     if (thought.status === 'archived') {
-      deleteThoughtById(id)
-      return c2.json({ success: true })
+      return c2.json(thought)
     }
     const updated = archiveThoughtById(id)
     if (!updated) return c2.json({ error: 'Not found' }, 404)

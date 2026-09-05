@@ -9,3 +9,4 @@ node_modules/
 vec0.so
 .env
 coverage/
+benchmark/

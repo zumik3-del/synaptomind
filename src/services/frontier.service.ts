@@ -100,7 +100,7 @@ export function getFrontier(input: FrontierInput = {}): { items: FrontierItem[] 
   for (const edge of getAllActiveEdges(d)) {
     if (!candidates.has(edge.source_id) || !candidates.has(edge.target_id)) continue
     if (edge.type !== 'depends_on') continue
-    upstreamOf.set(edge.target_id, [...(upstreamOf.get(edge.target_id) ?? []), edge.source_id])
+    upstreamOf.set(edge.source_id, [...(upstreamOf.get(edge.source_id) ?? []), edge.target_id])
   }
 
   const items: FrontierItem[] = []

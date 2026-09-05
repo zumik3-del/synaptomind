@@ -20,7 +20,8 @@
     "pollIntervalMs": 7000,
     "cacheDir": "./data/huggingface",
     "idleTimeoutMs": 600000,
-    "precache": false
+    "precache": false,
+    "batchSize": 8
   },
   "thoughts": {
     "softLimit": 500,

@@ -15,6 +15,9 @@ export function resolveProjectId(projectId?: string, cwd?: string): string | und
   if (cwd) {
     const project = resolveProjectService(cwd)
     if (project) return project.id
+    console.warn(`[scope] unknown cwd "${cwd}" — search will be global`)
+  } else {
+    console.warn('[scope] no project scope provided — search will be global')
   }
   return undefined
 }

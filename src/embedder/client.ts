@@ -228,7 +228,7 @@ function sendRequest(method: string, params: unknown): Promise<unknown> {
 export async function startEmbedderProcess(): Promise<void> {
   spawnProcess()
   await ensureReady()
-  console.log('[embedder] child process started')
+  console.error('[embedder] child process started')
 }
 
 export async function stopEmbedderProcess(): Promise<void> {
