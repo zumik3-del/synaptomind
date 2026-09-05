@@ -229,16 +229,6 @@ See [docs/codex-plugin.md](docs/codex-plugin.md) for installation and usage.
 
 </details>
 
-<details>
-<summary><strong>ChatGPT via Secure MCP Tunnel</strong></summary>
-
-ChatGPT can reach a private stdio SynaptoMind server through OpenAI Secure MCP
-Tunnel without exposing a public listener. See
-[docs/chatgpt-mcp.md](docs/chatgpt-mcp.md) for the complete installation,
-configuration, and verification workflow.
-
-</details>
-
 ---
 
 ## Configuration
@@ -250,7 +240,6 @@ All settings in `config.json`. Priority: env vars > config.json > defaults.
 | `server.port` | 3005 | HTTP API port |
 | `server.host` | 127.0.0.1 | Bind address |
 | `mcp.httpPort` | 3006 | MCP HTTP transport port |
-| `mcp.instructionsFile` | empty | Optional MCP initialization instructions file |
 | `embedder.model` | Xenova/multilingual-e5-small | HuggingFace embedding model |
 | `db.path` | ./data/synaptomind.db | SQLite database path |
 

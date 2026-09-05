@@ -12,11 +12,6 @@ The plugin contains a single routing skill. It does **not**:
 
 The existing stdio MCP setup remains the primary integration. The skill only makes SynaptoMind visible in Codex's initial catalog so the model knows it exists before any tool call.
 
-The plugin is independent of OpenAI Secure MCP Tunnel. ChatGPT uses the tunnel
-to reach a private MCP process, while Codex uses this plugin only for routing and
-discovery. Installing the plugin does not create a tunnel, start SynaptoMind, or
-grant additional MCP capabilities.
-
 ## Prerequisites
 
 - SynaptoMind MCP server already configured in Codex (stdio or HTTP)

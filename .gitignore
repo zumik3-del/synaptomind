@@ -8,5 +8,4 @@ node_modules/
 *.db-shm
 vec0.so
 .env
-coverage/
 benchmark/

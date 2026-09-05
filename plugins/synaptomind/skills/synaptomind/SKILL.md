@@ -12,7 +12,7 @@ description: >-
 
 SynaptoMind is a thought-graph engine that remembers decisions, context,
 architecture choices, and unresolved work across sessions. It is available as
-an MCP server with unified memory tools. This skill routes you to the right tools.
+an MCP server with 10 tools. This skill routes you to the right tools.
 
 ## When to use this skill
 
