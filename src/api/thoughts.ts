@@ -88,7 +88,7 @@ thoughtsRouter.post('/bulk', async c => {
     const body = await c2.req.json() as {
       thoughts: Array<{
         content: string; status?: 'draft' | 'active' | 'archived'; tags?: string[];
-        source?: string; project_id?: string; parent_id?: string; relation?: string; is_profile?: boolean
+        source?: string; project_id?: string; parent_id?: string; relation?: string; is_profile?: boolean; is_protected?: boolean
       }>; project_id?: string
     }
     if (!Array.isArray(body.thoughts) || body.thoughts.length === 0) {
@@ -108,7 +108,7 @@ thoughtsRouter.post('/bulk', async c => {
         try {
           const projectId = t.project_id ?? body.project_id
           const thought = createThoughtWithParent(
-            { content: t.content, status: t.status, tags: t.tags, source: t.source, project_id: projectId, is_profile: t.is_profile },
+            { content: t.content, status: t.status, tags: t.tags, source: t.source, project_id: projectId, is_profile: t.is_profile, is_protected: t.is_protected },
             t.parent_id, t.relation
           )
           created.push({ index: i, thought })
@@ -132,10 +132,10 @@ thoughtsRouter.post('/', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'create_thought' }, async c2 => {
     const body = await c2.req.json() as {
       content: string; status?: 'draft' | 'active' | 'archived'; tags?: string[];
-      source?: string; project_id?: string; parent_id?: string; relation?: string; is_profile?: boolean
+      source?: string; project_id?: string; parent_id?: string; relation?: string; is_profile?: boolean; is_protected?: boolean
     }
     const thought = createThoughtWithParent(
-      { content: body.content, status: body.status, tags: body.tags, source: body.source, project_id: body.project_id, is_profile: body.is_profile },
+      { content: body.content, status: body.status, tags: body.tags, source: body.source, project_id: body.project_id, is_profile: body.is_profile, is_protected: body.is_protected },
       body.parent_id, body.relation
     )
     return c2.json(thought, 201)
@@ -147,10 +147,10 @@ thoughtsRouter.put('/:id', async c => {
     const id = c2.req.param('id')
     const body = await c2.req.json() as {
       content?: string; tags?: string[]; status?: 'draft' | 'active' | 'archived';
-      project_id?: string; is_profile?: boolean
+      project_id?: string; is_profile?: boolean; is_protected?: boolean
     }
     const thought = updateThoughtById(id, {
-      content: body.content, tags: body.tags, status: body.status, project_id: body.project_id, is_profile: body.is_profile
+      content: body.content, tags: body.tags, status: body.status, project_id: body.project_id, is_profile: body.is_profile, is_protected: body.is_protected
     })
     if (thought && body.content !== undefined) {
       pruneThoughtUrlLinksService(id, body.content)

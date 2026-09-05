@@ -453,6 +453,6 @@ export function deleteEdges(db: Database, edgeIds: string[]): number {
 export function deleteThoughts(db: Database, thoughtIds: string[]): number {
   if (thoughtIds.length === 0) return 0
   const ph = sqlIn(thoughtIds)
-  const result = db.prepare(`DELETE FROM thoughts WHERE id IN (${ph})`).run(...thoughtIds)
+  const result = db.prepare(`DELETE FROM thoughts WHERE id IN (${ph}) AND (is_protected IS NULL OR is_protected = 0)`).run(...thoughtIds)
   return result.changes
 }

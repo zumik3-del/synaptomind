@@ -8,7 +8,7 @@ afterEach(() => { closeDb() })
 
 function insertArchived(archivedAtAgo: number): string {
   const d = getDb()
-  const id = seedThought({ status: 'active' })
+  const id = seedThought({ status: 'active', is_protected: 0 })
   const archivedAt = new Date(Date.now() - archivedAtAgo).toISOString()
   d.prepare(`UPDATE thoughts SET status = 'archived', archived_at = ? WHERE id = ?`).run(archivedAt, id)
   return id

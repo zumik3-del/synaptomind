@@ -16,6 +16,7 @@ export function seedThought(overrides?: {
 	project_id?: string;
 	is_cluster?: number | null;
 	is_profile?: number | null;
+	is_protected?: number | null;
 	importance?: number;
 }): string {
 	const db = getDb();
@@ -32,8 +33,8 @@ export function seedThought(overrides?: {
 		new Date().toISOString(),
 	);
 	db.prepare(`
-    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
 		id,
 		overrides?.content ?? "test thought",
@@ -42,6 +43,7 @@ export function seedThought(overrides?: {
 		projectId,
 		isCluster,
 		overrides?.is_profile ?? 0,
+		overrides?.is_protected ?? 1,
 		now,
 		now,
 	);

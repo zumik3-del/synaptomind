@@ -22,7 +22,7 @@ const actionHandlers: Record<string, (args: StoreArgs) => unknown> = {
   create(args) {
     if (!args.content) throw new Error('content is required for create action')
     return createThoughtWithUrlLinks(
-      { content: args.content as string, tags: args.tags as string[] | undefined, status: args.status as any, project_id: resolveProjectId(args.project_id as string, args.cwd as string), is_profile: args.is_profile as boolean | undefined },
+      { content: args.content as string, tags: args.tags as string[] | undefined, status: args.status as any, project_id: resolveProjectId(args.project_id as string, args.cwd as string), is_profile: args.is_profile as boolean | undefined, is_protected: args.is_protected as boolean | undefined },
       { parentId: args.parent_id as string | undefined, urlLinks: args.url_links as { text: string; url: string }[] | undefined }
     )
   },
@@ -30,7 +30,7 @@ const actionHandlers: Record<string, (args: StoreArgs) => unknown> = {
   update(args) {
     if (!args.thought_id) throw new Error('thought_id is required for update action')
     const updated = updateThoughtById(args.thought_id as string, {
-      content: args.content as string | undefined, tags: args.tags as string[] | undefined, status: args.status as any, project_id: resolveProjectId(args.project_id as string, args.cwd as string), is_profile: args.is_profile as boolean | undefined
+      content: args.content as string | undefined, tags: args.tags as string[] | undefined, status: args.status as any, project_id: resolveProjectId(args.project_id as string, args.cwd as string), is_profile: args.is_profile as boolean | undefined, is_protected: args.is_protected as boolean | undefined
     })
     if (!updated) throw new Error(`Thought '${args.thought_id}' not found`)
     return updated
@@ -86,6 +86,7 @@ export function registerMemoryStore(server: McpServer) {
     cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
     parent_id: z.string().optional().describe('Parent thought ID (for create)'),
     is_profile: z.boolean().optional().describe('Mark as profile thought'),
+    is_protected: z.boolean().optional().describe('Protect from auto-deletion'),
     url_links: z.array(z.object({ text: z.string(), url: z.string() })).optional().describe('URL links (for create)'),
     thought_id: z.string().optional().describe('REQUIRED for "update", "link", "smart_note_create", "smart_note_promote", "smart_note_delete". IGNORED for "create".'),
     target_id: z.string().optional().describe('REQUIRED ONLY for "link". IGNORED for all other actions.'),

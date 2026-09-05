@@ -86,6 +86,7 @@ export function archiveStaleLowImportance(db: Database, threshold: number, minAg
     )
     AND status = 'active'
     AND (is_profile IS NULL OR is_profile = 0)
+    AND (is_protected IS NULL OR is_protected = 0)
   `)
     .run(new Date().toISOString(), threshold, cutoff)
   return result.changes
