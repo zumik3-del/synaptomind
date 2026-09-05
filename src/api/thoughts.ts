@@ -84,6 +84,51 @@ thoughtsRouter.get('/:id', c => {
   })
 })
 
+thoughtsRouter.post('/bulk', async c => {
+  return withTelemetry(c, { action: 'write', toolName: 'bulk_create_thoughts' }, async c2 => {
+    const body = await c2.req.json() as {
+      thoughts: Array<{
+        content: string; status?: 'draft' | 'active' | 'archived'; tags?: string[];
+        source?: string; project_id?: string; parent_id?: string; relation?: string; is_profile?: boolean
+      }>; project_id?: string
+    }
+    if (!Array.isArray(body.thoughts) || body.thoughts.length === 0) {
+      return c2.json({ error: 'thoughts array is required and must not be empty' }, 400)
+    }
+    if (body.thoughts.length > 10000) {
+      return c2.json({ error: 'Maximum 10000 thoughts per bulk request' }, 400)
+    }
+
+    const d = getDb()
+    const created: Array<{ index: number; thought: ReturnType<typeof createThoughtWithParent> }> = []
+    const errors: Array<{ index: number; error: string }> = []
+
+    const run = d.transaction(() => {
+      for (let i = 0; i < body.thoughts.length; i++) {
+        const t = body.thoughts[i]
+        try {
+          const projectId = t.project_id ?? body.project_id
+          const thought = createThoughtWithParent(
+            { content: t.content, status: t.status, tags: t.tags, source: t.source, project_id: projectId, is_profile: t.is_profile },
+            t.parent_id, t.relation
+          )
+          created.push({ index: i, thought })
+        } catch (err) {
+          errors.push({ index: i, error: err instanceof Error ? err.message : String(err) })
+        }
+      }
+    })
+    run()
+
+    return c2.json({
+      created: created.length,
+      errors: errors.length,
+      thoughts: created.map(c => c.thought),
+      error_details: errors.length > 0 ? errors : undefined
+    }, 201)
+  })
+})
+
 thoughtsRouter.post('/', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'create_thought' }, async c2 => {
     const body = await c2.req.json() as {

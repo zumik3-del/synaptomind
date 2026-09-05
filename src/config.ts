@@ -5,10 +5,10 @@ interface Config {
   contentLanguage: string
   server: { port: number; host: string }
   mcp: { httpPort: number; instructionsFile?: string }
-  db: { path: string }
+  db: { path: string; busyTimeout: number }
   logDbPath: string
   embedder: {
-    model: string; dimensions: number; pollIntervalMs: number;
+    enabled: boolean; model: string; dimensions: number; pollIntervalMs: number;
     cacheDir: string; idleTimeoutMs: number; precache: boolean
   }
   thoughts: { softLimit: number; hardLimit: number }
@@ -35,16 +35,17 @@ interface Config {
   }
   slots: { defaultMaxChars: number; hardLimit: number }
   graph: { maxDegree: number }
+  rateLimit: { max: number; windowMs: number }
 }
 
 export const DEFAULTS: Config = {
   contentLanguage: 'en',
   server: { port: 3005, host: '127.0.0.1' },
   mcp: { httpPort: 3006, instructionsFile: '' },
-  db: { path: './data/synaptomind.db' },
+  db: { path: './data/synaptomind.db', busyTimeout: 5000 },
   logDbPath: '',
   embedder: {
-    model: 'Xenova/multilingual-e5-small', dimensions: 384,
+    enabled: true, model: 'Xenova/multilingual-e5-small', dimensions: 384,
     pollIntervalMs: 7000, cacheDir: './data/huggingface',
     idleTimeoutMs: 600000, precache: false
   },
@@ -71,7 +72,8 @@ export const DEFAULTS: Config = {
     maxPrimerPromotesPerRun: 3
   },
   slots: { defaultMaxChars: 2000, hardLimit: 20000 },
-  graph: { maxDegree: 50 }
+  graph: { maxDegree: 50 },
+  rateLimit: { max: 200, windowMs: 60_000 }
 }
 
 export type EnvType = 'string' | 'int' | 'float' | 'bool'
@@ -92,9 +94,11 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_MCP_INSTRUCTIONS_FILE', path: 'mcp.instructionsFile', type: 'string' },
 
   { env: 'SYNAPTOMIND_DB_PATH', path: 'db.path', type: 'string' },
+  { env: 'SYNAPTOMIND_DB_BUSY_TIMEOUT', path: 'db.busyTimeout', type: 'int' },
   { env: 'SYNAPTOMIND_LOG_DB_PATH', path: 'logDbPath', type: 'string' },
 
   { env: 'SYNAPTOMIND_EMBEDDER_MODEL', path: 'embedder.model', type: 'string' },
+  { env: 'SYNAPTOMIND_EMBEDDER_ENABLED', path: 'embedder.enabled', type: 'bool' },
   { env: 'SYNAPTOMIND_EMBEDDER_DIMENSIONS', path: 'embedder.dimensions', type: 'int' },
   { env: 'SYNAPTOMIND_EMBEDDER_POLL_INTERVAL', path: 'embedder.pollIntervalMs', type: 'int' },
   { env: 'SYNAPTOMIND_EMBEDDER_CACHE_DIR', path: 'embedder.cacheDir', type: 'string' },
@@ -141,7 +145,10 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_SLOTS_MAX_CHARS', path: 'slots.defaultMaxChars', type: 'int' },
   { env: 'SYNAPTOMIND_SLOTS_HARD_LIMIT', path: 'slots.hardLimit', type: 'int' },
 
-  { env: 'SYNAPTOMIND_GRAPH_MAX_DEGREE', path: 'graph.maxDegree', type: 'int' }
+  { env: 'SYNAPTOMIND_GRAPH_MAX_DEGREE', path: 'graph.maxDegree', type: 'int' },
+
+  { env: 'SYNAPTOMIND_RATE_LIMIT', path: 'rateLimit.max', type: 'int' },
+  { env: 'SYNAPTOMIND_RATE_LIMIT_WINDOW_MS', path: 'rateLimit.windowMs', type: 'int' }
 ]
 
 function parseValue(raw: string, type: EnvType): string | number | boolean {

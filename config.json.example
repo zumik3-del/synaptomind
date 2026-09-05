@@ -9,10 +9,12 @@
     "instructionsFile": ""
   },
   "db": {
-    "path": "./data/synaptomind.db"
+    "path": "./data/synaptomind.db",
+    "busyTimeout": 5000
   },
   "logDbPath": "",
   "embedder": {
+    "enabled": true,
     "model": "Xenova/multilingual-e5-small",
     "dimensions": 384,
     "pollIntervalMs": 7000,
@@ -71,5 +73,9 @@
   },
   "graph": {
     "maxDegree": 50
+  },
+  "rateLimit": {
+    "max": 200,
+    "windowMs": 60000
   }
 }

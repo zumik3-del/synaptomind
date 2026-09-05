@@ -33,8 +33,8 @@ export function createApp(): Hono {
 
   app.use('/api/*', async (c, next) => {
     const contentLength = parseInt(c.req.header('content-length') || '0', 10)
-    if (contentLength > 1_048_576) {
-      return c.json({ error: 'Request body too large (max 1MB)' }, 413)
+    if (contentLength > 5_242_880) {
+      return c.json({ error: 'Request body too large (max 5MB)' }, 413)
     }
     return next()
   })
