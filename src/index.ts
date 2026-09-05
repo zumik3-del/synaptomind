@@ -19,6 +19,7 @@ const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/
 const { startDecayJob, stopDecayJob } = await import('./services/decay.service')
 const { startDreamerJob, stopDreamerJob } = await import('./services/dreamer.service')
 const { startSelfImproveJob, stopSelfImproveJob } = await import('./services/self-improve.service')
+const { startTtlCleanupJob, stopTtlCleanupJob } = await import('./services/ttl-cleanup.service')
 
 const isStdio = process.argv.includes('--stdio')
 const noEmbedder = process.argv.includes('--no-embedder') || !config.embedder.enabled
@@ -46,6 +47,7 @@ if (noEmbedder) {
 startDecayJob()
 startDreamerJob()
 startSelfImproveJob()
+startTtlCleanupJob()
 
 if (isStdio) {
   const mcpServer = createMcpServer()
@@ -68,6 +70,7 @@ if (isStdio) {
     stopDecayJob()
     stopDreamerJob()
     stopSelfImproveJob()
+    stopTtlCleanupJob()
     await stopEmbedderProcess()
     closeLogDb()
     const sessions = mcpHandle.getSessions()
