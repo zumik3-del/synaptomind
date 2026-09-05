@@ -4,16 +4,56 @@ import { searchThoughts, searchThoughtsGrouped } from '../../services/search.ser
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getChainService, getContextService } from '../../services/graph.service'
 import { getThoughtById } from '../../services/thoughts.service'
-import { resolveProjectService } from '../../services/projects.service'
-import { jsonResult, errorResult } from './utils'
+import { jsonResult, errorResult, resolveProjectId } from './utils'
 
-function resolveProjectId(projectId?: string, cwd?: string): string | undefined {
-  if (projectId) return projectId
-  if (cwd) {
-    const project = resolveProjectService(cwd)
-    if (project) return project.id
+type RecallArgs = Record<string, unknown>
+
+const actionHandlers: Record<string, (args: RecallArgs) => unknown | Promise<unknown>> = {
+  get(args) {
+    if (!args.thought_id) throw new Error('thought_id is required for get action')
+    const thought = getThoughtById(args.thought_id as string)
+    if (!thought) throw new Error(`Thought '${args.thought_id}' not found`)
+    return thought
+  },
+
+  async search(args) {
+    const topK = (args.top_k as number) ?? 10
+    const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
+    const results = args.group_by_cluster
+      ? await searchThoughtsGrouped({
+          query: args.query as string, topK, statusFilter: args.status as string | undefined,
+          projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: args.cluster as 'only' | 'exclude' | undefined,
+          minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
+          hybrid: args.hybrid as boolean | undefined
+        })
+      : await searchThoughts({
+          query: args.query as string, topK, statusFilter: args.status as string | undefined,
+          projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: args.cluster as 'only' | 'exclude' | undefined,
+          minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
+          hybrid: args.hybrid as boolean | undefined
+        })
+    return postProcessSearchResults(results, { query: args.query as string, topK, showPrimers: true })
+  },
+
+  async context(args) {
+    const context = getContextService(args.query as string, args.max_degree as number | undefined)
+    if (!context) throw new Error(`No thoughts matching '${args.query}'`)
+    return context
+  },
+
+  chain(args) {
+    if (!args.thought_id) throw new Error('thought_id is required for chain action')
+    const chain = getChainService(args.thought_id as string, args.direction as 'upstream' | 'downstream' | 'both' | undefined, args.max_degree as number | undefined)
+    if (!chain) throw new Error(`Thought '${args.thought_id}' not found`)
+    return chain
+  },
+
+  async clusters(args) {
+    const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
+    return searchThoughts({
+      query: args.query as string, topK: args.top_k as number | undefined, clusterFilter: 'only', projectFilter
+    })
   }
-  return undefined
 }
 
 export function registerMemoryRecall(server: McpServer) {
@@ -35,61 +75,15 @@ export function registerMemoryRecall(server: McpServer) {
     min_importance: z.number().optional().describe('Minimum importance'),
     exclude_flagged: z.boolean().optional().describe('Exclude flagged thoughts'),
     hybrid: z.boolean().optional().describe('Use hybrid search'),
-    thought_id: z.string().optional().describe('Thought ID (required for chain action)'),
+    thought_id: z.string().optional().describe('REQUIRED ONLY for "chain" and "get". IGNORED for "search", "context", "clusters".'),
     direction: z.enum(['upstream', 'downstream', 'both']).optional().describe('Traversal direction (default: both)'),
     max_degree: z.number().optional().describe('Max edges to return for chain/context (default 50)')
   }, async (args) => {
-    const action = args.action ?? 'search'
-    const projectFilter = resolveProjectId(args.project_id, args.cwd)
-
+    const action = (args.action as string) ?? 'search'
     try {
-      if (action === 'get') {
-        if (!args.thought_id) return errorResult('thought_id is required for get action')
-        const thought = getThoughtById(args.thought_id)
-        if (!thought) return errorResult(`Thought '${args.thought_id}' not found`)
-        return jsonResult(thought)
-      }
-
-      if (action === 'search') {
-        const topK = args.top_k ?? 10
-        const results = args.group_by_cluster
-          ? await searchThoughtsGrouped({
-              query: args.query, topK, statusFilter: args.status,
-              projectFilter, tagFilter: args.tag, clusterFilter: args.cluster,
-              minImportance: args.min_importance, excludeFlagged: args.exclude_flagged,
-              hybrid: args.hybrid
-            })
-          : await searchThoughts({
-              query: args.query, topK, statusFilter: args.status,
-              projectFilter, tagFilter: args.tag, clusterFilter: args.cluster,
-              minImportance: args.min_importance, excludeFlagged: args.exclude_flagged,
-              hybrid: args.hybrid
-            })
-        const processed = postProcessSearchResults(results, { query: args.query, topK, showPrimers: true })
-        return jsonResult(processed)
-      }
-
-      if (action === 'context') {
-        const context = getContextService(args.query, args.max_degree)
-        if (!context) return errorResult(`No thoughts matching '${args.query}'`)
-        return jsonResult(context)
-      }
-
-      if (action === 'chain') {
-        if (!args.thought_id) return errorResult('thought_id is required for chain action')
-        const chain = getChainService(args.thought_id, args.direction, args.max_degree)
-        if (!chain) return errorResult(`Thought '${args.thought_id}' not found`)
-        return jsonResult(chain)
-      }
-
-      if (action === 'clusters') {
-        const results = await searchThoughts({
-          query: args.query, topK: args.top_k, clusterFilter: 'only', projectFilter
-        })
-        return jsonResult(results)
-      }
-
-      return errorResult(`Unknown action: ${action}`)
+      const handler = actionHandlers[action]
+      if (!handler) return errorResult(`Unknown action: ${action}`)
+      return jsonResult(await handler(args))
     } catch (err) {
       return errorResult(err instanceof Error ? err.message : 'memory_recall failed')
     }
