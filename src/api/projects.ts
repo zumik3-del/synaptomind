@@ -25,10 +25,6 @@ projectsRouter.post('/', async c => {
   const body = await c.req.json<{
     name: string
     description?: string
-    is_git_linked?: boolean
-    git_repo_url?: string | null
-    git_auto_sync?: boolean
-    git_sync_interval_ms?: number | null
     local_path?: string | null
   }>()
   try {
@@ -46,10 +42,6 @@ projectsRouter.patch('/:id', async c => {
   const body = await c.req.json<{
     name?: string
     description?: string | null
-    is_git_linked?: boolean
-    git_repo_url?: string | null
-    git_auto_sync?: boolean
-    git_sync_interval_ms?: number | null
     local_path?: string | null
   }>()
   updateProjectService(id, body)

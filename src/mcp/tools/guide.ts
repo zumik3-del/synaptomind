@@ -40,7 +40,6 @@ const GUIDE_TEXT = `# SynaptoMind — Thought Graph Engine
 | \`memory_crystallize\` | crystallize, graph, cluster, auto_cluster | Consolidate and visualize |
 | \`memory_reflect\` | reflect, timeline | Session management |
 | \`memory_telemetry\` | query, analyze, primers | Analytics and self-improvement |
-| \`memory_git\` | (no action) | Git history indexing |
 | \`memory_guide\` | (no action) | This help text |
 
 ## Thoughts
@@ -114,7 +113,6 @@ Post-processing: hit counting → primer promotion → primer hoisting → profi
 | Purpose | Organizational containers | Semantic groupings |
 | Cardinality | One project per thought | One cluster per thought (enforced) |
 | Deletion | Thoughts moved to Default | N/A |
-| Git link | Optional auto-sync | N/A |
 | Frontier | Included | Excluded |
 
 ## Background Jobs
@@ -126,7 +124,6 @@ Post-processing: hit counting → primer promotion → primer hoisting → profi
 | **auto-cluster** | Groups similar thoughts into clusters (Union-Find) | \`minAgeDays\`, \`minSimilarity\`, \`minMembers\` |
 | **auto-link** | Creates related edges for low-connectivity thoughts | \`minSimilarity\`, \`maxEdgesPerRun\` |
 | **self-improve** | Detects issues, auto-corrects (orphan writes, stale drafts) | \`enabled\` (default false) |
-| **git-sync** | Pulls git commits into search index | Per-project \`git_sync_interval_ms\` |
 
 ## Health Check
 

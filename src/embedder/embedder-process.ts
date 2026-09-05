@@ -1,10 +1,4 @@
 import { config } from '../config'
-import {
-  deleteGitQueueItems,
-  findPendingGitEmbeddings,
-  handleFailedGitItem,
-  insertGitEmbedding
-} from '../db/git_commits'
 import { getDb } from '../db/container'
 import { initDb } from '../db/init'
 import { insertLog } from '../logging'
@@ -62,21 +56,6 @@ function sweepOrphanedThoughts(): { id: string; content: string }[] {
     LEFT JOIN vec_thoughts v ON t.id = v.id
     LEFT JOIN pending_embeddings p ON t.id = p.thought_id
     WHERE v.id IS NULL AND p.thought_id IS NULL
-    LIMIT ?
-  `)
-    .all(BATCH_SIZE) as { id: string; content: string }[]
-}
-
-// A8: a git commit with no embedding row and not currently in the queue would
-// otherwise never be embedded (thoughts have an equivalent sweep). Re-queue it.
-function sweepOrphanedGitCommits(): { id: string; content: string }[] {
-  const db = getDb()
-  return db
-    .prepare(`
-    SELECT gc.id, gc.message AS content FROM git_commits gc
-    LEFT JOIN vec_git_commits v ON gc.id = v.id
-    LEFT JOIN pending_git_embeddings p ON gc.id = p.commit_id
-    WHERE v.id IS NULL AND p.commit_id IS NULL
     LIMIT ?
   `)
     .all(BATCH_SIZE) as { id: string; content: string }[]
@@ -238,20 +217,6 @@ async function processSweep(): Promise<void> {
         ids: orphans.map(o => o.id)
       })
     }
-    const gitOrphans = sweepOrphanedGitCommits()
-    if (gitOrphans.length > 0) {
-      const db = getDb()
-      const insert = db.prepare('INSERT OR IGNORE INTO pending_git_embeddings (commit_id, created_at) VALUES (?, ?)')
-      const tx = db.transaction(() => {
-        for (const row of gitOrphans) insert.run(row.id, new Date().toISOString())
-      })
-      tx()
-      console.log(`[embedder] sweep: re-queued ${gitOrphans.length} orphaned git commit(s)`)
-      insertLog('info', 'embedding', `Sweep requeued ${gitOrphans.length} git commit(s)`, {
-        count: gitOrphans.length,
-        ids: gitOrphans.map(o => o.id)
-      })
-    }
   } catch (err) {
     console.error('[embedder] sweep failed:', err)
     insertLog('error', 'embedding', 'Sweep failed', {
@@ -263,55 +228,10 @@ async function processSweep(): Promise<void> {
 function startWorker(): void {
   if (pollTimer) return
   processBatch()
-  processCommitBatch()
   pollTimer = setInterval(() => {
     void processBatch()
-    void processCommitBatch()
   }, config.embedder.pollIntervalMs)
   sweepTimer = setInterval(processSweep, SWEEP_INTERVAL_MS)
-}
-
-// Git commit queue (issue #197) — mirrors the thought queue with its own
-// failure counter; a stuck commit stream must not back off thought embedding.
-let commitFailures = 0
-
-async function processCommitBatch(): Promise<void> {
-  try {
-    const db = getDb()
-    const rows = findPendingGitEmbeddings(db, BATCH_SIZE)
-    if (rows.length === 0) {
-      commitFailures = 0
-      return
-    }
-    const embeddings = await generateEmbeddings(rows.map(r => r.content))
-    const succeeded: string[] = []
-    const failed: { id: string; error: string }[] = []
-    for (let i = 0; i < rows.length; i++) {
-      try {
-        insertGitEmbedding(db, rows[i].id, embeddings[i])
-        succeeded.push(rows[i].id)
-      } catch (err) {
-        failed.push({ id: rows[i].id, error: err instanceof Error ? err.message : String(err) })
-      }
-    }
-    if (succeeded.length > 0) deleteGitQueueItems(db, succeeded)
-    for (const f of failed) handleFailedGitItem(db, f.id, f.error)
-    insertLog(
-      failed.length > 0 ? 'warning' : 'info',
-      'embedding',
-      `Git commits batch: ${succeeded.length} ok, ${failed.length} failed`,
-      {
-        count: rows.length,
-        failedCount: failed.length
-      }
-    )
-    commitFailures = failed.length === rows.length ? commitFailures + 1 : 0
-  } catch (err) {
-    commitFailures++
-    insertLog('error', 'embedding', `Commit batch failed (${commitFailures}):`, {
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
 }
 
 process.on('message', async (raw: unknown) => {

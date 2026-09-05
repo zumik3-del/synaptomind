@@ -7,7 +7,6 @@ import { registerMemoryManage } from './manage'
 import { registerMemoryCrystallize } from './crystallize'
 import { registerMemoryReflect } from './reflect'
 import { registerMemoryTelemetry } from './telemetry'
-import { registerMemoryGit } from './git'
 import { registerMemoryGuide } from './guide'
 
 export function registerAllMemoryTools(server: McpServer): void {
@@ -19,6 +18,5 @@ export function registerAllMemoryTools(server: McpServer): void {
   registerMemoryCrystallize(server)
   registerMemoryReflect(server)
   registerMemoryTelemetry(server)
-  registerMemoryGit(server)
   registerMemoryGuide(server)
 }

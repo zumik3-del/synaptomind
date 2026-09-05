@@ -18,7 +18,6 @@ const { createMcpServer } = await import('./mcp/server')
 const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js')
 const { startDecayJob, stopDecayJob } = await import('./services/decay.service')
 const { startDreamerJob, stopDreamerJob } = await import('./services/dreamer.service')
-const { startGitSyncJob, stopGitSyncJob } = await import('./services/git_sync.service')
 const { startSelfImproveJob, stopSelfImproveJob } = await import('./services/self-improve.service')
 
 const isStdio = process.argv.includes('--stdio')
@@ -42,7 +41,6 @@ startEmbedderProcess().catch(err => {
 startDecayJob()
 startDreamerJob()
 startSelfImproveJob()
-startGitSyncJob()
 
 if (isStdio) {
   const mcpServer = createMcpServer()
@@ -65,7 +63,6 @@ if (isStdio) {
     stopDecayJob()
     stopDreamerJob()
     stopSelfImproveJob()
-    stopGitSyncJob()
     await stopEmbedderProcess()
     closeLogDb()
     const sessions = mcpHandle.getSessions()

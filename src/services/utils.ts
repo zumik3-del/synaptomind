@@ -1,11 +1,5 @@
 import type { Database } from 'bun:sqlite'
 
-// ── URL helpers ──────────────────────────────────────────────────────────────
-
-export function isRemoteUrl(url: string | null | undefined): boolean {
-  return !!url && (url.includes('://') || url.startsWith('git@'))
-}
-
 // ── Time helpers ─────────────────────────────────────────────────────────────
 
 export function windowStart(windowSecs: number): string {
