@@ -207,6 +207,8 @@ export function mergeThoughtsService(options: MergeThoughtsOptions): MergeResult
 
     dbArchiveThought(d, sourceId)
 
+    createEdge(d, targetId, sourceId, 'replaces')
+
     return { transferredEdges }
   })
 

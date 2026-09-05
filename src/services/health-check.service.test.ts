@@ -261,7 +261,7 @@ test('fix mode removes orphan edges', () => {
 })
 
 test('fix mode removes empty clusters', () => {
-  seedThought({ content: 'empty cluster', is_cluster: 1 })
+  seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
 
   const before = runHealthCheck()
   const emptyBefore = before.categories.find(c => c.name === 'cluster_health')!.checks.find(c => c.name === 'empty_clusters')!

@@ -98,7 +98,7 @@ test('decayImportance does not touch recently decayed rows', () => {
 })
 
 test('archiveStaleLowImportance archives old low-importance active thoughts', () => {
-  const id = seedThought()
+  const id = seedThought({ is_protected: 0 })
   setImportance(id, 0.05)
   const db = getDb()
   const oldDate = new Date(Date.now() - 30 * 86400000).toISOString()
@@ -111,7 +111,7 @@ test('archiveStaleLowImportance archives old low-importance active thoughts', ()
 })
 
 test('archiveStaleLowImportance does not archive profile thoughts', () => {
-  const id = seedThought({ is_profile: 1 })
+  const id = seedThought({ is_profile: 1, is_protected: 0 })
   setImportance(id, 0.05)
   const db = getDb()
   const oldDate = new Date(Date.now() - 30 * 86400000).toISOString()

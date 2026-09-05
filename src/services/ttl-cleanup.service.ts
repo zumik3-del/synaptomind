@@ -17,7 +17,7 @@ export function cleanupArchivedThoughts(dryRun = false): CleanupResult {
 
   const cutoff = new Date(Date.now() - ttlDays * 86400000).toISOString()
   const rows = d
-    .prepare(`SELECT id FROM thoughts WHERE status = 'archived' AND archived_at IS NOT NULL AND archived_at < ?`)
+    .prepare(`SELECT id FROM thoughts WHERE status = 'archived' AND archived_at IS NOT NULL AND archived_at < ? AND (is_protected IS NULL OR is_protected = 0)`)
     .all(cutoff) as { id: string }[]
 
   if (rows.length === 0) return { deleted: 0, ids: [] }

@@ -414,7 +414,7 @@ test("decayImportance skips recent last_decay", () => {
 
 test("archiveStaleLowImportance archives old low-importance thoughts", () => {
 	const db = getDb();
-	const t = createThought(db, { content: "stale one", status: "active" });
+	const t = createThought(db, { content: "stale one", status: "active", is_protected: false });
 	const sixtyDaysAgo = new Date(Date.now() - 60 * 86400000).toISOString();
 	db.prepare(
 		`UPDATE thoughts SET created_at = ?, updated_at = ? WHERE id = ?`,
@@ -432,7 +432,7 @@ test("archiveStaleLowImportance archives old low-importance thoughts", () => {
 
 test("archiveStaleLowImportance does not archive recent low-importance thoughts", () => {
 	const db = getDb();
-	const t = createThought(db, { content: "recently faded", status: "active" });
+	const t = createThought(db, { content: "recently faded", status: "active", is_protected: false });
 	db.prepare(
 		`UPDATE thought_importance SET importance = 0.05 WHERE thought_id = ?`,
 	).run(t.id);
