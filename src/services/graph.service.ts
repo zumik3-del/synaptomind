@@ -1,5 +1,6 @@
 import { getAllActiveEdges, getThoughtEdges, type EdgeView } from '../db/edges'
 import { getDb } from '../db'
+import { config } from '../config'
 import { searchThoughts } from '../db/search'
 import { listThoughts, type Thought } from '../db/thoughts'
 
@@ -80,9 +81,10 @@ export interface ChainResult {
 
 export function getChainService(
   thoughtId: string,
-  direction: 'upstream' | 'downstream' | 'both' = 'both'
+  direction: 'upstream' | 'downstream' | 'both' = 'both',
+  maxDegree: number = config.graph.maxDegree
 ): ChainResult | null {
-  return getThoughtEdges(getDb(), thoughtId, direction)
+  return getThoughtEdges(getDb(), thoughtId, direction, maxDegree)
 }
 
 export interface ContextResult {
@@ -90,11 +92,11 @@ export interface ContextResult {
   chain: ChainResult | null
 }
 
-export function getContextService(query: string): ContextResult | null {
+export function getContextService(query: string, maxDegree: number = config.graph.maxDegree): ContextResult | null {
   const d = getDb()
   const results = searchThoughts(d, { embedding: new Float32Array(0), query, topK: 1, hybrid: true, statusFilter: 'active' })
   if (!results || results.length === 0) return null
   const best = results[0].thought ?? results[0]
-  const chain = getThoughtEdges(d, best.id, best.is_cluster ? 'downstream' : 'both')
+  const chain = getThoughtEdges(d, best.id, best.is_cluster ? 'downstream' : 'both', maxDegree)
   return { best_match: best, chain }
 }

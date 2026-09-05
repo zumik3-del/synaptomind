@@ -81,3 +81,27 @@ test('getChainService filters by direction downstream', () => {
   expect(chain!.upstream.length).toBe(0)
   expect(chain!.downstream.length).toBe(1)
 })
+
+test('getChainService caps edges at maxDegree', () => {
+  const hub = seedThought({ content: 'hub' })
+  const ids: string[] = []
+  for (let i = 0; i < 5; i++) {
+    const t = seedThought({ content: `spoke ${i}` })
+    ids.push(t)
+    seedEdge(hub, t, 'related')
+  }
+  const chain = getChainService(hub, 'both', 3)
+  expect(chain).not.toBeNull()
+  expect(chain!.downstream.length).toBe(3)
+})
+
+test('getChainService default maxDegree is 50', () => {
+  const hub = seedThought({ content: 'hub' })
+  for (let i = 0; i < 3; i++) {
+    const t = seedThought({ content: `node ${i}` })
+    seedEdge(hub, t, 'related')
+  }
+  const chain = getChainService(hub)
+  expect(chain).not.toBeNull()
+  expect(chain!.downstream.length).toBe(3)
+})

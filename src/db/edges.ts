@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { v7 as uuidv7 } from 'uuid'
+import { config } from '../config'
 import { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError } from './errors'
 import { boostImportance, getThoughtRow, getThoughtsBatchWithTags, type Thought } from './thoughts'
 import { placeholders } from './utils'
@@ -170,12 +171,18 @@ export interface ThoughtEdgeResult {
 export function getThoughtEdges(
   db: Database,
   id: string,
-  direction: 'upstream' | 'downstream' | 'both' = 'both'
+  direction: 'upstream' | 'downstream' | 'both' = 'both',
+  maxDegree: number = config.graph.maxDegree
 ): ThoughtEdgeResult | null {
   const thought = getThoughtRow(db, id)
   if (!thought) return null
 
-  const rawEdges = getEdgesForThought(db, id)
+  let rawEdges = getEdgesForThought(db, id)
+
+  if (rawEdges.length > maxDegree) {
+    rawEdges.sort((a, b) => b.created_at.localeCompare(a.created_at))
+    rawEdges = rawEdges.slice(0, maxDegree)
+  }
 
   const involvedIds = new Set<string>()
   for (const e of rawEdges) {

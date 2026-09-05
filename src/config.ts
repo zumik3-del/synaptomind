@@ -35,6 +35,7 @@ interface Config {
   }
   slots: { defaultMaxChars: number; hardLimit: number }
   git: { defaultLimit: number; allowedRepos: string[]; allowedHosts: string[] }
+  graph: { maxDegree: number }
 }
 
 export const DEFAULTS: Config = {
@@ -71,7 +72,8 @@ export const DEFAULTS: Config = {
     maxPrimerPromotesPerRun: 3
   },
   slots: { defaultMaxChars: 2000, hardLimit: 20000 },
-  git: { defaultLimit: 500, allowedRepos: [], allowedHosts: ['github.com', 'gitlab.com', 'codeberg.org', 'forgejo.*'] }
+  git: { defaultLimit: 500, allowedRepos: [], allowedHosts: ['github.com', 'gitlab.com', 'codeberg.org', 'forgejo.*'] },
+  graph: { maxDegree: 50 }
 }
 
 export type EnvType = 'string' | 'int' | 'float' | 'bool'
@@ -141,7 +143,9 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_SLOTS_MAX_CHARS', path: 'slots.defaultMaxChars', type: 'int' },
   { env: 'SYNAPTOMIND_SLOTS_HARD_LIMIT', path: 'slots.hardLimit', type: 'int' },
 
-  { env: 'SYNAPTOMIND_GIT_DEFAULT_LIMIT', path: 'git.defaultLimit', type: 'int' }
+  { env: 'SYNAPTOMIND_GIT_DEFAULT_LIMIT', path: 'git.defaultLimit', type: 'int' },
+
+  { env: 'SYNAPTOMIND_GRAPH_MAX_DEGREE', path: 'graph.maxDegree', type: 'int' }
 ]
 
 function parseValue(raw: string, type: EnvType): string | number | boolean {
