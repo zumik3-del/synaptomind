@@ -66,7 +66,7 @@ export function registerMemoryRecall(server: McpServer) {
 - chain: Traverse linked thoughts from a starting point
 - clusters: Search clusters by semantic similarity`, {
     action: z.enum(['search', 'get', 'context', 'chain', 'clusters']).optional().describe('Action (default: search)'),
-    query: z.string().describe('Search query (required for search/context/clusters, not for chain)'),
+    query: z.string().optional().describe('Search query (required for search/context/clusters, not for chain)'),
     top_k: z.number().optional().describe('Max results (default 10)'),
     status: z.string().optional().describe('Filter by status (default: active)'),
     project_id: z.string().optional().describe('Filter by project (prefer cwd instead)'),
