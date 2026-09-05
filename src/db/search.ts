@@ -96,6 +96,37 @@ export function bm25SearchIds(db: Database, query: string, limit: number): strin
   }
 }
 
+export function bm25SearchIdsFiltered(
+  db: Database,
+  query: string,
+  limit: number,
+  filterSql: string,
+  filterParams: SQLQueryBindings[]
+): string[] {
+  if (!filterSql) return bm25SearchIds(db, query, limit)
+  try {
+    const oversample = Math.min(1000, limit * 3)
+    const rows = db
+      .prepare(`
+        SELECT fts.thought_id
+        FROM (
+          SELECT thought_id FROM thoughts_fts
+          WHERE thoughts_fts MATCH ?
+          ORDER BY bm25(thoughts_fts)
+          LIMIT ?
+        ) fts
+        INNER JOIN thoughts t ON fts.thought_id = t.id
+        LEFT JOIN thought_importance ti ON fts.thought_id = ti.thought_id
+        WHERE 1=1 ${filterSql}
+        LIMIT ?
+      `)
+      .all(toFtsQuery(query), oversample, ...filterParams, limit) as Array<{ thought_id: string }>
+    return rows.map(r => r.thought_id)
+  } catch {
+    return bm25SearchIds(db, query, limit)
+  }
+}
+
 // ── Reciprocal Rank Fusion ──────────────────────────────────────────────────
 
 const RRF_K = 60
@@ -213,7 +244,9 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     )
   }
 
-  const bm25Ids = bm25SearchIds(db, query, pool)
+  const bm25Ids = filterSql
+    ? bm25SearchIdsFiltered(db, query, pool, filterSql, filterParams)
+    : bm25SearchIds(db, query, pool)
   const entityIds = entitySearchIds ? entitySearchIds(query, pool) : []
   const merged = rrfMerge([vecIds.map(v => v.id), bm25Ids, entityIds]).slice(0, topK)
   return fetchThoughtsByIds(
