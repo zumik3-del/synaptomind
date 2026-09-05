@@ -47,11 +47,14 @@ export function deleteProject(db: Database, id: string): boolean {
     throw new Error('Cannot delete the Default project')
   }
 
-  if (defaultProjectId) {
-    db.prepare(`UPDATE thoughts SET project_id = ? WHERE project_id = ?`).run(defaultProjectId, id)
-  }
-  const result = db.prepare(`DELETE FROM projects WHERE id = ?`).run(id)
-  return result.changes > 0
+  const run = db.transaction(() => {
+    if (defaultProjectId) {
+      db.prepare(`UPDATE thoughts SET project_id = ? WHERE project_id = ?`).run(defaultProjectId, id)
+    }
+    const result = db.prepare(`DELETE FROM projects WHERE id = ?`).run(id)
+    return result.changes > 0
+  })
+  return run()
 }
 
 export function createProject(db: Database, data: {

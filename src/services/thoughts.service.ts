@@ -90,13 +90,16 @@ export function createThoughtWithUrlLinks(
   options?: { parentId?: string; relation?: string; urlLinks?: UrlLink[] }
 ): Thought {
   const d = getDb()
-  const thought = createThoughtWithParent(data, options?.parentId, options?.relation)
-  if (options?.urlLinks && options.urlLinks.length > 0) {
-    for (const link of options.urlLinks) {
-      upsertThoughtUrlLink(d, thought.id, link.text, link.url, link.text, 0)
+  const run = d.transaction(() => {
+    const thought = createThoughtWithParent(data, options?.parentId, options?.relation)
+    if (options?.urlLinks && options.urlLinks.length > 0) {
+      for (const link of options.urlLinks) {
+        upsertThoughtUrlLink(d, thought.id, link.text, link.url, link.text, 0)
+      }
     }
-  }
-  return thought
+    return thought
+  })
+  return run()
 }
 
 // Profile thoughts are persona material and must survive archiving (issue #200).
