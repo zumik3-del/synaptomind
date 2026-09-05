@@ -19,15 +19,16 @@ const actionHandlers: Record<string, (args: RecallArgs) => unknown | Promise<unk
   async search(args) {
     const topK = (args.top_k as number) ?? 10
     const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
+    const statusFilter = (args.status as string) || 'active'
     const results = args.group_by_cluster
       ? await searchThoughtsGrouped({
-          query: args.query as string, topK, statusFilter: args.status as string | undefined,
+          query: args.query as string, topK, statusFilter,
           projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: args.cluster as 'only' | 'exclude' | undefined,
           minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
           hybrid: args.hybrid as boolean | undefined
         })
       : await searchThoughts({
-          query: args.query as string, topK, statusFilter: args.status as string | undefined,
+          query: args.query as string, topK, statusFilter,
           projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: args.cluster as 'only' | 'exclude' | undefined,
           minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
           hybrid: args.hybrid as boolean | undefined
@@ -51,7 +52,8 @@ const actionHandlers: Record<string, (args: RecallArgs) => unknown | Promise<unk
   async clusters(args) {
     const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
     return searchThoughts({
-      query: args.query as string, topK: args.top_k as number | undefined, clusterFilter: 'only', projectFilter
+      query: args.query as string, topK: args.top_k as number | undefined, clusterFilter: 'only', projectFilter,
+      statusFilter: (args.status as string) || 'active'
     })
   }
 }
@@ -66,7 +68,7 @@ export function registerMemoryRecall(server: McpServer) {
     action: z.enum(['search', 'get', 'context', 'chain', 'clusters']).optional().describe('Action (default: search)'),
     query: z.string().describe('Search query (required for search/context/clusters, not for chain)'),
     top_k: z.number().optional().describe('Max results (default 10)'),
-    status: z.string().optional().describe('Filter by status'),
+    status: z.string().optional().describe('Filter by status (default: active)'),
     project_id: z.string().optional().describe('Filter by project (prefer cwd instead)'),
     cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
     tag: z.string().optional().describe('Filter by tag'),
