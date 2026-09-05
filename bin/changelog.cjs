@@ -66,7 +66,7 @@ if (!porcelain.length) {
 	process.exit(0);
 }
 
-cp.execSync('git add CHANGELOG.md && git commit -m "docs: update CHANGELOG.md" && git push', { stdio: 'inherit' });
+cp.execSync('git add CHANGELOG.md && git commit --no-verify -m "docs: update CHANGELOG.md" && git push', { stdio: 'inherit' });
 console.log("CHANGELOG.md updated and committed.");
 
 function formatDate(dateStr) {
