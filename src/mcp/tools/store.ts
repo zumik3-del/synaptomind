@@ -35,8 +35,8 @@ export function registerMemoryStore(server: McpServer) {
 - smart_note_eval: Batch evaluate all smart notes
 - smart_note_promote: Promote a ready smart note
 - smart_note_delete: Delete a smart note`, {
-    action: z.enum(['create', 'update', 'link', 'smart_note_create', 'smart_note_list', 'smart_note_eval', 'smart_note_promote', 'smart_note_delete']).describe('Action'),
-    content: z.string().optional().describe(`Thought content (soft limit: ${config.thoughts.softLimit}, hard limit: ${config.thoughts.hardLimit} chars) — required for create`),
+    action: z.enum(['create', 'update', 'link', 'smart_note_create', 'smart_note_list', 'smart_note_eval', 'smart_note_promote', 'smart_note_delete']).describe('The specific action to perform. This dictates which other parameters are required.'),
+    content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". STRICTLY IGNORED for "link" and all "smart_note_*" actions. Soft limit: ${config.thoughts.softLimit}, hard limit: ${config.thoughts.hardLimit} chars.`),
     tags: z.array(z.string()).optional().describe('Tags'),
     status: z.string().optional().describe('Status (draft/active/archived)'),
     project_id: z.string().optional().describe('Project ID (prefer cwd instead)'),
@@ -44,11 +44,11 @@ export function registerMemoryStore(server: McpServer) {
     parent_id: z.string().optional().describe('Parent thought ID (for create)'),
     is_profile: z.boolean().optional().describe('Mark as profile thought'),
     url_links: z.array(z.object({ text: z.string(), url: z.string() })).optional().describe('URL links (for create)'),
-    thought_id: z.string().optional().describe('Thought ID (required for update/link/smart_note_create)'),
-    target_id: z.string().optional().describe('Target thought ID (required for link)'),
+    thought_id: z.string().optional().describe('REQUIRED for "update", "link", "smart_note_create", "smart_note_promote", "smart_note_delete". IGNORED for "create".'),
+    target_id: z.string().optional().describe('REQUIRED ONLY for "link". IGNORED for all other actions.'),
     edge_type: z.enum(['related', 'parent', 'develops', 'replaces', 'cluster', 'references', 'depends_on']).optional().describe('Edge type (default: related)'),
-    surface_condition: z.record(z.string(), z.any()).optional().describe('Surface condition object (smart_note_create only)'),
-    note_id: z.string().optional().describe('Smart note ID (smart_note_promote/smart_note_delete only)')
+    surface_condition: z.record(z.string(), z.any()).optional().describe('REQUIRED ONLY for "smart_note_create". IGNORED for all other actions.'),
+    note_id: z.string().optional().describe('REQUIRED ONLY for "smart_note_promote" and "smart_note_delete". IGNORED for all other actions.')
   }, async (args) => {
     const projectFilter = resolveProjectId(args.project_id, args.cwd)
 

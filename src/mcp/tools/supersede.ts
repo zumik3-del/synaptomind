@@ -24,9 +24,9 @@ export function registerMemorySupersede(server: McpServer) {
 - merge: Merge source into target (source archived, target updated with merged content/tags)`, {
     action: z.enum(['archive', 'merge']).describe('Action'),
     thought_id: z.string().optional().describe('Thought ID (required for archive)'),
-    source_id: z.string().optional().describe('Source thought ID — will be archived (required for merge)'),
-    target_id: z.string().optional().describe('Target thought ID — will be updated (required for merge)'),
-    merged_content: z.string().optional().describe('Merged content (merge only)'),
+    source_id: z.string().optional().describe('REQUIRED ONLY for "merge". Source thought ID — will be archived. IGNORED for "archive".'),
+    target_id: z.string().optional().describe('REQUIRED ONLY for "merge". Target thought ID — will be updated. IGNORED for "archive".'),
+    merged_content: z.string().optional().describe('REQUIRED ONLY for "merge". IGNORED for "archive".'),
     merged_tags: z.array(z.string()).optional().describe('Merged tags (merge only)'),
     project_id: z.string().optional().describe('Project ID (merge only)'),
     cwd: z.string().optional().describe('Working directory — auto-resolves project')
