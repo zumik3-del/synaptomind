@@ -63,17 +63,17 @@ The token is printed to stderr on first startup. That's it — your agent now ha
 ```
 You: "Remember: we chose JWT for auth, refresh tokens in httpOnly cookies"
 
-Agent: [create_thought — tags: auth, jwt, security]
+Agent: [memory_store action=create — tags: auth, jwt, security]
 
 --- new session ---
 
 You: "What did we decide about auth?"
 
-Agent: [search_thoughts "auth decision" → finds JWT thought with full context]
+Agent: [memory_recall action=search "auth decision" → finds JWT thought with full context]
 
 You: "What should I do next?"
 
-Agent: [get_frontier → "Implement refresh token rotation" ranked #1]
+Agent: [memory_status action=frontier → "Implement refresh token rotation" ranked #1]
 ```
 
 Core loop: **capture → link → retrieve → act**. No manual organization — the graph connects related thoughts automatically.
@@ -85,15 +85,15 @@ sequenceDiagram
     participant S as SynaptoMind
 
     U->>A: "Remember JWT for auth"
-    A->>S: create_thought(content, tags)
+    A->>S: memory_store(action=create, content, tags)
     S-->>A: thought_id
     
     Note over U,A: --- new session ---
     
     U->>A: "What about auth?"
-    A->>S: search_thoughts("auth")
+    A->>S: memory_recall(action=search, "auth")
     S-->>A: JWT thought + context chain
-    A->>S: get_frontier()
+    A->>S: memory_status(action=frontier)
     S-->>A: ranked next actions
 ```
 
@@ -358,19 +358,16 @@ curl http://127.0.0.1:3005/health
 
 | Category | Tools |
 |----------|-------|
-| Thoughts | `create_thought`, `get_thought`, `update_thought`, `search_thoughts`, `get_thought_timeline`, `archive_thought`, `assign_thought_to_project` |
-| Graph | `link_thoughts`, `merge_thoughts`, `get_chain`, `get_context`, `get_thought_graph` |
-| Clusters | `cluster`, `auto_cluster`, `recall_clusters` |
-| Projects | `create_project`, `list_projects`, `update_project`, `delete_project` |
-| Smart Notes | `create_smart_note`, `list_smart_notes`, `eval_smart_notes`, `promote_smart_note`, `delete_smart_note` |
-| Context | `get_slots`, `get_frontier`, `get_profile` |
-| Primers | `manage_primers` |
-| Crystals | `crystallize` |
-| Telemetry | `get_telemetry`, `analyze_telemetry` |
-| Health | `health_check` |
-| Git | `git_index_commits` |
-| Guide | `guide_thoughts` |
-| Config | `get_config` |
+| Recall | `memory_recall` (search, get, context, chain, clusters) |
+| Store | `memory_store` (create, update, link, smart_note_*) |
+| Supersede | `memory_supersede` (archive, merge) |
+| Status | `memory_status` (slots, frontier, profile, config, health) |
+| Projects | `memory_manage` (list, create, update, delete, resolve) |
+| Consolidate | `memory_crystallize` (crystallize, graph, cluster, auto_cluster) |
+| Reflect | `memory_reflect` (reflect, timeline) |
+| Telemetry | `memory_telemetry` (query, analyze, primers) |
+| Git | `memory_git` |
+| Guide | `memory_guide` |
 
 </details>
 

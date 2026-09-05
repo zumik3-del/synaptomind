@@ -12,7 +12,7 @@ description: >-
 
 SynaptoMind is a thought-graph engine that remembers decisions, context,
 architecture choices, and unresolved work across sessions. It is available as
-an MCP server with 35 tools. This skill routes you to the right tools.
+an MCP server with 10 tools. This skill routes you to the right tools.
 
 ## When to use this skill
 
@@ -35,27 +35,28 @@ Do **not** activate for:
 
 ### 1. Load project context
 
-At the start of a session, call `get_slots` to understand current goals,
-pending work, and past decisions. If slots are empty, this is a new project.
+At the start of a session, call `memory_status` (action=slots) to understand
+current goals, pending work, and past decisions. If slots are empty, this is
+a new project.
 
 ### 2. Search before answering
 
 Before answering questions about the project, architecture, or past decisions,
-search SynaptoMind first. Use `search_thoughts`, `get_context`, or
-`recall_clusters` to check if this was discussed before. Do not guess when you
-can look it up.
+search SynaptoMind first. Use `memory_recall` (action=search),
+`memory_recall` (action=context), or `memory_recall` (action=clusters) to
+check if this was discussed before. Do not guess when you can look it up.
 
 ### 3. Save when decisions are made
 
 When the conversation reaches a conclusion, a decision is made, a problem is
-solved, or an idea comes up, save it. Use `create_thought` to capture it with
-relevant tags. If it relates to existing thoughts, link them with
-`link_thoughts`.
+solved, or an idea comes up, save it. Use `memory_store` (action=create) to
+capture it with relevant tags. If it relates to existing thoughts, link them
+with `memory_store` (action=link).
 
 ### 4. Find what to do next
 
 When the user asks what to work on next, or when you finish a task and are
-unsure what comes next, use `get_frontier`.
+unsure what comes next, use `memory_status` (action=frontier).
 
 ## Important notes
 
@@ -63,5 +64,6 @@ unsure what comes next, use `get_frontier`.
   auto-resolves the correct project. Do not hardcode `project_id`.
 - If SynaptoMind is unavailable (MCP server not running), say so explicitly.
   Do not treat a missing server as empty memory.
-- If you find duplicate or outdated thoughts, merge them with `merge_thoughts`.
-- If a thought's content has changed, update it with `update_thought`.
+- If you find duplicate or outdated thoughts, merge them with
+  `memory_supersede` (action=merge).
+- If a thought's content has changed, update it with `memory_store` (action=update).
