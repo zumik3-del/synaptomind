@@ -18,4 +18,4 @@ echo "$LONGVER"
 git tag -a "$TAG" -m "$LONGVER"
 git push --tags
 
-node bin/changelog.js
+node bin/changelog.cjs

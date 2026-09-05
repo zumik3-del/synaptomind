@@ -13,7 +13,7 @@
     "test:watch": "bun test --watch",
     "lint": "bunx biome check src/",
     "release": "bash bin/release.sh",
-    "changelog": "node bin/changelog.js",
+    "changelog": "node bin/changelog.cjs",
     "postinstall": "bash scripts/setup-vec0.sh",
     "prepare": "[ -d .git ] && husky || true"
   },
