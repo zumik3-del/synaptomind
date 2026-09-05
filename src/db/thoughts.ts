@@ -194,6 +194,20 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
     return getThoughtRow(db, id)
   }
 
+  // Recompute content_hash when content or project_id changes so dedup stays
+  // consistent with the actual stored values (issue #74 / audit F03).
+  if (data.content !== undefined || data.project_id !== undefined) {
+    const existing = db.prepare('SELECT content, project_id FROM thoughts WHERE id = ?').get(id) as
+      | { content: string; project_id: string }
+      | undefined
+    if (existing) {
+      const newContent = data.content ?? existing.content
+      const newProjectId = data.project_id ?? existing.project_id
+      sets.push('content_hash = ?')
+      values.push(computeContentHash(newContent, newProjectId))
+    }
+  }
+
   sets.push('updated_at = ?')
   values.push(new Date().toISOString())
   values.push(id)

@@ -3,7 +3,6 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
   getThoughtById,
   archiveThoughtById,
-  deleteThoughtById,
   mergeThoughtsService
 } from '../../services/thoughts.service'
 import { jsonResult, errorResult, resolveProjectId } from './utils'
@@ -27,8 +26,7 @@ export function registerMemorySupersede(server: McpServer) {
         const existing = getThoughtById(args.thought_id)
         if (!existing) return errorResult(`Thought '${args.thought_id}' not found`)
         if (existing.status === 'archived') {
-          const deleted = deleteThoughtById(args.thought_id)
-          return jsonResult(deleted ? 'Permanently deleted' : 'Delete failed')
+          return jsonResult(existing)
         }
         const archived = archiveThoughtById(args.thought_id)
         return jsonResult(archived)
@@ -38,7 +36,7 @@ export function registerMemorySupersede(server: McpServer) {
         if (!args.source_id) return errorResult('source_id is required for merge action')
         if (!args.target_id) return errorResult('target_id is required for merge action')
         const projectFilter = resolveProjectId(args.project_id, args.cwd)
-        const result = mergeThoughtsService(args.source_id, args.target_id, args.merged_content, args.merged_tags, projectFilter)
+        const result = mergeThoughtsService(args.target_id, args.source_id, args.merged_content, args.merged_tags, projectFilter)
         return jsonResult(result)
       }
 
