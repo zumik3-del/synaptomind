@@ -10,11 +10,12 @@ const { dirname } = await import('path')
 const { serve } = await import('bun')
 const { app } = await import('./app')
 const { config } = await import('./config')
-const { initDb } = await import('./db/init')
+const { closeDb, initDb } = await import('./db/init')
 const { startEmbedderProcess, stopEmbedderProcess } = await import('./embedder/client')
 const { closeLogDb } = await import('./logging')
 const { startMcpHttpServer } = await import('./mcp/http-transport')
 const { createMcpServer } = await import('./mcp/server')
+const { redirectConsoleOutputToStderr } = await import('./stdio-console')
 const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js')
 const { startDecayJob, stopDecayJob } = await import('./services/decay.service')
 const { startDreamerJob, stopDreamerJob } = await import('./services/dreamer.service')
@@ -22,6 +23,10 @@ const { startSelfImproveJob, stopSelfImproveJob } = await import('./services/sel
 
 const isStdio = process.argv.includes('--stdio')
 const noEmbedder = process.argv.includes('--no-embedder') || !config.embedder.enabled
+
+if (isStdio) {
+  redirectConsoleOutputToStderr()
+}
 
 console.error(`[synaptomind] v${VERSION} — starting...`)
 
@@ -50,6 +55,34 @@ startSelfImproveJob()
 if (isStdio) {
   const mcpServer = createMcpServer()
   const transport = new StdioServerTransport()
+  let shuttingDown = false
+
+  async function shutdown() {
+    if (shuttingDown) return
+    shuttingDown = true
+    console.log('[synaptomind] stdio transport closed, shutting down...')
+    stopDecayJob()
+    stopDreamerJob()
+    stopSelfImproveJob()
+    await stopEmbedderProcess()
+    closeLogDb()
+    closeDb()
+    process.exit(0)
+  }
+
+  transport.onclose = () => {
+    void shutdown()
+  }
+  process.stdin.once('end', () => {
+    void shutdown()
+  })
+  process.once('SIGTERM', () => {
+    void shutdown()
+  })
+  process.once('SIGINT', () => {
+    void shutdown()
+  })
+
   await mcpServer.connect(transport)
   console.error('[synaptomind] MCP server running in stdio mode')
 } else {

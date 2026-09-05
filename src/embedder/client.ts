@@ -52,7 +52,7 @@ function spawnProcess(): void {
   // Suppress unhandled-rejection warnings when nobody is awaiting startup yet.
   readyPromise.catch(() => {})
 
-  const child = spawn(['bun', 'run', getScriptPath()], {
+  const child = spawn([process.execPath, 'run', getScriptPath()], {
     ipc: (message: IpcMessage) => {
       if (message.type === 'ready') {
         ready = true
