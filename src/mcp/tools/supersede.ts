@@ -9,7 +9,7 @@ import { jsonResult, errorResult, resolveProjectId } from './utils'
 
 export function registerMemorySupersede(server: McpServer) {
   server.tool('memory_supersede', `Version and supersede thoughts. Actions:
-- archive: Archive a thought (set status=archived). If already archived, permanently delete.
+- archive: Archive a thought (set status=archived). If already archived, returns the thought unchanged (idempotent).
 - merge: Merge source into target (source archived, target updated with merged content/tags)`, {
     action: z.enum(['archive', 'merge']).describe('Action'),
     thought_id: z.string().optional().describe('Thought ID (required for archive)'),
@@ -36,7 +36,7 @@ export function registerMemorySupersede(server: McpServer) {
         if (!args.source_id) return errorResult('source_id is required for merge action')
         if (!args.target_id) return errorResult('target_id is required for merge action')
         const projectFilter = resolveProjectId(args.project_id, args.cwd)
-        const result = mergeThoughtsService(args.target_id, args.source_id, args.merged_content, args.merged_tags, projectFilter)
+        const result = mergeThoughtsService({ targetId: args.target_id, sourceId: args.source_id, mergedContent: args.merged_content, mergedTags: args.merged_tags, projectId: projectFilter })
         return jsonResult(result)
       }
 

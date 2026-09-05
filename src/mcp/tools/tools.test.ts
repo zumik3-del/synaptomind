@@ -499,3 +499,97 @@ describe('dedup after update (regression #76)', () => {
     expect(t2.content).toBe('original content')
   })
 })
+
+// ── Edge cases ───────────────────────────────────────────────────────────────
+
+describe('merge edge cases', () => {
+  test('merge with project_id argument succeeds', async () => {
+    const a = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'source with project' }
+    })
+    const b = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'target with project' }
+    })
+    const { data: source } = parseResult(a)
+    const { data: target } = parseResult(b)
+
+    const result = await client.callTool({
+      name: 'memory_supersede',
+      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged', project_id: target.project_id }
+    })
+    const { isError } = parseResult(result)
+    expect(isError).toBe(false)
+  })
+
+  test('merge with archived source returns error', async () => {
+    const a = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'archived source' }
+    })
+    const { data: source } = parseResult(a)
+    await client.callTool({
+      name: 'memory_supersede',
+      arguments: { action: 'archive', thought_id: source.id }
+    })
+
+    const b = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'target' }
+    })
+    const { data: target } = parseResult(b)
+
+    const result = await client.callTool({
+      name: 'memory_supersede',
+      arguments: { action: 'merge', source_id: source.id, target_id: target.id }
+    })
+    const { isError } = parseResult(result)
+    expect(isError).toBe(true)
+  })
+})
+
+describe('archive edge cases', () => {
+  test('archive on profile thought returns error', async () => {
+    const c = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'profile thought', is_profile: true }
+    })
+    const { data: thought } = parseResult(c)
+
+    const result = await client.callTool({
+      name: 'memory_supersede',
+      arguments: { action: 'archive', thought_id: thought.id }
+    })
+    const { isError } = parseResult(result)
+    expect(isError).toBe(true)
+  })
+})
+
+describe('search with project scope', () => {
+  test('projectFilter scopes search results', async () => {
+    const proj = await client.callTool({
+      name: 'memory_manage',
+      arguments: { action: 'create', name: 'SearchScopeTest', local_path: '/tmp/search-scope' }
+    })
+    const { data: project } = parseResult(proj)
+
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'SCOPED_MARKER in project', status: 'active', project_id: project.id }
+    })
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'SCOPED_MARKER in default', status: 'active' }
+    })
+
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query: 'SCOPED_MARKER', top_k: 10, project_id: project.id }
+    })
+    const { data, isError } = parseResult(result)
+    expect(isError).toBe(false)
+    expect(data.length).toBeGreaterThanOrEqual(1)
+    expect(data.every((r: any) => r.thought?.project_id === project.id)).toBe(true)
+  })
+})

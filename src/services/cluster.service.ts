@@ -47,31 +47,34 @@ export function createClusterService(options: CreateClusterOptions): CreateClust
 
   validateContentLength(content)
 
-  const clusterThought = createThought(d, {
-    content,
-    tags: clusterTags,
-    status: 'active',
-    source,
-    project_id: resolvedProjectId,
-    is_cluster: true
-  })
+  const run = d.transaction(() => {
+    const clusterThought = createThought(d, {
+      content,
+      tags: clusterTags,
+      status: 'active',
+      source,
+      project_id: resolvedProjectId,
+      is_cluster: true
+    })
 
-  const createdEdges: { source_id: string; target_id: string; type: string }[] = []
-  for (const memberId of thoughtIds) {
-    try {
-      createEdge(d, clusterThought.id, memberId, 'cluster')
-      createdEdges.push({ source_id: clusterThought.id, target_id: memberId, type: 'cluster' })
-    } catch (err: unknown) {
-      if (err instanceof EdgeAlreadyExistsError) {
-        insertLog('warning', 'cluster', `Edge to member ${memberId} already exists — skipped`, {
-          cluster_id: clusterThought.id,
-          member_id: memberId
-        })
-      } else {
-        throw err
+    const createdEdges: { source_id: string; target_id: string; type: string }[] = []
+    for (const memberId of thoughtIds) {
+      try {
+        createEdge(d, clusterThought.id, memberId, 'cluster')
+        createdEdges.push({ source_id: clusterThought.id, target_id: memberId, type: 'cluster' })
+      } catch (err: unknown) {
+        if (err instanceof EdgeAlreadyExistsError) {
+          insertLog('warning', 'cluster', `Edge to member ${memberId} already exists — skipped`, {
+            cluster_id: clusterThought.id,
+            member_id: memberId
+          })
+        } else {
+          throw err
+        }
       }
     }
-  }
 
-  return { cluster: clusterThought, edges: createdEdges, members }
+    return { cluster: clusterThought, edges: createdEdges, members }
+  })
+  return run()
 }

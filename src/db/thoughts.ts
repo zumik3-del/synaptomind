@@ -163,58 +163,59 @@ export function getThoughtsBatchWithTags(db: Database, ids: string[]): Map<strin
 }
 
 export function updateThought(db: Database, id: string, data: UpdateThoughtInput): Thought | undefined {
-  const sets: string[] = []
-  const values: SQLQueryBindings[] = []
+  const run = db.transaction(() => {
+    const sets: string[] = []
+    const values: SQLQueryBindings[] = []
 
-  if (data.content !== undefined) {
-    sets.push('content = ?')
-    values.push(data.content)
-  }
-  if (data.tags !== undefined) {
-    setThoughtTags(db, id, data.tags)
-  }
-  if (data.status !== undefined) {
-    sets.push('status = ?')
-    values.push(data.status)
-  }
-  if (data.project_id !== undefined) {
-    sets.push('project_id = ?')
-    values.push(data.project_id)
-  }
-  if (data.is_cluster !== undefined) {
-    sets.push('is_cluster = ?')
-    values.push(toBit(data.is_cluster))
-  }
-  if (data.is_profile !== undefined) {
-    sets.push('is_profile = ?')
-    values.push(toBit(data.is_profile))
-  }
-
-  if (sets.length === 0) {
-    return getThoughtRow(db, id)
-  }
-
-  // Recompute content_hash when content or project_id changes so dedup stays
-  // consistent with the actual stored values (issue #74 / audit F03).
-  if (data.content !== undefined || data.project_id !== undefined) {
-    const existing = db.prepare('SELECT content, project_id FROM thoughts WHERE id = ?').get(id) as
-      | { content: string; project_id: string }
-      | undefined
-    if (existing) {
-      const newContent = data.content ?? existing.content
-      const newProjectId = data.project_id ?? existing.project_id
-      sets.push('content_hash = ?')
-      values.push(computeContentHash(newContent, newProjectId))
+    if (data.content !== undefined) {
+      sets.push('content = ?')
+      values.push(data.content)
     }
-  }
+    if (data.tags !== undefined) {
+      setThoughtTags(db, id, data.tags)
+    }
+    if (data.status !== undefined) {
+      sets.push('status = ?')
+      values.push(data.status)
+    }
+    if (data.project_id !== undefined) {
+      sets.push('project_id = ?')
+      values.push(data.project_id)
+    }
+    if (data.is_cluster !== undefined) {
+      sets.push('is_cluster = ?')
+      values.push(toBit(data.is_cluster))
+    }
+    if (data.is_profile !== undefined) {
+      sets.push('is_profile = ?')
+      values.push(toBit(data.is_profile))
+    }
 
-  sets.push('updated_at = ?')
-  values.push(new Date().toISOString())
-  values.push(id)
+    if (sets.length === 0) {
+      return getThoughtRow(db, id)
+    }
 
-  db.prepare(`UPDATE thoughts SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+    if (data.content !== undefined || data.project_id !== undefined) {
+      const existing = db.prepare('SELECT content, project_id FROM thoughts WHERE id = ?').get(id) as
+        | { content: string; project_id: string }
+        | undefined
+      if (existing) {
+        const newContent = data.content ?? existing.content
+        const newProjectId = data.project_id ?? existing.project_id
+        sets.push('content_hash = ?')
+        values.push(computeContentHash(newContent, newProjectId))
+      }
+    }
 
-  return getThoughtRow(db, id)
+    sets.push('updated_at = ?')
+    values.push(new Date().toISOString())
+    values.push(id)
+
+    db.prepare(`UPDATE thoughts SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+
+    return getThoughtRow(db, id)
+  })
+  return run()
 }
 
 export function archiveThought(db: Database, id: string): Thought | undefined {
