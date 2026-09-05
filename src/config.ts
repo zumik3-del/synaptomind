@@ -36,6 +36,7 @@ interface Config {
   slots: { defaultMaxChars: number; hardLimit: number }
   graph: { maxDegree: number }
   rateLimit: { max: number; windowMs: number }
+  ttl: { archivedTtlDays: number; cleanupIntervalMs: number }
 }
 
 export const DEFAULTS: Config = {
@@ -73,7 +74,8 @@ export const DEFAULTS: Config = {
   },
   slots: { defaultMaxChars: 2000, hardLimit: 20000 },
   graph: { maxDegree: 50 },
-  rateLimit: { max: 200, windowMs: 60_000 }
+  rateLimit: { max: 200, windowMs: 60_000 },
+  ttl: { archivedTtlDays: 90, cleanupIntervalMs: 86400000 }
 }
 
 export type EnvType = 'string' | 'int' | 'float' | 'bool'
@@ -149,7 +151,10 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_GRAPH_MAX_DEGREE', path: 'graph.maxDegree', type: 'int' },
 
   { env: 'SYNAPTOMIND_RATE_LIMIT', path: 'rateLimit.max', type: 'int' },
-  { env: 'SYNAPTOMIND_RATE_LIMIT_WINDOW_MS', path: 'rateLimit.windowMs', type: 'int' }
+  { env: 'SYNAPTOMIND_RATE_LIMIT_WINDOW_MS', path: 'rateLimit.windowMs', type: 'int' },
+
+  { env: 'SYNAPTOMIND_ARCHIVED_TTL_DAYS', path: 'ttl.archivedTtlDays', type: 'int' },
+  { env: 'SYNAPTOMIND_CLEANUP_INTERVAL_MS', path: 'ttl.cleanupIntervalMs', type: 'int' }
 ]
 
 function parseValue(raw: string, type: EnvType): string | number | boolean {

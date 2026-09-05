@@ -17,6 +17,7 @@ export interface Thought {
   is_profile: number
   created_at: string
   updated_at: string
+  archived_at: string | null
 }
 
 export interface CreateThoughtInput {
@@ -36,6 +37,7 @@ export interface UpdateThoughtInput {
   project_id?: string
   is_cluster?: boolean
   is_profile?: boolean
+  archived_at?: string | null
 }
 
 export interface ListThoughtsOptions {
@@ -68,7 +70,8 @@ export function rowToThought(row: Record<string, unknown>): Thought {
     is_cluster: row.is_cluster as number,
     is_profile: (row.is_profile as number) ?? 0,
     created_at: row.created_at as string,
-    updated_at: row.updated_at as string
+    updated_at: row.updated_at as string,
+    archived_at: (row.archived_at as string) ?? null
   }
 }
 
@@ -190,6 +193,10 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
       sets.push('is_profile = ?')
       values.push(toBit(data.is_profile))
     }
+    if (data.archived_at !== undefined) {
+      sets.push('archived_at = ?')
+      values.push(data.archived_at)
+    }
 
     if (sets.length === 0) {
       return getThoughtRow(db, id)
@@ -219,7 +226,7 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
 }
 
 export function archiveThought(db: Database, id: string): Thought | undefined {
-  return updateThought(db, id, { status: 'archived' })
+  return updateThought(db, id, { status: 'archived', archived_at: new Date().toISOString() })
 }
 
 export function deleteThought(db: Database, id: string): boolean {

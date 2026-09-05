@@ -5,6 +5,7 @@ import { getFrontier } from '../../services/frontier.service'
 import { getProfileService } from '../../services/profile.service'
 import { config, DEFAULTS, ENV_MAPPINGS } from '../../config'
 import { runHealthCheck } from '../../services/health-check.service'
+import { cleanupArchivedThoughts } from '../../services/ttl-cleanup.service'
 import { jsonResult, errorResult, resolveProjectId } from './utils'
 
 function formatValue(val: unknown): string {
@@ -62,14 +63,16 @@ export function registerMemoryStatus(server: McpServer) {
 - frontier: Get "what to do next" ranking
 - profile: Get user profile stats and thoughts
 - config: Show current configuration with defaults and env vars
-- health: Audit graph health (broken links, orphans, duplicates, structural issues)`, {
-    action: z.enum(['slots', 'frontier', 'profile', 'config', 'health']).optional().describe('Action (default: slots)'),
+- health: Audit graph health (broken links, orphans, duplicates, structural issues)
+- cleanup: Delete expired archived thoughts based on TTL config`, {
+    action: z.enum(['slots', 'frontier', 'profile', 'config', 'health', 'cleanup']).optional().describe('Action (default: slots)'),
     names: z.array(z.string()).optional().describe('Filter by slot names (slots only)'),
     project_id: z.string().optional().describe('Filter by project'),
     cwd: z.string().optional().describe('Working directory — auto-resolves project'),
     k: z.number().optional().describe('Max results (default 10, frontier only)'),
     severity: z.enum(['critical', 'warning', 'info']).optional().describe('Minimum severity (health only)'),
-    fix: z.boolean().optional().describe('Auto-fix safe issues (health only)')
+    fix: z.boolean().optional().describe('Auto-fix safe issues (health only)'),
+    dry_run: z.boolean().optional().describe('Preview without deleting (cleanup only)')
   }, async (args) => {
     const action = args.action ?? 'slots'
     const projectFilter = resolveProjectId(args.project_id, args.cwd)
@@ -97,6 +100,11 @@ export function registerMemoryStatus(server: McpServer) {
       if (action === 'health') {
         const report = runHealthCheck({ severity: args.severity, fix: args.fix })
         return jsonResult(report)
+      }
+
+      if (action === 'cleanup') {
+        const result = cleanupArchivedThoughts(args.dry_run)
+        return jsonResult(result)
       }
 
       return errorResult(`Unknown action: ${action}`)

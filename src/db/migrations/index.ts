@@ -29,6 +29,7 @@ import v032 from './v032-local-path'
 import v033 from './v033-content-hash'
 import v034 from './v034-remove-git'
 import v035 from './v035-pending-embeddings-hash'
+import v036 from './v036-archived-at'
 
 export interface Migration {
   version: number
@@ -64,5 +65,6 @@ export const MIGRATIONS: Migration[] = [
   v032,
   v033,
   v034,
-  v035
+  v035,
+  v036
 ].sort((a, b) => a.version - b.version)
