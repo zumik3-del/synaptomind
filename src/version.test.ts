@@ -8,9 +8,10 @@ const pkg = JSON.parse(
 ) as { version: string };
 
 const CLI = resolve(import.meta.dir, "index.ts");
+const BUN = process.execPath;
 
 test("--version prints version and exits 0", () => {
-	const result = execFileSync("bun", ["run", CLI, "--version"], {
+	const result = execFileSync(BUN, ["run", CLI, "--version"], {
 		encoding: "utf-8",
 		timeout: 5000,
 	});
@@ -18,7 +19,7 @@ test("--version prints version and exits 0", () => {
 });
 
 test("-v prints version and exits 0", () => {
-	const result = execFileSync("bun", ["run", CLI, "-v"], {
+	const result = execFileSync(BUN, ["run", CLI, "-v"], {
 		encoding: "utf-8",
 		timeout: 5000,
 	});
