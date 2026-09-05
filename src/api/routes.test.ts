@@ -1345,11 +1345,3 @@ test("POST /api/slots/reflect folds session outcome into slots", async () => {
 	});
 	expect(empty.status).toBe(400);
 });
-
-test("GET /api/git-commits lists indexed commits", async () => {
-	const res = await request("/api/git-commits");
-	expect(res.status).toBe(200);
-	const body = (await res.json()) as { commits: unknown[]; total: number };
-	expect(body.commits).toEqual([]);
-	expect(body.total).toBe(0);
-});

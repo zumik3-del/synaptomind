@@ -366,7 +366,6 @@ curl http://127.0.0.1:3005/health
 | Consolidate | `memory_crystallize` (crystallize, graph, cluster, auto_cluster) |
 | Reflect | `memory_reflect` (reflect, timeline) |
 | Telemetry | `memory_telemetry` (query, analyze, primers) |
-| Git | `memory_git` |
 | Guide | `memory_guide` |
 
 </details>

@@ -75,11 +75,7 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
       id          TEXT PRIMARY KEY,
       name        TEXT NOT NULL,
       description TEXT,
-      created_at  TEXT NOT NULL,
-      is_git_linked INTEGER DEFAULT 0,
-      git_repo_url TEXT,
-      git_auto_sync INTEGER DEFAULT 0,
-      git_sync_interval_ms INTEGER
+      created_at  TEXT NOT NULL
     )
   `)
 

@@ -25,7 +25,6 @@ describe('MCP tool registration', () => {
     'memory_crystallize',
     'memory_reflect',
     'memory_telemetry',
-    'memory_git',
     'memory_guide'
   ]
 
@@ -90,13 +89,13 @@ describe('memory_manage', () => {
 })
 
 describe('tool count', () => {
-  test('registers exactly 10 tools', () => {
+  test('registers exactly 9 tools', () => {
     const toolNames = [
       'memory_recall', 'memory_store', 'memory_supersede',
       'memory_status', 'memory_manage', 'memory_crystallize',
       'memory_reflect', 'memory_telemetry',
-      'memory_git', 'memory_guide'
+      'memory_guide'
     ]
-    expect(toolNames.length).toBe(10)
+    expect(toolNames.length).toBe(9)
   })
 })

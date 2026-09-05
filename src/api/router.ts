@@ -9,7 +9,6 @@ import { autoClusterRouter } from './auto-cluster'
 import { clusterRouter } from './cluster'
 import { crystalsRouter } from './crystals'
 import { frontierRouter } from './frontier'
-import { gitCommitsRouter } from './git-commits'
 import { graphRouter } from './graph'
 import { linksRouter } from './links'
 import { primersRouter } from './primers'
@@ -54,7 +53,6 @@ export function createApp(): Hono {
   app.route('/api/smart-notes', smartNotesRouter)
   app.route('/api/profile', profileRouter)
   app.route('/api/slots', slotsRouter)
-  app.route('/api/git-commits', gitCommitsRouter)
   app.route('/api/crystals', crystalsRouter)
   app.route('/api/frontier', frontierRouter)
   app.route('/api', autoClusterRouter)

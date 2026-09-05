@@ -69,11 +69,6 @@
     "defaultMaxChars": 2000,
     "hardLimit": 20000
   },
-  "git": {
-    "defaultLimit": 500,
-    "allowedRepos": [],
-    "allowedHosts": ["github.com", "gitlab.com", "codeberg.org", "forgejo.*"]
-  },
   "graph": {
     "maxDegree": 50
   }
