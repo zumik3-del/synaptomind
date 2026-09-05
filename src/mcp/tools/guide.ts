@@ -4,27 +4,44 @@ const GUIDE_TEXT = `# SynaptoMind — Thought Graph Engine
 
 ## Quick Reference
 
-| Concept | Primary Tools |
-|---|---|
-| Capture | \`create_thought\` (content, tags, status) |
-| Find | \`search_thoughts\` (hybrid/vector/BM25), \`get_context\`, \`get_chain\` |
-| Connect | \`link_thoughts\` (7 edge types) |
-| Group | \`cluster\`, \`auto_cluster\` |
-| Schedule | \`create_smart_note\` (5 surface conditions) |
-| Prioritize | \`get_frontier\` (importance + readiness + dependencies) |
-| Compress | \`crystallize\` (runbook/decision-log/overview) |
-| Maintain | \`health_check\` (audit + auto-fix) |
-| Reflect | \`reflect_session\` (summary, goals, decisions, pending) |
+| Concept | Tool | Action |
+|---|---|---|
+| Capture | \`memory_store\` | action=create |
+| Find | \`memory_recall\` | action=search/get/context/chain/clusters |
+| Connect | \`memory_store\` | action=link |
+| Group | \`memory_crystallize\` | action=cluster/auto_cluster |
+| Schedule | \`memory_store\` | action=smart_note_create |
+| Prioritize | \`memory_status\` | action=frontier |
+| Compress | \`memory_crystallize\` | action=crystallize |
+| Maintain | \`memory_status\` | action=health |
+| Reflect | \`memory_reflect\` | action=reflect |
+| Supersede | \`memory_supersede\` | action=archive/merge |
+| Projects | \`memory_manage\` | action=list/create/update/delete/resolve |
 
 ## Workflow
 
-1. **Search** before creating — use \`search_thoughts\` or \`get_context\` to check existing knowledge
+1. **Search** before creating — use \`memory_recall\` (action=search) or \`memory_recall\` (action=context) to check existing knowledge
 2. **Create** with right status — draft (WIP), active (live), archived (hidden)
 3. **Link** related thoughts — every edge boosts importance by 0.1
 4. **Schedule** review — attach smart notes to thoughts that should surface later
 5. **Cluster** related work — groups are excluded from frontier, keeping it focused
-6. **Prioritize** — use \`get_frontier\` to find what to do next
-7. **Reflect** at natural breakpoints — call \`reflect_session\` after decisions, tasks, or architectural work
+6. **Prioritize** — use \`memory_status\` (action=frontier) to find what to do next
+7. **Reflect** at natural breakpoints — call \`memory_reflect\` (action=reflect) after decisions, tasks, or architectural work
+
+## Tool Map
+
+| Tool | Actions | Purpose |
+|---|---|---|
+| \`memory_recall\` | search, get, context, chain, clusters | Find and retrieve thoughts |
+| \`memory_store\` | create, update, link, smart_note_* | Write, connect, and schedule thoughts |
+| \`memory_supersede\` | archive, merge | Version and supersede thoughts |
+| \`memory_status\` | slots, frontier, profile, config, health | Query system state |
+| \`memory_manage\` | list, create, update, delete, resolve | Project management |
+| \`memory_crystallize\` | crystallize, graph, cluster, auto_cluster | Consolidate and visualize |
+| \`memory_reflect\` | reflect, timeline | Session management |
+| \`memory_telemetry\` | query, analyze, primers | Analytics and self-improvement |
+| \`memory_git\` | (no action) | Git history indexing |
+| \`memory_guide\` | (no action) | This help text |
 
 ## Thoughts
 
@@ -35,7 +52,7 @@ Fields: content (≤500 soft, ≤600 hard), tags[], status, project_id, is_clust
 - \`active\` — live, searchable, included in frontier
 - \`archived\` — hidden from search and frontier, kept for history
 
-Rules: default status is draft. Profile thoughts (\`is_profile=1\`) cannot be archived. Archived thoughts permanently deleted on second \`archive_thought\` call.
+Rules: default status is draft. Profile thoughts (\`is_profile=1\`) cannot be archived. Archived thoughts permanently deleted on second archive call.
 
 **System tags:**
 - \`@profile\`, \`@profile-*\` — persona markers, feed the persona slot
@@ -113,7 +130,7 @@ Post-processing: hit counting → primer promotion → primer hoisting → profi
 
 ## Health Check
 
-Run \`health_check\` to audit graph integrity. Pass \`fix: true\` for auto-repair.
+Run \`memory_status\` (action=health) to audit graph integrity. Pass fix=true for auto-repair.
 
 Categories: structural integrity (orphan/self-loop edges), cluster health (empty/singleton), connectivity (islands), content quality (duplicates, stale drafts), semantic consistency (circular chains), data drift (missing embeddings).
 
@@ -131,7 +148,7 @@ Bucketing: draft → "Open questions", tag \`gotcha\` → "Gotchas", rest → ma
 
 ## Session Reflection
 
-Call \`reflect_session\` at natural breakpoints (after a decision, a task, or architectural work).
+Call \`memory_reflect\` (action=reflect) at natural breakpoints (after a decision, a task, or architectural work).
 Records outcomes into slots and creates thoughts:
 - \`summary\` — appends to project_context slot
 - \`goals_delta\` — add/remove from active_goals (prefix "closed:" to remove)
@@ -140,10 +157,10 @@ Records outcomes into slots and creates thoughts:
 
 ## Profile
 
-Mark thoughts with \`is_profile=1\` and \`@profile\` tag. Sub-tags \`@profile-work\`, \`@profile-preferences\` group by topic. Profile thoughts are never auto-archived. Use \`get_profile\` to retrieve persona stats.`
+Mark thoughts with \`is_profile=1\` and \`@profile\` tag. Sub-tags \`@profile-work\`, \`@profile-preferences\` group by topic. Profile thoughts are never auto-archived. Use \`memory_status\` (action=profile) to retrieve persona stats.`
 
-export function registerGuideTools(server: McpServer) {
-  server.tool('guide_thoughts', 'Get started with the thought system', {}, async () => {
+export function registerMemoryGuide(server: McpServer) {
+  server.tool('memory_guide', 'Get started with the thought system', {}, async () => {
     return { content: [{ type: 'text' as const, text: GUIDE_TEXT }] }
   })
 }
