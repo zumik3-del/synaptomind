@@ -21,6 +21,7 @@ const { startDreamerJob, stopDreamerJob } = await import('./services/dreamer.ser
 const { startSelfImproveJob, stopSelfImproveJob } = await import('./services/self-improve.service')
 
 const isStdio = process.argv.includes('--stdio')
+const noEmbedder = process.argv.includes('--no-embedder') || !config.embedder.enabled
 
 console.error(`[synaptomind] v${VERSION} — starting...`)
 
@@ -35,9 +36,13 @@ try {
   process.exit(1)
 }
 
-startEmbedderProcess().catch(err => {
-  console.error(`[embedder] failed to start: ${err.message}`)
-})
+if (noEmbedder) {
+  console.error('[synaptomind] embedder disabled (--no-embedder or embedder.enabled=false)')
+} else {
+  startEmbedderProcess().catch(err => {
+    console.error(`[embedder] failed to start: ${err.message}`)
+  })
+}
 startDecayJob()
 startDreamerJob()
 startSelfImproveJob()
