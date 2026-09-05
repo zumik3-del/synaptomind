@@ -404,6 +404,8 @@ bunx biome check src/   # lint (advisory)
 
 For step-by-step usage scenarios, see [docs/SCENARIOS.md](docs/SCENARIOS.md).
 
+For performance benchmarks (search latency, write throughput, embedding speed), see [docs/BENCHMARK.md](docs/BENCHMARK.md).
+
 ---
 
 ## Contributing
