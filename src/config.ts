@@ -9,7 +9,7 @@ interface Config {
   logDbPath: string
   embedder: {
     enabled: boolean; model: string; dimensions: number; pollIntervalMs: number;
-    cacheDir: string; idleTimeoutMs: number; precache: boolean
+    cacheDir: string; idleTimeoutMs: number; precache: boolean; batchSize: number
   }
   thoughts: { softLimit: number; hardLimit: number }
   decay: {
@@ -47,7 +47,7 @@ export const DEFAULTS: Config = {
   embedder: {
     enabled: true, model: 'Xenova/multilingual-e5-small', dimensions: 384,
     pollIntervalMs: 7000, cacheDir: './data/huggingface',
-    idleTimeoutMs: 600000, precache: false
+    idleTimeoutMs: 600000, precache: false, batchSize: 8
   },
   thoughts: { softLimit: 500, hardLimit: 600 },
   decay: {
@@ -104,6 +104,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_EMBEDDER_CACHE_DIR', path: 'embedder.cacheDir', type: 'string' },
   { env: 'SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT', path: 'embedder.idleTimeoutMs', type: 'int' },
   { env: 'SYNAPTOMIND_EMBEDDER_PRECACHE', path: 'embedder.precache', type: 'bool' },
+  { env: 'SYNAPTOMIND_EMBEDDER_BATCH_SIZE', path: 'embedder.batchSize', type: 'int' },
 
   { env: 'SYNAPTOMIND_THOUGHT_SOFT_LIMIT', path: 'thoughts.softLimit', type: 'int' },
   { env: 'SYNAPTOMIND_THOUGHT_HARD_LIMIT', path: 'thoughts.hardLimit', type: 'int' },

@@ -5,7 +5,7 @@ import { insertLog } from '../logging'
 import { generateEmbedding, generateEmbeddings, resetExtractor } from './model'
 import { ensureModelFiles } from './model-validator'
 
-const BATCH_SIZE = 8
+const BATCH_SIZE = config.embedder.batchSize
 const MAX_CONSECUTIVE_FAILURES = 5
 const MAX_ATTEMPTS = 10
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
