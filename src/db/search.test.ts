@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createTestDb, seedEmbedding, seedThought } from "../test/helpers";
 import { getDb } from "./container";
 import { closeDb, hasVec } from "./init";
-import { bm25SearchIds, rrfMerge, searchThoughts } from "./search";
+import { bm25SearchIds, bm25SearchIdsFiltered, rrfMerge, searchThoughts } from "./search";
 
 const itVec = test.skipIf(!hasVec());
 
@@ -268,4 +268,66 @@ test("toFtsQuery escapes special characters", () => {
 	// Should not throw even with special chars
 	const ids = bm25SearchIds(db, 'test "quotes" AND OR NOT', 10);
 	expect(Array.isArray(ids)).toBeTrue();
+});
+
+// ── bm25SearchIdsFiltered ────────────────────────────────────────────────────
+
+test("bm25SearchIdsFiltered respects project filter", () => {
+	const db = getDb();
+	const p1 = crypto.randomUUID();
+	const p2 = crypto.randomUUID();
+	db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, 'P1', ?)`).run(p1, new Date().toISOString());
+	db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, 'P2', ?)`).run(p2, new Date().toISOString());
+
+	seedThought({ id: "bm25-proj-a", content: "Caddy proxy config in project one", project_id: p1 });
+	seedThought({ id: "bm25-proj-b", content: "Caddy proxy config in project two", project_id: p2 });
+
+	const filtered = bm25SearchIdsFiltered(db, "Caddy", 10, "AND t.project_id = ? ", [p1]);
+	expect(filtered).toContain("bm25-proj-a");
+	expect(filtered).not.toContain("bm25-proj-b");
+});
+
+test("bm25SearchIdsFiltered respects status filter", () => {
+	const db = getDb();
+	seedThought({ id: "bm25-status-a", content: "deploy workflow active", status: "active" });
+	seedThought({ id: "bm25-status-b", content: "deploy workflow archived", status: "archived" });
+
+	const filtered = bm25SearchIdsFiltered(db, "deploy", 10, "AND t.status = ? ", ["active"]);
+	expect(filtered).toContain("bm25-status-a");
+	expect(filtered).not.toContain("bm25-status-b");
+});
+
+test("bm25SearchIdsFiltered without filterSql falls back to unfiltered", () => {
+	const db = getDb();
+	seedThought({ id: "bm25-fb-a", content: "fallback test marker alpha" });
+	seedThought({ id: "bm25-fb-b", content: "fallback test marker beta" });
+
+	const result = bm25SearchIdsFiltered(db, "fallback", 10, "", []);
+	expect(result).toContain("bm25-fb-a");
+	expect(result).toContain("bm25-fb-b");
+});
+
+itVec("searchThoughts project-filtered BM25 returns topK when local thought exists", () => {
+	const db = getDb();
+	const p1 = crypto.randomUUID();
+	const p2 = crypto.randomUUID();
+	db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, 'P1', ?)`).run(p1, new Date().toISOString());
+	db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, 'P2', ?)`).run(p2, new Date().toISOString());
+
+	const local = seedThought({ content: "scoped search marker", project_id: p1 });
+	const remote = seedThought({ content: "scoped search marker", project_id: p2 });
+	seedEmbedding(local);
+	seedEmbedding(remote);
+
+	const results = searchThoughts(db, {
+		embedding: new Float32Array(384),
+		query: "scoped search marker",
+		topK: 1,
+		statusFilter: "active",
+		projectFilter: p1,
+		hybrid: true,
+	});
+
+	expect(results).toHaveLength(1);
+	expect(results[0].thought.id).toBe(local);
 });
