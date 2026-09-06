@@ -25,7 +25,7 @@ Edit `docker-compose.yml`:
 ```yaml
 services:
   synaptomind:
-    image: ghcr.io/zumik3-del/synaptomind:0.6.0-alpha.0
+    image: ghcr.io/zumik3-del/synaptomind:latest
     # build: .   # comment out for production
 ```
 
@@ -40,7 +40,7 @@ The deploy script handles cloning, version selection, and container startup:
 ```bash
 bash scripts/deploy.sh              # latest stable release
 bash scripts/deploy.sh --alpha      # latest prerelease (alpha/beta/rc)
-bash scripts/deploy.sh 0.6.0-alpha.0  # specific version
+bash scripts/deploy.sh 0.3.0        # specific version
 bash scripts/deploy.sh --dev        # main branch (builds from source)
 ```
 
@@ -111,7 +111,7 @@ ports:
 ### With deploy script
 
 ```bash
-bash scripts/deploy.sh 0.6.0-alpha.0
+bash scripts/deploy.sh 0.3.0
 ```
 
 ### Manual update
@@ -119,8 +119,8 @@ bash scripts/deploy.sh 0.6.0-alpha.0
 ```bash
 cd /opt/synaptomind
 git fetch origin
-git checkout 0.6.0-alpha.0
-sed -i "s|image: ghcr.io/zumik3-del/synaptomind:.*|image: ghcr.io/zumik3-del/synaptomind:0.6.0-alpha.0|" docker-compose.yml
+git checkout 0.3.0
+sed -i "s|image: ghcr.io/zumik3-del/synaptomind:.*|image: ghcr.io/zumik3-del/synaptomind:0.3.0|" docker-compose.yml
 docker compose up -d
 ```
 
@@ -128,7 +128,7 @@ docker compose up -d
 
 ```bash
 curl http://127.0.0.1:3005/health
-# {"status":"ok","version":"0.6.0-alpha.0","checks":{"database":"ok","embedder":"ok"}}
+# {"status":"ok","version":"0.3.0","checks":{"database":"ok","embedder":"ok"}}
 ```
 
 ---
@@ -181,7 +181,7 @@ Response:
 ```json
 {
   "status": "ok",
-  "version": "0.6.0-alpha.0",
+  "version": "0.3.0",
   "checks": {
     "database": "ok",
     "embedder": "ok"

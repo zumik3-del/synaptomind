@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_URL="${SYNAPTOMIND_REPO:-https://github.com/zumik3-del/synaptomind.git}"
-INSTALL_DIR="${SYNAPTOMIND_DIR:-/opt/synaptomind}"
+INSTALL_DIR="${SYNAPTOMIND_INSTALL_DIR:-/opt/synaptomind}"
 VERSION="${1:-}"
 
 # Find latest stable tag (no hyphen = no prerelease)
@@ -76,6 +76,13 @@ cd "$INSTALL_DIR"
 if [ ! -f config.json ]; then
   cp config.json.example config.json
   echo "[synaptomind] Created config.json from example — edit it before starting"
+fi
+
+# Create .env if not exists
+if [ ! -f .env ]; then
+  secret=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || date +%s | sha256sum | head -c 36)
+  echo "SYNAPTOMIND_SECRET=${secret}" > .env
+  echo "[synaptomind] Created .env with random secret"
 fi
 
 # Update docker-compose image tag for tagged releases (not --dev)

@@ -5,6 +5,43 @@ set -euo pipefail
 INSTALL_DIR="${SYNAPTOMIND_INSTALL_DIR:-/opt/synaptomind}"
 DATA_DIR="${SYNAPTOMIND_DATA_DIR:-/var/lib/synaptomind}"
 REPO_URL="https://github.com/zumik3-del/synaptomind.git"
+INSTALL_PORT=3005
+NO_SERVICE=false
+
+# --- Parse arguments ---
+
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir)
+        INSTALL_DIR="$2"
+        shift 2
+        ;;
+      --port)
+        INSTALL_PORT="$2"
+        shift 2
+        ;;
+      --no-service)
+        NO_SERVICE=true
+        shift
+        ;;
+      --help|-h)
+        echo "Usage: curl -fsSL ... | bash -s -- [OPTIONS]"
+        echo ""
+        echo "Options:"
+        echo "  --dir DIR        Install directory (default: /opt/synaptomind)"
+        echo "  --port PORT      API port (default: 3005)"
+        echo "  --no-service     Skip systemd service installation"
+        echo "  --help, -h       Show this help"
+        exit 0
+        ;;
+      *)
+        echo "[synaptomind] Unknown option: $1" >&2
+        exit 1
+        ;;
+    esac
+  done
+}
 
 # --- Helpers ---
 
@@ -135,6 +172,11 @@ setup_data() {
 # --- Install systemd service ---
 
 install_service() {
+  if [ "$NO_SERVICE" = true ]; then
+    info "Skipping systemd service (--no-service)"
+    return
+  fi
+
   if [ ! -d /etc/systemd/system ]; then
     info "systemd not found — skipping service installation"
     return
@@ -156,6 +198,7 @@ User=${current_user}
 WorkingDirectory=${INSTALL_DIR}
 Environment=PATH=/root/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=NODE_ENV=production
+Environment=SYNAPTOMIND_PORT=${INSTALL_PORT}
 EnvironmentFile=${INSTALL_DIR}/.env
 ExecStart=${BUN_BIN} run src/index.ts
 Restart=on-failure
@@ -204,8 +247,8 @@ print_summary() {
   echo "  Start:      sudo systemctl start synaptomind"
   echo "  Stop:       sudo systemctl stop synaptomind"
   echo "  Logs:       journalctl -u synaptomind -f"
-  echo "  Health:     curl http://127.0.0.1:3005/health"
-  echo "  Update:     cd $INSTALL_DIR && git pull"
+  echo "  Health:     curl http://127.0.0.1:${INSTALL_PORT}/health"
+  echo "  Update:     bash $INSTALL_DIR/scripts/update.sh"
   echo "  Uninstall:  sudo bash $INSTALL_DIR/scripts/uninstall.sh"
   echo ""
 }
@@ -213,6 +256,8 @@ print_summary() {
 # --- Main ---
 
 main() {
+  parse_args "$@"
+
   info "Installing SynaptoMind..."
 
   need_cmd curl

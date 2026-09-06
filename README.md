@@ -341,7 +341,7 @@ sudo bash /opt/synaptomind/scripts/uninstall.sh
 ```bash
 bash scripts/deploy.sh              # latest stable release
 bash scripts/deploy.sh --alpha      # latest prerelease (alpha/beta/rc)
-bash scripts/deploy.sh 0.2.1        # specific version
+bash scripts/deploy.sh 0.3.0        # specific version
 bash scripts/deploy.sh --dev        # main branch (development)
 ```
 
