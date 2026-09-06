@@ -8,7 +8,7 @@ import {
   updateProject
 } from '../db/projects'
 import { getDb } from '../db'
-import { ValidationError } from './errors'
+import { ValidationError } from '../errors'
 
 export function listProjectsService() {
   return listProjects(getDb())

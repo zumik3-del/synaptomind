@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { NotFoundError, ValidationError } from '../services/errors'
+import { NotFoundError, ValidationError } from '../errors'
 import { deleteTagService, listTagsService, renameTagService } from '../services/tags.service'
 
 const tagsRouter = new Hono()

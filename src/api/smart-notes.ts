@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { SurfaceCondition } from '../db/smart_notes'
-import { NotFoundError, ValidationError } from '../services/errors'
+import { NotFoundError, ValidationError } from '../errors'
 import {
   awakenReady,
   createSmartNoteService,

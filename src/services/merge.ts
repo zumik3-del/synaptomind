@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { createEdge, deleteEdge, getEdgesForThought } from '../db/edges'
 import { getThoughtRow, type Thought } from '../db/thoughts'
 import { insertLog } from '../logging/log'
-import { EdgeAlreadyExistsError, ValidationError } from './errors'
+import { EdgeAlreadyExistsError, ValidationError } from '../errors'
 
 export function validateMergePreconditions(source: Thought): void {
   if (source.status === 'archived') {

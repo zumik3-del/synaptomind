@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { NotFoundError, ValidationError } from '../services/errors'
+import { NotFoundError, ValidationError } from '../errors'
 import {
   createProjectService,
   deleteProjectService,

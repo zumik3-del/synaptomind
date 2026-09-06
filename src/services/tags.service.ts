@@ -1,6 +1,6 @@
 import { deleteTag, listTags, pruneOrphanTags, renameTag } from '../db/tags'
 import { getDb } from '../db'
-import { ValidationError } from './errors'
+import { ValidationError } from '../errors'
 
 export function listTagsService(q?: string) {
   return listTags(getDb(), q)

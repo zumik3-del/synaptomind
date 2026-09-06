@@ -1,6 +1,6 @@
 import type { ThoughtLimits } from './db/settings'
 import { insertLog } from './logging/log'
-import { ValidationError } from './services/errors'
+import { ValidationError } from './errors'
 import { isThoughtStatus } from './types/thought'
 
 export function validateStatus(status: string | undefined): void {

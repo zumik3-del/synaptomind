@@ -1,7 +1,5 @@
 import { Hono } from 'hono'
-import { getDb } from '../db'
-import { isEmbedderReady } from '../embedder/client'
-import { VERSION } from '../version'
+import { getHealthService } from '../services/health.service'
 import { authMiddleware } from './middleware/auth'
 import { rateLimitMiddleware } from './middleware/rate-limit'
 import { errorHandler } from './middleware/error-handler'
@@ -59,22 +57,8 @@ export function createApp(): Hono {
   app.route('/api', healthCheckRouter)
 
   app.get('/health', c => {
-    const checks: Record<string, string> = {}
-
-    try {
-      getDb().prepare('SELECT 1').get()
-      checks.database = 'ok'
-    } catch (e) {
-      checks.database = String(e)
-    }
-
-    checks.embedder = isEmbedderReady() ? 'ok' : 'not ready'
-
-  // Degradation is DB-only by design: the embedder needs a long first-load
-  // (model download), and the Docker healthcheck start_period (10s) is shorter,
-  // so counting it would mark healthy containers unhealthy during startup.
-  const ok = checks.database === 'ok'
-  return c.json({ status: ok ? 'ok' : 'degraded', version: VERSION, checks }, ok ? 200 : 503)
+    const health = getHealthService()
+    return c.json(health, health.status === 'ok' ? 200 : 503)
   })
 
   return app

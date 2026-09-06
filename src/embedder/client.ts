@@ -1,7 +1,7 @@
 import { type Subprocess, spawn } from 'bun'
 import { getEmbedderIdleTimeoutMs, getEmbedderPrecache } from '../db/settings'
 import { insertLog } from '../logging'
-import { EmbedderNotReadyError, EmbedderOverloadedError } from '../services/errors'
+import { EmbedderNotReadyError, EmbedderOverloadedError } from '../errors'
 
 type EmbeddingPayload = number[] | number[][]
 
@@ -31,7 +31,8 @@ let readyResolve: (() => void) | null = null
 let readyReject: ((err: Error) => void) | null = null
 
 function getScriptPath(): string {
-  return `${import.meta.dir}/embedder-process.ts`
+  // Test hook: point the client at a stub subprocess (see __fixtures__/stub-embedder.ts).
+  return process.env.SYNAPTOMIND_EMBEDDER_SCRIPT ?? `${import.meta.dir}/embedder-process.ts`
 }
 
 function rejectAllPending(err: Error) {

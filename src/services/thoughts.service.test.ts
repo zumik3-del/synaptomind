@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db'
 import { getThoughtLimits } from '../db/settings'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { NotFoundError, ValidationError } from './errors'
+import { NotFoundError, ValidationError } from '../errors'
 import {
   archiveThoughtById,
   createThoughtWithParent,

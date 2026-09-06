@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { closeDb } from "../db/init";
 import { createTestDb } from "../test/helpers";
-import { ValidationError } from "./errors";
+import { ValidationError } from "../errors";
 import {
 	createProjectService,
 	deleteProjectService,

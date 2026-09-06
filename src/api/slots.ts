@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { config } from '../config'
 import { withTelemetry } from '../logging'
-import { NotFoundError, ValidationError } from '../services/errors'
+import { NotFoundError, ValidationError } from '../errors'
 import { getSlots, type ReflectInput, reflectSession, updateExplicitSlot } from '../services/slots.service'
 import { jsonBodyOrDefault } from './utils'
 

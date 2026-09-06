@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import { EmbedderNotReadyError } from '../../services/errors'
+import { EmbedderNotReadyError } from '../../errors'
 
 function isDomainError(err: unknown): err is Error & { statusCode: ContentfulStatusCode } {
   return (

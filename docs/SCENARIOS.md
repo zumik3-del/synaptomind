@@ -120,7 +120,7 @@ memory_store(action=create, "Work at night", is_profile=true, tags=["@profile", 
 decay job → importance decreases by rate (0.95) every 24h
   → importance < 0.1 + age > 30 days + active → auto-archive
 
-thought_verify → marks stale_draft as obsolete
+thought_verify → re-embeds content, flags drift (cosine distance > driftThreshold) or staleness (> staleWarnDays)
 
 self-improve → detects:
   orphan_writes → thoughts created without project binding (advisory only)

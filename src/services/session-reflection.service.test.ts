@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb } from '../test/helpers'
 import { closeDb, getDb } from '../db'
 import { reflectSession } from './session-reflection.service'
-import { ValidationError, NotFoundError } from './errors'
+import { ValidationError, NotFoundError } from '../errors'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
