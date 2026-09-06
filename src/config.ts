@@ -227,7 +227,10 @@ function applyEnvOverrides(fileConfig: Partial<Config>): Config {
     const raw = process.env[env]
     if (raw === undefined) continue
     const value = parseValue(raw, type)
-    if (typeof value === 'number' && Number.isNaN(value)) continue
+    if (typeof value === 'number' && Number.isNaN(value)) {
+      console.error(`[config] invalid value for ${env}: "${raw}" (expected ${type}), using default`)
+      continue
+    }
     setNested(merged, path, value)
   }
 

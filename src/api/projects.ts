@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { ValidationError } from '../services/errors'
+import { NotFoundError, ValidationError } from '../services/errors'
 import {
   createProjectService,
   deleteProjectService,
@@ -17,7 +17,7 @@ projectsRouter.get('/resolve', c => {
   const path = c.req.query('path')
   if (!path) return c.json({ error: 'path query parameter is required' }, 400)
   const project = resolveProjectService(path)
-  if (!project) return c.json({ error: 'No project found for path' }, 404)
+  if (!project) throw new NotFoundError('No project found for path')
   return c.json({ id: project.id, name: project.name, local_path: project.local_path })
 })
 
@@ -38,7 +38,7 @@ projectsRouter.post('/', async c => {
 projectsRouter.patch('/:id', async c => {
   const id = c.req.param('id')
   const existing = getProjectService(id)
-  if (!existing) return c.json({ error: 'Project not found' }, 404)
+  if (!existing) throw new NotFoundError('Project not found')
   const body = await c.req.json<{
     name?: string
     description?: string | null
@@ -50,13 +50,13 @@ projectsRouter.patch('/:id', async c => {
 
 projectsRouter.get('/:id', c => {
   const project = getProjectService(c.req.param('id'))
-  if (!project) return c.json({ error: 'Project not found' }, 404)
+  if (!project) throw new NotFoundError('Project not found')
   return c.json(project)
 })
 
 projectsRouter.delete('/:id', c => {
   const deleted = deleteProjectService(c.req.param('id'))
-  if (!deleted) return c.json({ error: 'Project not found' }, 404)
+  if (!deleted) throw new NotFoundError('Project not found')
   return c.json({ success: true })
 })
 

@@ -45,6 +45,9 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
 
   const d = db // guaranteed non-null from here
 
+  // Bootstrap tables for non-migration mode (tests, memory DB).
+  // In production (runMigrations=true), the migration system owns the full schema
+  // and will ALTER TABLE to add any missing columns.
   d.run(`
     CREATE TABLE IF NOT EXISTS thoughts (
       id         TEXT PRIMARY KEY,

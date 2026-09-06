@@ -1,3 +1,4 @@
+import type { Context } from 'hono'
 import { insertTelemetry as _insertTelemetry } from './log'
 
 export { closeLogDb, getLogDb, insertLog, insertTelemetry, type TelemetryInsertOpts } from './log'
@@ -24,28 +25,27 @@ type TelemetryFields = {
   meta?: Record<string, unknown>
 }
 
-export function withTelemetry(c: any, fields: TelemetryFields, fn: (c: any) => any): any {
+export function withTelemetry<T>(c: Context, fields: TelemetryFields, fn: (c: Context) => T): T {
   const t0 = performance.now()
-  const run = (result: any): any => {
+  const recordTelemetry = (): void => {
     const latencyMs = Math.round(performance.now() - t0)
     const ctx = telemetryContext(c)
     if (ctx) {
       void _insertTelemetry({ ...fields, latencyMs, responseSize: 0, ...ctx })
     }
-    return result
   }
   try {
     const result = fn(c)
     if (result instanceof Promise) {
-      return result.then(run)
+      return result.then(
+        (v) => { recordTelemetry(); return v },
+        (err) => { recordTelemetry(); throw err }
+      ) as T
     }
-    return run(result)
+    recordTelemetry()
+    return result
   } catch (err) {
-    const latencyMs = Math.round(performance.now() - t0)
-    const ctx = telemetryContext(c)
-    if (ctx) {
-      void _insertTelemetry({ ...fields, latencyMs, responseSize: 0, ...ctx })
-    }
+    recordTelemetry()
     throw err
   }
 }

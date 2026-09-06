@@ -73,12 +73,9 @@ export function createProject(db: Database, data: {
     new Date().toISOString(),
     normalizePath(data.local_path)
   )
-  return (
-    getProject(db, id) ?? {
-      ...({ id, name: data.name, description: data.description ?? null, created_at: '' } as Project),
-      thought_count: 0
-    }
-  )
+  const project = getProject(db, id)
+  if (!project) throw new Error(`Project ${id} not found after insert`)
+  return project
 }
 
 export function updateProject(

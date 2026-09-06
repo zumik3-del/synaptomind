@@ -56,7 +56,7 @@ thoughtsRouter.get('/self-improve/status', c => {
 
 thoughtsRouter.get('/members/:id', c => {
   return withTelemetry(c, { action: 'read', toolName: 'get_thought' }, c2 => {
-    const id = c2.req.param('id')
+    const id = c2.req.param('id')!
     const cluster = getThoughtById(id)
     if (!cluster) return c2.json({ error: 'Not found' }, 404)
     if (!cluster.is_cluster) return c2.json({ error: 'Not a cluster thought' }, 400)
@@ -67,7 +67,7 @@ thoughtsRouter.get('/members/:id', c => {
 
 thoughtsRouter.get('/:id/edges', c => {
   return withTelemetry(c, { action: 'explore', toolName: 'get_chain' }, c2 => {
-    const id = c2.req.param('id')
+    const id = c2.req.param('id')!
     const direction = (c2.req.query('direction') || 'both') as 'upstream' | 'downstream' | 'both'
     const result = getChainService(id, direction)
     if (!result) return c2.json({ error: 'Thought not found' }, 404)
@@ -77,7 +77,7 @@ thoughtsRouter.get('/:id/edges', c => {
 
 thoughtsRouter.get('/:id', c => {
   return withTelemetry(c, { action: 'read', toolName: 'get_thought' }, c2 => {
-    const id = c2.req.param('id')
+    const id = c2.req.param('id')!
     const thought = getThoughtById(id)
     if (!thought) return c2.json({ error: 'Not found' }, 404)
     return c2.json(thought)
@@ -145,7 +145,7 @@ thoughtsRouter.post('/', async c => {
 
 thoughtsRouter.put('/:id', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'update_thought' }, async c2 => {
-    const id = c2.req.param('id')
+    const id = c2.req.param('id')!
     const body = await c2.req.json() as {
       content?: string; tags?: string[]; status?: ThoughtStatus;
       project_id?: string; is_profile?: boolean; is_protected?: boolean
@@ -163,7 +163,7 @@ thoughtsRouter.put('/:id', async c => {
 
 thoughtsRouter.delete('/:id', c => {
   return withTelemetry(c, { action: 'write', toolName: 'archive_thought' }, c2 => {
-    const id = c2.req.param('id')
+    const id = c2.req.param('id')!
     const thought = getThoughtById(id)
     if (!thought) return c2.json({ error: 'Not found' }, 404)
     if (thought.status === 'archived') {

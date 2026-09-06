@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { NotFoundError } from '../services/errors'
 import { listPrimersService, deletePrimerService } from '../services/primers.service'
 
 const primersRouter = new Hono()
@@ -9,7 +10,7 @@ primersRouter.get('/', c => {
 
 primersRouter.delete('/:id', c => {
   const deleted = deletePrimerService(c.req.param('id'))
-  if (!deleted) return c.json({ error: 'Not found' }, 404)
+  if (!deleted) throw new NotFoundError()
   return c.json({ success: true })
 })
 
