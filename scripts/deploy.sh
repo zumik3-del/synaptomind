@@ -12,7 +12,7 @@ find_latest_stable() {
 
 # Find latest prerelease tag (contains hyphen)
 find_latest_prerelease() {
-  git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -E '-alpha\.|-beta\.|-rc\.' | head -1
+  git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -E -- '-alpha\.|-beta\.|-rc\.' | head -1
 }
 
 # Determine target
