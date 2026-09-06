@@ -66,7 +66,7 @@ if [ -z "$LATEST_TAG" ]; then
   exit 1
 fi
 
-LATEST="$LATEST_TAG"
+LATEST="${LATEST_TAG#v}"
 
 echo "[synaptomind] Current:  ${CURRENT}"
 echo "[synaptomind] Latest:   ${LATEST}"
@@ -79,7 +79,8 @@ fi
 echo ""
 echo "[synaptomind] Changes since ${CURRENT}:"
 echo "---"
-git log "${CURRENT}..${LATEST_TAG}" --oneline --no-merges 2>/dev/null | head -30
+git log "${CURRENT}..${LATEST_TAG}" --oneline --no-merges 2>/dev/null | head -30 || \
+git log "${LATEST_TAG}" --oneline --no-merges --max-count=30 2>/dev/null
 echo "---"
 
 echo ""
