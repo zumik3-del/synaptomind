@@ -70,8 +70,11 @@ export function createApp(): Hono {
 
     checks.embedder = isEmbedderReady() ? 'ok' : 'not ready'
 
-    const ok = checks.database === 'ok'
-    return c.json({ status: ok ? 'ok' : 'degraded', version: VERSION, checks })
+  // Degradation is DB-only by design: the embedder needs a long first-load
+  // (model download), and the Docker healthcheck start_period (10s) is shorter,
+  // so counting it would mark healthy containers unhealthy during startup.
+  const ok = checks.database === 'ok'
+  return c.json({ status: ok ? 'ok' : 'degraded', version: VERSION, checks }, ok ? 200 : 503)
   })
 
   return app

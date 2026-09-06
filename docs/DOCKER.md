@@ -116,11 +116,16 @@ bash scripts/deploy.sh 0.3.0
 
 ### Manual update
 
+The compose file resolves the image via `SYNAPTOMIND_IMAGE` (see `docker-compose.yml`):
+
 ```bash
 cd /opt/synaptomind
 git fetch origin
 git checkout 0.3.0
-sed -i "s|image: ghcr.io/zumik3-del/synaptomind:.*|image: ghcr.io/zumik3-del/synaptomind:0.3.0|" docker-compose.yml
+export SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:0.3.0
+# optional: persist for later manual `docker compose up` runs
+grep -q '^SYNAPTOMIND_IMAGE=' .env && sed -i "s|^SYNAPTOMIND_IMAGE=.*|SYNAPTOMIND_IMAGE=${SYNAPTOMIND_IMAGE}|" .env || echo "SYNAPTOMIND_IMAGE=${SYNAPTOMIND_IMAGE}" >> .env
+docker compose pull 2>/dev/null || true
 docker compose up -d
 ```
 

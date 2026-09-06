@@ -96,7 +96,7 @@ echo "[synaptomind] Checking out ${LATEST_TAG}..."
 git checkout "$LATEST_TAG"
 
 echo "[synaptomind] Installing dependencies..."
-bun install --production
+bun install --frozen-lockfile --production
 
 # Restart service if running via systemd
 if systemctl is-active synaptomind &>/dev/null; then

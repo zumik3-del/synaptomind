@@ -262,22 +262,28 @@ See `config.json.example` for all options. Full reference: [docs/CONFIG.md](docs
 ### From source (development)
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 Volumes mount `./data` and `./config.json`.
 
 ### Published image (production)
 
-Edit `docker-compose.yml` — uncomment `image`, comment `build`:
-
-```yaml
-image: ghcr.io/zumik3-del/synaptomind:latest
-# build: .
-```
+The compose file resolves the image via the `SYNAPTOMIND_IMAGE` variable (default `:local`, built from source):
 
 ```bash
-docker compose pull && docker compose up -d
+SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:latest docker compose pull && docker compose up -d
+```
+
+`scripts/deploy.sh` sets and persists this variable automatically for tagged releases.
+
+### Container user
+
+The container runs as a non-root user (uid/gid `10001`). Make sure the mounted paths are writable/readable by that uid:
+
+```bash
+sudo chown -R 10001:10001 data   # required once when upgrading from older (root-run) images
+chmod 644 config.json            # config.json must be readable by uid 10001
 ```
 
 ### Auth

@@ -1,8 +1,9 @@
 services:
   synaptomind:
-    # Option A: use published image (recommended for production)
-    # image: ghcr.io/zumik3-del/synaptomind:0.3.0
-    # Option B: build from source (default for development)
+    # Image is resolved via SYNAPTOMIND_IMAGE (set by scripts/deploy.sh for
+    # tagged releases; persisted in .env for later manual `docker compose up`).
+    # Default: build from source (development).
+    image: ${SYNAPTOMIND_IMAGE:-ghcr.io/zumik3-del/synaptomind:local}
     build: .
     container_name: synaptomind
     restart: unless-stopped

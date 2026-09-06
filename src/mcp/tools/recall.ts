@@ -17,6 +17,7 @@ const actionHandlers: Record<string, (args: RecallArgs) => unknown | Promise<unk
   },
 
   async search(args) {
+    if (!args.query) throw new Error('query is required for search action')
     const topK = (args.top_k as number) ?? 10
     const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
     const statusFilter = (args.status as string) || 'active'
@@ -37,6 +38,7 @@ const actionHandlers: Record<string, (args: RecallArgs) => unknown | Promise<unk
   },
 
   async context(args) {
+    if (!args.query) throw new Error('query is required for context action')
     const context = getContextService(args.query as string, args.max_degree as number | undefined)
     if (!context) throw new Error(`No thoughts matching '${args.query}'`)
     return context
@@ -50,6 +52,7 @@ const actionHandlers: Record<string, (args: RecallArgs) => unknown | Promise<unk
   },
 
   async clusters(args) {
+    if (!args.query) throw new Error('query is required for clusters action')
     const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
     return searchThoughts({
       query: args.query as string, topK: args.top_k as number | undefined, clusterFilter: 'only', projectFilter,

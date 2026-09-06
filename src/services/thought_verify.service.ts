@@ -1,4 +1,5 @@
 import { getDb } from '../db'
+import { config } from '../config'
 import { getVerifyEntriesPendingCheck, markFlagged, clearFlag } from '../db/thought_verify'
 import { getThoughtById } from './thoughts.service'
 import { isOlderThanDays } from './utils'
@@ -9,12 +10,12 @@ interface VerifyStats {
   skipped: number
 }
 
-export async function runVerifyJob(): Promise<VerifyStats> {
-  const enabled = process.env.VERIFY_ENABLED !== 'false'
+export async function runVerifyJob(opts?: { enabled?: boolean; staleWarnDays?: number }): Promise<VerifyStats> {
+  const enabled = opts?.enabled ?? config.verify.enabled
   if (!enabled) return { checked: 0, flagged: 0, skipped: 0 }
   const d = getDb()
   const entries = getVerifyEntriesPendingCheck(d)
-  const staleDays = parseInt(process.env.STALE_WARN_DAYS || '30', 10)
+  const staleDays = opts?.staleWarnDays ?? config.verify.staleWarnDays
   let flagged = 0
   let checked = 0
 
@@ -52,7 +53,8 @@ function getThoughtEmbedding(thoughtId: string, db: ReturnType<typeof getDb>): F
       | { embedding: Buffer }
       | undefined
     if (!row) return null
-    return new Float32Array(row.embedding.buffer as ArrayBuffer, row.embedding.byteOffset, row.embedding.byteLength)
+    // third arg is the element count, not bytes (Float32Array = 4 bytes/elem)
+    return new Float32Array(row.embedding.buffer as ArrayBuffer, row.embedding.byteOffset, row.embedding.byteLength / 4)
   } catch {
     return null
   }

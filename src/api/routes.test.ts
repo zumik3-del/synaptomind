@@ -37,6 +37,20 @@ test("GET /health returns ok", async () => {
 	expect(body.status).toBe("ok");
 });
 
+test("GET /health returns 503 degraded when database check fails (issue #107)", async () => {
+	// No manual reopen needed: beforeEach(createTestDb) gives every test a
+	// fresh DB, and afterEach(closeDb) tolerates an already-closed DB.
+	closeDb();
+
+	const res = await request("/health");
+	expect(res.status).toBe(503);
+	const body = (await res.json()) as Record<string, unknown>;
+	expect(body.status).toBe("degraded");
+	const checks = body.checks as Record<string, unknown>;
+	expect(checks.database).toBeTruthy();
+	expect(checks.database).not.toBe("ok");
+});
+
 test("GET /health returns version", async () => {
 	const res = await request("/health");
 	const body = (await res.json()) as Record<string, unknown>;
