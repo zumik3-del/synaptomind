@@ -8,11 +8,15 @@ import {
   isEmbedderReady,
   startEmbedderProcess,
   stopEmbedderProcess
-} from './client'
+} from './client-core'
 
-// The client module keeps global state (proc/ready/dead/pending), so this file
-// runs strictly sequentially: every test starts from a stopped client and
-// stops it again in afterEach.
+// Import the implementation directly via client-core: other test files
+// mock.module('../embedder/client') globally (bun cannot unmock modules),
+// so this suite must not resolve that specifier.
+//
+// The client keeps global state (proc/ready/dead/pending), so this file runs
+// strictly sequentially: every test starts from a stopped client and stops it
+// again in afterEach.
 const STUB_PATH = `${import.meta.dir}/__fixtures__/stub-embedder.ts`
 
 beforeAll(() => {
