@@ -272,7 +272,7 @@ Volumes mount `./data` and `./config.json`.
 Edit `docker-compose.yml` — uncomment `image`, comment `build`:
 
 ```yaml
-image: ghcr.io/zumik3-del/synaptomind:0.6.0-alpha.0
+image: ghcr.io/zumik3-del/synaptomind:latest
 # build: .
 ```
 
