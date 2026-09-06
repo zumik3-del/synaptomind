@@ -13,7 +13,12 @@ if (porcelain.length) {
 	process.exit(1);
 }
 
-var tags = cp.execSync('git tag --list --sort=version:refname', { encoding: 'utf8' }).trim().split(/\n/);
+// tags are sorted by tag creation time (oldest first); emit sections
+// newest -> oldest. version:refname would put a bare "0.6.0" before
+// "0.6.0-alpha.0", scattering prereleases around the stable section.
+// Chronological ordering also keeps chained ranges disjoint: a commit
+// reachable from an older tag never reappears in a newer section.
+var tags = cp.execSync('git tag --list --sort=creatordate', { encoding: 'utf8' }).trim().split(/\n/);
 
 var md = '# Changelog\n';
 
@@ -22,7 +27,6 @@ if (tags.length < 2) {
 	process.exit(1);
 }
 
-// tags are sorted ascending (oldest first); emit sections newest -> oldest.
 // For tag[i] the commit range is tags[i-1]..tag[i] (commits since the
 // previous, older tag). Sections with no commits are skipped entirely.
 for (var i = tags.length - 1; i >= 1; i--) {
