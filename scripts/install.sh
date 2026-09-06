@@ -53,6 +53,15 @@ need_cmd() {
   command -v "$1" &>/dev/null || error "Required command not found: $1"
 }
 
+# Check if systemd is actually running.
+# Accepts "running" and "degraded" — both mean systemd is up.
+# "degraded" is normal in containers (some units fail, systemd works).
+systemd_running() {
+  local state
+  state=$(systemctl is-system-running 2>&1)
+  [ "$state" = "running" ] || [ "$state" = "degraded" ]
+}
+
 # --- Install system dependencies ---
 
 install_system_deps() {
@@ -217,7 +226,7 @@ install_service() {
     return
   fi
 
-  if ! systemctl is-system-running &>/dev/null 2>&1; then
+  if ! systemd_running; then
     warn "systemd not running — skipping service installation"
     warn "Start manually: cd $INSTALL_DIR && bun run src/index.ts"
     return
@@ -269,14 +278,9 @@ EOF
 # --- Verify installation ---
 
 verify_installation() {
-  local systemd_ok=true
-  if ! systemctl is-system-running &>/dev/null 2>&1; then
-    systemd_ok=false
-  fi
-
   info "Verifying installation..."
 
-  if [ "$systemd_ok" = false ]; then
+  if ! systemd_running; then
     info "systemd not running — skip verification"
     return
   fi
@@ -301,9 +305,9 @@ print_summary() {
   local secret
   secret=$(grep SYNAPTOMIND_SECRET "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 || echo "")
 
-  local systemd_ok=false
-  if systemctl is-system-running &>/dev/null 2>&1; then
-    systemd_ok=true
+  local systemd_ok=true
+  if ! systemd_running; then
+    systemd_ok=false
   fi
 
   echo ""
