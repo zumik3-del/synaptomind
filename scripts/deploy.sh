@@ -7,7 +7,7 @@ VERSION="${1:-}"
 
 # Find latest stable tag (no hyphen = no prerelease)
 find_latest_stable() {
-  git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -v '-' | head -1
+  git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -v -- '-' | head -1
 }
 
 # Find latest prerelease tag (contains hyphen)
@@ -41,7 +41,7 @@ else
     echo "[synaptomind] Detecting latest release tag..."
     git clone --filter=blob:none --bare "$REPO_URL" "$INSTALL_DIR.tmp-bare" 2>/dev/null || true
     if [ -d "$INSTALL_DIR.tmp-bare" ]; then
-      TARGET=$(git -C "$INSTALL_DIR.tmp-bare" tag --sort=-v:refname 2>/dev/null | grep -v '-' | head -1)
+      TARGET=$(git -C "$INSTALL_DIR.tmp-bare" tag --sort=-v:refname 2>/dev/null | grep -v -- '-' | head -1)
       rm -rf "$INSTALL_DIR.tmp-bare"
     fi
   fi
