@@ -6,14 +6,11 @@
 1. memory_manage(action=create, name="my-app", description="Project description", local_path="/path/to/project")
    → project created, bound to a local path
 
-2. memory_manage(action=create, name="my-app", git_repo_url="https://github.com/user/my-app", is_git_linked=true)
-   → project created and linked to a Git repository
-
-3. memory_status(action=slots, cwd="/path/to/project")
+2. memory_status(action=slots, cwd="/path/to/project")
    → agent sees the project and its context via cwd
    → project_id resolves automatically
 
-4. memory_reflect(
+3. memory_reflect(
       action=reflect,
       summary: "Project created. Stack chosen, core modules defined.",
       goals_delta: ["MVP API", "IDE plugin", "CLI utility"],
@@ -42,7 +39,7 @@ Agent boots → memory_status(action=slots) →
 ```
 1. memory_recall(action=search, "how we did X") → find existing thoughts, avoid duplicates
 2. memory_store(action=create, "decided to use Y", tags=["decision"]) → record the decision
-3. memory_store(action=link, source=new_thought, target=existing, edge_type="develops") → grow the graph
+3. memory_store(action=link, thought_id=new_thought, target_id=existing, edge_type="develops") → grow the graph
 4. memory_store(action=create, "need to do Z", tags=["todo", "pending"]) → plan the next step
 ```
 

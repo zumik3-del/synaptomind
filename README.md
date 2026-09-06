@@ -144,7 +144,7 @@ sequenceDiagram
 - **Local embeddings** — `@huggingface/transformers`, no API keys
 - **MCP server** — stdio + HTTP transport
 - **Auto-clustering** — batch grouping by embedding proximity
-- **Background jobs** — decay, dreamer, self-improve, git sync
+- **Background jobs** — decay, dreamer, self-improve, TTL cleanup
 
 </details>
 
@@ -343,9 +343,10 @@ See [docs/DOCKER.md](docs/DOCKER.md) for full Docker guide.
 </details>
 
 <details>
-<summary><strong>API reference</strong></summary>
+<summary><strong>API examples</strong></summary>
 
 All `/api/*` endpoints require `Authorization: Bearer <token>` header.
+Full endpoint reference: [docs/API.md](docs/API.md).
 
 ### Create a thought
 
@@ -379,7 +380,7 @@ curl http://127.0.0.1:3005/health
 | Recall | `memory_recall` (search, get, context, chain, clusters) |
 | Store | `memory_store` (create, update, link, smart_note_*) |
 | Supersede | `memory_supersede` (archive, merge) |
-| Status | `memory_status` (slots, frontier, profile, config, health) |
+| Status | `memory_status` (slots, frontier, profile, config, health, cleanup) |
 | Projects | `memory_manage` (list, create, update, delete, resolve) |
 | Consolidate | `memory_crystallize` (crystallize, graph, cluster, auto_cluster) |
 | Reflect | `memory_reflect` (reflect, timeline) |
