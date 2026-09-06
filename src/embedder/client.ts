@@ -25,7 +25,14 @@ export function isEmbedderDead(): boolean {
 let dead = false
 let shuttingDown = false
 let nextId = 1
-const pending = new Map<string, { resolve: (value: unknown) => void; reject: (err: Error) => void }>()
+const pending = new Map<
+  string,
+  {
+    resolve: (value: unknown) => void
+    reject: (err: Error) => void
+    timer: ReturnType<typeof setTimeout>
+  }
+>()
 let readyPromise: Promise<void> | null = null
 let readyResolve: (() => void) | null = null
 let readyReject: ((err: Error) => void) | null = null
@@ -37,6 +44,7 @@ function getScriptPath(): string {
 
 function rejectAllPending(err: Error) {
   for (const [id, req] of pending) {
+    clearTimeout(req.timer)
     req.reject(err)
     pending.delete(id)
   }
@@ -81,6 +89,7 @@ function spawnProcess(): void {
         const req = pending.get(message.id)
         if (!req) return
         pending.delete(message.id)
+        clearTimeout(req.timer)
         if (message.type === 'error') {
           req.reject(new Error(message.error ?? 'Unknown embedder error'))
           return
@@ -201,23 +210,24 @@ function sendRequest(method: string, params: unknown): Promise<unknown> {
       return
     }
     const id = String(nextId++)
-    pending.set(id, { resolve, reject })
+    const timer = setTimeout(() => {
+      const req = pending.get(id)
+      if (req) {
+        pending.delete(id)
+        req.reject(new Error('Embedder request timed out after 60s'))
+      }
+    }, EMBEDDER_REQUEST_TIMEOUT_MS)
+    pending.set(id, { resolve, reject, timer })
     if (!proc || dead) {
+      clearTimeout(timer)
       pending.delete(id)
       reject(new EmbedderNotReadyError('Embedder process not available'))
       return
     }
     try {
       proc.send({ type: 'request', id, method, params })
-
-      setTimeout(() => {
-        const req = pending.get(id)
-        if (req) {
-          pending.delete(id)
-          req.reject(new Error('Embedder request timed out after 60s'))
-        }
-      }, EMBEDDER_REQUEST_TIMEOUT_MS)
     } catch {
+      clearTimeout(timer)
       pending.delete(id)
       dead = true
       ready = false

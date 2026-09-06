@@ -268,11 +268,10 @@ export function listThoughts(db: Database, options: ListThoughtsOptions = {}): T
   if (tag) {
     const tagNames = parseTags(tag)
     if (tagNames && tagNames.length > 0) {
-      const placeholders = tagNames.map(() => '?').join(', ')
       where.push(`t.id IN (
         SELECT tt.thought_id FROM thought_tags tt
         INNER JOIN tags tg ON tg.id = tt.tag_id
-        WHERE tg.name IN (${placeholders}) COLLATE NOCASE
+        WHERE tg.name IN (${sqlIn(tagNames)}) COLLATE NOCASE
         GROUP BY tt.thought_id
         HAVING COUNT(DISTINCT tg.name) = ?
       )`)

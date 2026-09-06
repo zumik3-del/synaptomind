@@ -3,6 +3,7 @@ import { getDb } from '../db'
 import { sqlIn } from '../db/utils'
 import { getLogDb } from '../logging'
 import { GROUNDING_TOOLS, windowStart } from './utils'
+import { queryDraftLifecycleDetailed } from './telemetry-queries'
 
 export interface TelemetrySignals {
   orphanRate: number
@@ -37,26 +38,9 @@ export function queryTelemetrySignals(): TelemetrySignals {
   const totalWrites = totalWritesRow.cnt
   const orphanRate = totalWrites > 0 ? orphanCountRow.cnt / totalWrites : 0
 
-  const draftCreatesRow = logDb
-    .prepare(
-      `SELECT COUNT(*) AS cnt FROM thought_telemetry WHERE action = 'write' AND tool_name = 'create_thought' AND created_at >= ?`
-    )
-    .get(since30d) as { cnt: number }
-
-  const draftToActiveRow = logDb
-    .prepare(
-      `SELECT COUNT(*) AS cnt FROM thought_telemetry WHERE action = 'write' AND tool_name = 'update_thought' AND meta LIKE '%"status":"active"%' AND created_at >= ?`
-    )
-    .get(since30d) as { cnt: number }
-
-  const archivedRow = logDb
-    .prepare(
-      `SELECT COUNT(*) AS cnt FROM thought_telemetry WHERE action = 'write' AND tool_name = 'archive_thought' AND created_at >= ?`
-    )
-    .get(since30d) as { cnt: number }
-
-  const draftCreates = draftCreatesRow.cnt
-  const activations = draftToActiveRow.cnt
+  const lifecycle = queryDraftLifecycleDetailed(logDb, since30d)
+  const draftCreates = lifecycle.draft_creates
+  const activations = lifecycle.updates
   const activationRate = draftCreates > 0 ? activations / draftCreates : 1
 
   const searchCreateRow = logDb
@@ -88,7 +72,7 @@ export function queryTelemetrySignals(): TelemetrySignals {
     totalWrites,
     activationRate,
     draftCreates,
-    archives: archivedRow.cnt,
+    archives: lifecycle.archives,
     highHitThoughts,
     searchCreateRatio,
     clusterOps: clusterOpsRow.cnt

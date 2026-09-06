@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'fs'
+import { existsSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
 
 interface Config {
@@ -9,7 +9,8 @@ interface Config {
   logDbPath: string
   embedder: {
     enabled: boolean; model: string; dimensions: number; pollIntervalMs: number;
-    cacheDir: string; idleTimeoutMs: number; precache: boolean; batchSize: number
+    cacheDir: string; idleTimeoutMs: number; precache: boolean; batchSize: number;
+    resetDeadLetters: boolean
   }
   thoughts: { softLimit: number; hardLimit: number }
   decay: {
@@ -48,7 +49,8 @@ export const DEFAULTS: Config = {
   embedder: {
     enabled: true, model: 'Xenova/multilingual-e5-small', dimensions: 384,
     pollIntervalMs: 7000, cacheDir: './data/huggingface',
-    idleTimeoutMs: 600000, precache: false, batchSize: 8
+    idleTimeoutMs: 600000, precache: false, batchSize: 8,
+    resetDeadLetters: false
   },
   thoughts: { softLimit: 500, hardLimit: 600 },
   decay: {
@@ -107,6 +109,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT', path: 'embedder.idleTimeoutMs', type: 'int' },
   { env: 'SYNAPTOMIND_EMBEDDER_PRECACHE', path: 'embedder.precache', type: 'bool' },
   { env: 'SYNAPTOMIND_EMBEDDER_BATCH_SIZE', path: 'embedder.batchSize', type: 'int' },
+  { env: 'SYNAPTOMIND_RESET_DEAD_LETTER', path: 'embedder.resetDeadLetters', type: 'bool' },
 
   { env: 'SYNAPTOMIND_THOUGHT_SOFT_LIMIT', path: 'thoughts.softLimit', type: 'int' },
   { env: 'SYNAPTOMIND_THOUGHT_HARD_LIMIT', path: 'thoughts.hardLimit', type: 'int' },
@@ -172,56 +175,50 @@ function parseValue(raw: string, type: EnvType): string | number | boolean {
   }
 }
 
-function setNested(obj: Record<string, any>, path: string, value: unknown): void {
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function setNested(obj: Record<string, unknown>, path: string, value: unknown): void {
   const keys = path.split('.')
   let current = obj
   for (let i = 0; i < keys.length - 1; i++) {
-    if (!(keys[i] in current)) current[keys[i]] = {}
-    current = current[keys[i]]
+    if (!isPlainObject(current[keys[i]])) current[keys[i]] = {}
+    current = current[keys[i]] as Record<string, unknown>
   }
   current[keys[keys.length - 1]] = value
 }
 
-function deepMerge(target: Record<string, any>, source: Record<string, any>): Record<string, any> {
+function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
   const result = { ...target }
   for (const key of Object.keys(source)) {
-    if (
-      source[key] !== null &&
-      typeof source[key] === 'object' &&
-      !Array.isArray(source[key]) &&
-      typeof target[key] === 'object' &&
-      target[key] !== null &&
-      !Array.isArray(target[key])
-    ) {
-      result[key] = deepMerge(target[key], source[key])
-    } else {
-      result[key] = source[key]
-    }
+    const s = source[key]
+    const t = target[key]
+    result[key] = isPlainObject(s) && isPlainObject(t) ? deepMerge(t, s) : s
   }
   return result
 }
 
 function loadFileConfig(): Partial<Config> {
   const configPath = join(process.cwd(), 'config.json')
-  try {
-    const stat = statSync(configPath)
-    if (stat.isDirectory()) {
-      console.error(`[synaptomind] config.json at ${configPath} is a directory, not a file.`)
-      console.error('[synaptomind] Run: cp config.json.example config.json')
-      process.exit(1)
-    }
-    return JSON.parse(readFileSync(configPath, 'utf-8')) as Partial<Config>
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') {
-      console.error(`[synaptomind] config.json not found at ${configPath}, using defaults`)
-      return {}
-    }
-    throw err
+  if (!existsSync(configPath)) {
+    console.error(`[synaptomind] config.json not found at ${configPath}, using defaults`)
+    return {}
   }
+  const stat = statSync(configPath)
+  if (stat.isDirectory()) {
+    console.error(`[synaptomind] config.json at ${configPath} is a directory, not a file.`)
+    console.error('[synaptomind] Run: cp config.json.example config.json')
+    throw new Error(`Invalid config.json at ${configPath}: it is a directory, not a file`)
+  }
+  return JSON.parse(readFileSync(configPath, 'utf-8')) as Partial<Config>
 }
 
 function applyEnvOverrides(fileConfig: Partial<Config>): Config {
-  const merged = deepMerge(DEFAULTS as Record<string, any>, fileConfig as Record<string, any>)
+  const merged = deepMerge(
+    DEFAULTS as unknown as Record<string, unknown>,
+    fileConfig as unknown as Record<string, unknown>
+  )
 
   for (const { env, path, type } of ENV_MAPPINGS) {
     const raw = process.env[env]
@@ -234,7 +231,7 @@ function applyEnvOverrides(fileConfig: Partial<Config>): Config {
     setNested(merged, path, value)
   }
 
-  return merged as Config
+  return merged as unknown as Config
 }
 
 export const config: Config = applyEnvOverrides(loadFileConfig())

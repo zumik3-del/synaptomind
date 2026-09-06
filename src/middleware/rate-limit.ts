@@ -1,5 +1,5 @@
 import type { Context, Next } from 'hono'
-import { config } from '../../config'
+import { config } from '../config'
 
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>()
 const RATE_LIMIT_MAX = config.rateLimit.max
@@ -22,7 +22,7 @@ setInterval(() => {
   for (const [ip, entry] of rateLimitStore) {
     if (now > entry.resetAt) rateLimitStore.delete(ip)
   }
-}, 60_000)
+}, 60_000).unref()
 
 export async function rateLimitMiddleware(c: Context, next: Next) {
   if (RATE_LIMIT_DISABLED) return next()

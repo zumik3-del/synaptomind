@@ -1,5 +1,6 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { Database } from 'bun:sqlite'
 import { getLogDb } from '../../logging'
 import { runSelfImproveJob } from '../../services/self-improve.service'
 import {
@@ -13,12 +14,12 @@ import { jsonResult, errorResult } from './utils'
 
 type MetricHandler = (since: string, limit: number) => unknown
 
-function buildMetricHandlers(logDb: { prepare: (sql: string) => unknown }) {
+function buildMetricHandlers(logDb: Database) {
   return {
-    patterns: (since: string, limit: number) => queryPatterns(logDb as any, since, limit),
-    frequency: (since: string, limit: number) => queryFrequency(logDb as any, since, limit),
-    orphan_writes: (since: string) => queryOrphanWritesAggregate(logDb as any, since),
-    draft_lifecycle: (since: string) => queryDraftLifecycle(logDb as any, since)
+    patterns: (since: string, limit: number) => queryPatterns(logDb, since, limit),
+    frequency: (since: string, limit: number) => queryFrequency(logDb, since, limit),
+    orphan_writes: (since: string) => queryOrphanWritesAggregate(logDb, since),
+    draft_lifecycle: (since: string) => queryDraftLifecycle(logDb, since)
   }
 }
 

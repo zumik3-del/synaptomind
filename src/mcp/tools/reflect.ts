@@ -16,7 +16,7 @@ export function registerMemoryReflect(server: McpServer) {
     wake_days: z.number().optional().describe('Days before pending items auto-surface (default 7, range 1-365, reflect only)'),
     project_id: z.string().optional().describe('Project scope (omit for global)'),
     cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
-    status: z.string().optional().describe('Filter by status (timeline only)'),
+    status: z.enum(['draft', 'active', 'archived']).optional().describe('Filter by status (timeline only)'),
     limit: z.number().optional().describe('Max results (default 50, timeline only)'),
     offset: z.number().optional().describe('Offset for pagination (timeline only)')
   }, async (args) => {
@@ -34,7 +34,7 @@ export function registerMemoryReflect(server: McpServer) {
 
       if (args.action === 'timeline') {
         const thoughts = listThoughtsService({
-          status: args.status as any, project_id: projectFilter,
+          status: args.status, project_id: projectFilter,
           limit: args.limit, offset: args.offset
         })
         return jsonResult(thoughts)

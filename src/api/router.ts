@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { getHealthService } from '../services/health.service'
 import { authMiddleware } from './middleware/auth'
-import { rateLimitMiddleware } from './middleware/rate-limit'
+import { rateLimitMiddleware } from '../middleware/rate-limit'
 import { errorHandler } from './middleware/error-handler'
 import { autoClusterRouter } from './auto-cluster'
 import { clusterRouter } from './cluster'

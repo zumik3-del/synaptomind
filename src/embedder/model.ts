@@ -2,9 +2,10 @@ import { pipeline } from '@huggingface/transformers'
 import { config } from '../config'
 import { insertLog } from '../logging'
 
+// Idle/unload is owned by the embedder process (resetIdleTimer exits the
+// process on idle) — model.ts deliberately has no timer of its own.
 let extractor: Awaited<ReturnType<typeof loadExtractor>> | null = null
 let loading: Promise<void> | null = null
-let idleTimer: ReturnType<typeof setTimeout> | null = null
 
 async function loadExtractor() {
   return await pipeline('feature-extraction', config.embedder.model, {
@@ -17,45 +18,18 @@ async function loadExtractor() {
   })
 }
 
-function clearIdleTimer() {
-  if (idleTimer) {
-    clearTimeout(idleTimer)
-    idleTimer = null
-  }
-}
-
-function scheduleIdleUnload() {
-  clearIdleTimer()
-  if (config.embedder.precache) {
-    // Precache mode: keep the model resident in memory, never unload on idle.
-    return
-  }
-  idleTimer = setTimeout(() => {
-    console.log('[embedder] idle timeout, unloading model')
-    extractor = null
-    loading = null
-    idleTimer = null
-  }, config.embedder.idleTimeoutMs)
-  idleTimer.unref()
-}
-
 export function resetExtractor() {
-  clearIdleTimer()
   extractor = null
   loading = null
 }
 
 export async function getExtractor() {
-  if (extractor) {
-    scheduleIdleUnload()
-    return extractor
-  }
+  if (extractor) return extractor
   if (!loading) {
     loading = loadExtractor().then(
       e => {
         extractor = e
         loading = null
-        scheduleIdleUnload()
         insertLog('info', 'embedding', 'Model loaded', {
           model: config.embedder.model
         })
