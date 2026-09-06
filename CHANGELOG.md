@@ -22,9 +22,24 @@
 
 - [`c5a0779`](https://github.com/zumik3-del/synaptomind/commit/c5a0779418ad0f4e23e93189661f8f5f6bb1a2ec): chore: bump version to 0.6.0-alpha.0
 - [`9213528`](https://github.com/zumik3-del/synaptomind/commit/9213528ea0e1c0e95772f561a682742b197d5477): feat: ai-native thought authoring and memory-behavior rules in MCP instructions (#93)
-- [`872be31`](https://github.com/zumik3-del/synaptomind/commit/872be31ac184aaaa3c8576b6f63b76b094cf246f): feat: is_protected flag to prevent auto-deletion (#92)
 - [`9d3423a`](https://github.com/zumik3-del/synaptomind/commit/9d3423a165807462149d59ab1850c472b10e9025): feat: is_protected flag to prevent auto-deletion (#87)
 - [`b7be84c`](https://github.com/zumik3-del/synaptomind/commit/b7be84c80205850c1a5fedfb5b1230f96e212bfa): fix: create replaces edge on merge (#88)
+
+## v0.6.0
+
+> September 6, 2026
+
+- [`cb3d118`](https://github.com/zumik3-del/synaptomind/commit/cb3d118c965e2da057d6255f0435db9551416b52): chore: bump version to 0.6.0
+- [`9089550`](https://github.com/zumik3-del/synaptomind/commit/9089550d94186b6b3508bedda1cd8209339ada95): fix: resolve stability audit issues — code, docs, CI (#107, #108, #109) (#110)
+- [`5ce0ccc`](https://github.com/zumik3-del/synaptomind/commit/5ce0ccce15c4918056a249876aeb497ca17ad0c6): ci: fix release tags, and group release notes by commit type (#106)
+- [`7b8d490`](https://github.com/zumik3-del/synaptomind/commit/7b8d49096b2597a2a6b3c884a8dc6fa16544f45d): refactor: architecture revision — 16 fixes across SOLID, type safety, layers (#104)
+- [`fe7aa7f`](https://github.com/zumik3-del/synaptomind/commit/fe7aa7fedbf0d54b4d18ca206efd165c9f5fceb4): refactor: core layer cleanup — domain types, validation, DI, search facade (#103)
+- [`1aee757`](https://github.com/zumik3-del/synaptomind/commit/1aee757678be3f00f356db81be19b26722412e4b): test: add release artifact smoke test for MCP round-trip (#101)
+- [`ed9fe8d`](https://github.com/zumik3-del/synaptomind/commit/ed9fe8dc11d0f740c67862b0849b8d4051907705): feat: harden install script with auto deps, health verification, and alpha updates (#99)
+- [`8f0c5e9`](https://github.com/zumik3-del/synaptomind/commit/8f0c5e90d72a1e2dae9c796084d07cf123f3c0d0): docs: simplify quick start with one-line install (#97)
+- [`b402131`](https://github.com/zumik3-del/synaptomind/commit/b4021312132004fec7b0f5f9ff0508b743af9955): feat: add one-line install script (#96)
+- [`767d4c1`](https://github.com/zumik3-del/synaptomind/commit/767d4c16086d63f26d49749d541413b181d2c8de): feat: add AI-native authoring rules to MCP instructions (#95)
+- [`872be31`](https://github.com/zumik3-del/synaptomind/commit/872be31ac184aaaa3c8576b6f63b76b094cf246f): feat: is_protected flag to prevent auto-deletion (#92)
 - [`7446214`](https://github.com/zumik3-del/synaptomind/commit/744621490e5befb2e674efe044e63facd57a05f4): feat: mcp tests, atomicity, ttl cleanup (#86)
 - [`d323ad8`](https://github.com/zumik3-del/synaptomind/commit/d323ad8a3d00565471a750b3ba44b55fe2adbe63): docs(plugins): add Secure MCP Tunnel setup (#81)
 - [`1cfb6c1`](https://github.com/zumik3-del/synaptomind/commit/1cfb6c1ff481dfe8d758f231966dd4318ed3b3f1): fix: production readiness — merge signature, archive idempotent, embedder hash check (#85)
