@@ -22,15 +22,42 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           PREV_TAG=$(git tag --sort=-v:refname | grep -Fxv "$TAG" | head -n 1 || true)
+          REPO="${{ github.repository }}"
+          COMMIT_FMT="- [\`%h\`](https://github.com/${REPO}/commit/%H): %s"
+
+          TMP=$(mktemp)
+          if [ -n "$PREV_TAG" ]; then
+            git log "${PREV_TAG}..${TAG}" --no-merges --pretty="$COMMIT_FMT" | grep -v CHANGELOG > "$TMP"
+          else
+            git log "$TAG" --no-merges --pretty="$COMMIT_FMT" | grep -v CHANGELOG > "$TMP"
+          fi
+
+          FEATURES=$(grep -i '^-.*: *feat[:(]' "$TMP" || true)
+          FIXES=$(grep -i '^-.*: *fix[:(]' "$TMP" || true)
+          OTHER=$(grep -iv '^-.*: *feat[:(]\|^-.*: *fix[:(]' "$TMP" || true)
+
           {
-            if [ -n "$PREV_TAG" ]; then
-              git log "${PREV_TAG}..${TAG}" --no-merges --pretty="- [\`%h\`](https://github.com/${{ github.repository }}/commit/%H): %s" | grep -v CHANGELOG
+            if [ -n "$FEATURES" ]; then
+              echo "### Features"
+              echo "$FEATURES"
               echo
-              echo "**Full Diff**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}"
-            else
-              git log "$TAG" --no-merges --pretty="- [\`%h\`](https://github.com/${{ github.repository }}/commit/%H): %s" | grep -v CHANGELOG
+            fi
+            if [ -n "$FIXES" ]; then
+              echo "### Fixes"
+              echo "$FIXES"
+              echo
+            fi
+            if [ -n "$OTHER" ]; then
+              echo "### Other"
+              echo "$OTHER"
+              echo
+            fi
+            if [ -n "$PREV_TAG" ]; then
+              echo "**Full Diff**: https://github.com/${REPO}/compare/${PREV_TAG}...${TAG}"
             fi
           } > RELEASE_NOTES.md
+
+          rm -f "$TMP"
           echo "Generated release notes:"
           cat RELEASE_NOTES.md
 
