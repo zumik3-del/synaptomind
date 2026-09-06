@@ -252,7 +252,7 @@ Auth tokens via env vars only:
 
 Without these, a random UUID is generated at startup and printed to stderr.
 
-See `config.json.example` for all options. Custom MCP instructions: [docs below](#custom-instructions).
+See `config.json.example` for all options. Full reference: [docs/CONFIG.md](docs/CONFIG.md). Custom MCP instructions: [docs below](#custom-instructions).
 
 ---
 
