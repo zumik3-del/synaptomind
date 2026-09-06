@@ -33,6 +33,10 @@
     "archiveMinAgeDays": 30,
     "intervalMs": 86400000
   },
+  "ttl": {
+    "archivedTtlDays": 90,
+    "cleanupIntervalMs": 86400000
+  },
   "smartNotes": {
     "autoPromote": false,
     "evalIntervalMs": 3600000

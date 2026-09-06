@@ -2,17 +2,17 @@
 set -euo pipefail
 
 REPO_URL="${SYNAPTOMIND_REPO:-https://github.com/zumik3-del/synaptomind.git}"
-INSTALL_DIR="${SYNAPTOMIND_DIR:-/opt/synaptomind}"
+INSTALL_DIR="${SYNAPTOMIND_INSTALL_DIR:-/opt/synaptomind}"
 VERSION="${1:-}"
 
 # Find latest stable tag (no hyphen = no prerelease)
 find_latest_stable() {
-  git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -v '-' | head -1
+  git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -v -- '-' | head -1
 }
 
 # Find latest prerelease tag (contains hyphen)
 find_latest_prerelease() {
-  git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -E '-(alpha|beta|rc)\.' | head -1
+  git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -E -- '-alpha\.|-beta\.|-rc\.' | head -1
 }
 
 # Determine target
@@ -41,7 +41,7 @@ else
     echo "[synaptomind] Detecting latest release tag..."
     git clone --filter=blob:none --bare "$REPO_URL" "$INSTALL_DIR.tmp-bare" 2>/dev/null || true
     if [ -d "$INSTALL_DIR.tmp-bare" ]; then
-      TARGET=$(git -C "$INSTALL_DIR.tmp-bare" tag --sort=-v:refname 2>/dev/null | grep -v '-' | head -1)
+      TARGET=$(git -C "$INSTALL_DIR.tmp-bare" tag --sort=-v:refname 2>/dev/null | grep -v -- '-' | head -1)
       rm -rf "$INSTALL_DIR.tmp-bare"
     fi
   fi
@@ -78,14 +78,35 @@ if [ ! -f config.json ]; then
   echo "[synaptomind] Created config.json from example — edit it before starting"
 fi
 
+# Create .env if not exists
+if [ ! -f .env ]; then
+  secret=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || date +%s | sha256sum | head -c 36)
+  echo "SYNAPTOMIND_SECRET=${secret}" > .env
+  echo "[synaptomind] Created .env with random secret"
+fi
+
+# Update docker-compose image tag for tagged releases (not --dev)
+if [ "$VERSION" != "--dev" ] && [ -f docker-compose.yml ]; then
+  DEPLOYED_VERSION=$(grep -o '"version": *"[^"]*"' package.json | sed 's/"version": *"//;s/"//' || echo "")
+  if [ -n "$DEPLOYED_VERSION" ]; then
+    IMAGE="ghcr.io/zumik3-del/synaptomind:${DEPLOYED_VERSION}"
+    sed -i "s|image: ghcr.io/zumik3-del/synaptomind:.*|image: ${IMAGE}|" docker-compose.yml
+    echo "[synaptomind] Updated image tag to ${IMAGE}"
+  fi
+fi
+
 # Show version
 if [ -f package.json ]; then
-  DEPLOYED_VERSION=$(node -e "process.stdout.write(require('./package.json').version)" 2>/dev/null || echo "unknown")
+  DEPLOYED_VERSION=$(grep -o '"version": *"[^"]*"' package.json | sed 's/"version": *"//;s/"//' || echo "unknown")
   echo "[synaptomind] Version: ${DEPLOYED_VERSION}"
 fi
 
 # Start/restart
 echo "[synaptomind] Starting..."
-docker compose up -d --build
+if [ "$VERSION" = "--dev" ]; then
+  docker compose up -d --build
+else
+  docker compose up -d
+fi
 
 echo "[synaptomind] Done. Check: docker compose logs -f"

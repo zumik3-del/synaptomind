@@ -252,7 +252,7 @@ Auth tokens via env vars only:
 
 Without these, a random UUID is generated at startup and printed to stderr.
 
-See `config.json.example` for all options. Custom MCP instructions: [docs below](#custom-instructions).
+See `config.json.example` for all options. Full reference: [docs/CONFIG.md](docs/CONFIG.md). Custom MCP instructions: [docs below](#custom-instructions).
 
 ---
 
@@ -272,7 +272,7 @@ Volumes mount `./data` and `./config.json`.
 Edit `docker-compose.yml` — uncomment `image`, comment `build`:
 
 ```yaml
-image: ghcr.io/zumik3-del/synaptomind:0.2.1
+image: ghcr.io/zumik3-del/synaptomind:latest
 # build: .
 ```
 
@@ -288,39 +288,64 @@ echo "SYNAPTOMIND_SECRET=your-secret-token" > .env
 
 See `.env.example` for all variables. Without `.env`, a random token is generated per restart.
 
+For full Docker guide (updating, backup, troubleshooting), see [docs/DOCKER.md](docs/DOCKER.md).
+
 </details>
 
 <details>
 <summary><strong>Server installation</strong></summary>
 
-### Prerequisites
-
-- [Bun](https://bun.sh/)
-- Docker + Docker Compose
-- Git
-
-### First install
+### One-line install
 
 ```bash
-bash scripts/deploy.sh
+curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/scripts/install.sh | bash
 ```
 
-Clones to `/opt/synaptomind`, checks out latest release, installs deps, starts container.
+Installs Bun, clones the repo to `/opt/synaptomind`, creates a systemd service, and starts it.
 
 ```bash
-bash scripts/deploy.sh              # latest stable release
-bash scripts/deploy.sh --alpha      # latest prerelease (alpha/beta/rc)
-bash scripts/deploy.sh 0.2.1        # specific version
-bash scripts/deploy.sh --dev        # main branch (development)
+curl -fsSL ... | bash -s -- --dir /custom/path   # custom install directory
+curl -fsSL ... | bash -s -- --port 3005           # custom port
+curl -fsSL ... | bash -s -- --no-service          # skip systemd service
+```
+
+Token and URL are printed at the end.
+
+### Manual install
+
+```bash
+git clone https://github.com/zumik3-del/synaptomind.git /opt/synaptomind
+cd /opt/synaptomind
+bun install --production
+cp .env.example .env   # edit SYNAPTOMIND_SECRET
+bun run src/index.ts
 ```
 
 ### Updating
 
 ```bash
-bash scripts/update.sh
+cd /opt/synaptomind
+git pull
+bun install --production
+sudo systemctl restart synaptomind
 ```
 
-Shows current vs latest version, lists changes, asks for confirmation.
+### Uninstall
+
+```bash
+sudo bash /opt/synaptomind/scripts/uninstall.sh
+```
+
+### Docker alternative
+
+```bash
+bash scripts/deploy.sh              # latest stable release
+bash scripts/deploy.sh --alpha      # latest prerelease (alpha/beta/rc)
+bash scripts/deploy.sh 0.3.0        # specific version
+bash scripts/deploy.sh --dev        # main branch (development)
+```
+
+See [docs/DOCKER.md](docs/DOCKER.md) for full Docker guide.
 
 </details>
 
