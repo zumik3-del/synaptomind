@@ -10,13 +10,16 @@ export interface Project {
   local_path: string | null
 }
 
+const PROJECT_WITH_COUNT_SELECT = `
+  SELECT p.id, p.name, p.description, p.created_at, COUNT(t.id) as thought_count,
+         p.local_path
+  FROM projects p
+  LEFT JOIN thoughts t ON t.project_id = p.id
+`
+
 export function listProjects(db: Database): Project[] {
   return db
-    .prepare(`
-    SELECT p.id, p.name, p.description, p.created_at, COUNT(t.id) as thought_count,
-           p.local_path
-    FROM projects p
-    LEFT JOIN thoughts t ON t.project_id = p.id
+    .prepare(`${PROJECT_WITH_COUNT_SELECT}
     GROUP BY p.id
     ORDER BY p.name
   `)
@@ -25,11 +28,7 @@ export function listProjects(db: Database): Project[] {
 
 export function getProject(db: Database, id: string): Project | undefined {
   const row = db
-    .prepare(`
-    SELECT p.id, p.name, p.description, p.created_at, COUNT(t.id) as thought_count,
-           p.local_path
-    FROM projects p
-    LEFT JOIN thoughts t ON t.project_id = p.id
+    .prepare(`${PROJECT_WITH_COUNT_SELECT}
     WHERE p.id = ?
     GROUP BY p.id
   `)
@@ -135,11 +134,7 @@ export function resolveProjectByPath(db: Database, cwd: string): Project | undef
   const normalized = normalizePath(cwd)
   if (!normalized) return undefined
   return db
-    .prepare(`
-    SELECT p.id, p.name, p.description, p.created_at, COUNT(t.id) as thought_count,
-           p.local_path
-    FROM projects p
-    LEFT JOIN thoughts t ON t.project_id = p.id
+    .prepare(`${PROJECT_WITH_COUNT_SELECT}
     WHERE p.local_path = ?
     GROUP BY p.id
   `)

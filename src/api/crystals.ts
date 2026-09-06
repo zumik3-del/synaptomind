@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { insertTelemetry, telemetryContext } from '../logging'
 import { type CrystallizeInput, crystallize } from '../services/crystals.service'
-import { ValidationError } from '../services/errors'
+import { ValidationError } from '../errors'
 import { jsonBodyOrDefault } from './utils'
 
 const crystalsRouter = new Hono()

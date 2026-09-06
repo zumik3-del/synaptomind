@@ -2,18 +2,20 @@ import { config } from '../config'
 import { getDb } from '../db/container'
 import { initDb } from '../db/init'
 import { insertLog } from '../logging'
-import { generateEmbedding, generateEmbeddings, resetExtractor } from './model'
+import { generateEmbeddings, resetExtractor } from './model'
 import { ensureModelFiles } from './model-validator'
+import { deleteFromQueue, findPendingEmbeddings, handleFailedItem, insertEmbedding, sweepOrphanedThoughts } from './queue'
+import { handleEmbedderRequest } from './handle-request'
 
 const BATCH_SIZE = config.embedder.batchSize
 const MAX_CONSECUTIVE_FAILURES = 5
-const MAX_ATTEMPTS = 10
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let sweepTimer: ReturnType<typeof setInterval> | null = null
 let idleTimer: ReturnType<typeof setTimeout> | null = null
 let consecutiveFailures = 0
 let currentBackoff = 1
+let batchInFlight = false
 
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer)
@@ -35,82 +37,6 @@ function resetIdleTimer() {
   }, config.embedder.idleTimeoutMs)
 }
 
-function findPendingEmbeddings(): { id: string; content: string; contentHash: string }[] {
-  const db = getDb()
-  return db
-    .prepare(`
-    SELECT p.thought_id AS id, t.content, t.content_hash AS contentHash
-    FROM pending_embeddings p
-    JOIN thoughts t ON t.id = p.thought_id
-    WHERE p.is_error = 0
-    ORDER BY p.created_at
-    LIMIT ?
-  `)
-    .all(BATCH_SIZE) as { id: string; content: string; contentHash: string }[]
-}
-
-function sweepOrphanedThoughts(): { id: string; content: string }[] {
-  const db = getDb()
-  return db
-    .prepare(`
-    SELECT t.id, t.content FROM thoughts t
-    LEFT JOIN vec_thoughts v ON t.id = v.id
-    LEFT JOIN pending_embeddings p ON t.id = p.thought_id
-    WHERE v.id IS NULL AND p.thought_id IS NULL
-    LIMIT ?
-  `)
-    .all(BATCH_SIZE) as { id: string; content: string }[]
-}
-
-function deleteFromQueue(ids: string[]) {
-  const db = getDb()
-  const del = db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?')
-  const tx = db.transaction(() => {
-    for (const id of ids) del.run(id)
-  })
-  tx()
-}
-
-function handleFailedItem(id: string, error: string) {
-  const db = getDb()
-  const row = db.prepare('SELECT attempts FROM pending_embeddings WHERE thought_id = ?').get(id) as
-    | { attempts: number }
-    | undefined
-  const nextAttempt = (row?.attempts ?? 0) + 1
-
-  if (nextAttempt >= MAX_ATTEMPTS) {
-    db.prepare(
-      'UPDATE pending_embeddings SET attempts = ?, last_error = ?, is_error = 1, error = ? WHERE thought_id = ?'
-    ).run(nextAttempt, error, error, id)
-    insertLog('warning', 'embedding', `Thought ${id} dead-lettered after ${nextAttempt} attempts`, {
-      thought_id: id,
-      attempts: nextAttempt,
-      error
-    })
-  } else {
-    db.prepare('UPDATE pending_embeddings SET attempts = ?, last_error = ? WHERE thought_id = ?').run(
-      nextAttempt,
-      error,
-      id
-    )
-  }
-}
-
-function insertEmbedding(id: string, embedding: Float32Array, expectedHash: string) {
-  const db = getDb()
-  const current = db.prepare('SELECT content_hash FROM thoughts WHERE id = ?').get(id) as { content_hash: string } | undefined
-  if (current && current.content_hash !== expectedHash) {
-    insertLog('info', 'embedding', `Stale embedding skipped for ${id} — content changed during batch`, { thought_id: id })
-    return false
-  }
-  db.run('DELETE FROM vec_thoughts WHERE id = ?', [id])
-  db.run(
-    'INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)',
-    [id, Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength)]
-  )
-  return true
-}
-
 function reschedule() {
   if (pollTimer) {
     clearInterval(pollTimer)
@@ -121,8 +47,10 @@ function reschedule() {
 }
 
 async function processBatch(): Promise<void> {
+  if (batchInFlight) return
+  batchInFlight = true
   try {
-    const rows = findPendingEmbeddings()
+    const rows = findPendingEmbeddings(BATCH_SIZE)
     if (rows.length === 0) {
       consecutiveFailures = 0
       if (currentBackoff !== 1) {
@@ -204,12 +132,14 @@ async function processBatch(): Promise<void> {
       resetExtractor()
       reschedule()
     }
+  } finally {
+    batchInFlight = false
   }
 }
 
 async function processSweep(): Promise<void> {
   try {
-    const orphans = sweepOrphanedThoughts()
+    const orphans = sweepOrphanedThoughts(BATCH_SIZE)
     if (orphans.length > 0) {
       // Re-queue orphans and let the next regular batch pick them up
       const db = getDb()
@@ -253,26 +183,7 @@ process.on('message', async (raw: unknown) => {
   }
   if (message.type === 'request') {
     resetIdleTimer()
-    try {
-      if (message.method === 'embed') {
-        const embedding = await generateEmbedding(message.params?.text ?? '')
-        process.send?.({
-          type: 'result',
-          id: message.id,
-          embedding: Array.from(embedding)
-        })
-      } else if (message.method === 'embed_batch') {
-        const embeddings = await generateEmbeddings(message.params?.texts ?? [])
-        process.send?.({
-          type: 'result',
-          id: message.id,
-          embedding: embeddings.map(e => Array.from(e))
-        })
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      process.send?.({ type: 'error', id: message.id, error: msg })
-    }
+    await handleEmbedderRequest(message, reply => process.send?.(reply))
   }
 })
 

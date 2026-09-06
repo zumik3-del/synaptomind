@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve } from 'bun'
 import { checkBearerAuth, getValidTokens } from '../auth'
+import { rateLimitMiddleware } from '../middleware/rate-limit'
 import { createMcpServer } from './server'
 import { VERSION } from '../version'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -70,6 +71,8 @@ export function startMcpHttpServer(host: string, port: number): McpHttpHandle {
     if (checkBearerAuth(auth)) return next()
     return c.json({ error: 'Unauthorized' }, 401)
   })
+
+  app.use('/mcp', rateLimitMiddleware)
 
   const sessionCleanup = setInterval(() => {
     const now = Date.now()

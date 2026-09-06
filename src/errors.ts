@@ -1,4 +1,4 @@
-export { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError } from '../db/errors'
+export { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError } from './db/errors'
 
 export class NotFoundError extends Error {
   readonly statusCode = 404

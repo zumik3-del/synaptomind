@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { NotFoundError } from '../services/errors'
+import { NotFoundError } from '../errors'
 import { listPrimersService, deletePrimerService } from '../services/primers.service'
 
 const primersRouter = new Hono()

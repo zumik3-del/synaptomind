@@ -1,4 +1,11 @@
+import { createHash, timingSafeEqual } from 'node:crypto'
+
 let validTokens: string[] | null = null
+
+// Test hook: drop the cached token list so env changes are re-read.
+export function resetValidTokens(): void {
+  validTokens = null
+}
 
 export function getValidTokens(): string[] {
   if (validTokens) return validTokens
@@ -18,8 +25,16 @@ export function getValidTokens(): string[] {
   return validTokens
 }
 
+// Constant-time comparison: hash both sides so the operands always have the
+// same length (timingSafeEqual throws on length mismatch), then compare digests.
+function safeTokenEqual(a: string, b: string): boolean {
+  const da = createHash('sha256').update(a).digest()
+  const db = createHash('sha256').update(b).digest()
+  return timingSafeEqual(da, db)
+}
+
 export function checkBearerAuth(auth: string | undefined): boolean {
-  if (!auth) return false
-  const tokens = getValidTokens()
-  return tokens.some(t => auth === `Bearer ${t}`)
+  if (!auth?.startsWith('Bearer ')) return false
+  const token = auth.slice('Bearer '.length)
+  return getValidTokens().some(t => safeTokenEqual(t, token))
 }

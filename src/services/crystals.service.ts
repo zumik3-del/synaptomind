@@ -1,7 +1,7 @@
 import { getAllActiveEdges, getClusterMembers } from '../db/edges'
 import { getDb } from '../db'
 import { createThought, getThought, type Thought } from '../db/thoughts'
-import { ValidationError } from './errors'
+import { ValidationError } from '../errors'
 import type { Database } from 'bun:sqlite'
 
 export interface CrystallizeInput {

@@ -1,6 +1,4 @@
 import { Hono } from 'hono'
-import { getClusterMembers } from '../db/edges'
-import { getDb } from '../db'
 import { parseTags } from '../db/thoughts'
 import { withTelemetry } from '../logging'
 import type { ThoughtStatus } from '../types/thought'
@@ -10,10 +8,11 @@ import { getChainService } from '../services/graph.service'
 import { getLastSelfImproveStatus, runSelfImproveJob } from '../services/self-improve.service'
 import {
   archiveThoughtById,
+  bulkCreateThoughtsService,
   createThoughtWithParent,
+  getClusterMembersService,
   getThoughtById,
   listThoughtsService,
-  pruneThoughtUrlLinksService,
   updateThoughtById
 } from '../services/thoughts.service'
 import { thoughtLinksRouter } from './thoughts-links'
@@ -56,12 +55,7 @@ thoughtsRouter.get('/self-improve/status', c => {
 
 thoughtsRouter.get('/members/:id', c => {
   return withTelemetry(c, { action: 'read', toolName: 'get_thought' }, c2 => {
-    const id = c2.req.param('id')!
-    const cluster = getThoughtById(id)
-    if (!cluster) return c2.json({ error: 'Not found' }, 404)
-    if (!cluster.is_cluster) return c2.json({ error: 'Not a cluster thought' }, 400)
-    const members = getClusterMembers(getDb(), id)
-    return c2.json({ cluster, members })
+    return c2.json(getClusterMembersService(c2.req.param('id')!))
   })
 })
 
@@ -86,40 +80,8 @@ thoughtsRouter.get('/:id', c => {
 
 thoughtsRouter.post('/bulk', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'bulk_create_thoughts' }, async c2 => {
-    const body = await c2.req.json() as {
-      thoughts: Array<{
-        content: string; status?: ThoughtStatus; tags?: string[];
-        source?: string; project_id?: string; parent_id?: string; relation?: string; is_profile?: boolean; is_protected?: boolean
-      }>; project_id?: string
-    }
-    if (!Array.isArray(body.thoughts) || body.thoughts.length === 0) {
-      return c2.json({ error: 'thoughts array is required and must not be empty' }, 400)
-    }
-    if (body.thoughts.length > 10000) {
-      return c2.json({ error: 'Maximum 10000 thoughts per bulk request' }, 400)
-    }
-
-    const d = getDb()
-    const created: Array<{ index: number; thought: ReturnType<typeof createThoughtWithParent> }> = []
-    const errors: Array<{ index: number; error: string }> = []
-
-    const run = d.transaction(() => {
-      for (let i = 0; i < body.thoughts.length; i++) {
-        const t = body.thoughts[i]
-        try {
-          const projectId = t.project_id ?? body.project_id
-          const thought = createThoughtWithParent(
-            { content: t.content, status: t.status, tags: t.tags, source: t.source, project_id: projectId, is_profile: t.is_profile, is_protected: t.is_protected },
-            t.parent_id, t.relation
-          )
-          created.push({ index: i, thought })
-        } catch (err) {
-          errors.push({ index: i, error: err instanceof Error ? err.message : String(err) })
-        }
-      }
-    })
-    run()
-
+    const body = await c2.req.json() as { thoughts?: unknown; project_id?: string }
+    const { created, errors } = bulkCreateThoughtsService(body.thoughts as never, body.project_id)
     return c2.json({
       created: created.length,
       errors: errors.length,
@@ -153,9 +115,6 @@ thoughtsRouter.put('/:id', async c => {
     const thought = updateThoughtById(id, {
       content: body.content, tags: body.tags, status: body.status, project_id: body.project_id, is_profile: body.is_profile, is_protected: body.is_protected
     })
-    if (thought && body.content !== undefined) {
-      pruneThoughtUrlLinksService(id, body.content)
-    }
     if (!thought) return c2.json({ error: 'Not found' }, 404)
     return c2.json(thought)
   })

@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { toEdgeView, EdgeAlreadyExistsError } from '../db/edges'
 import { createEdgeService, deleteEdgeService } from '../services/edges.service'
-import { NotFoundError } from '../services/errors'
+import { NotFoundError } from '../errors'
 
 const linksRouter = new Hono()
 

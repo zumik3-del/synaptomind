@@ -53,9 +53,12 @@ test('listEntities filters by type', () => {
   const id = seedThought()
   syncEntities(id, 'test `MyService` and #important')
   const code = listEntities({ type: 'code' })
+  expect(code.some(e => e.name === 'myservice')).toBeTrue()
   expect(code.every(e => e.type === 'code')).toBeTrue()
   const tags = listEntities({ type: 'tag' })
+  expect(tags.some(e => e.name === 'important')).toBeTrue()
   expect(tags.every(e => e.type === 'tag')).toBeTrue()
+  expect(tags.some(e => e.name === 'myservice')).toBeFalse()
 })
 
 test('extractEntities is re-exported from entity.service', () => {

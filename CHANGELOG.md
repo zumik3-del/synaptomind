@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.0
+
+> September 6, 2026
+
+- [`cb3d118`](https://github.com/zumik3-del/synaptomind/commit/cb3d118c965e2da057d6255f0435db9551416b52): chore: bump version to 0.6.0
+- [`9089550`](https://github.com/zumik3-del/synaptomind/commit/9089550d94186b6b3508bedda1cd8209339ada95): fix: resolve stability audit issues — code, docs, CI (#107, #108, #109) (#110)
+- [`5ce0ccc`](https://github.com/zumik3-del/synaptomind/commit/5ce0ccce15c4918056a249876aeb497ca17ad0c6): ci: fix release tags, and group release notes by commit type (#106)
+
 ## v0.6.0-beta.0
 
 > September 6, 2026

@@ -108,8 +108,10 @@ function sanitizeMetadata(metadata: Record<string, unknown> | undefined): Record
   return cleaned
 }
 
+export type LogLevel = 'debug' | 'info' | 'warning' | 'error'
+
 export function insertLog(
-  level: string,
+  level: LogLevel,
   type_: string,
   message: string,
   metadata?: Record<string, unknown>,

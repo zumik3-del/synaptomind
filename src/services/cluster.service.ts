@@ -4,7 +4,7 @@ import { getDb } from '../db'
 import { getThoughtLimitsDB } from '../db/settings'
 import { createThought, getThoughtsBatchWithTags, type Thought } from '../db/thoughts'
 import { insertLog } from '../logging/log'
-import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from './errors'
+import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from '../errors'
 import { validateContentLength } from '../validation'
 
 export interface CreateClusterOptions {

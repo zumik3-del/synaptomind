@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
 import { crystallize } from './crystals.service'
-import { ValidationError } from './errors'
+import { ValidationError } from '../errors'
 
 beforeEach(createTestDb)
 afterEach(closeDb)

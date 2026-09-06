@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { createEdge, getClusterForThought, getClusterMembers } from '../db/edges'
+import { createEdge, getClusterForThought, getClusterMembers, getEdgesForThought, toEdgeView, type EdgeView } from '../db/edges'
 import { getDb } from '../db'
 import { getThoughtLimitsDB } from '../db/settings'
 import { pruneThoughtUrlLinks, upsertThoughtUrlLink } from '../db/thought_url_links'
@@ -16,8 +16,9 @@ import {
   type UpdateThoughtInput
 } from '../db/thoughts'
 import { insertLog } from '../logging/log'
+import type { ThoughtStatus } from '../types/thought'
 import { validateContentLength, validateStatus } from '../validation'
-import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from './errors'
+import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from '../errors'
 import { transferEdgesFromSource, validateMergePreconditions } from './merge'
 
 export function getThoughtById(id: string, d: Database = getDb()): Thought | null {
@@ -95,7 +96,17 @@ export function updateThoughtById(id: string, data: UpdateThoughtInput, d: Datab
   if (data.status === 'archived') {
     assertNotProfileArchive(dbGetThought(d, id))
   }
-  return dbUpdateThought(d, id, data) ?? null
+  const run = d.transaction(() => {
+    const updated = dbUpdateThought(d, id, data)
+    // issue #256: updated content may drop `[[key|...]]` markers — prune the
+    // thought's orphaned url_links rows in the same transaction as the content
+    // update (mirrors the merge path).
+    if (updated && data.content !== undefined) {
+      pruneThoughtUrlLinks(d, id, data.content)
+    }
+    return updated
+  })
+  return run() ?? null
 }
 
 export function archiveThoughtById(id: string, d: Database = getDb()): Thought | null {
@@ -127,6 +138,84 @@ export function getClusterMembersService(clusterId: string, d: Database = getDb(
   if (!cluster.is_cluster) throw new ValidationError('Not a cluster thought')
   const members = getClusterMembers(d, clusterId)
   return { cluster, members }
+}
+
+export interface BulkCreateItem {
+  content: string
+  status?: ThoughtStatus
+  tags?: string[]
+  source?: string
+  project_id?: string
+  parent_id?: string
+  relation?: string
+  is_profile?: boolean
+  is_protected?: boolean
+}
+
+export interface BulkCreateResult {
+  created: Array<{ index: number; thought: Thought }>
+  errors: Array<{ index: number; error: string }>
+}
+
+export function bulkCreateThoughtsService(
+  items: BulkCreateItem[] | undefined,
+  defaultProjectId?: string,
+  d: Database = getDb()
+): BulkCreateResult {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new ValidationError('thoughts array is required and must not be empty')
+  }
+  if (items.length > 10000) {
+    throw new ValidationError('Maximum 10000 thoughts per bulk request')
+  }
+
+  const created: BulkCreateResult['created'] = []
+  const errors: BulkCreateResult['errors'] = []
+
+  const run = d.transaction(() => {
+    for (let i = 0; i < items.length; i++) {
+      const t = items[i]
+      try {
+        const thought = createThoughtWithParent(
+          {
+            content: t.content,
+            status: t.status,
+            tags: t.tags,
+            source: t.source,
+            project_id: t.project_id ?? defaultProjectId,
+            is_profile: t.is_profile,
+            is_protected: t.is_protected
+          },
+          t.parent_id,
+          t.relation,
+          d
+        )
+        created.push({ index: i, thought })
+      } catch (err) {
+        errors.push({ index: i, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+  })
+  run()
+
+  return { created, errors }
+}
+
+export interface MergePreview {
+  mode: 'preview'
+  source: Thought & { edges: EdgeView[] }
+  target: Thought
+}
+
+export function getMergePreviewService(sourceId: string, targetId: string, d: Database = getDb()): MergePreview | null {
+  const source = getThoughtById(sourceId, d)
+  const target = getThoughtById(targetId, d)
+  if (!source || !target) return null
+  return {
+    mode: 'preview',
+    source: { ...source, edges: getEdgesForThought(d, sourceId).map(toEdgeView) },
+    target
+  }
 }
 
 export interface MergeResult {

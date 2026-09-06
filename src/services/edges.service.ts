@@ -1,6 +1,6 @@
 import { createEdge, deleteEdge, getAllActiveEdges, getEdgesForThought } from '../db/edges'
 import { getDb } from '../db'
-import { ValidationError } from './errors'
+import { ValidationError } from '../errors'
 
 export function createEdgeService(sourceId: string, targetId: string, type?: string) {
   if (!targetId) {

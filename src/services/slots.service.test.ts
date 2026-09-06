@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
 import { getSlots, updateExplicitSlot, SLOT_NAMES } from './slots.service'
-import { ValidationError } from './errors'
+import { ValidationError } from '../errors'
 
 beforeEach(createTestDb)
 afterEach(closeDb)

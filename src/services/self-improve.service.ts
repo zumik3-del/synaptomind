@@ -34,7 +34,7 @@ const issueHandlers: Record<string, IssueHandler> = {
     if (draftThoughts.length >= 2) {
       const msg = `orphan_writes_high: ${draftThoughts.length} draft thoughts found — manual review recommended`
       actions.push(msg)
-      if (!dryRun) insertLog('warn', 'self_improve', msg)
+      if (!dryRun) insertLog('warning', 'self_improve', msg)
     }
   },
 
@@ -60,7 +60,7 @@ const issueHandlers: Record<string, IssueHandler> = {
     actions.push('trigger: auto_cluster job')
     if (!dryRun) {
       runAutoClusterJob({ dryRun: false }).catch(err => {
-        insertLog('warn', 'self_improve', 'auto_cluster trigger failed', { error: String(err) })
+        insertLog('warning', 'self_improve', 'auto_cluster trigger failed', { error: String(err) })
       })
     }
   },

@@ -153,7 +153,12 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
     }
   }
 
-  d.run(`UPDATE pending_embeddings SET is_error = 0, error = NULL WHERE is_error = 1`)
+  // Dead letters are NOT reset on boot by default: a permanently poisonous
+  // thought would otherwise get MAX_ATTEMPTS fresh tries on every restart and
+  // loop forever. Recovery after a fix is opt-in via config/env.
+  if (config.embedder.resetDeadLetters) {
+    d.run(`UPDATE pending_embeddings SET is_error = 0, error = NULL WHERE is_error = 1`)
+  }
 
   // Ensure default project exists — recover if _meta points to a deleted project
   const defaultMeta = d.prepare(`SELECT value FROM _meta WHERE key = 'default_project_id'`).get() as

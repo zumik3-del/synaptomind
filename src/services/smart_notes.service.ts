@@ -11,7 +11,7 @@ import {
 } from '../db/smart_notes'
 import { type Thought, updateThought } from '../db/thoughts'
 import { getLogDb } from '../logging'
-import { NotFoundError, ValidationError } from './errors'
+import { NotFoundError, ValidationError } from '../errors'
 import { getThoughtById } from './thoughts.service'
 import { isOlderThanDays } from './utils'
 import type { Database } from 'bun:sqlite'

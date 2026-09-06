@@ -3,7 +3,7 @@ import { getDb } from '../db'
 import { getSlotRow, upsertSlot } from '../db/slots'
 import { createSmartNote } from '../db/smart_notes'
 import { createThought } from '../db/thoughts'
-import { NotFoundError, ValidationError } from './errors'
+import { NotFoundError, ValidationError } from '../errors'
 
 export interface ReflectInput {
   project_id?: string | null

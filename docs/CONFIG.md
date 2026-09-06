@@ -61,6 +61,7 @@ Local embedding model for semantic search. No API keys required.
 | `embedder.cacheDir` | `SYNAPTOMIND_EMBEDDER_CACHE_DIR` | `./data/huggingface` | Model cache directory (~150MB after first load) |
 | `embedder.idleTimeoutMs` | `SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT` | `600000` | Unload model after this idle time (ms). 0 = never unload |
 | `embedder.precache` | `SYNAPTOMIND_EMBEDDER_PRECACHE` | `false` | Download model on startup instead of on first use |
+| `embedder.resetDeadLetters` | `SYNAPTOMIND_RESET_DEAD_LETTER` | `false` | Re-queue dead-lettered embeddings on startup. Off by default: a poisonous thought would otherwise get fresh attempts on every restart. Enable after fixing an embedding bug to retry failed items |
 | `embedder.batchSize` | `SYNAPTOMIND_EMBEDDER_BATCH_SIZE` | `8` | Embeddings per batch. Higher = faster but more RAM |
 
 ---
@@ -124,12 +125,12 @@ Compact project summary for quick context injection.
 
 ## Verification
 
-Detects stale or drifted thoughts.
+Detects stale or drifted thoughts. `POST /api/thought-verify/run` (on-demand job) re-embeds each tracked thought's content and compares it against the stored embedding using cosine distance (same metric as vector search). A thought is flagged when the distance exceeds its drift threshold, or when it hasn't been checked within `staleWarnDays`. Verify entries are armed automatically for every embedded thought, each snapshotted from `verify.driftThreshold` at creation. Runs without a ready embedder degrade to staleness-only checks.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | `verify.enabled` | `SYNAPTOMIND_VERIFY_ENABLED` | `true` | Enable/disable thought verification |
-| `verify.driftThreshold` | `SYNAPTOMIND_DRIFT_THRESHOLD` | `0.25` | Max allowed embedding drift before warning |
+| `verify.driftThreshold` | `SYNAPTOMIND_DRIFT_THRESHOLD` | `0.25` | Max allowed embedding drift (cosine distance) before flagging |
 | `verify.staleWarnDays` | `SYNAPTOMIND_STALE_WARN_DAYS` | `30` | Days before a thought is considered stale |
 
 ---

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
 import { createClusterService } from './cluster.service'
-import { NotFoundError, ValidationError } from './errors'
+import { NotFoundError, ValidationError } from '../errors'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
