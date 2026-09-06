@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
-const GUIDE_TEXT = `# SynaptoMind — Thought Graph Engine
+const GUIDE_TEXT = `# SynaptoMind — Reference
 
 ## Quick Reference
 
@@ -18,16 +18,6 @@ const GUIDE_TEXT = `# SynaptoMind — Thought Graph Engine
 | Supersede | \`memory_supersede\` | action=archive/merge |
 | Projects | \`memory_manage\` | action=list/create/update/delete/resolve |
 
-## Workflow
-
-1. **Search** before creating — use \`memory_recall\` (action=search) or \`memory_recall\` (action=context) to check existing knowledge
-2. **Create** with right status — draft (WIP), active (live), archived (hidden)
-3. **Link** related thoughts — every edge boosts importance by 0.1
-4. **Schedule** review — attach smart notes to thoughts that should surface later
-5. **Cluster** related work — groups are excluded from frontier, keeping it focused
-6. **Prioritize** — use \`memory_status\` (action=frontier) to find what to do next
-7. **Reflect** at natural breakpoints — call \`memory_reflect\` (action=reflect) after decisions, tasks, or architectural work
-
 ## Tool Map
 
 | Tool | Actions | Purpose |
@@ -35,12 +25,12 @@ const GUIDE_TEXT = `# SynaptoMind — Thought Graph Engine
 | \`memory_recall\` | search, get, context, chain, clusters | Find and retrieve thoughts |
 | \`memory_store\` | create, update, link, smart_note_* | Write, connect, and schedule thoughts |
 | \`memory_supersede\` | archive, merge | Version and supersede thoughts |
-| \`memory_status\` | slots, frontier, profile, config, health | Query system state |
+| \`memory_status\` | slots, frontier, profile, config, health, cleanup | Query system state |
 | \`memory_manage\` | list, create, update, delete, resolve | Project management |
 | \`memory_crystallize\` | crystallize, graph, cluster, auto_cluster | Consolidate and visualize |
 | \`memory_reflect\` | reflect, timeline | Session management |
 | \`memory_telemetry\` | query, analyze, primers | Analytics and self-improvement |
-| \`memory_guide\` | (no action) | This help text |
+| \`memory_guide\` | (no action) | This reference text |
 
 ## Thoughts
 
@@ -51,7 +41,7 @@ Fields: content (≤500 soft, ≤600 hard), tags[], status, project_id, is_clust
 - \`active\` — live, searchable, included in frontier
 - \`archived\` — hidden from search and frontier, kept for history
 
-Rules: default status is draft. Profile thoughts (\`is_profile=1\`) cannot be archived. Archived thoughts permanently deleted on second archive call.
+Rules: default status is draft. Profile thoughts (\`is_profile=1\`) cannot be archived. Archive is idempotent. TTL cleanup deletes after configured retention period.
 
 **System tags:**
 - \`@profile\`, \`@profile-*\` — persona markers, feed the persona slot
@@ -157,7 +147,7 @@ Records outcomes into slots and creates thoughts:
 Mark thoughts with \`is_profile=1\` and \`@profile\` tag. Sub-tags \`@profile-work\`, \`@profile-preferences\` group by topic. Profile thoughts are never auto-archived. Use \`memory_status\` (action=profile) to retrieve persona stats.`
 
 export function registerMemoryGuide(server: McpServer) {
-  server.tool('memory_guide', 'Get started with the thought system', {}, async () => {
+  server.tool('memory_guide', 'Reference for tools, parameters, and system behavior', {}, async () => {
     return { content: [{ type: 'text' as const, text: GUIDE_TEXT }] }
   })
 }

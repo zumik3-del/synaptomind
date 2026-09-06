@@ -12,7 +12,7 @@ description: >-
 
 SynaptoMind is a thought-graph engine that remembers decisions, context,
 architecture choices, and unresolved work across sessions. It is available as
-an MCP server with 10 tools. This skill routes you to the right tools.
+an MCP server with 9 tools. This skill routes you to the right tools.
 
 ## When to use this skill
 
@@ -49,9 +49,13 @@ check if this was discussed before. Do not guess when you can look it up.
 ### 3. Save when decisions are made
 
 When the conversation reaches a conclusion, a decision is made, a problem is
-solved, or an idea comes up, save it. Use `memory_store` (action=create) to
-capture it with relevant tags. If it relates to existing thoughts, link them
-with `memory_store` (action=link).
+solved, or an idea comes up, save it. First search for existing knowledge with
+`memory_recall` to avoid duplicates. Then choose the right operation:
+- **create** for genuinely new knowledge
+- **update** when existing knowledge has materially evolved
+- **merge** when multiple thoughts represent the same knowledge
+- **archive** when knowledge is no longer current
+- **link** when a relationship between thoughts carries useful information
 
 ### 4. Find what to do next
 
@@ -60,6 +64,10 @@ unsure what comes next, use `memory_status` (action=frontier).
 
 ## Important notes
 
+- **Thought quality:** Store durable knowledge, not conversation transcripts. Write one
+  independently useful semantic unit per thought. Make content self-contained so it is
+  understandable outside the source conversation. Preserve epistemic state — do not turn
+  hypotheses into facts or proposals into decisions.
 - Always pass the `cwd` parameter (current working directory) so SynaptoMind
   auto-resolves the correct project. Do not hardcode `project_id`.
 - If SynaptoMind is unavailable (MCP server not running), say so explicitly.
