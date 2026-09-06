@@ -272,7 +272,7 @@ Volumes mount `./data` and `./config.json`.
 Edit `docker-compose.yml` — uncomment `image`, comment `build`:
 
 ```yaml
-image: ghcr.io/zumik3-del/synaptomind:0.2.1
+image: ghcr.io/zumik3-del/synaptomind:0.6.0-alpha.0
 # build: .
 ```
 
@@ -287,6 +287,8 @@ echo "SYNAPTOMIND_SECRET=your-secret-token" > .env
 ```
 
 See `.env.example` for all variables. Without `.env`, a random token is generated per restart.
+
+For full Docker guide (updating, backup, troubleshooting), see [docs/DOCKER.md](docs/DOCKER.md).
 
 </details>
 
