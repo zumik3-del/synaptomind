@@ -1,9 +1,11 @@
+import type { Database } from 'bun:sqlite'
 import { createEdge } from '../db/edges'
 import { getDb } from '../db'
+import { getThoughtLimitsDB } from '../db/settings'
 import { createThought, getThoughtsBatchWithTags, type Thought } from '../db/thoughts'
 import { insertLog } from '../logging/log'
 import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from './errors'
-import { validateContentLength } from './thoughts.service'
+import { validateContentLength } from '../validation'
 
 export interface CreateClusterOptions {
   thoughtIds: string[]
@@ -19,14 +21,13 @@ export interface CreateClusterResult {
   members: Thought[]
 }
 
-export function createClusterService(options: CreateClusterOptions): CreateClusterResult {
+export function createClusterService(options: CreateClusterOptions, d: Database = getDb()): CreateClusterResult {
   const { thoughtIds, title, tags, source, projectId } = options
 
   if (!thoughtIds || thoughtIds.length === 0) {
     throw new ValidationError('thought_ids is required')
   }
 
-  const d = getDb()
   const memberMap = getThoughtsBatchWithTags(d, thoughtIds)
   const members = thoughtIds.map(id => memberMap.get(id)).filter(Boolean) as Thought[]
   if (members.length !== thoughtIds.length) {
@@ -45,7 +46,7 @@ export function createClusterService(options: CreateClusterOptions): CreateClust
   const content = title || `Cluster of ${thoughtIds.length} thoughts`
   const clusterTags = ['cluster', ...(tags || [])]
 
-  validateContentLength(content)
+  validateContentLength(content, getThoughtLimitsDB(d))
 
   const run = d.transaction(() => {
     const clusterThought = createThought(d, {

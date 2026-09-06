@@ -1,6 +1,7 @@
+import type { Database } from 'bun:sqlite'
 import { createEdge, getClusterForThought, getClusterMembers } from '../db/edges'
 import { getDb } from '../db'
-import { getThoughtLimits } from '../db/settings'
+import { getThoughtLimitsDB } from '../db/settings'
 import { pruneThoughtUrlLinks, upsertThoughtUrlLink } from '../db/thought_url_links'
 import {
   type CreateThoughtInput,
@@ -15,45 +16,22 @@ import {
   type UpdateThoughtInput
 } from '../db/thoughts'
 import { insertLog } from '../logging/log'
+import { validateContentLength, validateStatus } from '../validation'
 import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from './errors'
 import { transferEdgesFromSource, validateMergePreconditions } from './merge'
-const VALID_STATUSES = ['draft', 'active', 'archived'] as const
 
-function validateStatus(status: string | undefined): void {
-  if (status !== undefined && !(VALID_STATUSES as readonly string[]).includes(status)) {
-    throw new ValidationError(`Invalid status: ${status}. Must be one of: ${VALID_STATUSES.join(', ')}`)
-  }
+export function getThoughtById(id: string, d: Database = getDb()): Thought | null {
+  return dbGetThought(d, id) ?? null
 }
 
-export function validateContentLength(content: string, thoughtId?: string): void {
-  const { softLimit, hardLimit } = getThoughtLimits()
-  if (content.length > hardLimit) {
-    throw new ValidationError(
-      `Thought content exceeds hard limit of ${hardLimit} chars (got ${content.length}). ` +
-        `Please split it into smaller atomic thoughts or raise the hard limit in Settings.`
-    )
-  }
-  if (content.length > softLimit) {
-    insertLog(
-      'warning',
-      'thought',
-      `Thought content exceeds soft limit of ${softLimit} chars (got ${content.length})`,
-      {
-        thought_id: thoughtId,
-        length: content.length
-      }
-    )
-  }
-}
-
-export function getThoughtById(id: string): Thought | null {
-  return dbGetThought(getDb(), id) ?? null
-}
-
-export function createThoughtWithParent(data: CreateThoughtInput, parentId?: string, relation?: string): Thought {
+export function createThoughtWithParent(
+  data: CreateThoughtInput,
+  parentId?: string,
+  relation?: string,
+  d: Database = getDb()
+): Thought {
   validateStatus(data.status)
-  validateContentLength(data.content)
-  const d = getDb()
+  validateContentLength(data.content, getThoughtLimitsDB(d))
   const create = d.transaction(() => {
     const thought = dbCreateThought(d, data)
     if (parentId) {
@@ -87,11 +65,11 @@ export interface UrlLink {
 
 export function createThoughtWithUrlLinks(
   data: CreateThoughtInput,
-  options?: { parentId?: string; relation?: string; urlLinks?: UrlLink[] }
+  options?: { parentId?: string; relation?: string; urlLinks?: UrlLink[] },
+  d: Database = getDb()
 ): Thought {
-  const d = getDb()
   const run = d.transaction(() => {
-    const thought = createThoughtWithParent(data, options?.parentId, options?.relation)
+    const thought = createThoughtWithParent(data, options?.parentId, options?.relation, d)
     if (options?.urlLinks && options.urlLinks.length > 0) {
       for (const link of options.urlLinks) {
         upsertThoughtUrlLink(d, thought.id, link.text, link.url, link.text, 0)
@@ -109,45 +87,42 @@ function assertNotProfileArchive(thought: Thought | null | undefined): void {
   }
 }
 
-export function updateThoughtById(id: string, data: UpdateThoughtInput): Thought | null {
+export function updateThoughtById(id: string, data: UpdateThoughtInput, d: Database = getDb()): Thought | null {
   validateStatus(data.status)
   if (data.content !== undefined) {
-    validateContentLength(data.content, id)
+    validateContentLength(data.content, getThoughtLimitsDB(d), id)
   }
-  const d = getDb()
   if (data.status === 'archived') {
     assertNotProfileArchive(dbGetThought(d, id))
   }
   return dbUpdateThought(d, id, data) ?? null
 }
 
-export function archiveThoughtById(id: string): Thought | null {
-  const d = getDb()
+export function archiveThoughtById(id: string, d: Database = getDb()): Thought | null {
   const thought = dbGetThought(d, id)
   if (!thought) return null
   assertNotProfileArchive(thought)
   return dbArchiveThought(d, id) ?? null
 }
 
-export function deleteThoughtById(id: string): boolean {
-  return dbDeleteThought(getDb(), id)
+export function deleteThoughtById(id: string, d: Database = getDb()): boolean {
+  return dbDeleteThought(d, id)
 }
 
-export function listThoughtsService(options?: ListThoughtsOptions): Thought[] {
-  return dbListThoughts(getDb(), options)
+export function listThoughtsService(options?: ListThoughtsOptions, d: Database = getDb()): Thought[] {
+  return dbListThoughts(d, options)
 }
 
-export function pruneThoughtUrlLinksService(thoughtId: string, content: string): number {
-  return pruneThoughtUrlLinks(getDb(), thoughtId, content)
+export function pruneThoughtUrlLinksService(thoughtId: string, content: string, d: Database = getDb()): number {
+  return pruneThoughtUrlLinks(d, thoughtId, content)
 }
 
-export function findClusterForThought(thoughtId: string): Thought | null {
-  return getClusterForThought(getDb(), thoughtId)
+export function findClusterForThought(thoughtId: string, d: Database = getDb()): Thought | null {
+  return getClusterForThought(d, thoughtId)
 }
 
-export function getClusterMembersService(clusterId: string): { cluster: Thought; members: Thought[] } {
-  const d = getDb()
-  const cluster = getThoughtById(clusterId)
+export function getClusterMembersService(clusterId: string, d: Database = getDb()): { cluster: Thought; members: Thought[] } {
+  const cluster = getThoughtById(clusterId, d)
   if (!cluster) throw new NotFoundError('Thought not found')
   if (!cluster.is_cluster) throw new ValidationError('Not a cluster thought')
   const members = getClusterMembers(d, clusterId)
@@ -167,18 +142,16 @@ export interface MergeThoughtsOptions {
   projectId?: string
 }
 
-export function mergeThoughtsService(options: MergeThoughtsOptions): MergeResult {
+export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database = getDb()): MergeResult {
   const { targetId, sourceId, mergedContent, mergedTags, projectId } = options
   if (sourceId === targetId) {
     throw new ValidationError('source_id and target_id must be different')
   }
 
-  const d = getDb()
-
-  const source = getThoughtById(sourceId)
+  const source = getThoughtById(sourceId, d)
   if (!source) throw new NotFoundError(`Source thought '${sourceId}' not found`)
 
-  const target = getThoughtById(targetId)
+  const target = getThoughtById(targetId, d)
   if (!target) throw new NotFoundError(`Target thought '${targetId}' not found`)
 
   validateMergePreconditions(source)
@@ -213,7 +186,7 @@ export function mergeThoughtsService(options: MergeThoughtsOptions): MergeResult
   })
 
   const counts = run()
-  const updatedTarget = getThoughtById(targetId)
+  const updatedTarget = getThoughtById(targetId, d)
   if (!updatedTarget) throw new NotFoundError(`Target thought '${targetId}' not found after merge`)
   return { target: updatedTarget, ...counts }
 }

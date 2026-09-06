@@ -5,6 +5,7 @@ import { getThoughtTagsBatch } from '../db/tags'
 import { getThought, parseTags } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
 import { generateEmbedding } from '../embedder/client'
+import { entitySearchIds } from './entity.service'
 
 const EMBEDDING_TIMEOUT_MS = 5_000
 
@@ -52,7 +53,8 @@ export async function searchThoughts(options: SearchServiceOptions): Promise<Sea
     clusterFilter: options.clusterFilter,
     minImportance: options.minImportance,
     excludeFlagged: options.excludeFlagged,
-    hybrid: options.hybrid
+    hybrid: options.hybrid,
+    entitySearchIds
   })
 
   return options.tagFilter

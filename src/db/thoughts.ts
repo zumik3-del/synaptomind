@@ -1,6 +1,7 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import { createHash } from 'node:crypto'
 import { v7 as uuidv7 } from 'uuid'
+import type { ThoughtStatus } from '../types/thought'
 import { resolveDefaultProjectId } from './projects'
 import { getThoughtTags, getThoughtTagsBatch, pruneOrphanTags, setThoughtTags, type Tag } from './tags'
 import { placeholders, toBit } from './utils'
@@ -23,7 +24,7 @@ export interface Thought {
 
 export interface CreateThoughtInput {
   content: string
-  status?: 'draft' | 'active' | 'archived'
+  status?: ThoughtStatus
   tags?: string[]
   source?: string
   project_id?: string
@@ -35,7 +36,7 @@ export interface CreateThoughtInput {
 export interface UpdateThoughtInput {
   content?: string
   tags?: string[]
-  status?: 'draft' | 'active' | 'archived'
+  status?: ThoughtStatus
   project_id?: string
   is_cluster?: boolean
   is_profile?: boolean

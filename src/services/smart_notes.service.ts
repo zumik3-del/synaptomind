@@ -81,8 +81,7 @@ function projectUpdatedWithinDays(thought: Thought, days: number, db: Database):
   return ageMs <= days * 86400000
 }
 
-export function evalCondition(thought: Thought, condition: SurfaceCondition): { ready: boolean; hit: string | null } {
-  const d = getDb()
+export function evalCondition(thought: Thought, condition: SurfaceCondition, d: Database = getDb()): { ready: boolean; hit: string | null } {
   switch (condition.type) {
     case 'older_than_days': {
       const days = condition.days ?? 0
@@ -126,21 +125,20 @@ export function evalCondition(thought: Thought, condition: SurfaceCondition): { 
   }
 }
 
-export function listSmartNotesWithReady(): Array<SmartNote & { ready: boolean; condition_hit: string | null }> {
-  const d = getDb()
+export function listSmartNotesWithReady(d: Database = getDb()): Array<SmartNote & { ready: boolean; condition_hit: string | null }> {
   const notes = listSmartNotes(d)
   return notes.map(note => {
-    const thought = getThoughtById(note.thought_id)
+    const thought = getThoughtById(note.thought_id, d)
     if (!thought) {
       return { ...note, ready: false, condition_hit: null }
     }
-    const { ready, hit } = evalCondition(thought, note.surface_condition)
+    const { ready, hit } = evalCondition(thought, note.surface_condition, d)
     return { ...note, ready, condition_hit: hit }
   })
 }
 
-export function evalAllSmartNotes(): SmartNoteEval[] {
-  const notesWithReady = listSmartNotesWithReady()
+export function evalAllSmartNotes(d: Database = getDb()): SmartNoteEval[] {
+  const notesWithReady = listSmartNotesWithReady(d)
   return notesWithReady.map(n => ({
     note_id: n.id,
     thought_id: n.thought_id,
@@ -158,26 +156,24 @@ export interface AwakenedNote {
 
 // Evaluates every smart note and promotes the ready ones to active, returning
 // the list of thoughts that were woken. Non-ready notes are left untouched.
-export function awakenReady(): AwakenedNote[] {
-  const d = getDb()
+export function awakenReady(d: Database = getDb()): AwakenedNote[] {
   const notes = listSmartNotes(d)
   const awakened: AwakenedNote[] = []
   for (const note of notes) {
-    const thought = getThoughtById(note.thought_id)
+    const thought = getThoughtById(note.thought_id, d)
     if (!thought) continue
-    const { ready, hit } = evalCondition(thought, note.surface_condition)
+    const { ready, hit } = evalCondition(thought, note.surface_condition, d)
     if (!ready) continue
-    promoteSmartNote(note.id)
+    promoteSmartNote(note.id, d)
     awakened.push({ note_id: note.id, thought_id: note.thought_id, condition_hit: hit })
   }
   return awakened
 }
 
-export function promoteSmartNote(id: string): Thought {
-  const d = getDb()
+export function promoteSmartNote(id: string, d: Database = getDb()): Thought {
   const note = dbGetSmartNote(d, id)
   if (!note) throw new NotFoundError('Smart note not found')
-  const thought = getThoughtById(note.thought_id)
+  const thought = getThoughtById(note.thought_id, d)
   if (!thought) throw new NotFoundError('Linked thought not found')
   setSurfaceCheckedAt(d, id)
   const updated = updateThought(d, note.thought_id, { status: 'active' })
@@ -188,11 +184,10 @@ export function promoteSmartNote(id: string): Thought {
   return updated
 }
 
-export function deleteSmartNote(id: string): void {
-  const d = getDb()
+export function deleteSmartNote(id: string, d: Database = getDb()): void {
   if (!dbDeleteSmartNote(d, id)) throw new NotFoundError('Smart note not found')
 }
 
-export function createSmartNoteService(thoughtId: string, condition: SurfaceCondition): SmartNote {
-  return dbCreateSmartNote(getDb(), thoughtId, condition)
+export function createSmartNoteService(thoughtId: string, condition: SurfaceCondition, d: Database = getDb()): SmartNote {
+  return dbCreateSmartNote(d, thoughtId, condition)
 }
