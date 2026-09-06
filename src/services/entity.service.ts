@@ -45,7 +45,7 @@ export function entitySearchIds(query: string, limit: number): string[] {
 }
 
 export function listEntities(options: { type?: import('./entity-extract').EntityType; limit?: number } = {}): EntityInfo[] {
-  return dbSearchEntities(getDb(), options.type ?? '', options.limit ?? 100)
+  return dbSearchEntities(getDb(), '', options.limit ?? 100, options.type)
 }
 
 export function getEntitiesForThought(thoughtId: string): ThoughtEntity[] {

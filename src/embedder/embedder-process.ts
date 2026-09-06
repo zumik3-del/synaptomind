@@ -14,6 +14,7 @@ let sweepTimer: ReturnType<typeof setInterval> | null = null
 let idleTimer: ReturnType<typeof setTimeout> | null = null
 let consecutiveFailures = 0
 let currentBackoff = 1
+let batchInFlight = false
 
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer)
@@ -121,6 +122,8 @@ function reschedule() {
 }
 
 async function processBatch(): Promise<void> {
+  if (batchInFlight) return
+  batchInFlight = true
   try {
     const rows = findPendingEmbeddings()
     if (rows.length === 0) {
@@ -204,6 +207,8 @@ async function processBatch(): Promise<void> {
       resetExtractor()
       reschedule()
     }
+  } finally {
+    batchInFlight = false
   }
 }
 

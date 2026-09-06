@@ -1,4 +1,4 @@
-import type { Database } from 'bun:sqlite'
+import type { Database, SQLQueryBindings } from 'bun:sqlite'
 
 export type EntityType = 'code' | 'tag' | 'wiki' | 'term'
 
@@ -21,18 +21,29 @@ export function getEntitiesForThought(db: Database, thoughtId: string): ThoughtE
     .all(thoughtId) as ThoughtEntity[]
 }
 
-export function searchEntities(db: Database, query: string, limit = 20): EntityInfo[] {
-  const pattern = `%${query.toLowerCase().replace(/[%_]/g, c => `\\${c}`)}%`
+export function searchEntities(db: Database, query: string, limit = 20, type?: EntityType): EntityInfo[] {
+  const where: string[] = []
+  const params: SQLQueryBindings[] = []
+  if (query) {
+    const pattern = `%${query.toLowerCase().replace(/[%_]/g, c => `\\${c}`)}%`
+    where.push(`LOWER(entity_name) LIKE ? ESCAPE '\\'`)
+    params.push(pattern)
+  }
+  if (type) {
+    where.push('entity_type = ?')
+    params.push(type)
+  }
+  const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''
   return db
     .prepare(`
     SELECT entity_name as name, entity_type as type, COUNT(DISTINCT thought_id) as thought_count
     FROM thought_entities
-    WHERE LOWER(entity_name) LIKE ? ESCAPE '\\'
+    ${whereSql}
     GROUP BY entity_name, entity_type
     ORDER BY thought_count DESC
     LIMIT ?
   `)
-    .all(pattern, limit) as EntityInfo[]
+    .all(...params, limit) as EntityInfo[]
 }
 
 export function getThoughtIdsByEntity(db: Database, entityName: string): string[] {

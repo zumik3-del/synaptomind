@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { deleteThought } from './thoughts'
 import { sqlIn } from './utils'
 
 export interface OrphanEdge {
@@ -453,6 +454,15 @@ export function deleteEdges(db: Database, edgeIds: string[]): number {
 export function deleteThoughts(db: Database, thoughtIds: string[]): number {
   if (thoughtIds.length === 0) return 0
   const ph = sqlIn(thoughtIds)
-  const result = db.prepare(`DELETE FROM thoughts WHERE id IN (${ph}) AND (is_protected IS NULL OR is_protected = 0)`).run(...thoughtIds)
-  return result.changes
+  const rows = db
+    .prepare(`SELECT id FROM thoughts WHERE id IN (${ph}) AND (is_protected IS NULL OR is_protected = 0)`)
+    .all(...thoughtIds) as { id: string }[]
+  let deleted = 0
+  const tx = db.transaction(() => {
+    for (const row of rows) {
+      if (deleteThought(db, row.id)) deleted++
+    }
+  })
+  tx()
+  return deleted
 }
