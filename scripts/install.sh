@@ -53,6 +53,49 @@ need_cmd() {
   command -v "$1" &>/dev/null || error "Required command not found: $1"
 }
 
+# Check if systemd is actually running.
+# Accepts "running" and "degraded" — both mean systemd is up.
+# "degraded" is normal in containers (some units fail, systemd works).
+systemd_running() {
+  local state
+  state=$(systemctl is-system-running 2>&1)
+  [ "$state" = "running" ] || [ "$state" = "degraded" ]
+}
+
+# --- Install system dependencies ---
+
+install_system_deps() {
+  local missing=()
+
+  for cmd in unzip git; do
+    if ! command -v "$cmd" &>/dev/null; then
+      missing+=("$cmd")
+    fi
+  done
+
+  if [ ${#missing[@]} -eq 0 ]; then
+    info "System dependencies OK"
+    return
+  fi
+
+  info "Installing missing dependencies: ${missing[*]}"
+
+  if command -v apt &>/dev/null; then
+    apt-get update -qq && apt-get install -y -qq "${missing[@]}" 2>/dev/null
+  elif command -v yum &>/dev/null; then
+    yum install -y -q "${missing[@]}" 2>/dev/null
+  elif command -v apk &>/dev/null; then
+    apk add --no-cache "${missing[@]}" 2>/dev/null
+  elif command -v pacman &>/dev/null; then
+    pacman -S --noconfirm "${missing[@]}" 2>/dev/null
+  else
+    warn "Cannot detect package manager — install manually: ${missing[*]}"
+    return
+  fi
+
+  info "Dependencies installed: ${missing[*]}"
+}
+
 # --- Detect platform ---
 
 detect_os() {
@@ -177,8 +220,15 @@ install_service() {
     return
   fi
 
+  # Check if systemd directory exists AND systemd is actually running
   if [ ! -d /etc/systemd/system ]; then
     info "systemd not found — skipping service installation"
+    return
+  fi
+
+  if ! systemd_running; then
+    warn "systemd not running — skipping service installation"
+    warn "Start manually: cd $INSTALL_DIR && bun run src/index.ts"
     return
   fi
 
@@ -225,6 +275,26 @@ EOF
   info "Systemd service installed"
 }
 
+# --- Verify installation ---
+
+verify_installation() {
+  info "Verifying installation..."
+
+  if ! systemd_running; then
+    info "systemd not running — skip verification"
+    return
+  fi
+
+  systemctl start synaptomind
+  sleep 3
+  if curl -sf "http://127.0.0.1:${INSTALL_PORT}/health" &>/dev/null; then
+    info "Service started and healthy"
+  else
+    warn "Service installed but health check failed"
+    warn "Check logs: journalctl -u synaptomind -f"
+  fi
+}
+
 # --- Print summary ---
 
 print_summary() {
@@ -235,6 +305,11 @@ print_summary() {
   local secret
   secret=$(grep SYNAPTOMIND_SECRET "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 || echo "")
 
+  local systemd_ok=true
+  if ! systemd_running; then
+    systemd_ok=false
+  fi
+
   echo ""
   echo "=== SynaptoMind installed ==="
   echo ""
@@ -244,9 +319,16 @@ print_summary() {
   echo "  Config:     $INSTALL_DIR/config.json"
   echo "  Token:      $secret"
   echo ""
-  echo "  Start:      sudo systemctl start synaptomind"
-  echo "  Stop:       sudo systemctl stop synaptomind"
-  echo "  Logs:       journalctl -u synaptomind -f"
+
+  if [ "$systemd_ok" = true ]; then
+    echo "  Start:      sudo systemctl start synaptomind"
+    echo "  Stop:       sudo systemctl stop synaptomind"
+    echo "  Logs:       journalctl -u synaptomind -f"
+  else
+    echo "  Start:      cd $INSTALL_DIR && bun run src/index.ts"
+    echo "  Logs:       stdout"
+  fi
+
   echo "  Health:     curl http://127.0.0.1:${INSTALL_PORT}/health"
   echo "  Update:     bash $INSTALL_DIR/scripts/update.sh"
   echo "  Uninstall:  sudo bash $INSTALL_DIR/scripts/uninstall.sh"
@@ -260,10 +342,8 @@ main() {
 
   info "Installing SynaptoMind..."
 
-  need_cmd curl
-  need_cmd git
-
   detect_os
+  install_system_deps
   install_bun
   clone_or_update
   install_deps
@@ -271,6 +351,7 @@ main() {
   create_config
   setup_data
   install_service
+  verify_installation
   print_summary
 }
 
