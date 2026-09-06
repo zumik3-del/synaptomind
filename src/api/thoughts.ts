@@ -3,6 +3,7 @@ import { getClusterMembers } from '../db/edges'
 import { getDb } from '../db'
 import { parseTags } from '../db/thoughts'
 import { withTelemetry } from '../logging'
+import type { ThoughtStatus } from '../types/thought'
 import { jsonBodyOrDefault } from './utils'
 import { runAutoLinkJob } from '../services/auto-link.service'
 import { getChainService } from '../services/graph.service'
@@ -87,7 +88,7 @@ thoughtsRouter.post('/bulk', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'bulk_create_thoughts' }, async c2 => {
     const body = await c2.req.json() as {
       thoughts: Array<{
-        content: string; status?: 'draft' | 'active' | 'archived'; tags?: string[];
+        content: string; status?: ThoughtStatus; tags?: string[];
         source?: string; project_id?: string; parent_id?: string; relation?: string; is_profile?: boolean; is_protected?: boolean
       }>; project_id?: string
     }
@@ -131,7 +132,7 @@ thoughtsRouter.post('/bulk', async c => {
 thoughtsRouter.post('/', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'create_thought' }, async c2 => {
     const body = await c2.req.json() as {
-      content: string; status?: 'draft' | 'active' | 'archived'; tags?: string[];
+      content: string; status?: ThoughtStatus; tags?: string[];
       source?: string; project_id?: string; parent_id?: string; relation?: string; is_profile?: boolean; is_protected?: boolean
     }
     const thought = createThoughtWithParent(
@@ -146,7 +147,7 @@ thoughtsRouter.put('/:id', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'update_thought' }, async c2 => {
     const id = c2.req.param('id')
     const body = await c2.req.json() as {
-      content?: string; tags?: string[]; status?: 'draft' | 'active' | 'archived';
+      content?: string; tags?: string[]; status?: ThoughtStatus;
       project_id?: string; is_profile?: boolean; is_protected?: boolean
     }
     const thought = updateThoughtById(id, {

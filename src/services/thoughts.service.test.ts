@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db'
+import { getThoughtLimits } from '../db/settings'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError, ValidationError } from './errors'
 import {
@@ -13,9 +14,9 @@ import {
   listThoughtsService,
   mergeThoughtsService,
   pruneThoughtUrlLinksService,
-  updateThoughtById,
-  validateContentLength
+  updateThoughtById
 } from './thoughts.service'
+import { validateContentLength } from '../validation'
 
 beforeEach(createTestDb)
 afterEach(() => {
@@ -198,5 +199,5 @@ test('createThoughtWithUrlLinks creates thought with links', () => {
 })
 
 test('validateContentLength does not throw under soft limit', () => {
-  expect(() => validateContentLength('short')).not.toThrow()
+  expect(() => validateContentLength('short', getThoughtLimits())).not.toThrow()
 })
