@@ -22,12 +22,10 @@ graph LR
 
 ---
 
-## Try in 2 minutes
+## Quick Start
 
 ```bash
-git clone https://github.com/zumik3-del/synaptomind.git && cd synaptomind
-bun install
-bun run src/index.ts
+curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/scripts/install.sh | bash
 ```
 
 Server starts on `http://127.0.0.1:3005`. MCP endpoint: `http://127.0.0.1:3006/mcp`.
@@ -45,7 +43,7 @@ Connect your client — add to Claude Desktop config (`claude_desktop_config.jso
 }
 ```
 
-The token is printed to stderr on first startup. That's it — your agent now has persistent memory.
+The token is printed at the end of installation. That's it — your agent now has persistent memory.
 
 ---
 
@@ -311,23 +309,10 @@ curl -fsSL ... | bash -s -- --no-service          # skip systemd service
 
 Token and URL are printed at the end.
 
-### Manual install
-
-```bash
-git clone https://github.com/zumik3-del/synaptomind.git /opt/synaptomind
-cd /opt/synaptomind
-bun install --production
-cp .env.example .env   # edit SYNAPTOMIND_SECRET
-bun run src/index.ts
-```
-
 ### Updating
 
 ```bash
-cd /opt/synaptomind
-git pull
-bun install --production
-sudo systemctl restart synaptomind
+bash /opt/synaptomind/scripts/update.sh
 ```
 
 ### Uninstall
