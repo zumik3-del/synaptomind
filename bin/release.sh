@@ -11,11 +11,11 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 PACKAGE_VERSION=$(node -p "require('./package.json').version")
-TAG="$PACKAGE_VERSION"
+TAG="v$PACKAGE_VERSION"
 LONGVER="Version $PACKAGE_VERSION"
 
 echo "$LONGVER"
 git tag -a "$TAG" -m "$LONGVER"
-git push --tags
+git push origin "$TAG"
 
 node bin/changelog.cjs
