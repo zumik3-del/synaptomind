@@ -74,6 +74,8 @@ cp .env.example .env
 
 Without `SYNAPTOMIND_SECRET`, a random UUID is generated at startup and printed to stderr.
 
+For full configuration reference (all settings, env vars, defaults), see [CONFIG.md](CONFIG.md).
+
 ### Config file
 
 Mount a custom `config.json`:
