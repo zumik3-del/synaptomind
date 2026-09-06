@@ -38,7 +38,7 @@ jobs:
         run: docker build -t synaptomind:security-scan .
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: "synaptomind:security-scan"
           format: "sarif"
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run Trivy for Dockerfile/IaC
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: "config"
           scan-ref: "."
@@ -94,7 +94,7 @@ jobs:
 
       - name: Run Trivy dependency scan
         id: trivy-deps
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: "fs"
           scan-ref: "."
