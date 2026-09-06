@@ -23,8 +23,8 @@ fi
 git fetch --tags origin 2>/dev/null || true
 
 # Determine if current version is a prerelease
-if echo "$CURRENT" | grep -qE '-(alpha|beta|rc)\.'; then
-  LATEST_TAG=$(git tag --sort=-v:refname 2>/dev/null | grep -E '-(alpha|beta|rc)\.' | head -1)
+if echo "$CURRENT" | grep -qE -- '-(alpha|beta|rc)\.'; then
+  LATEST_TAG=$(git tag --sort=-v:refname 2>/dev/null | grep -E -- '-(alpha|beta|rc)\.' | head -1)
 else
   LATEST_TAG=$(git tag --sort=-v:refname 2>/dev/null | grep -v -- '-' | head -1)
 fi
