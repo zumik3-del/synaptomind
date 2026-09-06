@@ -8,6 +8,15 @@ DATA_DIR="${SYNAPTOMIND_DATA_DIR:-/var/lib/synaptomind}"
 info()  { echo "[synaptomind] $*"; }
 warn()  { echo "[synaptomind] WARNING: $*" >&2; }
 
+# Run command as root if not already root
+run_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
 echo "This will remove SynaptoMind:"
 echo "  - Service: /etc/systemd/system/synaptomind.service"
 echo "  - Install: $INSTALL_DIR"
@@ -24,26 +33,26 @@ fi
 # Stop service
 if systemctl is-active synaptomind &>/dev/null; then
   info "Stopping service..."
-  sudo systemctl stop synaptomind
+  run_root systemctl stop synaptomind
 fi
 
 # Disable service
 if systemctl is-enabled synaptomind &>/dev/null; then
   info "Disabling service..."
-  sudo systemctl disable synaptomind 2>/dev/null || true
+  run_root systemctl disable synaptomind 2>/dev/null || true
 fi
 
 # Remove service file
 if [ -f /etc/systemd/system/synaptomind.service ]; then
   info "Removing service file..."
-  sudo rm /etc/systemd/system/synaptomind.service
-  sudo systemctl daemon-reload
+  run_root rm /etc/systemd/system/synaptomind.service
+  run_root systemctl daemon-reload
 fi
 
 # Remove install dir
 if [ -d "$INSTALL_DIR" ]; then
   info "Removing $INSTALL_DIR..."
-  sudo rm -rf "$INSTALL_DIR"
+  run_root rm -rf "$INSTALL_DIR"
 fi
 
 # Remove data dir (ask first)
@@ -52,7 +61,7 @@ if [ -d "$DATA_DIR" ]; then
   echo ""
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     info "Removing $DATA_DIR..."
-    sudo rm -rf "$DATA_DIR"
+    run_root rm -rf "$DATA_DIR"
   else
     info "Keeping $DATA_DIR"
   fi

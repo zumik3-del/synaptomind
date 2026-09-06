@@ -3,6 +3,32 @@ set -euo pipefail
 
 REPO_URL="${SYNAPTOMIND_REPO:-https://github.com/zumik3-del/synaptomind.git}"
 INSTALL_DIR="${SYNAPTOMIND_INSTALL_DIR:-/opt/synaptomind}"
+CHANNEL="stable"
+
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --alpha|--prerelease)
+        CHANNEL="prerelease"
+        shift
+        ;;
+      --help|-h)
+        echo "Usage: bash $INSTALL_DIR/scripts/update.sh [OPTIONS]"
+        echo ""
+        echo "Options:"
+        echo "  --alpha, --prerelease   Update to latest prerelease (alpha/beta/rc)"
+        echo "  --help, -h              Show this help"
+        exit 0
+        ;;
+      *)
+        echo "[synaptomind] Unknown option: $1" >&2
+        exit 1
+        ;;
+    esac
+  done
+}
+
+parse_args "$@"
 
 # Ensure we're in a git repo
 if [ ! -d "$INSTALL_DIR/.git" ]; then
@@ -22,11 +48,16 @@ fi
 # Fetch tags and find latest release
 git fetch --tags origin 2>/dev/null || true
 
-# Determine if current version is a prerelease
-if echo "$CURRENT" | grep -qE -- '-(alpha|beta|rc)\.'; then
+# Determine channel and latest tag
+if [ "$CHANNEL" = "prerelease" ]; then
   LATEST_TAG=$(git tag --sort=-v:refname 2>/dev/null | grep -E -- '-(alpha|beta|rc)\.' | head -1)
 else
-  LATEST_TAG=$(git tag --sort=-v:refname 2>/dev/null | grep -v -- '-' | head -1)
+  if echo "$CURRENT" | grep -qE -- '-(alpha|beta|rc)\.'; then
+    # If currently on a prerelease, pick the newest tag (prerelease or stable)
+    LATEST_TAG=$(git tag --sort=-v:refname 2>/dev/null | head -1)
+  else
+    LATEST_TAG=$(git tag --sort=-v:refname 2>/dev/null | grep -v -- '-' | head -1)
+  fi
 fi
 
 if [ -z "$LATEST_TAG" ]; then
@@ -69,7 +100,11 @@ bun install --production
 # Restart service if running via systemd
 if systemctl is-active synaptomind &>/dev/null; then
   echo "[synaptomind] Restarting service..."
-  sudo systemctl restart synaptomind
+  if [ "$(id -u)" -eq 0 ]; then
+    systemctl restart synaptomind
+  else
+    sudo systemctl restart synaptomind
+  fi
   echo "[synaptomind] Service restarted."
 fi
 
