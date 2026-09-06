@@ -67,7 +67,7 @@ systemd_running() {
 install_system_deps() {
   local missing=()
 
-  for cmd in unzip; do
+  for cmd in unzip git; do
     if ! command -v "$cmd" &>/dev/null; then
       missing+=("$cmd")
     fi
@@ -341,9 +341,6 @@ main() {
   parse_args "$@"
 
   info "Installing SynaptoMind..."
-
-  need_cmd curl
-  need_cmd git
 
   detect_os
   install_system_deps
