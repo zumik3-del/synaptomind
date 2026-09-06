@@ -12,6 +12,7 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "lint": "bunx biome check src/",
+    "smoke": "bash scripts/smoke-test.sh",
     "release": "bash bin/release.sh",
     "changelog": "node bin/changelog.cjs",
     "postinstall": "bash scripts/setup-vec0.sh",
