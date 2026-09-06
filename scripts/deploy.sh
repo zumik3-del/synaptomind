@@ -78,14 +78,28 @@ if [ ! -f config.json ]; then
   echo "[synaptomind] Created config.json from example — edit it before starting"
 fi
 
+# Update docker-compose image tag for tagged releases (not --dev)
+if [ "$VERSION" != "--dev" ] && [ -f docker-compose.yml ]; then
+  DEPLOYED_VERSION=$(grep -o '"version": *"[^"]*"' package.json | sed 's/"version": *"//;s/"//' || echo "")
+  if [ -n "$DEPLOYED_VERSION" ]; then
+    IMAGE="ghcr.io/zumik3-del/synaptomind:${DEPLOYED_VERSION}"
+    sed -i "s|image: ghcr.io/zumik3-del/synaptomind:.*|image: ${IMAGE}|" docker-compose.yml
+    echo "[synaptomind] Updated image tag to ${IMAGE}"
+  fi
+fi
+
 # Show version
 if [ -f package.json ]; then
-  DEPLOYED_VERSION=$(node -e "process.stdout.write(require('./package.json').version)" 2>/dev/null || echo "unknown")
+  DEPLOYED_VERSION=$(grep -o '"version": *"[^"]*"' package.json | sed 's/"version": *"//;s/"//' || echo "unknown")
   echo "[synaptomind] Version: ${DEPLOYED_VERSION}"
 fi
 
 # Start/restart
 echo "[synaptomind] Starting..."
-docker compose up -d --build
+if [ "$VERSION" = "--dev" ]; then
+  docker compose up -d --build
+else
+  docker compose up -d
+fi
 
 echo "[synaptomind] Done. Check: docker compose logs -f"
