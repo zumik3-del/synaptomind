@@ -1,6 +1,8 @@
 # SynaptoMind
 
 [![CI](https://github.com/zumik3-del/synaptomind/actions/workflows/ci.yml/badge.svg)](https://github.com/zumik3-del/synaptomind/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/zumik3-del/synaptomind/actions/workflows/codeql.yml/badge.svg)](https://github.com/zumik3-del/synaptomind/actions/workflows/codeql.yml)
+[![Security Audit](https://github.com/zumik3-del/synaptomind/actions/workflows/security.yml/badge.svg)](https://github.com/zumik3-del/synaptomind/actions/workflows/security.yml)
 [![Coverage Status](https://coveralls.io/repos/github/zumik3-del/synaptomind/badge.svg?branch=main)](https://coveralls.io/github/zumik3-del/synaptomind?branch=main)
 [![GitHub Release](https://img.shields.io/github/v/release/zumik3-del/synaptomind?label=latest)](https://github.com/zumik3-del/synaptomind/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
