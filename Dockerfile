@@ -21,12 +21,11 @@ ENV SYNAPTOMIND_DB_PATH=/app/data/synaptomind.db
 ENV SYNAPTOMIND_LOG_DB_PATH=/app/data/logs.db
 ENV SYNAPTOMIND_EMBEDDER_CACHE_DIR=/app/data/huggingface
 
-RUN mkdir -p /app/data && chown -R synaptomind:synaptomind /app/data
-
 # Run as a dedicated non-root user (uid/gid 10001).
 # The host-side ./data bind mount must be writable by uid 10001 —
 # see README "Docker" section for the migration note.
-RUN groupadd --system -g 10001 synaptomind && useradd --system --uid 10001 --gid synaptomind synaptomind
+RUN groupadd --system -g 10001 synaptomind && useradd --system --uid 10001 --gid synaptomind synaptomind \
+	&& mkdir -p /app/data && chown -R synaptomind:synaptomind /app/data
 USER synaptomind
 
 EXPOSE 3005 3006
