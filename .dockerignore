@@ -4,8 +4,6 @@
 
 # CI/CD
 .github/
-.release-please-manifest.json
-release-please-config.json
 
 # Dev tools
 .opencode/

@@ -173,7 +173,7 @@ clone_or_update() {
 install_deps() {
   info "Installing dependencies..."
   cd "$INSTALL_DIR"
-  "$BUN_BIN" install --production
+  "$BUN_BIN" install --frozen-lockfile --production
 }
 
 # --- Setup vec0 ---

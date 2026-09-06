@@ -19,7 +19,7 @@
 
 <!-- 
   ⚠️ PR titles follow Conventional Commits and become the commit message on main.
-  Release-please uses them to decide version bumps:
+  They help decide the next release type when running bin/release.sh:
 
   - fix(...)   → patch release (0.3.1 → 0.3.2)
   - feat(...)  → minor release (0.3.1 → 0.4.0)

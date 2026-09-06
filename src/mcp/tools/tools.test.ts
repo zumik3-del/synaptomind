@@ -213,6 +213,36 @@ describe('memory_recall', () => {
     expect(Array.isArray(data)).toBe(true)
     expect(data.every((r: any) => r.thought?.is_cluster === 1)).toBe(true)
   })
+
+  test('search without query returns error', async () => {
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search' }
+    })
+    const { data, isError } = parseResult(result)
+    expect(isError).toBe(true)
+    expect(data).toContain('query is required for search action')
+  })
+
+  test('context without query returns error', async () => {
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'context' }
+    })
+    const { data, isError } = parseResult(result)
+    expect(isError).toBe(true)
+    expect(data).toContain('query is required for context action')
+  })
+
+  test('clusters without query returns error', async () => {
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'clusters' }
+    })
+    const { data, isError } = parseResult(result)
+    expect(isError).toBe(true)
+    expect(data).toContain('query is required for clusters action')
+  })
 })
 
 // ── memory_supersede (regression focus) ──────────────────────────────────────

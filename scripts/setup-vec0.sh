@@ -52,13 +52,24 @@ download() {
 # Download tarball
 download "$URL" "${TMP}/${TARBALL}"
 
+# Pick an available sha256 tool (sha256sum is Linux, shasum is macOS/BSD)
+if command -v sha256sum >/dev/null 2>&1; then
+  HASH_TOOL="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+  HASH_TOOL="shasum -a 256"
+else
+  HASH_TOOL=""
+fi
+
 # Download and verify checksum
-if download "$CHECKSUM_URL" "${TMP}/SHA256SUMS" 2>/dev/null; then
+if [ -z "$HASH_TOOL" ]; then
+  echo "[synaptomind] WARNING: no sha256sum/shasum found, skipping verification" >&2
+elif download "$CHECKSUM_URL" "${TMP}/SHA256SUMS" 2>/dev/null; then
   EXPECTED=$(grep "${TARBALL}" "${TMP}/SHA256SUMS" | awk '{print $1}')
   if [ -z "$EXPECTED" ]; then
     echo "[synaptomind] WARNING: ${TARBALL} not found in SHA256SUMS, skipping verification" >&2
   else
-    ACTUAL=$(sha256sum "${TMP}/${TARBALL}" | awk '{print $1}')
+    ACTUAL=$($HASH_TOOL "${TMP}/${TARBALL}" | awk '{print $1}')
     if [ "$ACTUAL" != "$EXPECTED" ]; then
       echo "[synaptomind] CHECKSUM MISMATCH: expected ${EXPECTED}, got ${ACTUAL}" >&2
       exit 1

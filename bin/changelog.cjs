@@ -13,7 +13,7 @@ if (porcelain.length) {
 	process.exit(1);
 }
 
-var tags = cp.execSync('git tag --list --sort=version:refname', { encoding: 'utf8' }).trim().split(/\n/).reverse();
+var tags = cp.execSync('git tag --list --sort=version:refname', { encoding: 'utf8' }).trim().split(/\n/);
 
 var md = '# Changelog\n';
 
@@ -22,18 +22,18 @@ if (tags.length < 2) {
 	process.exit(1);
 }
 
-var lastTag = tags[0];
-
-for (var i = 1; i < tags.length; i++) {
+// tags are sorted ascending (oldest first); emit sections newest -> oldest.
+// For tag[i] the commit range is tags[i-1]..tag[i] (commits since the
+// previous, older tag). Sections with no commits are skipped entirely.
+for (var i = tags.length - 1; i >= 1; i--) {
 	var tag = tags[i];
 	var prevTag = tags[i - 1];
-
-	md += '\n## ' + tag + '\n\n';
 
 	var cmd = "git log " + prevTag + ".." + tag + " --no-merges --pretty=format:'%h|%H|%ad|%s' --date=short";
 	var output = cp.execSync(cmd, { encoding: 'utf8' }).trim();
 	if (!output) continue;
 
+	var section = '\n## ' + tag + '\n\n';
 	var lines = output.split('\n');
 	var first = true;
 
@@ -48,15 +48,20 @@ for (var i = 1; i < tags.length; i++) {
 		if (subject.match(/\b(CHANGELOG|Version)\b/)) return;
 
 		if (first) {
-			md += '> ' + formatDate(date) + '\n\n';
+			section += '> ' + formatDate(date) + '\n\n';
 			first = false;
 		}
 
-		md += '- [`' + shortHash + '`](https://github.com/' + repo + '/commit/' + fullHash + '): ' + subject + '\n';
+		section += '- [`' + shortHash + '`](https://github.com/' + repo + '/commit/' + fullHash + '): ' + subject + '\n';
 	});
+
+	// skip sections where every commit was filtered out
+	if (first) continue;
+	md += section;
 }
 
-md += '\n## ' + lastTag + '\n\n> ' + formatDate(cp.execSync("git log -1 --format='%ad' --date=short " + lastTag, { encoding: 'utf8' }).trim()) + '\n\n- Initial release\n';
+var oldestTag = tags[0];
+md += '\n## ' + oldestTag + '\n\n> ' + formatDate(cp.execSync("git log -1 --format='%ad' --date=short " + oldestTag, { encoding: 'utf8' }).trim()) + '\n\n- Initial release\n';
 
 fs.writeFileSync('CHANGELOG.md', md);
 

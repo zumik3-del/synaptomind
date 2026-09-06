@@ -85,20 +85,44 @@ if [ ! -f .env ]; then
   echo "[synaptomind] Created .env with random secret"
 fi
 
-# Update docker-compose image tag for tagged releases (not --dev)
-if [ "$VERSION" != "--dev" ] && [ -f docker-compose.yml ]; then
-  DEPLOYED_VERSION=$(grep -o '"version": *"[^"]*"' package.json | sed 's/"version": *"//;s/"//' || echo "")
-  if [ -n "$DEPLOYED_VERSION" ]; then
-    IMAGE="ghcr.io/zumik3-del/synaptomind:${DEPLOYED_VERSION}"
-    sed -i "s|image: ghcr.io/zumik3-del/synaptomind:.*|image: ${IMAGE}|" docker-compose.yml
-    echo "[synaptomind] Updated image tag to ${IMAGE}"
-  fi
-fi
-
 # Show version
 if [ -f package.json ]; then
   DEPLOYED_VERSION=$(grep -o '"version": *"[^"]*"' package.json | sed 's/"version": *"//;s/"//' || echo "unknown")
   echo "[synaptomind] Version: ${DEPLOYED_VERSION}"
+fi
+
+# Resolve image for docker-compose.yml: image: ${SYNAPTOMIND_IMAGE:-...:local}
+if [ "$VERSION" = "--dev" ]; then
+  # Pin explicitly so a stray SYNAPTOMIND_IMAGE in the operator's shell
+  # cannot retag the dev build
+  export SYNAPTOMIND_IMAGE="ghcr.io/zumik3-del/synaptomind:local"
+else
+  DEPLOYED_VERSION=$(grep -o '"version": *"[^"]*"' package.json | sed 's/"version": *"//;s/"//' || echo "")
+  if [ -n "$DEPLOYED_VERSION" ]; then
+    IMAGE="ghcr.io/zumik3-del/synaptomind:${DEPLOYED_VERSION}"
+    export SYNAPTOMIND_IMAGE="$IMAGE"
+    # Persist so later manual `docker compose up` keeps the same image
+    if [ -f .env ]; then
+      if grep -q '^SYNAPTOMIND_IMAGE=' .env; then
+        sed -i "s|^SYNAPTOMIND_IMAGE=.*|SYNAPTOMIND_IMAGE=${IMAGE}|" .env
+      else
+        echo "SYNAPTOMIND_IMAGE=${IMAGE}" >> .env
+      fi
+    fi
+    echo "[synaptomind] Image: ${IMAGE}"
+  fi
+fi
+
+# Prepare ./data for the non-root container user (uid 10001).
+# Existing installs have a root-owned ./data — without this the
+# container crash-loops with EACCES after upgrading to the non-root image.
+mkdir -p data
+if [ "$(id -u)" -eq 0 ]; then
+  chown -R 10001:10001 data || true
+elif command -v sudo >/dev/null 2>&1; then
+  sudo chown -R 10001:10001 data || true
+else
+  echo "[synaptomind] WARNING: could not chown ./data for uid 10001 — if the container fails to write, run: sudo chown -R 10001:10001 data" >&2
 fi
 
 # Start/restart
@@ -106,6 +130,8 @@ echo "[synaptomind] Starting..."
 if [ "$VERSION" = "--dev" ]; then
   docker compose up -d --build
 else
+  # Pull the published image; fall back to building the checked-out tag locally
+  docker compose pull 2>/dev/null || true
   docker compose up -d
 fi
 

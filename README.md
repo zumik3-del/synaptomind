@@ -144,7 +144,7 @@ sequenceDiagram
 - **Local embeddings** — `@huggingface/transformers`, no API keys
 - **MCP server** — stdio + HTTP transport
 - **Auto-clustering** — batch grouping by embedding proximity
-- **Background jobs** — decay, dreamer, self-improve, git sync
+- **Background jobs** — decay, dreamer, self-improve, TTL cleanup
 
 </details>
 
@@ -262,22 +262,28 @@ See `config.json.example` for all options. Full reference: [docs/CONFIG.md](docs
 ### From source (development)
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 Volumes mount `./data` and `./config.json`.
 
 ### Published image (production)
 
-Edit `docker-compose.yml` — uncomment `image`, comment `build`:
-
-```yaml
-image: ghcr.io/zumik3-del/synaptomind:latest
-# build: .
-```
+The compose file resolves the image via the `SYNAPTOMIND_IMAGE` variable (default `:local`, built from source):
 
 ```bash
-docker compose pull && docker compose up -d
+SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:latest docker compose pull && docker compose up -d
+```
+
+`scripts/deploy.sh` sets and persists this variable automatically for tagged releases.
+
+### Container user
+
+The container runs as a non-root user (uid/gid `10001`). Make sure the mounted paths are writable/readable by that uid:
+
+```bash
+sudo chown -R 10001:10001 data   # required once when upgrading from older (root-run) images
+chmod 644 config.json            # config.json must be readable by uid 10001
 ```
 
 ### Auth
@@ -337,9 +343,10 @@ See [docs/DOCKER.md](docs/DOCKER.md) for full Docker guide.
 </details>
 
 <details>
-<summary><strong>API reference</strong></summary>
+<summary><strong>API examples</strong></summary>
 
 All `/api/*` endpoints require `Authorization: Bearer <token>` header.
+Full endpoint reference: [docs/API.md](docs/API.md).
 
 ### Create a thought
 
@@ -373,7 +380,7 @@ curl http://127.0.0.1:3005/health
 | Recall | `memory_recall` (search, get, context, chain, clusters) |
 | Store | `memory_store` (create, update, link, smart_note_*) |
 | Supersede | `memory_supersede` (archive, merge) |
-| Status | `memory_status` (slots, frontier, profile, config, health) |
+| Status | `memory_status` (slots, frontier, profile, config, health, cleanup) |
 | Projects | `memory_manage` (list, create, update, delete, resolve) |
 | Consolidate | `memory_crystallize` (crystallize, graph, cluster, auto_cluster) |
 | Reflect | `memory_reflect` (reflect, timeline) |
