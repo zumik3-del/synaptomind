@@ -266,6 +266,31 @@ EOF
   info "Systemd service installed"
 }
 
+# --- Verify installation ---
+
+verify_installation() {
+  local systemd_ok=true
+  if ! systemctl is-system-running &>/dev/null 2>&1; then
+    systemd_ok=false
+  fi
+
+  info "Verifying installation..."
+
+  if [ "$systemd_ok" = false ]; then
+    info "systemd not running — skip verification"
+    return
+  fi
+
+  systemctl start synaptomind
+  sleep 3
+  if curl -sf "http://127.0.0.1:${INSTALL_PORT}/health" &>/dev/null; then
+    info "Service started and healthy"
+  else
+    warn "Service installed but health check failed"
+    warn "Check logs: journalctl -u synaptomind -f"
+  fi
+}
+
 # --- Print summary ---
 
 print_summary() {
@@ -325,6 +350,7 @@ main() {
   create_config
   setup_data
   install_service
+  verify_installation
   print_summary
 }
 
