@@ -131,16 +131,30 @@ export function runHealthCheck(options: HealthCheckOptions = {}): HealthReport {
   }
 
   let critical = 0, warning = 0, info = 0
+  let criticalCats = 0, warningCats = 0
   for (const cat of categories) {
+    let catCritical = false, catWarning = false
     for (const check of cat.checks) {
-      if (check.severity === 'critical') critical += check.count
-      else if (check.severity === 'warning') warning += check.count
-      else info += check.count
+      if (check.severity === 'critical') {
+        critical += check.count
+        if (check.count > 0) catCritical = true
+      } else if (check.severity === 'warning') {
+        warning += check.count
+        if (check.count > 0) catWarning = true
+      } else {
+        info += check.count
+      }
     }
+    if (catCritical) criticalCats++
+    if (catWarning) warningCats++
   }
 
+  // Штрафуем за НАЛИЧИЕ категории с проблемой, а не за сырой count вхождений:
+  // структурные critical категории бьют сильно, warning категории — умеренно,
+  // info-вхождения — чуть-чуть. Так health_score отражает структурное здоровье
+  // и не обнуляется из-за множества безвредных warning-кейсов (как parent->draft).
   const health_score = Math.max(0, Math.min(100,
-    100 - (critical * 10) - (warning * 3) - (info * 0.5)
+    100 - (criticalCats * 40) - (warningCats * 15) - (info * 0.25)
   ))
 
   if (options.fix) {

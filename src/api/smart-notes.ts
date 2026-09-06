@@ -25,7 +25,7 @@ smartNotesRouter.post('/', async c => {
   }
   const thought = getThoughtById(body.thought_id)
   if (!thought) {
-    return c.json({ error: 'Thought not found' }, 404)
+    throw new NotFoundError('Thought not found')
   }
   if (thought.is_cluster) {
     return c.json({ error: 'Smart notes are not supported for cluster thoughts' }, 400)
@@ -53,23 +53,13 @@ smartNotesRouter.post('/awaken', c => {
 })
 
 smartNotesRouter.post('/:id/promote', c => {
-  try {
-    const thought = promoteSmartNote(c.req.param('id'))
-    return c.json({ ok: true, thought })
-  } catch (err) {
-    if (err instanceof NotFoundError) return c.json({ error: err.message }, 404)
-    throw err
-  }
+  const thought = promoteSmartNote(c.req.param('id'))
+  return c.json({ ok: true, thought })
 })
 
 smartNotesRouter.delete('/:id', c => {
-  try {
-    deleteSmartNote(c.req.param('id'))
-    return c.json({ success: true })
-  } catch (err) {
-    if (err instanceof NotFoundError) return c.json({ error: err.message }, 404)
-    throw err
-  }
+  deleteSmartNote(c.req.param('id'))
+  return c.json({ success: true })
 })
 
 export { smartNotesRouter }

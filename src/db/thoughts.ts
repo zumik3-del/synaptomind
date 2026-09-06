@@ -4,7 +4,7 @@ import { v7 as uuidv7 } from 'uuid'
 import type { ThoughtStatus } from '../types/thought'
 import { resolveDefaultProjectId } from './projects'
 import { getThoughtTags, getThoughtTagsBatch, pruneOrphanTags, setThoughtTags, type Tag } from './tags'
-import { placeholders, toBit } from './utils'
+import { sqlIn, toBit } from './utils'
 
 export interface Thought {
   id: string
@@ -80,8 +80,8 @@ export function rowToThought(row: Record<string, unknown>): Thought {
   }
 }
 
-const THOUGHT_ROW_SQL =
-  'SELECT t.*, p.name as project_name FROM thoughts t LEFT JOIN projects p ON t.project_id = p.id WHERE t.id = ?'
+const THOUGHT_BASE_SELECT = 'SELECT t.*, p.name as project_name FROM thoughts t LEFT JOIN projects p ON t.project_id = p.id'
+const THOUGHT_ROW_SQL = `${THOUGHT_BASE_SELECT} WHERE t.id = ?`
 
 function computeContentHash(content: string, projectId: string): string {
   return createHash('sha256').update(content + projectId).digest('hex')
@@ -153,11 +153,10 @@ export function getThought(db: Database, id: string): Thought | undefined {
 export function getThoughtsByIds(db: Database, ids: string[]): Map<string, Thought> {
   const map = new Map<string, Thought>()
   if (ids.length === 0) return map
-  const ph = placeholders(ids)
+  const ph = sqlIn(ids)
   const rows = db
     .prepare(
-      `SELECT t.*, p.name as project_name FROM thoughts t LEFT JOIN projects p ON t.project_id = p.id
-       WHERE t.id IN (${ph})`
+      `${THOUGHT_BASE_SELECT} WHERE t.id IN (${ph})`
     )
     .all(...ids) as Record<string, unknown>[]
   for (const r of rows) map.set(r.id as string, rowToThought(r))
@@ -281,7 +280,7 @@ export function listThoughts(db: Database, options: ListThoughtsOptions = {}): T
     }
   }
 
-  const baseSql = `SELECT t.*, p.name as project_name FROM thoughts t LEFT JOIN projects p ON t.project_id = p.id${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY t.created_at DESC`
+  const baseSql = `${THOUGHT_BASE_SELECT}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY t.created_at DESC`
   let sql: string
   let sqlValues: SQLQueryBindings[]
   if (limit === null) {

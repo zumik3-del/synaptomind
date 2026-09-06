@@ -8,7 +8,7 @@ const mergeRouter = new Hono()
 
 mergeRouter.post('/:targetId/merge', async c => {
   return withTelemetry(c, { action: 'link', toolName: 'merge_thoughts' }, async c2 => {
-    const targetId = c2.req.param('targetId')
+    const targetId = c2.req.param('targetId')!
     const body = await c2.req.json() as {
       source_id: string
       merged_content?: string

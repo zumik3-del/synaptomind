@@ -3,7 +3,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { config } from '../config'
 import { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError } from './errors'
 import { boostImportance, getThoughtRow, getThoughtsBatchWithTags, type Thought } from './thoughts'
-import { placeholders } from './utils'
+import { sqlIn } from './utils'
 
 export { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError }
 
@@ -223,7 +223,7 @@ export function getClusterForThought(db: Database, thoughtId: string): Thought |
 export function getClusterForThoughtBatch(db: Database, thoughtIds: string[]): Map<string, Thought> {
   const result = new Map<string, Thought>()
   if (thoughtIds.length === 0) return result
-  const ph = placeholders(thoughtIds)
+  const ph = sqlIn(thoughtIds)
   const edges = db
     .prepare(`SELECT target_id, source_id FROM edges WHERE target_id IN (${ph}) AND type = 'cluster'`)
     .all(...thoughtIds) as Array<{ target_id: string; source_id: string }>

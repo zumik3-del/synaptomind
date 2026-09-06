@@ -7,6 +7,7 @@ import {
   getThoughtUrlLinksForThoughts,
   upsertThoughtUrlLink
 } from '../db/thought_url_links'
+import { NotFoundError } from '../services/errors'
 
 const thoughtLinksRouter = new Hono()
 
@@ -44,7 +45,7 @@ thoughtLinksRouter.delete('/:id/links/:key', c => {
   const id = c.req.param('id')
   const key = c.req.param('key')
   const ok = deleteThoughtUrlLink(db, id, key)
-  if (!ok) return c.json({ error: 'Not found' }, 404)
+  if (!ok) throw new NotFoundError()
   return c.json({ success: true })
 })
 

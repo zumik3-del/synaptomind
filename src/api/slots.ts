@@ -18,7 +18,7 @@ slotsRouter.get('/', c => {
 
 slotsRouter.put('/:name', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'update_slot' }, async c2 => {
-    const name = c2.req.param('name')
+    const name = c2.req.param('name')!
     const body = await c2.req.json() as {
       content?: string
       max_chars?: number

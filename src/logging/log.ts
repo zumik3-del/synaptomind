@@ -89,17 +89,9 @@ function showDebugEnabled(): boolean {
   if (showDebugCache !== null && now - debugCacheTime < DEBUG_CACHE_TTL) {
     return showDebugCache
   }
-  if (!db) return false
-  try {
-    const row = db.prepare("SELECT value FROM logs WHERE key = 'show_debug_logs'").get() as
-      | { value: string }
-      | undefined
-    showDebugCache = row?.value === 'true'
-    debugCacheTime = now
-    return showDebugCache
-  } catch {
-    return false
-  }
+  showDebugCache = process.env.SYNAPTOMIND_DEBUG === 'true'
+  debugCacheTime = now
+  return showDebugCache
 }
 
 function sanitizeMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
@@ -186,10 +178,7 @@ function telemetryAutoCleanup(): void {
   if (telemetryCleanupCounter % TELEMETRY_CLEANUP_INTERVAL !== 0) return
   if (!db) return
   try {
-    const row = db.prepare("SELECT value FROM logs WHERE key = 'telemetry_max_rows'").get() as
-      | { value: string }
-      | undefined
-    const maxRows = Math.max(1000, parseInt(row?.value ?? '50000', 10) || 50000)
+    const maxRows = 50000
     db.run(
       `DELETE FROM thought_telemetry WHERE id NOT IN (
         SELECT id FROM thought_telemetry ORDER BY created_at DESC LIMIT ?

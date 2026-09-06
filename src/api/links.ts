@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { toEdgeView, EdgeAlreadyExistsError } from '../db/edges'
 import { createEdgeService, deleteEdgeService } from '../services/edges.service'
+import { NotFoundError } from '../services/errors'
 
 const linksRouter = new Hono()
 
@@ -22,7 +23,7 @@ linksRouter.post('/thoughts/:id/link', async c => {
 
 linksRouter.delete('/edges/:id', c => {
   const removed = deleteEdgeService(c.req.param('id'))
-  if (!removed) return c.json({ error: 'Not found' }, 404)
+  if (!removed) throw new NotFoundError()
   return c.json({ success: true })
 })
 

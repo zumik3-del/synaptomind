@@ -2,6 +2,7 @@ export function toBit(val?: boolean): number {
   return val ? 1 : 0
 }
 
+/** @deprecated Use sqlIn() instead */
 export function placeholders(ids: readonly string[]): string {
   return ids.map(() => '?').join(', ')
 }

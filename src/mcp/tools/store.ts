@@ -1,6 +1,7 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { config } from '../../config'
+import type { ThoughtStatus } from '../../types/thought'
 import {
   createThoughtWithUrlLinks,
   updateThoughtById
@@ -22,7 +23,7 @@ const actionHandlers: Record<string, (args: StoreArgs) => unknown> = {
   create(args) {
     if (!args.content) throw new Error('content is required for create action')
     return createThoughtWithUrlLinks(
-      { content: args.content as string, tags: args.tags as string[] | undefined, status: args.status as any, project_id: resolveProjectId(args.project_id as string, args.cwd as string), is_profile: args.is_profile as boolean | undefined, is_protected: args.is_protected as boolean | undefined },
+      { content: args.content as string, tags: args.tags as string[] | undefined, status: args.status as ThoughtStatus | undefined, project_id: resolveProjectId(args.project_id as string, args.cwd as string), is_profile: args.is_profile as boolean | undefined, is_protected: args.is_protected as boolean | undefined },
       { parentId: args.parent_id as string | undefined, urlLinks: args.url_links as { text: string; url: string }[] | undefined }
     )
   },
@@ -30,7 +31,7 @@ const actionHandlers: Record<string, (args: StoreArgs) => unknown> = {
   update(args) {
     if (!args.thought_id) throw new Error('thought_id is required for update action')
     const updated = updateThoughtById(args.thought_id as string, {
-      content: args.content as string | undefined, tags: args.tags as string[] | undefined, status: args.status as any, project_id: resolveProjectId(args.project_id as string, args.cwd as string), is_profile: args.is_profile as boolean | undefined, is_protected: args.is_protected as boolean | undefined
+      content: args.content as string | undefined, tags: args.tags as string[] | undefined, status: args.status as ThoughtStatus | undefined, project_id: resolveProjectId(args.project_id as string, args.cwd as string), is_profile: args.is_profile as boolean | undefined, is_protected: args.is_protected as boolean | undefined
     })
     if (!updated) throw new Error(`Thought '${args.thought_id}' not found`)
     return updated
@@ -39,7 +40,7 @@ const actionHandlers: Record<string, (args: StoreArgs) => unknown> = {
   link(args) {
     if (!args.thought_id) throw new Error('thought_id is required for link action (source)')
     if (!args.target_id) throw new Error('target_id is required for link action')
-    return createEdgeService(args.thought_id as string, args.target_id as string, args.edge_type as any)
+    return createEdgeService(args.thought_id as string, args.target_id as string, args.edge_type as string | undefined)
   },
 
   smart_note_create(args) {

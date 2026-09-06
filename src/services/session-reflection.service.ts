@@ -25,7 +25,7 @@ export interface ReflectResult {
 const CLOSED_PREFIXES = ['closed:']
 
 function reflectTimestamp(): string {
-  return new Date().toISOString().replace('T', ' ').slice(0, 16)
+  return new Date().toISOString()
 }
 
 function tail(content: string, maxChars: number): string {

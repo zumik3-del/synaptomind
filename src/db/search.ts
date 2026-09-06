@@ -91,7 +91,8 @@ export function bm25SearchIds(db: Database, query: string, limit: number): strin
       .prepare(`SELECT thought_id FROM thoughts_fts WHERE thoughts_fts MATCH ? ORDER BY bm25(thoughts_fts) LIMIT ?`)
       .all(toFtsQuery(query), limit) as Array<{ thought_id: string }>
     return rows.map(r => r.thought_id)
-  } catch {
+  } catch (err) {
+    console.debug('[search] bm25 search failed:', err)
     return []
   }
 }
@@ -167,7 +168,8 @@ function vecSearchIds(
       `)
       .all(...params, topK) as Array<{ id: string; distance: number }>
     return rows
-  } catch {
+  } catch (err) {
+    console.debug('[search] vec search failed:', err)
     return []
   }
 }
