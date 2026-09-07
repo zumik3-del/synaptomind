@@ -11,6 +11,10 @@ export interface TagWithCount extends Tag {
   thought_count: number
 }
 
+function canonicalTagName(name: string): string {
+  return name.startsWith('@') ? name.toLowerCase() : name
+}
+
 export function listTags(db: Database, q?: string): TagWithCount[] {
   const where = q ? `WHERE LOWER(t.name) LIKE ? ESCAPE '\\'` : ''
   const param = q ? [`%${q.toLowerCase().replace(/[%_]/g, c => `\\${c}`)}%`] : []
@@ -32,7 +36,7 @@ export function findTagByName(db: Database, name: string): Tag | undefined {
 }
 
 export function createTag(db: Database, name: string): Tag {
-  const canonical = name.startsWith('@') ? name.toLowerCase() : name
+  const canonical = canonicalTagName(name)
   const existing = findTagByName(db, canonical)
   if (existing) return existing
   const id = uuidv7()
@@ -43,7 +47,7 @@ export function createTag(db: Database, name: string): Tag {
 export function renameTag(db: Database, id: string, newName: string): Tag | undefined {
   const existing = db.prepare('SELECT id, name FROM tags WHERE id = ?').get(id) as Tag | undefined
   if (!existing) return undefined
-  const canonical = newName.startsWith('@') ? newName.toLowerCase() : newName
+  const canonical = canonicalTagName(newName)
   db.prepare('UPDATE tags SET name = ? WHERE id = ?').run(canonical, id)
   return { id, name: canonical }
 }
