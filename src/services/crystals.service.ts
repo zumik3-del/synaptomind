@@ -95,23 +95,21 @@ function formatCrystallizedMarkdown(
   return lines.join('\n').trim()
 }
 
-export function crystallize(input: CrystallizeInput): CrystallizeResult {
+export function crystallize(input: CrystallizeInput, d: Database = getDb()): CrystallizeResult {
   const style = input.style ?? 'decision-log'
   if (!STYLE_LABELS[style]) throw new ValidationError(`style must be one of: ${Object.keys(STYLE_LABELS).join(', ')}`)
-
-  const db = getDb()
   let title = ''
   let members: Thought[] = []
   if (input.cluster_id) {
-    const cluster = db.prepare(`SELECT * FROM thoughts WHERE id = ? AND is_cluster = 1`).get(input.cluster_id) as
+    const cluster = d.prepare(`SELECT * FROM thoughts WHERE id = ? AND is_cluster = 1`).get(input.cluster_id) as
       | Thought
       | undefined
     if (!cluster) throw new ValidationError('cluster_id does not reference an existing cluster')
     title = cluster.content.split('\n')[0].replace(/^#\s*/, '').trim()
-    members = getClusterMembers(db, cluster.id)
+    members = getClusterMembers(d, cluster.id)
   } else if (input.thought_ids?.length) {
     for (const id of input.thought_ids) {
-      const t = getThought(db, id)
+      const t = getThought(d, id)
       if (t && t.status !== 'archived') members.push(t)
     }
   } else {
@@ -126,11 +124,11 @@ export function crystallize(input: CrystallizeInput): CrystallizeResult {
     title = earliest.content.split('\n')[0].slice(0, 80).trim()
   }
 
-  const ordered = topoSort(members, db)
+  const ordered = topoSort(members, d)
   const buckets = bucketThoughts(ordered)
   const content = formatCrystallizedMarkdown(title, style, members.length, buckets)
 
-  const crystal = createThought(db, {
+  const crystal = createThought(d, {
     content,
     status: 'active',
     source: 'crystal',
