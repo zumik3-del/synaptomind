@@ -4,7 +4,7 @@ import { crystallize } from '../../services/crystals.service'
 import { getGraphDataService } from '../../services/graph.service'
 import { createClusterService } from '../../services/cluster.service'
 import { runAutoClusterJob } from '../../services/auto-cluster.service'
-import { jsonResult, errorResult } from './utils'
+import { jsonResult, errorResult, resolveProjectId } from './utils'
 
 export function registerMemoryCrystallize(server: McpServer) {
   server.tool('memory_crystallize', `Consolidate and visualize thoughts. Actions:
@@ -13,10 +13,11 @@ export function registerMemoryCrystallize(server: McpServer) {
 - cluster: Create a cluster from thought IDs
 - auto_cluster: Batch auto-clustering (Union-Find based)`, {
     action: z.enum(['crystallize', 'graph', 'cluster', 'auto_cluster']).describe('Action'),
-    thought_ids: z.array(z.string()).optional().describe('Thought IDs to crystallize'),
+    thought_ids: z.array(z.string()).optional().describe('Thought IDs to crystallize (required for cluster action)'),
     cluster_id: z.string().optional().describe('Cluster ID to crystallize'),
     style: z.enum(['runbook', 'decision-log', 'overview']).optional().describe('Output style (crystallize only)'),
-    project_id: z.string().optional().describe('Project ID'),
+    project_id: z.string().optional().describe('Project ID (crystallize/graph/cluster only; auto_cluster operates globally)'),
+    cwd: z.string().optional().describe('Working directory — auto-resolves project (crystallize/graph/cluster only; auto_cluster operates globally)'),
     status: z.string().optional().describe('Filter by status (default: active, graph only)'),
     title: z.string().optional().describe('Cluster title (cluster only)'),
     tags: z.array(z.string()).optional().describe('Tags (cluster only)'),
@@ -26,19 +27,21 @@ export function registerMemoryCrystallize(server: McpServer) {
     dry_run: z.boolean().optional().describe('Dry run mode (auto_cluster only)')
   }, async (args) => {
     try {
+      const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+
       if (args.action === 'crystallize') {
-        const result = crystallize({ thought_ids: args.thought_ids, cluster_id: args.cluster_id, style: args.style, project_id: args.project_id })
+        const result = crystallize({ thought_ids: args.thought_ids, cluster_id: args.cluster_id, style: args.style, project_id: projectId })
         return jsonResult(result)
       }
 
       if (args.action === 'graph') {
-        const graph = getGraphDataService(args.project_id, args.status)
+        const graph = getGraphDataService(projectId, args.status)
         return jsonResult(graph)
       }
 
       if (args.action === 'cluster') {
         if (!args.thought_ids || args.thought_ids.length === 0) return errorResult('thought_ids is required for cluster action')
-        const result = createClusterService({ thoughtIds: args.thought_ids, title: args.title, tags: args.tags, projectId: args.project_id })
+        const result = createClusterService({ thoughtIds: args.thought_ids, title: args.title, tags: args.tags, projectId: projectId })
         return jsonResult(result)
       }
 

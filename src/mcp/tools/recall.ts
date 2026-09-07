@@ -53,17 +53,22 @@ const actionHandlers: Record<string, (args: RecallArgs) => unknown | Promise<unk
 
   async clusters(args) {
     if (!args.query) throw new Error('query is required for clusters action')
+    const topK = (args.top_k as number) ?? 10
     const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
-    return searchThoughts({
-      query: args.query as string, topK: args.top_k as number | undefined, clusterFilter: 'only', projectFilter,
-      statusFilter: (args.status as string) || 'active'
+    const statusFilter = (args.status as string) || 'active'
+    const results = await searchThoughts({
+      query: args.query as string, topK, statusFilter,
+      projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: 'only',
+      minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
+      hybrid: args.hybrid as boolean | undefined
     })
+    return postProcessSearchResults(results, { query: args.query as string, topK, showPrimers: true })
   }
 }
 
 export function registerMemoryRecall(server: McpServer) {
   server.tool('memory_recall', `Search and retrieve thoughts. Actions:
-- search: Hybrid/vector/BM25 search across thoughts (default)
+- search: Hybrid/vector/BM25 search across thoughts (default; note: may mutate state via primer promotion and hit counting)
 - get: Get a single thought by ID
 - context: Find best matching thought and return its chain context
 - chain: Traverse linked thoughts from a starting point

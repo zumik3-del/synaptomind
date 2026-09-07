@@ -18,7 +18,7 @@ export function registerMemorySupersede(server: McpServer) {
     merged_content: z.string().optional().describe('REQUIRED ONLY for "merge". IGNORED for "archive".'),
     merged_tags: z.array(z.string()).optional().describe('Merged tags (merge only)'),
     project_id: z.string().optional().describe('Project ID (merge only)'),
-    cwd: z.string().optional().describe('Working directory — auto-resolves project')
+    cwd: z.string().optional().describe('Working directory — auto-resolves project (merge only)')
   }, async (args) => {
     try {
       if (args.action === 'archive') {

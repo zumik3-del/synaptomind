@@ -82,7 +82,7 @@ export function registerMemoryStore(server: McpServer) {
     action: z.enum(['create', 'update', 'link', 'smart_note_create', 'smart_note_list', 'smart_note_eval', 'smart_note_promote', 'smart_note_delete']).describe('The specific action to perform. This dictates which other parameters are required.'),
     content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". STRICTLY IGNORED for "link" and all "smart_note_*" actions. Soft limit: ${config.thoughts.softLimit}, hard limit: ${config.thoughts.hardLimit} chars.`),
     tags: z.array(z.string()).optional().describe('Tags'),
-    status: z.string().optional().describe('Status (draft/active/archived)'),
+    status: z.enum(['draft', 'active', 'archived']).optional().describe('Status (draft/active/archived)'),
     project_id: z.string().optional().describe('Project ID (prefer cwd instead)'),
     cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
     parent_id: z.string().optional().describe('Parent thought ID (for create)'),
@@ -92,7 +92,7 @@ export function registerMemoryStore(server: McpServer) {
     thought_id: z.string().optional().describe('REQUIRED for "update", "link", "smart_note_create", "smart_note_promote", "smart_note_delete". IGNORED for "create".'),
     target_id: z.string().optional().describe('REQUIRED ONLY for "link". IGNORED for all other actions.'),
     edge_type: z.enum(['related', 'parent', 'develops', 'replaces', 'cluster', 'references', 'depends_on']).optional().describe('Edge type (default: related)'),
-    surface_condition: z.record(z.string(), z.any()).optional().describe('REQUIRED ONLY for "smart_note_create". IGNORED for all other actions.'),
+    surface_condition: z.record(z.string(), z.any()).optional().describe('REQUIRED ONLY for "smart_note_create". Valid condition types: older_than_days, has_tag, has_edge_type, project_status, unread_for_days. IGNORED for all other actions.'),
     note_id: z.string().optional().describe('REQUIRED ONLY for "smart_note_promote" and "smart_note_delete". IGNORED for all other actions.')
   }, async (args) => {
     try {
