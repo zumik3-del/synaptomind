@@ -37,6 +37,41 @@ function assertProjectExists(projectId: string, db: ReturnType<typeof getDb>): v
   if (!project) throw new NotFoundError('Project not found')
 }
 
+/** Normalise a string for fuzzy comparison: lowercase, collapse whitespace. */
+function normalise(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+/** Word-set Jaccard similarity on normalised text. */
+function jaccard(a: string, b: string): number {
+  const setA = new Set(a.split(/\s+/).filter(Boolean))
+  const setB = new Set(b.split(/\s+/).filter(Boolean))
+  if (setA.size === 0 && setB.size === 0) return 1
+  if (setA.size === 0 || setB.size === 0) return 0
+  let overlap = 0
+  for (const w of setA) if (setB.has(w)) overlap++
+  return overlap / (setA.size + setB.size - overlap)
+}
+
+/**
+ * Returns true if `decision` is sufficiently similar to any existing
+ * non-archived decision-tagged thought (Jaccard >= 0.6 or exact normalised match).
+ */
+function hasDuplicateDecision(db: ReturnType<typeof getDb>, decision: string): boolean {
+  const candidates = db.prepare(`
+    SELECT t.id, t.content FROM thoughts t
+    JOIN thought_tags tt ON tt.thought_id = t.id
+    JOIN tags tg ON tg.id = tt.tag_id
+    WHERE tg.name = 'decision' AND t.status != 'archived'
+  `).all() as { id: string; content: string }[]
+  const norm = normalise(decision)
+  for (const c of candidates) {
+    if (normalise(c.content) === norm) return true
+    if (jaccard(norm, normalise(c.content)) >= 0.6) return true
+  }
+  return false
+}
+
 export function reflectSession(input: ReflectInput): ReflectResult {
   const hasAny =
     input.summary !== undefined ||
@@ -116,10 +151,13 @@ export function reflectSession(input: ReflectInput): ReflectResult {
       })
     }
 
+    // Create a thought for each decision, skipping those that are sufficiently
+    // similar to an existing non-archived decision (dedup across sessions).
     for (const decision of input.decisions ?? []) {
       if (typeof decision !== 'string' || !decision.trim()) {
         throw new ValidationError('decisions entries must be non-empty strings')
       }
+      if (hasDuplicateDecision(d, decision)) continue
       createThought(d, {
         content: decision.trim(),
         status: 'active',

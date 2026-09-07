@@ -322,16 +322,34 @@ test("findTooShort uses a 10-char default and skips clusters", () => {
 });
 
 test("findTestRemnants flags test-looking content", () => {
-	const db = getDb();
-	const remnant = seedThought({ content: "Test thought A" });
-	const likePrefix = seedThought({ content: "test another remnant" });
-	seedThought({ content: "a perfectly normal thought" });
+  const db = getDb();
+  const remnant = seedThought({ content: "Test thought A" });
+  const likePrefix = seedThought({ content: "test another remnant" });
+  seedThought({ content: "a perfectly normal thought" });
+  // Archived test remnants should NOT be reported.
+  const archivedRemnant = seedThought({ content: "Test thought B", status: "archived" });
 
-	const remnants = findTestRemnants(db);
-	const ids = remnants.map((r) => r.id);
-	expect(ids).toContain(remnant);
-	expect(ids).toContain(likePrefix);
-	expect(ids).toHaveLength(2);
+  const remnants = findTestRemnants(db);
+  const ids = remnants.map((r) => r.id);
+  expect(ids).toContain(remnant);
+  expect(ids).toContain(likePrefix);
+  expect(ids).not.toContain(archivedRemnant);
+  expect(ids).toHaveLength(2);
+});
+
+test("findBrokenParentChains does not flag edges from an archived source", () => {
+  const db = getDb();
+  const archivedParent = seedThought({ content: "archived parent", status: "archived" });
+  const draftChild = seedThought({ content: "draft child", status: "draft" });
+  const activeParent = seedThought({ content: "active parent" });
+  // Edge from archived parent → draft child should be ignored.
+  seedEdge(archivedParent, draftChild, "parent");
+  // Edge from active parent → draft child should still be flagged.
+  seedEdge(activeParent, draftChild, "parent");
+
+  const broken = findBrokenParentChains(db);
+  expect(broken).toHaveLength(1);
+  expect(broken[0]?.source_id).toBe(activeParent);
 });
 
 test("findStaleDrafts finds old drafts only", () => {

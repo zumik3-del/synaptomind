@@ -129,7 +129,7 @@ test('detects island thoughts', () => {
   const conn = report.categories.find(c => c.name === 'connectivity')
   const islands = conn!.checks.find(c => c.name === 'island_thoughts')
   expect(islands!.count).toBe(1)
-  expect(islands!.severity).toBe('warning')
+  expect(islands!.severity).toBe('info')
 })
 
 test('does not flag cluster thoughts as islands', () => {
@@ -210,7 +210,7 @@ test('detects broken parent chains', () => {
 
 test('filters by severity', () => {
   seedThought({ content: 'hi' }) // triggers info (too_short)
-  seedThought({ content: 'island' }) // triggers warning (island)
+  seedThought({ content: 'island' }) // triggers info (island — downgraded from warning)
 
   const reportCritical = runHealthCheck({ severity: 'critical' })
   // Only structural checks with count > 0 should appear
@@ -219,7 +219,8 @@ test('filters by severity', () => {
 
   const reportWarning = runHealthCheck({ severity: 'warning' })
   const warningChecks = reportWarning.categories.flatMap(c => c.checks)
-  expect(warningChecks.some(c => c.name === 'island_thoughts')).toBe(true)
+  // island_thoughts is now info, so it should NOT appear in warning filter
+  expect(warningChecks.some(c => c.name === 'island_thoughts')).toBe(false)
   expect(warningChecks.some(c => c.name === 'too_short_content')).toBe(false)
 })
 

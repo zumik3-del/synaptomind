@@ -98,9 +98,10 @@ test('skips a cluster edge whose remapped source is not a cluster thought', () =
 
   const transferred = transferEdgesFromSource(db, source, target)
 
-  // revalidation fails → continue WITHOUT delete: edge stays as-is, not counted
+  // revalidation fails → edge not transferred, but original is deleted
+  // (source will be archived after merge, so dangling source→member edges are noise)
   expect(transferred).toBe(0)
-  expect(edgeExists(db, source, member, 'cluster')).toBe(true)
+  expect(edgeExists(db, source, member, 'cluster')).toBe(false)
   expect(edgeExists(db, target, member, 'cluster')).toBe(false)
 })
 
@@ -114,7 +115,8 @@ test('skips a cluster edge when both remapped endpoints are clusters', () => {
   const transferred = transferEdgesFromSource(db, source, target)
 
   expect(transferred).toBe(0)
-  expect(edgeExists(db, source, otherCluster, 'cluster')).toBe(true)
+  // original edge removed from source; source will be archived
+  expect(edgeExists(db, source, otherCluster, 'cluster')).toBe(false)
   expect(edgeExists(db, target, otherCluster, 'cluster')).toBe(false)
 })
 
