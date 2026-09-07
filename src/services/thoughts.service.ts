@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { config } from '../config'
 import { createEdge, getClusterForThought, getClusterMembers, getEdgesForThought, toEdgeView, type EdgeView } from '../db/edges'
 import { getDb } from '../db'
 import { getThoughtLimitsDB } from '../db/settings'
@@ -56,7 +57,8 @@ export function createThoughtWithParent(
     }
     return thought
   })
-  return create()
+  const thought = create()
+  return { ...thought, content_language: config.contentLanguage } as Thought
 }
 
 export interface UrlLink {
@@ -78,7 +80,8 @@ export function createThoughtWithUrlLinks(
     }
     return thought
   })
-  return run()
+  const thought = run()
+  return { ...thought, content_language: config.contentLanguage } as Thought
 }
 
 // Profile thoughts are persona material and must survive archiving (issue #200).
@@ -106,7 +109,9 @@ export function updateThoughtById(id: string, data: UpdateThoughtInput, d: Datab
     }
     return updated
   })
-  return run() ?? null
+  const updated = run()
+  if (!updated) return null
+  return { ...updated, content_language: config.contentLanguage } as Thought
 }
 
 export function archiveThoughtById(id: string, d: Database = getDb()): Thought | null {

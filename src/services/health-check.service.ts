@@ -82,7 +82,7 @@ const CLUSTER_CHECKS: CheckDef[] = [
 ]
 
 const CONNECTIVITY_CHECKS: CheckDef[] = [
-  { name: 'island_thoughts', severity: 'warning', finder: findIslandThoughts },
+  { name: 'island_thoughts', severity: 'info', finder: findIslandThoughts },
   { name: 'overlinked_thoughts', severity: 'warning', finder: findOverlinkedThoughts },
 ]
 

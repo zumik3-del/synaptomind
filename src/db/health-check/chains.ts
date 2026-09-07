@@ -42,8 +42,10 @@ export function findBrokenParentChains(db: Database): BrokenParentChain[] {
     SELECT e.id AS edge_id, e.source_id, e.target_id, t.status AS target_status
     FROM edges e
     JOIN thoughts t ON t.id = e.target_id
+    JOIN thoughts s ON s.id = e.source_id
     WHERE e.type IN ('parent', 'develops')
       AND t.status IN ('archived', 'draft')
+      AND s.status != 'archived'
   `).all() as BrokenParentChain[]
 }
 

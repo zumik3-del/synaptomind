@@ -67,23 +67,24 @@ export function registerMemoryStatus(server: McpServer) {
 - cleanup: Delete expired archived thoughts based on TTL config`, {
     action: z.enum(['slots', 'frontier', 'profile', 'config', 'health', 'cleanup']).optional().describe('Action (default: slots)'),
     names: z.array(z.string()).optional().describe('Filter by slot names (slots only)'),
-    project_id: z.string().optional().describe('Filter by project'),
-    cwd: z.string().optional().describe('Working directory — auto-resolves project'),
+    project_id: z.string().optional().describe('Filter by project (slots/frontier only)'),
+    cwd: z.string().optional().describe('Working directory — auto-resolves project (slots/frontier only)'),
     k: z.number().optional().describe('Max results (default 10, frontier only)'),
     severity: z.enum(['critical', 'warning', 'info']).optional().describe('Minimum severity (health only)'),
     fix: z.boolean().optional().describe('Auto-fix safe issues (health only)'),
     dry_run: z.boolean().optional().describe('Preview without deleting (cleanup only)')
   }, async (args) => {
     const action = args.action ?? 'slots'
-    const projectFilter = resolveProjectId(args.project_id, args.cwd)
 
     try {
       if (action === 'slots') {
-        const slots = getSlots({ names: args.names, projectId: projectFilter })
+        const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+        const slots = getSlots({ names: args.names as string[] | undefined, projectId: projectFilter })
         return jsonResult(slots)
       }
 
       if (action === 'frontier') {
+        const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
         const frontier = getFrontier({ project_id: projectFilter, k: args.k })
         return jsonResult(frontier)
       }

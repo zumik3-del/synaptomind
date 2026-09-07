@@ -23,6 +23,7 @@ export function findTestRemnants(db: Database): TestRemnant[] {
   return db.prepare(`
     SELECT id, content FROM thoughts
     WHERE is_cluster = 0
+      AND status != 'archived'
       AND (
         content GLOB '*[Tt]est*[Tt]hought*'
         OR content = 'Hello from SynaptoMind!'

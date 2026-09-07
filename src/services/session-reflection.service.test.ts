@@ -41,6 +41,41 @@ test('reflectSession deduplicates goals', () => {
   expect(result.goals_added).toBe(0)
 })
 
+test('reflectSession deduplicates identical decisions across sessions', () => {
+  reflectSession({ decisions: ['Use SQLite for storage'] })
+  const result = reflectSession({ decisions: ['Use SQLite for storage'] })
+  expect(result.decisions_created).toBe(0)
+})
+
+test('reflectSession deduplicates similar decisions via Jaccard', () => {
+  reflectSession({ decisions: ['We decided to use SQLite'] })
+  const result = reflectSession({ decisions: ['We have decided to use sqlite'] })
+  expect(result.decisions_created).toBe(0)
+})
+
+test('reflectSession creates new decision when sufficiently different', () => {
+  reflectSession({ decisions: ['Use SQLite for storage'] })
+  const result = reflectSession({ decisions: ['Use PostgreSQL instead'] })
+  expect(result.decisions_created).toBe(1)
+})
+
+test('reflectSession skips archived decisions when checking dedup', () => {
+  const db = getDb()
+  // Create an archived decision manually
+  const thoughtId = crypto.randomUUID()
+  db.prepare("INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, created_at, updated_at) VALUES (?, ?, 'archived', 'session-reflection', 'default', 0, 0, 1, ?, ?)").run(
+    thoughtId,
+    'Use SQLite for storage',
+    new Date().toISOString(),
+    new Date().toISOString()
+  )
+  const tagId = db.prepare("SELECT id FROM tags WHERE name = 'decision'").get() as { id: string }
+  db.prepare("INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)").run(thoughtId, tagId)
+
+  const result = reflectSession({ decisions: ['Use SQLite for storage'] })
+  expect(result.decisions_created).toBe(1)
+})
+
 test('reflectSession creates decision thoughts', () => {
   const result = reflectSession({ decisions: ['Use SQLite', 'Keep it simple'] })
   expect(result.decisions_created).toBe(2)

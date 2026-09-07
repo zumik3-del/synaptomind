@@ -27,10 +27,10 @@ export function transferEdgesFromSource(db: Database, sourceId: string, targetId
 
     // An edge that pointed at the source from the target (or vice versa)
     // collapses onto itself after remapping — a self-relation carries no
-    // information. Delete it: the pair-edge to the archived source is
-    // meaningless, and recreating it as target→target would fail the merge.
+    // information. Log it and skip recreation: the pair-edge to the archived
+    // source is meaningless, and recreating it as target→target would fail
+    // the merge.
     if (newSourceId === newTargetId) {
-      deleteEdge(db, edge.id)
       insertLog(
         'info',
         'thought',
@@ -42,35 +42,63 @@ export function transferEdgesFromSource(db: Database, sourceId: string, targetId
           edge_type: edge.type
         }
       )
-      continue
-    }
-
-    if (isClusterEdge) {
+      // Fall through to the uniform delete below.
+    } else if (isClusterEdge) {
       const srcRow = getThoughtRow(db, newSourceId)
-      if (!srcRow?.is_cluster) continue
-      const tgtRow = getThoughtRow(db, newTargetId)
-      if (tgtRow?.is_cluster) continue
+      if (!srcRow?.is_cluster) {
+        // Fall through to the uniform delete below.
+      } else {
+        const tgtRow = getThoughtRow(db, newTargetId)
+        if (tgtRow?.is_cluster) {
+          // Fall through to the uniform delete below.
+        } else {
+          try {
+            createEdge(db, newSourceId, newTargetId, edge.type)
+            transferredEdges++
+          } catch (err) {
+            // A duplicate edge on the target is expected dedup — skip, don't
+            // silently swallow. Anything else fails the merge atomically.
+            if (!(err instanceof EdgeAlreadyExistsError)) throw err
+            insertLog(
+              'warning',
+              'thought',
+              `Merge: edge ${edge.id} (${edge.type}) already exists between ${newSourceId} and ${newTargetId} — skipped`,
+              {
+                target_id: targetId,
+                source_id: sourceId,
+                edge_id: edge.id,
+                edge_type: edge.type
+              }
+            )
+          }
+        }
+      }
+    } else {
+      try {
+        createEdge(db, newSourceId, newTargetId, edge.type)
+        transferredEdges++
+      } catch (err) {
+        // A duplicate edge on the target is expected dedup — skip, don't
+        // silently swallow. Anything else fails the merge atomically.
+        if (!(err instanceof EdgeAlreadyExistsError)) throw err
+        insertLog(
+          'warning',
+          'thought',
+          `Merge: edge ${edge.id} (${edge.type}) already exists between ${newSourceId} and ${newTargetId} — skipped`,
+          {
+            target_id: targetId,
+            source_id: sourceId,
+            edge_id: edge.id,
+            edge_type: edge.type
+          }
+        )
+      }
     }
 
-    try {
-      createEdge(db, newSourceId, newTargetId, edge.type)
-      transferredEdges++
-    } catch (err) {
-      // A duplicate edge on the target is expected dedup — skip, don't
-      // silently swallow. Anything else fails the merge atomically.
-      if (!(err instanceof EdgeAlreadyExistsError)) throw err
-      insertLog(
-        'warning',
-        'thought',
-        `Merge: edge ${edge.id} (${edge.type}) already exists between ${newSourceId} and ${newTargetId} — skipped`,
-        {
-          target_id: targetId,
-          source_id: sourceId,
-          edge_id: edge.id,
-          edge_type: edge.type
-        }
-      )
-    }
+    // After handling each edge, delete the original row owned by the source.
+    // The source will be archived shortly after this function returns, so any
+    // remaining edges from it are noise in the health audit.
+    deleteEdge(db, edge.id)
   }
 
   return transferredEdges

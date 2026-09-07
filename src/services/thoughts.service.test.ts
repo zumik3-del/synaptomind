@@ -40,6 +40,7 @@ test('createThoughtWithParent creates thought without parent', () => {
   expect(t.id).toBeString()
   expect(t.content).toBe('test thought')
   expect(t.tags).toHaveLength(1)
+  expect((t as unknown as Record<string, unknown>).content_language).toBe('en')
 })
 
 test('createThoughtWithParent creates thought with parent edge', () => {
@@ -65,6 +66,7 @@ test('updateThoughtById updates content', () => {
   const updated = updateThoughtById(id, { content: 'updated' })
   expect(updated).not.toBeNull()
   expect(updated!.content).toBe('updated')
+  expect((updated! as unknown as Record<string, unknown>).content_language).toBe('en')
 })
 
 test('updateThoughtById returns null for unknown id', () => {
@@ -176,6 +178,11 @@ test('mergeThoughtsService merges content and transfers edges', () => {
   // Source should be archived
   const srcAfter = getThoughtById(source)
   expect(srcAfter!.status).toBe('archived')
+  // Archived source must not retain any output edges — they were cleaned up
+  // during edge transfer (issue #98).
+  const db = getDb()
+  const leftoverEdges = db.prepare('SELECT 1 FROM edges WHERE source_id = ?').all(source)
+  expect(leftoverEdges).toHaveLength(0)
 })
 
 test('mergeThoughtsService handles preview mode (no content/tags)', () => {
