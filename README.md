@@ -11,14 +11,9 @@
 
 **Local persistent memory for AI agents.** Your agent remembers decisions, goals, and context across sessions — via MCP or HTTP API. Data stays on your machine.
 
-```mermaid
-graph LR
-    A[AI Agent] -->|MCP / HTTP| B[SynaptoMind]
-    B --> C[(SQLite)]
-    C --> D[vec0 — vector search]
-    C --> E[FTS5 — full-text search]
-    C --> F[Graph — edges & links]
-```
+<p align="center">
+  <img src="docs/images/synaptomind-hero.png" alt="SynaptoMind" width="100%" />
+</p>
 
 **Works with** Claude Desktop · Cursor · OpenCode · Codex · any MCP client
 
