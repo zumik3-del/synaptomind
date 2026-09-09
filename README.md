@@ -12,7 +12,7 @@
 **Local persistent memory for AI agents.** Your agent remembers decisions, goals, and context across sessions — via MCP or HTTP API. Data stays on your machine.
 
 <p align="center">
-  <img src="docs/synaptomind-hero.png" alt="SynaptoMind" width="100%" />
+  <img src="docs/images/synaptomind-hero.png" alt="SynaptoMind" width="100%" />
 </p>
 
 **Works with** Claude Desktop · Cursor · OpenCode · Codex · any MCP client
