@@ -18,4 +18,4 @@ echo "$LONGVER"
 git tag -a "$TAG" -m "$LONGVER"
 git push origin "$TAG"
 
-node bin/changelog.cjs
+bun run scripts/changelog.ts
