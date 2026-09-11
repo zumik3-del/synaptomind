@@ -9,7 +9,7 @@ export function runDecayJob(): void {
   decayImportance(d, rate)
   const archived = archiveStaleLowImportance(d, config.decay.archiveThreshold, config.decay.archiveMinAgeDays)
   if (archived > 0) {
-    console.log(`[decay] archived ${archived} stale low-importance thoughts`)
+    console.error(`[decay] archived ${archived} stale low-importance thoughts`)
   }
 }
 

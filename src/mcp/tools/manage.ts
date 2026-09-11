@@ -8,11 +8,11 @@ import {
   getProjectService,
   resolveProjectService
 } from '../../services/projects.service'
-import { jsonResult, errorResult } from './utils'
+import { jsonResult, errorResult, toolOutputShape } from './utils'
 
 type ManageArgs = Record<string, unknown>
 
-const actionHandlers: Record<string, (args: ManageArgs) => unknown> = {
+const actionHandlers: Record<string, (args: ManageArgs) => unknown | Promise<unknown>> = {
   list() {
     return listProjectsService()
   },
@@ -69,24 +69,28 @@ const actionHandlers: Record<string, (args: ManageArgs) => unknown> = {
 }
 
 export function registerMemoryManage(server: McpServer) {
-  server.tool('memory_manage', `Manage projects. Actions:
+  server.registerTool('memory_manage', {
+    description: `Manage projects. Actions:
 - list: List all projects
 - create: Create a new project
 - update: Update a project
 - delete: Delete a project (preview first with confirm=false, then confirm=true)
-- resolve: Resolve project from a filesystem path`, {
-    action: z.enum(['list', 'create', 'update', 'delete', 'resolve']).describe('Action'),
-    project_id: z.string().optional().describe('REQUIRED ONLY for "update" and "delete". IGNORED for "list", "create", "resolve".'),
-    name: z.string().optional().describe('REQUIRED for "create". OPTIONAL for "update". IGNORED for "list", "delete", "resolve".'),
-    description: z.string().optional().describe('Project description (for create/update)'),
-    local_path: z.string().optional().describe('Local filesystem path (for create/update)'),
-    confirm: z.boolean().optional().describe('Set to true to actually delete. Set to false to preview first.'),
-    cwd: z.string().optional().describe('REQUIRED ONLY for "resolve". Working directory path to resolve project from.')
+- resolve: Resolve project from a filesystem path`,
+    inputSchema: {
+      action: z.enum(['list', 'create', 'update', 'delete', 'resolve']).describe('Action'),
+      project_id: z.string().optional().describe('REQUIRED ONLY for "update" and "delete". IGNORED for "list", "create", "resolve".'),
+      name: z.string().optional().describe('REQUIRED for "create". OPTIONAL for "update". IGNORED for "list", "delete", "resolve".'),
+      description: z.string().optional().describe('Project description (for create/update)'),
+      local_path: z.string().optional().describe('Local filesystem path (for create/update)'),
+      confirm: z.boolean().optional().describe('Set to true to actually delete. Set to false to preview first.'),
+      cwd: z.string().optional().describe('REQUIRED ONLY for "resolve". Working directory path to resolve project from.')
+    },
+    outputSchema: toolOutputShape
   }, async (args) => {
     try {
       const handler = actionHandlers[args.action as string]
       if (!handler) return errorResult(`Unknown action: ${args.action}`)
-      return jsonResult(handler(args))
+      return jsonResult(await handler(args))
     } catch (err) {
       return errorResult(err instanceof Error ? err.message : 'memory_manage failed')
     }

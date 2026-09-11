@@ -16,22 +16,26 @@ settingsRouter.get('/thought-settings', c => {
 })
 
 settingsRouter.patch('/thought-settings', async c => {
-  const body = await c.req.json<{ softLimit?: number; hardLimit?: number }>()
-  const softLimit = body.softLimit
-  const hardLimit = body.hardLimit
+  const body = await c.req.json<{ softLimit?: number; hardLimitBufferPercent?: number }>()
+  const { softLimit, hardLimitBufferPercent } = body
 
-  if (softLimit === undefined || hardLimit === undefined) {
-    return c.json({ error: 'softLimit and hardLimit are required' }, 400)
+  if (softLimit === undefined && hardLimitBufferPercent === undefined) {
+    return c.json({ error: 'at least one of softLimit or hardLimitBufferPercent is required' }, 400)
   }
-  if (!Number.isInteger(softLimit) || softLimit < 1) {
+  if (softLimit !== undefined && (!Number.isInteger(softLimit) || softLimit < 1)) {
     return c.json({ error: 'softLimit must be an integer >= 1' }, 400)
   }
-  if (!Number.isInteger(hardLimit) || hardLimit <= softLimit) {
-    return c.json({ error: 'hardLimit must be an integer greater than softLimit' }, 400)
+  if (hardLimitBufferPercent !== undefined && (!Number.isInteger(hardLimitBufferPercent) || hardLimitBufferPercent < 1)) {
+    return c.json({ error: 'hardLimitBufferPercent must be an integer >= 1' }, 400)
   }
 
-  setThoughtLimits(softLimit, hardLimit)
-  return c.json(getThoughtLimits())
+  const current = getThoughtLimits()
+  return c.json(
+    setThoughtLimits(
+      softLimit ?? current.softLimit,
+      hardLimitBufferPercent ?? current.hardLimitBufferPercent
+    )
+  )
 })
 
 settingsRouter.get('/embedder-settings', c => {

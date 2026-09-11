@@ -25,6 +25,9 @@ export function createIntervalJob(opts: IntervalJobOptions, fn: () => void | Pro
         opts.onError?.(err)
       }
     }, opts.intervalMs)
+    // Do not let the interval keep the event loop alive on its own; the
+    // process should be free to exit once real work (server, stdio) is done.
+    timer.unref()
   }
 
   function stop(): void {

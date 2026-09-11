@@ -643,38 +643,40 @@ test("GET /api/thought-settings returns defaults", async () => {
 	const res = await request("/api/thought-settings");
 	expect(res.status).toBe(200);
 	const body = (await res.json()) as Record<string, unknown>;
-	expect(body.softLimit).toBe(500);
-	expect(body.hardLimit).toBe(600);
+	expect(body.softLimit).toBe(600);
+	expect(body.hardLimit).toBe(720);
+	expect(body.hardLimitBufferPercent).toBe(20);
 });
 
 test("PATCH /api/thought-settings updates limits", async () => {
 	const res = await request("/api/thought-settings", {
 		method: "PATCH",
-		body: JSON.stringify({ softLimit: 50, hardLimit: 100 }),
+		body: JSON.stringify({ softLimit: 50, hardLimitBufferPercent: 100 }),
 		headers: { "Content-Type": "application/json" },
 	});
 	expect(res.status).toBe(200);
 	const body = (await res.json()) as Record<string, unknown>;
 	expect(body.softLimit).toBe(50);
 	expect(body.hardLimit).toBe(100);
+	expect(body.hardLimitBufferPercent).toBe(100);
 
 	const again = await request("/api/thought-settings");
-	expect(await again.json()).toEqual({ softLimit: 50, hardLimit: 100 });
+	expect(await again.json()).toEqual({ softLimit: 50, hardLimit: 100, hardLimitBufferPercent: 100 });
 });
 
 test("PATCH /api/thought-settings rejects invalid limits", async () => {
 	const res = await request("/api/thought-settings", {
 		method: "PATCH",
-		body: JSON.stringify({ softLimit: 0, hardLimit: 100 }),
+		body: JSON.stringify({ softLimit: 0, hardLimitBufferPercent: 100 }),
 		headers: { "Content-Type": "application/json" },
 	});
 	expect(res.status).toBe(400);
 });
 
-test("PATCH /api/thought-settings rejects hard <= soft", async () => {
+test("PATCH /api/thought-settings rejects invalid hardLimitBufferPercent", async () => {
 	const res = await request("/api/thought-settings", {
 		method: "PATCH",
-		body: JSON.stringify({ softLimit: 100, hardLimit: 100 }),
+		body: JSON.stringify({ softLimit: 100, hardLimitBufferPercent: 0 }),
 		headers: { "Content-Type": "application/json" },
 	});
 	expect(res.status).toBe(400);
@@ -683,7 +685,7 @@ test("PATCH /api/thought-settings rejects hard <= soft", async () => {
 test("PATCH /api/thought-settings rejects missing fields", async () => {
 	const res = await request("/api/thought-settings", {
 		method: "PATCH",
-		body: JSON.stringify({ softLimit: 50 }),
+		body: JSON.stringify({}),
 		headers: { "Content-Type": "application/json" },
 	});
 	expect(res.status).toBe(400);
@@ -692,7 +694,72 @@ test("PATCH /api/thought-settings rejects missing fields", async () => {
 test("PATCH /api/thought-settings rejects non-integer limits", async () => {
 	const res = await request("/api/thought-settings", {
 		method: "PATCH",
-		body: JSON.stringify({ softLimit: 1.5, hardLimit: 100 }),
+		body: JSON.stringify({ softLimit: 1.5, hardLimitBufferPercent: 100 }),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(res.status).toBe(400);
+});
+
+test("PATCH /api/thought-settings updates only softLimit and recomputes hardLimit", async () => {
+	const res = await request("/api/thought-settings", {
+		method: "PATCH",
+		body: JSON.stringify({ softLimit: 300 }),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(res.status).toBe(200);
+	expect(await res.json()).toEqual({
+		softLimit: 300,
+		hardLimit: 360,
+		hardLimitBufferPercent: 20,
+	});
+});
+
+test("PATCH /api/thought-settings updates only hardLimitBufferPercent and recomputes hardLimit", async () => {
+	const res = await request("/api/thought-settings", {
+		method: "PATCH",
+		body: JSON.stringify({ hardLimitBufferPercent: 50 }),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(res.status).toBe(200);
+	expect(await res.json()).toEqual({
+		softLimit: 600,
+		hardLimit: 900,
+		hardLimitBufferPercent: 50,
+	});
+});
+
+test("PATCH /api/thought-settings partial updates compose across requests", async () => {
+	await request("/api/thought-settings", {
+		method: "PATCH",
+		body: JSON.stringify({ softLimit: 100 }),
+		headers: { "Content-Type": "application/json" },
+	});
+	const res = await request("/api/thought-settings", {
+		method: "PATCH",
+		body: JSON.stringify({ hardLimitBufferPercent: 10 }),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(res.status).toBe(200);
+	expect(await res.json()).toEqual({
+		softLimit: 100,
+		hardLimit: 110,
+		hardLimitBufferPercent: 10,
+	});
+});
+
+test("PATCH /api/thought-settings rejects non-integer hardLimitBufferPercent", async () => {
+	const res = await request("/api/thought-settings", {
+		method: "PATCH",
+		body: JSON.stringify({ hardLimitBufferPercent: 1.5 }),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(res.status).toBe(400);
+});
+
+test("PATCH /api/thought-settings rejects negative limits", async () => {
+	const res = await request("/api/thought-settings", {
+		method: "PATCH",
+		body: JSON.stringify({ softLimit: -10, hardLimitBufferPercent: -5 }),
 		headers: { "Content-Type": "application/json" },
 	});
 	expect(res.status).toBe(400);

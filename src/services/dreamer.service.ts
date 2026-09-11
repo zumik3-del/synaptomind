@@ -6,9 +6,9 @@ import { awakenReady } from './smart_notes.service'
 export function runDreamerJob(): void {
   const awakened = awakenReady()
   if (awakened.length > 0) {
-    console.log(`[dreamer] awakened ${awakened.length} thought(s):`)
+    console.error(`[dreamer] awakened ${awakened.length} thought(s):`)
     for (const note of awakened) {
-      console.log(`[dreamer]   note=${note.note_id} thought=${note.thought_id} hit=${note.condition_hit}`)
+      console.error(`[dreamer]   note=${note.note_id} thought=${note.thought_id} hit=${note.condition_hit}`)
     }
   }
 }

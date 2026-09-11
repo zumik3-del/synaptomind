@@ -215,6 +215,17 @@ For clients that prefer stdio:
 }
 ```
 
+By default the stdio process is a **single-owner client**: it opens an MCP
+session against the shared database but does **not** start its own embedder
+child process or the decay / dreamer / self-improve / TTL-cleanup jobs. Those
+are owned by the standalone HTTP server, so N stdio clients no longer spawn N
+embedders and N schedulers against one DB.
+
+If you run stdio with no separate server, opt into local ownership with the
+`--stdio-standalone` flag (`args: ["run", "...", "--stdio", "--stdio-standalone"]`)
+or `SYNAPTOMIND_MCP_STDIO_STANDALONE=true` / `"mcp": { "stdioStandalone": true }`
+in `config.json`.
+
 </details>
 
 <details>
@@ -235,6 +246,7 @@ All settings in `config.json`. Priority: env vars > config.json > defaults.
 | `server.port` | 3005 | HTTP API port |
 | `server.host` | 127.0.0.1 | Bind address |
 | `mcp.httpPort` | 3006 | MCP HTTP transport port |
+| `mcp.stdioStandalone` | false | Let a `--stdio` process own the embedder + background jobs (default: shared HTTP server owns them) |
 | `embedder.model` | Xenova/multilingual-e5-small | HuggingFace embedding model |
 | `db.path` | ./data/synaptomind.db | SQLite database path |
 

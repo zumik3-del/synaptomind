@@ -4,7 +4,7 @@ import { join } from 'path'
 interface Config {
   contentLanguage: string
   server: { port: number; host: string }
-  mcp: { httpPort: number; instructionsFile?: string }
+  mcp: { httpPort: number; instructionsFile?: string; stdioStandalone: boolean }
   db: { path: string; busyTimeout: number }
   logDbPath: string
   embedder: {
@@ -12,7 +12,7 @@ interface Config {
     cacheDir: string; idleTimeoutMs: number; precache: boolean; batchSize: number;
     resetDeadLetters: boolean
   }
-  thoughts: { softLimit: number; hardLimit: number }
+  thoughts: { softLimit: number; hardLimitBufferPercent: number }
   decay: {
     rate: number; archiveThreshold: number;
     archiveMinAgeDays: number; intervalMs: number
@@ -36,14 +36,14 @@ interface Config {
   }
   slots: { defaultMaxChars: number; hardLimit: number }
   graph: { maxDegree: number }
-  rateLimit: { max: number; windowMs: number }
+  rateLimit: { max: number; windowMs: number; trustProxy: boolean }
   ttl: { archivedTtlDays: number; cleanupIntervalMs: number }
 }
 
 export const DEFAULTS: Config = {
   contentLanguage: 'en',
   server: { port: 3005, host: '127.0.0.1' },
-  mcp: { httpPort: 3006, instructionsFile: '' },
+  mcp: { httpPort: 3006, instructionsFile: '', stdioStandalone: false },
   db: { path: './data/synaptomind.db', busyTimeout: 5000 },
   logDbPath: '',
   embedder: {
@@ -52,7 +52,7 @@ export const DEFAULTS: Config = {
     idleTimeoutMs: 600000, precache: false, batchSize: 8,
     resetDeadLetters: false
   },
-  thoughts: { softLimit: 500, hardLimit: 600 },
+  thoughts: { softLimit: 600, hardLimitBufferPercent: 20 },
   decay: {
     rate: 0.95, archiveThreshold: 0.1,
     archiveMinAgeDays: 30, intervalMs: 86400000
@@ -76,7 +76,7 @@ export const DEFAULTS: Config = {
   },
   slots: { defaultMaxChars: 2000, hardLimit: 20000 },
   graph: { maxDegree: 50 },
-  rateLimit: { max: 200, windowMs: 60_000 },
+  rateLimit: { max: 200, windowMs: 60_000, trustProxy: false },
   ttl: { archivedTtlDays: 90, cleanupIntervalMs: 86400000 }
 }
 
@@ -96,6 +96,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
 
   { env: 'SYNAPTOMIND_MCP_HTTP_PORT', path: 'mcp.httpPort', type: 'int' },
   { env: 'SYNAPTOMIND_MCP_INSTRUCTIONS_FILE', path: 'mcp.instructionsFile', type: 'string' },
+  { env: 'SYNAPTOMIND_MCP_STDIO_STANDALONE', path: 'mcp.stdioStandalone', type: 'bool' },
 
   { env: 'SYNAPTOMIND_DB_PATH', path: 'db.path', type: 'string' },
   { env: 'SYNAPTOMIND_DB_BUSY_TIMEOUT', path: 'db.busyTimeout', type: 'int' },
@@ -112,7 +113,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_RESET_DEAD_LETTER', path: 'embedder.resetDeadLetters', type: 'bool' },
 
   { env: 'SYNAPTOMIND_THOUGHT_SOFT_LIMIT', path: 'thoughts.softLimit', type: 'int' },
-  { env: 'SYNAPTOMIND_THOUGHT_HARD_LIMIT', path: 'thoughts.hardLimit', type: 'int' },
+  { env: 'SYNAPTOMIND_THOUGHT_HARD_LIMIT_BUFFER_PERCENT', path: 'thoughts.hardLimitBufferPercent', type: 'int' },
 
   { env: 'SYNAPTOMIND_DECAY_RATE', path: 'decay.rate', type: 'float' },
   { env: 'SYNAPTOMIND_ARCHIVE_THRESHOLD', path: 'decay.archiveThreshold', type: 'float' },
@@ -155,6 +156,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
 
   { env: 'SYNAPTOMIND_RATE_LIMIT', path: 'rateLimit.max', type: 'int' },
   { env: 'SYNAPTOMIND_RATE_LIMIT_WINDOW_MS', path: 'rateLimit.windowMs', type: 'int' },
+  { env: 'SYNAPTOMIND_TRUST_PROXY', path: 'rateLimit.trustProxy', type: 'bool' },
 
   { env: 'SYNAPTOMIND_ARCHIVED_TTL_DAYS', path: 'ttl.archivedTtlDays', type: 'int' },
   { env: 'SYNAPTOMIND_CLEANUP_INTERVAL_MS', path: 'ttl.cleanupIntervalMs', type: 'int' }

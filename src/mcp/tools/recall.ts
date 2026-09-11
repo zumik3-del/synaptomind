@@ -4,7 +4,7 @@ import { searchThoughts, searchThoughtsGrouped } from '../../services/search.ser
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getChainService, getContextService } from '../../services/graph.service'
 import { getThoughtById } from '../../services/thoughts.service'
-import { jsonResult, errorResult, resolveProjectId } from './utils'
+import { jsonResult, errorResult, resolveProjectId, toolOutputShape } from './utils'
 
 type RecallArgs = Record<string, unknown>
 
@@ -39,7 +39,8 @@ const actionHandlers: Record<string, (args: RecallArgs) => unknown | Promise<unk
 
   async context(args) {
     if (!args.query) throw new Error('query is required for context action')
-    const context = getContextService(args.query as string, args.max_degree as number | undefined)
+    const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+    const context = getContextService(args.query as string, args.max_degree as number | undefined, projectFilter)
     if (!context) throw new Error(`No thoughts matching '${args.query}'`)
     return context
   },
@@ -67,27 +68,31 @@ const actionHandlers: Record<string, (args: RecallArgs) => unknown | Promise<unk
 }
 
 export function registerMemoryRecall(server: McpServer) {
-  server.tool('memory_recall', `Search and retrieve thoughts. Actions:
+  server.registerTool('memory_recall', {
+    description: `Search and retrieve thoughts. Actions:
 - search: Hybrid/vector/BM25 search across thoughts (default; note: may mutate state via primer promotion and hit counting)
 - get: Get a single thought by ID
 - context: Find best matching thought and return its chain context
 - chain: Traverse linked thoughts from a starting point
-- clusters: Search clusters by semantic similarity`, {
-    action: z.enum(['search', 'get', 'context', 'chain', 'clusters']).optional().describe('Action (default: search)'),
-    query: z.string().optional().describe('Search query (required for search/context/clusters, not for chain)'),
-    top_k: z.number().optional().describe('Max results (default 10)'),
-    status: z.string().optional().describe('Filter by status (default: active)'),
-    project_id: z.string().optional().describe('Filter by project (prefer cwd instead)'),
-    cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
-    tag: z.string().optional().describe('Filter by tag'),
-    cluster: z.enum(['only', 'exclude']).optional().describe('Cluster filter: only (clusters only), exclude (exclude clusters)'),
-    group_by_cluster: z.boolean().optional().describe('Group results by cluster'),
-    min_importance: z.number().optional().describe('Minimum importance'),
-    exclude_flagged: z.boolean().optional().describe('Exclude flagged thoughts'),
-    hybrid: z.boolean().optional().describe('Use hybrid search'),
-    thought_id: z.string().optional().describe('REQUIRED ONLY for "chain" and "get". IGNORED for "search", "context", "clusters".'),
-    direction: z.enum(['upstream', 'downstream', 'both']).optional().describe('Traversal direction (default: both)'),
-    max_degree: z.number().optional().describe('Max edges to return for chain/context (default 50)')
+- clusters: Search clusters by semantic similarity`,
+    inputSchema: {
+      action: z.enum(['search', 'get', 'context', 'chain', 'clusters']).optional().describe('Action (default: search)'),
+      query: z.string().optional().describe('Search query (required for search/context/clusters, not for chain)'),
+      top_k: z.number().int().min(1).max(100).optional().describe('Max results (default 10, 1-100)'),
+      status: z.string().optional().describe('Filter by status (default: active)'),
+      project_id: z.string().optional().describe('Filter by project (prefer cwd instead)'),
+      cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
+      tag: z.string().optional().describe('Filter by tag'),
+      cluster: z.enum(['only', 'exclude']).optional().describe('Cluster filter: only (clusters only), exclude (exclude clusters)'),
+      group_by_cluster: z.boolean().optional().describe('Group results by cluster'),
+      min_importance: z.number().min(0).max(1).optional().describe('Minimum importance (0-1)'),
+      exclude_flagged: z.boolean().optional().describe('Exclude flagged thoughts'),
+      hybrid: z.boolean().optional().describe('Use hybrid search'),
+      thought_id: z.string().optional().describe('REQUIRED ONLY for "chain" and "get". IGNORED for "search", "context", "clusters".'),
+      direction: z.enum(['upstream', 'downstream', 'both']).optional().describe('Traversal direction (default: both)'),
+      max_degree: z.number().int().min(1).max(200).optional().describe('Max edges to return for chain/context (default 50, 1-200)')
+    },
+    outputSchema: toolOutputShape
   }, async (args) => {
     const action = (args.action as string) ?? 'search'
     try {

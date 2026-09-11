@@ -13,15 +13,15 @@ export function validateContentLength(content: string, limits: ThoughtLimits, th
   const { softLimit, hardLimit } = limits
   if (content.length > hardLimit) {
     throw new ValidationError(
-      `Thought content exceeds hard limit of ${hardLimit} chars (got ${content.length}). ` +
-        `Please split it into smaller atomic thoughts or raise the hard limit in Settings.`
+      `Thought content exceeds the hard ceiling of ${hardLimit} chars (got ${content.length}). ` +
+        `Recommended size is <= ${softLimit} chars; please split it into smaller atomic thoughts.`
     )
   }
   if (content.length > softLimit) {
     insertLog(
       'warning',
       'thought',
-      `Thought content exceeds soft limit of ${softLimit} chars (got ${content.length})`,
+      `Thought content exceeds the recommended soft limit of ${softLimit} chars (got ${content.length})`,
       {
         thought_id: thoughtId,
         length: content.length

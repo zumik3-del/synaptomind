@@ -1,9 +1,21 @@
+import { z } from 'zod/v4'
 import { resolveProjectService } from '../../services/projects.service'
 
 type McpTextContent = { type: 'text'; text: string }
 
-export function jsonResult(data: unknown): { content: McpTextContent[] } {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+/**
+ * Declared output shape shared by every MCP tool. Tools multiplex several
+ * actions with heterogeneous payloads, so the typed envelope keeps a single
+ * stable contract: every successful result is `{ result: <payload> }`, where
+ * the payload matches the JSON in `content[].text`.
+ */
+export const toolOutputShape = { result: z.unknown().describe('Action payload, mirroring content[].text') }
+
+export function jsonResult(data: unknown): { content: McpTextContent[]; structuredContent: { result: unknown } } {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
+    structuredContent: { result: data }
+  }
 }
 
 export function errorResult(message: string): { content: McpTextContent[]; isError: true } {
