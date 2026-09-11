@@ -6,7 +6,7 @@ import { dirname } from "path";
 
 const REPO = "zumik3-del/synaptomind";
 
-process.chdir(dirname(import.meta.dir + "/.."));
+process.chdir(dirname(import.meta.dir));
 
 function git(cmd: string): string {
   return execSync(`git ${cmd}`, { encoding: "utf8" }).trim();

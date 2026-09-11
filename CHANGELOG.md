@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.6.1
+
+> September 11, 2026
+
+- [`fa2e98c`](https://github.com/zumik3-del/synaptomind/commit/fa2e98c37b24ca990153f11a6507d012581ce5ac): feat(thoughts): derive hard limit from soft limit + buffer percent (#122)
+- [`36bcb53`](https://github.com/zumik3-del/synaptomind/commit/36bcb53979beb76d90b37bd3840f000e9dd1286f): docs: add hero image and rework README (#121)
+- [`504fda4`](https://github.com/zumik3-del/synaptomind/commit/504fda4b6ef7b2595152cb4b12d0d90e443698c6): Update LICENSE
+- [`8bcc6f1`](https://github.com/zumik3-del/synaptomind/commit/8bcc6f1c83f7e3334bcaf786e854c1368a67721c): refactor: extract canonicalTagName helper + fix MCP tool consistency (#118) (#119)
+- [`844cef1`](https://github.com/zumik3-del/synaptomind/commit/844cef1302289038710f2c75389f8565c3b7509e): chore: pin secure versions of adm-zip and sharp via overrides (#117)
+- [`3593391`](https://github.com/zumik3-del/synaptomind/commit/359339141076ea65a3d9f76cfc1a5fbcc5e03df0): feat: core audit backlog — P0 fixes, service layering, drift verify, embedder polish (#111-#113) (#114)
+
 ## v0.6.0
 
 > September 6, 2026
