@@ -35,6 +35,22 @@ cp .env.example .env
 |---------|---------|---------|-------------|
 | `mcp.httpPort` | `SYNAPTOMIND_MCP_HTTP_PORT` | `3006` | MCP HTTP transport port |
 | `mcp.instructionsFile` | `SYNAPTOMIND_MCP_INSTRUCTIONS_FILE` | `""` | Path to custom MCP instructions file (markdown). Falls back to built-in instructions |
+| `mcp.stdioStandalone` | `SYNAPTOMIND_MCP_STDIO_STANDALONE` | `false` | When `true`, a `--stdio` process also starts the embedder and background jobs. Default `false` keeps them single-owner: the shared HTTP server runs them and stdio clients only hold an MCP session. See [Stdio ownership](#stdio-ownership) |
+
+### Stdio ownership
+
+A stdio MCP client talks to the same SQLite database as the HTTP server. By
+default (`mcp.stdioStandalone=false`) the stdio process does **not** start the
+embedder child process, decay, dreamer, self-improve, or TTL-cleanup jobs — the
+shared HTTP server is their single owner. This avoids every client spawning its
+own embedder and schedulers against one DB.
+
+To run stdio as a fully standalone node (no separate server), enable local
+ownership with either:
+
+- CLI flag: `--stdio-standalone` (e.g. `bun run src/index.ts --stdio --stdio-standalone`)
+- Env var: `SYNAPTOMIND_MCP_STDIO_STANDALONE=true`
+- `config.json`: `"mcp": { "stdioStandalone": true }`
 
 ---
 
@@ -205,6 +221,23 @@ Context windows for agent startup.
 |---------|---------|---------|-------------|
 | `rateLimit.max` | `SYNAPTOMIND_RATE_LIMIT` | `200` | Max requests per window |
 | `rateLimit.windowMs` | `SYNAPTOMIND_RATE_LIMIT_WINDOW_MS` | `60000` | Window duration (ms). Default: 1 min |
+| `rateLimit.trustProxy` | `SYNAPTOMIND_TRUST_PROXY` | `false` | Honor `X-Forwarded-For` / `X-Real-IP` for the client identity. The rightmost `X-Forwarded-For` hop (the one added by the trusted proxy) is used. Enable only behind a trusted reverse proxy; otherwise the socket peer address is used and proxy headers are ignored |
+
+---
+
+## Authentication
+
+Auth applies to the HTTP API (`/api/*`) and the MCP HTTP transport (`/mcp`); the MCP stdio transport is local and unauthenticated by design.
+
+When **neither** `SYNAPTOMIND_SECRET` nor `SYNAPTOMIND_SERVICE_TOKEN` is set the server **fails closed**: authenticated requests are rejected with `401`. Set a secret for any non-local deployment.
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `SYNAPTOMIND_SECRET` | (none) | Primary bearer token. Required unless `SYNAPTOMIND_SERVICE_TOKEN` is set |
+| `SYNAPTOMIND_SERVICE_TOKEN` | `SYNAPTOMIND_SECRET` | Optional secondary bearer token (e.g. for MCP service clients) |
+| `SYNAPTOMIND_ALLOW_INSECURE` | `false` | **Local-development only.** When `true`, disables auth entirely and allows anonymous access. Never enable in production |
+
+Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is unauthenticated and returns minimal liveness. The MCP HTTP `/health` does not disclose the server version or transport details.
 
 ---
 
@@ -221,7 +254,7 @@ Context windows for agent startup.
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `BIND_ADDR` | `127.0.0.1` | Docker port bind address. `0.0.0.0` for network access |
-| `SYNAPTOMIND_SECRET` | (random UUID) | Auth token for API and MCP. **Required for production** |
+| `SYNAPTOMIND_SECRET` | (none) | Auth token for API and MCP. **Required** — without it the server fails closed with `401` |
 | `SYNAPTOMIND_SERVICE_TOKEN` | (none) | Secondary auth token (optional) |
 
 ---
@@ -232,7 +265,7 @@ Context windows for agent startup.
 {
   "contentLanguage": "en",
   "server": { "port": 3005, "host": "127.0.0.1" },
-  "mcp": { "httpPort": 3006, "instructionsFile": "" },
+  "mcp": { "httpPort": 3006, "instructionsFile": "", "stdioStandalone": false },
   "db": { "path": "./data/synaptomind.db", "busyTimeout": 5000 },
   "logDbPath": "",
   "embedder": {
@@ -272,6 +305,6 @@ Context windows for agent startup.
   },
   "slots": { "defaultMaxChars": 2000, "hardLimit": 20000 },
   "graph": { "maxDegree": 50 },
-  "rateLimit": { "max": 200, "windowMs": 60000 }
+  "rateLimit": { "max": 200, "windowMs": 60000, "trustProxy": false }
 }
 ```

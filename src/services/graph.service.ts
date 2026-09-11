@@ -39,12 +39,22 @@ function resolveCategory(source: string | null, tags: string[], isCluster: numbe
   return 'concept'
 }
 
+export const GRAPH_DEFAULT_LIMIT = 500
+export const GRAPH_MAX_LIMIT = 2000
+
+function resolveGraphLimit(limit: number | null | undefined): number {
+  if (limit === null || limit === undefined) return GRAPH_DEFAULT_LIMIT
+  if (!Number.isFinite(limit)) return GRAPH_DEFAULT_LIMIT
+  return Math.min(Math.max(Math.floor(limit), 1), GRAPH_MAX_LIMIT)
+}
+
 export function getGraphDataService(projectId?: string | null, status: string = 'active', limit: number | null = null): GraphData {
   const d = getDb()
+  const effectiveLimit = resolveGraphLimit(limit)
   const thoughts = listThoughts(d, {
     status: status === 'all' ? undefined : status,
     project_id: projectId ?? undefined,
-    limit: limit
+    limit: effectiveLimit
   })
   const thoughtIds = new Set(thoughts.map(t => t.id))
   const edges = getAllActiveEdges(d).filter(e => thoughtIds.has(e.source_id) && thoughtIds.has(e.target_id))
@@ -92,9 +102,20 @@ export interface ContextResult {
   chain: ChainResult | null
 }
 
-export function getContextService(query: string, maxDegree: number = config.graph.maxDegree): ContextResult | null {
+export function getContextService(
+  query: string,
+  maxDegree: number = config.graph.maxDegree,
+  projectFilter?: string
+): ContextResult | null {
   const d = getDb()
-  const results = searchThoughts(d, { embedding: new Float32Array(0), query, topK: 1, hybrid: true, statusFilter: 'active' })
+  const results = searchThoughts(d, {
+    embedding: new Float32Array(0),
+    query,
+    topK: 1,
+    hybrid: true,
+    statusFilter: 'active',
+    projectFilter
+  })
   if (!results || results.length === 0) return null
   const best = results[0].thought ?? results[0]
   const chain = getThoughtEdges(d, best.id, best.is_cluster ? 'downstream' : 'both', maxDegree)

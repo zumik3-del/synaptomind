@@ -46,7 +46,7 @@ const job = createIntervalJob({
 }, () => {
   const result = cleanupArchivedThoughts()
   if (result.deleted > 0) {
-    console.log(`[ttl-cleanup] deleted ${result.deleted} expired archived thoughts`)
+    console.error(`[ttl-cleanup] deleted ${result.deleted} expired archived thoughts`)
   }
 })
 

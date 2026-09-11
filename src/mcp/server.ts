@@ -77,8 +77,9 @@ export const defaultInstructions = [
   'Do not wait for the session to end; reflect at natural breakpoints.',
 ].join('\n')
 
-export function loadInstructions(): string | undefined {
-  const file = config.mcp.instructionsFile
+let instructionsCache: { file: string | undefined; value: string } | undefined
+
+function readInstructions(file: string | undefined): string {
   if (!file) return defaultInstructions
   try {
     return readFileSync(file, 'utf-8')
@@ -86,6 +87,25 @@ export function loadInstructions(): string | undefined {
     console.error(`[synaptomind] instructionsFile not found: ${file}, using defaults`)
     return defaultInstructions
   }
+}
+
+/**
+ * Return the MCP server instructions. The file is read once per process and
+ * cached; call {@link reloadInstructions} to force a re-read (e.g. after the
+ * configured instructionsFile changes on disk).
+ */
+export function loadInstructions(): string | undefined {
+  const file = config.mcp.instructionsFile
+  if (instructionsCache && instructionsCache.file === file) return instructionsCache.value
+  const value = readInstructions(file)
+  instructionsCache = { file, value }
+  return value
+}
+
+/** Drop the cached instructions and re-read on the next {@link loadInstructions}. */
+export function reloadInstructions(): string | undefined {
+  instructionsCache = undefined
+  return loadInstructions()
 }
 
 export function createMcpServer(): McpServer {

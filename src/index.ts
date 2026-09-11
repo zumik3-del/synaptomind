@@ -22,7 +22,23 @@ const { startSelfImproveJob, stopSelfImproveJob } = await import('./services/sel
 const { startTtlCleanupJob, stopTtlCleanupJob } = await import('./services/ttl-cleanup.service')
 
 const isStdio = process.argv.includes('--stdio')
+// Single-owner default: a stdio MCP client must not spawn its own embedder and
+// background schedulers against the shared DB — those belong to the standalone
+// HTTP server. Opt into local ownership explicitly via flag or env when running
+// stdio without a shared server.
+const stdioStandalone =
+  process.argv.includes('--stdio-standalone') || config.mcp.stdioStandalone
+const ownsBackgroundJobs = !isStdio || stdioStandalone
 const noEmbedder = process.argv.includes('--no-embedder') || !config.embedder.enabled
+
+// In stdio mode stdout is the JSON-RPC channel. Route the console's stdout
+// writers (log/info/debug) to stderr so no background code can corrupt the
+// protocol stream. console.warn/error already target stderr.
+if (isStdio) {
+  console.log = console.error
+  console.info = console.error
+  console.debug = console.error
+}
 
 console.error(`[synaptomind] v${VERSION} — starting...`)
 
@@ -37,21 +53,63 @@ try {
   process.exit(1)
 }
 
-if (noEmbedder) {
-  console.error('[synaptomind] embedder disabled (--no-embedder or embedder.enabled=false)')
+if (!ownsBackgroundJobs) {
+  console.error(
+    '[synaptomind] stdio mode: embedder and background jobs delegated to the shared server ' +
+    '(set SYNAPTOMIND_MCP_STDIO_STANDALONE=true or pass --stdio-standalone to run them locally)'
+  )
 } else {
-  startEmbedderProcess().catch(err => {
-    console.error(`[embedder] failed to start: ${err.message}`)
-  })
+  if (noEmbedder) {
+    console.error('[synaptomind] embedder disabled (--no-embedder or embedder.enabled=false)')
+  } else {
+    startEmbedderProcess().catch(err => {
+      console.error(`[embedder] failed to start: ${err.message}`)
+    })
+  }
+  startDecayJob()
+  startDreamerJob()
+  startSelfImproveJob()
+  startTtlCleanupJob()
 }
-startDecayJob()
-startDreamerJob()
-startSelfImproveJob()
-startTtlCleanupJob()
+
+let shutdownStarted = false
+
+async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
+  if (shutdownStarted) return
+  shutdownStarted = true
+  console.error('\n[synaptomind] shutting down...')
+  stopDecayJob()
+  stopDreamerJob()
+  stopSelfImproveJob()
+  stopTtlCleanupJob()
+  await stopEmbedderProcess()
+  closeLogDb()
+  if (extra) await extra()
+  process.exit(0)
+}
+
+function registerShutdownSignals(extra?: () => void | Promise<void>): void {
+  const handler = (): void => {
+    void shutdown(extra)
+  }
+  process.on('SIGTERM', handler)
+  process.on('SIGINT', handler)
+}
 
 if (isStdio) {
   const mcpServer = createMcpServer()
   const transport = new StdioServerTransport()
+
+  // A stdio MCP client disconnects by closing our stdin; the SDK transport
+  // does not surface that, so trigger the shared shutdown ourselves.
+  const onDisconnect = (): void => {
+    void shutdown()
+  }
+  process.stdin.on('end', onDisconnect)
+  process.stdin.on('close', onDisconnect)
+  mcpServer.server.onclose = onDisconnect
+  registerShutdownSignals()
+
   await mcpServer.connect(transport)
   console.error('[synaptomind] MCP server running in stdio mode')
 } else {
@@ -65,14 +123,7 @@ if (isStdio) {
   const mcpPort = config.mcp?.httpPort ?? 3006
   const mcpHandle = startMcpHttpServer(config.server.host, mcpPort)
 
-  async function shutdown() {
-    console.log('\n[synaptomind] shutting down...')
-    stopDecayJob()
-    stopDreamerJob()
-    stopSelfImproveJob()
-    stopTtlCleanupJob()
-    await stopEmbedderProcess()
-    closeLogDb()
+  registerShutdownSignals(async () => {
     const sessions = mcpHandle.getSessions()
     for (const [, session] of sessions) {
       await session.transport.close()
@@ -80,9 +131,5 @@ if (isStdio) {
     sessions.clear()
     mcpHandle.stop()
     server.stop()
-    process.exit(0)
-  }
-
-  process.on('SIGTERM', shutdown)
-  process.on('SIGINT', shutdown)
+  })
 }

@@ -15,11 +15,11 @@ import {
   deleteSmartNote
 } from '../../services/smart_notes.service'
 import type { SurfaceCondition } from '../../db/smart_notes'
-import { jsonResult, errorResult, resolveProjectId } from './utils'
+import { jsonResult, errorResult, resolveProjectId, toolOutputShape } from './utils'
 
 type StoreArgs = Record<string, unknown>
 
-const actionHandlers: Record<string, (args: StoreArgs) => unknown> = {
+const actionHandlers: Record<string, (args: StoreArgs) => unknown | Promise<unknown>> = {
   create(args) {
     if (!args.content) throw new Error('content is required for create action')
     return createThoughtWithUrlLinks(
@@ -70,7 +70,8 @@ const actionHandlers: Record<string, (args: StoreArgs) => unknown> = {
 }
 
 export function registerMemoryStore(server: McpServer) {
-  server.tool('memory_store', `Store and modify thoughts. Actions:
+  server.registerTool('memory_store', {
+    description: `Store and modify thoughts. Actions:
 - create: Create a new thought
 - update: Partially update a thought (content, tags, status, project)
 - link: Create a directed edge between two thoughts
@@ -78,27 +79,30 @@ export function registerMemoryStore(server: McpServer) {
 - smart_note_list: List all smart notes with readiness status
 - smart_note_eval: Batch evaluate all smart notes
 - smart_note_promote: Promote a ready smart note
-- smart_note_delete: Delete a smart note`, {
-    action: z.enum(['create', 'update', 'link', 'smart_note_create', 'smart_note_list', 'smart_note_eval', 'smart_note_promote', 'smart_note_delete']).describe('The specific action to perform. This dictates which other parameters are required.'),
-    content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". STRICTLY IGNORED for "link" and all "smart_note_*" actions. Recommended soft limit: ${getAdvertisedSoftLimit()} chars.`),
-    tags: z.array(z.string()).optional().describe('Tags'),
-    status: z.enum(['draft', 'active', 'archived']).optional().describe('Status (draft/active/archived)'),
-    project_id: z.string().optional().describe('Project ID (prefer cwd instead)'),
-    cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
-    parent_id: z.string().optional().describe('Parent thought ID (for create)'),
-    is_profile: z.boolean().optional().describe('Mark as profile thought'),
-    is_protected: z.boolean().optional().describe('Protect from auto-deletion'),
-    url_links: z.array(z.object({ text: z.string(), url: z.string() })).optional().describe('URL links (for create)'),
-    thought_id: z.string().optional().describe('REQUIRED for "update", "link", "smart_note_create", "smart_note_promote", "smart_note_delete". IGNORED for "create".'),
-    target_id: z.string().optional().describe('REQUIRED ONLY for "link". IGNORED for all other actions.'),
-    edge_type: z.enum(['related', 'parent', 'develops', 'replaces', 'cluster', 'references', 'depends_on']).optional().describe('Edge type (default: related)'),
-    surface_condition: z.record(z.string(), z.any()).optional().describe('REQUIRED ONLY for "smart_note_create". Valid condition types: older_than_days, has_tag, has_edge_type, project_status, unread_for_days. IGNORED for all other actions.'),
-    note_id: z.string().optional().describe('REQUIRED ONLY for "smart_note_promote" and "smart_note_delete". IGNORED for all other actions.')
+- smart_note_delete: Delete a smart note`,
+    inputSchema: {
+      action: z.enum(['create', 'update', 'link', 'smart_note_create', 'smart_note_list', 'smart_note_eval', 'smart_note_promote', 'smart_note_delete']).describe('The specific action to perform. This dictates which other parameters are required.'),
+      content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". STRICTLY IGNORED for "link" and all "smart_note_*" actions. Recommended soft limit: ${getAdvertisedSoftLimit()} chars.`),
+      tags: z.array(z.string()).optional().describe('Tags'),
+      status: z.enum(['draft', 'active', 'archived']).optional().describe('Status (draft/active/archived)'),
+      project_id: z.string().optional().describe('Project ID (prefer cwd instead)'),
+      cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
+      parent_id: z.string().optional().describe('Parent thought ID (for create)'),
+      is_profile: z.boolean().optional().describe('Mark as profile thought'),
+      is_protected: z.boolean().optional().describe('Protect from auto-deletion'),
+      url_links: z.array(z.object({ text: z.string(), url: z.string() })).optional().describe('URL links (for create)'),
+      thought_id: z.string().optional().describe('REQUIRED for "update", "link", "smart_note_create", "smart_note_promote", "smart_note_delete". IGNORED for "create".'),
+      target_id: z.string().optional().describe('REQUIRED ONLY for "link". IGNORED for all other actions.'),
+      edge_type: z.enum(['related', 'parent', 'develops', 'replaces', 'cluster', 'references', 'depends_on']).optional().describe('Edge type (default: related)'),
+      surface_condition: z.record(z.string(), z.any()).optional().describe('REQUIRED ONLY for "smart_note_create". Valid condition types: older_than_days, has_tag, has_edge_type, project_status, unread_for_days. IGNORED for all other actions.'),
+      note_id: z.string().optional().describe('REQUIRED ONLY for "smart_note_promote" and "smart_note_delete". IGNORED for all other actions.')
+    },
+    outputSchema: toolOutputShape
   }, async (args) => {
     try {
       const handler = actionHandlers[args.action as string]
       if (!handler) return errorResult(`Unknown action: ${args.action}`)
-      return jsonResult(handler(args))
+      return jsonResult(await handler(args))
     } catch (err) {
       return errorResult(err instanceof Error ? err.message : 'memory_store failed')
     }

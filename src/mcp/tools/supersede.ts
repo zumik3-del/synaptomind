@@ -5,20 +5,24 @@ import {
   archiveThoughtById,
   mergeThoughtsService
 } from '../../services/thoughts.service'
-import { jsonResult, errorResult, resolveProjectId } from './utils'
+import { jsonResult, errorResult, resolveProjectId, toolOutputShape } from './utils'
 
 export function registerMemorySupersede(server: McpServer) {
-  server.tool('memory_supersede', `Version and supersede thoughts. Actions:
+  server.registerTool('memory_supersede', {
+    description: `Version and supersede thoughts. Actions:
 - archive: Archive a thought (set status=archived). If already archived, returns the thought unchanged (idempotent).
-- merge: Merge source into target (source archived, target updated with merged content/tags)`, {
-    action: z.enum(['archive', 'merge']).describe('Action'),
-    thought_id: z.string().optional().describe('Thought ID (required for archive)'),
-    source_id: z.string().optional().describe('REQUIRED ONLY for "merge". Source thought ID — will be archived. IGNORED for "archive".'),
-    target_id: z.string().optional().describe('REQUIRED ONLY for "merge". Target thought ID — will be updated. IGNORED for "archive".'),
-    merged_content: z.string().optional().describe('REQUIRED ONLY for "merge". IGNORED for "archive".'),
-    merged_tags: z.array(z.string()).optional().describe('Merged tags (merge only)'),
-    project_id: z.string().optional().describe('Project ID (merge only)'),
-    cwd: z.string().optional().describe('Working directory — auto-resolves project (merge only)')
+- merge: Merge source into target (source archived, target updated with merged content/tags)`,
+    inputSchema: {
+      action: z.enum(['archive', 'merge']).describe('Action'),
+      thought_id: z.string().optional().describe('Thought ID (required for archive)'),
+      source_id: z.string().optional().describe('REQUIRED ONLY for "merge". Source thought ID — will be archived. IGNORED for "archive".'),
+      target_id: z.string().optional().describe('REQUIRED ONLY for "merge". Target thought ID — will be updated. IGNORED for "archive".'),
+      merged_content: z.string().optional().describe('REQUIRED ONLY for "merge". IGNORED for "archive".'),
+      merged_tags: z.array(z.string()).optional().describe('Merged tags (merge only)'),
+      project_id: z.string().optional().describe('Project ID (merge only)'),
+      cwd: z.string().optional().describe('Working directory — auto-resolves project (merge only)')
+    },
+    outputSchema: toolOutputShape
   }, async (args) => {
     try {
       if (args.action === 'archive') {

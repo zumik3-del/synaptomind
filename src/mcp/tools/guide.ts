@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getAdvertisedSoftLimit } from '../../db/settings'
+import { toolOutputShape } from './utils'
 
 function buildGuideText(softLimit: number): string {
   return `# SynaptoMind — Reference
@@ -150,8 +151,12 @@ Mark thoughts with \`is_profile=1\` and \`@profile\` tag. Sub-tags \`@profile-wo
 }
 
 export function registerMemoryGuide(server: McpServer) {
-  server.tool('memory_guide', 'Reference for tools, parameters, and system behavior', {}, async () => {
+  server.registerTool('memory_guide', {
+    description: 'Reference for tools, parameters, and system behavior',
+    outputSchema: toolOutputShape
+  }, async () => {
     const softLimit = getAdvertisedSoftLimit()
-    return { content: [{ type: 'text' as const, text: buildGuideText(softLimit) }] }
+    const text = buildGuideText(softLimit)
+    return { content: [{ type: 'text' as const, text }], structuredContent: { result: text } }
   })
 }

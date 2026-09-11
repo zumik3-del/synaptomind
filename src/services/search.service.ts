@@ -8,6 +8,17 @@ import { generateEmbedding } from '../embedder/client'
 import { entitySearchIds } from './entity.service'
 
 const EMBEDDING_TIMEOUT_MS = 5_000
+const SEARCH_MAX_TOP_K = 1000
+
+function clampTopK(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return 10
+  return Math.min(Math.max(Math.floor(value), 1), SEARCH_MAX_TOP_K)
+}
+
+function clampMinImportance(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isFinite(value)) return undefined
+  return Math.min(Math.max(value, 0), 1)
+}
 
 async function generateEmbeddingWithFallback(query: string): Promise<Float32Array> {
   try {
@@ -44,14 +55,16 @@ export interface GroupedResult {
 export async function searchThoughts(options: SearchServiceOptions): Promise<SearchResult[]> {
   const d = getDb()
   const embedding = await generateEmbeddingWithFallback(options.query)
+  const topK = clampTopK(options.topK)
+  const minImportance = clampMinImportance(options.minImportance)
   const results = dbSearchThoughts(d, {
     embedding,
     query: options.query,
-    topK: options.topK ?? 10,
+    topK,
     statusFilter: options.statusFilter,
     projectFilter: options.projectFilter,
     clusterFilter: options.clusterFilter,
-    minImportance: options.minImportance,
+    minImportance,
     excludeFlagged: options.excludeFlagged,
     hybrid: options.hybrid,
     entitySearchIds

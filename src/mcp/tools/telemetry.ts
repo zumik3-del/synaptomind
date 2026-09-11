@@ -10,7 +10,7 @@ import {
   queryDraftLifecycle
 } from '../../services/telemetry-queries'
 import { listPrimersService, deletePrimerService } from '../../services/primers.service'
-import { jsonResult, errorResult } from './utils'
+import { jsonResult, errorResult, toolOutputShape } from './utils'
 
 type MetricHandler = (since: string, limit: number) => unknown
 
@@ -24,17 +24,21 @@ function buildMetricHandlers(logDb: Database) {
 }
 
 export function registerMemoryTelemetry(server: McpServer) {
-  server.tool('memory_telemetry', `Analytics and self-improvement. Actions:
+  server.registerTool('memory_telemetry', {
+    description: `Analytics and self-improvement. Actions:
 - query: Query telemetry aggregates (patterns, frequency, orphan_writes, draft_lifecycle)
 - analyze: Analyze thought patterns — orphans, merges, promotions (self-improve job)
-- primers: List or delete primers`, {
-    action: z.enum(['query', 'analyze', 'primers']).describe('Action'),
-    metric: z.enum(['patterns', 'frequency', 'orphan_writes', 'draft_lifecycle']).optional().describe('Metric to query (query only)'),
-    window: z.number().optional().describe('Time window in seconds (default 86400)'),
-    limit: z.number().optional().describe('Max results (default 10; patterns/frequency only)'),
-    dry_run: z.boolean().optional().describe('Dry run mode (analyze only)'),
-    primer_action: z.enum(['list', 'delete']).optional().describe('Primer action (primers only)'),
-    primer_id: z.string().optional().describe('Primer ID to delete (primers delete only)')
+- primers: List or delete primers`,
+    inputSchema: {
+      action: z.enum(['query', 'analyze', 'primers']).describe('Action'),
+      metric: z.enum(['patterns', 'frequency', 'orphan_writes', 'draft_lifecycle']).optional().describe('Metric to query (query only)'),
+      window: z.number().int().min(1).max(31_536_000).optional().describe('Time window in seconds (default 86400, 1-31536000)'),
+      limit: z.number().int().min(1).max(1000).optional().describe('Max results (default 10, 1-1000; patterns/frequency only)'),
+      dry_run: z.boolean().optional().describe('Dry run mode (analyze only)'),
+      primer_action: z.enum(['list', 'delete']).optional().describe('Primer action (primers only)'),
+      primer_id: z.string().optional().describe('Primer ID to delete (primers delete only)')
+    },
+    outputSchema: toolOutputShape
   }, async (args) => {
     try {
       if (args.action === 'query') {
