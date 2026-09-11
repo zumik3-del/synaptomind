@@ -12,7 +12,7 @@ interface Config {
     cacheDir: string; idleTimeoutMs: number; precache: boolean; batchSize: number;
     resetDeadLetters: boolean
   }
-  thoughts: { softLimit: number; hardLimit: number }
+  thoughts: { softLimit: number; hardLimitBufferPercent: number }
   decay: {
     rate: number; archiveThreshold: number;
     archiveMinAgeDays: number; intervalMs: number
@@ -52,7 +52,7 @@ export const DEFAULTS: Config = {
     idleTimeoutMs: 600000, precache: false, batchSize: 8,
     resetDeadLetters: false
   },
-  thoughts: { softLimit: 500, hardLimit: 600 },
+  thoughts: { softLimit: 600, hardLimitBufferPercent: 20 },
   decay: {
     rate: 0.95, archiveThreshold: 0.1,
     archiveMinAgeDays: 30, intervalMs: 86400000
@@ -112,7 +112,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_RESET_DEAD_LETTER', path: 'embedder.resetDeadLetters', type: 'bool' },
 
   { env: 'SYNAPTOMIND_THOUGHT_SOFT_LIMIT', path: 'thoughts.softLimit', type: 'int' },
-  { env: 'SYNAPTOMIND_THOUGHT_HARD_LIMIT', path: 'thoughts.hardLimit', type: 'int' },
+  { env: 'SYNAPTOMIND_THOUGHT_HARD_LIMIT_BUFFER_PERCENT', path: 'thoughts.hardLimitBufferPercent', type: 'int' },
 
   { env: 'SYNAPTOMIND_DECAY_RATE', path: 'decay.rate', type: 'float' },
   { env: 'SYNAPTOMIND_ARCHIVE_THRESHOLD', path: 'decay.archiveThreshold', type: 'float' },

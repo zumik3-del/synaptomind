@@ -1,6 +1,6 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { config } from '../../config'
+import { getAdvertisedSoftLimit } from '../../db/settings'
 import type { ThoughtStatus } from '../../types/thought'
 import {
   createThoughtWithUrlLinks,
@@ -80,7 +80,7 @@ export function registerMemoryStore(server: McpServer) {
 - smart_note_promote: Promote a ready smart note
 - smart_note_delete: Delete a smart note`, {
     action: z.enum(['create', 'update', 'link', 'smart_note_create', 'smart_note_list', 'smart_note_eval', 'smart_note_promote', 'smart_note_delete']).describe('The specific action to perform. This dictates which other parameters are required.'),
-    content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". STRICTLY IGNORED for "link" and all "smart_note_*" actions. Soft limit: ${config.thoughts.softLimit}, hard limit: ${config.thoughts.hardLimit} chars.`),
+    content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". STRICTLY IGNORED for "link" and all "smart_note_*" actions. Recommended soft limit: ${getAdvertisedSoftLimit()} chars.`),
     tags: z.array(z.string()).optional().describe('Tags'),
     status: z.enum(['draft', 'active', 'archived']).optional().describe('Status (draft/active/archived)'),
     project_id: z.string().optional().describe('Project ID (prefer cwd instead)'),

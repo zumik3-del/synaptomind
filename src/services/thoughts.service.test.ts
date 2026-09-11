@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db'
-import { getThoughtLimits } from '../db/settings'
+import { getThoughtLimits, setThoughtLimits } from '../db/settings'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError, ValidationError } from '../errors'
 import {
@@ -207,4 +207,41 @@ test('createThoughtWithUrlLinks creates thought with links', () => {
 
 test('validateContentLength does not throw under soft limit', () => {
   expect(() => validateContentLength('short', getThoughtLimits())).not.toThrow()
+})
+
+// ── Padded hard-limit boundary (issue #123) ─────────────────────────────────
+
+test('createThoughtWithParent accepts content exactly at the derived hard limit', () => {
+  setThoughtLimits(10, 50) // soft 10 -> hard 15
+  const { hardLimit } = getThoughtLimits()
+  expect(hardLimit).toBe(15)
+
+  const thought = createThoughtWithParent({ content: 'x'.repeat(hardLimit) })
+  expect(thought.content).toHaveLength(hardLimit)
+})
+
+test('createThoughtWithParent rejects content one char over the derived hard limit', () => {
+  setThoughtLimits(10, 50) // soft 10 -> hard 15
+  const { hardLimit } = getThoughtLimits()
+
+  expect(() => createThoughtWithParent({ content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
+})
+
+test('content between soft and hard limit is accepted (soft limit is advisory)', () => {
+  setThoughtLimits(10, 50) // soft 10 -> hard 15
+  const { softLimit, hardLimit } = getThoughtLimits()
+  const middle = softLimit + 1
+  expect(middle).toBeGreaterThan(softLimit)
+  expect(middle).toBeLessThan(hardLimit)
+
+  expect(() => createThoughtWithParent({ content: 'x'.repeat(middle) })).not.toThrow()
+})
+
+test('updateThoughtById enforces the derived hard limit and accepts the exact ceiling', () => {
+  const id = seedThought({ content: 'short' })
+  setThoughtLimits(10, 50) // soft 10 -> hard 15
+  const { hardLimit } = getThoughtLimits()
+
+  expect(() => updateThoughtById(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
+  expect(updateThoughtById(id, { content: 'x'.repeat(hardLimit) })?.content).toHaveLength(hardLimit)
 })

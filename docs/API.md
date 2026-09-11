@@ -404,22 +404,24 @@ Also see docs/CONFIG.md for file/environment configuration.
 
 ### GET /api/thought-settings
 
-Returns current content length limits for thoughts.
+Returns current thought content limits. `hardLimit` is derived from `softLimit` and `hardLimitBufferPercent` and is read-only.
 
 curl `http://127.0.0.1:3005/api/thought-settings`
 
-Response: `{"softLimit": 500, "hardLimit": 600}`
+Response: `{"softLimit": 600, "hardLimit": 720, "hardLimitBufferPercent": 20}`
 
 ### PATCH /api/thought-settings
 
-Sets thought content limits. Returns the updated limits.
+Sets thought content limits. At least one field is required. Returns the updated limits.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
-| softLimit | body | int | required | Integer >= 1 |
-| hardLimit | body | int | required | Integer > softLimit |
+| softLimit | body | int | optional | Recommended content budget per thought, integer >= 1. At least one of `softLimit` or `hardLimitBufferPercent` is required |
+| hardLimitBufferPercent | body | int | optional | Percent buffer added to the soft limit to derive the enforced hard ceiling, integer >= 1 |
 
-curl `-d '{"softLimit": 500, "hardLimit": 600}' http://127.0.0.1:3005/api/thought-settings`
+The enforced hard ceiling is derived and read-only: `hardLimit = round(softLimit * (1 + hardLimitBufferPercent / 100))`. It is returned by GET and PATCH but cannot be set directly.
+
+curl `-d '{"softLimit": 600, "hardLimitBufferPercent": 20}' http://127.0.0.1:3005/api/thought-settings`
 
 ### GET /api/embedder-settings
 

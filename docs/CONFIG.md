@@ -70,8 +70,10 @@ Local embedding model for semantic search. No API keys required.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `thoughts.softLimit` | `SYNAPTOMIND_THOUGHT_SOFT_LIMIT` | `500` | Warning threshold. Health check reports `warn` above this |
-| `thoughts.hardLimit` | `SYNAPTOMIND_THOUGHT_HARD_LIMIT` | `600` | Max thoughts. Health check reports `degraded` above this |
+| `thoughts.softLimit` | `SYNAPTOMIND_THOUGHT_SOFT_LIMIT` | `600` | Recommended content budget per thought. The only limit advertised to agents; content above it is accepted but logged as a warning |
+| `thoughts.hardLimitBufferPercent` | `SYNAPTOMIND_THOUGHT_HARD_LIMIT_BUFFER_PERCENT` | `20` | Percent buffer added to the soft limit to derive the enforced hard ceiling: `hardLimit = round(softLimit * (1 + hardLimitBufferPercent / 100))` |
+
+**Note:** The hard ceiling is derived, not configured. With the defaults it is `round(600 * 1.2) = 720`. Content above it is rejected; content between the soft limit and the hard ceiling is accepted with a warning log.
 
 ---
 
@@ -243,7 +245,7 @@ Context windows for agent startup.
     "precache": false,
     "batchSize": 8
   },
-  "thoughts": { "softLimit": 500, "hardLimit": 600 },
+  "thoughts": { "softLimit": 600, "hardLimitBufferPercent": 20 },
   "decay": {
     "rate": 0.95,
     "archiveThreshold": 0.1,

@@ -1,6 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { getAdvertisedSoftLimit } from '../../db/settings'
 
-const GUIDE_TEXT = `# SynaptoMind — Reference
+function buildGuideText(softLimit: number): string {
+  return `# SynaptoMind — Reference
 
 ## Quick Reference
 
@@ -34,7 +36,7 @@ const GUIDE_TEXT = `# SynaptoMind — Reference
 
 ## Thoughts
 
-Fields: content (≤500 soft, ≤600 hard), tags[], status, project_id, is_cluster, is_profile, source.
+Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_profile, source.
 
 **Status lifecycle:**
 - \`draft\` — work in progress, excluded from frontier candidates
@@ -145,9 +147,11 @@ Records outcomes into slots and creates thoughts:
 ## Profile
 
 Mark thoughts with \`is_profile=1\` and \`@profile\` tag. Sub-tags \`@profile-work\`, \`@profile-preferences\` group by topic. Profile thoughts are never auto-archived. Use \`memory_status\` (action=profile) to retrieve persona stats.`
+}
 
 export function registerMemoryGuide(server: McpServer) {
   server.tool('memory_guide', 'Reference for tools, parameters, and system behavior', {}, async () => {
-    return { content: [{ type: 'text' as const, text: GUIDE_TEXT }] }
+    const softLimit = getAdvertisedSoftLimit()
+    return { content: [{ type: 'text' as const, text: buildGuideText(softLimit) }] }
   })
 }
