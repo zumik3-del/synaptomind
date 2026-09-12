@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# SynaptoMind CLI — versioned helper for the Docker deployment.
+#
+# Install (see scripts/install.sh):
+#   install -m 0755 scripts/synaptomind /usr/local/bin/synaptomind
+set -euo pipefail
+
+INSTALL_DIR="${SYNAPTOMIND_INSTALL_DIR:-/opt/synaptomind}"
+HEALTH_URL="${SYNAPTOMIND_HEALTH_URL:-http://127.0.0.1:3005/health}"
+DEPLOY_SCRIPT="${INSTALL_DIR}/scripts/deploy.sh"
+
+usage() {
+  cat <<'EOF'
+SynaptoMind CLI (Docker deployment)
+
+Usage: synaptomind <command> [args]
+
+Commands:
+  upgrade [<version>|--alpha|--dev]  Deploy latest stable, a specific version,
+                                     latest prerelease, or main (delegates to
+                                     scripts/deploy.sh, then reports the
+                                     verified running version)
+  status                             Container status + running version
+  version                            Print the running version
+  logs [n]                           Follow the last n log lines (default 100)
+  restart                            Restart the container
+  help                               Show this help
+
+Environment:
+  SYNAPTOMIND_INSTALL_DIR  Install directory (default: /opt/synaptomind)
+  SYNAPTOMIND_HEALTH_URL   Health endpoint (default: http://127.0.0.1:3005/health)
+EOF
+}
+
+err() { echo "[synaptomind] ERROR: $*" >&2; exit 1; }
+
+require_install() {
+  [ -d "$INSTALL_DIR" ] || err "install dir not found: ${INSTALL_DIR} (set SYNAPTOMIND_INSTALL_DIR)"
+}
+
+require_deploy_script() {
+  [ -f "$DEPLOY_SCRIPT" ] || err "deploy script not found: ${DEPLOY_SCRIPT}"
+}
+
+# docker compose must run from the install dir so .env / relative paths resolve.
+compose() {
+  ( cd "$INSTALL_DIR" && docker compose "$@" )
+}
+
+# Query /health and print its version field; non-zero on unreachable health.
+running_version() {
+  local body
+  body=$(curl -fsS --max-time 5 "$HEALTH_URL" 2>/dev/null) \
+    || err "health check failed: ${HEALTH_URL}"
+  printf '%s' "$body" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p'
+}
+
+wait_healthy() {
+  local timeout="${1:-60}"
+  local deadline=$((SECONDS + timeout))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+cmd_upgrade() {
+  require_install
+  require_deploy_script
+  # Delegate all deploy/tag/verification logic to deploy.sh — no duplication.
+  bash "$DEPLOY_SCRIPT" "$@"
+  echo ""
+  echo "[synaptomind] Verified running version: $(running_version)"
+}
+
+cmd_status() {
+  require_install
+  compose ps
+  echo ""
+  local v
+  v=$(running_version)
+  echo "[synaptomind] Version: ${v}"
+  echo "[synaptomind] Health:  ${HEALTH_URL}"
+}
+
+cmd_version() {
+  require_install
+  running_version
+}
+
+cmd_logs() {
+  require_install
+  local n="${1:-100}"
+  case "$n" in
+    ''|*[!0-9]*) err "logs count must be a number: ${n}" ;;
+  esac
+  compose logs --tail "$n" -f
+}
+
+cmd_restart() {
+  require_install
+  compose restart
+  if ! wait_healthy 60; then
+    err "container did not become healthy after restart: ${HEALTH_URL}"
+  fi
+  echo "[synaptomind] Restarted. Version: $(running_version)"
+}
+
+main() {
+  local cmd="${1:-help}"
+  if [ $# -gt 0 ]; then shift; fi
+  case "$cmd" in
+    upgrade)         cmd_upgrade "$@" ;;
+    status)          cmd_status ;;
+    version)         cmd_version ;;
+    logs)            cmd_logs "$@" ;;
+    restart)         cmd_restart ;;
+    help|--help|-h)  usage ;;
+    *)               usage >&2; err "unknown command: ${cmd}" ;;
+  esac
+}
+
+main "$@"

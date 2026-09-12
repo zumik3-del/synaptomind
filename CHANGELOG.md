@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.0-alpha.2
+
+> September 12, 2026
+
+- [`1216395`](https://github.com/zumik3-del/synaptomind/commit/1216395886f864850cda837056b8ccd09a3f5470): chore: bump version to 0.7.0-alpha.2
+- [`e232b8f`](https://github.com/zumik3-del/synaptomind/commit/e232b8faa0ddf6ee25252246e671503f25f19d16): fix(health-check): exclude archived duplicates and long prose from content finders (#128)
+
 ## v0.7.0-alpha.1
 
 > September 12, 2026
