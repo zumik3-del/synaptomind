@@ -95,8 +95,7 @@ function readInstructions(file: string | undefined): string {
 
 /**
  * Return the MCP server instructions. The file is read once per process and
- * cached; call {@link reloadInstructions} to force a re-read (e.g. after the
- * configured instructionsFile changes on disk).
+ * cached; changing the configured instructionsFile requires a restart.
  */
 export function loadInstructions(): string | undefined {
   const file = config.mcp.instructionsFile
@@ -106,12 +105,10 @@ export function loadInstructions(): string | undefined {
   return value
 }
 
-/** Drop the cached instructions and re-read on the next {@link loadInstructions}. */
-export function reloadInstructions(): string | undefined {
-  instructionsCache = undefined
-  return loadInstructions()
-}
-
+// Intentional: the MCP surface is tools-only — no resources or prompts are
+// registered. Agents drive SynaptoMind exclusively through the action-multiplexed
+// tools, whose schemas/descriptions are self-contained; MCP resources/prompts
+// would only duplicate the HTTP API without adding capability (F12).
 export function createMcpServer(): McpServer {
   const server = new McpServer(
     {
