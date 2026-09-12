@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.0-alpha.1
+
+> September 12, 2026
+
+- [`a8a98a0`](https://github.com/zumik3-del/synaptomind/commit/a8a98a08cd120a7297cb92415d009c9f4e09de87): chore: bump version to 0.7.0-alpha.1
+- [`cce108c`](https://github.com/zumik3-del/synaptomind/commit/cce108c8cad9bdb7a6345748f3d6e85edcaaeb6f): fix(health-check): correct replaces_chains off-by-one; prerelease release CI (#127) (#126)
+
 ## v0.7.0-alpha.0
 
 > September 12, 2026
