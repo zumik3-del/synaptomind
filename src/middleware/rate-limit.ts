@@ -2,32 +2,19 @@ import type { Context, Next } from 'hono'
 import { getConnInfo } from 'hono/bun'
 import { config } from '../config'
 
-const rateLimitStore = new Map<string, { count: number; resetAt: number }>()
+interface RateLimitEntry {
+  count: number
+  resetAt: number
+}
+
 const RATE_LIMIT_MAX = config.rateLimit.max
 const RATE_LIMIT_DISABLED = RATE_LIMIT_MAX === 0
 const RATE_LIMIT_WINDOW_MS = config.rateLimit.windowMs
 const TRUST_PROXY = config.rateLimit.trustProxy
 
-// Hard cap on distinct client keys. Keys are attacker-influenced when a proxy
-// is trusted, so the store must never grow without bound.
+// Hard cap on distinct client keys per store. Keys are attacker-influenced when
+// a proxy is trusted, so a store must never grow without bound.
 const MAX_TRACKED_KEYS = 10_000
-
-function evictOldestKey(): void {
-  const oldest = rateLimitStore.keys().next().value
-  if (oldest !== undefined) rateLimitStore.delete(oldest)
-}
-
-function rateLimit(key: string): boolean {
-  const now = Date.now()
-  const entry = rateLimitStore.get(key)
-  if (!entry || now > entry.resetAt) {
-    if (rateLimitStore.size >= MAX_TRACKED_KEYS) evictOldestKey()
-    rateLimitStore.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
-    return true
-  }
-  entry.count++
-  return entry.count <= RATE_LIMIT_MAX
-}
 
 // Only trust proxy headers when explicitly enabled; otherwise the socket peer
 // address is authoritative and spoofed x-forwarded-for values are ignored.
@@ -56,18 +43,47 @@ function peerAddress(c: Context): string | undefined {
   }
 }
 
-setInterval(() => {
-  const now = Date.now()
-  for (const [ip, entry] of rateLimitStore) {
-    if (now > entry.resetAt) rateLimitStore.delete(ip)
-  }
-}, 60_000).unref()
+// Each middleware instance owns an independent counter store. API (:3005) and
+// MCP (:3006) share one process but must not contend for the same quota, so
+// they get one instance each. Limits stay config-driven (see config.rateLimit).
+export function createRateLimitMiddleware() {
+  const store = new Map<string, RateLimitEntry>()
 
-export async function rateLimitMiddleware(c: Context, next: Next) {
-  if (RATE_LIMIT_DISABLED) return next()
-  const key = clientIdentity(c)
-  if (!rateLimit(key)) {
-    return c.json({ error: 'Rate limit exceeded' }, 429)
+  function evictOldestKey(): void {
+    const oldest = store.keys().next().value
+    if (oldest !== undefined) store.delete(oldest)
   }
-  return next()
+
+  function rateLimit(key: string): boolean {
+    const now = Date.now()
+    const entry = store.get(key)
+    if (!entry || now > entry.resetAt) {
+      if (store.size >= MAX_TRACKED_KEYS) evictOldestKey()
+      store.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
+      return true
+    }
+    entry.count++
+    return entry.count <= RATE_LIMIT_MAX
+  }
+
+  setInterval(() => {
+    const now = Date.now()
+    for (const [key, entry] of store) {
+      if (now > entry.resetAt) store.delete(key)
+    }
+  }, 60_000).unref()
+
+  return async (c: Context, next: Next) => {
+    if (RATE_LIMIT_DISABLED) return next()
+    const key = clientIdentity(c)
+    if (!rateLimit(key)) {
+      return c.json({ error: 'Rate limit exceeded' }, 429)
+    }
+    return next()
+  }
 }
+
+// Protocol-scoped instances: exhausting the API quota leaves MCP untouched and
+// vice versa.
+export const apiRateLimitMiddleware = createRateLimitMiddleware()
+export const mcpRateLimitMiddleware = createRateLimitMiddleware()
