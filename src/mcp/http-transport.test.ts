@@ -1,16 +1,21 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { request as httpRequest } from 'node:http'
+import { Hono } from 'hono'
 import { resetValidTokens } from '../auth'
 import { config } from '../config'
 import {
   InMemoryEventStore,
   MAX_EVENTS_PER_SESSION,
+  MAX_REQUEST_BODY_BYTES,
+  mcpErrorHandler,
   startMcpHttpServer,
   type McpHttpHandle
 } from './http-transport'
 
 const SECRET = 'mcp-http-test-secret'
 const PROTOCOL_VERSION = '2025-06-18'
+const ALLOWED_ORIGIN = 'https://app.synaptomind.example'
+const DENIED_ORIGIN = 'https://evil.example'
 const INIT_MESSAGE = {
   jsonrpc: '2.0',
   id: 1,
@@ -26,6 +31,11 @@ const LIST_MESSAGE = { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }
 let mainServer: McpHttpHandle
 let mainBase: string
 let mainPort: number
+
+// A second server with a non-empty CORS allow-list, so allow/deny behaviour can
+// be asserted against both configurations.
+let corsServer: McpHttpHandle
+let corsBase: string
 
 let previousSecret: string | undefined
 let previousServiceToken: string | undefined
@@ -113,10 +123,15 @@ beforeAll(async () => {
   mainPort = await freePort()
   mainServer = startMcpHttpServer('127.0.0.1', mainPort)
   mainBase = `http://127.0.0.1:${mainPort}`
+
+  const corsPort = await freePort()
+  corsServer = startMcpHttpServer('127.0.0.1', corsPort, { corsOrigins: [ALLOWED_ORIGIN] })
+  corsBase = `http://127.0.0.1:${corsPort}`
 })
 
-afterAll(() => {
-  mainServer?.stop()
+afterAll(async () => {
+  await corsServer?.stop()
+  await mainServer?.stop()
   if (previousSecret === undefined) delete process.env.SYNAPTOMIND_SECRET
   else process.env.SYNAPTOMIND_SECRET = previousSecret
   if (previousServiceToken === undefined) delete process.env.SYNAPTOMIND_SERVICE_TOKEN
@@ -275,6 +290,26 @@ describe('InMemoryEventStore replay', () => {
     expect(streamId).toBe('')
     expect(sent).toEqual([])
   })
+
+  // F10: losing the replay anchor must be observable, while an id that was
+  // never stored (client bug) must stay silent.
+  test('a known-but-evicted replay anchor signals onReplayAnchorEvicted; an unknown id does not', async () => {
+    const signalled: string[] = []
+    const store = new InMemoryEventStore({ onReplayAnchorEvicted: id => signalled.push(id) })
+    const first = await store.storeEvent('stream-a', { n: -1 })
+    for (let i = 0; i < MAX_EVENTS_PER_SESSION; i++) {
+      await store.storeEvent('stream-a', { n: i })
+    }
+
+    const anchorStream = await store.replayEventsAfter(first, { send: async () => {} })
+    expect(anchorStream).toBe('')
+    expect(signalled).toEqual([first])
+
+    // An id that was never stored is not a resumability loss.
+    const unknownStream = await store.replayEventsAfter('never-stored-id', { send: async () => {} })
+    expect(unknownStream).toBe('')
+    expect(signalled).toEqual([first])
+  })
 })
 
 describe('HTTP rate limiting', () => {
@@ -290,5 +325,145 @@ describe('HTTP rate limiting', () => {
     expect(allowed.every(status => status !== 429)).toBe(true)
     const blocked = await rpcFromLocalAddress(LIST_MESSAGE, 'bogus-session')
     expect(blocked).toBe(429)
+  })
+})
+
+// Coverage for task #167 (F5/F6/F7): the MCP HTTP endpoint must reject oversized
+// bodies, answer with a JSON-RPC error envelope on unhandled failures, and never
+// combine a wildcard CORS origin with bearer auth.
+describe('HTTP body cap', () => {
+  test('rejects an oversized /mcp body with a JSON-RPC 413 and creates no session', async () => {
+    const before = mainServer.getSessions().size
+    const oversized = JSON.stringify({
+      ...INIT_MESSAGE,
+      // Push the Content-Length one byte past the cap; the guard must fire
+      // before the initialize body is ever parsed.
+      pad: 'x'.repeat(MAX_REQUEST_BODY_BYTES + 1)
+    })
+
+    const res = await fetch(`${mainBase}/mcp`, {
+      method: 'POST',
+      headers: authHeaders({
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream'
+      }),
+      body: oversized
+    })
+
+    expect(res.status).toBe(413)
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect(res.headers.get('mcp-session-id')).toBeNull()
+    expect(await res.json()).toEqual({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Request body too large (max 5MB)' },
+      id: null
+    })
+    // No partial processing: the capped request must not register a session.
+    expect(mainServer.getSessions().size).toBe(before)
+  })
+})
+
+describe('HTTP error envelope', () => {
+  test('mcpErrorHandler returns JSON-RPC -32603/500 instead of Hono default text', async () => {
+    const app = new Hono()
+    app.onError(mcpErrorHandler)
+    app.get('/boom', () => {
+      throw new Error('boom')
+    })
+
+    const res = await app.request('/boom')
+
+    expect(res.status).toBe(500)
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect(await res.json()).toEqual({
+      jsonrpc: '2.0',
+      error: { code: -32603, message: 'Internal error' },
+      id: null
+    })
+  })
+
+  test('the running server routes an unhandled middleware throw to the JSON-RPC envelope', async () => {
+    // A throwing CORS origin resolver is a probe for the onError wiring: the
+    // real Hono app must catch the throw and answer with the registered handler
+    // rather than Hono's plain-text default. Start on an ephemeral port because
+    // the handler is only reachable through a served request.
+    const port = await freePort()
+    const failingServer = startMcpHttpServer('127.0.0.1', port, {
+      corsOrigins: (() => {
+        throw new Error('forced failure')
+      }) as unknown as string[]
+    })
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/health`, {
+        headers: { origin: ALLOWED_ORIGIN }
+      })
+      expect(res.status).toBe(500)
+      expect(res.headers.get('content-type')).toContain('application/json')
+      expect(await res.json()).toEqual({
+        jsonrpc: '2.0',
+        error: { code: -32603, message: 'Internal error' },
+        id: null
+      })
+    } finally {
+      await failingServer.stop()
+    }
+  })
+})
+
+describe('CORS policy', () => {
+  test('deny-all default emits no Access-Control-Allow-Origin (and never a wildcard)', async () => {
+    const res = await fetch(`${mainBase}/health`, { headers: { origin: ALLOWED_ORIGIN } })
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    expect(res.headers.get('access-control-allow-origin')).not.toBe('*')
+  })
+
+  test('allow-list echoes the configured origin and denies everything else', async () => {
+    const allowed = await fetch(`${corsBase}/health`, { headers: { origin: ALLOWED_ORIGIN } })
+    expect(allowed.status).toBe(200)
+    expect(allowed.headers.get('access-control-allow-origin')).toBe(ALLOWED_ORIGIN)
+
+    const denied = await fetch(`${corsBase}/health`, { headers: { origin: DENIED_ORIGIN } })
+    expect(denied.status).toBe(200)
+    expect(denied.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  test('preflight OPTIONS is answered per origin: allowed echoed, denied omitted', async () => {
+    const preflight = (origin: string) =>
+      fetch(`${corsBase}/mcp`, {
+        method: 'OPTIONS',
+        headers: {
+          origin,
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'authorization,content-type'
+        }
+      })
+
+    const allowed = await preflight(ALLOWED_ORIGIN)
+    expect(allowed.status).toBe(204)
+    expect(allowed.headers.get('access-control-allow-origin')).toBe(ALLOWED_ORIGIN)
+    expect(allowed.headers.get('access-control-allow-methods')).toContain('POST')
+
+    const denied = await preflight(DENIED_ORIGIN)
+    expect(denied.status).toBe(204)
+    expect(denied.headers.get('access-control-allow-origin')).toBeNull()
+  })
+})
+
+describe('SYNAPTOMIND_MCP_CORS_ORIGINS parsing', () => {
+  test('parses, trims, and drops empty comma-separated entries', async () => {
+    const key = 'SYNAPTOMIND_MCP_CORS_ORIGINS'
+    const previous = process.env[key]
+    process.env[key] = ' https://a.example , https://b.example ,'
+    try {
+      // The config singleton is built at import time from process.env, so a
+      // cache-busting query specifier is required to observe the override.
+      const mod = await import(`../config.ts?cors-probe=${Date.now()}`)
+      expect(mod.config.mcp.corsOrigins).toEqual(['https://a.example', 'https://b.example'])
+    } finally {
+      if (previous === undefined) delete process.env[key]
+      else process.env[key] = previous
+    }
   })
 })
