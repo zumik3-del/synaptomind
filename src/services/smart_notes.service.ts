@@ -16,6 +16,10 @@ import { getThoughtById } from './thoughts.service'
 import { isOlderThanDays } from './utils'
 import type { Database } from 'bun:sqlite'
 
+// Re-exported so the MCP tool layer can type its inputs without importing the
+// db layer directly (finding F2).
+export type { SurfaceCondition } from '../db/smart_notes'
+
 export interface SmartNoteEval {
   note_id: string
   thought_id: string
