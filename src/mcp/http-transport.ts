@@ -1,9 +1,12 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve } from 'bun'
-import { checkBearerAuth, getValidTokens } from '../auth'
-import { rateLimitMiddleware } from '../middleware/rate-limit'
+import { getValidTokens } from '../auth'
+import { config } from '../config'
+import { authMiddleware } from '../middleware/auth'
+import { mcpRateLimitMiddleware } from '../middleware/rate-limit'
 import { createMcpServer } from './server'
+import type { Context } from 'hono'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { EventStore, StreamId, EventId } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
@@ -15,20 +18,62 @@ interface Session {
 }
 
 export interface McpHttpHandle {
-  stop(): void
+  stop(): Promise<void>
   getSessions(): Map<string, Session>
 }
 
-const MAX_SESSIONS = 100
-const SESSION_TTL_MS = 3600_000
-const KEEPALIVE_MS = 10_000
-export const MAX_EVENTS_PER_SESSION = 1000
+export interface McpHttpOptions {
+  /** Browser origins allowed by CORS; empty (default) denies all cross-origin requests. */
+  corsOrigins?: string[]
+}
+
+// Transport limits are config-driven (F16); see config.mcp.
+const MAX_SESSIONS = config.mcp.maxSessions
+const SESSION_TTL_MS = config.mcp.sessionTtlMs
+const KEEPALIVE_MS = config.mcp.keepAliveMs
+export const MAX_EVENTS_PER_SESSION = config.mcp.maxEventsPerSession
+// Mirrors the API guard in src/api/router.ts (5 MB).
+export const MAX_REQUEST_BODY_BYTES = 5_242_880
+
+// Unknown errors must never surface as Hono's default non-JSON 500: MCP clients
+// parse JSON-RPC, so respond with a JSON-RPC internal-error envelope.
+export function mcpErrorHandler(err: Error, c: Context): Response {
+  console.error('[synaptomind] MCP HTTP unhandled error:', err)
+  return c.json({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null }, 500)
+}
+
+export interface InMemoryEventStoreOptions {
+  /**
+   * Invoked when a resume anchor cannot be replayed because its event was
+   * evicted by the per-session cap (F10). Defaults to a console.warn so the
+   * resumability loss is observable even without a custom hook.
+   */
+  onReplayAnchorEvicted?: (eventId: EventId) => void
+}
 
 export class InMemoryEventStore implements EventStore {
   private events = new Map<EventId, { streamId: StreamId; message: unknown }>()
+  // Events dropped by the cap, so a missing anchor can be told apart from an id
+  // that was never stored (a client bug rather than a resumability loss).
+  private evicted = new Set<EventId>()
+  private readonly onReplayAnchorEvicted?: (eventId: EventId) => void
+
+  constructor(options: InMemoryEventStoreOptions = {}) {
+    this.onReplayAnchorEvicted = options.onReplayAnchorEvicted
+  }
 
   private generateEventId(streamId: StreamId): EventId {
     return `${streamId}_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`
+  }
+
+  private forgetEvent(eventId: EventId): void {
+    this.evicted.add(eventId)
+    // Bound the tombstone set too: past the cap an evicted id is unreachable.
+    while (this.evicted.size > MAX_EVENTS_PER_SESSION) {
+      const oldest = this.evicted.values().next().value
+      if (oldest === undefined) break
+      this.evicted.delete(oldest)
+    }
   }
 
   async storeEvent(streamId: StreamId, message: unknown): Promise<EventId> {
@@ -39,14 +84,31 @@ export class InMemoryEventStore implements EventStore {
       const oldest = this.events.keys().next().value
       if (oldest === undefined) break
       this.events.delete(oldest)
+      this.forgetEvent(oldest)
     }
     return eventId
   }
 
-  async replayEventsAfter(lastEventId: EventId, { send }: { send: (eventId: EventId, message: unknown) => Promise<void> }): Promise<StreamId> {
-    if (!lastEventId || !this.events.has(lastEventId)) return ''
+  private signalEvictedAnchor(eventId: EventId): void {
+    if (this.onReplayAnchorEvicted) {
+      this.onReplayAnchorEvicted(eventId)
+      return
+    }
+    console.warn(`[synaptomind] MCP resume anchor evicted; replay unavailable: ${eventId}`)
+  }
 
-    const streamId = this.events.get(lastEventId)!.streamId
+  async replayEventsAfter(lastEventId: EventId, { send }: { send: (eventId: EventId, message: unknown) => Promise<void> }): Promise<StreamId> {
+    if (!lastEventId) return ''
+
+    const anchor = this.events.get(lastEventId)
+    if (!anchor) {
+      // Only a known-but-evicted event is a resumability loss worth surfacing;
+      // an unknown id simply has no replay.
+      if (this.evicted.has(lastEventId)) this.signalEvictedAnchor(lastEventId)
+      return ''
+    }
+
+    const streamId = anchor.streamId
     let found = false
 
     // Iterate in Map insertion order — chronological, unlike sorting id strings.
@@ -68,26 +130,89 @@ async function disposePair(server: McpServer, transport: WebStandardStreamableHT
   } catch { /* already closed */ }
 }
 
-export function startMcpHttpServer(host: string, port: number): McpHttpHandle {
+/**
+ * Keep a session's `lastAccess` fresh while an SSE body is flowing. The SDK's
+ * keep-alive frames (every {@link KEEPALIVE_MS}) flow through the body, so a
+ * long-lived GET stream stays active and the TTL sweeper cannot close it (F4).
+ */
+function trackStreamActivity(response: Response, session: Session): Response {
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!response.body || !contentType.includes('text/event-stream')) return response
+  const tracked = response.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        session.lastAccess = Date.now()
+        controller.enqueue(chunk)
+      }
+    })
+  )
+  return new Response(tracked, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
+  })
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function containsInitialize(body: unknown): boolean {
+  const messages = Array.isArray(body) ? body : [body]
+  return messages.some(msg => isRecord(msg) && msg.method === 'initialize')
+}
+
+type SessionlessProbe = { initialize: true; body: unknown } | { initialize: false }
+
+/**
+ * Classify a sessionless request without building a transport: only a POST
+ * carrying a JSON-RPC `initialize` message may open a session. Consumes the
+ * body, so the parsed value is returned for `handleRequest({ parsedBody })`.
+ */
+async function probeInitializeRequest(c: Context): Promise<SessionlessProbe> {
+  if (c.req.method !== 'POST') return { initialize: false }
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return { initialize: false }
+  }
+  return containsInitialize(body) ? { initialize: true, body } : { initialize: false }
+}
+
+export function startMcpHttpServer(host: string, port: number, options: McpHttpOptions = {}): McpHttpHandle {
   const app = new Hono()
   const sessions = new Map<string, Session>()
 
   getValidTokens()
 
+  app.onError(mcpErrorHandler)
+
+  // Never combine `origin: '*'` with an Authorization header: that lets any web
+  // origin drive memory when bearer auth is disabled. Default = deny all
+  // cross-origin access; deployments opt in via mcp.corsOrigins.
   app.use('*', cors({
-    origin: '*',
+    origin: options.corsOrigins ?? [],
     allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'mcp-session-id', 'Last-Event-ID', 'mcp-protocol-version', 'Authorization'],
     exposeHeaders: ['mcp-session-id', 'mcp-protocol-version']
   }))
 
-  app.use('/mcp', async (c, next) => {
-    const auth = c.req.header('Authorization')
-    if (checkBearerAuth(auth)) return next()
-    return c.json({ error: 'Unauthorized' }, 401)
-  })
+  app.use('/mcp', authMiddleware)
 
-  app.use('/mcp', rateLimitMiddleware)
+  app.use('/mcp', mcpRateLimitMiddleware)
+
+  app.use('/mcp', async (c, next) => {
+    const contentLength = parseInt(c.req.header('content-length') || '0', 10)
+    if (contentLength > MAX_REQUEST_BODY_BYTES) {
+      return c.json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Request body too large (max 5MB)' },
+        id: null
+      }, 413)
+    }
+    return next()
+  })
 
   const sessionCleanup = setInterval(() => {
     const now = Date.now()
@@ -98,6 +223,8 @@ export function startMcpHttpServer(host: string, port: number): McpHttpHandle {
       }
     }
   }, 60_000)
+  // Never hold the process open: shutdown owns the lifecycle via stop().
+  sessionCleanup.unref()
 
   app.all('/mcp', async (c) => {
     const sessionId = c.req.header('mcp-session-id')
@@ -108,7 +235,15 @@ export function startMcpHttpServer(host: string, port: number): McpHttpHandle {
         return c.json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null }, 404)
       }
       session.lastAccess = Date.now()
-      return session.transport.handleRequest(c.req.raw)
+      return trackStreamActivity(await session.transport.handleRequest(c.req.raw), session)
+    }
+
+    // Sessionless: only an initialize request may create a session. Rejecting
+    // anything else here avoids building (then immediately disposing) a full
+    // McpServer + transport on every stray request (F21).
+    const probe = await probeInitializeRequest(c)
+    if (!probe.initialize) {
+      return c.json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: Mcp-Session-Id header is required' }, id: null }, 400)
     }
 
     if (sessions.size >= MAX_SESSIONS) {
@@ -130,13 +265,14 @@ export function startMcpHttpServer(host: string, port: number): McpHttpHandle {
 
     try {
       await mcpServer.connect(transport)
-      const response = await transport.handleRequest(c.req.raw)
-      // Only an initialization request registers a session; anything else
-      // (e.g. a non-init request without a session id) leaves an orphan pair.
-      if (!transport.sessionId || !sessions.has(transport.sessionId)) {
+      const response = await transport.handleRequest(c.req.raw, { parsedBody: probe.body })
+      const session = transport.sessionId ? sessions.get(transport.sessionId) : undefined
+      // A request that failed to register a session must not leak its pair.
+      if (!session) {
         await disposePair(mcpServer, transport)
+        return response
       }
-      return response
+      return trackStreamActivity(response, session)
     } catch (err) {
       await disposePair(mcpServer, transport)
       throw err
@@ -154,13 +290,15 @@ export function startMcpHttpServer(host: string, port: number): McpHttpHandle {
   console.log(`[synaptomind] MCP HTTP server running on http://${host}:${port}`)
 
   return {
-    stop() {
+    async stop() {
       clearInterval(sessionCleanup)
-      for (const session of sessions.values()) {
-        disposePair(session.server, session.transport).catch(() => {})
-      }
+      // Close every per-session server/transport before dropping the map so SSE
+      // streams and their keep-alive timers are torn down deterministically.
+      await Promise.allSettled(
+        [...sessions.values()].map(session => disposePair(session.server, session.transport))
+      )
       sessions.clear()
-      server.stop()
+      await server.stop()
     },
     getSessions() {
       return sessions

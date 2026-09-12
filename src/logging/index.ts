@@ -5,10 +5,12 @@ export { closeLogDb, getLogDb, insertLog, insertTelemetry, type TelemetryInsertO
 
 /** HTTP-side telemetry guard.
  *
- * Returns the correlation context for an insertTelemetry call, or null when
- * the request came from the MCP server: the MCP middleware already wrote the
- * outer thought_telemetry row (with prev_tool/session truth), so writing
- * another row here would double-count every tool invocation.
+ * Returns the correlation context for an insertTelemetry call, or null when the
+ * caller opts out by sending `X-Client: mcp`. MCP tool calls are instrumented
+ * directly at dispatch (src/mcp/telemetry.ts) and never traverse these HTTP
+ * routes, so this header is an explicit opt-out for callers that already
+ * recorded the invocation upstream — writing another row here would
+ * double-count it.
  */
 export function telemetryContext(c: { req: { header(name: string): string | undefined } }): {
   correlationId?: string

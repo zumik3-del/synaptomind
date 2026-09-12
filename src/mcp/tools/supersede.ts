@@ -5,10 +5,37 @@ import {
   archiveThoughtById,
   mergeThoughtsService
 } from '../../services/thoughts.service'
-import { jsonResult, errorResult, resolveProjectId, toolOutputShape } from './utils'
+import { resolveProjectId } from './utils'
+import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
+
+const handlers = {
+  archive: {
+    input: z.object({ thought_id: requiredString('thought_id is required for archive action') }),
+    run(args: ActionArgs) {
+      const existing = getThoughtById(args.thought_id as string)
+      if (!existing) throw new Error(`Thought '${args.thought_id}' not found`)
+      if (existing.status === 'archived') {
+        return existing
+      }
+      return archiveThoughtById(args.thought_id as string)
+    }
+  },
+
+  merge: {
+    input: z.object({
+      source_id: requiredString('source_id is required for merge action'),
+      target_id: requiredString('target_id is required for merge action')
+    }),
+    run(args: ActionArgs) {
+      const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
+      return mergeThoughtsService({ targetId: args.target_id as string, sourceId: args.source_id as string, mergedContent: args.merged_content as string | undefined, mergedTags: args.merged_tags as string[] | undefined, projectId: projectFilter })
+    }
+  }
+}
 
 export function registerMemorySupersede(server: McpServer) {
-  server.registerTool('memory_supersede', {
+  registerActionTool(server, {
+    name: 'memory_supersede',
     description: `Version and supersede thoughts. Actions:
 - archive: Archive a thought (set status=archived). If already archived, returns the thought unchanged (idempotent).
 - merge: Merge source into target (source archived, target updated with merged content/tags)`,
@@ -22,31 +49,6 @@ export function registerMemorySupersede(server: McpServer) {
       project_id: z.string().optional().describe('Project ID (merge only)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project (merge only)')
     },
-    outputSchema: toolOutputShape
-  }, async (args) => {
-    try {
-      if (args.action === 'archive') {
-        if (!args.thought_id) return errorResult('thought_id is required for archive action')
-        const existing = getThoughtById(args.thought_id)
-        if (!existing) return errorResult(`Thought '${args.thought_id}' not found`)
-        if (existing.status === 'archived') {
-          return jsonResult(existing)
-        }
-        const archived = archiveThoughtById(args.thought_id)
-        return jsonResult(archived)
-      }
-
-      if (args.action === 'merge') {
-        if (!args.source_id) return errorResult('source_id is required for merge action')
-        if (!args.target_id) return errorResult('target_id is required for merge action')
-        const projectFilter = resolveProjectId(args.project_id, args.cwd)
-        const result = mergeThoughtsService({ targetId: args.target_id, sourceId: args.source_id, mergedContent: args.merged_content, mergedTags: args.merged_tags, projectId: projectFilter })
-        return jsonResult(result)
-      }
-
-      return errorResult(`Unknown action: ${args.action}`)
-    } catch (err) {
-      return errorResult(err instanceof Error ? err.message : 'memory_supersede failed')
-    }
+    handlers
   })
 }

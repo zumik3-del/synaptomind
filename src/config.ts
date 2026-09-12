@@ -4,7 +4,10 @@ import { join } from 'path'
 interface Config {
   contentLanguage: string
   server: { port: number; host: string }
-  mcp: { httpPort: number; instructionsFile?: string; stdioStandalone: boolean }
+  mcp: {
+    httpPort: number; instructionsFile?: string; stdioStandalone: boolean; corsOrigins: string[]
+    maxSessions: number; sessionTtlMs: number; keepAliveMs: number; maxEventsPerSession: number
+  }
   db: { path: string; busyTimeout: number }
   logDbPath: string
   embedder: {
@@ -47,7 +50,10 @@ interface Config {
 export const DEFAULTS: Config = {
   contentLanguage: 'en',
   server: { port: 3005, host: '127.0.0.1' },
-  mcp: { httpPort: 3006, instructionsFile: '', stdioStandalone: false },
+  mcp: {
+    httpPort: 3006, instructionsFile: '', stdioStandalone: false, corsOrigins: [],
+    maxSessions: 100, sessionTtlMs: 3600_000, keepAliveMs: 10_000, maxEventsPerSession: 1000
+  },
   db: { path: './data/synaptomind.db', busyTimeout: 5000 },
   logDbPath: '',
   embedder: {
@@ -88,7 +94,7 @@ export const DEFAULTS: Config = {
   ttl: { archivedTtlDays: 90, cleanupIntervalMs: 86400000 }
 }
 
-export type EnvType = 'string' | 'int' | 'float' | 'bool'
+export type EnvType = 'string' | 'int' | 'float' | 'bool' | 'list'
 
 export interface EnvMapping {
   env: string
@@ -105,6 +111,11 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_MCP_HTTP_PORT', path: 'mcp.httpPort', type: 'int' },
   { env: 'SYNAPTOMIND_MCP_INSTRUCTIONS_FILE', path: 'mcp.instructionsFile', type: 'string' },
   { env: 'SYNAPTOMIND_MCP_STDIO_STANDALONE', path: 'mcp.stdioStandalone', type: 'bool' },
+  { env: 'SYNAPTOMIND_MCP_CORS_ORIGINS', path: 'mcp.corsOrigins', type: 'list' },
+  { env: 'SYNAPTOMIND_MCP_MAX_SESSIONS', path: 'mcp.maxSessions', type: 'int' },
+  { env: 'SYNAPTOMIND_MCP_SESSION_TTL_MS', path: 'mcp.sessionTtlMs', type: 'int' },
+  { env: 'SYNAPTOMIND_MCP_KEEPALIVE_MS', path: 'mcp.keepAliveMs', type: 'int' },
+  { env: 'SYNAPTOMIND_MCP_MAX_EVENTS_PER_SESSION', path: 'mcp.maxEventsPerSession', type: 'int' },
 
   { env: 'SYNAPTOMIND_DB_PATH', path: 'db.path', type: 'string' },
   { env: 'SYNAPTOMIND_DB_BUSY_TIMEOUT', path: 'db.busyTimeout', type: 'int' },
@@ -177,7 +188,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_CLEANUP_INTERVAL_MS', path: 'ttl.cleanupIntervalMs', type: 'int' }
 ]
 
-function parseValue(raw: string, type: EnvType): string | number | boolean {
+function parseValue(raw: string, type: EnvType): string | number | boolean | string[] {
   switch (type) {
     case 'string': return raw
     case 'int': {
@@ -189,6 +200,7 @@ function parseValue(raw: string, type: EnvType): string | number | boolean {
       return Number.isFinite(n) ? n : NaN
     }
     case 'bool': return raw === 'true'
+    case 'list': return raw.split(',').map(s => s.trim()).filter(Boolean)
   }
 }
 

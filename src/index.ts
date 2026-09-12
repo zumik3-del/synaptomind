@@ -121,15 +121,15 @@ if (isStdio) {
   console.log(`[synaptomind] API server running on http://${config.server.host}:${config.server.port}`)
 
   const mcpPort = config.mcp?.httpPort ?? 3006
-  const mcpHandle = startMcpHttpServer(config.server.host, mcpPort)
+  const mcpHandle = startMcpHttpServer(config.server.host, mcpPort, {
+    corsOrigins: config.mcp.corsOrigins
+  })
 
   registerShutdownSignals(async () => {
-    const sessions = mcpHandle.getSessions()
-    for (const [, session] of sessions) {
-      await session.transport.close()
-    }
-    sessions.clear()
-    mcpHandle.stop()
+    // stop() closes every per-session server/transport before clearing the
+    // session Map, then stops the HTTP listener. Await it so shutdown is
+    // graceful rather than best-effort.
+    await mcpHandle.stop()
     server.stop()
   })
 }

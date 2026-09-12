@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { getHealthService } from '../services/health.service'
-import { authMiddleware } from './middleware/auth'
-import { rateLimitMiddleware } from '../middleware/rate-limit'
+import { authMiddleware } from '../middleware/auth'
+import { apiRateLimitMiddleware } from '../middleware/rate-limit'
 import { errorHandler } from './middleware/error-handler'
 import { autoClusterRouter } from './auto-cluster'
 import { clusterRouter } from './cluster'
@@ -27,7 +27,7 @@ export function createApp(): Hono {
 
   app.onError(errorHandler)
   app.use('/api/*', authMiddleware)
-  app.use('/api/*', rateLimitMiddleware)
+  app.use('/api/*', apiRateLimitMiddleware)
 
   app.use('/api/*', async (c, next) => {
     const contentLength = parseInt(c.req.header('content-length') || '0', 10)
