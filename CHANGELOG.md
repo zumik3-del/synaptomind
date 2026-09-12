@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.0-beta.0
+
+> September 12, 2026
+
+- [`0d09d3e`](https://github.com/zumik3-del/synaptomind/commit/0d09d3e71aa601bb6e8e119b56cf46413faaf671): fix(mcp): harden MCP architecture — telemetry, transport safety, layering (#131)
+- [`7669e0b`](https://github.com/zumik3-del/synaptomind/commit/7669e0b771a491a1b10a04b967b378336cc377f8): feat(deploy): self-verifying upgrade flow and versioned synaptomind CLI (#129)
+
 ## v0.7.0-alpha.2
 
 > September 12, 2026
