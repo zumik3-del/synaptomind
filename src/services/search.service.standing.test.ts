@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createEdge } from "../db/edges";
 import { getDb } from "../db/container";
 import { closeDb } from "../db/init";
+import { bm25SearchIds, type SearchResult } from "../db/search";
+import type { GraphStanding } from "../db/graph-annotations";
 import { createTestDb, seedThought } from "../test/helpers";
-import { searchThoughts } from "./search.service";
+import { orderByStanding, searchThoughts } from "./search.service";
 
 // The search service only needs *an* embedding to pass to the DB layer; graph
 // standing is computed from edges. A fixed zero vector keeps BM25 as the
@@ -112,5 +114,190 @@ describe("searchThoughts graph standing (ADR #142 D2)", () => {
 		expect(oldResult.standing).toBe("superseded");
 		expect(oldResult.superseded_by).toEqual([newThought]);
 		expect(oldResult.contradicted_by).toBeUndefined();
+	});
+
+	test("suppress over-fetches to backfill topK when superseded rows rank first", async () => {
+		// Six superseded rows whose keyword relevance outranks their current
+		// replacements, all ahead of the current rows in the raw (BM25) order.
+		// A non-widening pool would fetch topK superseded rows, drop them all and
+		// return an empty/short list.
+		const query = "suppressionbackfill";
+		const oldIds: string[] = [];
+		const newIds: string[] = [];
+		for (let i = 0; i < 6; i++) {
+			const oldId = seedThought({
+				content: `${query} ${query} ${query} ${query} ${query} legacy ${i}`,
+			});
+			const newId = seedThought({ content: `${query} current ${i}` });
+			createEdge(getDb(), newId, oldId, "replaces");
+			oldIds.push(oldId);
+			newIds.push(newId);
+		}
+
+		const raw = bm25SearchIds(getDb(), query, 30);
+		const firstCurrent = raw.findIndex((id) => newIds.includes(id));
+		const lastSuperseded = raw.findLastIndex((id) => oldIds.includes(id));
+		expect(lastSuperseded).toBeGreaterThanOrEqual(0);
+		expect(lastSuperseded).toBeLessThan(firstCurrent);
+
+		const results = await searchThoughts({
+			query,
+			topK: 3,
+			supersessionMode: "suppress",
+		});
+		expect(results).toHaveLength(3);
+		expect(results.every((r) => r.standing === "current")).toBe(true);
+		expect(results.every((r) => newIds.includes(r.thought.id))).toBe(true);
+	});
+
+	test("flag mode orders current rows before equal-similarity superseded rows", async () => {
+		const query = "standingorder";
+		const oldThought = seedThought({
+			content: `${query} ${query} ${query} ${query} legacy`,
+		});
+		const newThought = seedThought({ content: `${query} current` });
+		createEdge(getDb(), newThought, oldThought, "replaces");
+
+		// The relevance leg alone would put the superseded row first.
+		const raw = bm25SearchIds(getDb(), query, 10);
+		expect(raw.indexOf(oldThought)).toBeLessThan(raw.indexOf(newThought));
+
+		const results = await searchThoughts({
+			query,
+			topK: 10,
+			supersessionMode: "flag",
+		});
+		const oldIndex = results.findIndex((r) => r.thought.id === oldThought);
+		const newIndex = results.findIndex((r) => r.thought.id === newThought);
+		expect(newIndex).toBeGreaterThanOrEqual(0);
+		expect(oldIndex).toBeGreaterThan(newIndex);
+		expect(results[oldIndex].standing).toBe("superseded");
+	});
+
+	test("standing rank orders current then contradicted then superseded on ties", async () => {
+		const query = "standingrank";
+		const contested = seedThought({ content: `${query} alpha` });
+		const rival = seedThought({ content: `${query} beta` });
+		const superseded = seedThought({ content: `${query} gamma` });
+		const replacement = seedThought({ content: `${query} delta` });
+		createEdge(getDb(), contested, rival, "contradicts");
+		createEdge(getDb(), replacement, superseded, "replaces");
+
+		const results = await searchThoughts({
+			query,
+			topK: 10,
+			supersessionMode: "flag",
+		});
+		const order = results.map((r) => r.thought.id);
+		expect(byId(results, contested)!.standing).toBe("contradicted");
+		expect(byId(results, rival)!.standing).toBe("contradicted");
+		expect(order.indexOf(contested)).toBeLessThan(order.indexOf(superseded));
+		expect(order.indexOf(rival)).toBeLessThan(order.indexOf(superseded));
+		expect(order.indexOf(superseded)).toBeGreaterThanOrEqual(0);
+	});
+
+	test("multiple replaces sources are all reported for one target", async () => {
+		const oldThought = seedThought({ content: "standingmulti old target" });
+		const newA = seedThought({ content: "standingmulti replacement a" });
+		const newB = seedThought({ content: "standingmulti replacement b" });
+		createEdge(getDb(), newA, oldThought, "replaces");
+		createEdge(getDb(), newB, oldThought, "replaces");
+
+		const results = await searchThoughts({
+			query: "standingmulti",
+			topK: 10,
+			supersessionMode: "flag",
+		});
+		const oldResult = byId(results, oldThought)!;
+		expect(oldResult.standing).toBe("superseded");
+		expect([...oldResult.superseded_by!].sort()).toEqual([newA, newB].sort());
+	});
+
+	test("a thought both superseded and contradicted reports both and is still suppressed", async () => {
+		const oldThought = seedThought({ content: "standingboth old target" });
+		const replacement = seedThought({
+			content: "standingboth replacement",
+		});
+		const rival = seedThought({ content: "standingboth rival" });
+		createEdge(getDb(), replacement, oldThought, "replaces");
+		createEdge(getDb(), oldThought, rival, "contradicts");
+
+		// Superseded wins the tie for suppression: the stale claim is dropped even
+		// though it is also contradicted. The contradicted-only rival stays.
+		const suppressed = await searchThoughts({
+			query: "standingboth",
+			topK: 10,
+			supersessionMode: "suppress",
+		});
+		expect(byId(suppressed, oldThought)).toBeUndefined();
+		expect(byId(suppressed, rival)).toBeDefined();
+
+		const flagged = await searchThoughts({
+			query: "standingboth",
+			topK: 10,
+			supersessionMode: "flag",
+		});
+		const oldResult = byId(flagged, oldThought)!;
+		expect(oldResult.standing).toBe("superseded");
+		expect(oldResult.superseded_by).toEqual([replacement]);
+		expect(oldResult.contradicted_by).toEqual([rival]);
+	});
+
+	test("suppress with an empty candidate pool returns []", async () => {
+		seedThought({ content: "unrelated content" });
+		const results = await searchThoughts({
+			query: "zzznomatchzzz",
+			topK: 5,
+			supersessionMode: "suppress",
+		});
+		expect(results).toEqual([]);
+	});
+});
+
+// Regression guard: standing ordering must not be driven by `similarity`.
+// `similarity` is populated from the vector leg only, so BM25/entity-only hits
+// carry 0 and a similarity-primary sort would sink them below every vector hit.
+describe("orderByStanding (ADR #142 item 3)", () => {
+	function stubResult(
+		id: string,
+		similarity: number,
+		standing: GraphStanding,
+	): SearchResult {
+		return {
+			thought: {
+				id,
+				created_at: "2024-01-01T00:00:00.000Z",
+				updated_at: "2024-01-01T00:00:00.000Z",
+			} as SearchResult["thought"],
+			distance: 1 - similarity,
+			similarity,
+			standing,
+		};
+	}
+
+	test("partitions by standing without using the raw vector similarity", () => {
+		const ordered = orderByStanding([
+			stubResult("superseded-high", 0.9, "superseded"),
+			stubResult("current-low", 0, "current"),
+			stubResult("contradicted", 0, "contradicted"),
+			stubResult("current-high", 0.8, "current"),
+		]).map((r) => r.thought.id);
+
+		expect(ordered).toEqual([
+			"current-low",
+			"current-high",
+			"contradicted",
+			"superseded-high",
+		]);
+	});
+
+	test("preserves the incoming relevance order within one standing", () => {
+		const ordered = orderByStanding([
+			stubResult("a", 0.1, "current"),
+			stubResult("b", 0.9, "current"),
+			stubResult("c", 0.5, "current"),
+		]).map((r) => r.thought.id);
+
+		expect(ordered).toEqual(["a", "b", "c"]);
 	});
 });

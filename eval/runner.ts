@@ -112,7 +112,7 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
       initDb({ dbPath: join(dir, `${safeName}.db`), runMigrations: true })
       const db = getDb()
       await seedScenario(db, scenario, embed)
-      const searcher = mode === 'real' ? await realSearcher() : createDeterministicSearcher(db)
+      const searcher = mode === 'real' ? await realSearcher() : createDeterministicSearcher()
 
       const queries: QueryRun[] = []
       for (const query of scenario.queries) {

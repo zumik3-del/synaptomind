@@ -28,10 +28,28 @@ Hybrid (vector + FTS5) search over thoughts. Results can be grouped by cluster a
 | show_primers | query | bool | true | Set `false` to hide primer results |
 | exclude_flagged | query | bool | false | `true` excludes flagged thoughts |
 | hybrid | query | bool | true | `0` disables hybrid search |
+| supersession_mode | query | string | suppress | Superseded thoughts: `off` (no annotation), `flag` (annotate), `suppress` (drop) |
+| contradiction_mode | query | string | flag | Contradicted thoughts: `off` or `flag`; never suppressed |
 
-curl `'http://127.0.0.1:3005/api/thoughts/search?q=auth+middleware&k=3'`
+curl `'http://127.0.0.1:3005/api/thoughts/search?q=auth+middleware&k=3&supersession_mode=flag'`
 
-Response: `[{"thought": {"id": "...", "content": "...", ...}, "distance": 0.12, "similarity": 0.88}, ...]`
+Response: `[{"thought": {"id": "...", "content": "...", ...}, "distance": 0.12, "similarity": 0.88, "standing": "current"}, ...]`
+
+**Graph standing** (`supersession_mode` / `contradiction_mode`). `supersession_mode`
+controls thoughts marked superseded by an incoming `replaces` edge; `contradiction_mode`
+controls thoughts paired by a symmetric `contradicts` edge. The agent-facing defaults are
+`suppress` and `flag`; the `searchThoughts` library default stays `flag` for both. The
+modes are per-axis: `off` on one axis only stops annotation for that axis, so the other
+axis still applies — fully unannotated output requires both to be `off`. Invalid values
+return HTTP 400.
+
+When annotation runs, results carry `standing` (`current` | `superseded` | `contradicted`)
+plus `superseded_by` / `contradicted_by` id arrays where applicable. `suppress` drops
+superseded rows; contradicted rows are always flagged, never suppressed, because
+contradiction is symmetric and neither endpoint is authoritative. Results are then
+stably partitioned by standing (`current` first, then `contradicted`, then
+`superseded`), preserving the underlying relevance order within each group; deeper
+relevance re-scoring is out of scope.
 
 ### GET /api/thoughts/search/hints
 

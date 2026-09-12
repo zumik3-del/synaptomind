@@ -3,7 +3,6 @@
 // Scenarios whose underlying feature is not implemented yet are marked
 // `outcome: 'xfail'` — they are still executed and reported, but can never
 // fail the run:
-//   - supersession-aware retrieval is issue #124 item 3
 //   - contradiction edges/handling is issue #124 item 2
 //
 // Distractors keep precision@k meaningful (the corpora are larger than top-k).
@@ -80,11 +79,11 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
   {
     name: 'supersession-old-not-current',
     category: 'supersession',
-    description: 'A superseded thought must not be returned as current (item 3, not implemented).',
-    outcome: 'xfail',
+    description: 'A superseded thought is suppressed; the replacement is returned as current.',
     thoughts: [
       { id: 's-old', content: 'The primary database engine is MySQL.' },
-      { id: 's-new', content: 'The primary database engine is PostgreSQL now.' }
+      { id: 's-new', content: 'The primary database engine is PostgreSQL now.' },
+      ...DISTRACTORS
     ],
     edges: [{ source: 's-new', target: 's-old', type: 'replaces' }],
     queries: [{ query: 'primary database engine', relevant: ['s-new'], forbid: ['s-old'] }]

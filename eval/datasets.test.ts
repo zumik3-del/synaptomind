@@ -60,9 +60,9 @@ describe('dataset coverage', () => {
     }
   })
 
-  test('only supersession and contradiction are xfail', () => {
+  test('only the contradiction scenario is xfail', () => {
     for (const scenario of EVAL_SCENARIOS) {
-      const expected = scenario.category === 'supersession' || scenario.category === 'contradiction'
+      const expected = scenario.category === 'contradiction'
       expect(scenario.outcome === 'xfail', scenario.name).toBe(expected)
     }
   })
@@ -70,7 +70,7 @@ describe('dataset coverage', () => {
   test('xfail scenarios assert the missing capability through forbidden ids', () => {
     const xfail = EVAL_SCENARIOS.filter(scenario => scenario.outcome === 'xfail')
 
-    expect(xfail).toHaveLength(2)
+    expect(xfail).toHaveLength(1)
     for (const scenario of xfail) {
       expect(
         scenario.queries.some(query => (query.forbid?.length ?? 0) > 0),
@@ -103,9 +103,10 @@ describe('dataset behaviour (end-to-end)', () => {
       }
     }
 
-    // xfail scenarios contribute no counts to the gated aggregates.
+    // The contradiction scenario is still xfail and contributes no counts to
+    // the gated aggregates; the supersession scenario now gates for real.
     expect(res.overall.queries).toBeGreaterThan(0)
-    expect(res.categories.supersession).toBeUndefined()
+    expect(res.categories.supersession?.queries).toBe(1)
     expect(res.categories.contradiction).toBeUndefined()
   })
 })

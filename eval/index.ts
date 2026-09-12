@@ -56,7 +56,7 @@ function helpText(): string {
     '  --update-baseline   recompute eval/thresholds.json from the current run',
     '  --help, -h          show this help',
     '',
-    "Scenarios marked xfail (supersession, contradiction) are reported but never fail the run."
+    "Scenarios marked xfail (contradiction) are reported but never fail the run."
   ].join('\n')
 }
 

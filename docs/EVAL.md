@@ -54,16 +54,20 @@ All eight categories from #124 are covered in `eval/datasets.ts`:
 | explicit fact recall | `explicit-fact-recall` | pass |
 | multi-hop / compositional | `compositional-multi-hop` | pass |
 | temporal (current vs old) | `temporal-current-vs-old` | pass |
-| supersession | `supersession-old-not-current` | **xfail** (item 3 not implemented) |
-| contradiction | `contradiction-resolution` | **xfail** (item 2 not implemented) |
+| supersession | `supersession-old-not-current` | pass |
+| contradiction | `contradiction-resolution` | **xfail** |
 | consolidation | `consolidated-knowledge` | pass |
 | project scope isolation | `project-scope-isolation` | pass |
 | retrieval quality | `retrieval-quality` | pass |
 
-`xfail` scenarios exercise the gap for observability: supersession-aware retrieval
-does not exist yet, so the replaced thought is still returned and the assertion
-fails — expected. If an `xfail` scenario unexpectedly passes it is reported as
-`xpass` and is still not a failure.
+`xfail` scenarios exercise known gaps for observability. Supersession (issue #124
+item 3) is implemented: `supersession-old-not-current` is now a gated pass — the
+superseded thought is dropped and the replacement is returned. Contradiction
+remains the only `xfail`: the `contradiction-resolution` fixture asserts that one
+of two conflicting facts is excluded, but contradiction is symmetric (neither
+endpoint is authoritative) and contradicted thoughts are never suppressed, so
+retrieval alone cannot pick a winner. If an `xfail` scenario unexpectedly passes
+it is reported as `xpass` and is still not a failure.
 
 ### Scope of the categories
 
@@ -77,6 +81,12 @@ produce it. Two categories are deliberate v1 proxies:
 
 True multi-hop reasoning and the consolidation pipeline are therefore not yet
 covered — extend the datasets or add pipeline-level scenarios when that matters.
+
+The supersession scenario runs through the production search service with the
+agent-facing `suppress` / `flag` modes (see `eval/search.ts`), so it exercises the
+standing/suppression path rather than the raw DB search. Deeper relevance
+re-scoring beyond deterministic standing ordering is out of scope and left as
+follow-up.
 
 ## Dataset schema
 

@@ -1,13 +1,13 @@
 // Injectable search path.
 //
-// The default (deterministic) mode talks straight to the DB search layer and
-// supplies its own query embedding, so it never imports the embedder client and
-// never spawns the child process. `--real` uses the production service, which
-// generates query embeddings via the real embedder.
+// The default (deterministic) mode goes through the production search service
+// but injects its own query embedding, so it never calls the embedder client and
+// never spawns the child process. `--real` uses the same service with the real
+// query embedding. Both run with agent-facing supersession semantics
+// (`suppress`), so the harness exercises the standing path.
 
-import type { Database } from 'bun:sqlite'
 import { config } from '../src/config'
-import { searchThoughts as dbSearchThoughts, type SearchResult } from '../src/db/search'
+import type { SearchResult } from '../src/db/search'
 import type { SearchServiceOptions } from '../src/services/search.service'
 import { deterministicEmbedding } from './embedding'
 
@@ -24,17 +24,19 @@ export function deterministicEmbedder(dimensions = config.embedder.dimensions): 
 }
 
 export function createDeterministicSearcher(
-  db: Database,
   dimensions = config.embedder.dimensions
 ): Searcher {
-  return (query, topK, projectFilter) =>
-    dbSearchThoughts(db, {
-      embedding: deterministicEmbedding(query, dimensions),
+  return async (query, topK, projectFilter) => {
+    const { searchThoughts } = await import('../src/services/search.service')
+    return searchThoughts({
       query,
       topK,
       projectFilter,
-      hybrid: true
-    })
+      embedding: deterministicEmbedding(query, dimensions),
+      supersessionMode: 'suppress',
+      contradictionMode: 'flag'
+    } satisfies SearchServiceOptions)
+  }
 }
 
 export async function realEmbedder(): Promise<EmbedFn> {
@@ -45,5 +47,11 @@ export async function realEmbedder(): Promise<EmbedFn> {
 export async function realSearcher(): Promise<Searcher> {
   const { searchThoughts } = await import('../src/services/search.service')
   return (query, topK, projectFilter) =>
-    searchThoughts({ query, topK, projectFilter } satisfies SearchServiceOptions)
+    searchThoughts({
+      query,
+      topK,
+      projectFilter,
+      supersessionMode: 'suppress',
+      contradictionMode: 'flag'
+    } satisfies SearchServiceOptions)
 }

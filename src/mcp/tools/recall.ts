@@ -1,6 +1,11 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { searchThoughts, searchThoughtsGrouped } from '../../services/search.service'
+import {
+  type ContradictionMode,
+  searchThoughts,
+  searchThoughtsGrouped,
+  type SupersessionMode
+} from '../../services/search.service'
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getChainService, getContextService } from '../../services/graph.service'
 import { getThoughtById } from '../../services/thoughts.service'
@@ -21,19 +26,18 @@ const actionHandlers: Record<string, (args: RecallArgs) => unknown | Promise<unk
     const topK = (args.top_k as number) ?? 10
     const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
     const statusFilter = (args.status as string) || 'active'
+    // Agent-facing defaults: drop superseded rows, flag contradicted ones.
+    const supersessionMode = (args.supersession_mode as SupersessionMode | undefined) ?? 'suppress'
+    const contradictionMode = (args.contradiction_mode as ContradictionMode | undefined) ?? 'flag'
+    const baseOptions = {
+      query: args.query as string, topK, statusFilter,
+      projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: args.cluster as 'only' | 'exclude' | undefined,
+      minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
+      hybrid: args.hybrid as boolean | undefined, supersessionMode, contradictionMode
+    }
     const results = args.group_by_cluster
-      ? await searchThoughtsGrouped({
-          query: args.query as string, topK, statusFilter,
-          projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: args.cluster as 'only' | 'exclude' | undefined,
-          minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
-          hybrid: args.hybrid as boolean | undefined
-        })
-      : await searchThoughts({
-          query: args.query as string, topK, statusFilter,
-          projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: args.cluster as 'only' | 'exclude' | undefined,
-          minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
-          hybrid: args.hybrid as boolean | undefined
-        })
+      ? await searchThoughtsGrouped(baseOptions)
+      : await searchThoughts(baseOptions)
     return postProcessSearchResults(results, { query: args.query as string, topK, showPrimers: true })
   },
 
@@ -88,6 +92,14 @@ export function registerMemoryRecall(server: McpServer) {
       min_importance: z.number().min(0).max(1).optional().describe('Minimum importance (0-1)'),
       exclude_flagged: z.boolean().optional().describe('Exclude flagged thoughts'),
       hybrid: z.boolean().optional().describe('Use hybrid search'),
+      supersession_mode: z
+        .enum(['off', 'flag', 'suppress'])
+        .optional()
+        .describe('Superseded thoughts: off (no annotation), flag (annotate), suppress (drop). Agent default: suppress'),
+      contradiction_mode: z
+        .enum(['off', 'flag'])
+        .optional()
+        .describe('Contradicted thoughts: off or flag (default). Contradicted endpoints are never suppressed'),
       thought_id: z.string().optional().describe('REQUIRED ONLY for "chain" and "get". IGNORED for "search", "context", "clusters".'),
       direction: z.enum(['upstream', 'downstream', 'both']).optional().describe('Traversal direction (default: both)'),
       max_degree: z.number().int().min(1).max(200).optional().describe('Max edges to return for chain/context (default 50, 1-200)')
