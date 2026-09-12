@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { instrumentServer } from '../telemetry'
 import { registerMemoryRecall } from './recall'
 import { registerMemoryStore } from './store'
 import { registerMemorySupersede } from './supersede'
@@ -10,6 +11,8 @@ import { registerMemoryTelemetry } from './telemetry'
 import { registerMemoryGuide } from './guide'
 
 export function registerAllMemoryTools(server: McpServer): void {
+  // Wrap registerTool first so every tool dispatch writes a telemetry row.
+  instrumentServer(server)
   registerMemoryRecall(server)
   registerMemoryStore(server)
   registerMemorySupersede(server)
