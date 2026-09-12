@@ -345,6 +345,24 @@ bash scripts/deploy.sh 0.3.0        # specific version
 bash scripts/deploy.sh --dev        # main branch (development)
 ```
 
+`scripts/deploy.sh` is non-interactive and self-verifying — it force-checks out
+the target tag, migrates `./data` to uid 10001, waits until `/health` reports the
+expected version (non-zero exit on mismatch/timeout), and then best-effort
+installs/refreshes the versioned CLI to `${SYNAPTOMIND_BIN_DIR:-/usr/local/bin}`.
+
+For day-to-day use:
+
+```bash
+synaptomind upgrade --alpha   # deploy + verified version
+synaptomind status            # container status + running version
+```
+
+If the CLI is not on PATH, install it manually (or let deploy.sh do it):
+
+```bash
+sudo install -m 0755 scripts/synaptomind /usr/local/bin/synaptomind
+```
+
 See [docs/DOCKER.md](docs/DOCKER.md) for full Docker guide.
 
 </details>

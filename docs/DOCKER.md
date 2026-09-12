@@ -46,9 +46,44 @@ bash scripts/deploy.sh --dev        # main branch (builds from source)
 
 The script:
 1. Clones/updates repo to `/opt/synaptomind`
-2. Checks out the target version
-3. Updates `docker-compose.yml` image tag (for tagged releases)
-4. Starts the container
+2. Force-checks out the target version — local modifications to tracked files
+   (e.g. a diverged `docker-compose.yml`) are discarded, while untracked
+   `.env`, `config.json`, and `data/` are preserved
+3. Sets and persists the `SYNAPTOMIND_IMAGE` tag in `.env` (for tagged releases)
+4. Migrates `./data` ownership to uid 10001 (non-root image requirement)
+5. Starts the container and then polls `/health` until it reports the expected
+   version (bounded to 60s). On mismatch or timeout it exits non-zero.
+6. Best-effort installs/refreshes the versioned CLI to
+   `${SYNAPTOMIND_BIN_DIR:-/usr/local/bin}/synaptomind` (root or sudo;
+   warn-only, never fails the deploy).
+
+It never prompts, so it is safe to call from scripts/CI. Output paths are
+overridable via `SYNAPTOMIND_INSTALL_DIR`, `SYNAPTOMIND_HEALTH_URL`,
+`SYNAPTOMIND_HEALTH_TIMEOUT`, and `SYNAPTOMIND_BIN_DIR`.
+
+### Versioned CLI
+
+`scripts/synaptomind` wraps the deploy script and day-to-day operations. It is
+installed/refreshed automatically by `scripts/deploy.sh` after a successful
+verified deploy (override the target with `SYNAPTOMIND_BIN_DIR`, default
+`/usr/local/bin`). Install it manually only if needed:
+
+```bash
+sudo install -m 0755 scripts/synaptomind /usr/local/bin/synaptomind
+
+synaptomind upgrade            # latest stable (delegates to deploy.sh)
+synaptomind upgrade 0.6.1      # specific version
+synaptomind upgrade --alpha    # latest prerelease
+synaptomind upgrade --dev      # main branch (builds from source)
+synaptomind status             # container status + running version
+synaptomind version            # running version
+synaptomind logs 200           # follow last 200 log lines
+synaptomind restart            # restart and wait until healthy
+```
+
+The CLI resolves the install directory from `SYNAPTOMIND_INSTALL_DIR`
+(default `/opt/synaptomind`) and never duplicates deploy logic — `upgrade`
+runs `scripts/deploy.sh` and then prints the verified running version.
 
 ---
 
@@ -108,11 +143,27 @@ ports:
 
 ## Updating
 
+### With the CLI (recommended)
+
+```bash
+synaptomind upgrade            # latest stable
+synaptomind upgrade 0.6.1      # specific version (with or without leading "v")
+synaptomind upgrade --alpha    # latest prerelease
+```
+
+`upgrade` delegates to `scripts/deploy.sh`, which forces the checkout to the
+target tag, migrates `./data` to uid 10001, restarts the container, and waits
+until `/health` reports the expected version (exits non-zero on mismatch or
+timeout). The running version is printed at the end.
+
 ### With deploy script
 
 ```bash
-bash scripts/deploy.sh 0.3.0
+bash scripts/deploy.sh 0.6.1
 ```
+
+The deploy script is non-interactive and self-verifying; see
+[Using deploy script](#using-deploy-script) for details.
 
 ### Manual update
 
@@ -120,11 +171,12 @@ The compose file resolves the image via `SYNAPTOMIND_IMAGE` (see `docker-compose
 
 ```bash
 cd /opt/synaptomind
-git fetch origin
-git checkout 0.3.0
-export SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:0.3.0
+git fetch --tags -f origin
+git checkout -f 0.6.1          # force: discard diverged tracked files
+export SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:0.6.1
 # optional: persist for later manual `docker compose up` runs
 grep -q '^SYNAPTOMIND_IMAGE=' .env && sed -i "s|^SYNAPTOMIND_IMAGE=.*|SYNAPTOMIND_IMAGE=${SYNAPTOMIND_IMAGE}|" .env || echo "SYNAPTOMIND_IMAGE=${SYNAPTOMIND_IMAGE}" >> .env
+sudo chown -R 10001:10001 data   # required once when upgrading from root-run images
 docker compose pull 2>/dev/null || true
 docker compose up -d
 ```
@@ -132,8 +184,10 @@ docker compose up -d
 ### Check running version
 
 ```bash
-curl http://127.0.0.1:3005/health
-# {"status":"ok","version":"0.3.0","checks":{"database":"ok","embedder":"ok"}}
+synaptomind version
+# or
+curl -s http://127.0.0.1:3005/health | jq -r .version
+# {"status":"ok","version":"0.6.1","checks":{"database":"ok","embedder":"ok"}}
 ```
 
 ---
