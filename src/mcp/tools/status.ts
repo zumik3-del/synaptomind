@@ -5,6 +5,7 @@ import { getFrontier } from '../../services/frontier.service'
 import { getProfileService } from '../../services/profile.service'
 import { config, DEFAULTS, ENV_MAPPINGS } from '../../config'
 import { runHealthCheck } from '../../services/health-check.service'
+import { detectEdgeProposals } from '../../services/edge-detect.service'
 import { cleanupArchivedThoughts } from '../../services/ttl-cleanup.service'
 import { jsonResult, errorResult, resolveProjectId, toolOutputShape } from './utils'
 
@@ -31,7 +32,7 @@ const SECTION_LABELS: Record<string, string> = {
   logDbPath: 'Database', embedder: 'Embedder', thoughts: 'Thoughts', decay: 'Decay',
   smartNotes: 'Smart Notes', primer: 'Primer', verify: 'Verify',
   autoCluster: 'Auto Cluster', autoLink: 'Auto Link', selfImprove: 'Self Improve',
-  slots: 'Slots', git: 'Git'
+  edgeDetect: 'Edge Detect', slots: 'Slots', git: 'Git'
 }
 
 // Filesystem layout must not leak to MCP clients: redact path-bearing settings.
@@ -75,12 +76,13 @@ export function registerMemoryStatus(server: McpServer) {
 - profile: Get user profile stats and thoughts
 - config: Show current configuration with defaults and env vars
 - health: Audit graph health (broken links, orphans, duplicates, structural issues)
+- edge_suggestions: Detect potential contradicts/supports candidates (read-only; confirm via memory_store action=link)
 - cleanup: Preview expired archived thoughts based on TTL config (dry-run by default; pass dry_run=false to delete)`,
     inputSchema: {
-      action: z.enum(['slots', 'frontier', 'profile', 'config', 'health', 'cleanup']).optional().describe('Action (default: slots)'),
+      action: z.enum(['slots', 'frontier', 'profile', 'config', 'health', 'edge_suggestions', 'cleanup']).optional().describe('Action (default: slots)'),
       names: z.array(z.string()).optional().describe('Filter by slot names (slots only)'),
-      project_id: z.string().optional().describe('Filter by project (slots/frontier only)'),
-      cwd: z.string().optional().describe('Working directory — auto-resolves project (slots/frontier only)'),
+      project_id: z.string().optional().describe('Filter by project (slots/frontier/edge_suggestions only)'),
+      cwd: z.string().optional().describe('Working directory — auto-resolves project (slots/frontier/edge_suggestions only)'),
       k: z.number().int().min(1).max(50).optional().describe('Max results (default 10, 1-50; frontier only)'),
       severity: z.enum(['critical', 'warning', 'info']).optional().describe('Minimum severity (health only)'),
       fix: z.boolean().optional().describe('Auto-fix safe issues (health only)'),
@@ -116,6 +118,12 @@ export function registerMemoryStatus(server: McpServer) {
       if (action === 'health') {
         const report = runHealthCheck({ severity: args.severity, fix: args.fix })
         return jsonResult(report)
+      }
+
+      if (action === 'edge_suggestions') {
+        const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+        const result = await detectEdgeProposals({ projectId: projectFilter })
+        return jsonResult(result)
       }
 
       if (action === 'cleanup') {

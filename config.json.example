@@ -62,6 +62,14 @@
     "minEntityOverlap": 1,
     "dryRun": false
   },
+  "edgeDetect": {
+    "minSimilarity": 0.75,
+    "topK": 10,
+    "maxCandidates": 100,
+    "maxProposals": 20,
+    "nliThreshold": 0.8,
+    "supportThreshold": 0.8
+  },
   "selfImprove": {
     "enabled": false,
     "intervalMs": 86400000,

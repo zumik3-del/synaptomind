@@ -5,6 +5,8 @@ import {
 	deleteEdge,
 	getAllActiveEdges,
 	getEdgesForThought,
+	getValidEdgeTypes,
+	isValidEdgeType,
 } from "./edges";
 import { getDb } from "./container";
 import { closeDb } from "./init";
@@ -286,4 +288,140 @@ test("createEdge boosts source importance when below cap", () => {
 	createEdge(db, src, tgt, "related");
 	const after = getThoughtImportance(db, src);
 	expect(after?.importance).toBeCloseTo(0.6, 5);
+});
+
+// ── contradicts / supports semantics (epic #141, ADR #142 Decision 1) ─────────
+
+test("contradicts is symmetric and idempotent in both directions (one row per pair)", () => {
+	const db = getDb();
+	const a = seedThought();
+	const b = seedThought();
+
+	const first = createEdge(db, a, b, "contradicts");
+	expect(first.type).toBe("contradicts");
+	expect(first.source_id).toBe(a);
+	expect(first.target_id).toBe(b);
+
+	// exact duplicate returns the existing row (no throw, no second row)
+	const duplicate = createEdge(db, a, b, "contradicts");
+	expect(duplicate.id).toBe(first.id);
+
+	// reverse direction is the same unordered pair → same single row
+	const reverse = createEdge(db, b, a, "contradicts");
+	expect(reverse.id).toBe(first.id);
+	// stored direction is preserved (author-supplied), not reordered
+	expect(reverse.source_id).toBe(a);
+	expect(reverse.target_id).toBe(b);
+
+	expect(getEdgesForThought(db, a)).toHaveLength(1);
+	expect(db.prepare(`SELECT COUNT(*) AS cnt FROM edges`).get()).toEqual({
+		cnt: 1,
+	});
+});
+
+test("supports is directed and rejects a reverse duplicate with a conflict", () => {
+	const db = getDb();
+	const a = seedThought();
+	const b = seedThought();
+	const edge = createEdge(db, a, b, "supports");
+	expect(edge.source_id).toBe(a);
+	expect(edge.target_id).toBe(b);
+	expect(edge.type).toBe("supports");
+
+	// same direction + same type → duplicate
+	expect(() => createEdge(db, a, b, "supports")).toThrow("Edge already exists");
+	// reverse direction → one-edge-per-pair conflict, not idempotency
+	expect(() => createEdge(db, b, a, "supports")).toThrow("already exists between");
+	expect(getEdgesForThought(db, a)).toHaveLength(1);
+});
+
+test("contradicts/supports cannot be added over an existing specific edge", () => {
+	const db = getDb();
+	const a = seedThought();
+	const b = seedThought();
+	createEdge(db, a, b, "develops");
+	expect(() => createEdge(db, a, b, "contradicts")).toThrow(
+		"already exists between",
+	);
+	expect(() => createEdge(db, b, a, "supports")).toThrow(
+		"already exists between",
+	);
+});
+
+test("related placeholder is upgraded to every specific type", () => {
+	const db = getDb();
+
+	for (const type of [
+		"parent",
+		"develops",
+		"replaces",
+		"depends_on",
+		"contradicts",
+		"supports",
+	]) {
+		const src = seedThought();
+		const tgt = seedThought();
+		const placeholder = createEdge(db, src, tgt, "related");
+		const upgraded = createEdge(db, src, tgt, type);
+		expect(upgraded.type).toBe(type);
+		expect(upgraded.source_id).toBe(src);
+		expect(upgraded.target_id).toBe(tgt);
+		expect(upgraded.id).not.toBe(placeholder.id);
+		// exactly one edge remains between the pair, placeholder row is gone
+		expect(getEdgesForThought(db, src)).toHaveLength(1);
+		expect(db.prepare(`SELECT 1 FROM edges WHERE id = ?`).get(placeholder.id)).toBeNull();
+	}
+});
+
+test("related upgrade stores the direction the caller requested", () => {
+	const db = getDb();
+	const a = seedThought();
+	const b = seedThought();
+	createEdge(db, a, b, "related");
+	const upgraded = createEdge(db, b, a, "supports");
+	expect(upgraded.source_id).toBe(b);
+	expect(upgraded.target_id).toBe(a);
+	expect(getEdgesForThought(db, a)).toHaveLength(1);
+});
+
+test("self-loop is rejected for contradicts and supports", () => {
+	const db = getDb();
+	const id = seedThought();
+	expect(() => createEdge(db, id, id, "contradicts")).toThrow(
+		"cannot link a thought to itself",
+	);
+	expect(() => createEdge(db, id, id, "supports")).toThrow(
+		"cannot link a thought to itself",
+	);
+});
+
+test("contradicts/supports cannot involve cluster thoughts", () => {
+	const db = getDb();
+	const cluster = seedThought();
+	db.prepare("UPDATE thoughts SET is_cluster = 1 WHERE id = ?").run(cluster);
+	const normal = seedThought();
+
+	expect(() => createEdge(db, cluster, normal, "contradicts")).toThrow(
+		"Cluster thoughts cannot have 'contradicts' edges",
+	);
+	expect(() => createEdge(db, normal, cluster, "supports")).toThrow(
+		/Cannot link to cluster thought using/,
+	);
+});
+
+test("createEdge rejects an invalid edge type", () => {
+	const db = getDb();
+	const a = seedThought();
+	const b = seedThought();
+	expect(() => createEdge(db, a, b, "frobnicates")).toThrow(
+		"Invalid edge type 'frobnicates'",
+	);
+});
+
+test("isValidEdgeType recognises the new semantic types", () => {
+	expect(isValidEdgeType("contradicts")).toBeTrue();
+	expect(isValidEdgeType("supports")).toBeTrue();
+	expect(isValidEdgeType("nope")).toBeFalse();
+	expect(getValidEdgeTypes()).toContain("contradicts");
+	expect(getValidEdgeTypes()).toContain("supports");
 });

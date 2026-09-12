@@ -6,6 +6,7 @@ import { searchThoughts } from '../db/search'
 import { generateEmbeddings } from '../embedder/client'
 import { insertLog } from '../logging/log'
 import { recordJobRun, getLastJobRun } from './utils'
+import { findEmbeddingNeighborPairs } from './edge-candidates.service'
 import type { Database } from 'bun:sqlite'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -116,6 +117,7 @@ export function findEntityPairs(candidateIds: string[]): CandidatePair[] {
 /**
  * Find candidate pairs from embedding proximity. For each candidate, search
  * for neighbors using vector search and collect pairs within minSimilarity.
+ * Delegates the generic neighbour-pair step to `edge-candidates.service`.
  */
 export function findEmbeddingPairs(
   candidates: Array<{ id: string; content: string }>,
@@ -123,49 +125,32 @@ export function findEmbeddingPairs(
   minSimilarity: number
 ): CandidatePair[] {
   const d = getDb()
-  const candidateSet = new Set(candidates.map(c => c.id))
-  const pairMap = new Map<string, CandidatePair>()
-
-  for (let i = 0; i < candidates.length; i++) {
-    let results: Array<{ thought: { id: string }; similarity: number }>
-    try {
-      results = searchThoughts(d, {
-        embedding: embeddings[i],
-        topK: 20,
-        statusFilter: 'active',
-        hybrid: false
-      })
-    } catch {
-      // vec_thoughts may not exist in :memory: tests — skip embedding pairs
-      return []
-    }
-
-    for (const r of results) {
-      if (r.thought.id === candidates[i].id) continue
-      if (!candidateSet.has(r.thought.id)) continue
-      if (r.similarity < minSimilarity) continue
-
-      const key = [candidates[i].id, r.thought.id].sort().join('::')
-      if (!pairMap.has(key)) {
-        const [src, tgt] = key.split('::')
-        pairMap.set(key, {
-          source_id: src,
-          target_id: tgt,
-          entityOverlap: 0,
-          embeddingSimilarity: r.similarity,
-          score: r.similarity
-        })
-      } else {
-        const existing = pairMap.get(key)
-        if (existing && r.similarity > existing.embeddingSimilarity) {
-          existing.embeddingSimilarity = r.similarity
-          existing.score = existing.entityOverlap * 2 + r.similarity
-        }
+  const pairs = findEmbeddingNeighborPairs(
+    candidates,
+    embeddings,
+    minSimilarity,
+    (_id, embedding) => {
+      try {
+        return searchThoughts(d, {
+          embedding,
+          topK: 20,
+          statusFilter: 'active',
+          hybrid: false
+        }).map(r => ({ id: r.thought.id, similarity: r.similarity }))
+      } catch {
+        // vec_thoughts may not exist in :memory: tests — skip this candidate
+        return []
       }
     }
-  }
+  )
 
-  return [...pairMap.values()]
+  return pairs.map(p => ({
+    source_id: p.source_id,
+    target_id: p.target_id,
+    entityOverlap: 0,
+    embeddingSimilarity: p.embeddingSimilarity,
+    score: p.embeddingSimilarity
+  }))
 }
 
 // ── Merge & score ────────────────────────────────────────────────────────────

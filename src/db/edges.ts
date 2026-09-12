@@ -3,7 +3,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { config } from '../config'
 import { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError } from './errors'
 import { boostImportance, getThoughtRow, getThoughtsBatchWithTags, type Thought } from './thoughts'
-import { sqlIn } from './utils'
+import { sqlIn, pairKey } from './utils'
 
 export { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError }
 
@@ -15,7 +15,18 @@ export interface Edge {
   created_at: string
 }
 
-const VALID_EDGE_TYPES = new Set(['related', 'parent', 'replaces', 'develops', 'cluster', 'references', 'depends_on'])
+const VALID_EDGE_TYPES = new Set([
+  'related', 'parent', 'replaces', 'develops', 'cluster', 'references', 'depends_on',
+  'contradicts', 'supports',
+])
+
+/**
+ * Symmetric types carry no direction: `A contradicts B` <=> `B contradicts A`.
+ * They are stored as a single row per unordered pair and creation is idempotent
+ * in both directions. Directed types (`supports`, `parent`, ...) follow the
+ * strict one-edge-per-pair rule and reject a reverse duplicate with a conflict.
+ */
+const SYMMETRIC_EDGE_TYPES = new Set(['related', 'contradicts'])
 
 export function isValidEdgeType(type: string): boolean {
   return VALID_EDGE_TYPES.has(type)
@@ -41,32 +52,74 @@ export function createEdge(db: Database, sourceId: string, targetId: string, typ
 
   const existing = findEdgeBetween(db, sourceId, targetId)
   if (existing) {
-    if (existing.type === 'related' && type === 'related') {
-      return existing
+    if (existing.type === type) {
+      if (SYMMETRIC_EDGE_TYPES.has(type)) return existing
+      if (existing.source_id === sourceId && existing.target_id === targetId) {
+        throw new EdgeAlreadyExistsError()
+      }
+      throw new EdgeConflictError(sourceId, targetId)
     }
-    if (existing.source_id === sourceId && existing.target_id === targetId && existing.type === type) {
-      throw new EdgeAlreadyExistsError()
+    // `related` is the auto-link placeholder (lowest precedence). A caller
+    // asking for a specific type replaces it instead of hitting a dead end,
+    // since there is no edge-delete MCP tool.
+    if (existing.type === 'related') {
+      return upgradePlaceholderEdge(db, existing, sourceId, targetId, type)
     }
     throw new EdgeConflictError(sourceId, targetId)
   }
 
+  return insertEdge(db, sourceId, targetId, type)
+}
+
+function insertEdge(db: Database, sourceId: string, targetId: string, type: string): Edge {
   const id = uuidv7()
   const now = new Date().toISOString()
 
-  const createInTx = db.transaction(() => {
-    try {
-      db.prepare(`
-        INSERT INTO edges (id, source_id, target_id, type, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(id, sourceId, targetId, type, now)
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes('UNIQUE')) throw new EdgeAlreadyExistsError()
-      throw err
-    }
+  const insertInTx = db.transaction(() => {
+    insertEdgeRow(db, id, sourceId, targetId, type, now)
     boostImportance(db, sourceId, 0.1)
   })
-  createInTx()
+  insertInTx()
+
+  return findEdge(db, id)
+}
+
+function insertEdgeRow(
+  db: Database,
+  id: string,
+  sourceId: string,
+  targetId: string,
+  type: string,
+  createdAt: string
+): void {
+  try {
+    db.prepare(`
+      INSERT INTO edges (id, source_id, target_id, type, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, sourceId, targetId, type, createdAt)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('UNIQUE')) throw new EdgeAlreadyExistsError()
+    throw err
+  }
+}
+
+function upgradePlaceholderEdge(
+  db: Database,
+  placeholder: Edge,
+  sourceId: string,
+  targetId: string,
+  type: string
+): Edge {
+  const id = uuidv7()
+  const now = new Date().toISOString()
+
+  const upgradeInTx = db.transaction(() => {
+    db.prepare('DELETE FROM edges WHERE id = ?').run(placeholder.id)
+    insertEdgeRow(db, id, sourceId, targetId, type, now)
+    boostImportance(db, sourceId, 0.1)
+  })
+  upgradeInTx()
 
   return findEdge(db, id)
 }
@@ -146,6 +199,20 @@ function findEdgeBetween(db: Database, sourceId: string, targetId: string): Edge
   return db
     .prepare('SELECT * FROM edges WHERE (source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)')
     .get(sourceId, targetId, targetId, sourceId) as Edge | undefined
+}
+
+/**
+ * Batched counterpart of {@link findEdgeBetween}: returns canonical unordered
+ * pair keys for every edge touching `thoughtIds`. Used by candidate detection to
+ * skip pairs that are already linked without an N+1 query.
+ */
+export function getEdgePairKeys(db: Database, thoughtIds: string[]): Set<string> {
+  if (thoughtIds.length === 0) return new Set()
+  const ph = sqlIn(thoughtIds)
+  const rows = db
+    .prepare(`SELECT source_id, target_id FROM edges WHERE source_id IN (${ph}) OR target_id IN (${ph})`)
+    .all(...thoughtIds, ...thoughtIds) as Array<{ source_id: string; target_id: string }>
+  return new Set(rows.map(r => pairKey(r.source_id, r.target_id)))
 }
 
 // --- Graph helpers ---

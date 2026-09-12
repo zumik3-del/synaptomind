@@ -133,6 +133,46 @@ test('transfers valid cluster edges when merging a cluster into a cluster', () =
   expect(edgeExists(db, target, member, 'cluster')).toBe(true)
 })
 
+test('transfers a contradicts edge from source to the target', () => {
+  const db = getDb()
+  const source = seedThought({ content: 'source thought' })
+  const target = seedThought({ content: 'target thought' })
+  const x = seedThought({ content: 'neighbor x' })
+  seedEdge(source, x, 'contradicts')
+
+  const transferred = transferEdgesFromSource(db, source, target)
+
+  expect(transferred).toBe(1)
+  expect(edgeExists(db, target, x, 'contradicts')).toBe(true)
+  expect(edgeExists(db, source, x, 'contradicts')).toBe(false)
+})
+
+test('drops a contradicts edge between the merged pair instead of self-looping', () => {
+  const db = getDb()
+  const source = seedThought({ content: 'source claim' })
+  const target = seedThought({ content: 'rival claim' })
+  seedEdge(source, target, 'contradicts')
+
+  const transferred = transferEdgesFromSource(db, source, target)
+
+  expect(transferred).toBe(0)
+  expect(edgeCountBetween(db, target, target, 'contradicts')).toBe(0)
+  expect(edgeExists(db, source, target, 'contradicts')).toBe(false)
+})
+
+test('transfers a supports edge and preserves its direction', () => {
+  const db = getDb()
+  const source = seedThought({ content: 'evidence' })
+  const target = seedThought({ content: 'merged into' })
+  const x = seedThought({ content: 'supported claim' })
+  seedEdge(source, x, 'supports')
+
+  const transferred = transferEdgesFromSource(db, source, target)
+
+  expect(transferred).toBe(1)
+  expect(edgeExists(db, target, x, 'supports')).toBe(true)
+})
+
 test('validateMergePreconditions rejects an archived source', () => {
   const db = getDb()
   const id = seedThought({ content: 'archived source', status: 'archived' })

@@ -39,7 +39,7 @@ jobs:
       # Lint is advisory — tests are the real gate. If lint fails but tests pass, the build proceeds.
       - name: "Lint: biome (non-blocking)"
         continue-on-error: true
-        run: bun x @biomejs/biome check src/
+        run: bun x @biomejs/biome check src/ eval/
 
       - name: "Type-check: tsc"
         run: bun run tsc --noEmit

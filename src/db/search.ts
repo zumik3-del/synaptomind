@@ -1,4 +1,5 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
+import type { GraphStanding } from './graph-annotations'
 import { getThoughtTagsBatch } from './tags'
 import { rowToThought } from './thoughts'
 import { sqlIn } from './utils'
@@ -21,6 +22,12 @@ export interface SearchResult {
   thought: Thought
   distance: number
   similarity: number
+  /** Graph standing; present only when the caller enables graph annotation. */
+  standing?: GraphStanding
+  /** Sources of incoming `replaces` edges (this thought is superseded). */
+  superseded_by?: string[]
+  /** `contradicts` partners (either direction, symmetric edge type). */
+  contradicted_by?: string[]
 }
 
 interface SearchRow {

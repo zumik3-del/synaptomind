@@ -1,10 +1,35 @@
 import { Hono } from 'hono'
+import { ValidationError } from '../errors'
 import { withTelemetry } from '../logging'
 import { type EntityType, listEntities } from '../services/entity.service'
-import { searchThoughts, searchThoughtsGrouped } from '../services/search.service'
+import {
+  type ContradictionMode,
+  searchThoughts,
+  searchThoughtsGrouped,
+  type SupersessionMode
+} from '../services/search.service'
 import { postProcessSearchResults } from '../services/search_postprocess.service'
 
 const searchRouter = new Hono()
+
+const SUPERSESSION_MODES: readonly SupersessionMode[] = ['off', 'flag', 'suppress']
+const CONTRADICTION_MODES: readonly ContradictionMode[] = ['off', 'flag']
+
+/**
+ * Agent-facing default for superseded thoughts is `suppress` (the library
+ * default stays `flag`); an explicit but unknown value is a 400.
+ */
+export function parseSupersessionMode(raw: string | undefined): SupersessionMode {
+  if (raw === undefined || raw === '') return 'suppress'
+  if ((SUPERSESSION_MODES as readonly string[]).includes(raw)) return raw as SupersessionMode
+  throw new ValidationError(`invalid supersession_mode '${raw}'; expected off|flag|suppress`)
+}
+
+export function parseContradictionMode(raw: string | undefined): ContradictionMode {
+  if (raw === undefined || raw === '') return 'flag'
+  if ((CONTRADICTION_MODES as readonly string[]).includes(raw)) return raw as ContradictionMode
+  throw new ValidationError(`invalid contradiction_mode '${raw}'; expected off|flag`)
+}
 
 interface HintItem {
   id: string
@@ -30,6 +55,8 @@ searchRouter.get('/search', async c => {
   const excludeFlagged = c.req.query('exclude_flagged') === 'true'
   const hybridParam = c.req.query('hybrid')
   const hybrid = hybridParam === null ? true : hybridParam !== '0'
+  const supersessionMode = parseSupersessionMode(c.req.query('supersession_mode'))
+  const contradictionMode = parseContradictionMode(c.req.query('contradiction_mode'))
 
   let clusterFilter: 'only' | 'exclude' | undefined
   if (clusterOpt === 'true') clusterFilter = 'only'
@@ -38,7 +65,8 @@ searchRouter.get('/search', async c => {
   return withTelemetry(c, { action: 'read', toolName: 'search_thoughts', query: q }, async c2 => {
     const searchOpts = {
       query: q, topK: k, statusFilter: status, projectFilter: project_id,
-      tagFilter: tag, clusterFilter, minImportance, excludeFlagged, hybrid
+      tagFilter: tag, clusterFilter, minImportance, excludeFlagged, hybrid,
+      supersessionMode, contradictionMode
     }
     let results = groupByCluster
       ? await searchThoughtsGrouped(searchOpts)

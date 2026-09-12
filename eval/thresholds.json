@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "modes": {
+    "deterministic": {
+      "generatedAt": "2026-09-12T05:27:39.901Z",
+      "mode": "deterministic",
+      "baseline": {
+        "overall": {
+          "recall": 1,
+          "precision": 0.32,
+          "mrr": 1,
+          "hitRate": 1,
+          "queries": 15
+        },
+        "categories": {
+          "explicit-fact": {
+            "recall": 1,
+            "precision": 0.2,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 3
+          },
+          "multi-hop": {
+            "recall": 1,
+            "precision": 0.3,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 2
+          },
+          "temporal": {
+            "recall": 1,
+            "precision": 0.2,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 2
+          },
+          "consolidation": {
+            "recall": 1,
+            "precision": 0.2,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 1
+          },
+          "project-scope": {
+            "recall": 1,
+            "precision": 1,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 2
+          },
+          "retrieval-quality": {
+            "recall": 1,
+            "precision": 0.2,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 5
+          }
+        }
+      },
+      "thresholds": {
+        "overall": {
+          "recall": 0.98,
+          "precision": 0.3,
+          "mrr": 0.98,
+          "hitRate": 0.98
+        },
+        "categories": {
+          "explicit-fact": {
+            "recall": 0.98,
+            "precision": 0.18,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          },
+          "multi-hop": {
+            "recall": 0.98,
+            "precision": 0.28,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          },
+          "temporal": {
+            "recall": 0.98,
+            "precision": 0.18,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          },
+          "consolidation": {
+            "recall": 0.98,
+            "precision": 0.18,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          },
+          "project-scope": {
+            "recall": 0.98,
+            "precision": 0.98,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          },
+          "retrieval-quality": {
+            "recall": 0.98,
+            "precision": 0.18,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          }
+        }
+      }
+    }
+  }
+}

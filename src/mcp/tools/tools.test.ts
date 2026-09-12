@@ -615,6 +615,85 @@ describe('archive edge cases', () => {
   })
 })
 
+// ── link edge types (epic #141: contradicts / supports) ──────────────────────
+
+describe('memory_store link edge types', () => {
+  async function createPair(): Promise<{ a: string; b: string }> {
+    const a = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'source claim' }
+    })
+    const b = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'target claim' }
+    })
+    return { a: parseResult(a).data.id, b: parseResult(b).data.id }
+  }
+
+  test('accepts contradicts and is idempotent in both directions', async () => {
+    const { a, b } = await createPair()
+
+    const forward = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'link', thought_id: a, target_id: b, edge_type: 'contradicts' }
+    })
+    const { data: edge, isError } = parseResult(forward)
+    expect(isError).toBe(false)
+    expect(edge.type).toBe('contradicts')
+    expect(edge.source_id).toBe(a)
+    expect(edge.target_id).toBe(b)
+
+    const reverse = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'link', thought_id: b, target_id: a, edge_type: 'contradicts' }
+    })
+    expect(parseResult(reverse).isError).toBe(false)
+    expect(parseResult(reverse).data.id).toBe(edge.id)
+  })
+
+  test('accepts supports and rejects a reverse duplicate', async () => {
+    const { a, b } = await createPair()
+
+    const forward = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'link', thought_id: a, target_id: b, edge_type: 'supports' }
+    })
+    const { data: edge, isError } = parseResult(forward)
+    expect(isError).toBe(false)
+    expect(edge.type).toBe('supports')
+    expect(edge.source_id).toBe(a)
+
+    const reverse = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'link', thought_id: b, target_id: a, edge_type: 'supports' }
+    })
+    expect(parseResult(reverse).isError).toBe(true)
+  })
+
+  test('rejects an invalid edge_type', async () => {
+    const { a, b } = await createPair()
+    const result = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'link', thought_id: a, target_id: b, edge_type: 'frobnicates' }
+    })
+    expect(parseResult(result).isError).toBe(true)
+  })
+
+  test('edge_suggestions action returns a detection result shape', async () => {
+    await createPair()
+    const result = await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'edge_suggestions' }
+    })
+    const { data, isError } = parseResult(result)
+    expect(isError).toBe(false)
+    expect(Array.isArray(data.proposals)).toBe(true)
+    expect(typeof data.candidates).toBe('number')
+    expect(typeof data.degraded).toBe('boolean')
+    expect(typeof data.nli_enabled).toBe('boolean')
+  })
+})
+
 describe('search with project scope', () => {
   test('projectFilter scopes search results', async () => {
     const proj = await client.callTool({

@@ -28,6 +28,10 @@ interface Config {
     minSimilarity: number; maxEdgesPerRun: number;
     minEntityOverlap: number; dryRun: boolean
   }
+  edgeDetect: {
+    minSimilarity: number; topK: number; maxCandidates: number;
+    maxProposals: number; nliThreshold: number; supportThreshold: number
+  }
   selfImprove: {
     enabled: boolean; intervalMs: number; orphanThreshold: number;
     activationThreshold: number; hitsThreshold: number;
@@ -67,6 +71,10 @@ export const DEFAULTS: Config = {
   autoLink: {
     minSimilarity: 0.65, maxEdgesPerRun: 20,
     minEntityOverlap: 1, dryRun: false
+  },
+  edgeDetect: {
+    minSimilarity: 0.75, topK: 10, maxCandidates: 100,
+    maxProposals: 20, nliThreshold: 0.8, supportThreshold: 0.8
   },
   selfImprove: {
     enabled: false, intervalMs: 86400000, orphanThreshold: 0.5,
@@ -139,6 +147,13 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_AUTO_LINK_MAX_EDGES', path: 'autoLink.maxEdgesPerRun', type: 'int' },
   { env: 'SYNAPTOMIND_AUTO_LINK_MIN_ENTITY_OVERLAP', path: 'autoLink.minEntityOverlap', type: 'int' },
   { env: 'SYNAPTOMIND_AUTO_LINK_DRY_RUN', path: 'autoLink.dryRun', type: 'bool' },
+
+  { env: 'SYNAPTOMIND_EDGE_DETECT_MIN_SIMILARITY', path: 'edgeDetect.minSimilarity', type: 'float' },
+  { env: 'SYNAPTOMIND_EDGE_DETECT_TOP_K', path: 'edgeDetect.topK', type: 'int' },
+  { env: 'SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES', path: 'edgeDetect.maxCandidates', type: 'int' },
+  { env: 'SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS', path: 'edgeDetect.maxProposals', type: 'int' },
+  { env: 'SYNAPTOMIND_EDGE_DETECT_NLI_THRESHOLD', path: 'edgeDetect.nliThreshold', type: 'float' },
+  { env: 'SYNAPTOMIND_EDGE_DETECT_SUPPORT_THRESHOLD', path: 'edgeDetect.supportThreshold', type: 'float' },
 
   { env: 'SYNAPTOMIND_SELF_IMPROVE_ENABLED', path: 'selfImprove.enabled', type: 'bool' },
   { env: 'SYNAPTOMIND_SELF_IMPROVE_INTERVAL_MS', path: 'selfImprove.intervalMs', type: 'int' },

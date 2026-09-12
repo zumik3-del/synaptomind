@@ -424,13 +424,16 @@ Falls back to default instructions if file not found.
 ## Development
 
 ```bash
-bun test          # run tests
-bunx biome check src/   # lint (advisory)
+bun test                 # run tests
+bun run eval             # memory evaluation harness (recall@k, MRR, baselines)
+bunx biome check src/ eval/   # lint (advisory)
 ```
 
 For step-by-step usage scenarios, see [docs/SCENARIOS.md](docs/SCENARIOS.md).
 
 For performance benchmarks (search latency, write throughput, embedding speed), see [docs/BENCHMARK.md](docs/BENCHMARK.md).
+
+For the memory evaluation harness (metrics, datasets, thresholds), see [docs/EVAL.md](docs/EVAL.md).
 
 ---
 

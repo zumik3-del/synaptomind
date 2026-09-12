@@ -5,6 +5,8 @@ import {
   findIslandThoughts, findOverlinkedThoughts,
   findDuplicateContent, findTooShort, findTestRemnants, findStaleDrafts, findUntagged,
   findCircularChains, findBrokenParentChains, findReplacesChains,
+  findContradictsWithHierarchy, findContradictsRedundantWithReplaces, findContradictionInCluster,
+  findContradictsToArchived, findSupportsSelfConflict,
   findMissingEmbeddings, findDeadPrimers, findImportanceOutliers,
   getGraphStats, deleteEdges, deleteThoughts,
   type OrphanEdge, type SelfLoopEdge, type EmptyCluster, type OrphanedClusterMember, type TestRemnant,
@@ -98,6 +100,11 @@ const SEMANTIC_CHECKS: CheckDef[] = [
   { name: 'circular_chains', severity: 'warning', finder: findCircularChains },
   { name: 'broken_parent_chains', severity: 'warning', finder: findBrokenParentChains },
   { name: 'replaces_chains', severity: 'warning', finder: findReplacesChains },
+  { name: 'contradicts_with_hierarchy', severity: 'warning', finder: findContradictsWithHierarchy },
+  { name: 'contradiction_in_cluster', severity: 'warning', finder: findContradictionInCluster },
+  { name: 'contradicts_redundant_with_replaces', severity: 'info', finder: findContradictsRedundantWithReplaces },
+  { name: 'contradicts_to_archived', severity: 'info', finder: findContradictsToArchived },
+  { name: 'supports_self_conflict', severity: 'critical', finder: findSupportsSelfConflict },
 ]
 
 const DRIFT_CHECKS: CheckDef[] = [
