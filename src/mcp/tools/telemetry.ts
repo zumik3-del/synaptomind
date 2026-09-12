@@ -1,30 +1,54 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { Database } from 'bun:sqlite'
-import { getLogDb } from '../../logging'
 import { runSelfImproveJob } from '../../services/self-improve.service'
-import {
-  queryPatterns,
-  queryFrequency,
-  queryOrphanWritesAggregate,
-  queryDraftLifecycle
-} from '../../services/telemetry-queries'
+import { queryTelemetryMetric, type TelemetryMetric } from '../../services/telemetry.service'
 import { listPrimersService, deletePrimerService } from '../../services/primers.service'
-import { jsonResult, errorResult, toolOutputShape } from './utils'
+import { registerActionTool, type ActionArgs } from './action-tool'
 
-type MetricHandler = (since: string, limit: number) => unknown
+const METRICS = ['patterns', 'frequency', 'orphan_writes', 'draft_lifecycle'] as const
 
-function buildMetricHandlers(logDb: Database) {
-  return {
-    patterns: (since: string, limit: number) => queryPatterns(logDb, since, limit),
-    frequency: (since: string, limit: number) => queryFrequency(logDb, since, limit),
-    orphan_writes: (since: string) => queryOrphanWritesAggregate(logDb, since),
-    draft_lifecycle: (since: string) => queryDraftLifecycle(logDb, since)
+const handlers = {
+  query: {
+    input: z.object({ metric: z.enum(METRICS, { error: 'metric is required for query action' }) }),
+    run(args: ActionArgs) {
+      const windowSec = (args.window as number | undefined) ?? 86400
+      const since = new Date(Date.now() - windowSec * 1000).toISOString()
+      const limit = (args.limit as number | undefined) ?? 10
+      const result = queryTelemetryMetric(args.metric as TelemetryMetric, since, limit)
+      if (!result.ok) throw new Error(result.error)
+      return result.data
+    }
+  },
+
+  analyze: {
+    async run(args: ActionArgs) {
+      return runSelfImproveJob({ dryRun: args.dry_run as boolean | undefined })
+    }
+  },
+
+  primers: {
+    input: z
+      .object({
+        primer_action: z.enum(['list', 'delete']).optional(),
+        primer_id: z.string().optional()
+      })
+      .refine(v => v.primer_action !== 'delete' || !!v.primer_id, {
+        message: 'primer_id required for delete',
+        path: ['primer_id']
+      }),
+    run(args: ActionArgs) {
+      const primerAction = (args.primer_action as 'list' | 'delete' | undefined) ?? 'list'
+      if (primerAction === 'delete') {
+        return { deleted: deletePrimerService(args.primer_id as string) }
+      }
+      return listPrimersService()
+    }
   }
 }
 
 export function registerMemoryTelemetry(server: McpServer) {
-  server.registerTool('memory_telemetry', {
+  registerActionTool(server, {
+    name: 'memory_telemetry',
     description: `Analytics and self-improvement. Actions:
 - query: Query telemetry aggregates (patterns, frequency, orphan_writes, draft_lifecycle)
 - analyze: Analyze thought patterns — orphans, merges, promotions (self-improve job)
@@ -38,45 +62,6 @@ export function registerMemoryTelemetry(server: McpServer) {
       primer_action: z.enum(['list', 'delete']).optional().describe('Primer action (primers only)'),
       primer_id: z.string().optional().describe('Primer ID to delete (primers delete only)')
     },
-    outputSchema: toolOutputShape
-  }, async (args) => {
-    try {
-      if (args.action === 'query') {
-        const logDb = getLogDb()
-        if (!logDb) return errorResult('Log database not available')
-        const windowSec = args.window ?? 86400
-        const since = new Date(Date.now() - windowSec * 1000).toISOString()
-        const limit = args.limit ?? 10
-        if (!args.metric) return errorResult('metric is required for query action')
-        const handlers = buildMetricHandlers(logDb)
-        const handler = (handlers as Record<string, MetricHandler>)[args.metric]
-        if (!handler) return errorResult('Invalid metric')
-        const rows = handler(since, limit)
-        return jsonResult(rows)
-      }
-
-      if (args.action === 'analyze') {
-        const result = await runSelfImproveJob({ dryRun: args.dry_run })
-        return jsonResult(result)
-      }
-
-      if (args.action === 'primers') {
-        const primerAction = args.primer_action ?? 'list'
-        if (primerAction === 'list') {
-          const primers = listPrimersService()
-          return jsonResult(primers)
-        }
-        if (primerAction === 'delete') {
-          if (!args.primer_id) return errorResult('primer_id required for delete')
-          const deleted = deletePrimerService(args.primer_id)
-          return jsonResult({ deleted })
-        }
-        return errorResult('Invalid primer action')
-      }
-
-      return errorResult(`Unknown action: ${args.action}`)
-    } catch (err) {
-      return errorResult(err instanceof Error ? err.message : 'memory_telemetry failed')
-    }
+    handlers
   })
 }

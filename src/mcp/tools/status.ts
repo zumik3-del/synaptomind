@@ -3,73 +3,65 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getSlots } from '../../services/slots.service'
 import { getFrontier } from '../../services/frontier.service'
 import { getProfileService } from '../../services/profile.service'
-import { config, DEFAULTS, ENV_MAPPINGS } from '../../config'
+import { buildConfigDisplay } from '../../services/config-display.service'
 import { runHealthCheck } from '../../services/health-check.service'
 import { detectEdgeProposals } from '../../services/edge-detect.service'
 import { cleanupArchivedThoughts } from '../../services/ttl-cleanup.service'
-import { jsonResult, errorResult, resolveProjectId, toolOutputShape } from './utils'
+import { resolveProjectId } from './utils'
+import { registerActionTool, type ActionArgs } from './action-tool'
 
-function formatValue(val: unknown): string {
-  if (val === null || val === undefined) return '-'
-  if (typeof val === 'boolean') return val ? 'yes' : 'no'
-  if (typeof val === 'number') return String(val)
-  if (typeof val === 'string') return val || '-'
-  return JSON.stringify(val)
-}
+const handlers = {
+  slots: {
+    run(args: ActionArgs) {
+      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      return getSlots({ names: args.names as string[] | undefined, projectId: projectFilter })
+    }
+  },
 
-function getVal(obj: Record<string, any>, path: string): unknown {
-  const keys = path.split('.')
-  let current = obj
-  for (const key of keys) {
-    if (current == null || typeof current !== 'object') return undefined
-    current = current[key]
-  }
-  return current
-}
+  frontier: {
+    run(args: ActionArgs) {
+      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      return getFrontier({ project_id: projectFilter, k: args.k as number | undefined })
+    }
+  },
 
-const SECTION_LABELS: Record<string, string> = {
-  contentLanguage: 'General', server: 'Server', mcp: 'MCP', db: 'Database',
-  logDbPath: 'Database', embedder: 'Embedder', thoughts: 'Thoughts', decay: 'Decay',
-  smartNotes: 'Smart Notes', primer: 'Primer', verify: 'Verify',
-  autoCluster: 'Auto Cluster', autoLink: 'Auto Link', selfImprove: 'Self Improve',
-  edgeDetect: 'Edge Detect', slots: 'Slots', git: 'Git'
-}
+  profile: {
+    run() {
+      const { stats, thoughts } = getProfileService()
+      return { stats, thoughts }
+    }
+  },
 
-// Filesystem layout must not leak to MCP clients: redact path-bearing settings.
-const SENSITIVE_PATH_KEYS = new Set(['db.path', 'logDbPath', 'embedder.cacheDir', 'mcp.instructionsFile'])
+  config: {
+    run() {
+      const text = buildConfigDisplay()
+      return { content: [{ type: 'text' as const, text }], structuredContent: { result: text } }
+    }
+  },
 
-function displayValue(path: string, val: unknown): string {
-  if (SENSITIVE_PATH_KEYS.has(path)) {
-    return val === null || val === undefined || val === '' ? '-' : '[redacted]'
-  }
-  return formatValue(val)
-}
+  health: {
+    run(args: ActionArgs) {
+      return runHealthCheck({ severity: args.severity as 'critical' | 'warning' | 'info' | undefined, fix: args.fix as boolean | undefined })
+    }
+  },
 
-function buildConfigDisplay(): string {
-  const c: Record<string, any> = config as any
-  const d: Record<string, any> = DEFAULTS as any
-  const sections = new Map<string, Array<{ path: string; env: string }>>()
-  for (const mapping of ENV_MAPPINGS) {
-    const topKey = mapping.path.split('.')[0]
-    const section = SECTION_LABELS[topKey] || topKey
-    if (!sections.has(section)) sections.set(section, [])
-    sections.get(section)!.push({ path: mapping.path, env: mapping.env })
-  }
-  let out = 'SynaptoMind Configuration\n'
-  for (const [section, entries] of sections) {
-    out += `\n--- ${section} ---\n`
-    for (const { path, env } of entries) {
-      const val = displayValue(path, getVal(c, path))
-      const def = displayValue(path, getVal(d, path))
-      const defNote = def !== val ? ` [default: ${def}]` : ''
-      out += `  ${path} = ${val} (${env})${defNote}\n`
+  edge_suggestions: {
+    async run(args: ActionArgs) {
+      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      return detectEdgeProposals({ projectId: projectFilter })
+    }
+  },
+
+  cleanup: {
+    run(args: ActionArgs) {
+      return cleanupArchivedThoughts((args.dry_run as boolean | undefined) ?? true)
     }
   }
-  return out
 }
 
 export function registerMemoryStatus(server: McpServer) {
-  server.registerTool('memory_status', {
+  registerActionTool(server, {
+    name: 'memory_status',
     description: `Query system state. Actions:
 - slots: Get context slots (persona, pending_items, architecture_decisions, project_context, active_goals)
 - frontier: Get "what to do next" ranking
@@ -79,7 +71,7 @@ export function registerMemoryStatus(server: McpServer) {
 - edge_suggestions: Detect potential contradicts/supports candidates (read-only; confirm via memory_store action=link)
 - cleanup: Preview expired archived thoughts based on TTL config (dry-run by default; pass dry_run=false to delete)`,
     inputSchema: {
-      action: z.enum(['slots', 'frontier', 'profile', 'config', 'health', 'edge_suggestions', 'cleanup']).optional().describe('Action (default: slots)'),
+      action: z.enum(['slots', 'frontier', 'profile', 'config', 'health', 'edge_suggestions', 'cleanup']).describe('Action'),
       names: z.array(z.string()).optional().describe('Filter by slot names (slots only)'),
       project_id: z.string().optional().describe('Filter by project (slots/frontier/edge_suggestions only)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project (slots/frontier/edge_suggestions only)'),
@@ -88,52 +80,6 @@ export function registerMemoryStatus(server: McpServer) {
       fix: z.boolean().optional().describe('Auto-fix safe issues (health only)'),
       dry_run: z.boolean().optional().describe('Preview without deleting (cleanup only). Defaults to true; set false to actually delete.')
     },
-    outputSchema: toolOutputShape
-  }, async (args) => {
-    const action = args.action ?? 'slots'
-
-    try {
-      if (action === 'slots') {
-        const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-        const slots = getSlots({ names: args.names as string[] | undefined, projectId: projectFilter })
-        return jsonResult(slots)
-      }
-
-      if (action === 'frontier') {
-        const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-        const frontier = getFrontier({ project_id: projectFilter, k: args.k })
-        return jsonResult(frontier)
-      }
-
-      if (action === 'profile') {
-        const { stats, thoughts } = getProfileService()
-        return jsonResult({ stats, thoughts })
-      }
-
-      if (action === 'config') {
-        const text = buildConfigDisplay()
-        return { content: [{ type: 'text' as const, text }], structuredContent: { result: text } }
-      }
-
-      if (action === 'health') {
-        const report = runHealthCheck({ severity: args.severity, fix: args.fix })
-        return jsonResult(report)
-      }
-
-      if (action === 'edge_suggestions') {
-        const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-        const result = await detectEdgeProposals({ projectId: projectFilter })
-        return jsonResult(result)
-      }
-
-      if (action === 'cleanup') {
-        const result = cleanupArchivedThoughts(args.dry_run ?? true)
-        return jsonResult(result)
-      }
-
-      return errorResult(`Unknown action: ${action}`)
-    } catch (err) {
-      return errorResult(err instanceof Error ? err.message : 'memory_status failed')
-    }
+    handlers
   })
 }

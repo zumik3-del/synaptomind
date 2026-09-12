@@ -4,10 +4,47 @@ import { crystallize } from '../../services/crystals.service'
 import { getGraphDataService } from '../../services/graph.service'
 import { createClusterService } from '../../services/cluster.service'
 import { runAutoClusterJob } from '../../services/auto-cluster.service'
-import { jsonResult, errorResult, resolveProjectId, toolOutputShape } from './utils'
+import { resolveProjectId } from './utils'
+import { registerActionTool, type ActionArgs } from './action-tool'
+
+const handlers = {
+  crystallize: {
+    run(args: ActionArgs) {
+      const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      return crystallize({ thought_ids: args.thought_ids as string[] | undefined, cluster_id: args.cluster_id as string | undefined, style: args.style as 'runbook' | 'decision-log' | 'overview' | undefined, project_id: projectId })
+    }
+  },
+
+  graph: {
+    run(args: ActionArgs) {
+      const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      return getGraphDataService(projectId, args.status as string | undefined, args.limit as number | undefined)
+    }
+  },
+
+  cluster: {
+    input: z.object({
+      thought_ids: z
+        .array(z.string(), { error: 'thought_ids is required for cluster action' })
+        .min(1, 'thought_ids is required for cluster action')
+    }),
+    run(args: ActionArgs) {
+      const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      return createClusterService({ thoughtIds: args.thought_ids as string[], title: args.title as string | undefined, tags: args.tags as string[] | undefined, projectId })
+    }
+  },
+
+  auto_cluster: {
+    // auto_cluster is a global operation and must not resolve or warn about a project.
+    async run(args: ActionArgs) {
+      return runAutoClusterJob({ minAgeDays: args.min_age_days as number | undefined, minSimilarity: args.min_similarity as number | undefined, minMembers: args.min_members as number | undefined, dryRun: args.dry_run as boolean | undefined })
+    }
+  }
+}
 
 export function registerMemoryCrystallize(server: McpServer) {
-  server.registerTool('memory_crystallize', {
+  registerActionTool(server, {
+    name: 'memory_crystallize',
     description: `Consolidate and visualize thoughts. Actions:
 - crystallize: Compress thoughts/clusters into markdown (runbook, decision-log, or overview)
 - graph: Return all thoughts and edges as a graph
@@ -29,38 +66,6 @@ export function registerMemoryCrystallize(server: McpServer) {
       min_members: z.number().int().min(1).max(1000).optional().describe('Min members per cluster (auto_cluster only)'),
       dry_run: z.boolean().optional().describe('Dry run mode (auto_cluster only)')
     },
-    outputSchema: toolOutputShape
-  }, async (args) => {
-    try {
-      // auto_cluster is a global operation and must not resolve or warn about a project.
-      const projectId = args.action === 'auto_cluster'
-        ? undefined
-        : resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-
-      if (args.action === 'crystallize') {
-        const result = crystallize({ thought_ids: args.thought_ids, cluster_id: args.cluster_id, style: args.style, project_id: projectId })
-        return jsonResult(result)
-      }
-
-      if (args.action === 'graph') {
-        const graph = getGraphDataService(projectId, args.status, args.limit)
-        return jsonResult(graph)
-      }
-
-      if (args.action === 'cluster') {
-        if (!args.thought_ids || args.thought_ids.length === 0) return errorResult('thought_ids is required for cluster action')
-        const result = createClusterService({ thoughtIds: args.thought_ids, title: args.title, tags: args.tags, projectId: projectId })
-        return jsonResult(result)
-      }
-
-      if (args.action === 'auto_cluster') {
-        const result = await runAutoClusterJob({ minAgeDays: args.min_age_days, minSimilarity: args.min_similarity, minMembers: args.min_members, dryRun: args.dry_run })
-        return jsonResult(result)
-      }
-
-      return errorResult(`Unknown action: ${args.action}`)
-    } catch (err) {
-      return errorResult(err instanceof Error ? err.message : 'memory_crystallize failed')
-    }
+    handlers
   })
 }

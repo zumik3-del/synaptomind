@@ -8,68 +8,77 @@ import {
   getProjectService,
   resolveProjectService
 } from '../../services/projects.service'
-import { jsonResult, errorResult, toolOutputShape } from './utils'
+import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
-type ManageArgs = Record<string, unknown>
-
-const actionHandlers: Record<string, (args: ManageArgs) => unknown | Promise<unknown>> = {
-  list() {
-    return listProjectsService()
+const handlers = {
+  list: {
+    run() {
+      return listProjectsService()
+    }
   },
 
-  create(args) {
-    if (!args.name) throw new Error('name is required for create action')
-    return createProjectService({
-      name: args.name as string, description: args.description as string | undefined, local_path: args.local_path as string | undefined
-    })
+  create: {
+    input: z.object({ name: requiredString('name is required for create action') }),
+    run(args: ActionArgs) {
+      return createProjectService({
+        name: args.name as string, description: args.description as string | undefined, local_path: args.local_path as string | undefined
+      })
+    }
   },
 
-  update(args) {
-    if (!args.project_id) throw new Error('project_id is required for update action')
-    updateProjectService(args.project_id as string, {
-      name: args.name as string | undefined, description: args.description as string | undefined, local_path: args.local_path as string | undefined
-    })
-    return { success: true, project_id: args.project_id }
+  update: {
+    input: z.object({ project_id: requiredString('project_id is required for update action') }),
+    run(args: ActionArgs) {
+      updateProjectService(args.project_id as string, {
+        name: args.name as string | undefined, description: args.description as string | undefined, local_path: args.local_path as string | undefined
+      })
+      return { success: true, project_id: args.project_id }
+    }
   },
 
-  delete(args) {
-    if (!args.project_id) throw new Error('project_id is required for delete action')
-    const project = getProjectService(args.project_id as string)
-    if (!project) throw new Error(`Project not found: ${args.project_id}`)
-    if (project.name === 'Default') throw new Error('Cannot delete the Default project.')
+  delete: {
+    input: z.object({ project_id: requiredString('project_id is required for delete action') }),
+    run(args: ActionArgs) {
+      const project = getProjectService(args.project_id as string)
+      if (!project) throw new Error(`Project not found: ${args.project_id}`)
+      if (project.name === 'Default') throw new Error('Cannot delete the Default project.')
 
-    if (!args.confirm) {
+      if (!args.confirm) {
+        return {
+          action: 'preview',
+          project: { id: project.id, name: project.name, description: project.description },
+          thought_count: project.thought_count,
+          consequence: project.thought_count > 0
+            ? `${project.thought_count} thought(s) will be moved to the Default project before deletion.`
+            : 'Project has no thoughts — safe to delete.',
+          instruction: 'Call memory_manage again with action=delete, project_id=..., confirm=true to proceed.'
+        }
+      }
+
+      const deleted = deleteProjectService(args.project_id as string)
+      if (!deleted) throw new Error(`Failed to delete project: ${args.project_id}`)
       return {
-        action: 'preview',
-        project: { id: project.id, name: project.name, description: project.description },
-        thought_count: project.thought_count,
-        consequence: project.thought_count > 0
-          ? `${project.thought_count} thought(s) will be moved to the Default project before deletion.`
-          : 'Project has no thoughts — safe to delete.',
-        instruction: 'Call memory_manage again with action=delete, project_id=..., confirm=true to proceed.'
+        action: 'deleted',
+        project: { id: project.id, name: project.name },
+        thoughts_moved: project.thought_count,
+        moved_to: project.thought_count > 0 ? 'Default project' : undefined
       }
     }
-
-    const deleted = deleteProjectService(args.project_id as string)
-    if (!deleted) throw new Error(`Failed to delete project: ${args.project_id}`)
-    return {
-      action: 'deleted',
-      project: { id: project.id, name: project.name },
-      thoughts_moved: project.thought_count,
-      moved_to: project.thought_count > 0 ? 'Default project' : undefined
-    }
   },
 
-  resolve(args) {
-    if (!args.cwd) throw new Error('cwd is required for resolve action')
-    const project = resolveProjectService(args.cwd as string)
-    if (!project) throw new Error(`No project found for path: ${args.cwd}`)
-    return { id: project.id, name: project.name, local_path: project.local_path }
+  resolve: {
+    input: z.object({ cwd: requiredString('cwd is required for resolve action') }),
+    run(args: ActionArgs) {
+      const project = resolveProjectService(args.cwd as string)
+      if (!project) throw new Error(`No project found for path: ${args.cwd}`)
+      return { id: project.id, name: project.name, local_path: project.local_path }
+    }
   }
 }
 
 export function registerMemoryManage(server: McpServer) {
-  server.registerTool('memory_manage', {
+  registerActionTool(server, {
+    name: 'memory_manage',
     description: `Manage projects. Actions:
 - list: List all projects
 - create: Create a new project
@@ -85,14 +94,6 @@ export function registerMemoryManage(server: McpServer) {
       confirm: z.boolean().optional().describe('Set to true to actually delete. Set to false to preview first.'),
       cwd: z.string().optional().describe('REQUIRED ONLY for "resolve". Working directory path to resolve project from.')
     },
-    outputSchema: toolOutputShape
-  }, async (args) => {
-    try {
-      const handler = actionHandlers[args.action as string]
-      if (!handler) return errorResult(`Unknown action: ${args.action}`)
-      return jsonResult(await handler(args))
-    } catch (err) {
-      return errorResult(err instanceof Error ? err.message : 'memory_manage failed')
-    }
+    handlers
   })
 }
