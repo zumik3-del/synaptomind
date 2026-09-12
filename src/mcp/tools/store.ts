@@ -93,7 +93,7 @@ export function registerMemoryStore(server: McpServer) {
       url_links: z.array(z.object({ text: z.string(), url: z.string() })).optional().describe('URL links (for create)'),
       thought_id: z.string().optional().describe('REQUIRED for "update", "link", "smart_note_create", "smart_note_promote", "smart_note_delete". IGNORED for "create".'),
       target_id: z.string().optional().describe('REQUIRED ONLY for "link". IGNORED for all other actions.'),
-      edge_type: z.enum(['related', 'parent', 'develops', 'replaces', 'cluster', 'references', 'depends_on']).optional().describe('Edge type (default: related)'),
+      edge_type: z.enum(['related', 'parent', 'develops', 'replaces', 'cluster', 'references', 'depends_on', 'contradicts', 'supports']).optional().describe('Edge type (default: related)'),
       surface_condition: z.record(z.string(), z.any()).optional().describe('REQUIRED ONLY for "smart_note_create". Valid condition types: older_than_days, has_tag, has_edge_type, project_status, unread_for_days. IGNORED for all other actions.'),
       note_id: z.string().optional().describe('REQUIRED ONLY for "smart_note_promote" and "smart_note_delete". IGNORED for all other actions.')
     },

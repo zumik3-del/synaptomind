@@ -137,3 +137,16 @@ test('getFrontier does not block via develops edge', () => {
   expect(itemB).toBeDefined()
   expect(itemB!.blocked_by).toEqual([])
 })
+
+test('getFrontier keeps contradicted thoughts (only replaces removes)', () => {
+  const a = seedThought({ content: 'claim a' })
+  const b = seedThought({ content: 'rival claim b' })
+  tagThought(a, 'directive')
+  tagThought(b, 'directive')
+  const db = getDb()
+  db.prepare("INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'contradicts', ?)").run('e1', a, b, new Date().toISOString())
+  const result = getFrontier()
+  // contradiction is symmetric and neither side is authoritative — both stay
+  expect(result.items.find(i => i.thought_id === a)).toBeDefined()
+  expect(result.items.find(i => i.thought_id === b)).toBeDefined()
+})

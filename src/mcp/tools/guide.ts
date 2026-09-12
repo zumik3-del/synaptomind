@@ -28,7 +28,7 @@ function buildGuideText(softLimit: number): string {
 | \`memory_recall\` | search, get, context, chain, clusters | Find and retrieve thoughts |
 | \`memory_store\` | create, update, link, smart_note_* | Write, connect, and schedule thoughts |
 | \`memory_supersede\` | archive, merge | Version and supersede thoughts |
-| \`memory_status\` | slots, frontier, profile, config, health, cleanup | Query system state |
+| \`memory_status\` | slots, frontier, profile, config, health, edge_suggestions, cleanup | Query system state |
 | \`memory_manage\` | list, create, update, delete, resolve | Project management |
 | \`memory_crystallize\` | crystallize, graph, cluster, auto_cluster | Consolidate and visualize |
 | \`memory_reflect\` | reflect, timeline | Session management |
@@ -62,11 +62,13 @@ Rules: default status is draft. Profile thoughts (\`is_profile=1\`) cannot be ar
 | \`parent\` | Hierarchical decomposition. Source = parent, target = child |
 | \`develops\` | Conceptual evolution. Source evolves into target |
 | \`replaces\` | Source supersedes target. Target blocked in frontier |
+| \`contradicts\` | Two live, mutually exclusive claims. **Symmetric** (A↔B), neither side authoritative — never hide one endpoint |
+| \`supports\` | Source provides evidence for target. **Directed** |
 | \`cluster\` | Cluster → member. Only from cluster thoughts (\`is_cluster=1\`) |
 | \`references\` | Cluster ↔ cluster. Mutual link between clusters |
 | \`depends_on\` | Source blocked until target done. Affects frontier ranking |
 
-Constraints: no self-loops. One edge type per (source, target) pair. Cluster edges enforced strictly.
+Constraints: no self-loops. One edge type per (source, target) pair. Cluster edges enforced strictly. Symmetric \`related\`/\`contradicts\` are idempotent in both directions; linking a pair that already has a \`related\` edge with a specific type upgrades the placeholder.
 
 ## Smart Notes
 
@@ -122,9 +124,15 @@ Post-processing: hit counting → primer promotion → primer hoisting → profi
 
 Run \`memory_status\` (action=health) to audit graph integrity. Pass fix=true for auto-repair.
 
-Categories: structural integrity (orphan/self-loop edges), cluster health (empty/singleton), connectivity (islands), content quality (duplicates, stale drafts), semantic consistency (circular chains), data drift (missing embeddings).
+Categories: structural integrity (orphan/self-loop edges), cluster health (empty/singleton), connectivity (islands), content quality (duplicates, stale drafts), semantic consistency (circular chains, contradiction interactions), data drift (missing embeddings).
 
 Score: 100 - (critical×10) - (warning×3) - (info×0.5), clamped [0,100].
+
+## Contradiction / Support Suggestions
+
+Run \`memory_status\` (action=edge_suggestions) to get *candidate* pairs for \`contradicts\`/\`supports\` edges. Detection is a filter, never a source of truth: it is read-only and never writes edges. Confirm a suggestion explicitly with \`memory_store\` (action=link).
+
+Config: \`edgeDetect.minSimilarity\` (recall threshold), \`topK\`, \`maxCandidates\`, \`maxProposals\`, and NLI precision thresholds \`nliThreshold\`/\`supportThreshold\` (used only when an NLI classifier is injected; default off). Embedder unavailability degrades to an empty result (\`degraded: true\`) instead of failing.
 
 ## Crystals
 

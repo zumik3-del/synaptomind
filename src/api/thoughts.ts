@@ -4,6 +4,7 @@ import { withTelemetry } from '../logging'
 import type { ThoughtStatus } from '../types/thought'
 import { jsonBodyOrDefault } from './utils'
 import { runAutoLinkJob } from '../services/auto-link.service'
+import { detectEdgeProposals } from '../services/edge-detect.service'
 import { getChainService } from '../services/graph.service'
 import { getLastSelfImproveStatus, runSelfImproveJob } from '../services/self-improve.service'
 import {
@@ -40,6 +41,21 @@ thoughtsRouter.get('/timeline', c => {
 thoughtsRouter.post('/auto-link', async c => {
   const body = await jsonBodyOrDefault<{ dry_run?: boolean; max_edges?: number }>(c, {})
   const result = await runAutoLinkJob({ dryRun: body.dry_run ?? false, maxEdgesPerRun: body.max_edges ?? undefined })
+  return c.json(result)
+})
+
+// Read-only: returns scored contradicts/supports candidates; never writes edges.
+thoughtsRouter.post('/edge-detect', async c => {
+  const body = await jsonBodyOrDefault<{
+    project_id?: string
+    min_similarity?: number
+    max_proposals?: number
+  }>(c, {})
+  const result = await detectEdgeProposals({
+    projectId: body.project_id,
+    minSimilarity: body.min_similarity,
+    maxProposals: body.max_proposals
+  })
   return c.json(result)
 })
 

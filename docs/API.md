@@ -265,16 +265,30 @@ curl `-X DELETE http://127.0.0.1:3005/api/tags/<id>`
 
 ### POST /api/thoughts/:id/link
 
-Creates a typed edge between two thoughts. Returns 201; 409 if the edge already exists; 400 on invalid ids.
+Creates a typed edge between two thoughts. Returns 201; 409 if the same directed edge already exists; 400 on invalid ids, an unknown edge type, or a conflicting edge pair.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
 | target_id | body | string | required | Target thought id |
-| type | body | string | optional | Edge type (e.g. `related`, `parent`, `develops`, `replaces`, `cluster`, `references`, `depends_on`) |
+| type | body | string | optional | Edge type, default `related`. One of: `related`, `parent`, `develops`, `replaces`, `contradicts`, `supports`, `cluster`, `references`, `depends_on` |
 
 curl `-d '{"target_id": "<target>", "type": "references"}' http://127.0.0.1:3005/api/thoughts/<id>/link`
 
 Response: `{"id": "<edge-id>", "source_id": "<id>", "target_id": "<target>", "type": "references"}`
+
+Edge types:
+
+- `related` — general association (default).
+- `parent` — source is the parent of target.
+- `develops` — source evolves into target.
+- `replaces` — source supersedes target.
+- `contradicts` — two live, mutually exclusive claims; **symmetric** (A↔B), neither side authoritative.
+- `supports` — source provides evidence for target; **directed**.
+- `cluster` — cluster → member thought.
+- `references` — cluster ↔ cluster.
+- `depends_on` — source is blocked until target is done.
+
+One edge per unordered pair. Linking a pair that already has a `related` placeholder with a specific type upgrades it in place. Symmetric types (`related`, `contradicts`) are idempotent in both directions; a reverse `supports` on an existing forward `supports` is rejected as an edge conflict (400).
 
 ### DELETE /api/edges/:id
 

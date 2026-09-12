@@ -1,5 +1,6 @@
 import { getClusterForThoughtBatch } from '../db/edges'
 import { getDb } from '../db'
+import { annotateGraphStanding } from '../db/graph-annotations'
 import { type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
 import { getThoughtTagsBatch } from '../db/tags'
 import { getThought, parseTags } from '../db/thoughts'
@@ -34,6 +35,9 @@ async function generateEmbeddingWithFallback(query: string): Promise<Float32Arra
   }
 }
 
+export type SupersessionMode = 'off' | 'flag' | 'suppress'
+export type ContradictionMode = 'off' | 'flag'
+
 export interface SearchServiceOptions {
   query: string
   topK?: number
@@ -44,6 +48,10 @@ export interface SearchServiceOptions {
   minImportance?: number
   excludeFlagged?: boolean
   hybrid?: boolean
+  /** Superseded thoughts: `off` (no annotation), `flag` (default), `suppress`. */
+  supersessionMode?: SupersessionMode
+  /** Contradicted thoughts: `off` or `flag` (default). Never suppressed. */
+  contradictionMode?: ContradictionMode
 }
 
 export interface GroupedResult {
@@ -70,9 +78,51 @@ export async function searchThoughts(options: SearchServiceOptions): Promise<Sea
     entitySearchIds
   })
 
-  return options.tagFilter
+  const filtered = options.tagFilter
     ? filterByTags(results, options.tagFilter, d)
     : results
+  return applyGraphStanding(filtered, options, d)
+}
+
+/**
+ * ADR #142, item D2: attach graph standing to results after tag filtering and
+ * before post-processing, so primer hoisting can never promote a suppressed
+ * (superseded) thought. `suppress` drops superseded rows; `flag` keeps them
+ * annotated. Contradicted results are always flagged, never suppressed —
+ * contradiction is symmetric and neither endpoint is authoritative.
+ */
+function applyGraphStanding(
+  results: SearchResult[],
+  options: SearchServiceOptions,
+  d: Database
+): SearchResult[] {
+  const supersessionMode = options.supersessionMode ?? 'flag'
+  const contradictionMode = options.contradictionMode ?? 'flag'
+  if (results.length === 0) return results
+  if (supersessionMode === 'off' && contradictionMode === 'off') return results
+
+  const standingMap = annotateGraphStanding(d, results.map(r => r.thought.id))
+  const annotated: SearchResult[] = []
+
+  for (const result of results) {
+    const info = standingMap.get(result.thought.id)
+    const supersededBy = supersessionMode === 'off' ? [] : (info?.superseded_by ?? [])
+    const contradictedBy = contradictionMode === 'off' ? [] : (info?.contradicted_by ?? [])
+
+    if (supersessionMode === 'suppress' && supersededBy.length > 0) continue
+
+    const next: SearchResult = { ...result, standing: 'current' }
+    if (supersededBy.length > 0) {
+      next.superseded_by = supersededBy
+      next.standing = 'superseded'
+    } else if (contradictedBy.length > 0) {
+      next.standing = 'contradicted'
+    }
+    if (contradictedBy.length > 0) next.contradicted_by = contradictedBy
+    annotated.push(next)
+  }
+
+  return annotated
 }
 
 export async function searchThoughtsGrouped(options: SearchServiceOptions): Promise<GroupedResult[]> {

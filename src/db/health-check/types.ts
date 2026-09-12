@@ -108,6 +108,39 @@ export interface ReplacesChain {
   chain: string[]
 }
 
+export interface ContradictsWithHierarchy {
+  edge_id: string
+  source_id: string
+  target_id: string
+}
+
+export interface ContradictsRedundantWithReplaces {
+  contradicts_edge_id: string
+  replaces_edge_id: string
+  source_id: string
+  target_id: string
+}
+
+export interface ContradictionInCluster {
+  cluster_id: string
+  member_a: string
+  member_b: string
+  contradicts_edge_id: string
+}
+
+export interface ContradictsToArchived {
+  edge_id: string
+  source_id: string
+  target_id: string
+}
+
+export interface SupportsSelfConflict {
+  supports_edge_id: string
+  contradicts_edge_id: string
+  source_id: string
+  target_id: string
+}
+
 export interface MissingEmbedding {
   id: string
   content: string
