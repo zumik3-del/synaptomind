@@ -66,7 +66,9 @@ export function findReplacesChains(db: Database): ReplacesChain[] {
   function dfs(node: string, path: string[]) {
     const neighbors = adj.get(node) || []
     if (neighbors.length === 0) {
-      if (path.length > 1) chains.push([...path])
+      // A chain needs >= 2 replaces edges, i.e. >= 3 nodes. A single edge
+      // (path length 2) is a plain replacement, not a chain.
+      if (path.length > 2) chains.push([...path])
       return
     }
     for (const next of neighbors) {
