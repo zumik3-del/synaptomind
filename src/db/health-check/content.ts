@@ -8,6 +8,7 @@ export function findDuplicateContent(db: Database): DuplicateContent[] {
     JOIN thoughts b ON a.id < b.id
       AND a.content = b.content
       AND length(a.content) > 10
+    WHERE a.status != 'archived' AND b.status != 'archived'
   `).all() as Array<{ id_a: string; id_b: string; content_a: string; content_b: string }>
   return rows.map(r => ({ ...r, similarity: 1.0 }))
 }
@@ -24,6 +25,7 @@ export function findTestRemnants(db: Database): TestRemnant[] {
     SELECT id, content FROM thoughts
     WHERE is_cluster = 0
       AND status != 'archived'
+      AND length(content) <= 120
       AND (
         content GLOB '*[Tt]est*[Tt]hought*'
         OR content = 'Hello from SynaptoMind!'
