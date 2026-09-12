@@ -309,6 +309,29 @@ test("findDuplicateContent pairs identical long contents", () => {
 	expect([dupes[0]?.id_a, dupes[0]?.id_b].sort()).toEqual([a, b].sort());
 });
 
+test("findDuplicateContent ignores pairs with an archived side", () => {
+	const db = getDb();
+	// Both sides active → still reported.
+	const activeA = seedThought({ content: "duplicate active pair content" });
+	const activeB = seedThought({ content: "duplicate active pair content" });
+	// One side archived → the active survivor is not a duplicate.
+	const activeTwin = seedThought({ content: "archived side pair content" });
+	const archivedTwin = seedThought({
+		content: "archived side pair content",
+		status: "archived",
+	});
+	// Both sides archived → legacy garbage, not actionable.
+	seedThought({ content: "both archived pair content", status: "archived" });
+	seedThought({ content: "both archived pair content", status: "archived" });
+
+	const dupes = findDuplicateContent(db);
+	expect(dupes).toHaveLength(1);
+	const flagged = [dupes[0]?.id_a, dupes[0]?.id_b].sort();
+	expect(flagged).toEqual([activeA, activeB].sort());
+	expect(flagged).not.toContain(activeTwin);
+	expect(flagged).not.toContain(archivedTwin);
+});
+
 test("findTooShort uses a 10-char default and skips clusters", () => {
 	const db = getDb();
 	const short = seedThought({ content: "hi" });
@@ -335,6 +358,28 @@ test("findTestRemnants flags test-looking content", () => {
   expect(ids).toContain(likePrefix);
   expect(ids).not.toContain(archivedRemnant);
   expect(ids).toHaveLength(2);
+});
+
+test("findTestRemnants ignores long notes that only look like test content", () => {
+  const db = getDb();
+  // Starts with "Test " but is a long, durable ops note (>120 chars).
+  const longTestPrefix =
+    "Test DBs must live on /tmp for acceptable fsync speed; production data on a slow mount makes every write block and the whole suite flaky.";
+  // Contains "test ... thought" in prose but is a long, real note (>120 chars).
+  const longProse =
+    "When writing an integration test for the graph engine, a thought that mentions a test in prose is still a real note, not a leftover fixture, as long as it carries durable knowledge.";
+  expect(longTestPrefix.length).toBeGreaterThan(120);
+  expect(longProse.length).toBeGreaterThan(120);
+  const longPrefix = seedThought({ content: longTestPrefix });
+  const longProseNote = seedThought({ content: longProse });
+  // The short fixtures from the previous test are still flagged.
+  const shortRemnant = seedThought({ content: "Test thought A" });
+
+  const ids = findTestRemnants(db).map((r) => r.id);
+  expect(ids).not.toContain(longPrefix);
+  expect(ids).not.toContain(longProseNote);
+  expect(ids).toContain(shortRemnant);
+  expect(ids).toHaveLength(1);
 });
 
 test("findBrokenParentChains does not flag edges from an archived source", () => {
