@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.0-alpha.0
+
+> September 12, 2026
+
+- [`6610808`](https://github.com/zumik3-del/synaptomind/commit/6610808cb86537bf287a829cdc4c4523a5b85b16): chore: bump version to 0.7.0-alpha.0
+- [`924aa58`](https://github.com/zumik3-del/synaptomind/commit/924aa580459ce84b27d019e48b63ff19b2bffc3b): feat: memory evaluation, contradiction edges, supersession-aware retrieval (#124) (#125)
+
 ## v0.6.1
 
 > September 11, 2026
