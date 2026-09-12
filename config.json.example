@@ -6,7 +6,12 @@
   },
   "mcp": {
     "httpPort": 3006,
-    "instructionsFile": ""
+    "instructionsFile": "",
+    "corsOrigins": [],
+    "maxSessions": 100,
+    "sessionTtlMs": 3600000,
+    "keepAliveMs": 10000,
+    "maxEventsPerSession": 1000
   },
   "db": {
     "path": "./data/synaptomind.db",
