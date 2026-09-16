@@ -1,6 +1,6 @@
 {
   "name": "synaptomind",
-  "version": "0.7.0-beta.0",
+  "version": "0.7.1",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -22,8 +22,7 @@
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "hono": "^4.13.5",
-    "uuid": "^14.0.2"
+    "hono": "^4.13.5"
   },
   "overrides": {
     "adm-zip": "0.6.0",

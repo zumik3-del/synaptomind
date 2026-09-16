@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-05 · **Version**: 0.5.0 · **Env**: Debian 12, 4 cores, 8GB RAM
 
-> Measurements were taken on v0.5.0 as released. Current release: 0.6.0-beta.0. The default embedder interval (`embedder.pollIntervalMs`) is now 7000 ms (7s) — the "interval=3s" row below reflects the configuration used at measurement time, not the current default.
+> Measurements were taken on v0.5.0 as released. Current release: 0.7.1. The default embedder interval (`embedder.pollIntervalMs`) is now 7000 ms (7s) — the "interval=3s" row below reflects the configuration used at measurement time, not the current default.
 
 ---
 

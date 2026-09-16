@@ -10,6 +10,7 @@ import {
   findMissingEmbeddings, findDeadPrimers, findImportanceOutliers,
   getGraphStats, deleteEdges, deleteThoughts,
   type OrphanEdge, type SelfLoopEdge, type EmptyCluster, type OrphanedClusterMember, type TestRemnant,
+  type BrokenParentChain,
 } from '../db/health-check'
 import type { Database } from 'bun:sqlite'
 
@@ -98,7 +99,7 @@ const CONTENT_CHECKS: CheckDef[] = [
 
 const SEMANTIC_CHECKS: CheckDef[] = [
   { name: 'circular_chains', severity: 'warning', finder: findCircularChains },
-  { name: 'broken_parent_chains', severity: 'warning', finder: findBrokenParentChains },
+  { name: 'broken_parent_chains', severity: 'warning', finder: findBrokenParentChains, auto_fixable: true },
   { name: 'replaces_chains', severity: 'warning', finder: findReplacesChains },
   { name: 'contradicts_with_hierarchy', severity: 'warning', finder: findContradictsWithHierarchy },
   { name: 'contradiction_in_cluster', severity: 'warning', finder: findContradictionInCluster },
@@ -207,6 +208,16 @@ function runAutoFix(db: Database, categories: CategoryResult[]): void {
         case 'test_remnants': {
           const ids = (check.details as TestRemnant[]).map(t => t.id)
           deleteThoughts(db, ids)
+          break
+        }
+        case 'broken_parent_chains': {
+          // Only edges whose target is *archived* are truly dangling (the node
+          // is out of the graph). A draft target is a legitimate in-progress
+          // child and is left for manual review.
+          const ids = (check.details as BrokenParentChain[])
+            .filter(b => b.target_status === 'archived')
+            .map(b => b.edge_id)
+          if (ids.length > 0) deleteEdges(db, ids)
           break
         }
       }

@@ -1,5 +1,4 @@
 import type { Database } from 'bun:sqlite'
-import { v7 as uuidv7 } from 'uuid'
 import { config } from '../config'
 import { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError } from './errors'
 import { boostImportance, getThoughtRow, getThoughtsBatchWithTags, type Thought } from './thoughts'
@@ -72,7 +71,7 @@ export function createEdge(db: Database, sourceId: string, targetId: string, typ
 }
 
 function insertEdge(db: Database, sourceId: string, targetId: string, type: string): Edge {
-  const id = uuidv7()
+  const id = Bun.randomUUIDv7()
   const now = new Date().toISOString()
 
   const insertInTx = db.transaction(() => {
@@ -111,7 +110,7 @@ function upgradePlaceholderEdge(
   targetId: string,
   type: string
 ): Edge {
-  const id = uuidv7()
+  const id = Bun.randomUUIDv7()
   const now = new Date().toISOString()
 
   const upgradeInTx = db.transaction(() => {

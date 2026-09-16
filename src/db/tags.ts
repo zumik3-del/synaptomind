@@ -1,5 +1,4 @@
 import type { Database } from 'bun:sqlite'
-import { v7 as uuidv7 } from 'uuid'
 import { sqlIn } from './utils'
 
 export interface Tag {
@@ -39,7 +38,7 @@ export function createTag(db: Database, name: string): Tag {
   const canonical = canonicalTagName(name)
   const existing = findTagByName(db, canonical)
   if (existing) return existing
-  const id = uuidv7()
+  const id = Bun.randomUUIDv7()
   db.prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)').run(id, canonical, new Date().toISOString())
   return { id, name: canonical }
 }

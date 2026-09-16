@@ -1,5 +1,4 @@
 import type { Database } from 'bun:sqlite'
-import { v7 as uuidv7 } from 'uuid'
 
 export interface SlotRow {
   id: string
@@ -38,7 +37,7 @@ export function upsertSlot(db: Database, input: UpsertSlotInput): SlotRow {
   } else {
     db.prepare(
       `INSERT INTO slots (id, name, scope, scope_id, content, max_chars, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(uuidv7(), input.name, input.scope, input.scope_id, input.content, input.max_chars, new Date().toISOString())
+    ).run(Bun.randomUUIDv7(), input.name, input.scope, input.scope_id, input.content, input.max_chars, new Date().toISOString())
   }
   const row = getSlotRow(db, input.name, input.scope, input.scope_id)
   if (!row) throw new Error(`slot upsert failed: ${input.name}/${input.scope}`)

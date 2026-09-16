@@ -174,7 +174,7 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
       )
     }
   } else {
-    const id = crypto.randomUUID()
+    const id = Bun.randomUUIDv7()
     d.prepare(`INSERT INTO _meta (key, value) VALUES ('default_project_id', ?)`).run(id)
     d.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, 'Default', ?)`).run(id, new Date().toISOString())
   }

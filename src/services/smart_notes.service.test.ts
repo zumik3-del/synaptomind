@@ -2,9 +2,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createEdge } from "../db/edges";
 import { getDb } from "../db/container";
 import { closeDb } from "../db/init";
+import { createSmartNote } from "../db/smart_notes";
 import { getThoughtRow } from "../db/thoughts";
 import { createTestDb, seedThought } from "../test/helpers";
-import { evalCondition } from "./smart_notes.service";
+import { awakenReady, evalCondition, listSmartNotesWithReady } from "./smart_notes.service";
 
 beforeEach(createTestDb);
 afterEach(closeDb);
@@ -53,4 +54,28 @@ test("evalCondition has_edge_type is not ready when no such edge exists", () => 
 	);
 	expect(result.ready).toBe(false);
 	expect(result.hit).toBeNull();
+});
+
+test("evalCondition never surfaces an archived thought", () => {
+	const db = getDb();
+	const id = seedThought({ content: "archived pending", status: "archived", tags: '["pending"]' });
+	// Simulate a stale note orphaned before the archive-time cleanup existed.
+	createSmartNote(db, id, { type: "has_tag", tag: "pending" });
+
+	const [note] = listSmartNotesWithReady(db);
+	expect(note.ready).toBe(false);
+	expect(note.condition_hit).toBeNull();
+});
+
+test("awakenReady prunes a stale note whose thought is archived", () => {
+	const db = getDb();
+	const id = seedThought({ content: "archived pending", status: "archived", tags: '["pending"]' });
+	createSmartNote(db, id, { type: "has_tag", tag: "pending" });
+
+	const awakened = awakenReady(db);
+	expect(awakened).toHaveLength(0);
+	const row = db
+		.prepare("SELECT COUNT(*) AS c FROM smart_notes WHERE thought_id = ?")
+		.get(id) as { c: number };
+	expect(row.c).toBe(0);
 });

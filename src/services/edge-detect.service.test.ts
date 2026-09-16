@@ -8,7 +8,6 @@ import {
 	detectEdgeProposals,
 	findDetectionCandidates,
 	type EdgeDetectDeps,
-	type NliClassifier,
 } from "./edge-detect.service";
 import type { EmbeddingNeighbor } from "./edge-candidates.service";
 
@@ -28,16 +27,6 @@ function deps(
 	};
 }
 
-function contradictionClassifier(score: number, entailment = 0.1): NliClassifier {
-	return {
-		classify: async () => ({
-			entailment,
-			contradiction: score,
-			neutral: 1 - Math.max(score, entailment),
-		}),
-	};
-}
-
 describe("detectEdgeProposals", () => {
 	test("emits an embedding-only contradicts proposal with full shape", async () => {
 		const a = seedThought({ content: "the sky is blue" });
@@ -50,7 +39,6 @@ describe("detectEdgeProposals", () => {
 		);
 
 		expect(result.degraded).toBe(false);
-		expect(result.nli_enabled).toBe(false);
 		expect(result.candidates).toBe(2);
 		expect(result.pairs_evaluated).toBe(1);
 		expect(result.proposals).toHaveLength(1);
@@ -58,6 +46,7 @@ describe("detectEdgeProposals", () => {
 		const proposal = result.proposals[0]!;
 		expect(proposal.type).toBe("contradicts");
 		expect(proposal.rationale).toBe("embedding_similarity_only");
+		expect(proposal.review_required).toBe(true);
 		expect(proposal.confidence).toBeCloseTo(0.9, 5);
 		expect(proposal.signals).toEqual({ embeddingSimilarity: 0.9 });
 		expect(new Set([proposal.source_id, proposal.target_id])).toEqual(
@@ -158,65 +147,6 @@ describe("detectEdgeProposals", () => {
 		);
 		expect(result.degraded).toBe(true);
 		expect(result.proposals).toEqual([]);
-	});
-
-	test("NLI gates low-confidence pairs out", async () => {
-		const a = seedThought({ content: "alpha" });
-		const b = seedThought({ content: "beta" });
-		const result = await detectEdgeProposals(
-			{ minSimilarity: 0.5, nliThreshold: 0.8, supportThreshold: 0.8 },
-			deps({ [a]: [{ id: b, similarity: 0.9 }] }, { nli: contradictionClassifier(0.5, 0.5) }),
-			getDb(),
-		);
-		expect(result.nli_enabled).toBe(true);
-		expect(result.proposals).toEqual([]);
-		expect(result.pairs_evaluated).toBe(1);
-	});
-
-	test("NLI labels a contradiction and carries the nli signal", async () => {
-		const a = seedThought({ content: "alpha" });
-		const b = seedThought({ content: "beta" });
-		const result = await detectEdgeProposals(
-			{ minSimilarity: 0.5, nliThreshold: 0.8 },
-			deps({ [a]: [{ id: b, similarity: 0.9 }] }, { nli: contradictionClassifier(0.95) }),
-			getDb(),
-		);
-		const proposal = result.proposals[0]!;
-		expect(proposal.type).toBe("contradicts");
-		expect(proposal.rationale).toBe("nli_contradiction");
-		expect(proposal.confidence).toBeCloseTo(0.95, 5);
-		expect(proposal.signals).toEqual({ embeddingSimilarity: 0.9, nliScore: 0.95 });
-	});
-
-	test("NLI directs supports from the entailing premise to the hypothesis", async () => {
-		const a = seedThought({ content: "premise specific alpha" });
-		const b = seedThought({ content: "hypothesis beta" });
-		const nli: NliClassifier = {
-			classify: async (premise) =>
-				premise.includes("alpha")
-					? { entailment: 0.9, contradiction: 0.05, neutral: 0.05 }
-					: { entailment: 0.2, contradiction: 0.05, neutral: 0.75 },
-		};
-		const result = await detectEdgeProposals(
-			{ minSimilarity: 0.5, supportThreshold: 0.8, nliThreshold: 0.8 },
-			deps({ [a]: [{ id: b, similarity: 0.9 }] }, { nli }),
-			getDb(),
-		);
-		const proposal = result.proposals[0]!;
-		expect(proposal.type).toBe("supports");
-		expect(proposal.source_id).toBe(a);
-		expect(proposal.target_id).toBe(b);
-	});
-
-	test("contradiction takes precedence over entailment for the same pair", async () => {
-		const a = seedThought({ content: "alpha" });
-		const b = seedThought({ content: "beta" });
-		const result = await detectEdgeProposals(
-			{ minSimilarity: 0.5, nliThreshold: 0.8, supportThreshold: 0.8 },
-			deps({ [a]: [{ id: b, similarity: 0.9 }] }, { nli: contradictionClassifier(0.9, 0.9) }),
-			getDb(),
-		);
-		expect(result.proposals[0]!.type).toBe("contradicts");
 	});
 
 	test("project scope keeps detection local", async () => {

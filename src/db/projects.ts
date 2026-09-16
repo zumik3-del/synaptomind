@@ -1,5 +1,4 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
-import { v7 as uuidv7 } from 'uuid'
 
 export interface Project {
   id: string
@@ -61,7 +60,7 @@ export function createProject(db: Database, data: {
   description?: string
   local_path?: string | null
 }): Project {
-  const id = uuidv7()
+  const id = Bun.randomUUIDv7()
   db.prepare(
     `INSERT INTO projects (id, name, description, created_at, local_path)
      VALUES (?, ?, ?, ?, ?)`
@@ -116,7 +115,7 @@ export function resolveDefaultProjectId(db: Database): string {
     )
     return existing.value
   }
-  const id = crypto.randomUUID()
+  const id = Bun.randomUUIDv7()
   db.prepare(`INSERT INTO _meta (key, value) VALUES ('default_project_id', ?)`).run(id)
   db.prepare(`INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, 'Default', ?)`).run(
     id,

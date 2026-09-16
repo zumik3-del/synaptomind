@@ -6,7 +6,7 @@ export default {
     const metaRow = db.prepare(`SELECT value FROM _meta WHERE key = 'default_project_id'`).get() as
       | { value: string }
       | undefined
-    const defaultProjectId = metaRow?.value ?? crypto.randomUUID()
+    const defaultProjectId = metaRow?.value ?? Bun.randomUUIDv7()
 
     if (!metaRow) {
       db.prepare(`INSERT INTO _meta (key, value) VALUES ('default_project_id', ?)`).run(defaultProjectId)

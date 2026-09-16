@@ -1,7 +1,6 @@
 import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { v7 as uuidv7 } from 'uuid'
 import { config } from '../config'
 
 const MAX_LOG_ROWS = 5000
@@ -132,7 +131,7 @@ export function insertLog(
     const now = new Date().toISOString()
     d.run(
       'INSERT INTO logs (id, level, type, message, metadata, source, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [uuidv7(), level, type_, message, sanitized ? JSON.stringify(sanitized) : null, source, errorVal, now]
+      [Bun.randomUUIDv7(), level, type_, message, sanitized ? JSON.stringify(sanitized) : null, source, errorVal, now]
     )
     autoCleanup()
   } catch (e) {
@@ -202,7 +201,7 @@ export function insertTelemetry(opts: TelemetryInsertOpts): void {
          (id, correlation_id, user_id, action, tool_name, prev_tool, query, thought_id, response_size, latency_ms, session_id, meta, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        uuidv7(),
+        Bun.randomUUIDv7(),
         opts.correlationId ?? null,
         opts.userId ?? null,
         opts.action,

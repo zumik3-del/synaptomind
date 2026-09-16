@@ -273,3 +273,18 @@ test('fix mode removes empty clusters', () => {
   const emptyAfter = after.categories.find(c => c.name === 'cluster_health')!.checks.find(c => c.name === 'empty_clusters')!
   expect(emptyAfter.count).toBe(0)
 })
+
+test('fix mode deletes archived-target parent edges but keeps draft-target ones', () => {
+  const parent = seedThought({ content: 'active parent' })
+  const archivedChild = seedThought({ content: 'archived child', status: 'archived' })
+  const draftChild = seedThought({ content: 'draft child', status: 'draft' })
+  seedEdge(parent, archivedChild, 'parent')
+  seedEdge(parent, draftChild, 'parent')
+
+  runHealthCheck({ fix: true })
+
+  const remaining = getDb()
+    .prepare("SELECT target_id FROM edges WHERE type = 'parent'")
+    .all() as Array<{ target_id: string }>
+  expect(remaining.map(r => r.target_id)).toEqual([draftChild])
+})

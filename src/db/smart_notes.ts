@@ -1,5 +1,4 @@
 import type { Database } from 'bun:sqlite'
-import { v7 as uuidv7 } from 'uuid'
 
 export interface SurfaceCondition {
   type: 'older_than_days' | 'has_tag' | 'has_edge_type' | 'project_status' | 'unread_for_days'
@@ -27,7 +26,7 @@ function rowToNote(row: Record<string, unknown>): SmartNote {
 }
 
 export function createSmartNote(db: Database, thoughtId: string, condition: SurfaceCondition): SmartNote {
-  const id = uuidv7()
+  const id = Bun.randomUUIDv7()
   db.prepare(`
     INSERT INTO smart_notes (id, thought_id, surface_condition, created_at)
     VALUES (?, ?, ?, ?)
@@ -53,6 +52,15 @@ export function listSmartNotes(db: Database, limit = 500): SmartNote[] {
 
 export function deleteSmartNote(db: Database, id: string): boolean {
   return db.prepare(`DELETE FROM smart_notes WHERE id = ?`).run(id).changes > 0
+}
+
+/**
+ * Drop every smart note bound to a thought. Used when a thought is archived:
+ * an archived thought is out of the plan, so its wake-up notes must not linger
+ * and resurface it in the frontier / pending_items.
+ */
+export function deleteSmartNotesByThoughtId(db: Database, thoughtId: string): number {
+  return db.prepare(`DELETE FROM smart_notes WHERE thought_id = ?`).run(thoughtId).changes
 }
 
 export function setSurfaceCheckedAt(db: Database, id: string): void {

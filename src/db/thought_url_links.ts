@@ -1,5 +1,4 @@
 import type { Database } from 'bun:sqlite'
-import { v7 as uuidv7 } from 'uuid'
 import { sqlIn } from './utils'
 
 export interface ThoughtUrlLink {
@@ -34,7 +33,7 @@ export function upsertThoughtUrlLink(
     )
     return db.prepare('SELECT * FROM thought_url_links WHERE id = ?').get(existing.id) as ThoughtUrlLink
   }
-  const id = uuidv7()
+  const id = Bun.randomUUIDv7()
   db.prepare(
     'INSERT INTO thought_url_links (id, thought_id, key, url, label, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).run(id, thoughtId, key, url, label, sortOrder, now)

@@ -86,6 +86,10 @@ function projectUpdatedWithinDays(thought: Thought, days: number, db: Database):
 }
 
 export function evalCondition(thought: Thought, condition: SurfaceCondition, d: Database = getDb()): { ready: boolean; hit: string | null } {
+  // Defense-in-depth: an archived thought is out of the plan, so no condition
+  // may surface it. Newly archived thoughts have their notes deleted at archive
+  // time (thoughts.service); this guard covers notes orphaned before that fix.
+  if (thought.status === 'archived') return { ready: false, hit: null }
   switch (condition.type) {
     case 'older_than_days': {
       const days = condition.days ?? 0
@@ -166,6 +170,12 @@ export function awakenReady(d: Database = getDb()): AwakenedNote[] {
   for (const note of notes) {
     const thought = getThoughtById(note.thought_id, d)
     if (!thought) continue
+    // Archived thoughts are out of the plan: prune the orphaned note instead of
+    // ever awakening (resurrecting) it.
+    if (thought.status === 'archived') {
+      dbDeleteSmartNote(d, note.id)
+      continue
+    }
     const { ready, hit } = evalCondition(thought, note.surface_condition, d)
     if (!ready) continue
     promoteSmartNote(note.id, d)
@@ -179,6 +189,12 @@ export function promoteSmartNote(id: string, d: Database = getDb()): Thought {
   if (!note) throw new NotFoundError('Smart note not found')
   const thought = getThoughtById(note.thought_id, d)
   if (!thought) throw new NotFoundError('Linked thought not found')
+  // Never resurrect an archived thought: drop the stale note and leave the
+  // thought archived.
+  if (thought.status === 'archived') {
+    dbDeleteSmartNote(d, id)
+    return thought
+  }
   setSurfaceCheckedAt(d, id)
   const updated = updateThought(d, note.thought_id, { status: 'active' })
   if (!updated) throw new NotFoundError('Linked thought not found')
