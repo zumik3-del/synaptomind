@@ -1,5 +1,4 @@
 import type { Database } from 'bun:sqlite'
-import { v7 as uuidv7 } from 'uuid'
 import { boostImportance } from './thoughts'
 
 export interface Primer {
@@ -35,7 +34,7 @@ export function promoteThoughtToPrimer(db: Database, thoughtId: string, hitCount
     )
     return getPrimerByThoughtId(db, thoughtId)
   }
-  const id = uuidv7()
+  const id = Bun.randomUUIDv7()
   db.prepare(`
     INSERT INTO primers (id, thought_id, hit_count, promoted_at, created_at)
     VALUES (?, ?, ?, ?, ?)

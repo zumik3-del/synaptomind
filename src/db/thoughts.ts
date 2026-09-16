@@ -1,6 +1,5 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import { createHash } from 'node:crypto'
-import { v7 as uuidv7 } from 'uuid'
 import type { ThoughtStatus } from '../types/thought'
 import { resolveDefaultProjectId } from './projects'
 import { getThoughtTags, getThoughtTagsBatch, pruneOrphanTags, setThoughtTags, type Tag } from './tags'
@@ -123,7 +122,7 @@ export function createThought(db: Database, data: CreateThoughtInput): Thought {
       return existing.id
     }
 
-    const id = uuidv7()
+    const id = Bun.randomUUIDv7()
     const isCluster = toBit(data.is_cluster)
     const isProfile = toBit(data.is_profile)
     const isProtected = toBit(data.is_protected ?? true)

@@ -1,5 +1,4 @@
 import type { Database } from 'bun:sqlite'
-import { v7 as uuidv7 } from 'uuid'
 
 export interface SurfaceCondition {
   type: 'older_than_days' | 'has_tag' | 'has_edge_type' | 'project_status' | 'unread_for_days'
@@ -27,7 +26,7 @@ function rowToNote(row: Record<string, unknown>): SmartNote {
 }
 
 export function createSmartNote(db: Database, thoughtId: string, condition: SurfaceCondition): SmartNote {
-  const id = uuidv7()
+  const id = Bun.randomUUIDv7()
   db.prepare(`
     INSERT INTO smart_notes (id, thought_id, surface_condition, created_at)
     VALUES (?, ?, ?, ?)

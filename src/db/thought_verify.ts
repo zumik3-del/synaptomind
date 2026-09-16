@@ -1,5 +1,4 @@
 import type { Database } from 'bun:sqlite'
-import { v7 as uuidv7 } from 'uuid'
 
 export interface ThoughtVerifyEntry {
   id: string
@@ -17,7 +16,7 @@ export function createVerifyEntry(db: Database, thoughtId: string, driftThreshol
     .prepare(`SELECT id FROM thought_verify WHERE thought_id = ?`)
     .get(thoughtId) as { id: string } | undefined
   if (existing) return
-  const id = uuidv7()
+  const id = Bun.randomUUIDv7()
   db.prepare(`
     INSERT INTO thought_verify (id, thought_id, drift_threshold, created_at)
     VALUES (?, ?, ?, ?)

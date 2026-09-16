@@ -1,4 +1,3 @@
-import { v7 as uuidv7 } from "uuid";
 import { getDb } from "../db/container";
 import { closeDb, initDb } from "../db/init";
 
@@ -20,7 +19,7 @@ export function seedThought(overrides?: {
 	importance?: number;
 }): string {
 	const db = getDb();
-	const id = overrides?.id ?? uuidv7();
+	const id = overrides?.id ?? Bun.randomUUIDv7();
 	const now = new Date().toISOString();
 	const projectId = overrides?.project_id ?? "default";
 	const isCluster = overrides?.is_cluster ?? 0;
@@ -70,7 +69,7 @@ export function seedThought(overrides?: {
 					if (existingTag) {
 						tagId = existingTag.id;
 					} else {
-						tagId = uuidv7();
+						tagId = Bun.randomUUIDv7();
 						db.prepare(
 							`INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)`,
 						).run(tagId, name, now);
@@ -93,7 +92,7 @@ export function seedEdge(
 	type: string = "develops",
 ): string {
 	const db = getDb();
-	const id = uuidv7();
+	const id = Bun.randomUUIDv7();
 	const now = new Date().toISOString();
 	db.prepare(`
     INSERT INTO edges (id, source_id, target_id, type, created_at)
