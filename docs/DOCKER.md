@@ -8,9 +8,17 @@ Run SynaptoMind as a Docker container for production or development.
 
 ```bash
 git clone https://github.com/zumik3-del/synaptomind.git && cd synaptomind
-cp .env.example .env   # edit SYNAPTOMIND_SECRET
+cp config.json.example config.json   # required: compose bind-mounts ./config.json
+cp .env.example .env                 # then set SYNAPTOMIND_SECRET in .env
 docker compose up -d
 ```
+
+Both files must exist before `docker compose up`:
+`docker-compose.yml` bind-mounts `./config.json` and `./data`. Without
+`config.json`, Docker creates a directory at that path and the server refuses
+to start (`config.json … is a directory`). `.env.example` deliberately ships no
+secret — set `SYNAPTOMIND_SECRET` in `.env`, or the server fails closed and
+rejects authenticated requests with `401` (see [CONFIG.md](CONFIG.md#authentication)).
 
 Server starts on `http://127.0.0.1:3005`. MCP endpoint: `http://127.0.0.1:3006/mcp`.
 
@@ -66,7 +74,11 @@ overridable via `SYNAPTOMIND_INSTALL_DIR`, `SYNAPTOMIND_HEALTH_URL`,
 `scripts/synaptomind` wraps the deploy script and day-to-day operations. It is
 installed/refreshed automatically by `scripts/deploy.sh` after a successful
 verified deploy (override the target with `SYNAPTOMIND_BIN_DIR`, default
-`/usr/local/bin`). Install it manually only if needed:
+`/usr/local/bin`). `scripts/install.sh` (the bare-metal path) does **not**
+install the CLI — the bare-metal server runs directly under systemd — and
+`scripts/uninstall.sh` removes it from
+`${SYNAPTOMIND_BIN_DIR:-/usr/local/bin}/synaptomind` together with the systemd
+service and install directory. Install it manually only if needed:
 
 ```bash
 sudo install -m 0755 scripts/synaptomind /usr/local/bin/synaptomind
@@ -107,7 +119,10 @@ cp .env.example .env
 | `SYNAPTOMIND_EMBEDDER_MODEL` | Xenova/multilingual-e5-small | Embedding model |
 | `BIND_ADDR` | 127.0.0.1 | Docker port bind address |
 
-Without `SYNAPTOMIND_SECRET`, a random UUID is generated at startup and printed to stderr.
+Without `SYNAPTOMIND_SECRET` (and with no `SYNAPTOMIND_SERVICE_TOKEN`), the
+server fails closed: authenticated API and MCP requests are rejected with
+`401`. `SYNAPTOMIND_ALLOW_INSECURE=true` disables auth for local development
+only.
 
 For full configuration reference (all settings, env vars, defaults), see [CONFIG.md](CONFIG.md).
 
@@ -121,6 +136,12 @@ volumes:
 ```
 
 Priority: env vars > config.json > defaults. See `config.json.example` for all options.
+
+**Port resolution:** the effective HTTP API port is `SYNAPTOMIND_PORT` >
+`config.json` `server.port` > `3005` (the same rule the server applies, and what
+`update.sh` uses to locate `/health`). Inside the container the port is pinned by
+`docker-compose.yml` (`3005:3005`) and the image healthcheck; if you change the
+API port you must update both to match, or the container will report unhealthy.
 
 ### Exposing to network
 
@@ -180,6 +201,38 @@ sudo chown -R 10001:10001 data   # required once when upgrading from root-run im
 docker compose pull 2>/dev/null || true
 docker compose up -d
 ```
+
+### Rollback
+
+Schema migrations are **forward-only** (`src/db/init.ts:127`): the server applies
+every migration it has not seen yet and never reverses one. Running an older tag
+against a database that a newer version has already migrated is therefore
+**unsafe** — the old code cannot undo the schema change and may operate on
+tables or columns it does not understand.
+
+The supported rollback is: restore the database backup taken *before* the
+upgrade, then run the older version. Unlike the bare-metal `scripts/update.sh`,
+`scripts/deploy.sh` does not back up automatically, so take one first (see
+[Backup](#backup)):
+
+```bash
+# 1. Before upgrading: stop the container and keep the current database
+docker compose stop
+cp data/synaptomind.db data/synaptomind.db.preupgrade
+docker compose start
+
+# 2. Upgrading happens here (CLI, deploy.sh, or manual)
+#    ...
+
+# 3. Roll back: stop, restore the pre-upgrade database, deploy the older tag
+docker compose stop
+cp data/synaptomind.db.preupgrade data/synaptomind.db
+rm -f data/synaptomind.db-wal data/synaptomind.db-shm
+bash scripts/deploy.sh 0.6.0
+```
+
+For the bare-metal path, `scripts/update.sh` creates this backup itself and
+prints its exact path; see the README "Updating" section.
 
 ### Check running version
 
@@ -315,7 +368,12 @@ docker compose exec synaptomind ps aux
 ```yaml
 services:
   synaptomind:
-    image: ghcr.io/zumik3-del/synaptomind:<version>
+    image: ${SYNAPTOMIND_IMAGE:-ghcr.io/zumik3-del/synaptomind:local}
+    build:
+      context: .
+      args:
+        VERSION: ${GIT_DESCRIBE:-dev}
+        COMMIT_SHA: ${GIT_COMMIT:-}
     container_name: synaptomind
     restart: unless-stopped
     ports:
@@ -337,3 +395,7 @@ services:
       retries: 3
       start_period: 10s
 ```
+
+This mirrors `docker-compose.yml`; `SYNAPTOMIND_IMAGE` is set by
+`scripts/deploy.sh` for tagged releases and defaults to a local build from
+source (see [Using published image](#using-published-image-recommended)).
