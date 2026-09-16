@@ -4,6 +4,8 @@ set -euo pipefail
 
 INSTALL_DIR="${SYNAPTOMIND_INSTALL_DIR:-/opt/synaptomind}"
 DATA_DIR="${SYNAPTOMIND_DATA_DIR:-/var/lib/synaptomind}"
+# The versioned CLI is installed by scripts/deploy.sh (Docker path) — remove it too.
+CLI_BIN="${SYNAPTOMIND_BIN_DIR:-/usr/local/bin}/synaptomind"
 
 info()  { echo "[synaptomind] $*"; }
 warn()  { echo "[synaptomind] WARNING: $*" >&2; }
@@ -19,6 +21,7 @@ run_root() {
 
 echo "This will remove SynaptoMind:"
 echo "  - Service: /etc/systemd/system/synaptomind.service"
+echo "  - CLI:     $CLI_BIN"
 echo "  - Install: $INSTALL_DIR"
 echo "  - Data:    $DATA_DIR"
 echo ""
@@ -47,6 +50,12 @@ if [ -f /etc/systemd/system/synaptomind.service ]; then
   info "Removing service file..."
   run_root rm /etc/systemd/system/synaptomind.service
   run_root systemctl daemon-reload
+fi
+
+# Remove CLI (installed by scripts/deploy.sh on the Docker path)
+if [ -f "$CLI_BIN" ]; then
+  info "Removing CLI: $CLI_BIN"
+  run_root rm -f "$CLI_BIN"
 fi
 
 # Remove install dir
