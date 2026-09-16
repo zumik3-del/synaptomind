@@ -145,6 +145,24 @@ sequenceDiagram
 
 ---
 
+## Architecture
+
+SynaptoMind runs as a single Bun process: the HTTP API on port 3005, the MCP
+server on port 3006 (stdio or HTTP), and a child process that serves local
+embeddings over IPC. Storage is one SQLite database using the `vec0` extension
+for vector search, FTS5 for full-text search, and an edges table for the graph.
+
+```mermaid
+graph LR
+    A[AI Agent] -->|MCP / HTTP| B[SynaptoMind]
+    B --> C[(SQLite)]
+    C --> D[vec0 — vector search]
+    C --> E[FTS5 — full-text search]
+    C --> F[Graph — edges & links]
+```
+
+---
+
 ## Connecting MCP Clients
 
 <details>
@@ -232,6 +250,16 @@ in `config.json`.
 <summary><strong>Codex (OpenAI)</strong></summary>
 
 See [docs/codex-plugin.md](docs/codex-plugin.md) for installation and usage.
+
+</details>
+
+<details>
+<summary><strong>ChatGPT (OpenAI Secure MCP Tunnel)</strong></summary>
+
+Connect web ChatGPT to a private SynaptoMind MCP server without exposing an
+inbound network port. See
+[docs/secure-mcp-tunnel.md](docs/secure-mcp-tunnel.md) for setup, validation,
+and the security boundary.
 
 </details>
 

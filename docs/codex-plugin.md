@@ -67,3 +67,10 @@ plugins/synaptomind/
 **Skill triggers on unrelated prompts:**
 - The skill description may need refinement
 - Edit `SKILL.md` frontmatter `description` to be more specific
+
+## Related
+
+- [Secure MCP Tunnel](secure-mcp-tunnel.md) — connect web ChatGPT to a private
+  SynaptoMind MCP server without exposing an inbound network port. The plugin
+  helps Codex discover an already configured MCP server; it does not configure
+  the tunnel.

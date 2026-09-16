@@ -1,6 +1,6 @@
 # HTTP API Reference
 
-REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Server version at time of writing: **0.6.0-beta.0**.
+REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Server version at time of writing: **0.7.0-beta.0**.
 
 - **Auth:** all `/api/*` endpoints require `Authorization: Bearer <token>` (401 otherwise). The token is set via the `SYNAPTOMIND_SECRET` or `SYNAPTOMIND_SERVICE_TOKEN` environment variable. `GET /health` is the only public endpoint.
 - **Body limit:** request bodies over 5 MB are rejected with `413`.
@@ -232,6 +232,24 @@ Runs the auto-link job that creates edges from URL overlaps between thoughts.
 | max_edges | body | int | optional | Cap edges per run |
 
 curl `-d '{"dry_run": true}' http://127.0.0.1:3005/api/thoughts/auto-link`
+
+### POST /api/thoughts/edge-detect
+
+Detects contradiction/support candidate pairs among active, non-cluster thoughts. Read-only: it never creates or modifies an edge. Confirm a proposal by linking the pair (`POST /api/thoughts/:id/link`). Returns an empty proposal list (never an error) when there are fewer than two candidates or the embedder is unavailable (`degraded: true`).
+
+| Name | In | Type | Default | Description |
+|---|---|---|---|---|
+| project_id | body | string | optional | Scope detection to one project |
+| min_similarity | body | number | `edgeDetect.minSimilarity` (0.75) | Minimum embedding similarity for a neighbor pair |
+| max_proposals | body | number | `edgeDetect.maxProposals` (20) | Cap on returned proposals |
+
+`topK` and `maxCandidates` are read only from `edgeDetect.*` in config.
+
+curl `-d '{"project_id": "<id>", "min_similarity": 0.8}' http://127.0.0.1:3005/api/thoughts/edge-detect`
+
+Response: `{"proposals": [{"source_id": "...", "target_id": "...", "type": "contradicts", "confidence": 0.86, "rationale": "embedding_similarity_only", "review_required": true, "signals": {"embeddingSimilarity": 0.86}}], "candidates": 120, "pairs_evaluated": 8, "degraded": false}`
+
+`type` is emitted as `contradicts` with `review_required: true`: the detector ranks by embedding similarity alone, which means the pair is about the same subject matter, not necessarily in conflict. Consumers must treat such a proposal as an unconfirmed candidate, never as a settled contradiction.
 
 ### POST /api/thoughts/self-improve/run
 
@@ -732,4 +750,4 @@ Public liveness/readiness probe (no auth). Returns 200 when healthy, 503 when de
 
 curl `http://127.0.0.1:3005/health`
 
-Response: `{"status": "ok", "version": "0.6.0-beta.0", "checks": {"database": "ok", "embedder": "ok"}}`
+Response: `{"status": "ok", "version": "0.7.0-beta.0", "checks": {"database": "ok", "embedder": "ok"}}`
