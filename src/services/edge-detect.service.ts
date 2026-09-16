@@ -19,35 +19,18 @@ import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from './edge-candi
  *     -> embed content
  *     -> vector neighbour search (recall filter: same subject matter)
  *     -> similarity threshold + existing-edge exclusion
- *     -> optional NLI port (precision filter)
  *     -> EdgeProposal[] (no graph mutation)
  *
- * Without an NLI classifier the recall filter alone cannot tell conflict from
- * agreement, so proposals are emitted as low-confidence `contradicts`
- * candidates with rationale `embedding_similarity_only` and
- * `review_required: true` (similarity ≠ conflict). An NLI classifier,
- * when injected, gates proposals on `nliThreshold` (contradiction) or
- * `supportThreshold` (entailment), labels `supports`, and sets
- * `review_required: false`.
+ * The recall filter alone cannot tell conflict from agreement, so proposals are
+ * emitted as low-confidence `contradicts` candidates with rationale
+ * `embedding_similarity_only` and `review_required: true` (similarity ≠
+ * conflict).
  */
-
-// ── NLI port (injected, default off) ─────────────────────────────────────────
-
-export interface NliVerdict {
-  entailment: number
-  contradiction: number
-  neutral: number
-}
-
-export interface NliClassifier {
-  classify(premise: string, hypothesis: string): Promise<NliVerdict>
-}
 
 // ── Proposal / result types ──────────────────────────────────────────────────
 
 export interface EdgeProposalSignals {
   embeddingSimilarity: number
-  nliScore?: number
 }
 
 export interface EdgeProposal {
@@ -58,10 +41,10 @@ export interface EdgeProposal {
   /** Human-readable provenance: why this pair was proposed. */
   rationale: string
   /**
-   * True when the pair rests on embedding similarity alone (no NLI verdict):
-   * high similarity means "same subject matter", NOT "conflict". Consumers must
-   * treat such a proposal as an unconfirmed *related* candidate, never as a
-   * settled contradiction.
+   * True when the pair rests on embedding similarity alone: high similarity
+   * means "same subject matter", NOT "conflict". Consumers must treat such a
+   * proposal as an unconfirmed *related* candidate, never as a settled
+   * contradiction.
    */
   review_required: boolean
   signals: EdgeProposalSignals
@@ -73,8 +56,6 @@ export interface EdgeDetectOptions {
   topK?: number
   maxCandidates?: number
   maxProposals?: number
-  nliThreshold?: number
-  supportThreshold?: number
 }
 
 export interface EdgeDetectResult {
@@ -83,14 +64,12 @@ export interface EdgeDetectResult {
   pairs_evaluated: number
   /** True when embedding generation failed and detection degraded to no proposals. */
   degraded: boolean
-  nli_enabled: boolean
 }
 
 /** Injected dependencies for testing (same shape as `AutoLinkDeps`). */
 export interface EdgeDetectDeps {
   embed?: (texts: string[]) => Promise<Float32Array[]>
   searchNeighbors?: SearchNeighborsFn
-  nli?: NliClassifier | null
 }
 
 // ── Candidate selection ──────────────────────────────────────────────────────
@@ -130,62 +109,6 @@ export function findDetectionCandidates(
     .all() as DetectionCandidate[]
 }
 
-// ── NLI pair classification ──────────────────────────────────────────────────
-
-interface NliThresholds {
-  contradictThreshold: number
-  supportThreshold: number
-}
-
-/**
- * Classify one pair in both directions. Contradiction is symmetric
- * (`max(contradiction)`); `supports` is directed, so the higher-entailment
- * direction wins. Contradiction takes precedence over support.
- */
-async function classifyPair(
-  nli: NliClassifier,
-  pair: { source_id: string; target_id: string; embeddingSimilarity: number },
-  contentById: Map<string, string>,
-  thresholds: NliThresholds
-): Promise<EdgeProposal | null> {
-  const a = contentById.get(pair.source_id)
-  const b = contentById.get(pair.target_id)
-  if (a === undefined || b === undefined) return null
-
-  const [forward, reverse] = await Promise.all([nli.classify(a, b), nli.classify(b, a)])
-
-  const contradiction = Math.max(forward.contradiction, reverse.contradiction)
-  if (contradiction >= thresholds.contradictThreshold) {
-    return {
-      source_id: pair.source_id,
-      target_id: pair.target_id,
-      type: 'contradicts',
-      confidence: contradiction,
-      rationale: 'nli_contradiction',
-      review_required: false,
-      signals: { embeddingSimilarity: pair.embeddingSimilarity, nliScore: contradiction }
-    }
-  }
-
-  const forwardEntailment = forward.entailment
-  const reverseEntailment = reverse.entailment
-  const best = Math.max(forwardEntailment, reverseEntailment)
-  if (best >= thresholds.supportThreshold) {
-    const forwardWins = forwardEntailment >= reverseEntailment
-    return {
-      source_id: forwardWins ? pair.source_id : pair.target_id,
-      target_id: forwardWins ? pair.target_id : pair.source_id,
-      type: 'supports',
-      confidence: best,
-      rationale: 'nli_entailment',
-      review_required: false,
-      signals: { embeddingSimilarity: pair.embeddingSimilarity, nliScore: best }
-    }
-  }
-
-  return null
-}
-
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 /**
@@ -202,18 +125,13 @@ export async function detectEdgeProposals(
   const topK = options.topK ?? config.edgeDetect.topK
   const maxCandidates = options.maxCandidates ?? config.edgeDetect.maxCandidates
   const maxProposals = options.maxProposals ?? config.edgeDetect.maxProposals
-  const contradictThreshold = options.nliThreshold ?? config.edgeDetect.nliThreshold
-  const supportThreshold = options.supportThreshold ?? config.edgeDetect.supportThreshold
   const embed = deps.embed ?? generateEmbeddings
-  const nli = deps.nli ?? null
-  const nliEnabled = nli !== null
 
   const empty = (candidates: number, degraded: boolean): EdgeDetectResult => ({
     proposals: [],
     candidates,
     pairs_evaluated: 0,
-    degraded,
-    nli_enabled: nliEnabled
+    degraded
   })
 
   const candidates = findDetectionCandidates(d, options.projectId, maxCandidates)
@@ -251,8 +169,6 @@ export async function detectEdgeProposals(
     .sort((a, b) => b.embeddingSimilarity - a.embeddingSimilarity)
 
   const excluded = getEdgePairKeys(d, candidates.map(c => c.id))
-  const contentById = new Map(candidates.map(c => [c.id, c.content]))
-  const thresholds: NliThresholds = { contradictThreshold, supportThreshold }
   const proposals: EdgeProposal[] = []
   let pairsEvaluated = 0
 
@@ -261,27 +177,21 @@ export async function detectEdgeProposals(
     if (excluded.has(pairKey(pair.source_id, pair.target_id))) continue
     pairsEvaluated++
 
-    if (nli) {
-      const proposal = await classifyPair(nli, pair, contentById, thresholds)
-      if (proposal) proposals.push(proposal)
-    } else {
-      proposals.push({
-        source_id: pair.source_id,
-        target_id: pair.target_id,
-        type: 'contradicts',
-        confidence: pair.embeddingSimilarity,
-        rationale: 'embedding_similarity_only',
-        review_required: true,
-        signals: { embeddingSimilarity: pair.embeddingSimilarity }
-      })
-    }
+    proposals.push({
+      source_id: pair.source_id,
+      target_id: pair.target_id,
+      type: 'contradicts',
+      confidence: pair.embeddingSimilarity,
+      rationale: 'embedding_similarity_only',
+      review_required: true,
+      signals: { embeddingSimilarity: pair.embeddingSimilarity }
+    })
   }
 
   return {
     proposals,
     candidates: candidates.length,
     pairs_evaluated: pairsEvaluated,
-    degraded: false,
-    nli_enabled: nliEnabled
+    degraded: false
   }
 }

@@ -33,7 +33,7 @@ interface Config {
   }
   edgeDetect: {
     minSimilarity: number; topK: number; maxCandidates: number;
-    maxProposals: number; nliThreshold: number; supportThreshold: number
+    maxProposals: number
   }
   selfImprove: {
     enabled: boolean; intervalMs: number; orphanThreshold: number;
@@ -80,7 +80,7 @@ export const DEFAULTS: Config = {
   },
   edgeDetect: {
     minSimilarity: 0.75, topK: 10, maxCandidates: 100,
-    maxProposals: 20, nliThreshold: 0.8, supportThreshold: 0.8
+    maxProposals: 20
   },
   selfImprove: {
     enabled: false, intervalMs: 86400000, orphanThreshold: 0.5,
@@ -163,8 +163,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_EDGE_DETECT_TOP_K', path: 'edgeDetect.topK', type: 'int' },
   { env: 'SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES', path: 'edgeDetect.maxCandidates', type: 'int' },
   { env: 'SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS', path: 'edgeDetect.maxProposals', type: 'int' },
-  { env: 'SYNAPTOMIND_EDGE_DETECT_NLI_THRESHOLD', path: 'edgeDetect.nliThreshold', type: 'float' },
-  { env: 'SYNAPTOMIND_EDGE_DETECT_SUPPORT_THRESHOLD', path: 'edgeDetect.supportThreshold', type: 'float' },
 
   { env: 'SYNAPTOMIND_SELF_IMPROVE_ENABLED', path: 'selfImprove.enabled', type: 'bool' },
   { env: 'SYNAPTOMIND_SELF_IMPROVE_INTERVAL_MS', path: 'selfImprove.intervalMs', type: 'int' },

@@ -71,9 +71,7 @@
     "minSimilarity": 0.75,
     "topK": 10,
     "maxCandidates": 100,
-    "maxProposals": 20,
-    "nliThreshold": 0.8,
-    "supportThreshold": 0.8
+    "maxProposals": 20
   },
   "selfImprove": {
     "enabled": false,

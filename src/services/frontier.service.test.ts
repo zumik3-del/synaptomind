@@ -11,8 +11,7 @@ function tagThought(id: string, tag: string): void {
   const db = getDb()
   let tagRow = db.prepare('SELECT id FROM tags WHERE name = ?').get(tag) as { id: string } | undefined
   if (!tagRow) {
-    const { v7: uuidv7 } = require('uuid')
-    const tagId = uuidv7()
+    const tagId = Bun.randomUUIDv7()
     db.prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)').run(tagId, tag, new Date().toISOString())
     tagRow = { id: tagId }
   }

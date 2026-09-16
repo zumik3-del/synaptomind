@@ -46,13 +46,6 @@ export function searchEntities(db: Database, query: string, limit = 20, type?: E
     .all(...params, limit) as EntityInfo[]
 }
 
-export function getThoughtIdsByEntity(db: Database, entityName: string): string[] {
-  const rows = db
-    .prepare(`SELECT thought_id FROM thought_entities WHERE entity_name = ?`)
-    .all(entityName) as { thought_id: string }[]
-  return rows.map(r => r.thought_id)
-}
-
 export function deleteEntitiesForThought(db: Database, thoughtId: string): void {
   db.prepare(`DELETE FROM thought_entities WHERE thought_id = ?`).run(thoughtId)
 }

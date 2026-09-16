@@ -690,7 +690,6 @@ describe('memory_store link edge types', () => {
     expect(Array.isArray(data.proposals)).toBe(true)
     expect(typeof data.candidates).toBe('number')
     expect(typeof data.degraded).toBe('boolean')
-    expect(typeof data.nli_enabled).toBe('boolean')
   })
 })
 
