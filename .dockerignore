@@ -34,3 +34,6 @@ config.json
 # Tests
 tests/
 *.test.ts
+
+# Build artifacts — NOT copied into the image (vec0.so downloaded at runtime by setup-vec0.sh)
+vec0.so

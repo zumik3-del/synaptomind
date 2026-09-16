@@ -4,7 +4,11 @@ services:
     # tagged releases; persisted in .env for later manual `docker compose up`).
     # Default: build from source (development).
     image: ${SYNAPTOMIND_IMAGE:-ghcr.io/zumik3-del/synaptomind:local}
-    build: .
+    build:
+      context: .
+      args:
+        VERSION: ${GIT_DESCRIBE:-dev}
+        COMMIT_SHA: ${GIT_COMMIT:-}
     container_name: synaptomind
     restart: unless-stopped
     ports:
