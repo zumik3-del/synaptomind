@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.1
+
+> September 16, 2026
+
+- [`83a7040`](https://github.com/zumik3-del/synaptomind/commit/83a7040cc03db150448233a10f99e29ea45f9fe3): fix(memory): keep archived thoughts out of frontier and smart-note wake-ups (#134)
+
 ## v0.7.0-beta.0
 
 > September 12, 2026

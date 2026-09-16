@@ -269,6 +269,10 @@ and the security boundary.
 
 All settings in `config.json`. Priority: env vars > config.json > defaults.
 
+The HTTP API port resolves in that order too: `SYNAPTOMIND_PORT` overrides
+`config.json` `server.port`, which overrides the built-in `3005`
+(`src/config.ts:105-108`).
+
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `server.port` | 3005 | HTTP API port |
@@ -285,7 +289,9 @@ Auth tokens via env vars only:
 | `SYNAPTOMIND_SECRET` | Primary auth token (API + MCP) |
 | `SYNAPTOMIND_SERVICE_TOKEN` | Secondary token (optional) |
 
-Without these, a random UUID is generated at startup and printed to stderr.
+Without these, the server fails closed: authenticated API and MCP requests are
+rejected with `401` and a warning is logged at startup. For local development
+only, `SYNAPTOMIND_ALLOW_INSECURE=true` disables auth entirely.
 
 See `config.json.example` for all options. Full reference: [docs/CONFIG.md](docs/CONFIG.md). Custom MCP instructions: [docs below](#custom-instructions).
 
@@ -327,7 +333,10 @@ chmod 644 config.json            # config.json must be readable by uid 10001
 echo "SYNAPTOMIND_SECRET=your-secret-token" > .env
 ```
 
-See `.env.example` for all variables. Without `.env`, a random token is generated per restart.
+See `.env.example` for all variables. Without a token (`SYNAPTOMIND_SECRET`, or
+`SYNAPTOMIND_SERVICE_TOKEN`) the server fails closed — authenticated requests
+are rejected with `401`. Use `SYNAPTOMIND_ALLOW_INSECURE=true` for local
+development only.
 
 For full Docker guide (updating, backup, troubleshooting), see [docs/DOCKER.md](docs/DOCKER.md).
 
@@ -355,14 +364,61 @@ Token and URL are printed at the end.
 ### Updating
 
 ```bash
-bash /opt/synaptomind/scripts/update.sh
+bash /opt/synaptomind/scripts/update.sh          # latest stable
+bash /opt/synaptomind/scripts/update.sh --alpha  # latest prerelease (alpha/beta/rc)
 ```
+
+`update.sh` is self-verifying and upgrade-safe:
+
+1. Backs up every configured database with a WAL-safe `sqlite3 .backup` before
+   switching code (skipped when no database exists yet; aborts the update if an
+   existing database cannot be backed up).
+2. Checks out the newest release tag, reinstalls production dependencies, and
+   restarts the systemd service if it is running.
+3. When the service was restarted, polls `/health` until it reports the target
+   version; on timeout or version mismatch it exits non-zero and prints recovery
+   instructions — the previous revision (`v<version>`) and the exact backup
+   path(s) — without reverting automatically. If no systemd service is running,
+   health verification is skipped with a notice.
+
+The health URL is resolved from `config.json`/`SYNAPTOMIND_PORT` (default
+`http://127.0.0.1:3005/health`), so the poll targets the configured port rather
+than a hardcoded one; override it with `SYNAPTOMIND_HEALTH_URL`.
+
+#### Rollback
+
+Schema migrations are **forward-only** (`src/db/init.ts:127`): the server applies
+every migration it has not seen and never reverses one. Checking out an older
+tag against a database that a newer version has already migrated is therefore
+**unsafe**. The supported rollback restores the pre-upgrade backup that
+`update.sh` created and then returns to the previous revision it printed:
+
+```bash
+sudo systemctl stop synaptomind
+cd /opt/synaptomind
+sudo cp data/backup/synaptomind.db.<timestamp>.bak data/synaptomind.db
+rm -f data/synaptomind.db-wal data/synaptomind.db-shm
+git checkout <previous-tag>
+bun install --frozen-lockfile --production
+sudo systemctl start synaptomind
+```
+
+The backup filename, directory and timestamp follow the configured database
+paths; `update.sh` prints the exact paths (`Database backed up: …`) and repeats
+them in the recovery block. `SYNAPTOMIND_BACKUP_DIR` overrides the backup
+directory (default: `backup/` next to each database, i.e. `data/backup/` for the
+default configuration).
 
 ### Uninstall
 
 ```bash
 sudo bash /opt/synaptomind/scripts/uninstall.sh
 ```
+
+Removes the systemd unit (`/etc/systemd/system/synaptomind.service`, stopped and
+disabled first), the install directory (`/opt/synaptomind`), and the versioned
+CLI at `${SYNAPTOMIND_BIN_DIR:-/usr/local/bin}/synaptomind` if present. It asks
+separately before deleting the data directory (`/var/lib/synaptomind`).
 
 ### Docker alternative
 

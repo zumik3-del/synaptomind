@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # SynaptoMind CLI — versioned helper for the Docker deployment.
 #
-# Install (see scripts/install.sh):
+# Installed by scripts/deploy.sh after a verified deploy, to
+#   ${SYNAPTOMIND_BIN_DIR:-/usr/local/bin}/synaptomind
+# and removed by scripts/uninstall.sh. (scripts/install.sh does NOT install it:
+# the bare-metal path runs the server directly under systemd.)
+# Manual install:
 #   install -m 0755 scripts/synaptomind /usr/local/bin/synaptomind
 set -euo pipefail
 
@@ -42,6 +46,21 @@ require_deploy_script() {
   [ -f "$DEPLOY_SCRIPT" ] || err "deploy script not found: ${DEPLOY_SCRIPT}"
 }
 
+# Source the shared deploy helpers. The CLI is installed standalone, so prefer
+# a sibling copy and fall back to the install tree (deploy.sh copies only this
+# file to ${SYNAPTOMIND_BIN_DIR}).
+load_deploy_common() {
+  local dir lib
+  dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P)" || dir="."
+  for lib in "${dir}/lib/deploy-common.sh" "${INSTALL_DIR}/scripts/lib/deploy-common.sh"; do
+    if [ -f "$lib" ]; then
+      . "$lib"
+      return 0
+    fi
+  done
+  err "shared helper not found: deploy-common.sh (looked in ${dir}/lib and ${INSTALL_DIR}/scripts/lib)"
+}
+
 # docker compose must run from the install dir so .env / relative paths resolve.
 compose() {
   ( cd "$INSTALL_DIR" && docker compose "$@" )
@@ -49,10 +68,11 @@ compose() {
 
 # Query /health and print its version field; non-zero on unreachable health.
 running_version() {
+  load_deploy_common
   local body
   body=$(curl -fsS --max-time 5 "$HEALTH_URL" 2>/dev/null) \
     || err "health check failed: ${HEALTH_URL}"
-  printf '%s' "$body" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p'
+  printf '%s' "$body" | parse_json_version
 }
 
 wait_healthy() {

@@ -9,11 +9,34 @@ permissions:
   contents: write
   packages: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  release:
+  verify:
+    name: "Verify · CI gate"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout@v5
+
+      - name: "Setup: install bun"
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
+
+      - name: "Setup: bun install"
+        run: bun install --frozen-lockfile
+
+      - name: "Type-check: tsc"
+        run: bun run tsc --noEmit
+
+      - name: "Test: bun test"
+        run: bun test
+
+  release:
+    needs: [verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -106,16 +129,17 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # docker/build-push-action@v5
         with:
           push: true
           tags: ${{ steps.docker-tags.outputs.tags }}
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
+            COMMIT_SHA=${{ github.sha }}

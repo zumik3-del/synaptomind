@@ -5,17 +5,22 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   commitlint:
     name: "Lint · commit message"
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout@v5
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
 
       - run: bun install --frozen-lockfile
 
@@ -28,10 +33,10 @@ jobs:
     name: "Test · Bun suite + lint"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout@v5
 
       - name: "Setup: install bun"
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
 
       - name: "Setup: bun install"
         run: bun install --frozen-lockfile
@@ -52,7 +57,7 @@ jobs:
 
       - name: "Upload coverage to Coveralls"
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: coverallsapp/github-action@v2
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # coverallsapp/github-action@v2
         with:
           github-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
           file: ./coverage/lcov.info
@@ -62,13 +67,27 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout@v5
 
       - name: "Setup: install bun"
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
 
       - name: "Setup: bun install"
         run: bun install --frozen-lockfile
 
       - name: "Smoke: MCP tools/list + memory_store + memory_recall"
         run: bun run smoke
+
+  docker-build:
+    name: "Build · Docker image"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout@v5
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --build-arg VERSION=ci-build \
+            --build-arg COMMIT_SHA=${{ github.sha }} \
+            -t synaptomind:ci-build \
+            .

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=lib/deploy-common.sh
+. "${SCRIPT_DIR}/lib/deploy-common.sh"
+
 REPO_URL="${SYNAPTOMIND_REPO:-https://github.com/zumik3-del/synaptomind.git}"
 INSTALL_DIR="${SYNAPTOMIND_INSTALL_DIR:-/opt/synaptomind}"
 HEALTH_URL="${SYNAPTOMIND_HEALTH_URL:-http://127.0.0.1:3005/health}"
@@ -17,22 +21,6 @@ esac
 
 info() { echo "[synaptomind] $*"; }
 err()  { echo "[synaptomind] Error: $*" >&2; exit 1; }
-
-# --- Tag helpers (read local refs; refreshed by the fetch below) ---
-
-# Latest stable tag (no hyphen = no prerelease).
-find_latest_stable() {
-  git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -v -- '-' | head -1
-}
-
-# Latest prerelease tag (alpha/beta/rc).
-find_latest_prerelease() {
-  git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -E -- '-alpha\.|-beta\.|-rc\.' | head -1
-}
-
-read_version() {
-  grep -o '"version": *"[^"]*"' package.json 2>/dev/null | head -1 | sed 's/"version": *"//;s/"//' || true
-}
 
 # --- Ensure a checkout exists and refresh refs ---
 
@@ -60,7 +48,7 @@ if [ "$VERSION" = "--dev" ]; then
   TARGET_REF="origin/main"
   info "Deploying development (main branch)..."
 elif [ "$VERSION" = "--alpha" ]; then
-  TARGET=$(find_latest_prerelease || true)
+  TARGET=$(latest_prerelease_tag "$INSTALL_DIR" || true)
   [ -n "$TARGET" ] || err "no prerelease tags found"
   TARGET_REF="refs/tags/${TARGET}"
   info "Deploying latest prerelease: ${TARGET}..."
@@ -76,7 +64,7 @@ elif [ -n "$VERSION" ]; then
   TARGET_REF="refs/tags/${TARGET}"
   info "Deploying ${TARGET}..."
 else
-  TARGET=$(find_latest_stable || true)
+  TARGET=$(latest_stable_tag "$INSTALL_DIR" || true)
   [ -n "$TARGET" ] || err "no release tags found. Use --dev to install from main."
   TARGET_REF="refs/tags/${TARGET}"
   info "Deploying latest stable release: ${TARGET}..."
@@ -98,15 +86,17 @@ fi
 
 # Create .env if not exists
 if [ ! -f .env ]; then
-  secret=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || date +%s | sha256sum | head -c 36)
-  echo "SYNAPTOMIND_SECRET=${secret}" > .env
+  secret=$(generate_secret)
+  ( umask 077; echo "SYNAPTOMIND_SECRET=${secret}" > .env )
   info "Created .env with random secret"
 fi
+# Tighten permissions even on pre-existing files written with a loose umask.
+chmod 600 .env 2>/dev/null || true
 
 # Show version
 DEPLOYED_VERSION=""
 if [ -f package.json ]; then
-  DEPLOYED_VERSION=$(read_version)
+  DEPLOYED_VERSION=$(read_package_version package.json)
 fi
 [ -n "$DEPLOYED_VERSION" ] || DEPLOYED_VERSION="unknown"
 info "Version: ${DEPLOYED_VERSION}"
@@ -165,7 +155,7 @@ verify_health() {
   while [ "$SECONDS" -lt "$deadline" ]; do
     body=$(curl -fsS --max-time 5 "$HEALTH_URL" 2>/dev/null || true)
     if [ -n "$body" ]; then
-      reported=$(printf '%s' "$body" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')
+      reported=$(printf '%s' "$body" | parse_json_version)
       if [ -n "$reported" ] && [ "$reported" = "$expected" ]; then
         info "Verified running version: ${reported}"
         return 0

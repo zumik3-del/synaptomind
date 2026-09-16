@@ -8,6 +8,10 @@ REPO_URL="https://github.com/zumik3-del/synaptomind.git"
 INSTALL_PORT=3005
 NO_SERVICE=false
 
+# Directory this script was loaded from. Empty for `curl ... | bash` (stdin),
+# where BASH_SOURCE is unset — see load_deploy_common below.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P)" || SCRIPT_DIR=""
+
 # --- Parse arguments ---
 
 parse_args() {
@@ -30,7 +34,8 @@ parse_args() {
         echo ""
         echo "Options:"
         echo "  --dir DIR        Install directory (default: /opt/synaptomind)"
-        echo "  --port PORT      API port (default: 3005)"
+        echo "  --port PORT      API port for a newly created config.json (default: 3005)."
+        echo "                   config.json governs the port; an existing file is not rewritten."
         echo "  --no-service     Skip systemd service installation"
         echo "  --help, -h       Show this help"
         exit 0
@@ -51,6 +56,29 @@ error() { echo "[synaptomind] ERROR: $*" >&2; exit 1; }
 
 need_cmd() {
   command -v "$1" &>/dev/null || error "Required command not found: $1"
+}
+
+# Source the shared deploy helpers (tag/version/secret). Normally they sit next
+# to this script; under `curl ... | bash` there is no sibling file, so fetch
+# them from the same upstream ref the installer is published under.
+load_deploy_common() {
+  local dir tmp
+  if [ -n "$SCRIPT_DIR" ]; then
+    for dir in "${SCRIPT_DIR}/lib" "${SCRIPT_DIR}/scripts/lib"; do
+      if [ -f "${dir}/deploy-common.sh" ]; then
+        . "${dir}/deploy-common.sh"
+        return 0
+      fi
+    done
+  fi
+
+  tmp="$(mktemp)" || error "cannot create a temporary file"
+  if ! curl -fsSL "https://raw.githubusercontent.com/zumik3-del/synaptomind/main/scripts/lib/deploy-common.sh" -o "$tmp"; then
+    rm -f "$tmp"
+    error "cannot load deploy-common.sh: no local copy and download failed"
+  fi
+  . "$tmp"
+  rm -f "$tmp"
 }
 
 # Check if systemd is actually running.
@@ -146,7 +174,7 @@ clone_or_update() {
     git -C "$INSTALL_DIR" fetch --tags origin 2>/dev/null || true
     # Checkout latest stable tag (no hyphen = no prerelease)
     local tag
-    tag=$(git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -v -- '-' | head -1)
+    tag=$(latest_stable_tag "$INSTALL_DIR")
     if [ -n "$tag" ]; then
       git -C "$INSTALL_DIR" checkout "$tag"
       info "Checked out $tag"
@@ -160,7 +188,7 @@ clone_or_update() {
     # Fetch tags for version detection
     git -C "$INSTALL_DIR" fetch --tags origin 2>/dev/null || true
     local tag
-    tag=$(git -C "$INSTALL_DIR" tag --sort=-v:refname 2>/dev/null | grep -v -- '-' | head -1)
+    tag=$(latest_stable_tag "$INSTALL_DIR")
     if [ -n "$tag" ]; then
       git -C "$INSTALL_DIR" checkout "$tag"
       info "Checked out $tag"
@@ -190,15 +218,35 @@ setup_vec0() {
 create_config() {
   if [ ! -f "$INSTALL_DIR/.env" ]; then
     local secret
-    secret=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || date +%s | sha256sum | head -c 36)
-    echo "SYNAPTOMIND_SECRET=${secret}" > "$INSTALL_DIR/.env"
+    secret=$(generate_secret)
+    ( umask 077; echo "SYNAPTOMIND_SECRET=${secret}" > "$INSTALL_DIR/.env" )
     info "Created .env with random secret"
   fi
+  # Tighten permissions even on pre-existing files written with a loose umask.
+  chmod 600 "$INSTALL_DIR/.env" 2>/dev/null || true
 
   if [ ! -f "$INSTALL_DIR/config.json" ]; then
     cp "$INSTALL_DIR/config.json.example" "$INSTALL_DIR/config.json"
+    # config.json is the governing port source; --port only seeds a new file.
+    if [ "$INSTALL_PORT" != "3005" ]; then
+      sed -i "s/\"port\": *[0-9][0-9]*/\"port\": ${INSTALL_PORT}/" "$INSTALL_DIR/config.json"
+    fi
     info "Created config.json from example"
   fi
+}
+
+# Effective API port: config.json governs (env vars are no longer forced into
+# the unit), so health checks and printed guidance must read the same source.
+resolve_port() {
+  local port="$INSTALL_PORT"
+  if [ -f "$INSTALL_DIR/config.json" ]; then
+    local cfg_port
+    cfg_port=$(grep -o '"port": *[0-9][0-9]*' "$INSTALL_DIR/config.json" | head -1 | grep -o '[0-9][0-9]*')
+    if [ -n "$cfg_port" ]; then
+      port="$cfg_port"
+    fi
+  fi
+  echo "$port"
 }
 
 # --- Setup data directory ---
@@ -241,6 +289,8 @@ install_service() {
 Description=SynaptoMind — Thought Graph Engine
 After=network.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -248,13 +298,10 @@ User=${current_user}
 WorkingDirectory=${INSTALL_DIR}
 Environment=PATH=/root/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=NODE_ENV=production
-Environment=SYNAPTOMIND_PORT=${INSTALL_PORT}
 EnvironmentFile=${INSTALL_DIR}/.env
 ExecStart=${BUN_BIN} run src/index.ts
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 # Security hardening
 NoNewPrivileges=true
@@ -270,14 +317,32 @@ RestrictSUIDSGID=true
 WantedBy=multi-user.target
 EOF
 
+  validate_unit "$service_file"
   systemctl daemon-reload
   systemctl enable synaptomind 2>/dev/null || true
   info "Systemd service installed"
 }
 
+# Best-effort sanity check of the rendered unit. Never fails the install:
+# systemd-analyze can report issues for paths that only exist post-boot.
+validate_unit() {
+  local unit_file="$1"
+  command -v systemd-analyze &>/dev/null || return 0
+  if systemd-analyze verify "$unit_file" &>/dev/null; then
+    info "Unit verified: ${unit_file}"
+  else
+    warn "systemd-analyze verify reported issues for ${unit_file}"
+  fi
+}
+
 # --- Verify installation ---
 
 verify_installation() {
+  if [ "$NO_SERVICE" = true ]; then
+    info "Skipping service verification (--no-service)"
+    return
+  fi
+
   info "Verifying installation..."
 
   if ! systemd_running; then
@@ -285,9 +350,11 @@ verify_installation() {
     return
   fi
 
+  local port
+  port=$(resolve_port)
   systemctl start synaptomind
   sleep 3
-  if curl -sf "http://127.0.0.1:${INSTALL_PORT}/health" &>/dev/null; then
+  if curl -sf "http://127.0.0.1:${port}/health" &>/dev/null; then
     info "Service started and healthy"
   else
     warn "Service installed but health check failed"
@@ -300,13 +367,17 @@ verify_installation() {
 print_summary() {
   local version="unknown"
   if [ -f "$INSTALL_DIR/package.json" ]; then
-    version=$(grep -o '"version": *"[^"]*"' "$INSTALL_DIR/package.json" | head -1 | sed 's/"version": *"//;s/"//' || echo "unknown")
+    version=$(read_package_version "$INSTALL_DIR/package.json")
+    [ -n "$version" ] || version="unknown"
   fi
   local secret
   secret=$(grep SYNAPTOMIND_SECRET "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 || echo "")
 
+  local port
+  port=$(resolve_port)
+
   local systemd_ok=true
-  if ! systemd_running; then
+  if [ "$NO_SERVICE" = true ] || ! systemd_running; then
     systemd_ok=false
   fi
 
@@ -329,7 +400,7 @@ print_summary() {
     echo "  Logs:       stdout"
   fi
 
-  echo "  Health:     curl http://127.0.0.1:${INSTALL_PORT}/health"
+  echo "  Health:     curl http://127.0.0.1:${port}/health"
   echo "  Update:     bash $INSTALL_DIR/scripts/update.sh"
   echo "  Uninstall:  sudo bash $INSTALL_DIR/scripts/uninstall.sh"
   echo ""
@@ -339,6 +410,8 @@ print_summary() {
 
 main() {
   parse_args "$@"
+
+  load_deploy_common
 
   info "Installing SynaptoMind..."
 
