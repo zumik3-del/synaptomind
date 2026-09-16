@@ -47,6 +47,9 @@ jobs:
       - name: "Test: bun test"
         run: bun test --coverage --coverage-reporter text --coverage-reporter lcov
 
+      - name: "Eval: retrieval quality gate (deterministic)"
+        run: bun run eval
+
       - name: "Upload coverage to Coveralls"
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: coverallsapp/github-action@v2
