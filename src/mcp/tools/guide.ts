@@ -132,6 +132,8 @@ Score: 100 - (critical×10) - (warning×3) - (info×0.5), clamped [0,100].
 
 Run \`memory_status\` (action=edge_suggestions) to get *candidate* pairs for \`contradicts\`/\`supports\` edges. Detection is a filter, never a source of truth: it is read-only and never writes edges. Confirm a suggestion explicitly with \`memory_store\` (action=link).
 
+When no NLI classifier is injected (default), proposals are similarity-only: they mean "same subject matter", NOT "conflict". Such proposals carry \`review_required: true\` and \`rationale: embedding_similarity_only\` — treat them as unconfirmed *related* candidates and never link them as \`contradicts\` without reading both thoughts.
+
 Config: \`edgeDetect.minSimilarity\` (recall threshold), \`topK\`, \`maxCandidates\`, \`maxProposals\`, and NLI precision thresholds \`nliThreshold\`/\`supportThreshold\` (used only when an NLI classifier is injected; default off). Embedder unavailability degrades to an empty result (\`degraded: true\`) instead of failing.
 
 ## Crystals

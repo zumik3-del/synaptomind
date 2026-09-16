@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db'
 import { getThoughtLimits, setThoughtLimits } from '../db/settings'
+import { createSmartNote } from '../db/smart_notes'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError, ValidationError } from '../errors'
 import {
@@ -244,4 +245,34 @@ test('updateThoughtById enforces the derived hard limit and accepts the exact ce
 
   expect(() => updateThoughtById(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
   expect(updateThoughtById(id, { content: 'x'.repeat(hardLimit) })?.content).toHaveLength(hardLimit)
+})
+
+function smartNoteCount(id: string): number {
+  return (getDb().prepare('SELECT COUNT(*) AS c FROM smart_notes WHERE thought_id = ?').get(id) as { c: number }).c
+}
+
+test('updateThoughtById to archived drops the thought smart notes', () => {
+  const id = seedThought({ content: 'pending item' })
+  createSmartNote(getDb(), id, { type: 'has_tag', tag: 'pending' })
+  expect(smartNoteCount(id)).toBe(1)
+
+  updateThoughtById(id, { status: 'archived' })
+  expect(smartNoteCount(id)).toBe(0)
+})
+
+test('archiveThoughtById drops the thought smart notes', () => {
+  const id = seedThought({ content: 'pending item' })
+  createSmartNote(getDb(), id, { type: 'has_tag', tag: 'pending' })
+
+  archiveThoughtById(id)
+  expect(smartNoteCount(id)).toBe(0)
+})
+
+test('mergeThoughtsService drops the merged-away source smart notes', () => {
+  const source = seedThought({ content: 'duplicate source' })
+  const target = seedThought({ content: 'canonical target' })
+  createSmartNote(getDb(), source, { type: 'has_tag', tag: 'pending' })
+
+  mergeThoughtsService({ sourceId: source, targetId: target })
+  expect(smartNoteCount(source)).toBe(0)
 })

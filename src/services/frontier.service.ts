@@ -64,11 +64,13 @@ export function getFrontier(input: FrontierInput = {}): { items: FrontierItem[] 
   const readyReasons = new Set<string>()
   for (const note of listSmartNotesWithReady()) {
     if (!note.ready) continue
-    const t = d.prepare(`SELECT id, content, created_at FROM thoughts WHERE id = ?`).get(note.thought_id) as
-      | CandidateRow
+    const t = d.prepare(`SELECT id, content, created_at, status FROM thoughts WHERE id = ?`).get(note.thought_id) as
+      | (CandidateRow & { status: string })
       | undefined
-    if (t && !candidates.has(t.id)) candidates.set(t.id, t)
-    if (t) readyReasons.add(t.id)
+    // Archived thoughts never enter the frontier, even if a stale smart note
+    // still evaluates as ready.
+    if (t && t.status !== 'archived' && !candidates.has(t.id)) candidates.set(t.id, t)
+    if (t && t.status !== 'archived') readyReasons.add(t.id)
   }
   if (input.project_id) {
     for (const id of [...candidates.keys()]) {

@@ -55,6 +55,15 @@ export function deleteSmartNote(db: Database, id: string): boolean {
   return db.prepare(`DELETE FROM smart_notes WHERE id = ?`).run(id).changes > 0
 }
 
+/**
+ * Drop every smart note bound to a thought. Used when a thought is archived:
+ * an archived thought is out of the plan, so its wake-up notes must not linger
+ * and resurface it in the frontier / pending_items.
+ */
+export function deleteSmartNotesByThoughtId(db: Database, thoughtId: string): number {
+  return db.prepare(`DELETE FROM smart_notes WHERE thought_id = ?`).run(thoughtId).changes
+}
+
 export function setSurfaceCheckedAt(db: Database, id: string): void {
   db.prepare(`UPDATE smart_notes SET surface_checked_at = ? WHERE id = ?`).run(new Date().toISOString(), id)
 }

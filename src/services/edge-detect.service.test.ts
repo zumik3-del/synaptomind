@@ -58,6 +58,7 @@ describe("detectEdgeProposals", () => {
 		const proposal = result.proposals[0]!;
 		expect(proposal.type).toBe("contradicts");
 		expect(proposal.rationale).toBe("embedding_similarity_only");
+		expect(proposal.review_required).toBe(true);
 		expect(proposal.confidence).toBeCloseTo(0.9, 5);
 		expect(proposal.signals).toEqual({ embeddingSimilarity: 0.9 });
 		expect(new Set([proposal.source_id, proposal.target_id])).toEqual(
@@ -184,6 +185,7 @@ describe("detectEdgeProposals", () => {
 		const proposal = result.proposals[0]!;
 		expect(proposal.type).toBe("contradicts");
 		expect(proposal.rationale).toBe("nli_contradiction");
+		expect(proposal.review_required).toBe(false);
 		expect(proposal.confidence).toBeCloseTo(0.95, 5);
 		expect(proposal.signals).toEqual({ embeddingSimilarity: 0.9, nliScore: 0.95 });
 	});
@@ -206,6 +208,7 @@ describe("detectEdgeProposals", () => {
 		expect(proposal.type).toBe("supports");
 		expect(proposal.source_id).toBe(a);
 		expect(proposal.target_id).toBe(b);
+		expect(proposal.review_required).toBe(false);
 	});
 
 	test("contradiction takes precedence over entailment for the same pair", async () => {

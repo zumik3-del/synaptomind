@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
+import { createSmartNote } from '../db/smart_notes'
 import { getFrontier } from './frontier.service'
 
 beforeEach(createTestDb)
@@ -149,4 +150,11 @@ test('getFrontier keeps contradicted thoughts (only replaces removes)', () => {
   // contradiction is symmetric and neither side is authoritative — both stay
   expect(result.items.find(i => i.thought_id === a)).toBeDefined()
   expect(result.items.find(i => i.thought_id === b)).toBeDefined()
+})
+
+test('getFrontier excludes an archived thought even with a ready smart note', () => {
+  const id = seedThought({ content: 'archived pending', status: 'archived', tags: '["pending"]' })
+  createSmartNote(getDb(), id, { type: 'has_tag', tag: 'pending' })
+  const result = getFrontier()
+  expect(result.items.find(i => i.thought_id === id)).toBeUndefined()
 })

@@ -24,9 +24,11 @@ import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from './edge-candi
  *
  * Without an NLI classifier the recall filter alone cannot tell conflict from
  * agreement, so proposals are emitted as low-confidence `contradicts`
- * candidates with rationale `embedding_similarity_only`. An NLI classifier,
+ * candidates with rationale `embedding_similarity_only` and
+ * `review_required: true` (similarity ≠ conflict). An NLI classifier,
  * when injected, gates proposals on `nliThreshold` (contradiction) or
- * `supportThreshold` (entailment) and can label `supports` too.
+ * `supportThreshold` (entailment), labels `supports`, and sets
+ * `review_required: false`.
  */
 
 // ── NLI port (injected, default off) ─────────────────────────────────────────
@@ -55,6 +57,13 @@ export interface EdgeProposal {
   confidence: number
   /** Human-readable provenance: why this pair was proposed. */
   rationale: string
+  /**
+   * True when the pair rests on embedding similarity alone (no NLI verdict):
+   * high similarity means "same subject matter", NOT "conflict". Consumers must
+   * treat such a proposal as an unconfirmed *related* candidate, never as a
+   * settled contradiction.
+   */
+  review_required: boolean
   signals: EdgeProposalSignals
 }
 
@@ -153,6 +162,7 @@ async function classifyPair(
       type: 'contradicts',
       confidence: contradiction,
       rationale: 'nli_contradiction',
+      review_required: false,
       signals: { embeddingSimilarity: pair.embeddingSimilarity, nliScore: contradiction }
     }
   }
@@ -168,6 +178,7 @@ async function classifyPair(
       type: 'supports',
       confidence: best,
       rationale: 'nli_entailment',
+      review_required: false,
       signals: { embeddingSimilarity: pair.embeddingSimilarity, nliScore: best }
     }
   }
@@ -260,6 +271,7 @@ export async function detectEdgeProposals(
         type: 'contradicts',
         confidence: pair.embeddingSimilarity,
         rationale: 'embedding_similarity_only',
+        review_required: true,
         signals: { embeddingSimilarity: pair.embeddingSimilarity }
       })
     }
