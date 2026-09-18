@@ -113,11 +113,14 @@ cp .env.example .env
 |----------|---------|-------------|
 | `SYNAPTOMIND_SECRET` | (required) | Auth token for API and MCP |
 | `SYNAPTOMIND_PORT` | 3005 | HTTP API port |
-| `SYNAPTOMIND_HOST` | 127.0.0.1 | Bind address |
+| `SYNAPTOMIND_HOST` | 0.0.0.0 (in container) | Server bind address. Pinned to `0.0.0.0` by `docker-compose.yml` so published ports are reachable from the host |
 | `SYNAPTOMIND_MCP_HTTP_PORT` | 3006 | MCP HTTP transport port |
 | `SYNAPTOMIND_DB_PATH` | ./data/synaptomind.db | SQLite database path |
 | `SYNAPTOMIND_EMBEDDER_MODEL` | Xenova/multilingual-e5-small | Embedding model |
-| `BIND_ADDR` | 127.0.0.1 | Docker port bind address |
+| `BIND_ADDR` | 127.0.0.1 | Docker port bind address (host side; default keeps ports local-only) |
+
+Exposure model: inside the container the server binds `0.0.0.0`; what the host —
+and therefore the network — can reach is controlled by `BIND_ADDR`.
 
 Without `SYNAPTOMIND_SECRET` (and with no `SYNAPTOMIND_SERVICE_TOKEN`), the
 server fails closed: authenticated API and MCP requests are rejected with
