@@ -20,6 +20,7 @@ services:
     env_file:
       - .env
     environment:
+      - SYNAPTOMIND_HOST=0.0.0.0
       - SYNAPTOMIND_DB_PATH=/app/data/synaptomind.db
       - SYNAPTOMIND_LOG_DB_PATH=/app/data/logs.db
       - SYNAPTOMIND_EMBEDDER_CACHE_DIR=/app/data/huggingface
