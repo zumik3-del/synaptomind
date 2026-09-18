@@ -49,7 +49,7 @@ const handlers = {
     run(args: ActionArgs) {
       const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
       const context = getContextService(args.query as string, args.max_degree as number | undefined, projectFilter)
-      if (!context) throw new Error(`No thoughts matching '${args.query}'`)
+      if (!context) throw new Error(`No context found for query '${args.query}'`)
       return context
     }
   },
