@@ -62,9 +62,9 @@ function spawnProcess(): void {
   readyPromise.catch(() => {})
 
   // Spawn the real bun binary (process.execPath), not the `bun` on PATH:
-// on Windows a launcher shim (Chocolatey/scoop) drops the fd table, so the
-// child never gets the IPC pipe — same limitation as Node.js. `process.execPath`
-// points at the running bun.exe even when the parent itself came from a shim.
+  // on Windows a launcher shim (Chocolatey/scoop) drops the fd table, so the
+  // child never gets the IPC pipe — same limitation as Node.js. `process.execPath`
+  // points at the running bun.exe even when the parent itself came from a shim.
   const child = spawn([process.execPath, 'run', getScriptPath()], {
     ipc: (message: IpcMessage) => {
       if (message.type === 'ready') {
