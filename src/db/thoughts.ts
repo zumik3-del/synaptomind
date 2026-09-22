@@ -333,6 +333,7 @@ export function listClusterCandidates(db: Database, minAgeDays: number): Cluster
 export {
   type ThoughtImportance,
   getThoughtImportance,
+  findHighHitThoughts,
   batchGetImportance,
   ensureImportanceRow,
   boostImportance,

@@ -5,7 +5,7 @@ import {
   queryFrequency,
   queryOrphanWritesAggregate,
   queryDraftLifecycle
-} from './telemetry-queries'
+} from '../db/telemetry-queries'
 
 export type TelemetryMetric = 'patterns' | 'frequency' | 'orphan_writes' | 'draft_lifecycle'
 

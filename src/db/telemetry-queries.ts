@@ -1,6 +1,26 @@
 import type { Database } from 'bun:sqlite'
-import { sqlIn } from '../db/utils'
-import { GROUNDING_TOOLS } from './utils'
+import { sqlIn } from './utils'
+
+/**
+ * Read-tool names that ground a write (i.e. the agent consulted memory before
+ * persisting). A write whose `prev_tool` is absent from this list is an
+ * "orphan write" (see issue #17).
+ */
+export const GROUNDING_TOOLS = [
+  'search_thoughts',
+  'get_thought',
+  'get_thought_timeline',
+  'recall_clusters',
+  'get_context',
+  'get_thought_graph',
+  'list_projects',
+  'get_chain',
+  'get_frontier',
+  'get_slots',
+  'list_smart_notes',
+  'eval_smart_notes',
+  'get_profile'
+]
 
 export interface PatternsRow {
   prev_tool: string | null
@@ -111,4 +131,46 @@ export function queryDraftLifecycleDetailed(db: Database, since: string): {
     updates: draftToActive.cnt,
     archives: archived.cnt
   }
+}
+
+// ── Self-improve signal counts ───────────────────────────────────────────────
+
+export function countWriteEvents(db: Database, since: string): number {
+  const row = db
+    .prepare(`SELECT COUNT(*) AS cnt FROM thought_telemetry WHERE action = 'write' AND created_at >= ?`)
+    .get(since) as { cnt: number }
+  return row.cnt
+}
+
+export function countOrphanWriteEvents(db: Database, since: string): number {
+  const row = db
+    .prepare(`
+      SELECT COUNT(*) AS cnt FROM thought_telemetry
+      WHERE action = 'write' AND created_at >= ?
+        AND (prev_tool IS NULL OR prev_tool NOT IN (${sqlIn(GROUNDING_TOOLS)}))
+    `)
+    .get(since, ...GROUNDING_TOOLS) as { cnt: number }
+  return row.cnt
+}
+
+export function countSearchCreateEvents(db: Database, since: string): number {
+  const row = db
+    .prepare(`
+      SELECT COUNT(*) AS cnt FROM thought_telemetry
+      WHERE action = 'write' AND tool_name = 'create_thought'
+        AND prev_tool = 'search_thoughts' AND created_at >= ?
+    `)
+    .get(since) as { cnt: number }
+  return row.cnt
+}
+
+export function countClusterOpEvents(db: Database, since: string): number {
+  const row = db
+    .prepare(`
+      SELECT COUNT(*) AS cnt FROM thought_telemetry
+      WHERE tool_name IN ('link_thoughts', 'cluster', 'auto_cluster', 'merge_thoughts')
+        AND created_at >= ?
+    `)
+    .get(since) as { cnt: number }
+  return row.cnt
 }

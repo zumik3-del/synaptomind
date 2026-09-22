@@ -27,6 +27,18 @@ export function batchGetImportance(db: Database, ids: string[]): Map<string, Tho
   return map
 }
 
+export function findHighHitThoughts(
+  db: Database,
+  threshold: number,
+  limit = 20
+): Array<{ id: string; hit_count: number }> {
+  return db
+    .prepare(
+      `SELECT thought_id AS id, hit_count FROM thought_importance WHERE hit_count >= ? ORDER BY hit_count DESC LIMIT ?`
+    )
+    .all(threshold, limit) as Array<{ id: string; hit_count: number }>
+}
+
 export function ensureImportanceRow(db: Database, thoughtId: string): void {
   db.prepare(`
     INSERT OR IGNORE INTO thought_importance (thought_id, importance, hit_count, last_decay, created_at)

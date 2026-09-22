@@ -1,10 +1,16 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
-import { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError } from './errors'
+import {
+  EdgeAlreadyExistsError,
+  ClusterEdgeValidationError,
+  SelfLoopEdgeError,
+  EdgeConflictError,
+  InvalidEdgeTypeError
+} from './errors'
 import { boostImportance, getThoughtRow, getThoughtsBatchWithTags, type Thought } from './thoughts'
 import { sqlIn, pairKey } from './utils'
 
-export { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError }
+export { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError, InvalidEdgeTypeError }
 
 export interface Edge {
   id: string
@@ -37,7 +43,7 @@ export function getValidEdgeTypes(): string[] {
 
 export function createEdge(db: Database, sourceId: string, targetId: string, type: string = 'related'): Edge {
   if (!isValidEdgeType(type)) {
-    throw new Error(`Invalid edge type '${type}'. Valid types: ${getValidEdgeTypes().join(', ')}`)
+    throw new InvalidEdgeTypeError(type, getValidEdgeTypes())
   }
   if (type === 'child') {
     throw new ClusterEdgeValidationError(
@@ -212,6 +218,14 @@ export function getEdgePairKeys(db: Database, thoughtIds: string[]): Set<string>
     .prepare(`SELECT source_id, target_id FROM edges WHERE source_id IN (${ph}) OR target_id IN (${ph})`)
     .all(...thoughtIds, ...thoughtIds) as Array<{ source_id: string; target_id: string }>
   return new Set(rows.map(r => pairKey(r.source_id, r.target_id)))
+}
+
+/** Targets of `replaces` edges — thoughts superseded by a newer one. */
+export function getReplacedTargetIds(db: Database): string[] {
+  const rows = db.prepare(`SELECT DISTINCT target_id FROM edges WHERE type = 'replaces'`).all() as {
+    target_id: string
+  }[]
+  return rows.map(r => r.target_id)
 }
 
 // --- Graph helpers ---

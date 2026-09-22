@@ -22,6 +22,14 @@ export class SelfLoopEdgeError extends Error {
   }
 }
 
+export class InvalidEdgeTypeError extends Error {
+  readonly statusCode = 400
+  constructor(type: string, validTypes: string[]) {
+    super(`Invalid edge type '${type}'. Valid types: ${validTypes.join(', ')}`)
+    this.name = 'InvalidEdgeTypeError'
+  }
+}
+
 export class EdgeConflictError extends Error {
   readonly statusCode = 409
   constructor(sourceId: string, targetId: string) {

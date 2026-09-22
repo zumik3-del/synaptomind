@@ -1,7 +1,7 @@
-import type { SQLQueryBindings } from 'bun:sqlite'
-import { getAllActiveEdges } from '../db/edges'
+import { getAllActiveEdges, getReplacedTargetIds } from '../db/edges'
+import { findDirectiveCandidates, FRONTIER_EXCLUDED_SOURCES, type FrontierCandidateRow } from '../db/frontier'
 import { getDb } from '../db'
-import { getThoughtImportance } from '../db/thoughts'
+import { getThoughtImportance, getThoughtsByIds } from '../db/thoughts'
 import { listSmartNotesWithReady } from './smart_notes.service'
 
 export interface FrontierInput {
@@ -16,14 +16,6 @@ export interface FrontierItem {
   priority: number
   blocked_by: string[]
 }
-
-interface CandidateRow {
-  id: string
-  content: string
-  created_at: string
-}
-
-const EXCLUDED_SOURCES = ['profile-summary', 'crystal']
 
 function shortContent(content: string, limit = 120): string {
   const flat = content.replace(/\s+/g, ' ').trim()
@@ -42,60 +34,30 @@ export function getFrontier(input: FrontierInput = {}): { items: FrontierItem[] 
   const k = Math.min(Math.max(input.k ?? 10, 1), 50)
   const d = getDb()
 
-  const candidates = new Map<string, CandidateRow>()
-  const params: SQLQueryBindings[] = []
+  const candidates = new Map<string, FrontierCandidateRow>()
 
   // 1) directive/todo-tagged active+draft thoughts
-  let sql = `
-    SELECT DISTINCT t.id, t.content, t.created_at
-    FROM thoughts t
-    JOIN thought_tags tt ON tt.thought_id = t.id
-    JOIN tags g ON g.id = tt.tag_id AND lower(g.name) IN ('directive','todo')
-    WHERE t.status IN ('active','draft')
-      AND t.is_cluster = 0
-      AND (t.source IS NULL OR t.source NOT IN ('profile-summary','crystal'))`
-  if (input.project_id) {
-    sql += ` AND t.project_id = ?`
-    params.push(input.project_id)
-  }
-  for (const row of d.prepare(sql).all(...params) as CandidateRow[]) candidates.set(row.id, row)
+  for (const row of findDirectiveCandidates(d, input.project_id)) candidates.set(row.id, row)
 
-  // 2) ready smart notes
+  // 2) ready smart notes — archived, off-project, derived (cluster/crystal) or
+  // profile-summary thoughts never enter the frontier, even when a stale smart
+  // note still evaluates as ready.
   const readyReasons = new Set<string>()
-  for (const note of listSmartNotesWithReady()) {
-    if (!note.ready) continue
-    const t = d.prepare(`SELECT id, content, created_at, status FROM thoughts WHERE id = ?`).get(note.thought_id) as
-      | (CandidateRow & { status: string })
-      | undefined
-    // Archived thoughts never enter the frontier, even if a stale smart note
-    // still evaluates as ready.
-    if (t && t.status !== 'archived' && !candidates.has(t.id)) candidates.set(t.id, t)
-    if (t && t.status !== 'archived') readyReasons.add(t.id)
-  }
-  if (input.project_id) {
-    for (const id of [...candidates.keys()]) {
-      const row = d.prepare(`SELECT project_id FROM thoughts WHERE id = ?`).get(id) as
-        | { project_id: string }
-        | undefined
-      if (row?.project_id !== input.project_id) candidates.delete(id)
+  const readyNotes = listSmartNotesWithReady().filter(note => note.ready)
+  const readyThoughts = getThoughtsByIds(d, readyNotes.map(note => note.thought_id))
+  for (const note of readyNotes) {
+    const t = readyThoughts.get(note.thought_id)
+    if (!t || t.status === 'archived') continue
+    if (input.project_id && t.project_id !== input.project_id) continue
+    if (t.is_cluster === 1 || FRONTIER_EXCLUDED_SOURCES.includes(t.source ?? '')) continue
+    readyReasons.add(t.id)
+    if (!candidates.has(t.id)) {
+      candidates.set(t.id, { id: t.id, content: t.content, created_at: t.created_at })
     }
   }
 
-  // Clusters/crystals/profile summaries never enter the frontier.
-  for (const id of [...candidates.keys()]) {
-    const row = d.prepare(`SELECT is_cluster, COALESCE(source,'') AS source FROM thoughts WHERE id = ?`).get(id) as
-      | { is_cluster: number; source: string }
-      | undefined
-    if (!row || row.is_cluster === 1 || EXCLUDED_SOURCES.includes(row.source)) candidates.delete(id)
-  }
-
   // 3) replaced thoughts are outdated — out of the plan
-  const replaced = new Set(
-    (d.prepare(`SELECT DISTINCT target_id FROM edges WHERE type = 'replaces'`).all() as { target_id: string }[]).map(
-      r => r.target_id
-    )
-  )
-  for (const id of replaced) candidates.delete(id)
+  for (const id of getReplacedTargetIds(d)) candidates.delete(id)
 
   // 4) upstream blocking inside the candidate set (depends_on)
   const upstreamOf = new Map<string, string[]>()

@@ -1,9 +1,15 @@
 import { config } from '../config'
 import { getDb } from '../db'
-import { sqlIn } from '../db/utils'
+import { findHighHitThoughts } from '../db/thoughts'
+import {
+  countClusterOpEvents,
+  countOrphanWriteEvents,
+  countSearchCreateEvents,
+  countWriteEvents,
+  queryDraftLifecycleDetailed
+} from '../db/telemetry-queries'
 import { getLogDb } from '../logging'
-import { GROUNDING_TOOLS, windowStart } from './utils'
-import { queryDraftLifecycleDetailed } from './telemetry-queries'
+import { windowStart } from './utils'
 
 export interface TelemetrySignals {
   orphanRate: number
@@ -23,49 +29,21 @@ export function queryTelemetrySignals(): TelemetrySignals {
   const since7d = windowStart(7 * 86400)
   const since30d = windowStart(30 * 86400)
 
-  const totalWritesRow = logDb
-    .prepare(`SELECT COUNT(*) AS cnt FROM thought_telemetry WHERE action = 'write' AND created_at >= ?`)
-    .get(since7d) as { cnt: number }
-
-  const orphanCountRow = logDb
-    .prepare(`
-    SELECT COUNT(*) AS cnt FROM thought_telemetry
-    WHERE action = 'write' AND created_at >= ?
-      AND (prev_tool IS NULL OR prev_tool NOT IN (${sqlIn(GROUNDING_TOOLS)}))
-  `)
-    .get(since7d, ...GROUNDING_TOOLS) as { cnt: number }
-
-  const totalWrites = totalWritesRow.cnt
-  const orphanRate = totalWrites > 0 ? orphanCountRow.cnt / totalWrites : 0
+  const totalWrites = countWriteEvents(logDb, since7d)
+  const orphanCount = countOrphanWriteEvents(logDb, since7d)
+  const orphanRate = totalWrites > 0 ? orphanCount / totalWrites : 0
 
   const lifecycle = queryDraftLifecycleDetailed(logDb, since30d)
   const draftCreates = lifecycle.draft_creates
   const activations = lifecycle.updates
   const activationRate = draftCreates > 0 ? activations / draftCreates : 1
 
-  const searchCreateRow = logDb
-    .prepare(`
-    SELECT COUNT(*) AS cnt FROM thought_telemetry
-    WHERE action = 'write' AND tool_name = 'create_thought'
-      AND prev_tool = 'search_thoughts' AND created_at >= ?
-  `)
-    .get(since7d) as { cnt: number }
+  const searchCreateCount = countSearchCreateEvents(logDb, since7d)
+  const searchCreateRatio = draftCreates > 0 ? searchCreateCount / Math.max(1, draftCreates / 4) : 1
 
-  const searchCreateRatio = draftCreates > 0 ? searchCreateRow.cnt / Math.max(1, draftCreates / 4) : 1
+  const clusterOps = countClusterOpEvents(logDb, since7d)
 
-  const clusterOpsRow = logDb
-    .prepare(`
-    SELECT COUNT(*) AS cnt FROM thought_telemetry
-    WHERE tool_name IN ('link_thoughts', 'cluster', 'auto_cluster', 'merge_thoughts')
-      AND created_at >= ?
-  `)
-    .get(since7d) as { cnt: number }
-
-  const highHitThoughts = d
-    .prepare(
-      `SELECT thought_id AS id, hit_count FROM thought_importance WHERE hit_count >= ? ORDER BY hit_count DESC LIMIT 20`
-    )
-    .all(config.selfImprove.hitsThreshold) as Array<{ id: string; hit_count: number }>
+  const highHitThoughts = findHighHitThoughts(d, config.selfImprove.hitsThreshold)
 
   return {
     orphanRate,
@@ -75,6 +53,6 @@ export function queryTelemetrySignals(): TelemetrySignals {
     archives: lifecycle.archives,
     highHitThoughts,
     searchCreateRatio,
-    clusterOps: clusterOpsRow.cnt
+    clusterOps
   }
 }

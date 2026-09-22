@@ -7,7 +7,7 @@ import {
   queryFrequency,
   queryOrphanWritesDetail,
   queryDraftLifecycleDetailed
-} from '../services/telemetry-queries'
+} from '../db/telemetry-queries'
 
 type Env = { Variables: { logDb: Database } }
 

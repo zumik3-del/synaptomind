@@ -280,6 +280,34 @@ test("POST /api/thoughts/:id/link returns 400 for missing target_id", async () =
 	expect(res.status).toBe(400);
 });
 
+test("POST /api/thoughts/:id/link returns 409 for conflicting directed edge (reverse)", async () => {
+	const a = seedThought();
+	const b = seedThought();
+	await request(`/api/thoughts/${a}/link`, {
+		method: "POST",
+		body: JSON.stringify({ target_id: b, type: "develops" }),
+		headers: { "Content-Type": "application/json" },
+	});
+	// Reverse direction with same directed type → EdgeConflictError → 409
+	const res = await request(`/api/thoughts/${b}/link`, {
+		method: "POST",
+		body: JSON.stringify({ target_id: a, type: "develops" }),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(res.status).toBe(409);
+});
+
+test("POST /api/thoughts/:id/link returns 400 for invalid edge type", async () => {
+	const a = seedThought();
+	const b = seedThought();
+	const res = await request(`/api/thoughts/${a}/link`, {
+		method: "POST",
+		body: JSON.stringify({ target_id: b, type: "bogus" }),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(res.status).toBe(400);
+});
+
 test("DELETE /api/edges/:id removes edge", async () => {
 	const src = seedThought();
 	const tgt = seedThought();
