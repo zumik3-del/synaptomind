@@ -255,7 +255,7 @@ describe("searchThoughts graph standing (ADR #142 D2)", () => {
 });
 
 // Regression guard: standing ordering must not be driven by `similarity`.
-// `similarity` is populated from the vector leg only, so BM25/entity-only hits
+// `similarity` is populated from the vector leg only, so BM25-only hits
 // carry 0 and a similarity-primary sort would sink them below every vector hit.
 describe("orderByStanding (ADR #142 item 3)", () => {
 	function stubResult(

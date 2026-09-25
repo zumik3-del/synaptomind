@@ -65,17 +65,6 @@ curl `'http://127.0.0.1:3005/api/thoughts/search/hints?q=slots'`
 
 Response: `[{"id": "...", "content_short": "...", "similarity": 0.9, "project_name": "...", "tags": [{"id": "...", "name": "..."}], "compact": true}]`
 
-### GET /api/thoughts/entities
-
-Lists entities (code, tags, wiki links, terms) extracted from thought content.
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| type | query | string | optional | One of: `code`, `tag`, `wiki`, `term` |
-| limit | query | int | 100 (clamped 1-500) | Max entities |
-
-curl `'http://127.0.0.1:3005/api/thoughts/entities?type=tag&limit=5'`
-
 ### GET /api/thoughts/timeline
 
 Lists thoughts with pagination and filters.
@@ -224,7 +213,7 @@ curl `-X DELETE http://127.0.0.1:3005/api/thoughts/<id>/links/repo`
 
 ### POST /api/thoughts/auto-link
 
-Runs the auto-link job that creates edges from URL overlaps between thoughts.
+Runs the auto-link job: it finds active, low-connectivity thoughts, computes embedding-proximity pairs, and creates `related` edges between them.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|

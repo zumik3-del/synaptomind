@@ -4,12 +4,12 @@ import { getDb } from '../db'
 import { getThoughtImportance, getThoughtsByIds } from '../db/thoughts'
 import { listSmartNotesWithReady } from './smart_notes.service'
 
-export interface FrontierInput {
+interface FrontierInput {
   project_id?: string
   k?: number
 }
 
-export interface FrontierItem {
+interface FrontierItem {
   thought_id: string
   content_short: string
   reason: 'ready smart note' | 'directive'

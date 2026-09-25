@@ -1,6 +1,6 @@
 import { generateEmbedding, generateEmbeddings } from './model'
 
-export interface EmbedderRequest {
+interface EmbedderRequest {
   id?: string
   method?: string
   params?: { text?: string; texts?: string[] }

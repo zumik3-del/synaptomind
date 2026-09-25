@@ -16,7 +16,7 @@ import type { Database } from 'bun:sqlite'
 
 export type Severity = 'critical' | 'warning' | 'info'
 
-export interface CheckResult {
+interface CheckResult {
   name: string
   severity: Severity
   count: number
@@ -24,12 +24,12 @@ export interface CheckResult {
   auto_fixable?: boolean
 }
 
-export interface CategoryResult {
+interface CategoryResult {
   name: string
   checks: CheckResult[]
 }
 
-export interface HealthReport {
+interface HealthReport {
   summary: {
     total_thoughts: number
     total_edges: number
@@ -43,7 +43,7 @@ export interface HealthReport {
   categories: CategoryResult[]
 }
 
-export interface HealthCheckOptions {
+interface HealthCheckOptions {
   severity?: Severity
   project_id?: string
   fix?: boolean

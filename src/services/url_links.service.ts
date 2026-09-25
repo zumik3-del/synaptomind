@@ -7,7 +7,7 @@ export function listThoughtUrlLinksService(thoughtId: string, d: Database = getD
   return getThoughtUrlLinks(d, thoughtId)
 }
 
-export interface ThoughtUrlLinksBatch {
+interface ThoughtUrlLinksBatch {
   [thoughtId: string]: ThoughtUrlLink[]
 }
 
@@ -22,7 +22,7 @@ export function getThoughtUrlLinksBatchService(rawIds: string | undefined, d: Da
   return map
 }
 
-export interface UpsertUrlLinkInput {
+interface UpsertUrlLinkInput {
   key: string
   url: string
   label?: string

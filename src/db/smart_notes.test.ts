@@ -6,7 +6,6 @@ import {
 	createSmartNote,
 	deleteSmartNote,
 	getSmartNote,
-	getSmartNoteByThoughtId,
 	listSmartNotes,
 	type SurfaceCondition,
 	setSurfaceCheckedAt,
@@ -32,14 +31,6 @@ test("createSmartNote inserts a row with parsed condition", () => {
 
 	const fetched = getSmartNote(db, note.id);
 	expect(fetched?.surface_condition).toEqual(COND);
-});
-
-test("getSmartNoteByThoughtId finds by thought", () => {
-	const db = getDb();
-	const t = seedThought({ content: "x" });
-	createSmartNote(db, t, COND);
-	const note = getSmartNoteByThoughtId(db, t);
-	expect(note?.thought_id).toBe(t);
 });
 
 test("deleteSmartNote removes the row", () => {

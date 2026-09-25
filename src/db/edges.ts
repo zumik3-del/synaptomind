@@ -242,7 +242,7 @@ export function toEdgeView(edge: Edge): EdgeView {
   return { id: edge.id, source: edge.source_id, target: edge.target_id, type: edge.type, created_at: edge.created_at }
 }
 
-export interface ThoughtEdgeResult {
+interface ThoughtEdgeResult {
   thought: Thought
   upstream: Array<{ edge: EdgeView; thought: Thought | undefined }>
   downstream: Array<{ edge: EdgeView; thought: Thought | undefined }>
@@ -291,14 +291,6 @@ export function getThoughtEdges(
 }
 
 // --- Cluster helpers ---
-
-export function getClusterForThought(db: Database, thoughtId: string): Thought | null {
-  const edge = db.prepare(`SELECT source_id FROM edges WHERE target_id = ? AND type = 'cluster'`).get(thoughtId) as
-    | { source_id: string }
-    | undefined
-  if (!edge) return null
-  return getThoughtRow(db, edge.source_id) ?? null
-}
 
 export function getClusterForThoughtBatch(db: Database, thoughtIds: string[]): Map<string, Thought> {
   const result = new Map<string, Thought>()

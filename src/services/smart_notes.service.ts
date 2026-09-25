@@ -20,7 +20,7 @@ import type { Database } from 'bun:sqlite'
 // db layer directly (finding F2).
 export type { SurfaceCondition } from '../db/smart_notes'
 
-export interface SmartNoteEval {
+interface SmartNoteEval {
   note_id: string
   thought_id: string
   ready: boolean
@@ -156,7 +156,7 @@ export function evalAllSmartNotes(d: Database = getDb()): SmartNoteEval[] {
   }))
 }
 
-export interface AwakenedNote {
+interface AwakenedNote {
   note_id: string
   thought_id: string
   condition_hit: string | null

@@ -28,8 +28,7 @@ interface Config {
     minMembers: number; dryRun: boolean
   }
   autoLink: {
-    minSimilarity: number; maxEdgesPerRun: number;
-    minEntityOverlap: number; dryRun: boolean
+    minSimilarity: number; maxEdgesPerRun: number; dryRun: boolean
   }
   edgeDetect: {
     minSimilarity: number; topK: number; maxCandidates: number;
@@ -75,8 +74,7 @@ export const DEFAULTS: Config = {
     minMembers: 3, dryRun: false
   },
   autoLink: {
-    minSimilarity: 0.65, maxEdgesPerRun: 20,
-    minEntityOverlap: 1, dryRun: false
+    minSimilarity: 0.65, maxEdgesPerRun: 20, dryRun: false
   },
   edgeDetect: {
     minSimilarity: 0.75, topK: 10, maxCandidates: 100,
@@ -94,9 +92,9 @@ export const DEFAULTS: Config = {
   ttl: { archivedTtlDays: 90, cleanupIntervalMs: 86400000 }
 }
 
-export type EnvType = 'string' | 'int' | 'float' | 'bool' | 'list'
+type EnvType = 'string' | 'int' | 'float' | 'bool' | 'list'
 
-export interface EnvMapping {
+interface EnvMapping {
   env: string
   path: string
   type: EnvType
@@ -156,7 +154,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
 
   { env: 'SYNAPTOMIND_AUTO_LINK_MIN_SIMILARITY', path: 'autoLink.minSimilarity', type: 'float' },
   { env: 'SYNAPTOMIND_AUTO_LINK_MAX_EDGES', path: 'autoLink.maxEdgesPerRun', type: 'int' },
-  { env: 'SYNAPTOMIND_AUTO_LINK_MIN_ENTITY_OVERLAP', path: 'autoLink.minEntityOverlap', type: 'int' },
   { env: 'SYNAPTOMIND_AUTO_LINK_DRY_RUN', path: 'autoLink.dryRun', type: 'bool' },
 
   { env: 'SYNAPTOMIND_EDGE_DETECT_MIN_SIMILARITY', path: 'edgeDetect.minSimilarity', type: 'float' },

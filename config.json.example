@@ -64,7 +64,6 @@
   "autoLink": {
     "minSimilarity": 0.65,
     "maxEdgesPerRun": 20,
-    "minEntityOverlap": 1,
     "dryRun": false
   },
   "edgeDetect": {

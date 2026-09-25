@@ -4,7 +4,7 @@ import { config } from '../config'
 import { VERSION } from '../version'
 import { registerAllMemoryTools } from './tools'
 
-export const defaultInstructions = [
+const defaultInstructions = [
   'SynaptoMind is persistent, AI-native memory for durable knowledge.',
   'It is designed to be read, maintained, and evolved primarily by AI agents.',
   '',
@@ -97,7 +97,7 @@ function readInstructions(file: string | undefined): string {
  * Return the MCP server instructions. The file is read once per process and
  * cached; changing the configured instructionsFile requires a restart.
  */
-export function loadInstructions(): string | undefined {
+function loadInstructions(): string | undefined {
   const file = config.mcp.instructionsFile
   if (instructionsCache && instructionsCache.file === file) return instructionsCache.value
   const value = readInstructions(file)

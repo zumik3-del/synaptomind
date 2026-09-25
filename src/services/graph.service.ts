@@ -4,7 +4,7 @@ import { config } from '../config'
 import { searchThoughts } from '../db/search'
 import { listThoughts, type Thought } from '../db/thoughts'
 
-export interface GraphNode {
+interface GraphNode {
   id: string
   label: string
   title?: string
@@ -16,14 +16,14 @@ export interface GraphNode {
   project_name?: string
 }
 
-export interface GraphEdge {
+interface GraphEdge {
   id: string
   source: string
   target: string
   type: string
 }
 
-export interface GraphData {
+interface GraphData {
   nodes: GraphNode[]
   edges: GraphEdge[]
 }
@@ -39,8 +39,8 @@ function resolveCategory(source: string | null, tags: string[], isCluster: numbe
   return 'concept'
 }
 
-export const GRAPH_DEFAULT_LIMIT = 500
-export const GRAPH_MAX_LIMIT = 2000
+const GRAPH_DEFAULT_LIMIT = 500
+const GRAPH_MAX_LIMIT = 2000
 
 function resolveGraphLimit(limit: number | null | undefined): number {
   if (limit === null || limit === undefined) return GRAPH_DEFAULT_LIMIT
@@ -83,7 +83,7 @@ export function getGraphDataService(projectId?: string | null, status: string = 
   }
 }
 
-export interface ChainResult {
+interface ChainResult {
   thought: Thought
   upstream: Array<{ edge: EdgeView; thought: Thought | undefined }>
   downstream: Array<{ edge: EdgeView; thought: Thought | undefined }>
@@ -97,7 +97,7 @@ export function getChainService(
   return getThoughtEdges(getDb(), thoughtId, direction, maxDegree)
 }
 
-export interface ContextResult {
+interface ContextResult {
   best_match: Thought
   chain: ChainResult | null
 }

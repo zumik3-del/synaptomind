@@ -11,7 +11,7 @@ export interface CrystallizeInput {
   project_id?: string
 }
 
-export interface CrystallizeResult {
+interface CrystallizeResult {
   crystal_id: string
   content: string
   style: string

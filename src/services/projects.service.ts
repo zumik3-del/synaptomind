@@ -4,7 +4,6 @@ import {
   getProject,
   listProjects,
   resolveProject,
-  resolveProjectByPath,
   updateProject
 } from '../db/projects'
 import { getDb } from '../db'
@@ -46,8 +45,4 @@ export function deleteProjectService(id: string): boolean {
 
 export function resolveProjectService(cwd: string) {
   return resolveProject(getDb(), cwd) ?? null
-}
-
-export function resolveProjectByPathService(cwd: string) {
-  return resolveProjectByPath(getDb(), cwd) ?? null
 }

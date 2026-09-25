@@ -10,7 +10,7 @@ export function resetValidTokens(): void {
 
 // Explicit local-development opt-out. Without a configured token and without
 // this flag the server fails closed: every authenticated request is rejected.
-export function isInsecureMode(): boolean {
+function isInsecureMode(): boolean {
   return process.env.SYNAPTOMIND_ALLOW_INSECURE === 'true'
 }
 

@@ -13,7 +13,7 @@ export type TelemetryMetric = 'patterns' | 'frequency' | 'orphan_writes' | 'draf
  * Action payload or the error message to surface. Modelled as a DTO so the MCP
  * tool layer never acquires the log DB itself (findings F2/F11).
  */
-export type TelemetryQueryResult = { ok: true; data: unknown } | { ok: false; error: string }
+type TelemetryQueryResult = { ok: true; data: unknown } | { ok: false; error: string }
 
 type MetricHandler = (db: Database, since: string, limit: number) => unknown
 

@@ -18,13 +18,13 @@ export function getProfileStatsService(): ProfileStats {
 const SUBTAG_PREFIX = '@profile-'
 const BULLET_MAX = 400
 
-export interface ProfileSummaryGroup {
+interface ProfileSummaryGroup {
   topic: string
   thought_id: string
   members: number
 }
 
-export interface ProfileSummaryResult {
+interface ProfileSummaryResult {
   created: ProfileSummaryGroup[]
   removed: number
   stats: ProfileStats

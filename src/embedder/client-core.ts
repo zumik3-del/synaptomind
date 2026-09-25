@@ -19,9 +19,6 @@ let ready = false
 export function isEmbedderReady(): boolean {
   return ready
 }
-export function isEmbedderDead(): boolean {
-  return dead
-}
 let dead = false
 let shuttingDown = false
 let nextId = 1

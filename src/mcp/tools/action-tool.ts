@@ -15,7 +15,7 @@ export type ActionArgs = Record<string, unknown>
  * checks, so missing/invalid fields surface as a normal `isError` envelope with
  * a precise message (audit F18).
  */
-export interface ActionHandler {
+interface ActionHandler {
   input?: z.ZodType
   run(args: ActionArgs): unknown | Promise<unknown>
 }

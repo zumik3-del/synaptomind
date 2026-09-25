@@ -15,14 +15,14 @@ export const SLOT_NAMES = [
   'project_context',
   'active_goals'
 ] as const
-export type SlotName = (typeof SLOT_NAMES)[number]
+type SlotName = (typeof SLOT_NAMES)[number]
 
 // Virtual slots are composed from existing mechanisms on every read and are
 // never stored; explicit slots live in the `slots` table.
-export const VIRTUAL_SLOT_NAMES = new Set<string>(['persona', 'pending_items', 'architecture_decisions'])
-export const EXPLICIT_SLOT_NAMES = new Set<string>(['project_context', 'active_goals'])
+const VIRTUAL_SLOT_NAMES = new Set<string>(['persona', 'pending_items', 'architecture_decisions'])
+const EXPLICIT_SLOT_NAMES = new Set<string>(['project_context', 'active_goals'])
 
-export interface SlotView {
+interface SlotView {
   name: SlotName
   scope: 'project' | 'global'
   virtual: boolean
@@ -105,7 +105,7 @@ export function getSlots(opts?: { projectId?: string; names?: string[] }): SlotV
   return views
 }
 
-export interface UpdateSlotInput {
+interface UpdateSlotInput {
   content: string
   max_chars?: number
   scope?: 'project' | 'global'

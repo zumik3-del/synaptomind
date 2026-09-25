@@ -135,7 +135,7 @@ sequenceDiagram
 <summary><strong>Technical capabilities</strong></summary>
 
 - **Graph storage** — thoughts, edges, projects, tags, smart notes in SQLite
-- **Hybrid search** — vector (vec0) + BM25 (FTS5) + entity matching
+- **Hybrid search** — vector (vec0) + BM25 (FTS5) via Reciprocal Rank Fusion
 - **Local embeddings** — `@huggingface/transformers`, no API keys
 - **MCP server** — stdio + HTTP transport
 - **Auto-clustering** — batch grouping by embedding proximity

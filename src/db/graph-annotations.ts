@@ -15,7 +15,7 @@ import { sqlIn } from './utils'
  */
 export type GraphStanding = 'current' | 'superseded' | 'contradicted'
 
-export interface GraphStandingInfo {
+interface GraphStandingInfo {
   standing: GraphStanding
   superseded_by: string[]
   contradicted_by: string[]

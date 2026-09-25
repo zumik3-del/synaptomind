@@ -8,13 +8,10 @@ import {
   archiveThoughtById,
   createThoughtWithParent,
   createThoughtWithUrlLinks,
-  deleteThoughtById,
-  findClusterForThought,
   getClusterMembersService,
   getThoughtById,
   listThoughtsService,
   mergeThoughtsService,
-  pruneThoughtUrlLinksService,
   updateThoughtById
 } from './thoughts.service'
 import { validateContentLength } from '../validation'
@@ -95,16 +92,6 @@ test('archiveThoughtById rejects profile thoughts', () => {
   expect(() => archiveThoughtById(id)).toThrow(ValidationError)
 })
 
-test('deleteThoughtById removes thought', () => {
-  const id = seedThought()
-  expect(deleteThoughtById(id)).toBeTrue()
-  expect(getThoughtById(id)).toBeNull()
-})
-
-test('deleteThoughtById returns false for unknown', () => {
-  expect(deleteThoughtById('nonexistent')).toBeFalse()
-})
-
 test('listThoughtsService returns thoughts', () => {
   seedThought({ content: 'first' })
   seedThought({ content: 'second' })
@@ -119,11 +106,6 @@ test('listThoughtsService filters by status', () => {
   expect(active.every(t => t.status === 'active')).toBeTrue()
 })
 
-test('findClusterForThought returns null for non-clustered thought', () => {
-  const id = seedThought()
-  expect(findClusterForThought(id)).toBeNull()
-})
-
 test('getClusterMembersService throws for non-cluster thought', () => {
   const id = seedThought()
   expect(() => getClusterMembersService(id)).toThrow(ValidationError)
@@ -131,14 +113,6 @@ test('getClusterMembersService throws for non-cluster thought', () => {
 
 test('getClusterMembersService throws for unknown id', () => {
   expect(() => getClusterMembersService('nonexistent')).toThrow(NotFoundError)
-})
-
-test('pruneThoughtUrlLinksService removes links not in content', () => {
-  const id = seedThought()
-  const db = getDb()
-  db.prepare(`INSERT INTO thought_url_links (thought_id, key, url, label, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(id, 'link1', 'http://a.com', 'link1', 0, new Date().toISOString())
-  const pruned = pruneThoughtUrlLinksService(id, 'no links here')
-  expect(pruned).toBe(1)
 })
 
 test('mergeThoughtsService throws for same source and target', () => {

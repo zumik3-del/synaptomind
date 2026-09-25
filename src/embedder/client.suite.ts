@@ -4,7 +4,6 @@ import { closeDb } from '../db/init'
 import {
   generateEmbedding,
   generateEmbeddings,
-  isEmbedderDead,
   isEmbedderReady,
   startEmbedderProcess,
   stopEmbedderProcess
@@ -41,7 +40,6 @@ test('startEmbedderProcess becomes ready against the stub subprocess', async () 
   await startEmbedderProcess()
 
   expect(isEmbedderReady()).toBe(true)
-  expect(isEmbedderDead()).toBe(false)
 })
 
 test('generateEmbedding round-trips through the stub IPC protocol', async () => {
@@ -77,7 +75,6 @@ test('stopEmbedderProcess marks the client dead; the next request respawns it', 
   await stopEmbedderProcess()
 
   expect(isEmbedderReady()).toBe(false)
-  expect(isEmbedderDead()).toBe(true)
 
   // self-healing: a fresh subprocess is spawned on demand
   const embedding = await generateEmbedding('hello')

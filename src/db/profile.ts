@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { getThoughtTagsBatch } from './tags'
 import { rowToThought, type Thought } from './thoughts'
 
-export interface ProfileTagCount {
+interface ProfileTagCount {
   name: string
   count: number
 }

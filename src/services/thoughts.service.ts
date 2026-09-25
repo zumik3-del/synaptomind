@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
-import { createEdge, getClusterForThought, getClusterMembers, getEdgesForThought, toEdgeView, type EdgeView } from '../db/edges'
+import { createEdge, getClusterMembers, getEdgesForThought, toEdgeView, type EdgeView } from '../db/edges'
 import { getDb } from '../db'
 import { getThoughtLimitsDB } from '../db/settings'
 import { deleteSmartNotesByThoughtId } from '../db/smart_notes'
@@ -9,7 +9,6 @@ import {
   type CreateThoughtInput,
   archiveThought as dbArchiveThought,
   createThought as dbCreateThought,
-  deleteThought as dbDeleteThought,
   getThought as dbGetThought,
   listThoughts as dbListThoughts,
   updateThought as dbUpdateThought,
@@ -62,7 +61,7 @@ export function createThoughtWithParent(
   return { ...thought, content_language: config.contentLanguage } as Thought
 }
 
-export interface UrlLink {
+interface UrlLink {
   text: string
   url: string
 }
@@ -132,20 +131,8 @@ export function archiveThoughtById(id: string, d: Database = getDb()): Thought |
   return run()
 }
 
-export function deleteThoughtById(id: string, d: Database = getDb()): boolean {
-  return dbDeleteThought(d, id)
-}
-
 export function listThoughtsService(options?: ListThoughtsOptions, d: Database = getDb()): Thought[] {
   return dbListThoughts(d, options)
-}
-
-export function pruneThoughtUrlLinksService(thoughtId: string, content: string, d: Database = getDb()): number {
-  return pruneThoughtUrlLinks(d, thoughtId, content)
-}
-
-export function findClusterForThought(thoughtId: string, d: Database = getDb()): Thought | null {
-  return getClusterForThought(d, thoughtId)
 }
 
 export function getClusterMembersService(clusterId: string, d: Database = getDb()): { cluster: Thought; members: Thought[] } {
@@ -156,7 +143,7 @@ export function getClusterMembersService(clusterId: string, d: Database = getDb(
   return { cluster, members }
 }
 
-export interface BulkCreateItem {
+interface BulkCreateItem {
   content: string
   status?: ThoughtStatus
   tags?: string[]
@@ -168,7 +155,7 @@ export interface BulkCreateItem {
   is_protected?: boolean
 }
 
-export interface BulkCreateResult {
+interface BulkCreateResult {
   created: Array<{ index: number; thought: Thought }>
   errors: Array<{ index: number; error: string }>
 }
@@ -217,7 +204,7 @@ export function bulkCreateThoughtsService(
   return { created, errors }
 }
 
-export interface MergePreview {
+interface MergePreview {
   mode: 'preview'
   source: Thought & { edges: EdgeView[] }
   target: Thought
@@ -234,12 +221,12 @@ export function getMergePreviewService(sourceId: string, targetId: string, d: Da
   }
 }
 
-export interface MergeResult {
+interface MergeResult {
   target: Thought
   transferredEdges: number
 }
 
-export interface MergeThoughtsOptions {
+interface MergeThoughtsOptions {
   targetId: string
   sourceId: string
   mergedContent?: string

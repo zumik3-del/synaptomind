@@ -39,13 +39,6 @@ export function getSmartNote(db: Database, id: string): SmartNote | undefined {
   return row ? rowToNote(row) : undefined
 }
 
-export function getSmartNoteByThoughtId(db: Database, thoughtId: string): SmartNote | undefined {
-  const row = db.prepare(`SELECT * FROM smart_notes WHERE thought_id = ?`).get(thoughtId) as
-    | Record<string, unknown>
-    | undefined
-  return row ? rowToNote(row) : undefined
-}
-
 export function listSmartNotes(db: Database, limit = 500): SmartNote[] {
   return (db.prepare(`SELECT * FROM smart_notes ORDER BY created_at LIMIT ?`).all(limit) as Record<string, unknown>[]).map(rowToNote)
 }

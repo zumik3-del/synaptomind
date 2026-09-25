@@ -3,7 +3,7 @@ import { getDb } from '../db'
 import { archiveStaleLowImportance, decayImportance } from '../db/thoughts'
 import { createIntervalJob } from './jobs'
 
-export function runDecayJob(): void {
+function runDecayJob(): void {
   const d = getDb()
   const rate = config.decay.rate
   decayImportance(d, rate)

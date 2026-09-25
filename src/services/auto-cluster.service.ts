@@ -15,12 +15,12 @@ export interface AutoClusterOptions {
   dryRun?: boolean
 }
 
-export interface AutoClusterGroup {
+interface AutoClusterGroup {
   members: string[]
   title: string
 }
 
-export interface AutoClusterResult {
+interface AutoClusterResult {
   dry_run: boolean
   candidates: number
   groups: AutoClusterGroup[]
@@ -28,7 +28,7 @@ export interface AutoClusterResult {
 }
 
 /** Neighbor lookup used to build the proximity graph. Injected for tests. */
-export interface AutoClusterDeps {
+interface AutoClusterDeps {
   embed?: (texts: string[]) => Promise<Float32Array[]>
   searchNeighbors?: (
     candidateId: string,

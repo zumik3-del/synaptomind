@@ -6,7 +6,7 @@ import { sqlIn } from './utils'
  * persisting). A write whose `prev_tool` is absent from this list is an
  * "orphan write" (see issue #17).
  */
-export const GROUNDING_TOOLS = [
+const GROUNDING_TOOLS = [
   'search_thoughts',
   'get_thought',
   'get_thought_timeline',
@@ -22,23 +22,23 @@ export const GROUNDING_TOOLS = [
   'get_profile'
 ]
 
-export interface PatternsRow {
+interface PatternsRow {
   prev_tool: string | null
   tool_name: string
   count: number
 }
 
-export interface FrequencyRow {
+interface FrequencyRow {
   action: string
   count: number
 }
 
-export interface OrphanWritesAggregate {
+interface OrphanWritesAggregate {
   total: number
   orphan_count: number
 }
 
-export interface OrphanWritesDetail {
+interface OrphanWritesDetail {
   id: string
   tool_name: string
   prev_tool: string | null
@@ -47,7 +47,7 @@ export interface OrphanWritesDetail {
   created_at: string
 }
 
-export interface DraftLifecycleRow {
+interface DraftLifecycleRow {
   action: string
   count: number
 }

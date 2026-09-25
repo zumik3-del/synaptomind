@@ -1,7 +1,6 @@
 import { Hono } from 'hono'
 import { ValidationError } from '../errors'
 import { withTelemetry } from '../logging'
-import { type EntityType, listEntities } from '../services/entity.service'
 import {
   type ContradictionMode,
   searchThoughts,
@@ -19,13 +18,13 @@ const CONTRADICTION_MODES: readonly ContradictionMode[] = ['off', 'flag']
  * Agent-facing default for superseded thoughts is `suppress` (the library
  * default stays `flag`); an explicit but unknown value is a 400.
  */
-export function parseSupersessionMode(raw: string | undefined): SupersessionMode {
+function parseSupersessionMode(raw: string | undefined): SupersessionMode {
   if (raw === undefined || raw === '') return 'suppress'
   if ((SUPERSESSION_MODES as readonly string[]).includes(raw)) return raw as SupersessionMode
   throw new ValidationError(`invalid supersession_mode '${raw}'; expected off|flag|suppress`)
 }
 
-export function parseContradictionMode(raw: string | undefined): ContradictionMode {
+function parseContradictionMode(raw: string | undefined): ContradictionMode {
   if (raw === undefined || raw === '') return 'flag'
   if ((CONTRADICTION_MODES as readonly string[]).includes(raw)) return raw as ContradictionMode
   throw new ValidationError(`invalid contradiction_mode '${raw}'; expected off|flag`)
@@ -36,7 +35,7 @@ export function parseContradictionMode(raw: string | undefined): ContradictionMo
  * `undefined`; a present but unparseable value is a 400 (`ValidationError`).
  * Out-of-range finite values are left to the service clamps.
  */
-export function parseOptionalNumber(raw: string | undefined, name: string): number | undefined {
+function parseOptionalNumber(raw: string | undefined, name: string): number | undefined {
   if (raw === undefined || raw === '') return undefined
   const value = Number.parseFloat(raw)
   if (!Number.isFinite(value)) throw new ValidationError(`invalid ${name} '${raw}'; expected a number`)
@@ -110,13 +109,6 @@ searchRouter.get('/search/hints', async c => {
     console.error('[thoughts] hints failed:', err)
     throw err
   }
-})
-
-searchRouter.get('/entities', c => {
-  const typeParam = c.req.query('type')
-  const limit = Math.min(500, Math.max(1, parseInt(c.req.query('limit') || '100', 10)))
-  const type = typeParam && ['code', 'tag', 'wiki', 'term'].includes(typeParam) ? (typeParam as EntityType) : undefined
-  return c.json(listEntities({ type, limit }))
 })
 
 export { searchRouter }

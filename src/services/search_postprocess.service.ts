@@ -9,7 +9,7 @@ function isFlat(r: SearchResult | GroupedResult): r is SearchResult {
   return !('cluster' in r)
 }
 
-export interface SearchPostProcessOptions {
+interface SearchPostProcessOptions {
   query: string
   topK: number
   showPrimers: boolean

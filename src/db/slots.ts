@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 
-export interface SlotRow {
+interface SlotRow {
   id: string
   name: string
   scope: 'project' | 'global'
@@ -17,7 +17,7 @@ export function getSlotRow(db: Database, name: string, scope: 'project' | 'globa
   return row ?? undefined
 }
 
-export interface UpsertSlotInput {
+interface UpsertSlotInput {
   name: string
   scope: 'project' | 'global'
   scope_id: string | null

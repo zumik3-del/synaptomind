@@ -3,7 +3,7 @@ import { createIntervalJob } from './jobs'
 import { awakenReady } from './smart_notes.service'
 
 // Evaluates all smart notes and promotes the ready ones to active (issue #210).
-export function runDreamerJob(): void {
+function runDreamerJob(): void {
   const awakened = awakenReady()
   if (awakened.length > 0) {
     console.error(`[dreamer] awakened ${awakened.length} thought(s):`)
