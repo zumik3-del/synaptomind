@@ -31,6 +31,8 @@ export interface ScenarioRun {
   category: string
   outcome: 'pass' | 'xfail'
   status: 'pass' | 'fail' | 'xfail' | 'xpass'
+  /** Mirrors `EvalScenario.measureOnly`; excluded from gated aggregates. */
+  measureOnly?: boolean
   metrics: AggregateMetrics
   queries: QueryRun[]
   checkErrors: string[]
@@ -59,11 +61,24 @@ export interface RunOptions {
   scenarios?: EvalScenario[]
 }
 
-export function evaluateChecks(query: EvalQuery, retrieved: string[]): string[] {
+/**
+ * Hard per-query assertions. `scenarioThoughtIds` are the scenario's own
+ * (non-distractor) thought ids, used only by the `noRelevant` contract.
+ */
+export function evaluateChecks(
+  query: EvalQuery,
+  retrieved: string[],
+  scenarioThoughtIds: string[] = []
+): string[] {
   const errors: string[] = []
   const found = new Set(retrieved)
   for (const id of query.forbid ?? []) {
     if (found.has(id)) errors.push(`retrieved forbidden thought "${id}"`)
+  }
+  if (query.noRelevant) {
+    for (const id of scenarioThoughtIds) {
+      if (found.has(id)) errors.push(`noRelevant query retrieved scenario thought "${id}"`)
+    }
   }
   if (query.rankBefore) {
     const beforeIndex = retrieved.indexOf(query.rankBefore.before)
@@ -91,6 +106,7 @@ export function summariseScenario(scenario: EvalScenario, queries: QueryRun[]): 
     category: scenario.category,
     outcome: xfail ? 'xfail' : 'pass',
     status,
+    measureOnly: scenario.measureOnly === true,
     metrics: averageMetrics(queries.map(query => query.metrics)),
     queries,
     checkErrors
@@ -113,13 +129,21 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
       const db = getDb()
       await seedScenario(db, scenario, embed)
       const searcher = mode === 'real' ? await realSearcher() : createDeterministicSearcher()
+      // The scenario's own thoughts exclude shared DISTRACTORS; the noRelevant
+      // contract asserts none of these are retrieved.
+      const ownThoughtIds = scenario.thoughts
+        .filter(thought => thought.distractor !== true)
+        .map(thought => thought.id)
 
       const queries: QueryRun[] = []
       for (const query of scenario.queries) {
         const k = query.topK ?? topK
-        const found = await searcher(query.query, k, query.projectFilter)
+        const found = await searcher(query.query, k, query.projectFilter, {
+          recencyWeight: query.recencyWeight,
+          recencyHalfLifeDays: query.recencyHalfLifeDays
+        })
         const retrieved = found.map(result => result.thought.id)
-        const checkErrors = evaluateChecks(query, retrieved)
+        const checkErrors = evaluateChecks(query, retrieved, ownThoughtIds)
         queries.push({
           query: query.query,
           relevant: query.relevant,
@@ -133,8 +157,12 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
     rmSync(dir, { recursive: true, force: true })
   }
 
-  // xfail scenarios are reported but excluded from aggregate gating.
-  const passScenarios = results.filter(scenario => scenario.outcome === 'pass')
+  // xfail scenarios and measure-only feature probes are reported but excluded
+  // from aggregate gating (measure-only assertions still gate via
+  // `evaluateAssertions`).
+  const passScenarios = results.filter(
+    scenario => scenario.outcome === 'pass' && !scenario.measureOnly
+  )
   const byCategory = new Map<string, QueryMetrics[]>()
   for (const scenario of passScenarios) {
     const bucket = byCategory.get(scenario.category) ?? []

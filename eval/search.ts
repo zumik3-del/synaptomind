@@ -13,10 +13,17 @@ import { deterministicEmbedding } from './embedding'
 
 export type EmbedFn = (text: string) => Float32Array | Promise<Float32Array>
 
+/** Per-query search knobs forwarded to `SearchServiceOptions`. */
+export interface QuerySearchOptions {
+  recencyWeight?: number
+  recencyHalfLifeDays?: number
+}
+
 export type Searcher = (
   query: string,
   topK: number,
-  projectFilter?: string
+  projectFilter?: string,
+  options?: QuerySearchOptions
 ) => Promise<SearchResult[]> | SearchResult[]
 
 export function deterministicEmbedder(dimensions = config.embedder.dimensions): EmbedFn {
@@ -26,7 +33,7 @@ export function deterministicEmbedder(dimensions = config.embedder.dimensions): 
 export function createDeterministicSearcher(
   dimensions = config.embedder.dimensions
 ): Searcher {
-  return async (query, topK, projectFilter) => {
+  return async (query, topK, projectFilter, options) => {
     const { searchThoughts } = await import('../src/services/search.service')
     return searchThoughts({
       query,
@@ -34,7 +41,9 @@ export function createDeterministicSearcher(
       projectFilter,
       embedding: deterministicEmbedding(query, dimensions),
       supersessionMode: 'suppress',
-      contradictionMode: 'flag'
+      contradictionMode: 'flag',
+      recencyWeight: options?.recencyWeight,
+      recencyHalfLifeDays: options?.recencyHalfLifeDays
     } satisfies SearchServiceOptions)
   }
 }
@@ -46,12 +55,14 @@ export async function realEmbedder(): Promise<EmbedFn> {
 
 export async function realSearcher(): Promise<Searcher> {
   const { searchThoughts } = await import('../src/services/search.service')
-  return (query, topK, projectFilter) =>
+  return (query, topK, projectFilter, options) =>
     searchThoughts({
       query,
       topK,
       projectFilter,
       supersessionMode: 'suppress',
-      contradictionMode: 'flag'
+      contradictionMode: 'flag',
+      recencyWeight: options?.recencyWeight,
+      recencyHalfLifeDays: options?.recencyHalfLifeDays
     } satisfies SearchServiceOptions)
 }

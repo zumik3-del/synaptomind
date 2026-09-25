@@ -11,6 +11,7 @@ export type EvalCategory =
   | 'consolidation'
   | 'project-scope'
   | 'retrieval-quality'
+  | 'no-match'
 
 /** `xfail` scenarios are reported but never fail the run (known gaps). */
 export type ScenarioOutcome = 'pass' | 'xfail'
@@ -26,6 +27,12 @@ export interface EvalThought {
   createdAt?: string
   isCluster?: boolean
   importance?: number
+  /**
+   * Marks a shared background thought (the `DISTRACTORS` spread into every
+   * scenario). Excluded from a scenario's "own" thought set, which the
+   * negative `noRelevant` contract asserts must not be retrieved.
+   */
+  distractor?: boolean
 }
 
 export interface EvalEdge {
@@ -51,6 +58,25 @@ export interface EvalQuery {
   forbid?: string[]
   /** Ordering assertion, e.g. a current fact above a stale one. */
   rankBefore?: RankExpectation
+  /**
+   * Opt-in recency boost passed through to `SearchServiceOptions` for this
+   * query only (`0`/unset preserves relevance-only ranking). Enables measuring
+   * the recency path end-to-end without slowing the other scenarios.
+   */
+  recencyWeight?: number
+  /** Recency decay half-life in days; only meaningful with a weight > 0. */
+  recencyHalfLifeDays?: number
+  /**
+   * Negative-query contract. When `true` the query is off-topic: `relevant`
+   * MUST be `[]` and `evaluateChecks` hard-asserts that NONE of the scenario's
+   * own (non-`distractor`) thoughts appear in the retrieved list. Shared
+   * `DISTRACTORS` are not part of that set and may legitimately fill top-k, so
+   * the assertion is scoped to the scenario's topical thoughts, not "empty
+   * result". Without it a query with `relevant: []` is indistinguishable from
+   * a normal query that simply missed (`computeQueryMetrics` returns zeros
+   * either way).
+   */
+  noRelevant?: true
 }
 
 export interface EvalScenario {
@@ -59,6 +85,14 @@ export interface EvalScenario {
   description: string
   /** Defaults to `pass`. */
   outcome?: ScenarioOutcome
+  /**
+   * Feature-probe scenarios: reported in the run, and their hard assertions
+   * (`forbid`, `rankBefore`, `noRelevant`) still gate it, but their query
+   * metrics are excluded from the overall/category aggregates and thus from the
+   * recorded baseline. Adding one therefore never destabilises existing
+   * `eval/thresholds.json` floors and never requires `--update-baseline`.
+   */
+  measureOnly?: boolean
   thoughts: EvalThought[]
   edges?: EvalEdge[]
   queries: EvalQuery[]

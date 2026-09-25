@@ -10,13 +10,27 @@
 import type { EvalScenario, EvalThought } from './types'
 
 const DISTRACTORS: EvalThought[] = [
-  { id: 'd1', content: 'The marketing crew launched a newsletter campaign for autumn.' },
-  { id: 'd2', content: 'Kubernetes cluster autoscaling thresholds were tuned last week.' },
-  { id: 'd3', content: 'The office espresso machine needs a replacement water filter.' },
-  { id: 'd4', content: 'A rare bird species was observed near the northern lake.' },
-  { id: 'd5', content: 'The quarterly budget review is scheduled for Friday afternoon.' },
-  { id: 'd6', content: 'Ancient Roman aqueducts used gravity to transport water across valleys.' }
+  { id: 'd1', content: 'The marketing crew launched a newsletter campaign for autumn.', distractor: true },
+  { id: 'd2', content: 'Kubernetes cluster autoscaling thresholds were tuned last week.', distractor: true },
+  { id: 'd3', content: 'The office espresso machine needs a replacement water filter.', distractor: true },
+  { id: 'd4', content: 'A rare bird species was observed near the northern lake.', distractor: true },
+  { id: 'd5', content: 'The quarterly budget review is scheduled for Friday afternoon.', distractor: true },
+  { id: 'd6', content: 'Ancient Roman aqueducts used gravity to transport water across valleys.', distractor: true }
 ]
+
+// Relative timestamps keep the recency scenario stable over time: the fresh
+// thought is one day old, the stale one sixty days old.
+const DAY_MS = 86_400_000
+const NOW_MS = Date.now()
+const FRESH_CREATED_AT = new Date(NOW_MS - DAY_MS).toISOString()
+const STALE_CREATED_AT = new Date(NOW_MS - 60 * DAY_MS).toISOString()
+// The recency scenario pins its distractors to the stale timestamp: seeded at
+// `now` they would each receive a full decay bonus and swamp the two thoughts
+// under test.
+const RECENCY_DISTRACTORS: EvalThought[] = DISTRACTORS.map(thought => ({
+  ...thought,
+  createdAt: STALE_CREATED_AT
+}))
 
 export const EVAL_SCENARIOS: EvalScenario[] = [
   {
@@ -169,6 +183,60 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
       { query: 'sqlite vector full-text indexes', relevant: ['rq-db'] },
       { query: 'local huggingface embeddings child process', relevant: ['rq-embed'] },
       { query: 'importance decay archived stale thoughts', relevant: ['rq-decay'] }
+    ]
+  },
+  {
+    name: 'recency-prefers-fresh',
+    category: 'temporal',
+    description:
+      'With an opt-in recency boost the fresh thought outranks the stale one even though the query matches the stale content more closely.',
+    measureOnly: true,
+    thoughts: [
+      {
+        id: 'rec-fresh',
+        content: 'The staging deploy now uses build release-4200.',
+        createdAt: FRESH_CREATED_AT
+      },
+      {
+        id: 'rec-stale',
+        content: 'The staging deploy uses build release-1000.',
+        createdAt: STALE_CREATED_AT
+      },
+      ...RECENCY_DISTRACTORS
+    ],
+    queries: [
+      {
+        query: 'staging deploy build release-1000',
+        relevant: ['rec-fresh'],
+        recencyWeight: 1,
+        recencyHalfLifeDays: 1,
+        rankBefore: { before: 'rec-fresh', after: 'rec-stale' }
+      }
+    ]
+  },
+  {
+    name: 'negative-no-match',
+    category: 'no-match',
+    description:
+      'An off-topic query must not retrieve the scenario own thoughts; shared distractors may fill top-k.',
+    measureOnly: true,
+    thoughts: [
+      {
+        id: 'nm-garden',
+        content: 'The community garden planted tomatoes and basil along the south fence.'
+      },
+      {
+        id: 'nm-sourdough',
+        content: 'The sourdough starter needs feeding every morning before baking.'
+      },
+      ...DISTRACTORS
+    ],
+    queries: [
+      {
+        query: 'ancient roman aqueducts gravity water transport',
+        relevant: [],
+        noRelevant: true
+      }
     ]
   }
 ]
