@@ -271,6 +271,7 @@ describe("orderByStanding (ADR #142 item 3)", () => {
 			} as SearchResult["thought"],
 			distance: 1 - similarity,
 			similarity,
+			match_source: [],
 			standing,
 		};
 	}

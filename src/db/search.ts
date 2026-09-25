@@ -18,10 +18,30 @@ export interface SearchOptions {
   entitySearchIds?: (query: string, limit: number) => string[]
 }
 
+/** Search legs that can contribute a hit, in the fixed `match_source` order. */
+export type SearchMatchSource = 'vector' | 'bm25' | 'entity'
+
 export interface SearchResult {
   thought: Thought
   distance: number
   similarity: number
+  /**
+   * Reciprocal Rank Fusion score from the hybrid merge (higher = more
+   * relevant). Present only when fusion ran — i.e. the hybrid path with a
+   * query and a non-empty merge; absent on the vector-only path.
+   */
+  rrf_score?: number
+  /**
+   * FTS5 BM25 relevance score, present only for hits matched by the keyword
+   * leg. Sign convention: higher = more relevant (the raw FTS5 `bm25()` value
+   * is negative, so it is exposed negated).
+   */
+  bm25_score?: number
+  /**
+   * Search legs that matched this thought, always present, in the fixed order
+   * `vector`, `bm25`, `entity`. The vector-only path returns `['vector']`.
+   */
+  match_source: SearchMatchSource[]
   /** Graph standing; present only when the caller enables graph annotation. */
   standing?: GraphStanding
   /** Sources of incoming `replaces` edges (this thought is superseded). */
@@ -92,15 +112,68 @@ function toFtsQuery(query: string): string {
   return tokens.length ? tokens.join(' OR ') : '""'
 }
 
-export function bm25SearchIds(db: Database, query: string, limit: number): string[] {
+interface ScoredId {
+  id: string
+  /** Relevance score, higher = more relevant (raw FTS5 `bm25()` negated). */
+  score: number
+}
+
+/**
+ * Internal scored BM25 leg. Exposes the raw FTS5 `bm25()` value negated so the
+ * public `bm25_score` follows "higher = more relevant"; the ordering (FTS5
+ * returns more negative for more relevant rows) is unchanged.
+ */
+function bm25ScoredIds(db: Database, query: string, limit: number): ScoredId[] {
   try {
     const rows = db
-      .prepare(`SELECT thought_id FROM thoughts_fts WHERE thoughts_fts MATCH ? ORDER BY bm25(thoughts_fts) LIMIT ?`)
-      .all(toFtsQuery(query), limit) as Array<{ thought_id: string }>
-    return rows.map(r => r.thought_id)
+      .prepare(`
+        SELECT thought_id, bm25(thoughts_fts) AS score
+        FROM thoughts_fts
+        WHERE thoughts_fts MATCH ?
+        ORDER BY bm25(thoughts_fts)
+        LIMIT ?
+      `)
+      .all(toFtsQuery(query), limit) as Array<{ thought_id: string; score: number }>
+    return rows.map(r => ({ id: r.thought_id, score: -r.score }))
   } catch (err) {
     console.debug('[search] bm25 search failed:', err)
     return []
+  }
+}
+
+export function bm25SearchIds(db: Database, query: string, limit: number): string[] {
+  return bm25ScoredIds(db, query, limit).map(r => r.id)
+}
+
+function bm25ScoredIdsFiltered(
+  db: Database,
+  query: string,
+  limit: number,
+  filterSql: string,
+  filterParams: SQLQueryBindings[]
+): ScoredId[] {
+  if (!filterSql) return bm25ScoredIds(db, query, limit)
+  try {
+    const oversample = Math.min(1000, limit * 3)
+    const rows = db
+      .prepare(`
+        SELECT fts.thought_id, fts.score
+        FROM (
+          SELECT thought_id, bm25(thoughts_fts) AS score
+          FROM thoughts_fts
+          WHERE thoughts_fts MATCH ?
+          ORDER BY bm25(thoughts_fts)
+          LIMIT ?
+        ) fts
+        INNER JOIN thoughts t ON fts.thought_id = t.id
+        LEFT JOIN thought_importance ti ON fts.thought_id = ti.thought_id
+        WHERE 1=1 ${filterSql}
+        LIMIT ?
+      `)
+      .all(toFtsQuery(query), oversample, ...filterParams, limit) as Array<{ thought_id: string; score: number }>
+    return rows.map(r => ({ id: r.thought_id, score: -r.score }))
+  } catch {
+    return bm25ScoredIds(db, query, limit)
   }
 }
 
@@ -111,28 +184,7 @@ export function bm25SearchIdsFiltered(
   filterSql: string,
   filterParams: SQLQueryBindings[]
 ): string[] {
-  if (!filterSql) return bm25SearchIds(db, query, limit)
-  try {
-    const oversample = Math.min(1000, limit * 3)
-    const rows = db
-      .prepare(`
-        SELECT fts.thought_id
-        FROM (
-          SELECT thought_id FROM thoughts_fts
-          WHERE thoughts_fts MATCH ?
-          ORDER BY bm25(thoughts_fts)
-          LIMIT ?
-        ) fts
-        INNER JOIN thoughts t ON fts.thought_id = t.id
-        LEFT JOIN thought_importance ti ON fts.thought_id = ti.thought_id
-        WHERE 1=1 ${filterSql}
-        LIMIT ?
-      `)
-      .all(toFtsQuery(query), oversample, ...filterParams, limit) as Array<{ thought_id: string }>
-    return rows.map(r => r.thought_id)
-  } catch {
-    return bm25SearchIds(db, query, limit)
-  }
+  return bm25ScoredIdsFiltered(db, query, limit, filterSql, filterParams).map(r => r.id)
 }
 
 // ── Reciprocal Rank Fusion ──────────────────────────────────────────────────
@@ -183,11 +235,18 @@ function vecSearchIds(
 
 // ── Object hydration ────────────────────────────────────────────────────────
 
+interface SearchScoreContext {
+  vecSimById: Map<string, number>
+  bm25ScoreById: Map<string, number>
+  rrfScoreById: Map<string, number>
+  entityIds: Set<string>
+}
+
 function fetchThoughtsByIds(
   db: Database,
   orderedIds: string[],
   options: SearchOptions,
-  vecSimById: Map<string, number>
+  scores: SearchScoreContext
 ): SearchResult[] {
   if (orderedIds.length === 0) return []
   const ph = sqlIn(orderedIds)
@@ -208,14 +267,27 @@ function fetchThoughtsByIds(
   for (const id of orderedIds) {
     const r = byId.get(id)
     if (!r) continue
-    const sim = vecSimById.get(id)
+    const sim = scores.vecSimById.get(id)
+    const bm25 = scores.bm25ScoreById.get(id)
+    const rrf = scores.rrfScoreById.get(id)
     const thought = rowToThought(r as unknown as Record<string, unknown>)
     thought.tags = tagMap.get(r.id) ?? []
-    out.push({
+
+    // Fixed leg order: vector, bm25, entity.
+    const matchSource: SearchMatchSource[] = []
+    if (sim !== undefined) matchSource.push('vector')
+    if (bm25 !== undefined) matchSource.push('bm25')
+    if (scores.entityIds.has(id)) matchSource.push('entity')
+
+    const result: SearchResult = {
       thought,
       distance: sim !== undefined ? 1 - sim : 0,
-      similarity: sim !== undefined ? sim : 0
-    })
+      similarity: sim !== undefined ? sim : 0,
+      match_source: matchSource
+    }
+    if (rrf !== undefined) result.rrf_score = rrf
+    if (bm25 !== undefined) result.bm25_score = bm25
+    out.push(result)
   }
   return out
 }
@@ -253,19 +325,21 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
       db,
       vecIds.map(v => v.id),
       options,
-      vecSimById
+      { vecSimById, bm25ScoreById: new Map(), rrfScoreById: new Map(), entityIds: new Set() }
     )
   }
 
-  const bm25Ids = filterSql
-    ? bm25SearchIdsFiltered(db, query, pool, filterSql, filterParams)
-    : bm25SearchIds(db, query, pool)
+  const bm25Scored = filterSql
+    ? bm25ScoredIdsFiltered(db, query, pool, filterSql, filterParams)
+    : bm25ScoredIds(db, query, pool)
+  const bm25ScoreById = new Map(bm25Scored.map(r => [r.id, r.score]))
   const entityIds = entitySearchIds ? entitySearchIds(query, pool) : []
-  const merged = rrfMerge([vecIds.map(v => v.id), bm25Ids, entityIds]).slice(0, topK)
+  const merged = rrfMerge([vecIds.map(v => v.id), bm25Scored.map(r => r.id), entityIds]).slice(0, topK)
+  const rrfScoreById = new Map(merged.map(m => [m.id, m.score]))
   return fetchThoughtsByIds(
     db,
     merged.map(m => m.id),
     options,
-    vecSimById
+    { vecSimById, bm25ScoreById, rrfScoreById, entityIds: new Set(entityIds) }
   )
 }

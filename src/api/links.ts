@@ -1,24 +1,19 @@
 import { Hono } from 'hono'
-import { toEdgeView, EdgeAlreadyExistsError } from '../db/edges'
+import { toEdgeView } from '../db/edges'
 import { createEdgeService, deleteEdgeService } from '../services/edges.service'
 import { NotFoundError } from '../errors'
 
 const linksRouter = new Hono()
 
+// Domain errors (EdgeConflictError 409, EdgeAlreadyExistsError 409,
+// ClusterEdgeValidationError/SelfLoopEdgeError/InvalidEdgeTypeError/ValidationError
+// 400) bubble to the app-level errorHandler, which maps their `statusCode`.
 linksRouter.post('/thoughts/:id/link', async c => {
   const sourceId = c.req.param('id')
   const body = await c.req.json<{ target_id: string; type?: string }>()
 
-  try {
-    const edge = createEdgeService(sourceId, body.target_id, body.type)
-    return c.json(toEdgeView(edge), 201)
-  } catch (err: unknown) {
-    if (err instanceof EdgeAlreadyExistsError) {
-      return c.json({ error: err.message }, 409)
-    }
-    const msg = err instanceof Error ? err.message : String(err)
-    return c.json({ error: msg }, 400)
-  }
+  const edge = createEdgeService(sourceId, body.target_id, body.type)
+  return c.json(toEdgeView(edge), 201)
 })
 
 linksRouter.delete('/edges/:id', c => {

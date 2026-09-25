@@ -11,24 +11,6 @@ export function isOlderThanDays(isoString: string, days: number): boolean {
   return ageMs > days * 86400000
 }
 
-// ── Telemetry grounding tools ────────────────────────────────────────────────
-
-export const GROUNDING_TOOLS = [
-  'search_thoughts',
-  'get_thought',
-  'get_thought_timeline',
-  'recall_clusters',
-  'get_context',
-  'get_thought_graph',
-  'list_projects',
-  'get_chain',
-  'get_frontier',
-  'get_slots',
-  'list_smart_notes',
-  'eval_smart_notes',
-  'get_profile'
-]
-
 // ── Job run recording (_meta table) ──────────────────────────────────────────
 
 export function recordJobRun(db: Database, key: string, result: unknown): void {
