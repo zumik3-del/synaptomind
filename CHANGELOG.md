@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.7.3
+
+> September 25, 2026
+
+- [`f419197`](https://github.com/zumik3-del/synaptomind/commit/f4191972254ad5bae9bb86dc4ed473f58ec6af27): chore: bump version to 0.7.3
+- [`f8300a5`](https://github.com/zumik3-del/synaptomind/commit/f8300a5c1cb92584e13a6b56d66eca078d481db3): feat: expose ranking signals and opt-in recency boost in search (#146)
+- [`aa944a2`](https://github.com/zumik3-del/synaptomind/commit/aa944a27b34ffd7e723e706fb9f4a3122ad23104): feat: expose rrf/bm25 scores and match_source in search results (#144)
+
+## v0.7.2
+
+> September 21, 2026
+
+- [`5aebf41`](https://github.com/zumik3-del/synaptomind/commit/5aebf414deafb2d7c3ba47b67fe28f7aa8bafb64): fix: spawn embedder via process.execPath for Windows IPC; bump to 0.7.2 (#142)
+- [`f0566b9`](https://github.com/zumik3-del/synaptomind/commit/f0566b9360f165a4bc5af0fc31cab8dfcf5a5519): chore: bump adm-zip override to 0.6.1 (fixes CVE-2026-77301) (#140)
+- [`f2723f8`](https://github.com/zumik3-del/synaptomind/commit/f2723f89efb192b5f1d8308316315648133ce5b6): fix(docker): publish ports reliably and clarify recall context error (#138)
+- [`70f032e`](https://github.com/zumik3-del/synaptomind/commit/70f032e75dd933f20311b3c01ec7bdeaf1a620c5): fix(deploy): harden install/update paths, Docker/CI hygiene, and deploy docs (#137)
+
 ## v0.7.1
 
 > September 16, 2026
