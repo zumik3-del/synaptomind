@@ -331,3 +331,196 @@ itVec("searchThoughts project-filtered BM25 returns topK when local thought exis
 	expect(results).toHaveLength(1);
 	expect(results[0].thought.id).toBe(local);
 });
+
+// ── Ranking signal field regression (issue #143, task #816) ─────────────────
+
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { initDb } from "./init";
+
+/** File-backed DB with vec0 available — needed for vector-leg assertions. */
+function withVecTestDb(fn: (db: import("bun:sqlite").Database) => void): void {
+  const dir = mkdtempSync(join(tmpdir(), "synaptomind-search-signal-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    initDb({ dbPath, runMigrations: true });
+    fn(getDb());
+  } finally {
+    closeDb();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function seedThoughtRow(db: import("bun:sqlite").Database, id: string, content: string): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, created_at, updated_at)
+     VALUES (?, ?, 'active', 'test', 'default', 0, 1, 1, ?, ?)`,
+  ).run(id, content, now, now);
+  db.prepare(
+    `INSERT OR IGNORE INTO thought_importance (thought_id, importance, hit_count, last_decay, created_at)
+     VALUES (?, 1.0, 0, ?, ?)`,
+  ).run(id, now, now);
+}
+
+function seedVecEmbedding(db: import("bun:sqlite").Database, thoughtId: string): void {
+  const buf = Buffer.from(new Float32Array(384).buffer);
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf);
+}
+
+function seedFts(db: import("bun:sqlite").Database, thoughtId: string, content: string): void {
+  db.prepare(`INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`).run(thoughtId, content);
+}
+
+test("BM25-only hit carries match_source=['bm25'] and a positive bm25_score", () => {
+  const db = getDb();
+  seedThoughtRow(db, "sig-bm25-a", "EXACT_BM25_MARKER unique relevant content");
+  seedThoughtRow(db, "sig-bm25-b", "completely unrelated text here");
+  seedFts(db, "sig-bm25-a", "EXACT_BM25_MARKER unique relevant content");
+  seedFts(db, "sig-bm25-b", "completely unrelated text here");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "EXACT_BM25_MARKER",
+    topK: 10,
+    hybrid: true,
+  });
+
+  expect(results.length).toBeGreaterThanOrEqual(1);
+  const hit = results.find((r) => r.thought.id === "sig-bm25-a");
+  expect(hit).toBeDefined();
+  expect(hit!.match_source).toEqual(["bm25"]);
+  expect(hit!.bm25_score).toBeGreaterThan(0);
+  expect(hit!.rrf_score).toBeDefined(); // fusion ran on hybrid path
+});
+
+test("higher BM25 relevance produces a higher bm25_score", () => {
+  const db = getDb();
+  // The repeated keyword makes this more relevant in BM25.
+  seedThoughtRow(db, "sig-bm25-high", "KEYWORD marker KEYWORD marker KEYWORD");
+  seedThoughtRow(db, "sig-bm25-low", "KEYWORD marker");
+  seedFts(db, "sig-bm25-high", "KEYWORD marker KEYWORD marker KEYWORD");
+  seedFts(db, "sig-bm25-low", "KEYWORD marker");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "KEYWORD marker",
+    topK: 10,
+    hybrid: true,
+  });
+
+  const high = results.find((r) => r.thought.id === "sig-bm25-high");
+  const low = results.find((r) => r.thought.id === "sig-bm25-low");
+  expect(high).toBeDefined();
+  expect(low).toBeDefined();
+  expect(high!.bm25_score!).toBeGreaterThan(low!.bm25_score!);
+});
+
+test("non-matching thought has no bm25_score and no match_source entry for bm25", () => {
+  const db = getDb();
+  seedThoughtRow(db, "sig-no-bm25", "no matching keyword at all");
+  seedFts(db, "sig-no-bm25", "no matching keyword at all");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "zzz_nomatch_zzz",
+    topK: 10,
+    hybrid: true,
+  });
+
+  // No results at all for a non-matching query.
+  const hit = results.find((r) => r.thought.id === "sig-no-bm25");
+  expect(hit).toBeUndefined();
+});
+
+test("hybrid overlap hit lists both vector and bm25 in match_source", () => {
+  withVecTestDb((db) => {
+    seedThoughtRow(db, "sig-overlap", "HYBRID_OVERLAP marker test");
+    seedVecEmbedding(db, "sig-overlap");
+    seedFts(db, "sig-overlap", "HYBRID_OVERLAP marker test");
+
+    const results = searchThoughts(db, {
+      embedding: new Float32Array(384),
+      query: "HYBRID_OVERLAP marker test",
+      topK: 10,
+      hybrid: true,
+    });
+
+    const hit = results.find((r) => r.thought.id === "sig-overlap");
+    expect(hit).toBeDefined();
+    expect(hit!.match_source).toEqual(["vector", "bm25"]);
+    expect(hit!.rrf_score).toBeDefined();
+    expect(hit!.bm25_score).toBeGreaterThan(0);
+  });
+});
+
+test("vector-only hit has match_source=['vector'] with no bm25_score", () => {
+  withVecTestDb((db) => {
+    seedThoughtRow(db, "sig-vec-only", "semantic similarity content");
+    seedVecEmbedding(db, "sig-vec-only");
+
+    const results = searchThoughts(db, {
+      embedding: new Float32Array(384),
+      topK: 10,
+      hybrid: false,
+    });
+
+    const hit = results.find((r) => r.thought.id === "sig-vec-only");
+    expect(hit).toBeDefined();
+    expect(hit!.match_source).toEqual(["vector"]);
+    expect(hit!.bm25_score).toBeUndefined();
+    expect(hit!.rrf_score).toBeUndefined();
+  });
+});
+
+test("no-query path (hybrid=true, no query) is vector-only: rrf_score absent", () => {
+  withVecTestDb((db) => {
+    seedThoughtRow(db, "sig-noquery", "semantic content only");
+    seedVecEmbedding(db, "sig-noquery");
+
+    const results = searchThoughts(db, {
+      embedding: new Float32Array(384),
+      topK: 10,
+      hybrid: true,
+    });
+
+    const hit = results.find((r) => r.thought.id === "sig-noquery");
+    expect(hit).toBeDefined();
+    expect(hit!.match_source).toEqual(["vector"]);
+    expect(hit!.rrf_score).toBeUndefined();
+    expect(hit!.bm25_score).toBeUndefined();
+  });
+});
+
+test("entity hit includes 'entity' in match_source", () => {
+  const db = getDb();
+  seedThoughtRow(db, "sig-entity", "entity marker content");
+  seedFts(db, "sig-entity", "entity marker content");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "entity marker",
+    topK: 10,
+    hybrid: true,
+    entitySearchIds: () => ["sig-entity"],
+  });
+
+  const hit = results.find((r) => r.thought.id === "sig-entity");
+  expect(hit).toBeDefined();
+  expect(hit!.match_source).toContain("entity");
+  expect(hit!.match_source).toContain("bm25");
+  expect(hit!.rrf_score).toBeDefined();
+});
+
+test("bm25SearchIds returns string[] (public contract preserved)", () => {
+  const ids = bm25SearchIds(getDb(), "test", 10);
+  expect(Array.isArray(ids)).toBe(true);
+  expect(ids.every((id) => typeof id === "string")).toBe(true);
+});
+
+test("bm25SearchIdsFiltered returns string[] (public contract preserved)", () => {
+  const ids = bm25SearchIdsFiltered(getDb(), "test", 10, "", []);
+  expect(Array.isArray(ids)).toBe(true);
+  expect(ids.every((id) => typeof id === "string")).toBe(true);
+});

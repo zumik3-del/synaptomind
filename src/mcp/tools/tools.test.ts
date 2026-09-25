@@ -720,3 +720,66 @@ describe('search with project scope', () => {
     expect(data.every((r: any) => r.thought?.project_id === project.id)).toBe(true)
   })
 })
+
+// ── Ranking signal fields (issue #143, task #816) ────────────────────────────
+
+describe('memory_recall ranking signals', () => {
+  async function searchWithSignals(query: string, extra?: Record<string, unknown>) {
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query, top_k: 10, ...extra }
+    })
+    return parseResult(result)
+  }
+
+  test('search response includes match_source on every result', async () => {
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'SIGNALS_MARKER bm25 relevant content here', status: 'active' }
+    })
+
+    const { data, isError } = await searchWithSignals('SIGNALS_MARKER')
+    expect(isError).toBe(false)
+    expect(Array.isArray(data)).toBe(true)
+    expect(data.length).toBeGreaterThanOrEqual(1)
+    // Every result must carry match_source (always present per SearchResult contract)
+    expect(data.every((r: any) => Array.isArray(r.match_source))).toBe(true)
+  })
+
+  test('BM25 hit carries a positive bm25_score', async () => {
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'SIGNALS_BM25 unique keyword marker alpha', status: 'active' }
+    })
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'SIGNALS_BM25 unique keyword marker beta', status: 'active' }
+    })
+
+    const { data, isError } = await searchWithSignals('SIGNALS_BM25 unique keyword marker')
+    expect(isError).toBe(false)
+    const results = data as Array<{ thought: { id: string }; match_source: string[]; bm25_score?: number }>
+    const bm25Hits = results.filter((r) => r.match_source.includes('bm25'))
+    expect(bm25Hits.length).toBeGreaterThanOrEqual(1)
+    bm25Hits.forEach((r) => {
+      expect(typeof r.bm25_score).toBe('number')
+      expect(r.bm25_score).toBeGreaterThan(0)
+    })
+  })
+
+  test('hybrid path carries rrf_score on merged results', async () => {
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'SIGNALS_RRF hybrid fusion marker', status: 'active' }
+    })
+
+    const { data, isError } = await searchWithSignals('SIGNALS_RRF hybrid fusion marker')
+    expect(isError).toBe(false)
+    const results = data as Array<{ match_source: string[]; rrf_score?: number }>
+    // On the hybrid path, every returned result that matched any leg should have rrf_score
+    const withRrf = results.filter((r) => r.match_source.length > 0)
+    expect(withRrf.length).toBeGreaterThanOrEqual(1)
+    // rrf_score is present when fusion ran (hybrid=true is the default)
+    expect(withRrf.every((r) => r.rrf_score !== undefined)).toBe(true)
+  })
+})

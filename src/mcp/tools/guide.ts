@@ -93,6 +93,8 @@ Three modes:
 
 Filters: status, project, tag, cluster (only/exclude), min importance, exclude flagged.
 
+Result ranking signals: \`match_source\` (legs that matched, in fixed order \`vector\`, \`bm25\`, \`entity\`), \`similarity\`/\`distance\` (vector leg only), \`bm25_score\` (keyword relevance, higher = more relevant, only for BM25 hits), and \`rrf_score\` (fused hybrid score, present only when fusion ran). No relevance threshold is applied — filter client-side on \`match_source\` and these scores.
+
 Post-processing: hit counting → primer promotion → primer hoisting → profile hoisting.
 
 ## Lifecycle

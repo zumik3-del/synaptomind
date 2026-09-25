@@ -167,3 +167,54 @@ test("GET /api/thoughts/search rejects an invalid contradiction_mode with 400", 
 	expect(body.error).toContain("invalid contradiction_mode");
 	expect(body.error).toContain("off|flag");
 });
+
+// ── Ranking signal fields (issue #143, task #816) ────────────────────────────
+
+interface SearchResultWithSignals extends SearchResultBody {
+	match_source?: Array<"vector" | "bm25" | "entity">;
+	rrf_score?: number;
+	bm25_score?: number;
+}
+
+test("GET /api/thoughts/search includes match_source on every result", async () => {
+	const res = await request(
+		`/api/thoughts/search?q=${QUERY}&hybrid=true`,
+	);
+	expect(res.status).toBe(200);
+	const results = (await res.json()) as SearchResultWithSignals[];
+	expect(Array.isArray(results)).toBe(true);
+	results.forEach((r) => {
+		expect(Array.isArray(r.match_source)).toBe(true);
+	});
+});
+
+test("GET /api/thoughts/search includes bm25_score for keyword hits", async () => {
+	const res = await request(
+		`/api/thoughts/search?q=${QUERY}&hybrid=true&supersession_mode=off&contradiction_mode=off`,
+	);
+	expect(res.status).toBe(200);
+	const results = (await res.json()) as SearchResultWithSignals[];
+	const bm25Hits = results.filter((r) => r.match_source?.includes("bm25"));
+	if (bm25Hits.length > 0) {
+		bm25Hits.forEach((r) => {
+			expect(typeof r.bm25_score).toBe("number");
+			expect(r.bm25_score!).toBeGreaterThan(0);
+		});
+	}
+});
+
+test("GET /api/thoughts/search includes rrf_score when hybrid fusion ran", async () => {
+	const res = await request(
+		`/api/thoughts/search?q=${QUERY}&hybrid=true&supersession_mode=off&contradiction_mode=off`,
+	);
+	expect(res.status).toBe(200);
+	const results = (await res.json()) as SearchResultWithSignals[];
+	const withSources = results.filter(
+		(r) => r.match_source && r.match_source.length > 0,
+	);
+	if (withSources.length > 0) {
+		withSources.forEach((r) => {
+			expect(r.rrf_score).toBeDefined();
+		});
+	}
+});
