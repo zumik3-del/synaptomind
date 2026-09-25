@@ -524,3 +524,231 @@ test("bm25SearchIdsFiltered returns string[] (public contract preserved)", () =>
   expect(Array.isArray(ids)).toBe(true);
   expect(ids.every((id) => typeof id === "string")).toBe(true);
 });
+
+// ── Recency boost DB-layer matrix (issue #145, task #823) ─────────────────────
+
+const RECENCY_NOW_MS = 1_700_000_000_000; // fixed clock for deterministic decay
+const RECENCY_HALF_LIFE_DAYS = 30;
+const DAY_MS = 86_400_000;
+
+function recencyCreatedAt(offsetDays: number): string {
+  return new Date(RECENCY_NOW_MS - offsetDays * DAY_MS).toISOString();
+}
+
+// Row 1: w unset/0 → identical id order AND no recency_score/final_score; rrf_score unchanged.
+itVec("recency w=0: no recency fields, order preserved, rrf_score unchanged", () => {
+  const db = getDb();
+  const _a = seedThought({ id: "rec-w0-a", content: "REC_W0 same marker" });
+  const _b = seedThought({ id: "rec-w0-b", content: "REC_W0 same marker" });
+  seedFts(db, "rec-w0-a", "REC_W0 same marker");
+  seedFts(db, "rec-w0-b", "REC_W0 same marker");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "REC_W0 same marker",
+    topK: 10,
+    hybrid: true,
+    recencyWeight: 0,
+  });
+
+  expect(results.length).toBeGreaterThanOrEqual(2);
+  for (const r of results) {
+    expect(r.recency_score).toBeUndefined();
+    expect(r.final_score).toBeUndefined();
+    expect(r.rrf_score).toBeDefined();
+  }
+  // Order is insertion order (stable, no re-sort).
+  const ids = results.map((r) => r.thought.id);
+  expect(ids.indexOf("rec-w0-a")).toBeLessThan(ids.indexOf("rec-w0-b"));
+});
+
+// Row 2: w>0 → recency_score present on every result, in [0,1]; =1 at age 0, =0.5 at one half-life.
+itVec("recency w>0: recency_score present, =1 at age 0, =0.5 at one half-life", () => {
+  const db = getDb();
+  const _fresh = seedThought({ id: "rec-age0", content: "REC_AGE marker", created_at: recencyCreatedAt(0) });
+  const _halfLife = seedThought({ id: "rec-age30", content: "REC_AGE marker", created_at: recencyCreatedAt(30) });
+  seedFts(db, "rec-age0", "REC_AGE marker");
+  seedFts(db, "rec-age30", "REC_AGE marker");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "REC_AGE marker",
+    topK: 10,
+    hybrid: true,
+    recencyWeight: 0.5,
+    recencyHalfLifeDays: RECENCY_HALF_LIFE_DAYS,
+    nowMs: RECENCY_NOW_MS,
+  });
+
+  expect(results.length).toBeGreaterThanOrEqual(2);
+  const freshR = results.find((r) => r.thought.id === "rec-age0");
+  const halfR = results.find((r) => r.thought.id === "rec-age30");
+  expect(freshR).toBeDefined();
+  expect(halfR).toBeDefined();
+  expect(freshR!.recency_score).toBe(1);
+  expect(halfR!.recency_score).toBe(0.5);
+  expect(freshR!.recency_score!).toBeGreaterThanOrEqual(0);
+  expect(freshR!.recency_score!).toBeLessThanOrEqual(1);
+  expect(halfR!.recency_score!).toBeGreaterThanOrEqual(0);
+  expect(halfR!.recency_score!).toBeLessThanOrEqual(1);
+});
+
+// Row 3: equal relevance, different age → newer ranks first.
+itVec("recency equal relevance: newer ranks above older", () => {
+  const db = getDb();
+  const _older = seedThought({ id: "rec-eq-old", content: "REC_EQ same keyword today", created_at: recencyCreatedAt(60) });
+  const _newer = seedThought({ id: "rec-eq-new", content: "REC_EQ same keyword today", created_at: recencyCreatedAt(0) });
+  seedFts(db, "rec-eq-old", "REC_EQ same keyword today");
+  seedFts(db, "rec-eq-new", "REC_EQ same keyword today");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "REC_EQ same keyword today",
+    topK: 10,
+    hybrid: true,
+    recencyWeight: 0.5,
+    recencyHalfLifeDays: RECENCY_HALF_LIFE_DAYS,
+    nowMs: RECENCY_NOW_MS,
+  });
+
+  expect(results.length).toBeGreaterThanOrEqual(2);
+  const ids = results.map((r) => r.thought.id);
+  expect(ids.indexOf("rec-eq-new")).toBeLessThan(ids.indexOf("rec-eq-old"));
+});
+
+// Row 4: bounded influence — higher-relevance old thought beats low-relevance fresh at small w.
+itVec("recency bounded influence: high-relevance old beats low-relevance fresh at small w", () => {
+  const db = getDb();
+  // High-BM25: repeated keyword → higher score. Old.
+  const _oldHigh = seedThought({
+    id: "rec-bounds-old",
+    content: "REC_BOUND KEYWORD marker KEYWORD marker KEYWORD",
+    created_at: recencyCreatedAt(100),
+  });
+  // Low-BM25: single occurrence. Fresh.
+  const _newLow = seedThought({
+    id: "rec-bounds-new",
+    content: "REC_BOUND KEYWORD marker",
+    created_at: recencyCreatedAt(0),
+  });
+  seedFts(db, "rec-bounds-old", "REC_BOUND KEYWORD marker KEYWORD marker KEYWORD");
+  seedFts(db, "rec-bounds-new", "REC_BOUND KEYWORD marker");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "REC_BOUND KEYWORD marker",
+    topK: 10,
+    hybrid: true,
+    recencyWeight: 0.001,
+    recencyHalfLifeDays: RECENCY_HALF_LIFE_DAYS,
+    nowMs: RECENCY_NOW_MS,
+  });
+
+  expect(results.length).toBeGreaterThanOrEqual(2);
+  const ids = results.map((r) => r.thought.id);
+  // Old high-relevance must still rank above fresh low-relevance.
+  expect(ids.indexOf("rec-bounds-old")).toBeLessThan(ids.indexOf("rec-bounds-new"));
+});
+
+// Row 5: vector-only path (hybrid=false, !query) applies recency via similarity.
+itVec("recency vector-only path: recency applies via similarity, fields present", () => {
+  withVecTestDb((db) => {
+    const _older = seedThought({ id: "rec-vec-old", content: "REC_VEC semantic content", created_at: recencyCreatedAt(60) });
+    const _newer = seedThought({ id: "rec-vec-new", content: "REC_VEC semantic content", created_at: recencyCreatedAt(0) });
+    seedVecEmbedding(db, "rec-vec-old");
+    seedVecEmbedding(db, "rec-vec-new");
+
+    const results = searchThoughts(db, {
+      embedding: new Float32Array(384),
+      topK: 10,
+      hybrid: false,
+      recencyWeight: 0.5,
+      recencyHalfLifeDays: RECENCY_HALF_LIFE_DAYS,
+      nowMs: RECENCY_NOW_MS,
+    });
+
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    const olderR = results.find((r) => r.thought.id === "rec-vec-old");
+    const newerR = results.find((r) => r.thought.id === "rec-vec-new");
+    expect(olderR).toBeDefined();
+    expect(newerR).toBeDefined();
+    expect(olderR!.recency_score).toBeDefined();
+    expect(newerR!.final_score).toBeDefined();
+    expect(newerR!.match_source).toEqual(["vector"]);
+    // Newer ranks first (same similarity, recency breaks tie).
+    const ids = results.map((r) => r.thought.id);
+    expect(ids.indexOf("rec-vec-new")).toBeLessThan(ids.indexOf("rec-vec-old"));
+  });
+});
+
+// Row 6: empty query + empty embedding → [], no crash.
+test("recency empty query + empty embedding returns [] without crash", () => {
+  const db = getDb();
+  // No thoughts seeded — just verify the call doesn't throw.
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    topK: 10,
+    hybrid: true,
+    recencyWeight: 0.5,
+    nowMs: RECENCY_NOW_MS,
+  });
+  expect(results).toEqual([]);
+});
+
+// Row 7: equal final_score tie → stable incoming order preserved.
+itVec("recency tie: equal final_score preserves incoming order", () => {
+  const db = getDb();
+  // Same content, same created_at → same relevance and same recency → same final_score.
+  const _a = seedThought({ id: "rec-tie-a", content: "REC_TIE same today", created_at: recencyCreatedAt(10) });
+  const _b = seedThought({ id: "rec-tie-b", content: "REC_TIE same today", created_at: recencyCreatedAt(10) });
+  seedFts(db, "rec-tie-a", "REC_TIE same today");
+  seedFts(db, "rec-tie-b", "REC_TIE same today");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "REC_TIE same today",
+    topK: 10,
+    hybrid: true,
+    recencyWeight: 0.5,
+    recencyHalfLifeDays: RECENCY_HALF_LIFE_DAYS,
+    nowMs: RECENCY_NOW_MS,
+  });
+
+  expect(results.length).toBeGreaterThanOrEqual(2);
+  const ids = results.map((r) => r.thought.id);
+  // Stable sort: a was inserted before b, so a must come first.
+  expect(ids.indexOf("rec-tie-a")).toBeLessThan(ids.indexOf("rec-tie-b"));
+});
+
+// Row 8: rrf_score stays raw/un-boosted.
+itVec("recency rrf_score stays raw/un-boosted", () => {
+  const db = getDb();
+  const _a = seedThought({ id: "rec-rrf-a", content: "REC_RRF keyword match" });
+  const _b = seedThought({ id: "rec-rrf-b", content: "REC_RRF keyword match" });
+  seedFts(db, "rec-rrf-a", "REC_RRF keyword match");
+  seedFts(db, "rec-rrf-b", "REC_RRF keyword match");
+
+  const withRecency = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "REC_RRF keyword match",
+    topK: 10,
+    hybrid: true,
+    recencyWeight: 0.5,
+    recencyHalfLifeDays: RECENCY_HALF_LIFE_DAYS,
+    nowMs: RECENCY_NOW_MS,
+  });
+
+  const withoutRecency = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "REC_RRF keyword match",
+    topK: 10,
+    hybrid: true,
+    recencyWeight: 0,
+  });
+
+  const rrfWith = new Map(withRecency.map((r) => [r.thought.id, r.rrf_score]));
+  const rrfWithout = new Map(withoutRecency.map((r) => [r.thought.id, r.rrf_score]));
+  for (const id of rrfWith.keys()) {
+    expect(rrfWith.get(id)).toBe(rrfWithout.get(id));
+  }
+});

@@ -783,3 +783,62 @@ describe('memory_recall ranking signals', () => {
     expect(withRrf.every((r) => r.rrf_score !== undefined)).toBe(true)
   })
 })
+
+// ── Recency boost (issue #145, task #821) ─────────────────────────────────────
+
+describe('memory_recall recency boost', () => {
+  async function searchWithRecency(query: string, extra?: Record<string, unknown>) {
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query, top_k: 10, ...extra }
+    })
+    return parseResult(result)
+  }
+
+  test('recency_weight accepted; response carries recency_score and final_score', async () => {
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'REC_MCP marker content here', status: 'active' }
+    })
+
+    const { data, isError } = await searchWithRecency('REC_MCP marker content here', { recency_weight: 0.5 })
+    expect(isError).toBe(false)
+    expect(Array.isArray(data)).toBe(true)
+    expect(data.length).toBeGreaterThanOrEqual(1)
+    // Every result should carry recency fields when weight > 0.
+    const results = data as Array<{ recency_score?: number; final_score?: number }>
+    expect(results.every((r) => r.recency_score !== undefined)).toBe(true)
+    expect(results.every((r) => r.final_score !== undefined)).toBe(true)
+  })
+
+  test('unset recency_weight → neither recency_score nor final_score present', async () => {
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'REC_MCP_UNSET marker content here', status: 'active' }
+    })
+
+    const { data, isError } = await searchWithRecency('REC_MCP_UNSET marker content here')
+    expect(isError).toBe(false)
+    expect(Array.isArray(data)).toBe(true)
+    const results = data as Array<{ recency_score?: number; final_score?: number }>
+    // Default weight=0 → fields must be absent (backward compat).
+    expect(results.every((r) => r.recency_score === undefined)).toBe(true)
+    expect(results.every((r) => r.final_score === undefined)).toBe(true)
+  })
+
+  test('schema rejects out-of-range recency_weight', async () => {
+    // Negative weight.
+    const neg = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query: 'test', recency_weight: -0.1 }
+    })
+    expect(parseResult(neg).isError).toBe(true)
+
+    // Weight above 1.
+    const over = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query: 'test', recency_weight: 1.1 }
+    })
+    expect(parseResult(over).isError).toBe(true)
+  })
+})

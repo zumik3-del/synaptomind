@@ -17,10 +17,12 @@ export function seedThought(overrides?: {
 	is_profile?: number | null;
 	is_protected?: number | null;
 	importance?: number;
+	/** Fixed ISO-8601 `created_at` for deterministic recency tests. */
+	created_at?: string;
 }): string {
 	const db = getDb();
 	const id = overrides?.id ?? Bun.randomUUIDv7();
-	const now = new Date().toISOString();
+	const now = overrides?.created_at ?? new Date().toISOString();
 	const projectId = overrides?.project_id ?? "default";
 	const isCluster = overrides?.is_cluster ?? 0;
 	// Ensure project exists
