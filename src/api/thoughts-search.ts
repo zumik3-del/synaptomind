@@ -31,6 +31,18 @@ export function parseContradictionMode(raw: string | undefined): ContradictionMo
   throw new ValidationError(`invalid contradiction_mode '${raw}'; expected off|flag`)
 }
 
+/**
+ * Parse an optional numeric query parameter. An absent/empty value is
+ * `undefined`; a present but unparseable value is a 400 (`ValidationError`).
+ * Out-of-range finite values are left to the service clamps.
+ */
+export function parseOptionalNumber(raw: string | undefined, name: string): number | undefined {
+  if (raw === undefined || raw === '') return undefined
+  const value = Number.parseFloat(raw)
+  if (!Number.isFinite(value)) throw new ValidationError(`invalid ${name} '${raw}'; expected a number`)
+  return value
+}
+
 interface HintItem {
   id: string
   content_short: string
@@ -57,6 +69,8 @@ searchRouter.get('/search', async c => {
   const hybrid = hybridParam === null ? true : hybridParam !== '0'
   const supersessionMode = parseSupersessionMode(c.req.query('supersession_mode'))
   const contradictionMode = parseContradictionMode(c.req.query('contradiction_mode'))
+  const recencyWeight = parseOptionalNumber(c.req.query('recency_weight'), 'recency_weight')
+  const recencyHalfLifeDays = parseOptionalNumber(c.req.query('recency_half_life_days'), 'recency_half_life_days')
 
   let clusterFilter: 'only' | 'exclude' | undefined
   if (clusterOpt === 'true') clusterFilter = 'only'
@@ -66,7 +80,7 @@ searchRouter.get('/search', async c => {
     const searchOpts = {
       query: q, topK: k, statusFilter: status, projectFilter: project_id,
       tagFilter: tag, clusterFilter, minImportance, excludeFlagged, hybrid,
-      supersessionMode, contradictionMode
+      supersessionMode, contradictionMode, recencyWeight, recencyHalfLifeDays
     }
     let results = groupByCluster
       ? await searchThoughtsGrouped(searchOpts)

@@ -16,6 +16,16 @@ export interface SearchOptions {
   excludeFlagged?: boolean
   hybrid?: boolean
   entitySearchIds?: (query: string, limit: number) => string[]
+  /**
+   * Opt-in recency boost weight in `[0, 1]`. `<= 0` or non-finite disables the
+   * boost entirely: no re-sort and no `recency_score`/`final_score` fields.
+   * Default `0` preserves the current relevance-only ranking byte-identically.
+   */
+  recencyWeight?: number
+  /** Decay half-life in days (strictly positive); non-finite or `<= 0` → 30. */
+  recencyHalfLifeDays?: number
+  /** Clock override for deterministic tests; defaults to `Date.now()`. */
+  nowMs?: number
 }
 
 /** Search legs that can contribute a hit, in the fixed `match_source` order. */
@@ -42,6 +52,19 @@ export interface SearchResult {
    * `vector`, `bm25`, `entity`. The vector-only path returns `['vector']`.
    */
   match_source: SearchMatchSource[]
+  /**
+   * Pure exponential recency decay `0.5^(ageDays / halfLifeDays)` in `[0, 1]`,
+   * independent of relevance. Present only when the recency boost is enabled
+   * (`recencyWeight > 0`); `1` = created at `nowMs`.
+   */
+  recency_score?: number
+   /**
+    * Combined ordering key `relevant + recencyWeight * recency_score`, in
+    * `[0, 1+w]`, where `relevant = rrf_score / rrfMax` on the fused path and
+    * `similarity` on the vector-only path. Present only when the recency boost
+    * is enabled. `rrf_score` stays raw/un-boosted.
+    */
+  final_score?: number
   /** Graph standing; present only when the caller enables graph annotation. */
   standing?: GraphStanding
   /** Sources of incoming `replaces` edges (this thought is superseded). */
@@ -235,11 +258,59 @@ function vecSearchIds(
 
 // ── Object hydration ────────────────────────────────────────────────────────
 
+const DAY_MS = 86_400_000
+/** Half-life applied when the caller passes a non-finite or `<= 0` value. */
+const FALLBACK_RECENCY_HALF_LIFE_DAYS = 30
+
+/**
+ * Exponential recency decay `0.5 ^ (ageDays / halfLifeDays)` ∈ (0, 1].
+ * `ageDays = max(0, (nowMs - Date.parse(createdAt)) / 86_400_000)`. An
+ * unparseable `createdAt` is treated as age 0 (decay 1); the result is never
+ * `NaN`. `halfLifeDays` is expected strictly positive (normalised by callers).
+ */
+export function recencyDecay(createdAt: string, nowMs: number, halfLifeDays: number): number {
+  const created = Date.parse(createdAt)
+  if (Number.isNaN(created)) return 1
+  const ageDays = Math.max(0, (nowMs - created) / DAY_MS)
+  return 0.5 ** (ageDays / halfLifeDays)
+}
+
 interface SearchScoreContext {
   vecSimById: Map<string, number>
   bm25ScoreById: Map<string, number>
   rrfScoreById: Map<string, number>
   entityIds: Set<string>
+  /**
+   * RRF normalisation divisor for the combined score: `nNonEmptyLegs / (RRF_K +
+   * 1)`, where `nNonEmptyLegs` is the number of non-empty fusion lists. `0` on
+   * the vector-only path (unused there — `similarity` is the relevance term).
+   */
+  rrfMax: number
+  /** Whether the recency boost is enabled (`recencyWeight > 0`); fast path when false. */
+  recencyActive: boolean
+  /** Recency boost weight; `<= 0` disables scoring (fast path). */
+  recencyWeight: number
+  /** Decay half-life in days (strictly positive). */
+  recencyHalfLifeDays: number
+  /** Clock used for the age computation. */
+  nowMs: number
+}
+
+/**
+ * Attach `recency_score`/`final_score` and re-rank by the combined score when
+ * the recency boost is enabled. `relevant` is the raw RRF normalised by
+ * `rrfMax` on the fused path, or `similarity` on the vector-only path. The sort
+ * is stable: equal `final_score` keeps the incoming relevance order.
+ */
+function applyRecencyScoring(results: SearchResult[], scores: SearchScoreContext): void {
+  if (!scores.recencyActive) return
+  for (const result of results) {
+    const relevant = result.rrf_score !== undefined ? result.rrf_score / scores.rrfMax : result.similarity
+    const recency = recencyDecay(result.thought.created_at, scores.nowMs, scores.recencyHalfLifeDays)
+    result.recency_score = recency
+    result.final_score = relevant + scores.recencyWeight * recency
+  }
+  results.sort((a, b) => (b.final_score ?? 0) - (a.final_score ?? 0))
 }
 
 function fetchThoughtsByIds(
@@ -289,6 +360,7 @@ function fetchThoughtsByIds(
     if (bm25 !== undefined) result.bm25_score = bm25
     out.push(result)
   }
+  applyRecencyScoring(out, scores)
   return out
 }
 
@@ -306,6 +378,22 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     entitySearchIds
   } = options
   const pool = Math.min(1000, Math.max(topK * 10, topK))
+
+  // Defensive normalisation (the service clamps first): a non-positive or
+  // non-finite weight disables the boost; a non-positive/non-finite half-life
+  // falls back to 30 so the decay never divides by zero.
+  const recencyWeight =
+    options.recencyWeight !== undefined && Number.isFinite(options.recencyWeight) && options.recencyWeight > 0
+      ? options.recencyWeight
+      : 0
+  const recencyHalfLifeDays =
+    options.recencyHalfLifeDays !== undefined &&
+    Number.isFinite(options.recencyHalfLifeDays) &&
+    options.recencyHalfLifeDays > 0
+      ? options.recencyHalfLifeDays
+      : FALLBACK_RECENCY_HALF_LIFE_DAYS
+  const nowMs = options.nowMs !== undefined && Number.isFinite(options.nowMs) ? options.nowMs : Date.now()
+  const recency = { recencyActive: recencyWeight > 0, recencyWeight, recencyHalfLifeDays, nowMs }
 
   const { sql: filterSql, params: filterParams } = buildFilterSQL({
     statusFilter,
@@ -325,7 +413,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
       db,
       vecIds.map(v => v.id),
       options,
-      { vecSimById, bm25ScoreById: new Map(), rrfScoreById: new Map(), entityIds: new Set() }
+      { vecSimById, bm25ScoreById: new Map(), rrfScoreById: new Map(), entityIds: new Set(), rrfMax: 0, ...recency }
     )
   }
 
@@ -334,12 +422,16 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     : bm25ScoredIds(db, query, pool)
   const bm25ScoreById = new Map(bm25Scored.map(r => [r.id, r.score]))
   const entityIds = entitySearchIds ? entitySearchIds(query, pool) : []
-  const merged = rrfMerge([vecIds.map(v => v.id), bm25Scored.map(r => r.id), entityIds]).slice(0, topK)
+  const fusionLists = [vecIds.map(v => v.id), bm25Scored.map(r => r.id), entityIds]
+  // A thought ranked #1 in every non-empty list reaches the RRF maximum, so
+  // normalising by it keeps `relevant` order-preserving and in `(0, 1]`.
+  const rrfMax = fusionLists.filter(list => list.length > 0).length / (RRF_K + 1)
+  const merged = rrfMerge(fusionLists).slice(0, topK)
   const rrfScoreById = new Map(merged.map(m => [m.id, m.score]))
   return fetchThoughtsByIds(
     db,
     merged.map(m => m.id),
     options,
-    { vecSimById, bm25ScoreById, rrfScoreById, entityIds: new Set(entityIds) }
+    { vecSimById, bm25ScoreById, rrfScoreById, entityIds: new Set(entityIds), rrfMax, ...recency }
   )
 }

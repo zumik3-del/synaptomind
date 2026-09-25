@@ -174,6 +174,8 @@ interface SearchResultWithSignals extends SearchResultBody {
 	match_source?: Array<"vector" | "bm25" | "entity">;
 	rrf_score?: number;
 	bm25_score?: number;
+	recency_score?: number;
+	final_score?: number;
 }
 
 test("GET /api/thoughts/search includes match_source on every result", async () => {
@@ -203,18 +205,66 @@ test("GET /api/thoughts/search includes bm25_score for keyword hits", async () =
 	}
 });
 
-test("GET /api/thoughts/search includes rrf_score when hybrid fusion ran", async () => {
-	const res = await request(
-		`/api/thoughts/search?q=${QUERY}&hybrid=true&supersession_mode=off&contradiction_mode=off`,
-	);
-	expect(res.status).toBe(200);
-	const results = (await res.json()) as SearchResultWithSignals[];
-	const withSources = results.filter(
-		(r) => r.match_source && r.match_source.length > 0,
-	);
-	if (withSources.length > 0) {
-		withSources.forEach((r) => {
-			expect(r.rrf_score).toBeDefined();
+	test("GET /api/thoughts/search includes rrf_score when hybrid fusion ran", async () => {
+		const res = await request(
+			`/api/thoughts/search?q=${QUERY}&hybrid=true&supersession_mode=off&contradiction_mode=off`,
+		);
+		expect(res.status).toBe(200);
+		const results = (await res.json()) as SearchResultWithSignals[];
+		const withSources = results.filter(
+			(r) => r.match_source && r.match_source.length > 0,
+		);
+		if (withSources.length > 0) {
+			withSources.forEach((r) => {
+				expect(r.rrf_score).toBeDefined();
+			});
+		}
+	});
+
+	// ── Recency boost (issue #145, task #821) ────────────────────────────────────
+
+	test("GET /api/thoughts/search ?recency_weight=0.2 returns recency_score and final_score", async () => {
+		const res = await request(
+			`/api/thoughts/search?q=${QUERY}&recency_weight=0.2&supersession_mode=off&contradiction_mode=off`,
+		);
+		expect(res.status).toBe(200);
+		const results = (await res.json()) as SearchResultWithSignals[];
+		expect(Array.isArray(results)).toBe(true);
+		// When weight > 0, every result carries the recency fields.
+		results.forEach((r) => {
+			expect(r.recency_score).toBeDefined();
+			expect(r.final_score).toBeDefined();
 		});
-	}
-});
+	});
+
+	test("GET /api/thoughts/search ?recency_weight=abc → 400", async () => {
+		const res = await request(
+			`/api/thoughts/search?q=${QUERY}&recency_weight=abc`,
+		);
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toContain("recency_weight");
+	});
+
+	test("GET /api/thoughts/search ?recency_weight=5 clamped to 1 (no error)", async () => {
+		const res = await request(
+			`/api/thoughts/search?q=${QUERY}&recency_weight=5&supersession_mode=off&contradiction_mode=off`,
+		);
+		expect(res.status).toBe(200);
+		const results = (await res.json()) as SearchResultWithSignals[];
+		expect(Array.isArray(results)).toBe(true);
+	});
+
+	test("GET /api/thoughts/search default request unchanged (no recency fields)", async () => {
+		const res = await request(
+			`/api/thoughts/search?q=${QUERY}&supersession_mode=off&contradiction_mode=off`,
+		);
+		expect(res.status).toBe(200);
+		const results = (await res.json()) as SearchResultWithSignals[];
+		expect(Array.isArray(results)).toBe(true);
+		// Default weight=0 → recency fields absent (backward compat).
+		results.forEach((r) => {
+			expect(r.recency_score).toBeUndefined();
+			expect(r.final_score).toBeUndefined();
+		});
+	});

@@ -35,7 +35,9 @@ const handlers = {
         query: args.query as string, topK, statusFilter,
         projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: args.cluster as 'only' | 'exclude' | undefined,
         minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
-        hybrid: args.hybrid as boolean | undefined, supersessionMode, contradictionMode
+        hybrid: args.hybrid as boolean | undefined, supersessionMode, contradictionMode,
+        recencyWeight: args.recency_weight as number | undefined,
+        recencyHalfLifeDays: args.recency_half_life_days as number | undefined
       }
       const results = args.group_by_cluster
         ? await searchThoughtsGrouped(baseOptions)
@@ -73,7 +75,9 @@ const handlers = {
         query: args.query as string, topK, statusFilter,
         projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: 'only',
         minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
-        hybrid: args.hybrid as boolean | undefined
+        hybrid: args.hybrid as boolean | undefined,
+        recencyWeight: args.recency_weight as number | undefined,
+        recencyHalfLifeDays: args.recency_half_life_days as number | undefined
       })
       return postProcessSearchResults(results, { query: args.query as string, topK, showPrimers: true })
     }
@@ -102,6 +106,20 @@ export function registerMemoryRecall(server: McpServer) {
       min_importance: z.number().min(0).max(1).optional().describe('Minimum importance (0-1)'),
       exclude_flagged: z.boolean().optional().describe('Exclude flagged thoughts'),
       hybrid: z.boolean().optional().describe('Use hybrid search'),
+      recency_weight: z
+        .number()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe(
+          'Opt-in recency boost weight (0-1). 0/default preserves relevance-only ranking; >0 adds recency_weight × 0.5^(ageDays/halfLifeDays) to the relevance score and returns recency_score + final_score'
+        ),
+      recency_half_life_days: z
+        .number()
+        .positive()
+        .max(3650)
+        .optional()
+        .describe('Recency decay half-life in days (default 30, 1-3650); only used when recency_weight > 0'),
       supersession_mode: z
         .enum(['off', 'flag', 'suppress'])
         .optional()

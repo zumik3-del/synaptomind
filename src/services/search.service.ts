@@ -17,6 +17,15 @@ const SEARCH_MAX_TOP_K = 1000
  */
 const SUPPRESSION_OVERFETCH_FACTOR = 4
 
+/** Default recency-boost half-life (days) when the caller omits it. */
+export const DEFAULT_RECENCY_HALF_LIFE_DAYS = 30
+/** Lower half-life bound (days); `<= 0`/non-finite falls back to the default. */
+export const MIN_RECENCY_HALF_LIFE_DAYS = 1
+/** Upper half-life bound (days). */
+export const MAX_RECENCY_HALF_LIFE_DAYS = 3650
+/** Upper recency-weight bound (inclusive); `0` disables the boost. */
+export const MAX_RECENCY_WEIGHT = 1
+
 /**
  * Rank used by `orderByStanding`: lower is better, so every `current` row
  * precedes the contested rows while the incoming relevance order is preserved
@@ -36,6 +45,16 @@ function clampTopK(value: number | undefined): number {
 function clampMinImportance(value: number | undefined): number | undefined {
   if (value === undefined || !Number.isFinite(value)) return undefined
   return Math.min(Math.max(value, 0), 1)
+}
+
+function clampRecencyWeight(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return 0
+  return Math.min(Math.max(value, 0), MAX_RECENCY_WEIGHT)
+}
+
+function clampRecencyHalfLifeDays(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return DEFAULT_RECENCY_HALF_LIFE_DAYS
+  return Math.min(Math.max(value, MIN_RECENCY_HALF_LIFE_DAYS), MAX_RECENCY_HALF_LIFE_DAYS)
 }
 
 async function generateEmbeddingWithFallback(query: string): Promise<Float32Array> {
@@ -75,6 +94,16 @@ export interface SearchServiceOptions {
    * leave it unset.
    */
   embedding?: Float32Array
+  /**
+   * Opt-in recency boost weight, clamped to `[0, 1]` (non-finite/undefined →
+   * `0`). `0` (default) preserves relevance-only ranking byte-identically.
+   */
+  recencyWeight?: number
+  /**
+   * Decay half-life in days, clamped to `[1, 3650]` (non-finite/undefined or
+   * `<= 0` → `30`). Only meaningful when `recencyWeight > 0`.
+   */
+  recencyHalfLifeDays?: number
 }
 
 export interface GroupedResult {
@@ -105,7 +134,9 @@ export async function searchThoughts(options: SearchServiceOptions): Promise<Sea
     minImportance,
     excludeFlagged: options.excludeFlagged,
     hybrid: options.hybrid,
-    entitySearchIds
+    entitySearchIds,
+    recencyWeight: clampRecencyWeight(options.recencyWeight),
+    recencyHalfLifeDays: clampRecencyHalfLifeDays(options.recencyHalfLifeDays)
   })
 
   const filtered = options.tagFilter
@@ -169,6 +200,9 @@ function applyGraphStanding(
  * `similarity` is deliberately NOT used as a sort key: it is populated only from
  * the vector leg, so keyword/entity-only results carry `0` and would be demoted
  * below every vector hit, discarding the hybrid fusion ranking.
+ *
+ * The recency boost is applied *upstream* (inside the DB ranking), so this
+ * stable partition preserves the recency order within each standing group.
  *
  * Exported for the ordering regression test only.
  */

@@ -95,6 +95,8 @@ Filters: status, project, tag, cluster (only/exclude), min importance, exclude f
 
 Result ranking signals: \`match_source\` (legs that matched, in fixed order \`vector\`, \`bm25\`, \`entity\`), \`similarity\`/\`distance\` (vector leg only), \`bm25_score\` (keyword relevance, higher = more relevant, only for BM25 hits), and \`rrf_score\` (fused hybrid score, present only when fusion ran). No relevance threshold is applied — filter client-side on \`match_source\` and these scores.
 
+**Recency boost (opt-in):** \`recency_weight\` (0–1, default **0**) adds a time term to the ranking; \`recency_half_life_days\` (1–3650, default 30) sets its decay half-life. At \`recency_weight > 0\` each result also carries \`recency_score\` (\`0.5^(ageDays/halfLifeDays)\`, \`1\` = created now) and \`final_score\` (\`relevant + recency_weight × recency_score\`, where \`relevant\` is \`rrf_score\` normalised to \`[0,1]\` on the fused path or \`similarity\` on the vector-only path). \`rrf_score\` stays raw/un-boosted. \`recency_weight = 0\` (unset) preserves the relevance-only ranking and omits both fields.
+
 Post-processing: hit counting → primer promotion → primer hoisting → profile hoisting.
 
 ## Lifecycle
