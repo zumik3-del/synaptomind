@@ -14,7 +14,7 @@ export type EvalCategory =
   | 'no-match'
 
 /** `xfail` scenarios are reported but never fail the run (known gaps). */
-export type ScenarioOutcome = 'pass' | 'xfail'
+type ScenarioOutcome = 'pass' | 'xfail'
 
 export interface EvalThought {
   id: string
@@ -35,14 +35,14 @@ export interface EvalThought {
   distractor?: boolean
 }
 
-export interface EvalEdge {
+interface EvalEdge {
   source: string
   target: string
   /** Defaults to `related`. */
   type?: string
 }
 
-export interface RankExpectation {
+interface RankExpectation {
   before: string
   after: string
 }

@@ -153,7 +153,7 @@ export function getThought(db: Database, id: string): Thought | undefined {
   return getThoughtRow(db, id)
 }
 
-export function getThoughtsByIds(db: Database, ids: string[]): Map<string, Thought> {
+function getThoughtsByIds(db: Database, ids: string[]): Map<string, Thought> {
   const map = new Map<string, Thought>()
   if (ids.length === 0) return map
   const ph = sqlIn(ids)
@@ -335,7 +335,6 @@ export function listClusterCandidates(db: Database, minAgeDays: number): Cluster
 }
 
 export {
-  type ThoughtImportance,
   getThoughtImportance,
   findHighHitThoughts,
   batchGetImportance,

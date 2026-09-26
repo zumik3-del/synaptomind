@@ -15,8 +15,6 @@ import type { Database } from 'bun:sqlite'
 
 export type { IssueId, DetectedIssue } from './self-improve-detect'
 export type { TelemetrySignals } from './self-improve-telemetry'
-export { queryTelemetrySignals } from './self-improve-telemetry'
-export { detectIssues } from './self-improve-detect'
 
 interface SelfImproveResult {
   dry_run: boolean

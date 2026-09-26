@@ -129,7 +129,7 @@ function normalizePath(p: string | null | undefined): string | null {
   return p.replace(/\/+$/, '').replace(/\\/g, '/')
 }
 
-export function resolveProjectByPath(db: Database, cwd: string): Project | undefined {
+function resolveProjectByPath(db: Database, cwd: string): Project | undefined {
   const normalized = normalizePath(cwd)
   if (!normalized) return undefined
   return db

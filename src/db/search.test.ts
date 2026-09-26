@@ -475,8 +475,8 @@ function recencyCreatedAt(offsetDays: number): string {
 // Row 1: w unset/0 → identical id order AND no recency_score/final_score; rrf_score unchanged.
 itVec("recency w=0: no recency fields, order preserved, rrf_score unchanged", () => {
   const db = getDb();
-  const _a = seedThought({ id: "rec-w0-a", content: "REC_W0 same marker" });
-  const _b = seedThought({ id: "rec-w0-b", content: "REC_W0 same marker" });
+  seedThought({ id: "rec-w0-a", content: "REC_W0 same marker" });
+  seedThought({ id: "rec-w0-b", content: "REC_W0 same marker" });
   seedFts(db, "rec-w0-a", "REC_W0 same marker");
   seedFts(db, "rec-w0-b", "REC_W0 same marker");
 
@@ -502,8 +502,8 @@ itVec("recency w=0: no recency fields, order preserved, rrf_score unchanged", ()
 // Row 2: w>0 → recency_score present on every result, in [0,1]; =1 at age 0, =0.5 at one half-life.
 itVec("recency w>0: recency_score present, =1 at age 0, =0.5 at one half-life", () => {
   const db = getDb();
-  const _fresh = seedThought({ id: "rec-age0", content: "REC_AGE marker", created_at: recencyCreatedAt(0) });
-  const _halfLife = seedThought({ id: "rec-age30", content: "REC_AGE marker", created_at: recencyCreatedAt(30) });
+  seedThought({ id: "rec-age0", content: "REC_AGE marker", created_at: recencyCreatedAt(0) });
+  seedThought({ id: "rec-age30", content: "REC_AGE marker", created_at: recencyCreatedAt(30) });
   seedFts(db, "rec-age0", "REC_AGE marker");
   seedFts(db, "rec-age30", "REC_AGE marker");
 
@@ -533,8 +533,8 @@ itVec("recency w>0: recency_score present, =1 at age 0, =0.5 at one half-life", 
 // Row 3: equal relevance, different age → newer ranks first.
 itVec("recency equal relevance: newer ranks above older", () => {
   const db = getDb();
-  const _older = seedThought({ id: "rec-eq-old", content: "REC_EQ same keyword today", created_at: recencyCreatedAt(60) });
-  const _newer = seedThought({ id: "rec-eq-new", content: "REC_EQ same keyword today", created_at: recencyCreatedAt(0) });
+  seedThought({ id: "rec-eq-old", content: "REC_EQ same keyword today", created_at: recencyCreatedAt(60) });
+  seedThought({ id: "rec-eq-new", content: "REC_EQ same keyword today", created_at: recencyCreatedAt(0) });
   seedFts(db, "rec-eq-old", "REC_EQ same keyword today");
   seedFts(db, "rec-eq-new", "REC_EQ same keyword today");
 
@@ -557,13 +557,13 @@ itVec("recency equal relevance: newer ranks above older", () => {
 itVec("recency bounded influence: high-relevance old beats low-relevance fresh at small w", () => {
   const db = getDb();
   // High-BM25: repeated keyword → higher score. Old.
-  const _oldHigh = seedThought({
+  seedThought({
     id: "rec-bounds-old",
     content: "REC_BOUND KEYWORD marker KEYWORD marker KEYWORD",
     created_at: recencyCreatedAt(100),
   });
   // Low-BM25: single occurrence. Fresh.
-  const _newLow = seedThought({
+  seedThought({
     id: "rec-bounds-new",
     content: "REC_BOUND KEYWORD marker",
     created_at: recencyCreatedAt(0),
@@ -590,8 +590,8 @@ itVec("recency bounded influence: high-relevance old beats low-relevance fresh a
 // Row 5: vector-only path (hybrid=false, !query) applies recency via similarity.
 itVec("recency vector-only path: recency applies via similarity, fields present", () => {
   withVecTestDb((db) => {
-    const _older = seedThought({ id: "rec-vec-old", content: "REC_VEC semantic content", created_at: recencyCreatedAt(60) });
-    const _newer = seedThought({ id: "rec-vec-new", content: "REC_VEC semantic content", created_at: recencyCreatedAt(0) });
+    seedThought({ id: "rec-vec-old", content: "REC_VEC semantic content", created_at: recencyCreatedAt(60) });
+    seedThought({ id: "rec-vec-new", content: "REC_VEC semantic content", created_at: recencyCreatedAt(0) });
     seedVecEmbedding(db, "rec-vec-old");
     seedVecEmbedding(db, "rec-vec-new");
 
@@ -636,8 +636,8 @@ test("recency empty query + empty embedding returns [] without crash", () => {
 itVec("recency tie: equal final_score preserves incoming order", () => {
   const db = getDb();
   // Same content, same created_at → same relevance and same recency → same final_score.
-  const _a = seedThought({ id: "rec-tie-a", content: "REC_TIE same today", created_at: recencyCreatedAt(10) });
-  const _b = seedThought({ id: "rec-tie-b", content: "REC_TIE same today", created_at: recencyCreatedAt(10) });
+  seedThought({ id: "rec-tie-a", content: "REC_TIE same today", created_at: recencyCreatedAt(10) });
+  seedThought({ id: "rec-tie-b", content: "REC_TIE same today", created_at: recencyCreatedAt(10) });
   seedFts(db, "rec-tie-a", "REC_TIE same today");
   seedFts(db, "rec-tie-b", "REC_TIE same today");
 
@@ -660,8 +660,8 @@ itVec("recency tie: equal final_score preserves incoming order", () => {
 // Row 8: rrf_score stays raw/un-boosted.
 itVec("recency rrf_score stays raw/un-boosted", () => {
   const db = getDb();
-  const _a = seedThought({ id: "rec-rrf-a", content: "REC_RRF keyword match" });
-  const _b = seedThought({ id: "rec-rrf-b", content: "REC_RRF keyword match" });
+  seedThought({ id: "rec-rrf-a", content: "REC_RRF keyword match" });
+  seedThought({ id: "rec-rrf-b", content: "REC_RRF keyword match" });
   seedFts(db, "rec-rrf-a", "REC_RRF keyword match");
   seedFts(db, "rec-rrf-b", "REC_RRF keyword match");
 
