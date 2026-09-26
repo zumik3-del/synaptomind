@@ -3,6 +3,7 @@ import { getDb } from '../db'
 import type { SearchResult } from '../db/search'
 import { getThoughtImportance, incrementHitCount } from '../db/thoughts'
 import type { GroupedResult } from './search.service'
+import type { Database } from 'bun:sqlite'
 
 /** Grouped results carry a cluster payload; flat ones do not. */
 function isFlat(r: SearchResult | GroupedResult): r is SearchResult {
@@ -28,8 +29,7 @@ export function extractResultIds(results: SearchResult[] | GroupedResult[]): str
 }
 
 /** FI-07: count hits and auto-promote frequently-searched thoughts to primers. */
-export function updatePrimerHits(results: SearchResult[] | GroupedResult[]): void {
-  const d = getDb()
+export function updatePrimerHits(results: SearchResult[] | GroupedResult[], d: Database = getDb()): void {
   const ids = extractResultIds(results)
   if (ids.length === 0) return
   for (const id of ids) {
@@ -105,10 +105,10 @@ export function prependProfileResults(
  */
 export function postProcessSearchResults(
   results: SearchResult[] | GroupedResult[],
-  opts: SearchPostProcessOptions
+  opts: SearchPostProcessOptions,
+  d: Database = getDb()
 ): SearchResult[] | GroupedResult[] {
-  const d = getDb()
-  updatePrimerHits(results)
+  updatePrimerHits(results, d)
   let ordered = results
   if (opts.showPrimers) {
     const primerIds = getPrimerIds(d)

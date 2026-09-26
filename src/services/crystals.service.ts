@@ -1,4 +1,4 @@
-import { getAllActiveEdges, getClusterMembers } from '../db/edges'
+import { getAllActiveEdges, getClusterMembers, getClusterThought } from '../db/edges'
 import { getDb } from '../db'
 import { createThought, getThought, type Thought } from '../db/thoughts'
 import { ValidationError } from '../errors'
@@ -101,9 +101,7 @@ export function crystallize(input: CrystallizeInput, d: Database = getDb()): Cry
   let title = ''
   let members: Thought[] = []
   if (input.cluster_id) {
-    const cluster = d.prepare(`SELECT * FROM thoughts WHERE id = ? AND is_cluster = 1`).get(input.cluster_id) as
-      | Thought
-      | undefined
+    const cluster = getClusterThought(d, input.cluster_id)
     if (!cluster) throw new ValidationError('cluster_id does not reference an existing cluster')
     title = cluster.content.split('\n')[0].replace(/^#\s*/, '').trim()
     members = getClusterMembers(d, cluster.id)

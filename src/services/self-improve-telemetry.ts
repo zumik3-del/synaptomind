@@ -10,6 +10,7 @@ import {
 } from '../db/telemetry-queries'
 import { getLogDb } from '../logging'
 import { windowStart } from './utils'
+import type { Database } from 'bun:sqlite'
 
 export interface TelemetrySignals {
   orphanRate: number
@@ -22,10 +23,9 @@ export interface TelemetrySignals {
   clusterOps: number
 }
 
-export function queryTelemetrySignals(): TelemetrySignals {
+export function queryTelemetrySignals(d: Database = getDb()): TelemetrySignals {
   const logDb = getLogDb()
   if (!logDb) return { orphanRate: 0, totalWrites: 0, activationRate: 1, draftCreates: 0, archives: 0, highHitThoughts: [], searchCreateRatio: 1, clusterOps: 0 }
-  const d = getDb()
   const since7d = windowStart(7 * 86400)
   const since30d = windowStart(30 * 86400)
 

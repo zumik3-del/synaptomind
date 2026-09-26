@@ -11,6 +11,8 @@ import {
 
 type Env = { Variables: { logDb: Database } }
 
+// Intentionally NOT wrapped in withTelemetry: these endpoints read the
+// telemetry log itself, so instrumenting them would be self-referential noise.
 const telemetryRouter = new Hono<Env>()
 
 telemetryRouter.use('*', async (c, next) => {

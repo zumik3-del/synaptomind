@@ -309,6 +309,13 @@ export function getClusterForThoughtBatch(db: Database, thoughtIds: string[]): M
   return result
 }
 
+/** Cluster thought row by id; undefined when the id is not a cluster. */
+export function getClusterThought(db: Database, id: string): { id: string; content: string } | undefined {
+  return db.prepare(`SELECT * FROM thoughts WHERE id = ? AND is_cluster = 1`).get(id) as
+    | { id: string; content: string }
+    | undefined
+}
+
 export function getClusterMembers(db: Database, clusterId: string): Thought[] {
   const edges = db.prepare(`SELECT target_id FROM edges WHERE source_id = ? AND type = 'cluster'`).all(clusterId) as {
     target_id: string

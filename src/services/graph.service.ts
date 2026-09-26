@@ -3,6 +3,7 @@ import { getDb } from '../db'
 import { config } from '../config'
 import { searchThoughts } from '../db/search'
 import { listThoughts, type Thought } from '../db/thoughts'
+import type { Database } from 'bun:sqlite'
 
 interface GraphNode {
   id: string
@@ -48,8 +49,12 @@ function resolveGraphLimit(limit: number | null | undefined): number {
   return Math.min(Math.max(Math.floor(limit), 1), GRAPH_MAX_LIMIT)
 }
 
-export function getGraphDataService(projectId?: string | null, status: string = 'active', limit: number | null = null): GraphData {
-  const d = getDb()
+export function getGraphDataService(
+  projectId?: string | null,
+  status: string = 'active',
+  limit: number | null = null,
+  d: Database = getDb()
+): GraphData {
   const effectiveLimit = resolveGraphLimit(limit)
   const thoughts = listThoughts(d, {
     status: status === 'all' ? undefined : status,
@@ -92,9 +97,10 @@ interface ChainResult {
 export function getChainService(
   thoughtId: string,
   direction: 'upstream' | 'downstream' | 'both' = 'both',
-  maxDegree: number = config.graph.maxDegree
+  maxDegree: number = config.graph.maxDegree,
+  d: Database = getDb()
 ): ChainResult | null {
-  return getThoughtEdges(getDb(), thoughtId, direction, maxDegree)
+  return getThoughtEdges(d, thoughtId, direction, maxDegree)
 }
 
 interface ContextResult {
@@ -105,9 +111,9 @@ interface ContextResult {
 export function getContextService(
   query: string,
   maxDegree: number = config.graph.maxDegree,
-  projectFilter?: string
+  projectFilter?: string,
+  d: Database = getDb()
 ): ContextResult | null {
-  const d = getDb()
   const results = searchThoughts(d, {
     embedding: new Float32Array(0),
     query,

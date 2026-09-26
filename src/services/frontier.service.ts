@@ -40,9 +40,8 @@ export function listPendingCandidates(d: Database, projectId?: string): Frontier
  *
  * priority ∈ [0,1] = 0.5·importance + 0.15·unblocked + age bonus.
  */
-export function getFrontier(input: FrontierInput = {}): { items: FrontierItem[] } {
+export function getFrontier(input: FrontierInput = {}, d: Database = getDb()): { items: FrontierItem[] } {
   const k = Math.min(Math.max(input.k ?? 10, 1), 50)
-  const d = getDb()
 
   const candidates = new Map<string, FrontierCandidateRow>()
 

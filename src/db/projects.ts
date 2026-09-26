@@ -36,6 +36,10 @@ export function getProject(db: Database, id: string): Project | undefined {
   return row
 }
 
+export function projectExists(db: Database, id: string): boolean {
+  return Boolean(db.prepare(`SELECT id FROM projects WHERE id = ?`).get(id))
+}
+
 export function deleteProject(db: Database, id: string): boolean {
   const defaultProjectId = (
     db.prepare(`SELECT value FROM _meta WHERE key = 'default_project_id'`).get() as { value: string } | undefined

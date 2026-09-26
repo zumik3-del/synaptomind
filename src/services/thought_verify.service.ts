@@ -4,6 +4,8 @@ import { config } from '../config'
 import {
   createVerifyEntry,
   findThoughtsWithoutVerifyEntry,
+  getThoughtContentHash,
+  getThoughtEmbedding,
   getVerifyEntriesPendingCheck,
   markFlagged,
   recordCheck,
@@ -54,7 +56,7 @@ export async function runVerifyJob(
       }
       checked++
 
-      const stored = getThoughtEmbedding(entry.thought_id, d)
+      const stored = getThoughtEmbedding(d, entry.thought_id)
       let drift: number | null = null
       if (embed && stored) {
         try {
@@ -85,13 +87,6 @@ export async function runVerifyJob(
   return { checked, flagged, skipped: entries.length - checked }
 }
 
-function getThoughtContentHash(db: Database, thoughtId: string): string | null {
-  const row = db.prepare(`SELECT content_hash FROM thoughts WHERE id = ?`).get(thoughtId) as
-    | { content_hash: string }
-    | undefined
-  return row?.content_hash ?? null
-}
-
 // 1 - cosine similarity, matching the vec0 cosine distance metric. Returns
 // null when a distance is not defined (dimension mismatch, zero vector) —
 // dimension mismatch typically means the embedding model changed.
@@ -107,17 +102,4 @@ function cosineDistance(a: Float32Array, b: Float32Array): number | null {
   }
   if (normA === 0 || normB === 0) return null
   return 1 - dot / (Math.sqrt(normA) * Math.sqrt(normB))
-}
-
-function getThoughtEmbedding(thoughtId: string, db: Database): Float32Array | null {
-  try {
-    const row = db.prepare(`SELECT embedding FROM vec_thoughts WHERE id = ?`).get(thoughtId) as
-      | { embedding: Buffer }
-      | undefined
-    if (!row) return null
-    // third arg is the element count, not bytes (Float32Array = 4 bytes/elem)
-    return new Float32Array(row.embedding.buffer as ArrayBuffer, row.embedding.byteOffset, row.embedding.byteLength / 4)
-  } catch {
-    return null
-  }
 }

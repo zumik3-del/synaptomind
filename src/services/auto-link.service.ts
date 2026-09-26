@@ -1,11 +1,12 @@
 import { config } from '../config'
+import { findLinkCandidates as dbFindLinkCandidates, type LinkCandidate } from '../db/auto-link'
 import { createEdge, type Edge } from '../db/edges'
 import { getDb } from '../db'
+import { recordJobRun } from '../db/meta'
 import { searchThoughts } from '../db/search'
 import { pairKey } from '../db/utils'
 import { generateEmbeddings } from '../embedder/client'
 import { insertLog } from '../logging/log'
-import { recordJobRun } from './utils'
 import { findEmbeddingNeighborPairs } from './edge-candidates.service'
 import type { Database } from 'bun:sqlite'
 
@@ -48,26 +49,8 @@ export interface AutoLinkDeps {
  * Find active, non-cluster thoughts with low connectivity (< 3 related edges).
  * These are the best candidates for auto-linking.
  */
-export function findLinkCandidates(): Array<{ id: string; content: string; edge_count: number }> {
-  const d = getDb()
-  return d
-    .prepare(`
-    SELECT id, content, edge_count FROM (
-      SELECT t.id, t.content, t.created_at,
-             (SELECT COUNT(*) FROM edges e
-              WHERE (e.source_id = t.id OR e.target_id = t.id)
-                AND e.type = 'related') as edge_count
-      FROM thoughts t
-      WHERE t.status = 'active'
-        AND (t.is_cluster IS NULL OR t.is_cluster = 0)
-        AND NOT EXISTS (
-          SELECT 1 FROM edges e WHERE e.type = 'cluster' AND e.target_id = t.id
-        )
-    ) sub
-    WHERE edge_count < 3
-    ORDER BY edge_count ASC, created_at DESC
-  `)
-    .all() as Array<{ id: string; content: string; edge_count: number }>
+export function findLinkCandidates(d: Database = getDb()): LinkCandidate[] {
+  return dbFindLinkCandidates(d)
 }
 
 // ── Embedding proximity pairs ────────────────────────────────────────────────
@@ -80,9 +63,9 @@ export function findLinkCandidates(): Array<{ id: string; content: string; edge_
 function findEmbeddingPairs(
   candidates: Array<{ id: string; content: string }>,
   embeddings: Float32Array[],
-  minSimilarity: number
+  minSimilarity: number,
+  d: Database
 ): CandidatePair[] {
-  const d = getDb()
   const pairs = findEmbeddingNeighborPairs(
     candidates,
     embeddings,
@@ -141,8 +124,7 @@ export function mergeCandidates(embeddingPairs: CandidatePair[], maxEdges: numbe
  * Create `related` edges for the given pairs. Skips pairs where an edge
  * already exists (createEdge handles dedup).
  */
-export function createEdges(pairs: CandidatePair[]): Edge[] {
-  const d = getDb()
+export function createEdges(pairs: CandidatePair[], d: Database = getDb()): Edge[] {
   const created: Edge[] = []
   for (const pair of pairs) {
     try {
@@ -165,15 +147,18 @@ function recordRun(result: AutoLinkResult, db: Database): void {
  * Main auto-link job: find low-connectivity thoughts, discover embedding
  * proximity pairs, create related edges.
  */
-export async function runAutoLinkJob(options: AutoLinkOptions = {}, deps: AutoLinkDeps = {}): Promise<AutoLinkResult> {
+export async function runAutoLinkJob(
+  options: AutoLinkOptions = {},
+  deps: AutoLinkDeps = {},
+  d: Database = getDb()
+): Promise<AutoLinkResult> {
   const minSimilarity = options.minSimilarity ?? config.autoLink.minSimilarity
   const maxEdges = options.maxEdgesPerRun ?? config.autoLink.maxEdgesPerRun
   const dryRun = options.dryRun ?? config.autoLink.dryRun
   const embed = deps.embed ?? generateEmbeddings
-  const d = getDb()
 
   // 1. Find candidates
-  const candidates = findLinkCandidates()
+  const candidates = findLinkCandidates(d)
   if (candidates.length < 2) {
     const empty: AutoLinkResult = {
       dry_run: dryRun,
@@ -190,7 +175,7 @@ export async function runAutoLinkJob(options: AutoLinkOptions = {}, deps: AutoLi
   let embeddingPairs: CandidatePair[] = []
   try {
     const embeddings = await embed(candidates.map(c => c.content))
-    embeddingPairs = findEmbeddingPairs(candidates, embeddings, minSimilarity)
+    embeddingPairs = findEmbeddingPairs(candidates, embeddings, minSimilarity, d)
   } catch (err) {
     console.error('[auto-link] embedding search failed:', err)
   }
@@ -201,7 +186,7 @@ export async function runAutoLinkJob(options: AutoLinkOptions = {}, deps: AutoLi
   // 4. Create edges
   let created: Edge[] = []
   if (!dryRun && pairs.length > 0) {
-    created = createEdges(pairs)
+    created = createEdges(pairs, d)
   }
 
   const result: AutoLinkResult = {

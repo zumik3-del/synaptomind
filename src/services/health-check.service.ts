@@ -147,8 +147,7 @@ const CATEGORIES: Array<{ name: string; checks: CheckDef[] }> = [
   { name: 'data_drift', checks: DRIFT_CHECKS },
 ]
 
-export function runHealthCheck(options: HealthCheckOptions = {}): HealthReport {
-  const d = getDb()
+export function runHealthCheck(options: HealthCheckOptions = {}, d: Database = getDb()): HealthReport {
   const stats = getGraphStats(d)
 
   let categories: CategoryResult[] = CATEGORIES.map(({ name, checks }) => ({

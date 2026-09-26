@@ -7,12 +7,14 @@ import { jsonBodyOrDefault } from './utils'
 const slotsRouter = new Hono()
 
 slotsRouter.get('/', c => {
-  const projectId = c.req.query('project_id') || undefined
-  const names = (c.req.query('names') || '')
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean)
-  return c.json({ slots: getSlots({ projectId, names }) })
+  return withTelemetry(c, { action: 'read', toolName: 'get_slots' }, c2 => {
+    const projectId = c2.req.query('project_id') || undefined
+    const names = (c2.req.query('names') || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+    return c2.json({ slots: getSlots({ projectId, names }) })
+  })
 })
 
 slotsRouter.put('/:name', async c => {

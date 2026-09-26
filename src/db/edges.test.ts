@@ -4,6 +4,7 @@ import {
 	createEdge,
 	deleteEdge,
 	getAllActiveEdges,
+	getClusterThought,
 	getEdgesForThought,
 	getValidEdgeTypes,
 	isValidEdgeType,
@@ -424,4 +425,22 @@ test("isValidEdgeType recognises the new semantic types", () => {
 	expect(isValidEdgeType("nope")).toBeFalse();
 	expect(getValidEdgeTypes()).toContain("contradicts");
 	expect(getValidEdgeTypes()).toContain("supports");
+});
+
+test("getClusterThought returns the cluster row for a cluster thought", () => {
+	const db = getDb();
+	const clusterId = seedThought({ content: "my cluster", is_cluster: 1 });
+	const row = getClusterThought(db, clusterId);
+	expect(row).toBeDefined();
+	expect(row?.id).toBe(clusterId);
+	expect(row?.content).toBe("my cluster");
+});
+
+test("getClusterThought returns null for a non-cluster thought", () => {
+	const regularId = seedThought({ content: "regular" });
+	expect(getClusterThought(getDb(), regularId)).toBeNull();
+});
+
+test("getClusterThought returns null for missing id", () => {
+	expect(getClusterThought(getDb(), "nonexistent")).toBeNull();
 });

@@ -1,6 +1,8 @@
 import { config } from '../config'
 import { getDb } from '../db'
 import { getPrimers } from '../db/primers'
+import { getProfileSummaryContents } from '../db/profile'
+import { projectExists } from '../db/projects'
 import { getSlotRow, upsertSlot } from '../db/slots'
 import { NotFoundError, ValidationError } from '../errors'
 import { listPendingCandidates } from './frontier.service'
@@ -39,12 +41,7 @@ function truncate(content: string, maxChars: number): { content: string; truncat
 
 // persona — auto-generated profile summaries (FI-08).
 function personaContent(db: Database): string {
-  const rows = db
-    .prepare(
-      `SELECT content FROM thoughts WHERE source = 'profile-summary' AND status != 'archived' ORDER BY created_at ASC`
-    )
-    .all() as { content: string }[]
-  return rows.map(r => r.content).join('\n\n')
+  return getProfileSummaryContents(db).join('\n\n')
 }
 
 // pending_items — due pending candidates, the same set the frontier surfaces (FI-03).
@@ -67,8 +64,7 @@ function architectureDecisionsContent(db: Database): string {
   return bullets.join('\n')
 }
 
-export function getSlots(opts?: { projectId?: string; names?: string[] }): SlotView[] {
-  const d = getDb()
+export function getSlots(opts?: { projectId?: string; names?: string[] }, d: Database = getDb()): SlotView[] {
   const projectId = opts?.projectId || undefined
   const filter = opts?.names?.length ? new Set(opts.names) : null
 
@@ -109,7 +105,12 @@ interface UpdateSlotInput {
   project_id?: string
 }
 
-export function updateExplicitSlot(name: string, input: UpdateSlotInput, defaultMaxChars: number): SlotView {
+export function updateExplicitSlot(
+  name: string,
+  input: UpdateSlotInput,
+  defaultMaxChars: number,
+  d: Database = getDb()
+): SlotView {
   if (!EXPLICIT_SLOT_NAMES.has(name)) {
     throw new ValidationError(
       `Slot '${name}' is virtual (read-only). Writable slots: ${[...EXPLICIT_SLOT_NAMES].join(', ')}`
@@ -122,13 +123,11 @@ export function updateExplicitSlot(name: string, input: UpdateSlotInput, default
   if (!Number.isInteger(maxChars) || maxChars < 100 || maxChars > 8000) {
     throw new ValidationError('max_chars must be an integer between 100 and 8000')
   }
-  const d = getDb()
   const scope = input.scope ?? 'global'
   let scopeId: string | null = null
   if (scope === 'project') {
     if (!input.project_id) throw new ValidationError('project_id is required when scope is "project"')
-    const project = d.prepare(`SELECT id FROM projects WHERE id = ?`).get(input.project_id)
-    if (!project) throw new NotFoundError('Project not found')
+    if (!projectExists(d, input.project_id)) throw new NotFoundError('Project not found')
     scopeId = input.project_id
   }
   const row = upsertSlot(d, { name, scope, scope_id: scopeId, content: input.content, max_chars: maxChars })

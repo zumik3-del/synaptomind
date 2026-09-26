@@ -89,3 +89,23 @@ export function getVerifyEntriesPendingCheck(db: Database): ThoughtVerifyEntry[]
   `)
     .all(oneDayAgo) as ThoughtVerifyEntry[]
 }
+
+export function getThoughtContentHash(db: Database, thoughtId: string): string | null {
+  const row = db.prepare(`SELECT content_hash FROM thoughts WHERE id = ?`).get(thoughtId) as
+    | { content_hash: string }
+    | undefined
+  return row?.content_hash ?? null
+}
+
+export function getThoughtEmbedding(db: Database, thoughtId: string): Float32Array | null {
+  try {
+    const row = db.prepare(`SELECT embedding FROM vec_thoughts WHERE id = ?`).get(thoughtId) as
+      | { embedding: Buffer }
+      | undefined
+    if (!row) return null
+    // third arg is the element count, not bytes (Float32Array = 4 bytes/elem)
+    return new Float32Array(row.embedding.buffer as ArrayBuffer, row.embedding.byteOffset, row.embedding.byteLength / 4)
+  } catch {
+    return null
+  }
+}

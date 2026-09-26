@@ -1,8 +1,11 @@
 import { config } from '../config'
 import { getDb } from '../db'
+import { projectExists } from '../db/projects'
+import { findActiveDecisionThoughts } from '../db/session-reflection'
 import { getSlotRow, upsertSlot } from '../db/slots'
 import { createThought } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
+import type { Database } from 'bun:sqlite'
 
 export interface ReflectInput {
   project_id?: string | null
@@ -31,9 +34,8 @@ function tail(content: string, maxChars: number): string {
   return content.length > maxChars ? content.slice(-maxChars) : content
 }
 
-function assertProjectExists(projectId: string, db: ReturnType<typeof getDb>): void {
-  const project = db.prepare(`SELECT id FROM projects WHERE id = ?`).get(projectId)
-  if (!project) throw new NotFoundError('Project not found')
+function assertProjectExists(projectId: string, db: Database): void {
+  if (!projectExists(db, projectId)) throw new NotFoundError('Project not found')
 }
 
 /** Normalise a string for fuzzy comparison: lowercase, collapse whitespace. */
@@ -56,13 +58,8 @@ function jaccard(a: string, b: string): number {
  * Returns true if `decision` is sufficiently similar to any existing
  * non-archived decision-tagged thought (Jaccard >= 0.6 or exact normalised match).
  */
-function hasDuplicateDecision(db: ReturnType<typeof getDb>, decision: string): boolean {
-  const candidates = db.prepare(`
-    SELECT t.id, t.content FROM thoughts t
-    JOIN thought_tags tt ON tt.thought_id = t.id
-    JOIN tags tg ON tg.id = tt.tag_id
-    WHERE tg.name = 'decision' AND t.status != 'archived'
-  `).all() as { id: string; content: string }[]
+function hasDuplicateDecision(db: Database, decision: string): boolean {
+  const candidates = findActiveDecisionThoughts(db)
   const norm = normalise(decision)
   for (const c of candidates) {
     if (normalise(c.content) === norm) return true
@@ -71,7 +68,7 @@ function hasDuplicateDecision(db: ReturnType<typeof getDb>, decision: string): b
   return false
 }
 
-export function reflectSession(input: ReflectInput): ReflectResult {
+export function reflectSession(input: ReflectInput, d: Database = getDb()): ReflectResult {
   const hasAny =
     input.summary !== undefined ||
     (input.goals_delta?.length ?? 0) > 0 ||
@@ -89,7 +86,6 @@ export function reflectSession(input: ReflectInput): ReflectResult {
     pending_created: 0
   }
 
-  const d = getDb()
   const scope = input.project_id ? ('project' as const) : ('global' as const)
   const scopeId = input.project_id ?? null
   if (scope === 'project') assertProjectExists(scopeId as string, d)
