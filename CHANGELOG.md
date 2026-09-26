@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.8.0-beta.1
+
+> September 26, 2026
+
+- [`1b58bfe`](https://github.com/zumik3-del/synaptomind/commit/1b58bfeced5fff5de9c1a355917bb2996f27a4a8): chore: bump version to 0.8.0-beta.1
+- [`7484c6d`](https://github.com/zumik3-del/synaptomind/commit/7484c6d38143a52e0f195fbeb06834d7e3337a2c): feat(deploy): adopt bun-templates/deploy as canonical install/update framework (#151)
+- [`2a948bc`](https://github.com/zumik3-del/synaptomind/commit/2a948bcb39681a2dba47bc98aa2bdf28137ded17): feat(deploy): adopt bun-templates/deploy as canonical install/update framework (#856)
+- [`383ff4e`](https://github.com/zumik3-del/synaptomind/commit/383ff4e29f84db19b3d922073516289c254f253b): refactor: move SQL into db layer, complete DI and telemetry coverage (#845)
+- [`a823b72`](https://github.com/zumik3-del/synaptomind/commit/a823b72e905e76976c1e113d5a66a1d3c50679d0): refactor: harden core consistency per SOLID/KISS/DRY audit (#845)
+- [`b8b76a4`](https://github.com/zumik3-del/synaptomind/commit/b8b76a4b30207a61d0b2a165c8b9cc8f2722f801): chore: drop unused db re-exports and dead export surface (#150)
+
 ## v0.8.0-beta.0
 
 > September 26, 2026
