@@ -94,21 +94,23 @@ searchRouter.get('/search/hints', async c => {
   if (!q) return c.json({ error: 'query "q" is required' }, 400)
   const k = Math.max(1, Math.min(10, parseInt(c.req.query('k') || '3', 10)))
   const maxLength = Math.max(20, parseInt(c.req.query('max_length') || '80', 10))
-  try {
-    const results = await searchThoughts({ query: q, topK: k, statusFilter: 'active' })
-    const hints: HintItem[] = results.map(r => ({
-      id: r.thought.id,
-      content_short: r.thought.content.slice(0, maxLength),
-      similarity: r.similarity,
-      project_name: r.thought.project_name,
-      tags: r.thought.tags.map(tag => ({ id: tag.id, name: tag.name })),
-      compact: true as const
-    }))
-    return c.json(hints)
-  } catch (err: unknown) {
-    console.error('[thoughts] hints failed:', err)
-    throw err
-  }
+  return withTelemetry(c, { action: 'read', toolName: 'search_hints', query: q }, async c2 => {
+    try {
+      const results = await searchThoughts({ query: q, topK: k, statusFilter: 'active' })
+      const hints: HintItem[] = results.map(r => ({
+        id: r.thought.id,
+        content_short: r.thought.content.slice(0, maxLength),
+        similarity: r.similarity,
+        project_name: r.thought.project_name,
+        tags: r.thought.tags.map(tag => ({ id: tag.id, name: tag.name })),
+        compact: true as const
+      }))
+      return c2.json(hints)
+    } catch (err: unknown) {
+      console.error('[thoughts] hints failed:', err)
+      throw err
+    }
+  })
 })
 
 export { searchRouter }

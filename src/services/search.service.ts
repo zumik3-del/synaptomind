@@ -111,8 +111,7 @@ export interface GroupedResult {
   items?: SearchResult[]
 }
 
-export async function searchThoughts(options: SearchServiceOptions): Promise<SearchResult[]> {
-  const d = getDb()
+export async function searchThoughts(options: SearchServiceOptions, d: Database = getDb()): Promise<SearchResult[]> {
   const topK = clampTopK(options.topK)
   const minImportance = clampMinImportance(options.minImportance)
   const supersessionMode = options.supersessionMode ?? 'flag'
@@ -210,9 +209,12 @@ export function orderByStanding(results: SearchResult[]): SearchResult[] {
   )
 }
 
-export async function searchThoughtsGrouped(options: SearchServiceOptions): Promise<GroupedResult[]> {
-  const flat = await searchThoughts(options)
-  return groupResultsByCluster(flat)
+export async function searchThoughtsGrouped(
+  options: SearchServiceOptions,
+  d: Database = getDb()
+): Promise<GroupedResult[]> {
+  const flat = await searchThoughts(options, d)
+  return groupResultsByCluster(flat, d)
 }
 
 function filterByTags(results: SearchResult[], tagFilter: string, d: Database): SearchResult[] {
@@ -226,8 +228,7 @@ function filterByTags(results: SearchResult[], tagFilter: string, d: Database): 
   })
 }
 
-export function groupResultsByCluster(results: SearchResult[]): GroupedResult[] {
-  const d = getDb()
+export function groupResultsByCluster(results: SearchResult[], d: Database = getDb()): GroupedResult[] {
   const clusterMap = new Map<string, SearchResult[]>()
   const nonCluster: SearchResult[] = []
 

@@ -7,6 +7,7 @@ import {
 	deleteProject,
 	getProject,
 	listProjects,
+	projectExists,
 	resolveDefaultProjectId,
 	updateProject,
 } from "./projects";
@@ -96,10 +97,20 @@ test("deleteProject moves thoughts to Default before deletion", () => {
 	expect(thought.project_id).toBe(defaultId);
 });
 
-test("resolveDefaultProjectId creates or returns default", () => {
+	test("resolveDefaultProjectId creates or returns default", () => {
 	const db = getDb();
 	const id = resolveDefaultProjectId(db);
 	expect(id).toBeString();
 	const p = getProject(db, id);
 	expect(p?.name).toBe("Default");
+});
+
+test("projectExists returns true for existing project", () => {
+	const db = getDb();
+	const p = createProject(db, { name: "Exists" });
+	expect(projectExists(db, p.id)).toBeTrue();
+});
+
+test("projectExists returns false for missing project", () => {
+	expect(projectExists(getDb(), "nonexistent-id")).toBeFalse();
 });

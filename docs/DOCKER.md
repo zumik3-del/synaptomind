@@ -41,61 +41,12 @@ services:
 docker compose pull && docker compose up -d
 ```
 
-### Using deploy script
+### Systemd install (not a container path)
 
-The deploy script handles cloning, version selection, and container startup:
-
-```bash
-bash scripts/deploy.sh              # latest stable release
-bash scripts/deploy.sh --alpha      # latest prerelease (alpha/beta/rc)
-bash scripts/deploy.sh 0.3.0        # specific version
-bash scripts/deploy.sh --dev        # main branch (builds from source)
-```
-
-The script:
-1. Clones/updates repo to `/opt/synaptomind`
-2. Force-checks out the target version — local modifications to tracked files
-   (e.g. a diverged `docker-compose.yml`) are discarded, while untracked
-   `.env`, `config.json`, and `data/` are preserved
-3. Sets and persists the `SYNAPTOMIND_IMAGE` tag in `.env` (for tagged releases)
-4. Migrates `./data` ownership to uid 10001 (non-root image requirement)
-5. Starts the container and then polls `/health` until it reports the expected
-   version (bounded to 60s). On mismatch or timeout it exits non-zero.
-6. Best-effort installs/refreshes the versioned CLI to
-   `${SYNAPTOMIND_BIN_DIR:-/usr/local/bin}/synaptomind` (root or sudo;
-   warn-only, never fails the deploy).
-
-It never prompts, so it is safe to call from scripts/CI. Output paths are
-overridable via `SYNAPTOMIND_INSTALL_DIR`, `SYNAPTOMIND_HEALTH_URL`,
-`SYNAPTOMIND_HEALTH_TIMEOUT`, and `SYNAPTOMIND_BIN_DIR`.
-
-### Versioned CLI
-
-`scripts/synaptomind` wraps the deploy script and day-to-day operations. It is
-installed/refreshed automatically by `scripts/deploy.sh` after a successful
-verified deploy (override the target with `SYNAPTOMIND_BIN_DIR`, default
-`/usr/local/bin`). `scripts/install.sh` (the bare-metal path) does **not**
-install the CLI — the bare-metal server runs directly under systemd — and
-`scripts/uninstall.sh` removes it from
-`${SYNAPTOMIND_BIN_DIR:-/usr/local/bin}/synaptomind` together with the systemd
-service and install directory. Install it manually only if needed:
-
-```bash
-sudo install -m 0755 scripts/synaptomind /usr/local/bin/synaptomind
-
-synaptomind upgrade            # latest stable (delegates to deploy.sh)
-synaptomind upgrade 0.6.1      # specific version
-synaptomind upgrade --alpha    # latest prerelease
-synaptomind upgrade --dev      # main branch (builds from source)
-synaptomind status             # container status + running version
-synaptomind version            # running version
-synaptomind logs 200           # follow last 200 log lines
-synaptomind restart            # restart and wait until healthy
-```
-
-The CLI resolves the install directory from `SYNAPTOMIND_INSTALL_DIR`
-(default `/opt/synaptomind`) and never duplicates deploy logic — `upgrade`
-runs `scripts/deploy.sh` and then prints the verified running version.
+The `deploy/` framework installs a Bun process under systemd (`DIST="source"` in
+`deploy/app.env`); it does **not** manage containers. For that path see the
+README "Server installation" section. This guide covers Docker only — manage the
+stack with `docker compose`.
 
 ---
 
@@ -167,27 +118,10 @@ ports:
 
 ## Updating
 
-### With the CLI (recommended)
+### Update the container
 
-```bash
-synaptomind upgrade            # latest stable
-synaptomind upgrade 0.6.1      # specific version (with or without leading "v")
-synaptomind upgrade --alpha    # latest prerelease
-```
-
-`upgrade` delegates to `scripts/deploy.sh`, which forces the checkout to the
-target tag, migrates `./data` to uid 10001, restarts the container, and waits
-until `/health` reports the expected version (exits non-zero on mismatch or
-timeout). The running version is printed at the end.
-
-### With deploy script
-
-```bash
-bash scripts/deploy.sh 0.6.1
-```
-
-The deploy script is non-interactive and self-verifying; see
-[Using deploy script](#using-deploy-script) for details.
+The `deploy/` framework targets systemd, not containers. Update a Docker install
+with the manual procedure below.
 
 ### Manual update
 
@@ -196,7 +130,7 @@ The compose file resolves the image via `SYNAPTOMIND_IMAGE` (see `docker-compose
 ```bash
 cd /opt/synaptomind
 git fetch --tags -f origin
-git checkout -f 0.6.1          # force: discard diverged tracked files
+git checkout -f v0.6.1          # force: discard diverged tracked files
 export SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:0.6.1
 # optional: persist for later manual `docker compose up` runs
 grep -q '^SYNAPTOMIND_IMAGE=' .env && sed -i "s|^SYNAPTOMIND_IMAGE=.*|SYNAPTOMIND_IMAGE=${SYNAPTOMIND_IMAGE}|" .env || echo "SYNAPTOMIND_IMAGE=${SYNAPTOMIND_IMAGE}" >> .env
@@ -214,9 +148,7 @@ against a database that a newer version has already migrated is therefore
 tables or columns it does not understand.
 
 The supported rollback is: restore the database backup taken *before* the
-upgrade, then run the older version. Unlike the bare-metal `scripts/update.sh`,
-`scripts/deploy.sh` does not back up automatically, so take one first (see
-[Backup](#backup)):
+upgrade, then run the older version. Take one first (see [Backup](#backup)):
 
 ```bash
 # 1. Before upgrading: stop the container and keep the current database
@@ -224,24 +156,22 @@ docker compose stop
 cp data/synaptomind.db data/synaptomind.db.preupgrade
 docker compose start
 
-# 2. Upgrading happens here (CLI, deploy.sh, or manual)
+# 2. Upgrading happens here (deploy framework or manual)
 #    ...
 
 # 3. Roll back: stop, restore the pre-upgrade database, deploy the older tag
+cd /opt/synaptomind
 docker compose stop
 cp data/synaptomind.db.preupgrade data/synaptomind.db
 rm -f data/synaptomind.db-wal data/synaptomind.db-shm
-bash scripts/deploy.sh 0.6.0
+git fetch --tags -f origin
+git checkout -f v0.6.0
+SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:0.6.0 docker compose pull && docker compose up -d
 ```
-
-For the bare-metal path, `scripts/update.sh` creates this backup itself and
-prints its exact path; see the README "Updating" section.
 
 ### Check running version
 
 ```bash
-synaptomind version
-# or
 curl -s http://127.0.0.1:3005/health | jq -r .version
 # {"status":"ok","version":"0.6.1","checks":{"database":"ok","embedder":"ok"}}
 ```
@@ -399,6 +329,6 @@ services:
       start_period: 10s
 ```
 
-This mirrors `docker-compose.yml`; `SYNAPTOMIND_IMAGE` is set by
-`scripts/deploy.sh` for tagged releases and defaults to a local build from
-source (see [Using published image](#using-published-image-recommended)).
+This mirrors `docker-compose.yml`; `SYNAPTOMIND_IMAGE` defaults to a local build
+from source — set it to a published GHCR tag to run a release image (see
+[Using published image](#using-published-image-recommended)).

@@ -1,28 +1,25 @@
 import { config } from '../config'
 import { getDb } from '../db'
 import { deleteThought } from '../db/thoughts'
+import { findExpiredArchivedThoughtIds } from '../db/ttl-cleanup'
 import { insertLog } from '../logging/log'
 import { createIntervalJob } from './jobs'
+import type { Database } from 'bun:sqlite'
 
 interface CleanupResult {
   deleted: number
   ids: string[]
 }
 
-export function cleanupArchivedThoughts(dryRun = false): CleanupResult {
-  const d = getDb()
+export function cleanupArchivedThoughts(dryRun = false, d: Database = getDb()): CleanupResult {
   const ttlDays = config.ttl.archivedTtlDays
 
   if (ttlDays < 0) return { deleted: 0, ids: [] }
 
   const cutoff = new Date(Date.now() - ttlDays * 86400000).toISOString()
-  const rows = d
-    .prepare(`SELECT id FROM thoughts WHERE status = 'archived' AND archived_at IS NOT NULL AND archived_at < ? AND (is_protected IS NULL OR is_protected = 0)`)
-    .all(cutoff) as { id: string }[]
+  const ids = findExpiredArchivedThoughtIds(d, cutoff)
 
-  if (rows.length === 0) return { deleted: 0, ids: [] }
-
-  const ids = rows.map(r => r.id)
+  if (ids.length === 0) return { deleted: 0, ids: [] }
 
   if (dryRun) return { deleted: ids.length, ids }
 

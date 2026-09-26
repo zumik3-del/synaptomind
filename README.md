@@ -22,10 +22,15 @@
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh \
+  | APP_ENV_URL=https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/app.env \
+    LIB_RAW_URL=https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/lib/common.sh \
+    bash
 ```
 
-Server starts on `http://127.0.0.1:3005`. MCP endpoint: `http://127.0.0.1:3006/mcp`.
+`APP_ENV_URL` supplies the config and `LIB_RAW_URL` the shared helpers, since a
+piped script has no sibling files. Server starts on `http://127.0.0.1:3005`.
+MCP endpoint: `http://127.0.0.1:3006/mcp`.
 
 Connect your client — add to Claude Desktop config (`claude_desktop_config.json`):
 
@@ -40,7 +45,9 @@ Connect your client — add to Claude Desktop config (`claude_desktop_config.jso
 }
 ```
 
-The token is printed at the end of installation. That's it — your agent now has persistent memory.
+The installer generates `SYNAPTOMIND_SECRET` into `/opt/synaptomind/.env`; read
+it with `sudo grep SYNAPTOMIND_SECRET /opt/synaptomind/.env`. That's it — your
+agent now has persistent memory.
 
 ---
 
@@ -314,7 +321,9 @@ The compose file resolves the image via the `SYNAPTOMIND_IMAGE` variable (defaul
 SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:latest docker compose pull && docker compose up -d
 ```
 
-`scripts/deploy.sh` sets and persists this variable automatically for tagged releases.
+Tagged releases publish `ghcr.io/zumik3-del/synaptomind:<version>` (and `:latest`
+for non-prereleases) via the release workflow; the `deploy/` framework does not
+manage containers.
 
 ### Container user
 
@@ -346,106 +355,115 @@ For full Docker guide (updating, backup, troubleshooting), see [docs/DOCKER.md](
 ### One-line install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh \
+  | APP_ENV_URL=https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/app.env \
+    LIB_RAW_URL=https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/lib/common.sh \
+    bash
 ```
 
-Installs Bun, clones the repo to `/opt/synaptomind`, creates a systemd service, and starts it.
+`APP_ENV_URL` points at `deploy/app.env` and `LIB_RAW_URL` at the shared helpers
+(`deploy/lib/common.sh`) — both are required for the piped form, where the
+script has no sibling files. From a checkout, run it locally instead:
 
 ```bash
-curl -fsSL ... | bash -s -- --dir /custom/path   # custom install directory
-curl -fsSL ... | bash -s -- --port 3005           # custom port
-curl -fsSL ... | bash -s -- --no-service          # skip systemd service
+git clone https://github.com/zumik3-del/synaptomind.git && cd synaptomind
+sudo bash deploy/install.sh
 ```
 
-Token and URL are printed at the end.
+Options (append after `--` in the piped form, e.g. `bash -s -- --port 3005`):
+
+| Flag | Effect |
+|------|--------|
+| `--dir DIR` | Install directory (default `INSTALL_DIR` in `deploy/app.env`) |
+| `--port PORT` | Port written to the seeded `config.json` and used by the health check |
+| `--version TAG` | Pin a version instead of resolving the latest |
+| `--force` | Reinstall even when the same version is already present |
+| `--no-service` | Skip systemd unit installation and start |
+
+The installer installs Bun when missing, clones `REPO_URL` to
+`/opt/synaptomind`, checks out the resolved channel, installs dependencies,
+seeds `config.json` + `.env` (generating `SYNAPTOMIND_SECRET`), links
+`/opt/synaptomind/data` → `/var/lib/synaptomind`, installs the helper scripts
+into `${HOME}/.synaptomind/scripts` and the update hooks into
+`${HOME}/.synaptomind/hooks`, then installs and starts the systemd unit and
+polls `/health`.
+
+### Channels
+
+`CHECKOUT_POLICY` in `deploy/app.env` selects what install and update resolve:
+
+| Value | Resolves |
+|-------|----------|
+| `stable` (default) | Newest tag without `-` |
+| `latest` | Newest tag of any kind |
+| `prerelease` | Newest `-alpha.` / `-beta.` / `-rc.` tag |
+| `<branch>` | That branch (the default branch when no tag exists) |
 
 ### Updating
 
 ```bash
-bash /opt/synaptomind/scripts/update.sh          # latest stable
-bash /opt/synaptomind/scripts/update.sh --alpha  # latest prerelease (alpha/beta/rc)
+bash ${HOME}/.synaptomind/scripts/update.sh                  # target from CHECKOUT_POLICY
+bash ${HOME}/.synaptomind/scripts/update.sh --version v0.6.1
+bash ${HOME}/.synaptomind/scripts/update.sh --yes            # non-interactive (required for downgrades)
 ```
 
-`update.sh` is self-verifying and upgrade-safe:
+`update.sh` is upgrade-safe and never reverts automatically:
 
-1. Backs up every configured database with a WAL-safe `sqlite3 .backup` before
-   switching code (skipped when no database exists yet; aborts the update if an
-   existing database cannot be backed up).
-2. Checks out the newest release tag, reinstalls production dependencies, and
+1. Runs the pre-update hook — a WAL-safe `sqlite3 .backup` of every configured
+   database to `<db>.backup/<name>.<timestamp>.bak` (skipped when no database
+   exists; aborts before switching code if an existing database cannot be backed
+   up).
+2. Checks out the target version, reinstalls production dependencies, and
    restarts the systemd service if it is running.
-3. When the service was restarted, polls `/health` until it reports the target
-   version; on timeout or version mismatch it exits non-zero and prints recovery
-   instructions — the previous revision (`v<version>`) and the exact backup
-   path(s) — without reverting automatically. If no systemd service is running,
-   health verification is skipped with a notice.
+3. Polls `/health` until it reports the target version; on timeout or version
+   mismatch it exits non-zero and prints recovery instructions (previous
+   revision + rollback command) without reverting. If no systemd service is
+   running, health verification is skipped with a notice.
 
-The health URL is resolved from `config.json`/`SYNAPTOMIND_PORT` (default
-`http://127.0.0.1:3005/health`), so the poll targets the configured port rather
-than a hardcoded one; override it with `SYNAPTOMIND_HEALTH_URL`.
+The health URL resolves from `config.json` `server.port` / `PORT` (default
+`http://127.0.0.1:3005/health`); override it with `HEALTH_URL` in
+`deploy/app.env`.
 
 #### Rollback
 
 Schema migrations are **forward-only** (`src/db/init.ts:127`): the server applies
 every migration it has not seen and never reverses one. Checking out an older
 tag against a database that a newer version has already migrated is therefore
-**unsafe**. The supported rollback restores the pre-upgrade backup that
-`update.sh` created and then returns to the previous revision it printed:
+**unsafe**. The pre-update hook has already copied the database, so the
+supported rollback restores that backup and returns to the previous revision
+that `update.sh` printed:
 
 ```bash
 sudo systemctl stop synaptomind
+sudo cp /opt/synaptomind/data/synaptomind.db.backup/synaptomind.db.<timestamp>.bak \
+        /opt/synaptomind/data/synaptomind.db
+sudo rm -f /opt/synaptomind/data/synaptomind.db-wal /opt/synaptomind/data/synaptomind.db-shm
 cd /opt/synaptomind
-sudo cp data/backup/synaptomind.db.<timestamp>.bak data/synaptomind.db
-rm -f data/synaptomind.db-wal data/synaptomind.db-shm
-git checkout <previous-tag>
+git checkout --force <previous-revision>   # hash printed by update.sh
 bun install --frozen-lockfile --production
 sudo systemctl start synaptomind
 ```
 
-The backup filename, directory and timestamp follow the configured database
-paths; `update.sh` prints the exact paths (`Database backed up: …`) and repeats
-them in the recovery block. `SYNAPTOMIND_BACKUP_DIR` overrides the backup
-directory (default: `backup/` next to each database, i.e. `data/backup/` for the
-default configuration).
+The hook prints the exact backup path (`Database backed up: …`), and
+`update.sh` repeats the previous revision in its recovery block.
 
 ### Uninstall
 
 ```bash
-sudo bash /opt/synaptomind/scripts/uninstall.sh
+bash ${HOME}/.synaptomind/scripts/uninstall.sh            # keeps code + data
+bash ${HOME}/.synaptomind/scripts/uninstall.sh --purge    # also removes them
 ```
 
-Removes the systemd unit (`/etc/systemd/system/synaptomind.service`, stopped and
-disabled first), the install directory (`/opt/synaptomind`), and the versioned
-CLI at `${SYNAPTOMIND_BIN_DIR:-/usr/local/bin}/synaptomind` if present. It asks
-separately before deleting the data directory (`/var/lib/synaptomind`).
+Stops and disables the systemd unit (`/etc/systemd/system/synaptomind.service`),
+removes it, and removes the helper scripts (`${HOME}/.synaptomind/scripts`). By
+default it keeps the install directory (`/opt/synaptomind`) and data
+(`/var/lib/synaptomind`); pass `--purge` to remove them as well. Use `--yes` in
+non-interactive shells.
 
 ### Docker alternative
 
-```bash
-bash scripts/deploy.sh              # latest stable release
-bash scripts/deploy.sh --alpha      # latest prerelease (alpha/beta/rc)
-bash scripts/deploy.sh 0.3.0        # specific version
-bash scripts/deploy.sh --dev        # main branch (development)
-```
-
-`scripts/deploy.sh` is non-interactive and self-verifying — it force-checks out
-the target tag, migrates `./data` to uid 10001, waits until `/health` reports the
-expected version (non-zero exit on mismatch/timeout), and then best-effort
-installs/refreshes the versioned CLI to `${SYNAPTOMIND_BIN_DIR:-/usr/local/bin}`.
-
-For day-to-day use:
-
-```bash
-synaptomind upgrade --alpha   # deploy + verified version
-synaptomind status            # container status + running version
-```
-
-If the CLI is not on PATH, install it manually (or let deploy.sh do it):
-
-```bash
-sudo install -m 0755 scripts/synaptomind /usr/local/bin/synaptomind
-```
-
-See [docs/DOCKER.md](docs/DOCKER.md) for full Docker guide.
+See [docs/DOCKER.md](docs/DOCKER.md). The `deploy/` framework is the supported
+install path; Docker is provided as a convenience.
 
 </details>
 

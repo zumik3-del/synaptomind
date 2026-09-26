@@ -1,23 +1,23 @@
 import { deleteTag, listTags, pruneOrphanTags, renameTag } from '../db/tags'
 import { getDb } from '../db'
 import { ValidationError } from '../errors'
+import type { Database } from 'bun:sqlite'
 
-export function listTagsService(q?: string) {
-  return listTags(getDb(), q)
+export function listTagsService(q?: string, d: Database = getDb()) {
+  return listTags(d, q)
 }
 
-export function renameTagService(id: string, newName: string) {
+export function renameTagService(id: string, newName: string, d: Database = getDb()) {
   if (!newName?.trim()) {
     throw new ValidationError('name is required')
   }
-  return renameTag(getDb(), id, newName.trim()) ?? null
+  return renameTag(d, id, newName.trim()) ?? null
 }
 
-export function deleteTagService(id: string): boolean {
-  const db = getDb()
-  const deleted = deleteTag(db, id)
+export function deleteTagService(id: string, d: Database = getDb()): boolean {
+  const deleted = deleteTag(d, id)
   if (deleted) {
-    pruneOrphanTags(db)
+    pruneOrphanTags(d)
   }
   return deleted
 }

@@ -9,6 +9,8 @@ import {
 } from '../db/settings'
 import { restartEmbedder } from '../embedder/client'
 
+// Intentionally NOT wrapped in withTelemetry: runtime configuration endpoints
+// (thought limits, embedder tuning) are infrastructure, not memory operations.
 const settingsRouter = new Hono()
 
 settingsRouter.get('/thought-settings', c => {

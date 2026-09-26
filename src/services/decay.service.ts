@@ -2,9 +2,9 @@ import { config } from '../config'
 import { getDb } from '../db'
 import { archiveStaleLowImportance, decayImportance } from '../db/thoughts'
 import { createIntervalJob } from './jobs'
+import type { Database } from 'bun:sqlite'
 
-function runDecayJob(): void {
-  const d = getDb()
+function runDecayJob(d: Database = getDb()): void {
   const rate = config.decay.rate
   decayImportance(d, rate)
   const archived = archiveStaleLowImportance(d, config.decay.archiveThreshold, config.decay.archiveMinAgeDays)

@@ -162,6 +162,17 @@ export function countSearchCreateEvents(db: Database, since: string): number {
   return row.cnt
 }
 
+/** Last self-improve run row from the logs table (log DB). */
+export function getLastSelfImproveRun(db: Database): { metadata: string | null; created_at: string } | undefined {
+  return db
+    .prepare(
+      `SELECT metadata, created_at FROM logs
+       WHERE type = 'self_improve' AND message LIKE 'Self-improve run:%'
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .get() as { metadata: string | null; created_at: string } | undefined
+}
+
 export function countClusterOpEvents(db: Database, since: string): number {
   const row = db
     .prepare(`

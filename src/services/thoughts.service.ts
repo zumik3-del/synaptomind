@@ -79,8 +79,7 @@ export function createThoughtWithUrlLinks(
     }
     return thought
   })
-  const thought = run()
-  return { ...thought, content_language: config.contentLanguage } as Thought
+  return run()
 }
 
 // Profile thoughts are persona material and must survive archiving (issue #200).
@@ -117,11 +116,7 @@ export function archiveThoughtById(id: string, d: Database = getDb()): Thought |
   const thought = dbGetThought(d, id)
   if (!thought) return null
   assertNotProfileArchive(thought)
-  const run = d.transaction(() => {
-    const archived = dbArchiveThought(d, id) ?? null
-    return archived
-  })
-  return run()
+  return dbArchiveThought(d, id) ?? null
 }
 
 export function listThoughtsService(options?: ListThoughtsOptions, d: Database = getDb()): Thought[] {
@@ -136,7 +131,7 @@ export function getClusterMembersService(clusterId: string, d: Database = getDb(
   return { cluster, members }
 }
 
-interface BulkCreateItem {
+export interface BulkCreateItem {
   content: string
   status?: ThoughtStatus
   tags?: string[]

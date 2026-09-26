@@ -14,7 +14,8 @@ import {
   getClusterMembersService,
   getThoughtById,
   listThoughtsService,
-  updateThoughtById
+  updateThoughtById,
+  type BulkCreateItem
 } from '../services/thoughts.service'
 import { thoughtLinksRouter } from './thoughts-links'
 import { mergeRouter } from './thoughts-merge'
@@ -39,34 +40,42 @@ thoughtsRouter.get('/timeline', c => {
 })
 
 thoughtsRouter.post('/auto-link', async c => {
-  const body = await jsonBodyOrDefault<{ dry_run?: boolean; max_edges?: number }>(c, {})
-  const result = await runAutoLinkJob({ dryRun: body.dry_run ?? false, maxEdgesPerRun: body.max_edges ?? undefined })
-  return c.json(result)
+  return withTelemetry(c, { action: 'link', toolName: 'auto_link' }, async c2 => {
+    const body = await jsonBodyOrDefault<{ dry_run?: boolean; max_edges?: number }>(c2, {})
+    const result = await runAutoLinkJob({ dryRun: body.dry_run ?? false, maxEdgesPerRun: body.max_edges ?? undefined })
+    return c2.json(result)
+  })
 })
 
 // Read-only: returns scored contradicts/supports candidates; never writes edges.
 thoughtsRouter.post('/edge-detect', async c => {
-  const body = await jsonBodyOrDefault<{
-    project_id?: string
-    min_similarity?: number
-    max_proposals?: number
-  }>(c, {})
-  const result = await detectEdgeProposals({
-    projectId: body.project_id,
-    minSimilarity: body.min_similarity,
-    maxProposals: body.max_proposals
+  return withTelemetry(c, { action: 'read', toolName: 'edge_suggestions' }, async c2 => {
+    const body = await jsonBodyOrDefault<{
+      project_id?: string
+      min_similarity?: number
+      max_proposals?: number
+    }>(c2, {})
+    const result = await detectEdgeProposals({
+      projectId: body.project_id,
+      minSimilarity: body.min_similarity,
+      maxProposals: body.max_proposals
+    })
+    return c2.json(result)
   })
-  return c.json(result)
 })
 
 thoughtsRouter.post('/self-improve/run', async c => {
-  const body = await jsonBodyOrDefault<{ dry_run?: boolean }>(c, {})
-  const result = await runSelfImproveJob({ dryRun: body.dry_run ?? false })
-  return c.json(result)
+  return withTelemetry(c, { action: 'write', toolName: 'self_improve' }, async c2 => {
+    const body = await jsonBodyOrDefault<{ dry_run?: boolean }>(c2, {})
+    const result = await runSelfImproveJob({ dryRun: body.dry_run ?? false })
+    return c2.json(result)
+  })
 })
 
 thoughtsRouter.get('/self-improve/status', c => {
-  return c.json(getLastSelfImproveStatus())
+  return withTelemetry(c, { action: 'read', toolName: 'self_improve_status' }, c2 => {
+    return c2.json(getLastSelfImproveStatus())
+  })
 })
 
 thoughtsRouter.get('/members/:id', c => {
@@ -96,8 +105,8 @@ thoughtsRouter.get('/:id', c => {
 
 thoughtsRouter.post('/bulk', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'bulk_create_thoughts' }, async c2 => {
-    const body = await c2.req.json() as { thoughts?: unknown; project_id?: string }
-    const { created, errors } = bulkCreateThoughtsService(body.thoughts as never, body.project_id)
+    const body = await c2.req.json() as { thoughts?: BulkCreateItem[]; project_id?: string }
+    const { created, errors } = bulkCreateThoughtsService(body.thoughts, body.project_id)
     return c2.json({
       created: created.length,
       errors: errors.length,

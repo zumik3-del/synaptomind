@@ -6,6 +6,8 @@ import {
 	createVerifyEntry,
 	findThoughtsWithoutVerifyEntry,
 	getFlaggedThoughtIds,
+	getThoughtContentHash,
+	getThoughtEmbedding,
 	getVerifyEntries,
 	getVerifyEntryByThoughtId,
 	markFlagged,
@@ -112,4 +114,41 @@ test("getFlaggedThoughtIds returns only flagged thoughts", () => {
 	const flagged = getFlaggedThoughtIds(db);
 	expect(flagged).toContain(t1);
 	expect(flagged).not.toContain(t2);
+});
+
+test("getThoughtContentHash returns the hash stored in thoughts.content_hash", () => {
+	const db = getDb();
+	const t = seedThought({ content: "test content" });
+	db.prepare(`UPDATE thoughts SET content_hash = 'sha256abc' WHERE id = ?`).run(t);
+	expect(getThoughtContentHash(db, t)).toBe('sha256abc');
+});
+
+test("getThoughtContentHash returns null for missing thought", () => {
+	expect(getThoughtContentHash(getDb(), 'nonexistent')).toBeNull();
+});
+
+test("getThoughtEmbedding returns Float32Array when vec_thoughts row exists", () => {
+	const db = getDb();
+	db.prepare(`CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)`).run();
+	const t = seedThought({ content: "embedded" });
+	const vec = new Float32Array([1, 2, 3]);
+	db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(
+		t,
+		Buffer.from(vec.buffer as ArrayBuffer, vec.byteOffset, vec.byteLength),
+	);
+	const result = getThoughtEmbedding(db, t);
+	expect(result).not.toBeNull();
+	expect(result!.length).toBe(3);
+	expect(result![0]).toBe(1);
+	expect(result![1]).toBe(2);
+	expect(result![2]).toBe(3);
+});
+
+test("getThoughtEmbedding returns null when vec_thoughts row is absent", () => {
+	const t = seedThought({ content: "no embedding" });
+	expect(getThoughtEmbedding(getDb(), t)).toBeNull();
+});
+
+test("getThoughtEmbedding returns null for missing thought id", () => {
+	expect(getThoughtEmbedding(getDb(), 'nonexistent')).toBeNull();
 });

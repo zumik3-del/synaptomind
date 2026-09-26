@@ -1,7 +1,8 @@
 import { config } from '../config'
 import { attemptPromote, getPrimerIds } from '../db/primers'
 import { getDb } from '../db'
-import { listThoughts } from '../db/thoughts'
+import { getLastSelfImproveRun } from '../db/telemetry-queries'
+import { findHighHitThoughts, listThoughts } from '../db/thoughts'
 import { getLogDb } from '../logging'
 import { insertLog } from '../logging/log'
 import { runAutoClusterJob } from './auto-cluster.service'
@@ -69,9 +70,7 @@ const issueHandlers: Record<string, IssueHandler> = {
 
   frequent_unpromoted: ({ db, dryRun, actions }) => {
     const { selfImprove: cfg } = config
-    const highHit = db
-      .prepare(`SELECT thought_id AS id, hit_count FROM thought_importance WHERE hit_count >= ? ORDER BY hit_count DESC LIMIT ?`)
-      .all(cfg.hitsThreshold, cfg.maxPrimerPromotesPerRun) as Array<{ id: string; hit_count: number }>
+    const highHit = findHighHitThoughts(db, cfg.hitsThreshold, cfg.maxPrimerPromotesPerRun)
     const primerIds = new Set(getPrimerIds(db))
     let primerPromotes = 0
     for (const h of highHit) {
@@ -101,11 +100,7 @@ function executeActions(issues: DetectedIssue[], dryRun: boolean, db: Database):
 export function getLastSelfImproveStatus(): { last_run: string | null; result: SelfImproveResult | null } {
   const logDb = getLogDb()
   if (!logDb) return { last_run: null, result: null }
-  const row = logDb.prepare(
-    `SELECT metadata, created_at FROM logs
-     WHERE type = 'self_improve' AND message LIKE 'Self-improve run:%'
-     ORDER BY created_at DESC LIMIT 1`
-  ).get() as { metadata: string | null; created_at: string } | undefined
+  const row = getLastSelfImproveRun(logDb)
   if (!row) return { last_run: null, result: null }
   const parsed = row.metadata ? JSON.parse(row.metadata) : null
   return {
@@ -114,10 +109,12 @@ export function getLastSelfImproveStatus(): { last_run: string | null; result: S
   }
 }
 
-export async function runSelfImproveJob(options: { dryRun?: boolean } = {}): Promise<SelfImproveResult> {
+export async function runSelfImproveJob(
+  options: { dryRun?: boolean } = {},
+  d: Database = getDb()
+): Promise<SelfImproveResult> {
   const dryRun = options.dryRun ?? false
-  const d = getDb()
-  const signals = queryTelemetrySignals()
+  const signals = queryTelemetrySignals(d)
   const issues = detectIssues(signals)
   const actions = dryRun ? issues.map(i => `[dry-run] ${i.id}`) : executeActions(issues, dryRun, d)
   const result: SelfImproveResult = {

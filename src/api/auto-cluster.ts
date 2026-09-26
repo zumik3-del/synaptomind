@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { withTelemetry } from '../logging'
 import { type AutoClusterOptions, getLastAutoClusterStatus, runAutoClusterJob } from '../services/auto-cluster.service'
 import { jsonBodyOrDefault } from './utils'
 
@@ -12,25 +13,29 @@ interface TriggerBody {
 }
 
 autoClusterRouter.post('/auto-cluster/trigger', async c => {
-  const body = await jsonBodyOrDefault<TriggerBody>(c, {})
+  return withTelemetry(c, { action: 'write', toolName: 'auto_cluster' }, async c2 => {
+    const body = await jsonBodyOrDefault<TriggerBody>(c2, {})
 
-  const options: AutoClusterOptions = {}
-  if (body.min_age_days !== undefined) options.minAgeDays = body.min_age_days
-  if (body.min_similarity !== undefined) options.minSimilarity = body.min_similarity
-  if (body.min_members !== undefined) options.minMembers = body.min_members
-  if (body.dry_run !== undefined) options.dryRun = body.dry_run
+    const options: AutoClusterOptions = {}
+    if (body.min_age_days !== undefined) options.minAgeDays = body.min_age_days
+    if (body.min_similarity !== undefined) options.minSimilarity = body.min_similarity
+    if (body.min_members !== undefined) options.minMembers = body.min_members
+    if (body.dry_run !== undefined) options.dryRun = body.dry_run
 
-  try {
-    const result = await runAutoClusterJob(options)
-    return c.json(result)
-  } catch (err) {
-    console.error('[synaptomind] auto-cluster job failed:', err)
-    return c.json({ error: 'Auto-cluster job failed' }, 500)
-  }
+    try {
+      const result = await runAutoClusterJob(options)
+      return c2.json(result)
+    } catch (err) {
+      console.error('[synaptomind] auto-cluster job failed:', err)
+      return c2.json({ error: 'Auto-cluster job failed' }, 500)
+    }
+  })
 })
 
 autoClusterRouter.get('/auto-cluster/status', c => {
-  return c.json(getLastAutoClusterStatus())
+  return withTelemetry(c, { action: 'read', toolName: 'auto_cluster_status' }, c2 => {
+    return c2.json(getLastAutoClusterStatus())
+  })
 })
 
 export { autoClusterRouter }

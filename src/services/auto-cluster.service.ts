@@ -1,11 +1,11 @@
 import { config } from '../config'
 import { getDb } from '../db'
+import { getLastJobRun, recordJobRun } from '../db/meta'
 import { searchThoughts } from '../db/search'
 import { type ClusterCandidate, listClusterCandidates } from '../db/thoughts'
 import { generateEmbeddings } from '../embedder/client'
 import { insertLog } from '../logging/log'
 import { createClusterService } from './cluster.service'
-import { recordJobRun, getLastJobRun } from './utils'
 import type { Database } from 'bun:sqlite'
 
 export interface AutoClusterOptions {
@@ -98,18 +98,19 @@ export function groupCandidates(
   ).filter(g => g.length >= minMembers)
 }
 
-const defaultSearchNeighbors: NonNullable<AutoClusterDeps['searchNeighbors']> = (_candidateId, embedding, topK) => {
-  const db = getDb()
-  const results = searchThoughts(db, { embedding, topK, clusterFilter: 'exclude' })
-  return results.map(r => ({ id: r.thought.id, distance: r.distance }))
+const defaultSearchNeighbors = (db: Database): NonNullable<AutoClusterDeps['searchNeighbors']> => {
+  return (_candidateId, embedding, topK) => {
+    const results = searchThoughts(db, { embedding, topK, clusterFilter: 'exclude' })
+    return results.map(r => ({ id: r.thought.id, distance: r.distance }))
+  }
 }
 
 function recordRun(result: AutoClusterResult, db: Database): void {
   recordJobRun(db, 'last_auto_cluster', result)
 }
 
-export function getLastAutoClusterStatus(): { last_run: string | null; result: AutoClusterResult | null } {
-  return getLastJobRun<AutoClusterResult>(getDb(), 'last_auto_cluster')
+export function getLastAutoClusterStatus(d: Database = getDb()): { last_run: string | null; result: AutoClusterResult | null } {
+  return getLastJobRun<AutoClusterResult>(d, 'last_auto_cluster')
 }
 
 /**
@@ -121,16 +122,16 @@ export function getLastAutoClusterStatus(): { last_run: string | null; result: A
  */
 export async function runAutoClusterJob(
   options: AutoClusterOptions = {},
-  deps: AutoClusterDeps = {}
+  deps: AutoClusterDeps = {},
+  d: Database = getDb()
 ): Promise<AutoClusterResult> {
-  const d = getDb()
   const minAgeDays = options.minAgeDays ?? config.autoCluster.minAgeDays
   const minSimilarity = options.minSimilarity ?? config.autoCluster.minSimilarity
   const minMembers = options.minMembers ?? config.autoCluster.minMembers
   const dryRun = options.dryRun ?? config.autoCluster.dryRun
 
   const embed = deps.embed ?? generateEmbeddings
-  const searchNeighbors = deps.searchNeighbors ?? defaultSearchNeighbors
+  const searchNeighbors = deps.searchNeighbors ?? defaultSearchNeighbors(d)
 
   const candidates = listClusterCandidates(d, minAgeDays)
   if (candidates.length === 0) {
@@ -160,12 +161,15 @@ export async function runAutoClusterJob(
     const title = generateClusterTitle(members)
     clusterGroups.push({ members: members.map(m => m.id), title })
     if (!dryRun) {
-      createClusterService({
-        thoughtIds: members.map(m => m.id),
-        title,
-        source: 'auto_cluster',
-        tags: ['auto']
-      })
+      createClusterService(
+        {
+          thoughtIds: members.map(m => m.id),
+          title,
+          source: 'auto_cluster',
+          tags: ['auto']
+        },
+        d
+      )
       created += 1
     }
   }

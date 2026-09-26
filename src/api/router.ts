@@ -54,6 +54,7 @@ export function createApp(): Hono {
   app.route('/api', autoClusterRouter)
   app.route('/api', healthCheckRouter)
 
+  // /health is a pure liveness probe (no memory/graph operation) and stays uninstrumented.
   app.get('/health', c => {
     const health = getHealthService()
     return c.json(health, health.status === 'ok' ? 200 : 503)

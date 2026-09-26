@@ -53,6 +53,22 @@ export function getProfileStats(db: Database): ProfileStats {
   }
 }
 
+/** Ids of all auto-generated profile summaries (any status). */
+export function getProfileSummaryThoughtIds(db: Database): string[] {
+  const rows = db.prepare(`SELECT id FROM thoughts WHERE source = 'profile-summary'`).all() as { id: string }[]
+  return rows.map(r => r.id)
+}
+
+/** Contents of non-archived profile summaries, oldest first (persona slot). */
+export function getProfileSummaryContents(db: Database): string[] {
+  const rows = db
+    .prepare(
+      `SELECT content FROM thoughts WHERE source = 'profile-summary' AND status != 'archived' ORDER BY created_at ASC`
+    )
+    .all() as { content: string }[]
+  return rows.map(r => r.content)
+}
+
 export function setLastSummaryRun(db: Database, iso: string): void {
   db.prepare(
     `INSERT INTO _meta (key, value) VALUES ('last_profile_summary_run', ?)

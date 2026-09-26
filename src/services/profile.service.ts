@@ -1,18 +1,24 @@
 import { getDb } from '../db'
-import { getProfileStats, getProfileThoughts, type ProfileStats, setLastSummaryRun } from '../db/profile'
+import {
+  getProfileStats,
+  getProfileSummaryThoughtIds,
+  getProfileThoughts,
+  type ProfileStats,
+  setLastSummaryRun
+} from '../db/profile'
 import { createThought, deleteThought, type Thought } from '../db/thoughts'
+import type { Database } from 'bun:sqlite'
 
-export function getProfileService(): { stats: ProfileStats; thoughts: Thought[] } {
-  const d = getDb()
+export function getProfileService(d: Database = getDb()): { stats: ProfileStats; thoughts: Thought[] } {
   return { stats: getProfileStats(d), thoughts: getProfileThoughts(d) }
 }
 
-export function getProfileThoughtsService(): Thought[] {
-  return getProfileThoughts(getDb())
+export function getProfileThoughtsService(d: Database = getDb()): Thought[] {
+  return getProfileThoughts(d)
 }
 
-export function getProfileStatsService(): ProfileStats {
-  return getProfileStats(getDb())
+export function getProfileStatsService(d: Database = getDb()): ProfileStats {
+  return getProfileStats(d)
 }
 
 const SUBTAG_PREFIX = '@profile-'
@@ -48,8 +54,7 @@ function summaryTopic(tags: Thought['tags']): string | null {
  * the persona slot permanently empty while last_summary_run kept updating,
  * masking the problem.
  */
-export function summarizeProfile(): ProfileSummaryResult {
-  const d = getDb()
+export function summarizeProfile(d: Database = getDb()): ProfileSummaryResult {
   const sources = getProfileThoughts(d).filter(t => t.source !== 'profile-summary')
 
   const groups = new Map<string, Thought[]>()
@@ -61,8 +66,8 @@ export function summarizeProfile(): ProfileSummaryResult {
   }
 
   const run = d.transaction(() => {
-    const previous = d.prepare(`SELECT id FROM thoughts WHERE source = 'profile-summary'`).all() as { id: string }[]
-    for (const row of previous) deleteThought(d, row.id)
+    const previous = getProfileSummaryThoughtIds(d)
+    for (const id of previous) deleteThought(d, id)
     const removed = previous.length
 
     const created: ProfileSummaryGroup[] = []

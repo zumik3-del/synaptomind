@@ -6,6 +6,7 @@ import {
   countOrphanWriteEvents,
   countSearchCreateEvents,
   countWriteEvents,
+  getLastSelfImproveRun,
 } from './telemetry-queries'
 
 const originalLogDbPath = config.logDbPath
@@ -77,5 +78,24 @@ describe('countClusterOpEvents', () => {
     insertTelemetry({ action: 'write', toolName: 'merge_thoughts' })
     insertTelemetry({ action: 'write', toolName: 'create_thought' })
     expect(countClusterOpEvents(getLogDb()!, SINCE)).toBe(3)
+  })
+})
+
+describe('getLastSelfImproveRun', () => {
+  test('returns undefined when no self-improve run exists', () => {
+    expect(getLastSelfImproveRun(getLogDb()!)).toBeNull()
+  })
+
+  test('returns the last self-improve run row', () => {
+    const logDb = getLogDb()!
+    const now = new Date().toISOString()
+    logDb.prepare(`
+      INSERT INTO logs (id, level, type, message, metadata, source, error, created_at)
+      VALUES (?, 'info', 'self_improve', 'Self-improve run: done', null, 'synaptomind', null, ?)
+    `).run('log-run-1', now)
+    const row = getLastSelfImproveRun(logDb)
+    expect(row).toBeDefined()
+    expect(row!.created_at).toBe(now)
+    expect(row!.metadata).toBeNull()
   })
 })

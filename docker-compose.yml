@@ -1,7 +1,7 @@
 services:
   synaptomind:
-    # Image is resolved via SYNAPTOMIND_IMAGE (set by scripts/deploy.sh for
-    # tagged releases; persisted in .env for later manual `docker compose up`).
+    # Image is resolved via SYNAPTOMIND_IMAGE (set it yourself to pin a
+    # published tag; persisted in .env for later manual `docker compose up`).
     # Default: build from source (development).
     image: ${SYNAPTOMIND_IMAGE:-ghcr.io/zumik3-del/synaptomind:local}
     build:

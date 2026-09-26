@@ -9,8 +9,6 @@ import {
   findContradictsToArchived, findSupportsSelfConflict,
   findMissingEmbeddings, findDeadPrimers, findImportanceOutliers,
   getGraphStats, deleteEdges, deleteThoughts,
-  type OrphanEdge, type SelfLoopEdge, type EmptyCluster, type OrphanedClusterMember, type TestRemnant,
-  type BrokenParentChain,
 } from '../db/health-check'
 import type { Database } from 'bun:sqlite'
 
@@ -22,6 +20,7 @@ interface CheckResult {
   count: number
   details: unknown[]
   auto_fixable?: boolean
+  autofix?: Autofix
 }
 
 interface CategoryResult {
@@ -49,11 +48,14 @@ interface HealthCheckOptions {
   fix?: boolean
 }
 
+type Autofix = (db: Database, details: unknown[]) => void
+
 interface CheckDef {
   name: string
   severity: Severity
   finder: (db: Database) => unknown[]
-  auto_fixable?: boolean
+  /** Declarative repair hook. Presence marks the check as auto-fixable. */
+  autofix?: Autofix
 }
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, info: 2 }
@@ -64,23 +66,45 @@ function matchesSeverity(check: CheckResult, minSeverity?: Severity): boolean {
 }
 
 function runChecks(db: Database, checks: CheckDef[]): CheckResult[] {
-  return checks.map(({ name, severity, finder, auto_fixable }) => {
+  return checks.map(({ name, severity, finder, autofix }) => {
     const details = finder(db)
-    return { name, severity, count: details.length, details, auto_fixable }
+    return { name, severity, count: details.length, details, auto_fixable: autofix ? true : undefined, autofix }
   })
 }
 
+const autofixEdgeIds: Autofix = (db, details) => {
+  deleteEdges(db, (details as Array<{ id: string }>).map(e => e.id))
+}
+
+const autofixClusterMemberEdges: Autofix = (db, details) => {
+  deleteEdges(db, (details as Array<{ cluster_edge_id: string }>).map(m => m.cluster_edge_id))
+}
+
+const autofixThoughtIds: Autofix = (db, details) => {
+  deleteThoughts(db, (details as Array<{ id: string }>).map(t => t.id))
+}
+
+// Only edges whose target is *archived* are truly dangling (the node is out of
+// the graph). A draft target is a legitimate in-progress child and is left for
+// manual review.
+const autofixArchivedParentEdges: Autofix = (db, details) => {
+  const ids = (details as Array<{ edge_id: string; target_status: string }>)
+    .filter(b => b.target_status === 'archived')
+    .map(b => b.edge_id)
+  if (ids.length > 0) deleteEdges(db, ids)
+}
+
 const STRUCTURAL_CHECKS: CheckDef[] = [
-  { name: 'orphan_edges', severity: 'critical', finder: findOrphanEdges, auto_fixable: true },
-  { name: 'self_loop_edges', severity: 'critical', finder: findSelfLoopEdges, auto_fixable: true },
+  { name: 'orphan_edges', severity: 'critical', finder: findOrphanEdges, autofix: autofixEdgeIds },
+  { name: 'self_loop_edges', severity: 'critical', finder: findSelfLoopEdges, autofix: autofixEdgeIds },
   { name: 'duplicate_edges', severity: 'critical', finder: findDuplicateEdges },
   { name: 'cluster_constraint_violations', severity: 'critical', finder: findClusterViolations },
 ]
 
 const CLUSTER_CHECKS: CheckDef[] = [
-  { name: 'empty_clusters', severity: 'warning', finder: findEmptyClusters, auto_fixable: true },
+  { name: 'empty_clusters', severity: 'warning', finder: findEmptyClusters, autofix: autofixThoughtIds },
   { name: 'singleton_clusters', severity: 'warning', finder: findSingletonClusters },
-  { name: 'orphaned_cluster_members', severity: 'warning', finder: findOrphanedClusterMembers, auto_fixable: true },
+  { name: 'orphaned_cluster_members', severity: 'warning', finder: findOrphanedClusterMembers, autofix: autofixClusterMemberEdges },
   { name: 'clusterless_dense_thoughts', severity: 'warning', finder: findClusterlessDense },
 ]
 
@@ -92,14 +116,14 @@ const CONNECTIVITY_CHECKS: CheckDef[] = [
 const CONTENT_CHECKS: CheckDef[] = [
   { name: 'duplicate_content', severity: 'info', finder: findDuplicateContent },
   { name: 'too_short_content', severity: 'info', finder: findTooShort },
-  { name: 'test_remnants', severity: 'info', finder: findTestRemnants, auto_fixable: true },
+  { name: 'test_remnants', severity: 'info', finder: findTestRemnants, autofix: autofixThoughtIds },
   { name: 'stale_drafts', severity: 'info', finder: findStaleDrafts },
   { name: 'untagged_thoughts', severity: 'info', finder: findUntagged },
 ]
 
 const SEMANTIC_CHECKS: CheckDef[] = [
   { name: 'circular_chains', severity: 'warning', finder: findCircularChains },
-  { name: 'broken_parent_chains', severity: 'warning', finder: findBrokenParentChains, auto_fixable: true },
+  { name: 'broken_parent_chains', severity: 'warning', finder: findBrokenParentChains, autofix: autofixArchivedParentEdges },
   { name: 'replaces_chains', severity: 'warning', finder: findReplacesChains },
   { name: 'contradicts_with_hierarchy', severity: 'warning', finder: findContradictsWithHierarchy },
   { name: 'contradiction_in_cluster', severity: 'warning', finder: findContradictionInCluster },
@@ -123,8 +147,7 @@ const CATEGORIES: Array<{ name: string; checks: CheckDef[] }> = [
   { name: 'data_drift', checks: DRIFT_CHECKS },
 ]
 
-export function runHealthCheck(options: HealthCheckOptions = {}): HealthReport {
-  const d = getDb()
+export function runHealthCheck(options: HealthCheckOptions = {}, d: Database = getDb()): HealthReport {
   const stats = getGraphStats(d)
 
   let categories: CategoryResult[] = CATEGORIES.map(({ name, checks }) => ({
@@ -157,10 +180,11 @@ export function runHealthCheck(options: HealthCheckOptions = {}): HealthReport {
     if (catWarning) warningCats++
   }
 
-  // Штрафуем за НАЛИЧИЕ категории с проблемой, а не за сырой count вхождений:
-  // структурные critical категории бьют сильно, warning категории — умеренно,
-  // info-вхождения — чуть-чуть. Так health_score отражает структурное здоровье
-  // и не обнуляется из-за множества безвредных warning-кейсов (как parent->draft).
+  // Penalise the PRESENCE of a category with issues rather than the raw
+  // occurrence count: structural critical categories hit hard, warning
+  // categories moderately, info occurrences slightly. This keeps health_score
+  // a reflection of structural health and prevents it from being zeroed out by
+  // many harmless warning cases (like parent->draft).
   const health_score = Math.max(0, Math.min(100,
     100 - (criticalCats * 40) - (warningCats * 15) - (info * 0.25)
   ))
@@ -182,45 +206,8 @@ export function runHealthCheck(options: HealthCheckOptions = {}): HealthReport {
 function runAutoFix(db: Database, categories: CategoryResult[]): void {
   for (const cat of categories) {
     for (const check of cat.checks) {
-      if (!check.auto_fixable || check.count === 0) continue
-
-      switch (check.name) {
-        case 'orphan_edges': {
-          const ids = (check.details as OrphanEdge[]).map(e => e.id)
-          deleteEdges(db, ids)
-          break
-        }
-        case 'self_loop_edges': {
-          const ids = (check.details as SelfLoopEdge[]).map(e => e.id)
-          deleteEdges(db, ids)
-          break
-        }
-        case 'empty_clusters': {
-          const ids = (check.details as EmptyCluster[]).map(c => c.id)
-          deleteThoughts(db, ids)
-          break
-        }
-        case 'orphaned_cluster_members': {
-          const ids = (check.details as OrphanedClusterMember[]).map(m => m.cluster_edge_id)
-          deleteEdges(db, ids)
-          break
-        }
-        case 'test_remnants': {
-          const ids = (check.details as TestRemnant[]).map(t => t.id)
-          deleteThoughts(db, ids)
-          break
-        }
-        case 'broken_parent_chains': {
-          // Only edges whose target is *archived* are truly dangling (the node
-          // is out of the graph). A draft target is a legitimate in-progress
-          // child and is left for manual review.
-          const ids = (check.details as BrokenParentChain[])
-            .filter(b => b.target_status === 'archived')
-            .map(b => b.edge_id)
-          if (ids.length > 0) deleteEdges(db, ids)
-          break
-        }
-      }
+      if (!check.autofix || check.count === 0) continue
+      check.autofix(db, check.details)
     }
   }
 }
