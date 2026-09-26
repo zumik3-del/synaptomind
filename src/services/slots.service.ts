@@ -60,7 +60,7 @@ function pendingItemsContent(db: Database): string {
 function architectureDecisionsContent(db: Database): string {
   const bullets: string[] = []
   for (const primer of getPrimers(db)) {
-    const thought = getThoughtById(primer.thought_id)
+    const thought = getThoughtById(primer.thought_id, db)
     if (!thought) continue
     bullets.push(`- ${thought.content.replace(/\s+/g, ' ').trim()}`)
   }

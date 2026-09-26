@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { NotFoundError, ValidationError } from '../errors'
+import { NotFoundError } from '../errors'
 import { deleteTagService, listTagsService, renameTagService } from '../services/tags.service'
 
 const tagsRouter = new Hono()
@@ -11,14 +11,9 @@ tagsRouter.get('/', c => {
 
 tagsRouter.put('/:id', async c => {
   const body = await c.req.json<{ name: string }>()
-  try {
-    const tag = renameTagService(c.req.param('id'), body.name)
-    if (!tag) throw new NotFoundError('Tag not found')
-    return c.json(tag)
-  } catch (err: unknown) {
-    if (err instanceof ValidationError) return c.json({ error: err.message }, 400)
-    throw err
-  }
+  const tag = renameTagService(c.req.param('id'), body.name)
+  if (!tag) throw new NotFoundError('Tag not found')
+  return c.json(tag)
 })
 
 tagsRouter.delete('/:id', c => {

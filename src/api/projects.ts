@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { NotFoundError, ValidationError } from '../errors'
+import { NotFoundError } from '../errors'
 import {
   createProjectService,
   deleteProjectService,
@@ -27,12 +27,7 @@ projectsRouter.post('/', async c => {
     description?: string
     local_path?: string | null
   }>()
-  try {
-    return c.json(createProjectService(body), 201)
-  } catch (err: unknown) {
-    if (err instanceof ValidationError) return c.json({ error: err.message }, 400)
-    throw err
-  }
+  return c.json(createProjectService(body), 201)
 })
 
 projectsRouter.patch('/:id', async c => {

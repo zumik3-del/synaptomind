@@ -2,6 +2,7 @@ import { config } from '../config'
 import { createEdge, type Edge } from '../db/edges'
 import { getDb } from '../db'
 import { searchThoughts } from '../db/search'
+import { pairKey } from '../db/utils'
 import { generateEmbeddings } from '../embedder/client'
 import { insertLog } from '../logging/log'
 import { recordJobRun } from './utils'
@@ -119,7 +120,7 @@ export function mergeCandidates(embeddingPairs: CandidatePair[], maxEdges: numbe
   const pairMap = new Map<string, CandidatePair>()
 
   for (const pair of embeddingPairs) {
-    const key = [pair.source_id, pair.target_id].sort().join('::')
+    const key = pairKey(pair.source_id, pair.target_id)
     const existing = pairMap.get(key)
     if (!existing) {
       pairMap.set(key, { ...pair })

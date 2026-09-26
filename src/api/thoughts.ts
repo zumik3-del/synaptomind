@@ -14,7 +14,8 @@ import {
   getClusterMembersService,
   getThoughtById,
   listThoughtsService,
-  updateThoughtById
+  updateThoughtById,
+  type BulkCreateItem
 } from '../services/thoughts.service'
 import { thoughtLinksRouter } from './thoughts-links'
 import { mergeRouter } from './thoughts-merge'
@@ -96,8 +97,8 @@ thoughtsRouter.get('/:id', c => {
 
 thoughtsRouter.post('/bulk', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'bulk_create_thoughts' }, async c2 => {
-    const body = await c2.req.json() as { thoughts?: unknown; project_id?: string }
-    const { created, errors } = bulkCreateThoughtsService(body.thoughts as never, body.project_id)
+    const body = await c2.req.json() as { thoughts?: BulkCreateItem[]; project_id?: string }
+    const { created, errors } = bulkCreateThoughtsService(body.thoughts, body.project_id)
     return c2.json({
       created: created.length,
       errors: errors.length,
