@@ -40,12 +40,18 @@ This project uses [Conventional Commits](https://www.conventionalcommits.org/). 
 
 ### Allowed types
 
-| Type | Version bump | When to use |
-|------|-------------|-------------|
-| `fix` | patch (`0.2.0 → 0.2.1`) | Bug fix |
-| `feat` | minor (`0.2.0 → 0.3.0`) | New feature |
-| `feat!` / `BREAKING CHANGE:` | major (`0.2.0 → 1.0.0`) | Breaking change |
-| `chore`, `docs`, `refactor`, `test`, `ci`, `build` | none | Maintenance |
+| Type | When to use |
+|------|-------------|
+| `fix` | Bug fix |
+| `feat` | New feature |
+| `feat!` / `BREAKING CHANGE:` | Breaking change |
+| `chore`, `docs`, `refactor`, `test`, `ci`, `build` | Maintenance |
+
+Commit types no longer determine the version. A release is prepared explicitly
+with `bash scripts/release.sh <version>` (bumps `package.json`), and CI tags and
+publishes it when the version-bump merge lands on `main` (see
+[AGENTS.md](AGENTS.md) §6). Types still group the generated GitHub Release notes
+into Features / Fixes / Other.
 
 ### Examples
 
