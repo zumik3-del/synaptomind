@@ -7,7 +7,7 @@ import { insertLog } from '../logging/log'
 import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from '../errors'
 import { validateContentLength } from '../validation'
 
-export interface CreateClusterOptions {
+interface CreateClusterOptions {
   thoughtIds: string[]
   title?: string
   tags?: string[]
@@ -15,7 +15,7 @@ export interface CreateClusterOptions {
   projectId?: string
 }
 
-export interface CreateClusterResult {
+interface CreateClusterResult {
   cluster: Thought
   edges: { source_id: string; target_id: string; type: string }[]
   members: Thought[]

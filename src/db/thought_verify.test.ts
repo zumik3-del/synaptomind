@@ -3,7 +3,6 @@ import { createTestDb, seedThought } from "../test/helpers";
 import { getDb } from "./container";
 import { closeDb } from "./init";
 import {
-	clearFlag,
 	createVerifyEntry,
 	findThoughtsWithoutVerifyEntry,
 	getFlaggedThoughtIds,
@@ -91,17 +90,6 @@ test("findThoughtsWithoutVerifyEntry returns embedded thoughts lacking an entry"
 	expect(ids).toContain(noEntry);
 	expect(ids).not.toContain(withEntry);
 	expect(ids).not.toContain(noVec);
-});
-
-test("clearFlag resets flagged state", () => {
-	const db = getDb();
-	const t = seedThought({ content: "stale" });
-	createVerifyEntry(db, t);
-	markFlagged(db, t, 0.4);
-	clearFlag(db, t);
-	const entry = getVerifyEntryByThoughtId(db, t);
-	expect(entry?.flagged).toBe(0);
-	expect(entry?.last_distance).toBeNull();
 });
 
 test("updateContentHash stores the hash", () => {

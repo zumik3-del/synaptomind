@@ -20,7 +20,6 @@ interface Config {
     rate: number; archiveThreshold: number;
     archiveMinAgeDays: number; intervalMs: number
   }
-  smartNotes: { autoPromote: boolean; evalIntervalMs: number }
   primer: { promoteThreshold: number; topN: number }
   verify: { enabled: boolean; driftThreshold: number; staleWarnDays: number }
   autoCluster: {
@@ -28,8 +27,7 @@ interface Config {
     minMembers: number; dryRun: boolean
   }
   autoLink: {
-    minSimilarity: number; maxEdgesPerRun: number;
-    minEntityOverlap: number; dryRun: boolean
+    minSimilarity: number; maxEdgesPerRun: number; dryRun: boolean
   }
   edgeDetect: {
     minSimilarity: number; topK: number; maxCandidates: number;
@@ -67,7 +65,6 @@ export const DEFAULTS: Config = {
     rate: 0.95, archiveThreshold: 0.1,
     archiveMinAgeDays: 30, intervalMs: 86400000
   },
-  smartNotes: { autoPromote: false, evalIntervalMs: 3600000 },
   primer: { promoteThreshold: 5, topN: 3 },
   verify: { enabled: true, driftThreshold: 0.25, staleWarnDays: 30 },
   autoCluster: {
@@ -75,8 +72,7 @@ export const DEFAULTS: Config = {
     minMembers: 3, dryRun: false
   },
   autoLink: {
-    minSimilarity: 0.65, maxEdgesPerRun: 20,
-    minEntityOverlap: 1, dryRun: false
+    minSimilarity: 0.65, maxEdgesPerRun: 20, dryRun: false
   },
   edgeDetect: {
     minSimilarity: 0.75, topK: 10, maxCandidates: 100,
@@ -94,9 +90,9 @@ export const DEFAULTS: Config = {
   ttl: { archivedTtlDays: 90, cleanupIntervalMs: 86400000 }
 }
 
-export type EnvType = 'string' | 'int' | 'float' | 'bool' | 'list'
+type EnvType = 'string' | 'int' | 'float' | 'bool' | 'list'
 
-export interface EnvMapping {
+interface EnvMapping {
   env: string
   path: string
   type: EnvType
@@ -139,9 +135,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_ARCHIVE_MIN_AGE_DAYS', path: 'decay.archiveMinAgeDays', type: 'int' },
   { env: 'SYNAPTOMIND_DECAY_INTERVAL_MS', path: 'decay.intervalMs', type: 'int' },
 
-  { env: 'SYNAPTOMIND_SMART_NOTES_AUTO_PROMOTE', path: 'smartNotes.autoPromote', type: 'bool' },
-  { env: 'SYNAPTOMIND_SMART_NOTES_EVAL_INTERVAL', path: 'smartNotes.evalIntervalMs', type: 'int' },
-
   { env: 'SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD', path: 'primer.promoteThreshold', type: 'int' },
   { env: 'SYNAPTOMIND_PRIMER_TOP_N', path: 'primer.topN', type: 'int' },
 
@@ -156,7 +149,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
 
   { env: 'SYNAPTOMIND_AUTO_LINK_MIN_SIMILARITY', path: 'autoLink.minSimilarity', type: 'float' },
   { env: 'SYNAPTOMIND_AUTO_LINK_MAX_EDGES', path: 'autoLink.maxEdgesPerRun', type: 'int' },
-  { env: 'SYNAPTOMIND_AUTO_LINK_MIN_ENTITY_OVERLAP', path: 'autoLink.minEntityOverlap', type: 'int' },
   { env: 'SYNAPTOMIND_AUTO_LINK_DRY_RUN', path: 'autoLink.dryRun', type: 'bool' },
 
   { env: 'SYNAPTOMIND_EDGE_DETECT_MIN_SIMILARITY', path: 'edgeDetect.minSimilarity', type: 'float' },

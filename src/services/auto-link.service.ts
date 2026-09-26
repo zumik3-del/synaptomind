@@ -1,32 +1,29 @@
 import { config } from '../config'
-import { sqlIn } from '../db/utils'
 import { createEdge, type Edge } from '../db/edges'
 import { getDb } from '../db'
 import { searchThoughts } from '../db/search'
 import { generateEmbeddings } from '../embedder/client'
 import { insertLog } from '../logging/log'
-import { recordJobRun, getLastJobRun } from './utils'
+import { recordJobRun } from './utils'
 import { findEmbeddingNeighborPairs } from './edge-candidates.service'
 import type { Database } from 'bun:sqlite'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export interface AutoLinkOptions {
+interface AutoLinkOptions {
   minSimilarity?: number
   maxEdgesPerRun?: number
-  minEntityOverlap?: number
   dryRun?: boolean
 }
 
 export interface CandidatePair {
   source_id: string
   target_id: string
-  entityOverlap: number
   embeddingSimilarity: number
   score: number
 }
 
-export interface AutoLinkResult {
+interface AutoLinkResult {
   dry_run: boolean
   candidates: number
   pairs_found: number
@@ -72,46 +69,6 @@ export function findLinkCandidates(): Array<{ id: string; content: string; edge_
     .all() as Array<{ id: string; content: string; edge_count: number }>
 }
 
-// ── Entity overlap pairs ─────────────────────────────────────────────────────
-
-/**
- * Find candidate pairs from shared entities. Returns pairs with overlap count.
- * Only considers candidate thought IDs.
- */
-export function findEntityPairs(candidateIds: string[]): CandidatePair[] {
-  if (candidateIds.length < 2) return []
-
-  const d = getDb()
-  const ph = sqlIn(candidateIds)
-
-  const rows = d
-    .prepare(`
-    SELECT e1.thought_id as source_id, e2.thought_id as target_id,
-           COUNT(DISTINCT e1.entity_name) as overlap
-    FROM thought_entities e1
-    JOIN thought_entities e2
-      ON e1.entity_name = e2.entity_name
-      AND e1.thought_id < e2.thought_id
-      AND e2.thought_id IN (${ph})
-    WHERE e1.thought_id IN (${ph})
-    GROUP BY e1.thought_id, e2.thought_id
-    ORDER BY overlap DESC
-  `)
-    .all(...candidateIds, ...candidateIds) as Array<{
-    source_id: string
-    target_id: string
-    overlap: number
-  }>
-
-  return rows.map(r => ({
-    source_id: r.source_id,
-    target_id: r.target_id,
-    entityOverlap: r.overlap,
-    embeddingSimilarity: 0,
-    score: r.overlap * 2
-  }))
-}
-
 // ── Embedding proximity pairs ────────────────────────────────────────────────
 
 /**
@@ -119,7 +76,7 @@ export function findEntityPairs(candidateIds: string[]): CandidatePair[] {
  * for neighbors using vector search and collect pairs within minSimilarity.
  * Delegates the generic neighbour-pair step to `edge-candidates.service`.
  */
-export function findEmbeddingPairs(
+function findEmbeddingPairs(
   candidates: Array<{ id: string; content: string }>,
   embeddings: Float32Array[],
   minSimilarity: number
@@ -147,7 +104,6 @@ export function findEmbeddingPairs(
   return pairs.map(p => ({
     source_id: p.source_id,
     target_id: p.target_id,
-    entityOverlap: 0,
     embeddingSimilarity: p.embeddingSimilarity,
     score: p.embeddingSimilarity
   }))
@@ -156,32 +112,23 @@ export function findEmbeddingPairs(
 // ── Merge & score ────────────────────────────────────────────────────────────
 
 /**
- * Merge entity and embedding pairs. Union-Find deduplicates, score combines
- * both signals. Returns top-K pairs sorted by score descending.
+ * Deduplicate embedding pairs by unordered pair key (sorted), keeping the max
+ * similarity per pair, then return the top-K pairs sorted by score descending.
  */
-export function mergeCandidates(
-  entityPairs: CandidatePair[],
-  embeddingPairs: CandidatePair[],
-  maxEdges: number
-): CandidatePair[] {
+export function mergeCandidates(embeddingPairs: CandidatePair[], maxEdges: number): CandidatePair[] {
   const pairMap = new Map<string, CandidatePair>()
 
-  // Index all pairs by sorted key
-  const upsert = (pair: CandidatePair): void => {
+  for (const pair of embeddingPairs) {
     const key = [pair.source_id, pair.target_id].sort().join('::')
     const existing = pairMap.get(key)
     if (!existing) {
       pairMap.set(key, { ...pair })
     } else {
-      // Merge: take max of each signal
-      existing.entityOverlap = Math.max(existing.entityOverlap, pair.entityOverlap)
+      // Merge: keep the max similarity for the unordered pair.
       existing.embeddingSimilarity = Math.max(existing.embeddingSimilarity, pair.embeddingSimilarity)
-      existing.score = existing.entityOverlap * 2 + existing.embeddingSimilarity
+      existing.score = existing.embeddingSimilarity
     }
   }
-
-  for (const p of entityPairs) upsert(p)
-  for (const p of embeddingPairs) upsert(p)
 
   // Sort by score descending, take top-K
   return [...pairMap.values()].sort((a, b) => b.score - a.score).slice(0, maxEdges)
@@ -213,13 +160,9 @@ function recordRun(result: AutoLinkResult, db: Database): void {
   recordJobRun(db, 'last_auto_link', result)
 }
 
-export function getLastAutoLinkStatus(): { last_run: string | null; result: AutoLinkResult | null } {
-  return getLastJobRun<AutoLinkResult>(getDb(), 'last_auto_link')
-}
-
 /**
- * Main auto-link job: find low-connectivity thoughts, discover entity and
- * embedding proximity pairs, create related edges.
+ * Main auto-link job: find low-connectivity thoughts, discover embedding
+ * proximity pairs, create related edges.
  */
 export async function runAutoLinkJob(options: AutoLinkOptions = {}, deps: AutoLinkDeps = {}): Promise<AutoLinkResult> {
   const minSimilarity = options.minSimilarity ?? config.autoLink.minSimilarity
@@ -242,22 +185,19 @@ export async function runAutoLinkJob(options: AutoLinkOptions = {}, deps: AutoLi
     return empty
   }
 
-  // 2. Entity pairs (cheap, always run)
-  const entityPairs = findEntityPairs(candidates.map(c => c.id))
-
-  // 3. Embedding pairs (requires embedding generation)
+  // 2. Embedding pairs (requires embedding generation)
   let embeddingPairs: CandidatePair[] = []
   try {
     const embeddings = await embed(candidates.map(c => c.content))
     embeddingPairs = findEmbeddingPairs(candidates, embeddings, minSimilarity)
   } catch (err) {
-    console.error('[auto-link] embedding search failed, falling back to entity-only:', err)
+    console.error('[auto-link] embedding search failed:', err)
   }
 
-  // 4. Merge & score
-  const pairs = mergeCandidates(entityPairs, embeddingPairs, maxEdges)
+  // 3. Merge & score
+  const pairs = mergeCandidates(embeddingPairs, maxEdges)
 
-  // 5. Create edges
+  // 4. Create edges
   let created: Edge[] = []
   if (!dryRun && pairs.length > 0) {
     created = createEdges(pairs)

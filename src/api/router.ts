@@ -14,7 +14,6 @@ import { profileRouter } from './profile'
 import { projectsRouter } from './projects'
 import { settingsRouter } from './settings'
 import { slotsRouter } from './slots'
-import { smartNotesRouter } from './smart-notes'
 import { statsRouter } from './stats'
 import { tagsRouter } from './tags'
 import { telemetryRouter } from './telemetry'
@@ -48,7 +47,6 @@ export function createApp(): Hono {
   app.route('/api', settingsRouter)
   app.route('/api', statsRouter)
   app.route('/api/telemetry', telemetryRouter)
-  app.route('/api/smart-notes', smartNotesRouter)
   app.route('/api/profile', profileRouter)
   app.route('/api/slots', slotsRouter)
   app.route('/api/crystals', crystalsRouter)

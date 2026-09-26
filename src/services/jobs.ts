@@ -1,4 +1,4 @@
-export interface IntervalJobOptions {
+interface IntervalJobOptions {
   name: string
   intervalMs: number
   guard?: () => boolean

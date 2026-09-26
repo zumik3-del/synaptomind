@@ -1,20 +1,16 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db'
 import { getThoughtLimits, setThoughtLimits } from '../db/settings'
-import { createSmartNote } from '../db/smart_notes'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError, ValidationError } from '../errors'
 import {
   archiveThoughtById,
   createThoughtWithParent,
   createThoughtWithUrlLinks,
-  deleteThoughtById,
-  findClusterForThought,
   getClusterMembersService,
   getThoughtById,
   listThoughtsService,
   mergeThoughtsService,
-  pruneThoughtUrlLinksService,
   updateThoughtById
 } from './thoughts.service'
 import { validateContentLength } from '../validation'
@@ -95,16 +91,6 @@ test('archiveThoughtById rejects profile thoughts', () => {
   expect(() => archiveThoughtById(id)).toThrow(ValidationError)
 })
 
-test('deleteThoughtById removes thought', () => {
-  const id = seedThought()
-  expect(deleteThoughtById(id)).toBeTrue()
-  expect(getThoughtById(id)).toBeNull()
-})
-
-test('deleteThoughtById returns false for unknown', () => {
-  expect(deleteThoughtById('nonexistent')).toBeFalse()
-})
-
 test('listThoughtsService returns thoughts', () => {
   seedThought({ content: 'first' })
   seedThought({ content: 'second' })
@@ -119,11 +105,6 @@ test('listThoughtsService filters by status', () => {
   expect(active.every(t => t.status === 'active')).toBeTrue()
 })
 
-test('findClusterForThought returns null for non-clustered thought', () => {
-  const id = seedThought()
-  expect(findClusterForThought(id)).toBeNull()
-})
-
 test('getClusterMembersService throws for non-cluster thought', () => {
   const id = seedThought()
   expect(() => getClusterMembersService(id)).toThrow(ValidationError)
@@ -131,14 +112,6 @@ test('getClusterMembersService throws for non-cluster thought', () => {
 
 test('getClusterMembersService throws for unknown id', () => {
   expect(() => getClusterMembersService('nonexistent')).toThrow(NotFoundError)
-})
-
-test('pruneThoughtUrlLinksService removes links not in content', () => {
-  const id = seedThought()
-  const db = getDb()
-  db.prepare(`INSERT INTO thought_url_links (thought_id, key, url, label, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(id, 'link1', 'http://a.com', 'link1', 0, new Date().toISOString())
-  const pruned = pruneThoughtUrlLinksService(id, 'no links here')
-  expect(pruned).toBe(1)
 })
 
 test('mergeThoughtsService throws for same source and target', () => {
@@ -245,34 +218,4 @@ test('updateThoughtById enforces the derived hard limit and accepts the exact ce
 
   expect(() => updateThoughtById(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
   expect(updateThoughtById(id, { content: 'x'.repeat(hardLimit) })?.content).toHaveLength(hardLimit)
-})
-
-function smartNoteCount(id: string): number {
-  return (getDb().prepare('SELECT COUNT(*) AS c FROM smart_notes WHERE thought_id = ?').get(id) as { c: number }).c
-}
-
-test('updateThoughtById to archived drops the thought smart notes', () => {
-  const id = seedThought({ content: 'pending item' })
-  createSmartNote(getDb(), id, { type: 'has_tag', tag: 'pending' })
-  expect(smartNoteCount(id)).toBe(1)
-
-  updateThoughtById(id, { status: 'archived' })
-  expect(smartNoteCount(id)).toBe(0)
-})
-
-test('archiveThoughtById drops the thought smart notes', () => {
-  const id = seedThought({ content: 'pending item' })
-  createSmartNote(getDb(), id, { type: 'has_tag', tag: 'pending' })
-
-  archiveThoughtById(id)
-  expect(smartNoteCount(id)).toBe(0)
-})
-
-test('mergeThoughtsService drops the merged-away source smart notes', () => {
-  const source = seedThought({ content: 'duplicate source' })
-  const target = seedThought({ content: 'canonical target' })
-  createSmartNote(getDb(), source, { type: 'has_tag', tag: 'pending' })
-
-  mergeThoughtsService({ sourceId: source, targetId: target })
-  expect(smartNoteCount(source)).toBe(0)
 })

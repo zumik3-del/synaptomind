@@ -19,6 +19,8 @@ export interface Thought {
   created_at: string
   updated_at: string
   archived_at: string | null
+  /** Pending surfacing delay; NULL means immediately eligible. */
+  surface_after: string | null
 }
 
 export interface CreateThoughtInput {
@@ -30,6 +32,7 @@ export interface CreateThoughtInput {
   is_cluster?: boolean
   is_profile?: boolean
   is_protected?: boolean
+  surface_after?: string
 }
 
 export interface UpdateThoughtInput {
@@ -75,7 +78,8 @@ export function rowToThought(row: Record<string, unknown>): Thought {
     is_protected: (row.is_protected as number) ?? 1,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
-    archived_at: (row.archived_at as string) ?? null
+    archived_at: (row.archived_at as string) ?? null,
+    surface_after: (row.surface_after as string) ?? null
   }
 }
 
@@ -128,9 +132,9 @@ export function createThought(db: Database, data: CreateThoughtInput): Thought {
     const isProtected = toBit(data.is_protected ?? true)
 
     db.prepare(`
-      INSERT INTO thoughts (id, content, status, source, project_id, content_hash, is_cluster, is_profile, is_protected, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, data.content, data.status ?? 'draft', data.source ?? null, projectId, contentHash, isCluster, isProfile, isProtected, now, now)
+      INSERT INTO thoughts (id, content, status, source, project_id, content_hash, is_cluster, is_profile, is_protected, created_at, updated_at, surface_after)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, data.content, data.status ?? 'draft', data.source ?? null, projectId, contentHash, isCluster, isProfile, isProtected, now, now, data.surface_after ?? null)
 
     if (data.tags && data.tags.length > 0) {
       setThoughtTags(db, id, data.tags)

@@ -27,7 +27,7 @@ export type SearchNeighborsFn = (
   topK: number
 ) => EmbeddingNeighbor[]
 
-export interface EmbeddingNeighborPair {
+interface EmbeddingNeighborPair {
   source_id: string
   target_id: string
   embeddingSimilarity: number

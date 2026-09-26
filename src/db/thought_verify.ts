@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 
-export interface ThoughtVerifyEntry {
+interface ThoughtVerifyEntry {
   id: string
   thought_id: string
   content_hash: string | null
@@ -69,14 +69,6 @@ export function recordCheck(db: Database, thoughtId: string, distance: number | 
     SET flagged = 0, last_distance = ?, last_checked = ?
     WHERE thought_id = ?
   `).run(distance, new Date().toISOString(), thoughtId)
-}
-
-export function clearFlag(db: Database, thoughtId: string): void {
-  db.prepare(`
-    UPDATE thought_verify
-    SET flagged = 0, last_distance = NULL, last_checked = NULL
-    WHERE thought_id = ?
-  `).run(thoughtId)
 }
 
 export function updateContentHash(db: Database, thoughtId: string, hash: string | null): void {

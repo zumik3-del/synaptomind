@@ -5,7 +5,7 @@ import { rowToThought } from './thoughts'
 import { sqlIn } from './utils'
 import type { Thought } from './thoughts'
 
-export interface SearchOptions {
+interface SearchOptions {
   embedding: Float32Array
   query?: string
   topK?: number
@@ -15,7 +15,6 @@ export interface SearchOptions {
   minImportance?: number
   excludeFlagged?: boolean
   hybrid?: boolean
-  entitySearchIds?: (query: string, limit: number) => string[]
   /**
    * Opt-in recency boost weight in `[0, 1]`. `<= 0` or non-finite disables the
    * boost entirely: no re-sort and no `recency_score`/`final_score` fields.
@@ -29,7 +28,7 @@ export interface SearchOptions {
 }
 
 /** Search legs that can contribute a hit, in the fixed `match_source` order. */
-export type SearchMatchSource = 'vector' | 'bm25' | 'entity'
+type SearchMatchSource = 'vector' | 'bm25'
 
 export interface SearchResult {
   thought: Thought
@@ -49,7 +48,7 @@ export interface SearchResult {
   bm25_score?: number
   /**
    * Search legs that matched this thought, always present, in the fixed order
-   * `vector`, `bm25`, `entity`. The vector-only path returns `['vector']`.
+   * `vector`, `bm25`. The vector-only path returns `['vector']`.
    */
   match_source: SearchMatchSource[]
   /**
@@ -200,16 +199,6 @@ function bm25ScoredIdsFiltered(
   }
 }
 
-export function bm25SearchIdsFiltered(
-  db: Database,
-  query: string,
-  limit: number,
-  filterSql: string,
-  filterParams: SQLQueryBindings[]
-): string[] {
-  return bm25ScoredIdsFiltered(db, query, limit, filterSql, filterParams).map(r => r.id)
-}
-
 // ── Reciprocal Rank Fusion ──────────────────────────────────────────────────
 
 const RRF_K = 60
@@ -268,7 +257,7 @@ const FALLBACK_RECENCY_HALF_LIFE_DAYS = 30
  * unparseable `createdAt` is treated as age 0 (decay 1); the result is never
  * `NaN`. `halfLifeDays` is expected strictly positive (normalised by callers).
  */
-export function recencyDecay(createdAt: string, nowMs: number, halfLifeDays: number): number {
+function recencyDecay(createdAt: string, nowMs: number, halfLifeDays: number): number {
   const created = Date.parse(createdAt)
   if (Number.isNaN(created)) return 1
   const ageDays = Math.max(0, (nowMs - created) / DAY_MS)
@@ -279,7 +268,6 @@ interface SearchScoreContext {
   vecSimById: Map<string, number>
   bm25ScoreById: Map<string, number>
   rrfScoreById: Map<string, number>
-  entityIds: Set<string>
   /**
    * RRF normalisation divisor for the combined score: `nNonEmptyLegs / (RRF_K +
    * 1)`, where `nNonEmptyLegs` is the number of non-empty fusion lists. `0` on
@@ -344,11 +332,10 @@ function fetchThoughtsByIds(
     const thought = rowToThought(r as unknown as Record<string, unknown>)
     thought.tags = tagMap.get(r.id) ?? []
 
-    // Fixed leg order: vector, bm25, entity.
+    // Fixed leg order: vector, bm25.
     const matchSource: SearchMatchSource[] = []
     if (sim !== undefined) matchSource.push('vector')
     if (bm25 !== undefined) matchSource.push('bm25')
-    if (scores.entityIds.has(id)) matchSource.push('entity')
 
     const result: SearchResult = {
       thought,
@@ -374,8 +361,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     projectFilter,
     clusterFilter,
     minImportance,
-    excludeFlagged,
-    entitySearchIds
+    excludeFlagged
   } = options
   const pool = Math.min(1000, Math.max(topK * 10, topK))
 
@@ -413,7 +399,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
       db,
       vecIds.map(v => v.id),
       options,
-      { vecSimById, bm25ScoreById: new Map(), rrfScoreById: new Map(), entityIds: new Set(), rrfMax: 0, ...recency }
+      { vecSimById, bm25ScoreById: new Map(), rrfScoreById: new Map(), rrfMax: 0, ...recency }
     )
   }
 
@@ -421,8 +407,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     ? bm25ScoredIdsFiltered(db, query, pool, filterSql, filterParams)
     : bm25ScoredIds(db, query, pool)
   const bm25ScoreById = new Map(bm25Scored.map(r => [r.id, r.score]))
-  const entityIds = entitySearchIds ? entitySearchIds(query, pool) : []
-  const fusionLists = [vecIds.map(v => v.id), bm25Scored.map(r => r.id), entityIds]
+  const fusionLists = [vecIds.map(v => v.id), bm25Scored.map(r => r.id)]
   // A thought ranked #1 in every non-empty list reaches the RRF maximum, so
   // normalising by it keeps `relevant` order-preserving and in `(0, 1]`.
   const rrfMax = fusionLists.filter(list => list.length > 0).length / (RRF_K + 1)
@@ -432,6 +417,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     db,
     merged.map(m => m.id),
     options,
-    { vecSimById, bm25ScoreById, rrfScoreById, entityIds: new Set(entityIds), rrfMax, ...recency }
+    { vecSimById, bm25ScoreById, rrfScoreById, rrfMax, ...recency }
   )
 }

@@ -6,7 +6,7 @@ export interface Tag {
   name: string
 }
 
-export interface TagWithCount extends Tag {
+interface TagWithCount extends Tag {
   thought_count: number
 }
 

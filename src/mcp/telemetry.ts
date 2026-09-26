@@ -32,12 +32,7 @@ const TOOL_ROUTES: Record<string, { default?: ToolRoute; actions?: Record<string
     actions: {
       create: { action: 'write', toolName: 'create_thought' },
       update: { action: 'write', toolName: 'update_thought' },
-      link: { action: 'link', toolName: 'link_thoughts' },
-      smart_note_create: { action: 'write', toolName: 'create_smart_note' },
-      smart_note_list: { action: 'read', toolName: 'list_smart_notes' },
-      smart_note_eval: { action: 'read', toolName: 'eval_smart_notes' },
-      smart_note_promote: { action: 'write', toolName: 'promote_smart_note' },
-      smart_note_delete: { action: 'write', toolName: 'delete_smart_note' }
+      link: { action: 'link', toolName: 'link_thoughts' }
     }
   },
   memory_supersede: {

@@ -23,7 +23,7 @@ export function resetExtractor() {
   loading = null
 }
 
-export async function getExtractor() {
+async function getExtractor() {
   if (extractor) return extractor
   if (!loading) {
     loading = loadExtractor().then(

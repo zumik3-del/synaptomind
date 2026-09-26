@@ -29,11 +29,11 @@ import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from './edge-candi
 
 // ── Proposal / result types ──────────────────────────────────────────────────
 
-export interface EdgeProposalSignals {
+interface EdgeProposalSignals {
   embeddingSimilarity: number
 }
 
-export interface EdgeProposal {
+interface EdgeProposal {
   source_id: string
   target_id: string
   type: 'contradicts' | 'supports'
@@ -50,7 +50,7 @@ export interface EdgeProposal {
   signals: EdgeProposalSignals
 }
 
-export interface EdgeDetectOptions {
+interface EdgeDetectOptions {
   projectId?: string
   minSimilarity?: number
   topK?: number
@@ -58,7 +58,7 @@ export interface EdgeDetectOptions {
   maxProposals?: number
 }
 
-export interface EdgeDetectResult {
+interface EdgeDetectResult {
   proposals: EdgeProposal[]
   candidates: number
   pairs_evaluated: number
@@ -74,7 +74,7 @@ export interface EdgeDetectDeps {
 
 // ── Candidate selection ──────────────────────────────────────────────────────
 
-export interface DetectionCandidate {
+interface DetectionCandidate {
   id: string
   content: string
 }

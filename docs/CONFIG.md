@@ -41,7 +41,7 @@ cp .env.example .env
 
 A stdio MCP client talks to the same SQLite database as the HTTP server. By
 default (`mcp.stdioStandalone=false`) the stdio process does **not** start the
-embedder child process, decay, dreamer, self-improve, or TTL-cleanup jobs — the
+embedder child process, decay, self-improve, or TTL-cleanup jobs — the
 shared HTTP server is their single owner. This avoids every client spawning its
 own embedder and schedulers against one DB.
 
@@ -119,17 +119,6 @@ Auto-delete archived thoughts after TTL.
 
 ---
 
-## Smart Notes
-
-Thoughts with surface conditions that auto-surface when relevant.
-
-| Setting | Env Var | Default | Description |
-|---------|---------|---------|-------------|
-| `smartNotes.autoPromote` | `SYNAPTOMIND_SMART_NOTES_AUTO_PROMOTE` | `false` | Auto-promote smart notes when conditions are met |
-| `smartNotes.evalIntervalMs` | `SYNAPTOMIND_SMART_NOTES_EVAL_INTERVAL` | `3600000` | How often to evaluate smart notes (ms). Default: 1h |
-
----
-
 ## Primer
 
 Compact project summary for quick context injection.
@@ -174,7 +163,6 @@ Automatically create edges between related thoughts.
 |---------|---------|---------|-------------|
 | `autoLink.minSimilarity` | `SYNAPTOMIND_AUTO_LINK_MIN_SIMILARITY` | `0.65` | Min cosine similarity to auto-link |
 | `autoLink.maxEdgesPerRun` | `SYNAPTOMIND_AUTO_LINK_MAX_EDGES` | `20` | Max edges created per auto-link run |
-| `autoLink.minEntityOverlap` | `SYNAPTOMIND_AUTO_LINK_MIN_ENTITY_OVERLAP` | `1` | Min shared entities to consider linking |
 | `autoLink.dryRun` | `SYNAPTOMIND_AUTO_LINK_DRY_RUN` | `false` | Preview without creating edges |
 
 ---
@@ -286,7 +274,6 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
     "intervalMs": 86400000
   },
   "ttl": { "archivedTtlDays": 90, "cleanupIntervalMs": 86400000 },
-  "smartNotes": { "autoPromote": false, "evalIntervalMs": 3600000 },
   "primer": { "promoteThreshold": 5, "topN": 3 },
   "verify": { "enabled": true, "driftThreshold": 0.25, "staleWarnDays": 30 },
   "autoCluster": {
@@ -295,7 +282,7 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
   },
   "autoLink": {
     "minSimilarity": 0.65, "maxEdgesPerRun": 20,
-    "minEntityOverlap": 1, "dryRun": false
+    "dryRun": false
   },
   "selfImprove": {
     "enabled": false, "intervalMs": 86400000,

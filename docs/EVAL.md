@@ -77,7 +77,7 @@ produce it. Two categories are deliberate v1 proxies:
 - `multi-hop` is multi-fact lexical recall (a query sharing tokens with several
   supporting thoughts), not graph traversal or semantic chaining.
 - `consolidation` checks that an already-formed cluster thought is retrievable
-  from its content; it does not exercise `dreamer`/auto-cluster consolidation.
+  from its content; it does not exercise auto-cluster consolidation.
 
 True multi-hop reasoning and the consolidation pipeline are therefore not yet
 covered — extend the datasets or add pipeline-level scenarios when that matters.

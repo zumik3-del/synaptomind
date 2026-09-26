@@ -1,7 +1,6 @@
 import { config } from '../config'
 import { getDb } from '../db'
 import { getSlotRow, upsertSlot } from '../db/slots'
-import { createSmartNote } from '../db/smart_notes'
 import { createThought } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
 
@@ -172,18 +171,21 @@ export function reflectSession(input: ReflectInput): ReflectResult {
     if (!Number.isInteger(wakeDays) || wakeDays < 1 || wakeDays > 365) {
       throw new ValidationError('wake_days must be an integer between 1 and 365')
     }
+    // Delay is per-reflection and set only on newly created pending thoughts;
+    // the content-hash dedup branch leaves an existing schedule untouched.
+    const surfaceAfter = new Date(Date.now() + wakeDays * 86_400_000).toISOString()
     for (const item of input.pending ?? []) {
       if (typeof item !== 'string' || !item.trim()) {
         throw new ValidationError('pending entries must be non-empty strings')
       }
-      const thought = createThought(d, {
+      createThought(d, {
         content: item.trim(),
         status: 'draft',
         source: 'session-reflection',
         tags: ['pending'],
+        surface_after: surfaceAfter,
         ...(input.project_id ? { project_id: input.project_id } : {})
       })
-      createSmartNote(d, thought.id, { type: 'older_than_days', days: wakeDays })
       result.pending_created++
     }
   })

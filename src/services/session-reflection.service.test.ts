@@ -89,13 +89,16 @@ test('reflectSession creates decision thoughts', () => {
   }
 })
 
-test('reflectSession creates pending thoughts with smart notes', () => {
-  const result = reflectSession({ pending: ['Write tests'] })
+test('reflectSession creates pending thoughts with a surface delay', () => {
+  const result = reflectSession({ pending: ['Write tests'], wake_days: 3 })
   expect(result.pending_created).toBe(1)
   const db = getDb()
-  const thought = db.prepare("SELECT id FROM thoughts WHERE source = 'session-reflection'").get() as { id: string }
-  const note = db.prepare('SELECT * FROM smart_notes WHERE thought_id = ?').get(thought.id)
-  expect(note).toBeDefined()
+  const thought = db.prepare("SELECT status, surface_after FROM thoughts WHERE source = 'session-reflection'").get() as {
+    status: string
+    surface_after: string | null
+  }
+  expect(thought.status).toBe('draft')
+  expect(thought.surface_after).not.toBeNull()
 })
 
 test('reflectSession validates summary is non-empty string', () => {

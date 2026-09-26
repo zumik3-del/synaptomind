@@ -205,7 +205,6 @@ const KNOWN_ACTION_CASES: Array<{
   args: () => Record<string, unknown>
 }> = [
   { label: 'memory_recall search', tool: 'memory_recall', args: () => ({ action: 'search', query: 'known action marker' }) },
-  { label: 'memory_store smart_note_list', tool: 'memory_store', args: () => ({ action: 'smart_note_list' }) },
   {
     label: 'memory_supersede archive',
     tool: 'memory_supersede',
@@ -253,24 +252,6 @@ const REQUIRED_FIELD_CASES: Array<{ label: string; tool: string; args: Record<st
   { label: 'store create', tool: 'memory_store', args: { action: 'create' }, message: 'content is required for create action' },
   { label: 'store update', tool: 'memory_store', args: { action: 'update' }, message: 'thought_id is required for update action' },
   { label: 'store link', tool: 'memory_store', args: { action: 'link' }, message: 'thought_id is required for link action (source)' },
-  {
-    label: 'store smart_note_create',
-    tool: 'memory_store',
-    args: { action: 'smart_note_create', thought_id: 'x' },
-    message: 'surface_condition is required for smart_note_create action'
-  },
-  {
-    label: 'store smart_note_promote',
-    tool: 'memory_store',
-    args: { action: 'smart_note_promote' },
-    message: 'note_id is required for smart_note_promote action'
-  },
-  {
-    label: 'store smart_note_delete',
-    tool: 'memory_store',
-    args: { action: 'smart_note_delete' },
-    message: 'note_id is required for smart_note_delete action'
-  },
   {
     label: 'supersede archive',
     tool: 'memory_supersede',

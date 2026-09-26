@@ -171,7 +171,7 @@ test("GET /api/thoughts/search rejects an invalid contradiction_mode with 400", 
 // ── Ranking signal fields (issue #143, task #816) ────────────────────────────
 
 interface SearchResultWithSignals extends SearchResultBody {
-	match_source?: Array<"vector" | "bm25" | "entity">;
+	match_source?: Array<"vector" | "bm25">;
 	rrf_score?: number;
 	bm25_score?: number;
 	recency_score?: number;

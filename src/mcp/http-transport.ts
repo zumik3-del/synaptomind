@@ -22,7 +22,7 @@ export interface McpHttpHandle {
   getSessions(): Map<string, Session>
 }
 
-export interface McpHttpOptions {
+interface McpHttpOptions {
   /** Browser origins allowed by CORS; empty (default) denies all cross-origin requests. */
   corsOrigins?: string[]
 }
@@ -42,7 +42,7 @@ export function mcpErrorHandler(err: Error, c: Context): Response {
   return c.json({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null }, 500)
 }
 
-export interface InMemoryEventStoreOptions {
+interface InMemoryEventStoreOptions {
   /**
    * Invoked when a resume anchor cannot be replayed because its event was
    * evicted by the per-session cap (F10). Defaults to a console.warn so the

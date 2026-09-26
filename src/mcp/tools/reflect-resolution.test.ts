@@ -27,8 +27,7 @@ mock.module('../../services/projects.service', () => ({
   deleteProjectService: () => false,
   resolveProjectService: () => {
     throw new Error(RESOLUTION_FAILURE)
-  },
-  resolveProjectByPathService: () => null
+  }
 }))
 
 type ToolResult = {

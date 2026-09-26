@@ -4,7 +4,7 @@ import { deleteThought } from '../db/thoughts'
 import { insertLog } from '../logging/log'
 import { createIntervalJob } from './jobs'
 
-export interface CleanupResult {
+interface CleanupResult {
   deleted: number
   ids: string[]
 }

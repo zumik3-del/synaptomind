@@ -13,7 +13,6 @@ function buildGuideText(softLimit: number): string {
 | Find | \`memory_recall\` | action=search/get/context/chain/clusters |
 | Connect | \`memory_store\` | action=link |
 | Group | \`memory_crystallize\` | action=cluster/auto_cluster |
-| Schedule | \`memory_store\` | action=smart_note_create |
 | Prioritize | \`memory_status\` | action=frontier |
 | Compress | \`memory_crystallize\` | action=crystallize |
 | Maintain | \`memory_status\` | action=health |
@@ -26,7 +25,7 @@ function buildGuideText(softLimit: number): string {
 | Tool | Actions | Purpose |
 |---|---|---|
 | \`memory_recall\` | search, get, context, chain, clusters | Find and retrieve thoughts |
-| \`memory_store\` | create, update, link, smart_note_* | Write, connect, and schedule thoughts |
+| \`memory_store\` | create, update, link | Write and connect thoughts |
 | \`memory_supersede\` | archive, merge | Version and supersede thoughts |
 | \`memory_status\` | slots, frontier, profile, config, health, edge_suggestions, cleanup | Query system state |
 | \`memory_manage\` | list, create, update, delete, resolve | Project management |
@@ -40,7 +39,7 @@ function buildGuideText(softLimit: number): string {
 Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_profile, source.
 
 **Status lifecycle:**
-- \`draft\` — work in progress, excluded from frontier candidates
+- \`draft\` — work in progress; only \`pending\`-tagged drafts surface in the frontier
 - \`active\` — live, searchable, included in frontier
 - \`archived\` — hidden from search and frontier, kept for history
 
@@ -49,7 +48,7 @@ Rules: default status is draft. Profile thoughts (\`is_profile=1\`) cannot be ar
 **System tags:**
 - \`@profile\`, \`@profile-*\` — persona markers, feed the persona slot
 - \`decision\`, \`pending\` — created by session reflection
-- \`todo\`, \`directive\` — frontier candidates
+- \`todo\`, \`directive\`, \`pending\` — frontier candidates
 - \`gotcha\` — surfaces in crystal "Gotchas" section
 - \`cluster\` — auto-added to cluster thoughts
 - \`crystal\` — applied to crystal output
@@ -70,20 +69,6 @@ Rules: default status is draft. Profile thoughts (\`is_profile=1\`) cannot be ar
 
 Constraints: no self-loops. One edge type per (source, target) pair. Cluster edges enforced strictly. Symmetric \`related\`/\`contradicts\` are idempotent in both directions; linking a pair that already has a \`related\` edge with a specific type upgrades the placeholder.
 
-## Smart Notes
-
-Attach to a thought to make it surface when conditions are met. Promotion sets thought to active, deletes the note (one-shot).
-
-| Condition | Params | Surfaces when... |
-|---|---|---|
-| \`older_than_days\` | \`days\` | Thought is N+ days old |
-| \`has_tag\` | \`tag\` | Thought gains the specified tag |
-| \`has_edge_type\` | \`edge_type\` | Thought gets an edge of that type |
-| \`project_status\` | \`days\` | Any non-archived thought in same project updated within N days |
-| \`unread_for_days\` | \`days\` | Thought unread for N+ days |
-
-Config: \`smartNotes.autoPromote\` (default false) enables dreamer job. \`smartNotes.evalIntervalMs\` (default 1h) sets check frequency.
-
 ## Search
 
 Three modes:
@@ -93,7 +78,7 @@ Three modes:
 
 Filters: status, project, tag, cluster (only/exclude), min importance, exclude flagged.
 
-Result ranking signals: \`match_source\` (legs that matched, in fixed order \`vector\`, \`bm25\`, \`entity\`), \`similarity\`/\`distance\` (vector leg only), \`bm25_score\` (keyword relevance, higher = more relevant, only for BM25 hits), and \`rrf_score\` (fused hybrid score, present only when fusion ran). No relevance threshold is applied — filter client-side on \`match_source\` and these scores.
+Result ranking signals: \`match_source\` (legs that matched, in fixed order \`vector\`, \`bm25\`), \`similarity\`/\`distance\` (vector leg only), \`bm25_score\` (keyword relevance, higher = more relevant, only for BM25 hits), and \`rrf_score\` (fused hybrid score, present only when fusion ran). No relevance threshold is applied — filter client-side on \`match_source\` and these scores.
 
 **Recency boost (opt-in):** \`recency_weight\` (0–1, default **0**) adds a time term to the ranking; \`recency_half_life_days\` (1–3650, default 30) sets its decay half-life. At \`recency_weight > 0\` each result also carries \`recency_score\` (\`0.5^(ageDays/halfLifeDays)\`, \`1\` = created now) and \`final_score\` (\`relevant + recency_weight × recency_score\`, where \`relevant\` is \`rrf_score\` normalised to \`[0,1]\` on the fused path or \`similarity\` on the vector-only path). \`rrf_score\` stays raw/un-boosted. \`recency_weight = 0\` (unset) preserves the relevance-only ranking and omits both fields.
 
@@ -118,7 +103,6 @@ Post-processing: hit counting → primer promotion → primer hoisting → profi
 
 | Job | What it does | Key config |
 |---|---|---|
-| **dreamer** | Evaluates smart notes, promotes ready ones | \`smartNotes.autoPromote\`, \`evalIntervalMs\` |
 | **decay** | Decays importance, auto-archives stale thoughts | \`rate\`, \`archiveThreshold\`, \`archiveMinAgeDays\` |
 | **auto-cluster** | Groups similar thoughts into clusters (Union-Find) | \`minAgeDays\`, \`minSimilarity\`, \`minMembers\` |
 | **auto-link** | Creates related edges for low-connectivity thoughts | \`minSimilarity\`, \`maxEdgesPerRun\` |
@@ -157,7 +141,7 @@ Records outcomes into slots and creates thoughts:
 - \`summary\` — appends to project_context slot
 - \`goals_delta\` — add/remove from active_goals (prefix "closed:" to remove)
 - \`decisions\` — creates active thoughts with tag \`decision\`
-- \`pending\` — creates draft thoughts with tag \`pending\` + smart note (auto-surface after \`wake_days\`, default 7)
+- \`pending\` — creates draft thoughts with tag \`pending\` (surface in the frontier after \`wake_days\`, default 7)
 
 ## Profile
 

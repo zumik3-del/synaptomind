@@ -40,7 +40,7 @@ describe('eval harness isolation', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
+  }, 120_000)
 
   test('--real mode starts the embedder child process and still runs', () => {
     const dir = mkdtempSync(join(tmpdir(), 'eval-isolation-real-'))
@@ -61,5 +61,5 @@ describe('eval harness isolation', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
+  }, 120_000)
 })

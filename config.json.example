@@ -42,10 +42,6 @@
     "archivedTtlDays": 90,
     "cleanupIntervalMs": 86400000
   },
-  "smartNotes": {
-    "autoPromote": false,
-    "evalIntervalMs": 3600000
-  },
   "primer": {
     "promoteThreshold": 5,
     "topN": 3
@@ -64,7 +60,6 @@
   "autoLink": {
     "minSimilarity": 0.65,
     "maxEdgesPerRun": 20,
-    "minEntityOverlap": 1,
     "dryRun": false
   },
   "edgeDetect": {

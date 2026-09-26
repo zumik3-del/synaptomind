@@ -6,7 +6,6 @@ import { getThoughtTagsBatch } from '../db/tags'
 import { getThought, parseTags } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
 import { generateEmbedding } from '../embedder/client'
-import { entitySearchIds } from './entity.service'
 
 const EMBEDDING_TIMEOUT_MS = 5_000
 const SEARCH_MAX_TOP_K = 1000
@@ -18,13 +17,13 @@ const SEARCH_MAX_TOP_K = 1000
 const SUPPRESSION_OVERFETCH_FACTOR = 4
 
 /** Default recency-boost half-life (days) when the caller omits it. */
-export const DEFAULT_RECENCY_HALF_LIFE_DAYS = 30
+const DEFAULT_RECENCY_HALF_LIFE_DAYS = 30
 /** Lower half-life bound (days); `<= 0`/non-finite falls back to the default. */
-export const MIN_RECENCY_HALF_LIFE_DAYS = 1
+const MIN_RECENCY_HALF_LIFE_DAYS = 1
 /** Upper half-life bound (days). */
-export const MAX_RECENCY_HALF_LIFE_DAYS = 3650
+const MAX_RECENCY_HALF_LIFE_DAYS = 3650
 /** Upper recency-weight bound (inclusive); `0` disables the boost. */
-export const MAX_RECENCY_WEIGHT = 1
+const MAX_RECENCY_WEIGHT = 1
 
 /**
  * Rank used by `orderByStanding`: lower is better, so every `current` row
@@ -134,7 +133,6 @@ export async function searchThoughts(options: SearchServiceOptions): Promise<Sea
     minImportance,
     excludeFlagged: options.excludeFlagged,
     hybrid: options.hybrid,
-    entitySearchIds,
     recencyWeight: clampRecencyWeight(options.recencyWeight),
     recencyHalfLifeDays: clampRecencyHalfLifeDays(options.recencyHalfLifeDays)
   })
@@ -198,7 +196,7 @@ function applyGraphStanding(
  * the incoming (vector/BM25/RRF) relevance order within each standing group.
  *
  * `similarity` is deliberately NOT used as a sort key: it is populated only from
- * the vector leg, so keyword/entity-only results carry `0` and would be demoted
+ * the vector leg, so keyword-only results carry `0` and would be demoted
  * below every vector hit, discarding the hybrid fusion ranking.
  *
  * The recency boost is applied *upstream* (inside the DB ranking), so this

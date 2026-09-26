@@ -3,7 +3,7 @@ import { getDb } from '../db'
 import { isEmbedderReady } from '../embedder/client'
 import { VERSION } from '../version'
 
-export interface HealthCheckResult {
+interface HealthCheckResult {
   status: 'ok' | 'degraded'
   version: string
   checks: Record<string, string>

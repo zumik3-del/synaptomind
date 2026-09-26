@@ -18,7 +18,7 @@ export type { TelemetrySignals } from './self-improve-telemetry'
 export { queryTelemetrySignals } from './self-improve-telemetry'
 export { detectIssues } from './self-improve-detect'
 
-export interface SelfImproveResult {
+interface SelfImproveResult {
   dry_run: boolean
   signals: TelemetrySignals
   issues: DetectedIssue[]
