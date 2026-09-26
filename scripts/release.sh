@@ -4,8 +4,8 @@ set -euo pipefail
 HOMEDIR="$(dirname "$(cd -- "$(dirname "$0")" && (pwd -P 2>/dev/null || pwd))")"
 cd "$HOMEDIR"
 
-# shellcheck source=scripts/lib/deploy-common.sh
-. "$HOMEDIR/scripts/lib/deploy-common.sh"
+# shellcheck source=deploy/lib/common.sh
+. "$HOMEDIR/deploy/lib/common.sh"
 
 if [[ -n "$(git status --porcelain)" ]]; then
 	echo "ERROR: Working tree has uncommitted changes:"

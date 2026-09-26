@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+# ════════════════════════════════════════════════════════════════════════════
+#  post-update — no-op placeholder
+#
+#  Called by deploy/update.sh as a hook (see run_hook in update.sh).
+#  Intentionally empty: leave room for future post-swap actions (e.g. running
+#  migrations, notifying a webhook) without breaking the hook contract.
+# ════════════════════════════════════════════════════════════════════════════
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P)" || SCRIPT_DIR=""
+
+load_common() {
+  local cand
+  # Hooks live in ${RUN_DIR}/hooks; common.sh lives in ${RUN_DIR}/scripts/lib/.
+  for cand in "${SCRIPT_DIR}/../scripts/lib/common.sh" "${SCRIPT_DIR}/../scripts/common.sh" \
+              "${SCRIPT_DIR}/../lib/common.sh" "${SCRIPT_DIR}/../common.sh"; do
+    if [ -f "$cand" ]; then
+      # shellcheck source=../lib/common.sh
+      . "$cand"
+      return 0
+    fi
+  done
+  echo "[app] ERROR: cannot find lib/common.sh next to $0" >&2
+  exit 1
+}
+load_common
+
+info "post-update: placeholder — nothing to do."
+exit 0

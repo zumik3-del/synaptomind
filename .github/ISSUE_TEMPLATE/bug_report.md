@@ -24,7 +24,7 @@ What you expected to happen.
 
 - OS:
 - Bun version:
-- Install method (Docker / install.sh / manual):
+- Install method (deploy/ / Docker / manual):
 
 ### Additional context
 
