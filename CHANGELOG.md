@@ -1,24 +1,28 @@
 # Changelog
 
+## v0.8.0-beta.1
+
+> September 26, 2026
+
+- [`2a948bc`](https://github.com/zumik3-del/synaptomind/commit/2a948bcb39681a2dba47bc98aa2bdf28137ded17): feat(deploy): adopt bun-templates/deploy as canonical install/update framework (#856)
+- [`383ff4e`](https://github.com/zumik3-del/synaptomind/commit/383ff4e29f84db19b3d922073516289c254f253b): refactor: move SQL into db layer, complete DI and telemetry coverage (#845)
+- [`a823b72`](https://github.com/zumik3-del/synaptomind/commit/a823b72e905e76976c1e113d5a66a1d3c50679d0): refactor: harden core consistency per SOLID/KISS/DRY audit (#845)
+
 ## v0.8.0-beta.0
 
 > September 26, 2026
 
-- [`021478f`](https://github.com/zumik3-del/synaptomind/commit/021478f0a94e4f2e6e780a145c5c5edfa0b80c2f): chore: bump version to 0.8.0-beta.0
 - [`8d48aad`](https://github.com/zumik3-del/synaptomind/commit/8d48aad004721fb8e42d6b1ceb3755bdf121cfd1): chore: drop unused db re-exports and dead export surface
-- [`abc2b3e`](https://github.com/zumik3-del/synaptomind/commit/abc2b3ec538362ef73a59f2241b00590395e5ffa): refactor: remove smart notes; fold pending surfacing into frontier (#149)
 - [`e1a59e0`](https://github.com/zumik3-del/synaptomind/commit/e1a59e0b729e43583fa41331e4092702359acc5e): test: raise eval isolation test timeout above subprocess runtime
 - [`8bd3c85`](https://github.com/zumik3-del/synaptomind/commit/8bd3c85d31a99e12db23b7a5dc1c938b8856280f): refactor: remove smart notes; fold pending surfacing into frontier (#148)
 - [`0835fd9`](https://github.com/zumik3-del/synaptomind/commit/0835fd9490db18ec6a476024d8af53aede00b23b): chore: ignore scripts/quick_deploy.sh
 - [`202d638`](https://github.com/zumik3-del/synaptomind/commit/202d638442f3d9bab9a05be4c7cbfd0496926856): refactor: remove dead code and unused entity-linking feature
-- [`1d40185`](https://github.com/zumik3-del/synaptomind/commit/1d4018528c375a48df6327c618a054381f79a4f8): test: extend eval harness with recency and no-match probes (#147)
 - [`ce92e27`](https://github.com/zumik3-del/synaptomind/commit/ce92e2740f98b2aa0bd1a081025113c88c2f32d2): test: eval scenarios for relevance signals and opt-in recency boost (#143, #145)
 
 ## v0.7.3
 
 > September 25, 2026
 
-- [`f419197`](https://github.com/zumik3-del/synaptomind/commit/f4191972254ad5bae9bb86dc4ed473f58ec6af27): chore: bump version to 0.7.3
 - [`f8300a5`](https://github.com/zumik3-del/synaptomind/commit/f8300a5c1cb92584e13a6b56d66eca078d481db3): feat: expose ranking signals and opt-in recency boost in search (#146)
 - [`aa944a2`](https://github.com/zumik3-del/synaptomind/commit/aa944a27b34ffd7e723e706fb9f4a3122ad23104): feat: expose rrf/bm25 scores and match_source in search results (#144)
 
@@ -48,21 +52,18 @@
 
 > September 12, 2026
 
-- [`1216395`](https://github.com/zumik3-del/synaptomind/commit/1216395886f864850cda837056b8ccd09a3f5470): chore: bump version to 0.7.0-alpha.2
 - [`e232b8f`](https://github.com/zumik3-del/synaptomind/commit/e232b8faa0ddf6ee25252246e671503f25f19d16): fix(health-check): exclude archived duplicates and long prose from content finders (#128)
 
 ## v0.7.0-alpha.1
 
 > September 12, 2026
 
-- [`a8a98a0`](https://github.com/zumik3-del/synaptomind/commit/a8a98a08cd120a7297cb92415d009c9f4e09de87): chore: bump version to 0.7.0-alpha.1
 - [`cce108c`](https://github.com/zumik3-del/synaptomind/commit/cce108c8cad9bdb7a6345748f3d6e85edcaaeb6f): fix(health-check): correct replaces_chains off-by-one; prerelease release CI (#127) (#126)
 
 ## v0.7.0-alpha.0
 
 > September 12, 2026
 
-- [`6610808`](https://github.com/zumik3-del/synaptomind/commit/6610808cb86537bf287a829cdc4c4523a5b85b16): chore: bump version to 0.7.0-alpha.0
 - [`924aa58`](https://github.com/zumik3-del/synaptomind/commit/924aa580459ce84b27d019e48b63ff19b2bffc3b): feat: memory evaluation, contradiction edges, supersession-aware retrieval (#124) (#125)
 
 ## v0.6.1
@@ -80,7 +81,6 @@
 
 > September 6, 2026
 
-- [`cb3d118`](https://github.com/zumik3-del/synaptomind/commit/cb3d118c965e2da057d6255f0435db9551416b52): chore: bump version to 0.6.0
 - [`9089550`](https://github.com/zumik3-del/synaptomind/commit/9089550d94186b6b3508bedda1cd8209339ada95): fix: resolve stability audit issues — code, docs, CI (#107, #108, #109) (#110)
 - [`5ce0ccc`](https://github.com/zumik3-del/synaptomind/commit/5ce0ccce15c4918056a249876aeb497ca17ad0c6): ci: fix release tags, and group release notes by commit type (#106)
 
@@ -88,7 +88,6 @@
 
 > September 6, 2026
 
-- [`22912eb`](https://github.com/zumik3-del/synaptomind/commit/22912eb5eb31abc7557e5747aa02a9dae3119996): chore: bump version to 0.6.0-beta.0
 - [`c6fb9ed`](https://github.com/zumik3-del/synaptomind/commit/c6fb9ede7c56988d5e1ec5db6824cb6826c2faed): chore(ci): group release notes by commit type
 - [`8f5ac10`](https://github.com/zumik3-del/synaptomind/commit/8f5ac10c0f6a9e156c5d151f983187857fb35360): fix: handle v-prefixed tags in update.sh version comparison
 - [`d45432b`](https://github.com/zumik3-del/synaptomind/commit/d45432bda92bb8f1090915e5fe281f5c2838904d): ci: use v-prefixed tags in release workflow and release script
@@ -104,9 +103,7 @@
 
 > September 6, 2026
 
-- [`c5a0779`](https://github.com/zumik3-del/synaptomind/commit/c5a0779418ad0f4e23e93189661f8f5f6bb1a2ec): chore: bump version to 0.6.0-alpha.0
 - [`9213528`](https://github.com/zumik3-del/synaptomind/commit/9213528ea0e1c0e95772f561a682742b197d5477): feat: ai-native thought authoring and memory-behavior rules in MCP instructions (#93)
-- [`872be31`](https://github.com/zumik3-del/synaptomind/commit/872be31ac184aaaa3c8576b6f63b76b094cf246f): feat: is_protected flag to prevent auto-deletion (#92)
 - [`9d3423a`](https://github.com/zumik3-del/synaptomind/commit/9d3423a165807462149d59ab1850c472b10e9025): feat: is_protected flag to prevent auto-deletion (#87)
 - [`b7be84c`](https://github.com/zumik3-del/synaptomind/commit/b7be84c80205850c1a5fedfb5b1230f96e212bfa): fix: create replaces edge on merge (#88)
 - [`7446214`](https://github.com/zumik3-del/synaptomind/commit/744621490e5befb2e674efe044e63facd57a05f4): feat: mcp tests, atomicity, ttl cleanup (#86)
@@ -126,29 +123,14 @@
 > September 5, 2026
 
 - [`6d25796`](https://github.com/zumik3-del/synaptomind/commit/6d257963548489c7c09c8871ed83a7398e80f915): fix: remove v prefix from release tags
+- [`0c26d84`](https://github.com/zumik3-del/synaptomind/commit/0c26d84dc013e3d15ff3897e59967c7f18ea5f3e): docs: clean CHANGELOG.md for v0.5.0
 - [`41b1d99`](https://github.com/zumik3-del/synaptomind/commit/41b1d99d8f3d58ba3f8801d204ffa250fae1bbd0): fix: use --no-verify in changelog commit
 - [`e23a1bb`](https://github.com/zumik3-del/synaptomind/commit/e23a1bba2f34ef407e151ec391d04992a9ccf1a9): fix: quote git log format strings in changelog.cjs
 - [`931889e`](https://github.com/zumik3-del/synaptomind/commit/931889e3bf58f3b04635ac88df1796d2c902d4b9): fix: rename changelog.js to .cjs for ES module compatibility
 - [`7adafc5`](https://github.com/zumik3-del/synaptomind/commit/7adafc56c7559235f518024d4f87c2ce70323b53): chore: migrate from release-please to manual release workflow
-- [`ec8a15c`](https://github.com/zumik3-del/synaptomind/commit/ec8a15c54d4063b9339aef7ea36fefa092eb0f3a): chore: migrate from release-please to manual release workflow
 - [`a0e8bfd`](https://github.com/zumik3-del/synaptomind/commit/a0e8bfd0f17c8fda1ded2db73f56a06b1312fc1a): ci: remove duplicate release.yml workflow
-- [`e9ac93e`](https://github.com/zumik3-del/synaptomind/commit/e9ac93e35ca01f70be1a78c6d46050ad40c7b4c0): ci: remove duplicate release.yml workflow
 - [`daf32a8`](https://github.com/zumik3-del/synaptomind/commit/daf32a854f67cc05fb4285ea049a01b8a1a1282c): chore(main): release synaptomind 0.5.0 (#62)
 - [`d847443`](https://github.com/zumik3-del/synaptomind/commit/d84744396cdd8fe801131cecf793bc9b16e7557f): refactor: consolidate 37 MCP tools into 10 unified operations (#61)
-- [`b72da73`](https://github.com/zumik3-del/synaptomind/commit/b72da73d375e9753f91e0bc280818036ed0c0613): chore: add .dockerignore
-- [`ffa0ab9`](https://github.com/zumik3-del/synaptomind/commit/ffa0ab9143070eca890f4141e53cd01f3d24278b): docs: add pull request template
-- [`148d24e`](https://github.com/zumik3-del/synaptomind/commit/148d24e6f1fecc466cd3375932444be5d9660a85): chore: clean tag format (0.3.1), add release-please CI, --alpha deploy flag
-- [`58b0289`](https://github.com/zumik3-del/synaptomind/commit/58b02897764653029eabb3bac640f6b3505c7183): docs(readme): remove stars row from comparison table
-- [`09a1aab`](https://github.com/zumik3-del/synaptomind/commit/09a1aab512af9e0fcc71291c561f5f210b8fb391): docs(readme): restructure for conversion — hero, comparison table, folding sections
-- [`bfb7537`](https://github.com/zumik3-del/synaptomind/commit/bfb7537feb7c0c54fdc7d0f1eeccc2a235de8cd7): fix: extract release version via gh cli instead of broken manifest output
-- [`b0bfbd8`](https://github.com/zumik3-del/synaptomind/commit/b0bfbd8823add1b3f1bc91b6a463abab6c7d94fa): fix: correct release-please version output and rename CI workflow
-- [`d911e89`](https://github.com/zumik3-del/synaptomind/commit/d911e899e3cd5773a5f2ce4a57a2c8c9c4c51628): ci: upload coverage only on main
-- [`e8746cc`](https://github.com/zumik3-del/synaptomind/commit/e8746ccbbc97234293e9efc5b590727caf263fc3): ci: skip commitlint on push to main
-- [`7daddca`](https://github.com/zumik3-del/synaptomind/commit/7daddca3669d039b7290b3935ddb021de4de8d4b): ci: run coverage on push to main
-- [`5689e4f`](https://github.com/zumik3-del/synaptomind/commit/5689e4f0b06c0473966f60ce4d348eaf3aec8512): ci: fix Coveralls secret name
-- [`24ebc07`](https://github.com/zumik3-del/synaptomind/commit/24ebc07652f73aab0b2866881d9ec0e21a5ecf2f): ci: switch from Codecov to Coveralls
-- [`094db5e`](https://github.com/zumik3-del/synaptomind/commit/094db5eb8bbfa6cafb1c3f206572d7cf4a2d5d71): ci: generate lcov report for Codecov upload
-- [`4801552`](https://github.com/zumik3-del/synaptomind/commit/48015525a2a0980492136170342f0eb17dc23989): ci: add test coverage reporting with Codecov
 
 ## v0.4.0
 
@@ -171,10 +153,3 @@
 - [`e9c2f5b`](https://github.com/zumik3-del/synaptomind/commit/e9c2f5b2653284ec4bd5e3c98d62cd579af6fca1): ci: switch from Codecov to Coveralls (#44)
 - [`3cd9be7`](https://github.com/zumik3-del/synaptomind/commit/3cd9be77d3bfe1ef59a9e7dc3b4ce3e01baef953): ci: generate lcov report for Codecov upload (#43)
 - [`ac2a5a4`](https://github.com/zumik3-del/synaptomind/commit/ac2a5a4447a74fc750cd375f9e22d6c03de38f5a): ci: add test coverage reporting with Codecov (#42)
-- [`b990103`](https://github.com/zumik3-del/synaptomind/commit/b9901038b0753c45f2b9d41be953207e7a51dabe): docs: add README badges for CI, Release, License, Docker, and Bun
-
-## v0.3.0
-
-> September 4, 2026
-
-- Initial release
