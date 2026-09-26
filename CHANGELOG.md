@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.8.0-beta.0
+
+> September 26, 2026
+
+- [`021478f`](https://github.com/zumik3-del/synaptomind/commit/021478f0a94e4f2e6e780a145c5c5edfa0b80c2f): chore: bump version to 0.8.0-beta.0
+- [`8d48aad`](https://github.com/zumik3-del/synaptomind/commit/8d48aad004721fb8e42d6b1ceb3755bdf121cfd1): chore: drop unused db re-exports and dead export surface
+- [`abc2b3e`](https://github.com/zumik3-del/synaptomind/commit/abc2b3ec538362ef73a59f2241b00590395e5ffa): refactor: remove smart notes; fold pending surfacing into frontier (#149)
+- [`e1a59e0`](https://github.com/zumik3-del/synaptomind/commit/e1a59e0b729e43583fa41331e4092702359acc5e): test: raise eval isolation test timeout above subprocess runtime
+- [`8bd3c85`](https://github.com/zumik3-del/synaptomind/commit/8bd3c85d31a99e12db23b7a5dc1c938b8856280f): refactor: remove smart notes; fold pending surfacing into frontier (#148)
+- [`0835fd9`](https://github.com/zumik3-del/synaptomind/commit/0835fd9490db18ec6a476024d8af53aede00b23b): chore: ignore scripts/quick_deploy.sh
+- [`202d638`](https://github.com/zumik3-del/synaptomind/commit/202d638442f3d9bab9a05be4c7cbfd0496926856): refactor: remove dead code and unused entity-linking feature
+- [`1d40185`](https://github.com/zumik3-del/synaptomind/commit/1d4018528c375a48df6327c618a054381f79a4f8): test: extend eval harness with recency and no-match probes (#147)
+- [`ce92e27`](https://github.com/zumik3-del/synaptomind/commit/ce92e2740f98b2aa0bd1a081025113c88c2f32d2): test: eval scenarios for relevance signals and opt-in recency boost (#143, #145)
+
 ## v0.7.3
 
 > September 25, 2026
