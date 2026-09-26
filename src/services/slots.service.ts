@@ -144,4 +144,4 @@ export function updateExplicitSlot(name: string, input: UpdateSlotInput, default
   }
 }
 
-export { type ReflectInput, type ReflectResult, reflectSession } from './session-reflection.service'
+export { type ReflectInput, reflectSession } from './session-reflection.service'

@@ -97,7 +97,7 @@ test('getSlots pending_items slot is empty when no pending thoughts', () => {
 
 test('getSlots pending_items slot surfaces due pending thoughts', () => {
   const past = new Date(Date.now() - 86_400_000).toISOString()
-  const _id = seedThought({ content: 'wake me up', status: 'draft', tags: '["pending"]', surface_after: past })
+  seedThought({ content: 'wake me up', status: 'draft', tags: '["pending"]', surface_after: past })
   const slots = getSlots({ names: ['pending_items'] })
   expect(slots).toHaveLength(1)
   expect(slots[0]!.content).toContain('wake me up')

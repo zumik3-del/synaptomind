@@ -55,7 +55,7 @@ export interface RunResult {
   categories: Record<string, AggregateMetrics>
 }
 
-export interface RunOptions {
+interface RunOptions {
   mode?: EvalMode
   topK?: number
   scenarios?: EvalScenario[]
@@ -184,8 +184,8 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
 
 // ── Baseline / thresholds ────────────────────────────────────────────────────
 
-export const METRIC_KEYS = ['recall', 'precision', 'mrr', 'hitRate'] as const
-export type MetricKey = (typeof METRIC_KEYS)[number]
+const METRIC_KEYS = ['recall', 'precision', 'mrr', 'hitRate'] as const
+type MetricKey = (typeof METRIC_KEYS)[number]
 export type MetricFloor = Record<MetricKey, number>
 
 export interface ThresholdEntry {

@@ -14,12 +14,12 @@ import { deterministicEmbedding } from './embedding'
 export type EmbedFn = (text: string) => Float32Array | Promise<Float32Array>
 
 /** Per-query search knobs forwarded to `SearchServiceOptions`. */
-export interface QuerySearchOptions {
+interface QuerySearchOptions {
   recencyWeight?: number
   recencyHalfLifeDays?: number
 }
 
-export type Searcher = (
+type Searcher = (
   query: string,
   topK: number,
   projectFilter?: string,

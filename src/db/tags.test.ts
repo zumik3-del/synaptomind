@@ -159,7 +159,7 @@ test("listTags returns thought_count", () => {
 test("deleting a thought cleans up orphan tags", () => {
 	const db = getDb();
 	const t1 = createThought(db, { content: "one", tags: ["only-this"] });
-	const _t2 = createThought(db, { content: "two", tags: ["shared"] });
+	createThought(db, { content: "two", tags: ["shared"] });
 
 	expect(findTagByName(db, "only-this")).toBeDefined();
 
