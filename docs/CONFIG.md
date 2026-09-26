@@ -41,7 +41,7 @@ cp .env.example .env
 
 A stdio MCP client talks to the same SQLite database as the HTTP server. By
 default (`mcp.stdioStandalone=false`) the stdio process does **not** start the
-embedder child process, decay, dreamer, self-improve, or TTL-cleanup jobs — the
+embedder child process, decay, self-improve, or TTL-cleanup jobs — the
 shared HTTP server is their single owner. This avoids every client spawning its
 own embedder and schedulers against one DB.
 
@@ -116,17 +116,6 @@ Auto-delete archived thoughts after TTL.
 | `ttl.cleanupIntervalMs` | `SYNAPTOMIND_CLEANUP_INTERVAL_MS` | `86400000` | How often to run cleanup (ms). Default: 24h |
 
 **Note:** Thoughts with `is_protected: true` are never deleted by TTL cleanup.
-
----
-
-## Smart Notes
-
-Thoughts with surface conditions that auto-surface when relevant.
-
-| Setting | Env Var | Default | Description |
-|---------|---------|---------|-------------|
-| `smartNotes.autoPromote` | `SYNAPTOMIND_SMART_NOTES_AUTO_PROMOTE` | `false` | Auto-promote smart notes when conditions are met |
-| `smartNotes.evalIntervalMs` | `SYNAPTOMIND_SMART_NOTES_EVAL_INTERVAL` | `3600000` | How often to evaluate smart notes (ms). Default: 1h |
 
 ---
 
@@ -285,7 +274,6 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
     "intervalMs": 86400000
   },
   "ttl": { "archivedTtlDays": 90, "cleanupIntervalMs": 86400000 },
-  "smartNotes": { "autoPromote": false, "evalIntervalMs": 3600000 },
   "primer": { "promoteThreshold": 5, "topN": 3 },
   "verify": { "enabled": true, "driftThreshold": 0.25, "staleWarnDays": 30 },
   "autoCluster": {

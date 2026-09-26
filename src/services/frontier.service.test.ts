@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
-import { createSmartNote } from '../db/smart_notes'
 import { getFrontier } from './frontier.service'
 
 beforeEach(createTestDb)
@@ -151,9 +150,29 @@ test('getFrontier keeps contradicted thoughts (only replaces removes)', () => {
   expect(result.items.find(i => i.thought_id === b)).toBeDefined()
 })
 
-test('getFrontier excludes an archived thought even with a ready smart note', () => {
+test('getFrontier excludes an archived pending thought', () => {
   const id = seedThought({ content: 'archived pending', status: 'archived', tags: '["pending"]' })
-  createSmartNote(getDb(), id, { type: 'has_tag', tag: 'pending' })
   const result = getFrontier()
   expect(result.items.find(i => i.thought_id === id)).toBeUndefined()
+})
+
+test('getFrontier includes a due pending thought with reason=pending', () => {
+  const past = new Date(Date.now() - 86_400_000).toISOString()
+  const id = seedThought({ content: 'due pending', status: 'draft', tags: '["pending"]', surface_after: past })
+  const result = getFrontier()
+  expect(result.items.find(i => i.thought_id === id)).toBeDefined()
+  expect(result.items.find(i => i.thought_id === id)!.reason).toBe('pending')
+})
+
+test('getFrontier excludes a pending thought whose surface_after is in the future', () => {
+  const future = new Date(Date.now() + 7 * 86_400_000).toISOString()
+  const id = seedThought({ content: 'future pending', status: 'draft', tags: '["pending"]', surface_after: future })
+  const result = getFrontier()
+  expect(result.items.find(i => i.thought_id === id)).toBeUndefined()
+})
+
+test('getFrontier includes a pending thought with NULL surface_after immediately', () => {
+  const id = seedThought({ content: 'null-surface pending', status: 'draft', tags: '["pending"]', surface_after: null })
+  const result = getFrontier()
+  expect(result.items.find(i => i.thought_id === id)).toBeDefined()
 })

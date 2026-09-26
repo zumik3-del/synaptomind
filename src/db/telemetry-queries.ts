@@ -17,8 +17,6 @@ const GROUNDING_TOOLS = [
   'get_chain',
   'get_frontier',
   'get_slots',
-  'list_smart_notes',
-  'eval_smart_notes',
   'get_profile'
 ]
 

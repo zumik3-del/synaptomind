@@ -19,6 +19,8 @@ export function seedThought(overrides?: {
 	importance?: number;
 	/** Fixed ISO-8601 `created_at` for deterministic recency tests. */
 	created_at?: string;
+	/** Pending surfacing delay; NULL/omitted means immediately eligible. */
+	surface_after?: string | null;
 }): string {
 	const db = getDb();
 	const id = overrides?.id ?? Bun.randomUUIDv7();
@@ -34,8 +36,8 @@ export function seedThought(overrides?: {
 		new Date().toISOString(),
 	);
 	db.prepare(`
-    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, created_at, updated_at, surface_after)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
 		id,
 		overrides?.content ?? "test thought",
@@ -47,6 +49,7 @@ export function seedThought(overrides?: {
 		overrides?.is_protected ?? 1,
 		now,
 		now,
+		overrides?.surface_after ?? null,
 	);
 	const existing = db
 		.prepare(`SELECT 1 FROM thought_importance WHERE thought_id = ?`)

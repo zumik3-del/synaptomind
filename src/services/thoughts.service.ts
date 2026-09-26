@@ -3,7 +3,6 @@ import { config } from '../config'
 import { createEdge, getClusterMembers, getEdgesForThought, toEdgeView, type EdgeView } from '../db/edges'
 import { getDb } from '../db'
 import { getThoughtLimitsDB } from '../db/settings'
-import { deleteSmartNotesByThoughtId } from '../db/smart_notes'
 import { pruneThoughtUrlLinks, upsertThoughtUrlLink } from '../db/thought_url_links'
 import {
   type CreateThoughtInput,
@@ -101,11 +100,6 @@ export function updateThoughtById(id: string, data: UpdateThoughtInput, d: Datab
   }
   const run = d.transaction(() => {
     const updated = dbUpdateThought(d, id, data)
-    // An archived thought is out of the plan: its smart notes would otherwise
-    // keep resurfacing it in frontier/pending_items (issue: archived leak).
-    if (updated && data.status === 'archived') {
-      deleteSmartNotesByThoughtId(d, id)
-    }
     // issue #256: updated content may drop `[[key|...]]` markers — prune the
     // thought's orphaned url_links rows in the same transaction as the content
     // update (mirrors the merge path).
@@ -125,7 +119,6 @@ export function archiveThoughtById(id: string, d: Database = getDb()): Thought |
   assertNotProfileArchive(thought)
   const run = d.transaction(() => {
     const archived = dbArchiveThought(d, id) ?? null
-    if (archived) deleteSmartNotesByThoughtId(d, id)
     return archived
   })
   return run()
@@ -271,8 +264,6 @@ export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database 
     const transferredEdges = transferEdgesFromSource(d, sourceId, targetId)
 
     dbArchiveThought(d, sourceId)
-    // Merged-away source is archived: drop its smart notes so it cannot wake up.
-    deleteSmartNotesByThoughtId(d, sourceId)
 
     createEdge(d, targetId, sourceId, 'replaces')
 

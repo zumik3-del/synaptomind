@@ -32,6 +32,7 @@ import v035 from './v035-pending-embeddings-hash'
 import v036 from './v036-archived-at'
 import v037 from './v037-is-protected'
 import v038 from './v038-drop-thought-entities'
+import v039 from './v039-drop-smart-notes'
 
 export interface Migration {
   version: number
@@ -70,5 +71,6 @@ export const MIGRATIONS: Migration[] = [
   v035,
   v036,
   v037,
-  v038
+  v038,
+  v039
 ].sort((a, b) => a.version - b.version)

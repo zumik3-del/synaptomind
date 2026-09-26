@@ -20,7 +20,6 @@ interface Config {
     rate: number; archiveThreshold: number;
     archiveMinAgeDays: number; intervalMs: number
   }
-  smartNotes: { autoPromote: boolean; evalIntervalMs: number }
   primer: { promoteThreshold: number; topN: number }
   verify: { enabled: boolean; driftThreshold: number; staleWarnDays: number }
   autoCluster: {
@@ -66,7 +65,6 @@ export const DEFAULTS: Config = {
     rate: 0.95, archiveThreshold: 0.1,
     archiveMinAgeDays: 30, intervalMs: 86400000
   },
-  smartNotes: { autoPromote: false, evalIntervalMs: 3600000 },
   primer: { promoteThreshold: 5, topN: 3 },
   verify: { enabled: true, driftThreshold: 0.25, staleWarnDays: 30 },
   autoCluster: {
@@ -136,9 +134,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_ARCHIVE_THRESHOLD', path: 'decay.archiveThreshold', type: 'float' },
   { env: 'SYNAPTOMIND_ARCHIVE_MIN_AGE_DAYS', path: 'decay.archiveMinAgeDays', type: 'int' },
   { env: 'SYNAPTOMIND_DECAY_INTERVAL_MS', path: 'decay.intervalMs', type: 'int' },
-
-  { env: 'SYNAPTOMIND_SMART_NOTES_AUTO_PROMOTE', path: 'smartNotes.autoPromote', type: 'bool' },
-  { env: 'SYNAPTOMIND_SMART_NOTES_EVAL_INTERVAL', path: 'smartNotes.evalIntervalMs', type: 'int' },
 
   { env: 'SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD', path: 'primer.promoteThreshold', type: 'int' },
   { env: 'SYNAPTOMIND_PRIMER_TOP_N', path: 'primer.topN', type: 'int' },

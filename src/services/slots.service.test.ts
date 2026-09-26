@@ -88,3 +88,32 @@ test('updateExplicitSlot supports project scope', () => {
 test('updateExplicitSlot rejects project scope without project_id', () => {
   expect(() => updateExplicitSlot('project_context', { content: 'x', scope: 'project' }, 2000)).toThrow(ValidationError)
 })
+
+test('getSlots pending_items slot is empty when no pending thoughts', () => {
+  const slots = getSlots({ names: ['pending_items'] })
+  expect(slots).toHaveLength(1)
+  expect(slots[0]!.content).toBe('')
+})
+
+test('getSlots pending_items slot surfaces due pending thoughts', () => {
+  const past = new Date(Date.now() - 86_400_000).toISOString()
+  const _id = seedThought({ content: 'wake me up', status: 'draft', tags: '["pending"]', surface_after: past })
+  const slots = getSlots({ names: ['pending_items'] })
+  expect(slots).toHaveLength(1)
+  expect(slots[0]!.content).toContain('wake me up')
+})
+
+test('getSlots pending_items slot omits not-yet-due pending thoughts', () => {
+  const future = new Date(Date.now() + 7 * 86_400_000).toISOString()
+  seedThought({ content: 'not yet', status: 'draft', tags: '["pending"]', surface_after: future })
+  const slots = getSlots({ names: ['pending_items'] })
+  expect(slots).toHaveLength(1)
+  expect(slots[0]!.content).toBe('')
+})
+
+test('getSlots pending_items slot is virtual', () => {
+  const slots = getSlots({ names: ['pending_items'] })
+  expect(slots).toHaveLength(1)
+  expect(slots[0]!.virtual).toBeTrue()
+  expect(slots[0]!.scope).toBe('global')
+})

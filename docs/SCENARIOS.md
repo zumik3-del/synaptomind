@@ -29,7 +29,7 @@ Agent boots → memory_status(action=slots) →
   sees persona (from profile thoughts),
   active_goals,
   project_context (previous reflections),
-  pending_items (ready deferred tasks),
+  pending_items (due pending thoughts),
   architecture_decisions (from examples)
 → understands what was decided before and what's on the queue
 ```
@@ -43,30 +43,19 @@ Agent boots → memory_status(action=slots) →
 4. memory_store(action=create, "need to do Z", tags=["todo", "pending"]) → plan the next step
 ```
 
-## Scenario 4: Sleeping Thoughts (Deferred Awakening)
+## Scenario 4: Sleeping Thoughts (Deferred Surfacing)
 
 ```
 memory_reflect(action=reflect, pending=["write auth tests", "update docs"], wake_days=7)
-  → each pending thought is created as a draft + smart_note(older_than_days: 7)
-  → nothing happens for 7 days...
-  → dreamer job (or manual awakening) checks smart notes
-  → older_than_days fires → thought is promoted → draft → active
-  → appears in frontier as "what to do next"
+  → each pending thought is created as a draft tagged `pending`
+    with surface_after = now + 7 days
+  → nothing surfaces for 7 days...
+  → once due, the thought appears in the frontier (reason `pending`)
+    and in the pending_items slot
+  → it stays a draft until the agent acts on it (activate or archive)
 ```
 
-## Scenario 5: Automatic Wake on Condition
-
-```
-memory_store(action=create, "check load", tags=["todo"])
-memory_store(action=smart_note_create, thought_id=..., surface_condition={type: "project_status", days: 14})
-  → thought sleeps as draft
-  → project_status checks MAX(updated_at) across all non-archived thoughts in the project
-  → NOTE: the thought itself counts as activity, so the condition may fire immediately
-  → intended use: "remind me when the project becomes active again"
-  → known limitation: own thought creation can satisfy the condition on first evaluation
-```
-
-## Scenario 6: Task Completion — Reflection
+## Scenario 5: Task Completion — Reflection
 
 ```
 memory_reflect(
@@ -82,20 +71,22 @@ memory_reflect(
 What happens inside:
 - `summary` → appended to `project_context` slot (with timestamp)
 - `goals_delta` → updates `active_goals` (new ones added, `closed:` — removed)
-- `decisions` → creates **active** thoughts with tag `decision` (knowledge graph, not in frontier — frontier only surfaces directive/todo tags and ready smart notes)
-- `pending` → creates **draft** thoughts with tag `pending` + smart_note for N days (will wake up later)
+- `decisions` → creates **active** thoughts with tag `decision` (knowledge graph, not in frontier — frontier only surfaces `directive`/`todo`/`pending` thoughts)
+- `pending` → creates **draft** thoughts with tag `pending` and `surface_after = now + wake_days` (they join the frontier once due)
 
-## Scenario 7: Frontier — What to Do Next
+## Scenario 6: Frontier — What to Do Next
 
 ```
 memory_status(action=frontier)
-  → candidates: active/draft thoughts with directive/todo tags + ready smart notes
+  → candidates: active/draft thoughts tagged directive, todo or pending
+    whose surface_after delay has elapsed (or is unset)
   → excluded: clusters, crystals, profile summaries, replaced thoughts
-  → priority = 0.5·importance + 0.25·ready + 0.15·unblocked + recency_bonus (newer = higher)
+  → priority = 0.5·importance + 0.15·unblocked + age bonus
+    (age ≤ 7d: +0.1, ≤ 30d: +0.05, else 0)
   → depends_on: blocked items lose the 0.15 unblocked bonus but still surface with lower priority and blocked_by metadata
 ```
 
-## Scenario 8: Grouping and Compression
+## Scenario 7: Grouping and Compression
 
 ```
 memory_crystallize(action=auto_cluster) → similar thoughts merged into clusters (Union-Find)
@@ -104,7 +95,7 @@ memory_crystallize(action=crystallize, cluster_id=..., style="runbook") →
   → crystal thought created (source="crystal"), excluded from frontier
 ```
 
-## Scenario 9: Profile (Persona)
+## Scenario 8: Profile (Persona)
 
 ```
 memory_store(action=create, "Prefer TypeScript", is_profile=true, tags=["@profile", "@profile-preferences"])
@@ -114,7 +105,7 @@ memory_store(action=create, "Work at night", is_profile=true, tags=["@profile", 
   → persona slot = profile summary → available to agent via memory_status(action=slots)
 ```
 
-## Scenario 10: Self-Cleanup
+## Scenario 9: Self-Cleanup
 
 ```
 decay job → importance decreases by rate (0.95) every 24h
@@ -131,4 +122,4 @@ self-improve → detects:
 
 ---
 
-**Key idea:** thoughts are not static records — they are living objects with status `draft → active → archived`, importance that decays, and smart notes that control *when* a thought becomes relevant. Reflection is the point where an agent records decisions and defers future tasks. The frontier is a deterministic answer to "what to do now".
+**Key idea:** thoughts are not static records — they are living objects with status `draft → active → archived`, importance that decays, and pending deferrals that control *when* a thought becomes relevant. Reflection is the point where an agent records decisions and defers future tasks. The frontier is a deterministic answer to "what to do now".

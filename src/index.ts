@@ -17,7 +17,6 @@ const { startMcpHttpServer } = await import('./mcp/http-transport')
 const { createMcpServer } = await import('./mcp/server')
 const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js')
 const { startDecayJob, stopDecayJob } = await import('./services/decay.service')
-const { startDreamerJob, stopDreamerJob } = await import('./services/dreamer.service')
 const { startSelfImproveJob, stopSelfImproveJob } = await import('./services/self-improve.service')
 const { startTtlCleanupJob, stopTtlCleanupJob } = await import('./services/ttl-cleanup.service')
 
@@ -67,7 +66,6 @@ if (!ownsBackgroundJobs) {
     })
   }
   startDecayJob()
-  startDreamerJob()
   startSelfImproveJob()
   startTtlCleanupJob()
 }
@@ -79,7 +77,6 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   shutdownStarted = true
   console.error('\n[synaptomind] shutting down...')
   stopDecayJob()
-  stopDreamerJob()
   stopSelfImproveJob()
   stopTtlCleanupJob()
   await stopEmbedderProcess()

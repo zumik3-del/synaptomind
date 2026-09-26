@@ -105,13 +105,12 @@ sequenceDiagram
 | **Vector search** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Full-text search** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **MCP server** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Smart notes (auto-surfacing)** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Frontier (next-action ranking)** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Local embeddings** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Runtime** | Bun | Python | Python | Python | Python |
 | **License** | MIT | AGPL-3.0 | Apache-2.0 | Apache-2.0 | Apache-2.0 |
 
-**What makes SynaptoMind different:** Graph-native thought storage with semantic search, smart notes that auto-surface when relevant, and Frontier ranking — all running locally with zero external dependencies. MIT licensed.
+**What makes SynaptoMind different:** Graph-native thought storage with semantic search and Frontier ranking — all running locally with zero external dependencies. MIT licensed.
 
 ---
 
@@ -123,9 +122,8 @@ sequenceDiagram
 | Concept | What it does |
 |---------|-------------|
 | **Thoughts** | Individual notes/ideas. Each gets an embedding for semantic search and links to other thoughts. |
-| **Smart Notes** | Thoughts with surface conditions. They auto-surface when relevant context arrives — e.g., "remind me about auth when I start a session" — and self-promote when enough evidence accumulates. |
 | **Slots** | Context windows summarizing your state: persona, goals, architecture decisions. Agents read these on startup. |
-| **Frontier** | Ranks "what to do next" based on your thought graph. Most actionable, connected, timely items first. |
+| **Frontier** | Ranks "what to do next" over `directive`/`todo`/`pending` thoughts. Deferred pending items join once their `wake_days` delay has elapsed. |
 | **Primer** | Compact project summary for quick context injection. Promotes the most relevant thoughts into one document. |
 | **Crystals** | Compressed markdown from thought clusters — runbooks, decision logs, overviews. |
 
@@ -134,12 +132,12 @@ sequenceDiagram
 <details>
 <summary><strong>Technical capabilities</strong></summary>
 
-- **Graph storage** — thoughts, edges, projects, tags, smart notes in SQLite
+- **Graph storage** — thoughts, edges, projects, tags in SQLite
 - **Hybrid search** — vector (vec0) + BM25 (FTS5) via Reciprocal Rank Fusion
 - **Local embeddings** — `@huggingface/transformers`, no API keys
 - **MCP server** — stdio + HTTP transport
 - **Auto-clustering** — batch grouping by embedding proximity
-- **Background jobs** — decay, dreamer, self-improve, TTL cleanup
+- **Background jobs** — decay, self-improve, TTL cleanup
 
 </details>
 
@@ -235,7 +233,7 @@ For clients that prefer stdio:
 
 By default the stdio process is a **single-owner client**: it opens an MCP
 session against the shared database but does **not** start its own embedder
-child process or the decay / dreamer / self-improve / TTL-cleanup jobs. Those
+child process or the decay / self-improve / TTL-cleanup jobs. Those
 are owned by the standalone HTTP server, so N stdio clients no longer spawn N
 embedders and N schedulers against one DB.
 
@@ -487,7 +485,7 @@ curl http://127.0.0.1:3005/health
 | Category | Tools |
 |----------|-------|
 | Recall | `memory_recall` (search, get, context, chain, clusters) |
-| Store | `memory_store` (create, update, link, smart_note_*) |
+| Store | `memory_store` (create, update, link) |
 | Supersede | `memory_supersede` (archive, merge) |
 | Status | `memory_status` (slots, frontier, profile, config, health, cleanup) |
 | Projects | `memory_manage` (list, create, update, delete, resolve) |

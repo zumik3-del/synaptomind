@@ -3,7 +3,7 @@ import { getDb } from '../db'
 import { getPrimers } from '../db/primers'
 import { getSlotRow, upsertSlot } from '../db/slots'
 import { NotFoundError, ValidationError } from '../errors'
-import { listSmartNotesWithReady } from './smart_notes.service'
+import { listPendingCandidates } from './frontier.service'
 import { getThoughtById } from './thoughts.service'
 import type { Database } from 'bun:sqlite'
 
@@ -47,14 +47,11 @@ function personaContent(db: Database): string {
   return rows.map(r => r.content).join('\n\n')
 }
 
-// pending_items — smart notes whose wake-up condition is currently met (FI-03).
-function pendingItemsContent(): string {
-  const ready = listSmartNotesWithReady().filter(n => n.ready)
+// pending_items — due pending candidates, the same set the frontier surfaces (FI-03).
+function pendingItemsContent(db: Database): string {
   const bullets: string[] = []
-  for (const note of ready) {
-    const thought = getThoughtById(note.thought_id)
-    if (!thought) continue
-    bullets.push(`- ${thought.content.replace(/\s+/g, ' ').trim()} (${note.condition_hit ?? 'ready'})`)
+  for (const candidate of listPendingCandidates(db)) {
+    bullets.push(`- ${candidate.content.replace(/\s+/g, ' ').trim()}`)
   }
   return bullets.join('\n')
 }
@@ -83,7 +80,7 @@ export function getSlots(opts?: { projectId?: string; names?: string[] }): SlotV
       let content: string
       if (name === 'persona') content = personaContent(d)
       else if (name === 'architecture_decisions') content = architectureDecisionsContent(d)
-      else content = pendingItemsContent()
+      else content = pendingItemsContent(d)
       const { content: truncatedContent, truncated } = truncate(content, maxChars)
       views.push({ name, scope: 'global', virtual: true, content: truncatedContent, truncated, max_chars: maxChars, updated_at: null })
       continue

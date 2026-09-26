@@ -1,6 +1,6 @@
 # HTTP API Reference
 
-REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Server version at time of writing: **0.7.1**.
+REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Server version at time of writing: **0.7.3**.
 
 - **Auth:** all `/api/*` endpoints require `Authorization: Bearer <token>` (401 otherwise). The token is set via the `SYNAPTOMIND_SECRET` or `SYNAPTOMIND_SERVICE_TOKEN` environment variable. `GET /health` is the only public endpoint.
 - **Body limit:** request bodies over 5 MB are rejected with `413`.
@@ -546,59 +546,6 @@ curl `http://127.0.0.1:3005/api/telemetry/draft_lifecycle`
 
 Response: `{"window_secs": 2592000, ...lifecycle}`
 
-## Smart Notes
-
-Smart notes re-surface a thought when a surface condition is met.
-
-### GET /api/smart-notes/
-
-Lists all smart notes with their readiness status.
-
-curl `http://127.0.0.1:3005/api/smart-notes/`
-
-Response: `[{"id": "...", "thought_id": "...", "surface_condition": {"type": "older_than_days", "days": 7}, "surface_checked_at": "...", "created_at": "...", "ready": false}]`
-
-### POST /api/smart-notes/
-
-Creates a smart note attached to an existing thought (cluster thoughts are rejected). Returns 201.
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| thought_id | body | string | required | Target thought id |
-| surface_condition | body | object | required | Condition object, see below |
-
-Condition object: `type` must be one of `older_than_days`, `has_tag`, `has_edge_type`, `project_status`, `unread_for_days`. `days` (positive integer) is required for `older_than_days`, `project_status`, `unread_for_days`; non-empty `tag` for `has_tag`; non-empty `edge_type` for `has_edge_type`.
-
-curl `-d '{"thought_id": "<id>", "surface_condition": {"type": "older_than_days", "days": 30}}' http://127.0.0.1:3005/api/smart-notes/`
-
-### POST /api/smart-notes/eval
-
-Evaluates all smart notes against their conditions.
-
-curl `-X POST http://127.0.0.1:3005/api/smart-notes/eval`
-
-### POST /api/smart-notes/awaken
-
-Wakes (promotes to active) all notes whose conditions are ready.
-
-curl `-X POST http://127.0.0.1:3005/api/smart-notes/awaken`
-
-Response: `{"awakened": [{...}], "count": 2}`
-
-### POST /api/smart-notes/:id/promote
-
-Manually promotes a smart note's thought.
-
-curl `-X POST http://127.0.0.1:3005/api/smart-notes/<id>/promote`
-
-Response: `{"ok": true, "thought": {...}}`
-
-### DELETE /api/smart-notes/:id
-
-Deletes a smart note. Returns `{"success": true}`.
-
-curl `-X DELETE http://127.0.0.1:3005/api/smart-notes/<id>`
-
 ## Profile
 
 ### GET /api/profile/thoughts
@@ -636,6 +583,8 @@ curl `'http://127.0.0.1:3005/api/slots/?names=persona,pending_items'`
 
 Response: `{"slots": [{"name": "persona", "content": "...", ...}]}`
 
+`pending_items` is virtual: it is built from the same due `pending` candidates the frontier surfaces.
+
 ### PUT /api/slots/:name
 
 Creates or updates a slot. All body fields optional; `content` defaults to empty string. 400/404 on validation/not-found errors.
@@ -659,13 +608,15 @@ Records a session outcome: appends a summary, adjusts goals, creates decision an
 | project_id | body | string | optional/null | Project scope |
 | summary | body | string | optional | Session summary |
 | goals_delta | body | string[] | optional | Goals to add; prefix `closed:` to remove |
-| decisions | body | string[] | optional | Decisions made |
-| pending | body | string[] | optional | Pending tasks |
-| wake_days | body | int | optional | Days before pending items resurface |
+| decisions | body | string[] | optional | Decisions made — each created as an active thought tagged `decision` |
+| pending | body | string[] | optional | Pending tasks — each created as a draft thought tagged `pending` |
+| wake_days | body | int | optional | Days before the newly created `pending` thoughts join the frontier (default 7, 1-365) |
 
 curl `-d '{"summary": "Added API docs", "decisions": ["Use manual API reference"]}' http://127.0.0.1:3005/api/slots/reflect`
 
 Response: `{"ok": true, "applied": {"summary_appended": true, "goals_added": 0, "goals_removed": 0, "decisions_created": 1, "pending_created": 0}}`
+
+`pending` items are stored with `surface_after = now + wake_days`; they enter the frontier (reason `pending`) and the `pending_items` slot once due, and stay drafts until the agent activates or archives them.
 
 ## Crystals
 
@@ -688,7 +639,7 @@ Response: `{"crystal_id": "...", "content": "## Context\n...", "style": "overvie
 
 ### GET /api/frontier/
 
-Ranks candidate thoughts by "what to work on next".
+Ranks candidate thoughts by "what to work on next". Candidates are `directive`/`todo`/`pending`-tagged thoughts in status active or draft (non-cluster); replaced thoughts are dropped and `depends_on` upstreams block their dependents.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
@@ -697,7 +648,9 @@ Ranks candidate thoughts by "what to work on next".
 
 curl `'http://127.0.0.1:3005/api/frontier/?k=3'`
 
-Response: `{"items": [{"thought": {...}, "score": 4.2, "reasons": [...]}]}`
+Response: `{"items": [{"thought_id": "...", "content_short": "...", "reason": "directive", "priority": 0.65, "blocked_by": []}]}`
+
+`reason` is `directive` for `directive`/`todo` thoughts and `pending` for `pending` thoughts. `priority` is `min(1, 0.5·importance + 0.15·unblocked + age bonus)`, where the unblocked bonus is dropped when `blocked_by` is non-empty and the age bonus is `+0.1` (age ≤ 7d), `+0.05` (≤ 30d), else `0`. `blocked_by` lists the `depends_on` upstream thought ids.
 
 ## Auto-cluster
 
@@ -739,4 +692,4 @@ Public liveness/readiness probe (no auth). Returns 200 when healthy, 503 when de
 
 curl `http://127.0.0.1:3005/health`
 
-Response: `{"status": "ok", "version": "0.7.1", "checks": {"database": "ok", "embedder": "ok"}}`
+Response: `{"status": "ok", "version": "0.7.3", "checks": {"database": "ok", "embedder": "ok"}}`
