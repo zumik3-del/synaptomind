@@ -355,7 +355,36 @@ if [ -n "$YML" ]; then
     fail "Debug echo line(s) remain in detect step: $(printf '%s\n' "$DEBUG_ECHO" | head -3)"
   fi
 
-  # 7f. Notes step: no `|| true` swallowing real command failures.
+  # 7g. workflow_dispatch trigger present alongside push.
+  if grep -q 'workflow_dispatch' "$YML"; then
+    pass "workflow_dispatch trigger is present"
+  else
+    fail "workflow_dispatch trigger is MISSING (releases cannot be manually triggered)"
+  fi
+
+  # 7h. Git identity configured before tag creation (required for annotated tags).
+  if grep -q 'git config --global user.name' "$YML" && grep -q 'git config --global user.email' "$YML"; then
+    # Verify the identity step appears BEFORE the "Create annotated tag" step.
+    IDENTITY_LINE=$(grep -n 'git config --global user.name' "$YML" | head -1 | cut -d: -f1)
+    TAG_LINE=$(grep -n 'Create annotated tag' "$YML" | head -1 | cut -d: -f1)
+    if [ -n "$IDENTITY_LINE" ] && [ -n "$TAG_LINE" ] && [ "$IDENTITY_LINE" -lt "$TAG_LINE" ]; then
+      pass "Git identity configured before annotated tag step (line $IDENTITY_LINE < $TAG_LINE)"
+    else
+      fail "Git identity step is missing or appears AFTER the tag creation step"
+    fi
+  else
+    fail "Git identity (user.name / user.email) configuration is MISSING before tag creation"
+  fi
+
+  # 7i. prev_tag fallback: when github.event.before is empty, derive from newest tag by creatordate.
+  #     Uses fixed-string exact-tag exclusion (grep -Fxv) to avoid regex interpretation of tag names.
+  if grep -q 'git tag --sort=-creatordate' "$YML" && grep -q 'grep -Fxv' "$YML"; then
+    pass "prev_tag fallback via creatordate present for workflow_dispatch scenario (fixed-string exclusion)"
+  else
+    fail "prev_tag fallback via creatordate is MISSING or uses regex exclusion (workflow_dispatch cannot derive prev_tag)"
+  fi
+
+  # 7j. Notes step: no `|| true` swallowing real command failures.
   #     The notes step is the `Build Release Notes` job step (id: notes).
   #     grep commands with || true are expected (no-match exit 1); we check
   #     that non-grep commands don't have || true.
@@ -365,7 +394,7 @@ if [ -n "$YML" ]; then
   if [ -z "$SILENCED_NON_GREP" ]; then
     pass "Notes step: no non-grep commands swallow failures with || true"
   else
-    fail "Notes step has non-grep || true swallowing failures: $(printf '%s\n' "$SILENCED_NON_GREP" | head -3)"
+    fail "Notes step has non-grep || true swallowing failures: $(printf '%s\n' "$NOTES_SECTION" | grep -E '\|\| true' | grep -v 'grep ' | head -3)"
   fi
 fi
 
