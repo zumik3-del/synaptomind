@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 
-# Provenance: vendored verbatim from https://forgejo.home.lan/authelia/bun-templates commit 89be318daf8adab5ddca957162b3b7df8429e725
+# Provenance: vendored from https://forgejo.home.lan/authelia/bun-templates commit 89be318daf8adab5ddca957162b3b7df8429e725
+# Locally extended: piped-form default raw base (DEPLOY_RAW_URL) for the one-liner below.
 # ════════════════════════════════════════════════════════════════════════════
 #  install.sh — install (or reinstall) one app from app.env
 #
 #  Local run (deploy/ copied into your app repo):
 #      sudo bash deploy/install.sh [OPTIONS]
 #
-#  One-liner (publish deploy/ and your app.env somewhere reachable):
-#      curl -fsSL https://HOST/deploy/install.sh \
-#        | APP_ENV_URL=https://HOST/myapp/app.env \
-#          LIB_RAW_URL=https://HOST/deploy/lib/common.sh bash -s -- [OPTIONS]
+#  One-liner (published SynaptoMind deploy/; no environment variables needed):
+#      curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh | bash
+#
+#  Forks/mirrors can point elsewhere; DEPLOY_RAW_URL moves the base used for
+#  lib/common.sh and app.env, and an explicit LIB_RAW_URL/APP_ENV_URL wins:
+#      DEPLOY_RAW_URL=https://HOST/deploy curl -fsSL https://HOST/deploy/install.sh | bash
 #
 #  Options:
 #      --dir DIR       Install directory        (default: INSTALL_DIR in app.env)
@@ -27,8 +30,26 @@
 set -euo pipefail
 
 # Directory this script was loaded from. Empty for `curl ... | bash` (stdin),
-# where BASH_SOURCE is unset — see load_common() below.
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P)" || SCRIPT_DIR=""
+# where BASH_SOURCE is unset — see load_common() below. Falling back to $0 would
+# resolve to the caller's cwd and misdetect a piped run as a local one, so the
+# fallback is deliberately empty.
+SCRIPT_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || SCRIPT_DIR=""
+fi
+
+# ── Raw base for the piped form (`curl … | bash`) ──────────────────────────
+# A piped run has no SCRIPT_DIR, so lib/common.sh and app.env must be fetched.
+# Default to the published SynaptoMind deploy/ base so the one-liner needs no
+# environment; an explicit LIB_RAW_URL/APP_ENV_URL wins over the derived value,
+# and DEPLOY_RAW_URL relocates the base (forks, mirrors). Local/checkout runs
+# (SCRIPT_DIR non-empty) keep using the sibling files, so the defaults below
+# are never applied there.
+if [ -z "$SCRIPT_DIR" ]; then
+  DEPLOY_RAW_URL="${DEPLOY_RAW_URL:-https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy}"
+  LIB_RAW_URL="${LIB_RAW_URL:-${DEPLOY_RAW_URL}/lib/common.sh}"
+  APP_ENV_URL="${APP_ENV_URL:-${DEPLOY_RAW_URL}/app.env}"
+fi
 
 # ── Argument state (overrides app.env after it is loaded) ──────────────────
 ARG_DIR=""
@@ -39,7 +60,7 @@ NO_SERVICE=false
 
 # ── Load lib/common.sh ─────────────────────────────────────────────────────
 # Normally a sibling file. Under `curl | bash` there is none, so fetch it from
-# LIB_RAW_URL (set in the environment before the pipe, since app.env is not
+# LIB_RAW_URL (defaulted above for the published base, since app.env is not
 # readable yet).
 load_common() {
   local cand tmp
@@ -81,7 +102,7 @@ parse_args() {
       --force)      FORCE=true;       shift   ;;
       --no-service) NO_SERVICE=true;  shift   ;;
       --help|-h)
-        sed -n '2,24p' "$0" 2>/dev/null || echo "See the comment header of install.sh"
+        sed -n '3,28p' "$0" 2>/dev/null || echo "See the comment header of install.sh"
         exit 0 ;;
       *) error "unknown option: $1 (try --help)" ;;
     esac

@@ -10,15 +10,13 @@ the [README](../README.md).
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh \
-  | APP_ENV_URL=https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/app.env \
-    LIB_RAW_URL=https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/lib/common.sh \
-    bash
+curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh | bash
 ```
 
-`APP_ENV_URL` supplies the config and `LIB_RAW_URL` the shared helpers, since a
-piped script has no sibling files. Server starts on `http://127.0.0.1:3005`.
-MCP endpoint: `http://127.0.0.1:3006/mcp`.
+A piped script has no sibling files, so the shared helpers and config are fetched
+from the published base by default — no environment variables are needed.
+`DEPLOY_RAW_URL` overrides that base (forks/mirrors). Server starts on
+`http://127.0.0.1:3005`. MCP endpoint: `http://127.0.0.1:3006/mcp`.
 
 ---
 
@@ -27,15 +25,18 @@ MCP endpoint: `http://127.0.0.1:3006/mcp`.
 ### One-line install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh \
-  | APP_ENV_URL=https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/app.env \
-    LIB_RAW_URL=https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/lib/common.sh \
-    bash
+curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh | bash
 ```
 
-`APP_ENV_URL` points at `deploy/app.env` and `LIB_RAW_URL` at the shared helpers
-(`deploy/lib/common.sh`) — both are required for the piped form, where the
-script has no sibling files.
+A piped script has no sibling files, so the shared helpers (`deploy/lib/common.sh`)
+and config (`deploy/app.env`) are fetched from the published base by default.
+`APP_ENV_URL` and `LIB_RAW_URL` are optional overrides for those two URLs, and
+`DEPLOY_RAW_URL` moves the base used for both (forks/mirrors). To pass flags in
+the piped form, append them after `bash -s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh | bash -s -- --port 3005
+```
 
 ### From a checkout
 

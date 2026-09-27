@@ -22,14 +22,13 @@
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh \
-  | APP_ENV_URL=https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/app.env \
-    LIB_RAW_URL=https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/lib/common.sh \
-    bash
+curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh | bash
 ```
 
-`APP_ENV_URL` supplies the config and `LIB_RAW_URL` the shared helpers, since a
-piped script has no sibling files. Server starts on `http://127.0.0.1:3005`.
+A piped script has no sibling files, so the shared helpers and config are fetched
+from the published base by default — no environment variables are needed.
+`DEPLOY_RAW_URL` overrides that base (forks/mirrors); an explicit `APP_ENV_URL`
+or `LIB_RAW_URL` still wins. Server starts on `http://127.0.0.1:3005`.
 MCP endpoint: `http://127.0.0.1:3006/mcp`.
 
 For the full install & update guide (flags, channels, rollback, uninstall), see
