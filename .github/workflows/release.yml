@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -84,7 +85,10 @@ jobs:
           if [ -n "$PREV_VERSION" ]; then
             echo "prev_tag=v${PREV_VERSION}" >> "$GITHUB_OUTPUT"
           else
-            echo "prev_tag=" >> "$GITHUB_OUTPUT"
+            # workflow_dispatch: derive prev tag from most recent existing tag
+            # excluding the new tag itself
+            PREV_TAG=$(git tag --sort=-creatordate | grep -Fxv "${TAG}" | head -1 || true)
+            echo "prev_tag=${PREV_TAG}" >> "$GITHUB_OUTPUT"
           fi
 
   verify:
@@ -159,6 +163,11 @@ jobs:
           echo "Generated release notes:"
           cat RELEASE_NOTES.md
           echo "RELEASE_NOTES_PATH=${{ runner.temp }}/RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
 
       - name: Create annotated tag
         run: |
