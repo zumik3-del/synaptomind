@@ -390,7 +390,9 @@ polls `/health`.
 
 ### Channels
 
-`CHECKOUT_POLICY` in `deploy/app.env` selects what install and update resolve:
+`CHECKOUT_POLICY` in `deploy/app.env` selects what install and a direct
+`update.sh` run resolve. The frozen `updater.sh` (below) always resolves stable
+releases and ignores `CHECKOUT_POLICY`.
 
 | Value | Resolves |
 |-------|----------|
@@ -400,6 +402,55 @@ polls `/health`.
 | `<branch>` | That branch (the default branch when no tag exists) |
 
 ### Updating
+
+The installer drops a bootstrap `updater.sh` next to the other helpers. It is
+the primary update entry point — run it as the user that owns the install; it
+needs no root itself.
+
+```bash
+bash ${HOME}/.synaptomind/scripts/updater.sh                    # interactive: pick from stable releases
+bash ${HOME}/.synaptomind/scripts/updater.sh --yes              # non-interactive: newest stable
+bash ${HOME}/.synaptomind/scripts/updater.sh --version v0.8.0   # pin a stable tag
+bash ${HOME}/.synaptomind/scripts/updater.sh --help
+```
+
+| Flag | Effect |
+|------|--------|
+| `--version TAG` | Update to a specific stable tag (skips the menu) |
+| `--yes`, `-y` | Non-interactive: pick the newest stable and forward `--yes` |
+| `--help`, `-h` | Show usage |
+
+`updater.sh` (installed as `${RUN_DIR}/scripts/updater.sh`, i.e.
+`${HOME}/.synaptomind/scripts/updater.sh` by default) is **stable-only**: it
+always resolves the newest tag without a `-` (prereleases and branches are
+ignored). It is a *frozen bootstrap* — on every run it shallow-clones the
+chosen release into a temporary directory and executes
+**that release's own `deploy/update.sh`** (together with its `lib/common.sh` and
+a copy of your installed `app.env`), so fixes to the update process ship with
+ordinary releases instead of requiring a reinstall, and your port/`RUN_DIR`
+configuration is left untouched.
+
+Exit codes: `0` on success (including "already up to date" and an aborted
+menu); `1` for a bootstrap pre-flight failure (no stable tags, an unknown or
+non-stable `--version`, or a release whose `update.sh` does not accept the
+frozen `--version`/`--yes`/`--help` flags); otherwise the exit code of the
+release's `update.sh` is propagated verbatim.
+
+Runtime model: the updater itself calls no `sudo` and writes nothing to the
+install directory. It runs as the service/installing user; the only privileged
+step is the systemd service restart, which the release's `update.sh` performs
+via `sudo` when it is not already root.
+
+> **Note:** the frozen updater takes effect only from the first **stable**
+> release that ships the `deploy/` directory (the framework was adopted after
+> `v0.7.3`; expected from `v0.8.0`). Older stable tags such as `v0.7.3` contain
+> no `deploy/`, so the updater aborts with an explicit message rather than
+> falling back to a branch or prerelease.
+
+#### Advanced: direct `update.sh`
+
+The installed `update.sh` stays available and is required on hosts that track a
+prerelease or a branch (the updater is stable-only):
 
 ```bash
 bash ${HOME}/.synaptomind/scripts/update.sh                  # target from CHECKOUT_POLICY

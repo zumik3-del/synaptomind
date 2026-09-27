@@ -336,7 +336,7 @@ setup_data() {
 }
 
 # ── Phase: helper scripts in RUN_DIR/scripts ───────────────────────────────
-# update.sh / uninstall.sh / common.sh / app.env are installed together so the
+# update.sh / updater.sh / uninstall.sh / common.sh / app.env are installed together so the
 # app can be managed later without the original deploy/ directory.
 install_helper_scripts() {
   local dest="${RUN_DIR}/scripts" base f src cand
@@ -344,7 +344,7 @@ install_helper_scripts() {
   # Directory of the published deploy/, derived from LIB_RAW_URL (…/deploy/lib/common.sh).
   base="${LIB_RAW_URL:-}"; base="${base%/*}"; base="${base%/*}"
 
-  for f in update.sh uninstall.sh common.sh app.env; do
+  for f in update.sh updater.sh uninstall.sh common.sh app.env; do
     src=""
     for cand in "${SCRIPT_DIR}/${f}" "${SCRIPT_DIR}/lib/${f}" "${SCRIPT_DIR}/app.env"; do
       if [ "$f" = "app.env" ] && [ -n "${APP_ENV_FILE:-}" ] && [ -f "${APP_ENV_FILE}" ]; then
@@ -456,7 +456,7 @@ up_to_date_exit() {
 
 print_rerun_guide() {
   echo ""
-  echo "[${APP_NAME}] Update:    bash ${RUN_DIR}/scripts/update.sh"
+  echo "[${APP_NAME}] Update:    bash ${RUN_DIR}/scripts/updater.sh"
   echo "[${APP_NAME}] Uninstall: bash ${RUN_DIR}/scripts/uninstall.sh"
   echo "[${APP_NAME}] Health:    curl ${HEALTH_URL}"
 }
@@ -482,7 +482,7 @@ print_summary() {
     echo "  Start:      ${EXEC_START}"
   fi
   echo "  Health:     curl ${HEALTH_URL}"
-  echo "  Update:     bash ${RUN_DIR}/scripts/update.sh"
+  echo "  Update:     bash ${RUN_DIR}/scripts/updater.sh"
   echo "  Uninstall:  bash ${RUN_DIR}/scripts/uninstall.sh"
   echo ""
 }
