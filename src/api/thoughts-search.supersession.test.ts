@@ -268,3 +268,59 @@ test("GET /api/thoughts/search includes bm25_score for keyword hits", async () =
 			expect(r.final_score).toBeUndefined();
 		});
 	});
+
+	// ── Relevance-confidence signal (issue #155, task #884/885) ─────────────────
+
+	test("GET /api/thoughts/search includes low_confidence on every result", async () => {
+		const res = await request(
+			`/api/thoughts/search?q=${QUERY}&supersession_mode=off&contradiction_mode=off`,
+		);
+		expect(res.status).toBe(200);
+		const results = (await res.json()) as Array<Record<string, unknown>>;
+		expect(Array.isArray(results)).toBe(true);
+		for (const r of results) {
+			expect(typeof r.low_confidence).toBe("boolean");
+		}
+	});
+
+	test("GET /api/thoughts/search ?min_relevance=0.5 parses valid value", async () => {
+		const res = await request(
+			`/api/thoughts/search?q=${QUERY}&min_relevance=0.5&supersession_mode=off&contradiction_mode=off`,
+		);
+		expect(res.status).toBe(200);
+		const results = (await res.json()) as Array<Record<string, unknown>>;
+		expect(Array.isArray(results)).toBe(true);
+	});
+
+	test("GET /api/thoughts/search ?min_relevance=abc → 400", async () => {
+		const res = await request(
+			`/api/thoughts/search?q=${QUERY}&min_relevance=abc`,
+		);
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toContain("min_relevance");
+	});
+
+	test("GET /api/thoughts/search ?min_relevance=-0.1 accepted (service clamps to 0)", async () => {
+		const res = await request(
+			`/api/thoughts/search?q=${QUERY}&min_relevance=-0.1&supersession_mode=off&contradiction_mode=off`,
+		);
+		expect(res.status).toBe(200);
+	});
+
+	test("GET /api/thoughts/search/hints payload is byte-identical (no low_confidence field)", async () => {
+		const res = await request(
+			`/api/thoughts/search/hints?q=${QUERY}`,
+		);
+		expect(res.status).toBe(200);
+		const hints = (await res.json()) as Array<Record<string, unknown>>;
+		expect(Array.isArray(hints)).toBe(true);
+		// Hints are compact 3-field payloads — no low_confidence, no match_source.
+		for (const h of hints) {
+			expect(h).not.toHaveProperty("low_confidence");
+			expect(h).not.toHaveProperty("match_source");
+			expect(h).toHaveProperty("id");
+			expect(h).toHaveProperty("content_short");
+			expect(h).toHaveProperty("similarity");
+		}
+	});

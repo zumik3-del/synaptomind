@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 import { EVAL_SCENARIOS } from './datasets'
+import { tokenize } from './embedding'
 import { loadThresholds, runEval } from './runner'
 import type { EvalCategory } from './types'
 
@@ -160,6 +161,42 @@ describe('feature-probe dataset audit (#825)', () => {
     const shared = scenario.thoughts.filter(thought => thought.distractor === true)
     expect(own.map(thought => thought.id).sort()).toEqual(['nm-garden', 'nm-sourdough'])
     expect(shared.length).toBeGreaterThan(0)
+  })
+
+  test('negative-no-match enables the #156 confidence contract on a genuinely off-topic query', () => {
+    const scenario = scenarioNamed('negative-no-match')
+    const query = scenario.queries[0]
+
+    // The confidence contract is what makes the probe meaningful for the real
+    // embedder: a confident distractor hit must fail the run.
+    expect(query.expectNoStrongMatch).toBe(true)
+
+    // The query must share no token with any thought or query in the corpus —
+    // otherwise a BM25 anchor would make a hit a strong match by construction.
+    // The scenario's own query is excluded (it is the query under test).
+    const corpusTokens = new Set<string>()
+    for (const other of EVAL_SCENARIOS) {
+      for (const thought of other.thoughts) {
+        for (const token of tokenize(thought.content)) corpusTokens.add(token)
+      }
+      for (const otherQuery of other.queries) {
+        if (otherQuery === query) continue
+        for (const token of tokenize(otherQuery.query)) corpusTokens.add(token)
+      }
+    }
+    const overlap = tokenize(query.query).filter(token => corpusTokens.has(token))
+    expect(overlap, `off-topic query shares tokens: ${overlap.join(', ')}`).toEqual([])
+  })
+
+  test('negative-no-match passes the confidence contract in deterministic mode', async () => {
+    const res = await runEval({ scenarios: [scenarioNamed('negative-no-match')] })
+    const run = res.scenarios[0]
+
+    expect(run.status).toBe('pass')
+    expect(run.checkErrors).toEqual([])
+    // Every retrieved hit carries the confidence signal, and none is a strong match.
+    expect(run.queries[0].hits.length).toBeGreaterThan(0)
+    for (const hit of run.queries[0].hits) expect(hit.lowConfidence).toBe(true)
   })
 
   test('the probe scenarios are reported but stay out of the gated aggregates', async () => {

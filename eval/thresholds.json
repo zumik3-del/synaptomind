@@ -103,6 +103,122 @@
           }
         }
       }
+    },
+    "real": {
+      "generatedAt": "2026-09-27T07:35:56.216Z",
+      "mode": "real",
+      "baseline": {
+        "overall": {
+          "recall": 1,
+          "precision": 0.3125,
+          "mrr": 1,
+          "hitRate": 1,
+          "queries": 16
+        },
+        "categories": {
+          "explicit-fact": {
+            "recall": 1,
+            "precision": 0.2,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 3
+          },
+          "multi-hop": {
+            "recall": 1,
+            "precision": 0.3,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 2
+          },
+          "temporal": {
+            "recall": 1,
+            "precision": 0.2,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 2
+          },
+          "supersession": {
+            "recall": 1,
+            "precision": 0.2,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 1
+          },
+          "consolidation": {
+            "recall": 1,
+            "precision": 0.2,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 1
+          },
+          "project-scope": {
+            "recall": 1,
+            "precision": 1,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 2
+          },
+          "retrieval-quality": {
+            "recall": 1,
+            "precision": 0.2,
+            "mrr": 1,
+            "hitRate": 1,
+            "queries": 5
+          }
+        }
+      },
+      "thresholds": {
+        "overall": {
+          "recall": 0.98,
+          "precision": 0.2925,
+          "mrr": 0.98,
+          "hitRate": 0.98
+        },
+        "categories": {
+          "explicit-fact": {
+            "recall": 0.98,
+            "precision": 0.18,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          },
+          "multi-hop": {
+            "recall": 0.98,
+            "precision": 0.28,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          },
+          "temporal": {
+            "recall": 0.98,
+            "precision": 0.18,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          },
+          "supersession": {
+            "recall": 0.98,
+            "precision": 0.18,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          },
+          "consolidation": {
+            "recall": 0.98,
+            "precision": 0.18,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          },
+          "project-scope": {
+            "recall": 0.98,
+            "precision": 0.98,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          },
+          "retrieval-quality": {
+            "recall": 0.98,
+            "precision": 0.18,
+            "mrr": 0.98,
+            "hitRate": 0.98
+          }
+        }
+      }
     }
   }
 }

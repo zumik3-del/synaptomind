@@ -1,12 +1,20 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
+import { isStopword } from './stopwords'
 
+/**
+ * Builds an FTS5 MATCH expression from the query tokens: special characters are
+ * escaped, function words (ru + en stopwords) are dropped, and each remaining
+ * token is phrase-quoted. Returns `''` when nothing meaningful is left so
+ * callers short-circuit to an empty result instead of a blanket match.
+ */
 function toFtsQuery(query: string): string {
   const tokens = query
     .split(/\s+/)
     .map(t => t.trim().replace(/^"+|"+$/g, '').replace(/["*:()^+\-[\]\\]/g, ''))
     .filter(Boolean)
+    .filter(t => !isStopword(t))
     .map(t => `"${t}"`)
-  return tokens.length ? tokens.join(' OR ') : '""'
+  return tokens.length ? tokens.join(' OR ') : ''
 }
 
 export interface ScoredId {
@@ -21,6 +29,8 @@ export interface ScoredId {
  * returns more negative for more relevant rows) is unchanged.
  */
 export function bm25ScoredIds(db: Database, query: string, limit: number): ScoredId[] {
+  const fts = toFtsQuery(query)
+  if (!fts) return []
   try {
     const rows = db
       .prepare(`
@@ -30,7 +40,7 @@ export function bm25ScoredIds(db: Database, query: string, limit: number): Score
         ORDER BY bm25(thoughts_fts)
         LIMIT ?
       `)
-      .all(toFtsQuery(query), limit) as Array<{ thought_id: string; score: number }>
+      .all(fts, limit) as Array<{ thought_id: string; score: number }>
     return rows.map(r => ({ id: r.thought_id, score: -r.score }))
   } catch (err) {
     console.debug('[search] bm25 search failed:', err)
@@ -55,6 +65,8 @@ export function bm25ScoredIdsFiltered(
   filterParams: SQLQueryBindings[]
 ): ScoredId[] {
   if (!filterSql) return bm25ScoredIds(db, query, limit)
+  const fts = toFtsQuery(query)
+  if (!fts) return []
   try {
     const oversample = Math.min(1000, limit * 3)
     const rows = db
@@ -72,7 +84,7 @@ export function bm25ScoredIdsFiltered(
         WHERE 1=1 ${filterSql}
         LIMIT ?
       `)
-      .all(toFtsQuery(query), oversample, ...filterParams, limit) as Array<{ thought_id: string; score: number }>
+      .all(fts, oversample, ...filterParams, limit) as Array<{ thought_id: string; score: number }>
     return rows.map(r => ({ id: r.thought_id, score: -r.score }))
   } catch {
     return bm25ScoredIds(db, query, limit)

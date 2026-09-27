@@ -47,6 +47,25 @@ interface RankExpectation {
   after: string
 }
 
+/**
+ * Eval-local view of one retrieved hit's #155 confidence signals, captured from
+ * the production `SearchResult` at the search boundary so `evaluateChecks` can
+ * assert on confidence without the harness depending on the raw result shape.
+ */
+export interface RetrievedHit {
+  id: string
+  /**
+   * Mirrors `SearchResult.low_confidence`: `false` means there is strong
+   * evidence the hit is relevant (a BM25 anchor, or a vector hit at/above the
+   * confidence floor).
+   */
+  lowConfidence: boolean
+  /** Vector-leg cosine similarity; `0` when the vector leg did not match. */
+  similarity: number
+  /** Search legs that matched, in the fixed `vector`, `bm25` order. */
+  matchSource: string[]
+}
+
 export interface EvalQuery {
   query: string
   /** Thought ids the query should retrieve. */
@@ -77,6 +96,16 @@ export interface EvalQuery {
    * either way).
    */
   noRelevant?: true
+  /**
+   * Confidence contract for an off-topic query: hard-asserts that NO retrieved
+   * result is a strong match (`lowConfidence === false`), i.e. every hit carries
+   * the #155 `low_confidence` verdict. `noRelevant` only guards the scenario's
+   * own thoughts, so a distractor returned with real-embedder confidence would
+   * slip through; this contract catches that. Requires the retrieved confidence
+   * signals (`SearchResult` → `RetrievedHit`), so `evaluateChecks` reports a
+   * missing-data error rather than passing vacuously.
+   */
+  expectNoStrongMatch?: true
 }
 
 export interface EvalScenario {

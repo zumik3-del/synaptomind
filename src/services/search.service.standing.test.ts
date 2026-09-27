@@ -272,6 +272,7 @@ describe("orderByStanding (ADR #142 item 3)", () => {
 			distance: 1 - similarity,
 			similarity,
 			match_source: [],
+			low_confidence: false,
 			standing,
 		};
 	}

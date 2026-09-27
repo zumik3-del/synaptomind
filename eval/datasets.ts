@@ -218,7 +218,7 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
     name: 'negative-no-match',
     category: 'no-match',
     description:
-      'An off-topic query must not retrieve the scenario own thoughts; shared distractors may fill top-k.',
+      'A genuinely off-topic query (no shared tokens with any thought or distractor) must not retrieve the scenario own thoughts and must not return any strong match.',
     measureOnly: true,
     thoughts: [
       {
@@ -233,9 +233,17 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
     ],
     queries: [
       {
-        query: 'ancient roman aqueducts gravity water transport',
+        // Deliberately shares no token with any scenario thought or DISTRACTOR
+        // (the previous query was literally distractor d6's content, so d6 came
+        // back at rank 1 with a BM25 anchor — no confidence signal at all).
+        // Every returned hit must therefore carry `low_confidence === true`; a
+        // real embedder returning a confident hit now fails loudly. The query is
+        // also far enough from the own thoughts that neither enters top-k in the
+        // deterministic OR real mode, and d6 is no longer the top hit.
+        query: 'steppe seismograph xylophone craton tundra',
         relevant: [],
-        noRelevant: true
+        noRelevant: true,
+        expectNoStrongMatch: true
       }
     ]
   }

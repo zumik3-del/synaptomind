@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { DEFAULTS } from '../config'
 import { bm25ScoredIds, bm25ScoredIdsFiltered } from './search-bm25'
 import { buildFilterSQL } from './search-filters'
 import { FALLBACK_RECENCY_HALF_LIFE_DAYS, fetchThoughtsByIds } from './search-hydrate'
@@ -8,6 +9,7 @@ import { vecSearchIds } from './search-vector'
 
 export type { SearchResult } from './search-types'
 export { bm25SearchIds } from './search-bm25'
+export { isStrongMatch } from './search-hydrate'
 export { rrfMerge } from './search-rrf'
 
 export function searchThoughts(db: Database, options: SearchOptions): SearchResult[] {
@@ -39,6 +41,16 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
       : FALLBACK_RECENCY_HALF_LIFE_DAYS
   const nowMs = options.nowMs !== undefined && Number.isFinite(options.nowMs) ? options.nowMs : Date.now()
   const recency = { recencyActive: recencyWeight > 0, recencyWeight, recencyHalfLifeDays, nowMs }
+  // Floor applied when `confidenceFloor` is omitted/non-finite. Reads the
+  // canonical `search.confidence.vectorFloor` default straight from `DEFAULTS`
+  // (not the mutable live `config`), so this DB fallback cannot silently drift
+  // from the config default. Production always goes through the service, which
+  // supplies the resolved, clamped value. `config.ts` is a leaf module (fs/path
+  // only), so this import introduces no cycle.
+  const confidenceFloor =
+    options.confidenceFloor !== undefined && Number.isFinite(options.confidenceFloor)
+      ? options.confidenceFloor
+      : DEFAULTS.search.confidence.vectorFloor
 
   const { sql: filterSql, params: filterParams } = buildFilterSQL({
     statusFilter,
@@ -58,7 +70,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
       db,
       vecIds.map(v => v.id),
       options,
-      { vecSimById, bm25ScoreById: new Map(), rrfScoreById: new Map(), rrfMax: 0, ...recency }
+      { vecSimById, bm25ScoreById: new Map(), rrfScoreById: new Map(), rrfMax: 0, ...recency, confidenceFloor }
     )
   }
 
@@ -76,6 +88,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     db,
     merged.map(m => m.id),
     options,
-    { vecSimById, bm25ScoreById, rrfScoreById, rrfMax, ...recency }
+    { vecSimById, bm25ScoreById, rrfScoreById, rrfMax, ...recency, confidenceFloor }
   )
 }

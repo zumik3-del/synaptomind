@@ -78,7 +78,9 @@ Three modes:
 
 Filters: status, project, tag, cluster (only/exclude), min importance, exclude flagged.
 
-Result ranking signals: \`match_source\` (legs that matched, in fixed order \`vector\`, \`bm25\`), \`similarity\`/\`distance\` (vector leg only), \`bm25_score\` (keyword relevance, higher = more relevant, only for BM25 hits), and \`rrf_score\` (fused hybrid score, present only when fusion ran). No relevance threshold is applied — filter client-side on \`match_source\` and these scores.
+Result ranking signals: \`match_source\` (legs that matched, in fixed order \`vector\`, \`bm25\`), \`similarity\`/\`distance\` (vector leg only), \`bm25_score\` (keyword relevance, higher = more relevant, only for BM25 hits), and \`rrf_score\` (fused hybrid score, present only when fusion ran).
+
+**Confidence (no-strong-match hint):** every result carries \`low_confidence\` (boolean). \`true\` means there is no strong evidence of relevance — no lexical (\`bm25\`) anchor and no vector hit at or above the configured \`search.confidence.vectorFloor\`. It is an additive hint that never changes ranking, so a \`low_confidence\` result is still returned and readable. To drop weak results server-side, pass \`min_relevance\` (0–1, default **0**): \`> 0\` keeps \`bm25\` hits and vector hits with \`similarity >= min_relevance\` (the candidate pool is widened so \`top_k\` is still filled); \`0\` (unset) returns the full result set unchanged. The two knobs are independent: the floor drives the hint, \`min_relevance\` drives the gate.
 
 **Recency boost (opt-in):** \`recency_weight\` (0–1, default **0**) adds a time term to the ranking; \`recency_half_life_days\` (1–3650, default 30) sets its decay half-life. At \`recency_weight > 0\` each result also carries \`recency_score\` (\`0.5^(ageDays/halfLifeDays)\`, \`1\` = created now) and \`final_score\` (\`relevant + recency_weight × recency_score\`, where \`relevant\` is \`rrf_score\` normalised to \`[0,1]\` on the fused path or \`similarity\` on the vector-only path). \`rrf_score\` stays raw/un-boosted. \`recency_weight = 0\` (unset) preserves the relevance-only ranking and omits both fields.
 

@@ -1,2 +1,2 @@
 export { getDb } from './container'
-export { hasVec, initDb, closeDb } from './init'
+export { initDb, closeDb } from './init'
