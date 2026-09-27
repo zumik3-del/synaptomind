@@ -15,13 +15,14 @@ const DEFAULT_BASE = 'https://raw.githubusercontent.com/zumik3-del/synaptomind/m
 // to fetch app.env. Every other fetch fails (exit 22) — no network is used.
 const STUB_CURL = [
   '#!/usr/bin/env bash',
-  'printf \'%s\\n\' "$*" >> "$STUB_CURL_LOG"',
   'url=""; out=""; prev=""',
   'for a in "$@"; do',
   '  case "$a" in *://*) url="$a" ;; esac',
   '  if [ "$prev" = "-o" ]; then out="$a"; fi',
   '  prev="$a"',
   'done',
+  // Log only the URL (one per line) so tests can assert exact values.
+  'printf \'%s\\n\' "$url" >> "$STUB_CURL_LOG"',
   'case "$url" in',
   '  */common.sh)',
   '    if [ -n "${STUB_CURL_SERVE_COMMON:-}" ] && [ -n "$out" ]; then',
@@ -109,32 +110,26 @@ describe('install.sh — piped raw-base derivation', () => {
     const { res, calls } = runPiped()
     // common.sh was served, app.env fetch failed → pre-install abort.
     expect(res.status).toBe(1)
-    expect(calls[0]).toContain(`${DEFAULT_BASE}/lib/common.sh`)
-    expect(calls.some((c) => c.includes(`${DEFAULT_BASE}/app.env`))).toBe(true)
+    expect(calls).toEqual([`${DEFAULT_BASE}/lib/common.sh`, `${DEFAULT_BASE}/app.env`])
   })
 
   test('DEPLOY_RAW_URL relocates the base for both derived URLs', () => {
     const base = 'https://example.test/deploy'
     const { calls } = runPiped({ DEPLOY_RAW_URL: base })
-    expect(calls[0]).toContain(`${base}/lib/common.sh`)
-    expect(calls.some((c) => c.includes(`${base}/app.env`))).toBe(true)
-    expect(calls.some((c) => c.includes(DEFAULT_BASE))).toBe(false)
+    expect(calls).toEqual([`${base}/lib/common.sh`, `${base}/app.env`])
   })
 
   test('an explicit LIB_RAW_URL wins over the derived default', () => {
     const custom = 'https://example.test/custom/common.sh'
     const { calls } = runPiped({ LIB_RAW_URL: custom })
-    expect(calls[0]).toContain(custom)
     // app.env still comes from the default base (only LIB_RAW_URL was overridden)
-    expect(calls.some((c) => c.includes(`${DEFAULT_BASE}/app.env`))).toBe(true)
+    expect(calls).toEqual([custom, `${DEFAULT_BASE}/app.env`])
   })
 
   test('an explicit APP_ENV_URL wins over the derived default', () => {
     const custom = 'https://example.test/only.env'
     const { calls } = runPiped({ APP_ENV_URL: custom })
-    expect(calls[0]).toContain(`${DEFAULT_BASE}/lib/common.sh`)
-    expect(calls.some((c) => c.includes(custom))).toBe(true)
-    expect(calls.some((c) => c.includes(`${DEFAULT_BASE}/app.env`))).toBe(false)
+    expect(calls).toEqual([`${DEFAULT_BASE}/lib/common.sh`, custom])
   })
 
   test('local checkout run does not fetch the published raw URLs', () => {
