@@ -842,3 +842,92 @@ describe('memory_recall recency boost', () => {
     expect(parseResult(over).isError).toBe(true)
   })
 })
+
+// ── Relevance-confidence signal (issue #155, task #884/885) ──────────────────
+
+describe('memory_recall low_confidence + min_relevance', () => {
+  test('search response includes low_confidence on every result', async () => {
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'LC_MCP marker relevant content here', status: 'active' }
+    })
+
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query: 'LC_MCP marker relevant content' }
+    })
+    const { data, isError } = parseResult(result)
+    expect(isError).toBe(false)
+    expect(Array.isArray(data)).toBe(true)
+    expect(data.length).toBeGreaterThanOrEqual(1)
+    for (const r of data) {
+      expect(typeof r.low_confidence).toBe('boolean')
+    }
+  })
+
+  test('search accepts min_relevance argument', async () => {
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'LC_MIN_REL marker content', status: 'active' }
+    })
+
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query: 'LC_MIN_REL marker content', min_relevance: 0.5 }
+    })
+    const { isError } = parseResult(result)
+    expect(isError).toBe(false)
+  })
+
+  test('clusters action accepts min_relevance argument', async () => {
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'LC_CLUST marker cluster content', status: 'active' }
+    })
+
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'clusters', query: 'LC_CLUST marker cluster content', min_relevance: 0.5 }
+    })
+    const { isError } = parseResult(result)
+    expect(isError).toBe(false)
+  })
+
+  test('schema rejects min_relevance < 0', async () => {
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query: 'test', min_relevance: -0.1 }
+    })
+    expect(parseResult(result).isError).toBe(true)
+  })
+
+  test('schema rejects min_relevance > 1', async () => {
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query: 'test', min_relevance: 1.1 }
+    })
+    expect(parseResult(result).isError).toBe(true)
+  })
+
+  test('min_relevance=0 returns same results as default (no gating)', async () => {
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'LC_EQUIV equivalent marker test', status: 'active' }
+    })
+
+    const defaultResult = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query: 'LC_EQUIV equivalent marker test' }
+    })
+    const zeroResult = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query: 'LC_EQUIV equivalent marker test', min_relevance: 0 }
+    })
+
+    const defaultData = parseResult(defaultResult).data as Array<{ thought: { id: string } }>
+    const zeroData = parseResult(zeroResult).data as Array<{ thought: { id: string } }>
+    const defaultIds = defaultData.map(r => r.thought.id).sort()
+    const zeroIds = zeroData.map(r => r.thought.id).sort()
+    expect(zeroIds).toEqual(defaultIds)
+  })
+})

@@ -1,10 +1,11 @@
 import { getClusterForThoughtBatch } from '../db/edges'
 import { getDb } from '../db'
 import { annotateGraphStanding, type GraphStanding } from '../db/graph-annotations'
-import { type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
+import { isStrongMatch, type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
 import { getThoughtTagsBatch } from '../db/tags'
 import { getThought, parseTags } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
+import { config } from '../config'
 import { generateEmbedding } from '../embedder/client'
 
 const EMBEDDING_TIMEOUT_MS = 5_000
@@ -43,6 +44,15 @@ function clampTopK(value: number | undefined): number {
 
 function clampMinImportance(value: number | undefined): number | undefined {
   if (value === undefined || !Number.isFinite(value)) return undefined
+  return Math.min(Math.max(value, 0), 1)
+}
+
+/**
+ * Clamp a `[0, 1]` knob (`min_relevance`, `confidenceFloor`). Non-finite or
+ * absent ⇒ `0`, the neutral "off" value for both.
+ */
+function clampUnitInterval(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return 0
   return Math.min(Math.max(value, 0), 1)
 }
 
@@ -103,6 +113,21 @@ export interface SearchServiceOptions {
    * `<= 0` → `30`). Only meaningful when `recencyWeight > 0`.
    */
   recencyHalfLifeDays?: number
+  /**
+   * Opt-in relevance gate, clamped to `[0, 1]` (default `0`). With `0` the
+   * result set/order is byte-identical to the ungated search. With `> 0` a
+   * result is kept only when it is a strong match
+   * (`match_source` contains `bm25`, or contains `vector` with
+   * `similarity >= minRelevance`); the candidate pool is widened so `topK`
+   * survivors are still reachable.
+   */
+  minRelevance?: number
+  /**
+   * Override for the `low_confidence` cosine floor, clamped to `[0, 1]`. When
+   * omitted the configured `search.confidence.vectorFloor` is used. Intended for
+   * tests and config overrides; production callers leave it unset.
+   */
+  confidenceFloor?: number
 }
 
 export interface GroupedResult {
@@ -115,10 +140,16 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
   const topK = clampTopK(options.topK)
   const minImportance = clampMinImportance(options.minImportance)
   const supersessionMode = options.supersessionMode ?? 'flag'
-  // Suppression drops rows after the DB fetch, so widen the candidate pool to
-  // backfill the survivors up to `topK` (bounded by SEARCH_MAX_TOP_K).
+  const minRelevance = clampUnitInterval(options.minRelevance)
+  const confidenceFloor =
+    options.confidenceFloor !== undefined
+      ? clampUnitInterval(options.confidenceFloor)
+      : clampUnitInterval(config.search.confidence.vectorFloor)
+  // Suppression and the relevance gate both drop rows after the DB fetch, so
+  // widen the candidate pool to backfill the survivors up to `topK` (bounded by
+  // SEARCH_MAX_TOP_K).
   const candidateK =
-    supersessionMode === 'suppress'
+    supersessionMode === 'suppress' || minRelevance > 0
       ? Math.min(SEARCH_MAX_TOP_K, topK * SUPPRESSION_OVERFETCH_FACTOR)
       : topK
   const embedding = options.embedding ?? (await generateEmbeddingWithFallback(options.query))
@@ -133,14 +164,18 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
     excludeFlagged: options.excludeFlagged,
     hybrid: options.hybrid,
     recencyWeight: clampRecencyWeight(options.recencyWeight),
-    recencyHalfLifeDays: clampRecencyHalfLifeDays(options.recencyHalfLifeDays)
+    recencyHalfLifeDays: clampRecencyHalfLifeDays(options.recencyHalfLifeDays),
+    confidenceFloor
   })
 
   const filtered = options.tagFilter
     ? filterByTags(results, options.tagFilter, d)
     : results
   const standing = applyGraphStanding(filtered, options, d)
-  return standing.length > topK ? standing.slice(0, topK) : standing
+  // Gate after standing annotation (a suppressed row is already gone) and
+  // before the final `topK` slice; the DB-slice overfetch above backfills it.
+  const gated = minRelevance > 0 ? standing.filter(r => isStrongMatch(r, minRelevance)) : standing
+  return gated.length > topK ? gated.slice(0, topK) : gated
 }
 
 /**

@@ -52,6 +52,25 @@ export interface SearchScoreContext {
   recencyHalfLifeDays: number
   /** Clock used for the age computation. */
   nowMs: number
+  /**
+   * Cosine-similarity floor for the `low_confidence` verdict (config
+   * `search.confidence.vectorFloor`, supplied by the caller as a plain number).
+   */
+  confidenceFloor: number
+}
+
+/**
+ * Strong-match predicate shared by the `low_confidence` flag (DB layer) and the
+ * `min_relevance` filter (service layer), so the two can never diverge:
+ * a lexical (BM25) anchor always passes; otherwise a vector hit passes only when
+ * `similarity >= floor`. A result with neither leg is never a strong match.
+ */
+export function isStrongMatch(
+  result: Pick<SearchResult, 'match_source' | 'similarity'>,
+  floor: number
+): boolean {
+  if (result.match_source.includes('bm25')) return true
+  return result.match_source.includes('vector') && result.similarity >= floor
 }
 
 /**
@@ -74,7 +93,8 @@ function applyRecencyScoring(results: SearchResult[], scores: SearchScoreContext
 /**
  * Hydrate ordered ids into `SearchResult`s: load rows (re-applying the shared
  * filters), attach tags, map the score context onto the public signal fields in
- * the fixed `vector`, `bm25` leg order, then apply recency scoring/re-ranking.
+ * the fixed `vector`, `bm25` leg order, compute the `low_confidence` verdict,
+ * then apply recency scoring/re-ranking.
  */
 export function fetchThoughtsByIds(
   db: Database,
@@ -116,7 +136,11 @@ export function fetchThoughtsByIds(
       thought,
       distance: sim !== undefined ? 1 - sim : 0,
       similarity: sim !== undefined ? sim : 0,
-      match_source: matchSource
+      match_source: matchSource,
+      low_confidence: !isStrongMatch(
+        { match_source: matchSource, similarity: sim !== undefined ? sim : 0 },
+        scores.confidenceFloor
+      )
     }
     if (rrf !== undefined) result.rrf_score = rrf
     if (bm25 !== undefined) result.bm25_score = bm25

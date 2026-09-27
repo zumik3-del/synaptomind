@@ -21,6 +21,13 @@ export interface SearchOptions {
   recencyHalfLifeDays?: number
   /** Clock override for deterministic tests; defaults to `Date.now()`. */
   nowMs?: number
+  /**
+   * Cosine-similarity floor used to compute `low_confidence` (config
+   * `search.confidence.vectorFloor`, threaded as a plain number so the DB layer
+   * stays config-free). Non-finite/undefined falls back to the config default
+   * (`0.9`). The service always passes the resolved, clamped value.
+   */
+  confidenceFloor?: number
 }
 
 /** Search legs that can contribute a hit, in the fixed `match_source` order. */
@@ -47,6 +54,14 @@ export interface SearchResult {
    * `vector`, `bm25`. The vector-only path returns `['vector']`.
    */
   match_source: SearchMatchSource[]
+  /**
+   * Relevance-confidence verdict, always present. `true` = no strong evidence
+   * this result is relevant: neither a lexical (BM25) anchor nor a vector hit at
+   * or above the configured similarity floor. Computed from the combined signal
+   * `!hasLexical && (!hasVector || sim < floor)`; it never alters ranking and is
+   * independent of recency/standing.
+   */
+  low_confidence: boolean
   /**
    * Pure exponential recency decay `0.5^(ageDays / halfLifeDays)` in `[0, 1]`,
    * independent of relevance. Present only when the recency boost is enabled

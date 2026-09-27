@@ -70,6 +70,7 @@ searchRouter.get('/search', async c => {
   const contradictionMode = parseContradictionMode(c.req.query('contradiction_mode'))
   const recencyWeight = parseOptionalNumber(c.req.query('recency_weight'), 'recency_weight')
   const recencyHalfLifeDays = parseOptionalNumber(c.req.query('recency_half_life_days'), 'recency_half_life_days')
+  const minRelevance = parseOptionalNumber(c.req.query('min_relevance'), 'min_relevance')
 
   let clusterFilter: 'only' | 'exclude' | undefined
   if (clusterOpt === 'true') clusterFilter = 'only'
@@ -79,7 +80,7 @@ searchRouter.get('/search', async c => {
     const searchOpts = {
       query: q, topK: k, statusFilter: status, projectFilter: project_id,
       tagFilter: tag, clusterFilter, minImportance, excludeFlagged, hybrid,
-      supersessionMode, contradictionMode, recencyWeight, recencyHalfLifeDays
+      supersessionMode, contradictionMode, recencyWeight, recencyHalfLifeDays, minRelevance
     }
     let results = groupByCluster
       ? await searchThoughtsGrouped(searchOpts)

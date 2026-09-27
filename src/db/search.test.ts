@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { createTestDb, seedEmbedding, seedThought } from "../test/helpers";
 import { getDb } from "./container";
 import { closeDb, hasVec } from "./init";
-import { bm25SearchIds, rrfMerge, searchThoughts } from "./search";
+import { bm25SearchIds, isStrongMatch, rrfMerge, searchThoughts } from "./search";
 import { bm25ScoredIds } from "./search-bm25";
 
 const itVec = test.skipIf(!hasVec());
@@ -333,9 +334,38 @@ function seedVecEmbedding(db: import("bun:sqlite").Database, thoughtId: string):
   db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf);
 }
 
+/** Seed a specific 384-d vector so cosine similarity is controllable. */
+function seedVecEmbeddingRaw(
+  db: import("bun:sqlite").Database,
+  thoughtId: string,
+  vector: Float32Array,
+): void {
+  const buf = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength);
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf);
+}
+
 function seedFts(db: import("bun:sqlite").Database, thoughtId: string, content: string): void {
   db.prepare(`INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`).run(thoughtId, content);
 }
+
+/**
+ * `hasVec()` is only true after a file-backed `initDb`, but `itVec` is evaluated
+ * at module-load time — so it is `false` here and every vec test above is
+ * skipped. Probe the extension directly (throwaway connection, no global
+ * container side effects) so exact-boundary tests can run wherever vec0 is
+ * installed.
+ */
+const CAN_USE_VEC = (() => {
+  try {
+    const probe = new Database(":memory:");
+    probe.loadExtension(`${import.meta.dir}/../../vec0.so`);
+    probe.close();
+    return true;
+  } catch {
+    return false;
+  }
+})();
+const itRealVec = test.skipIf(!CAN_USE_VEC);
 
 test("BM25-only hit carries match_source=['bm25'] and a positive bm25_score", () => {
   const db = getDb();
@@ -870,4 +900,225 @@ test("mixed Russian-English query filters both language stopwords", () => {
   const ids = bm25SearchIds(db, "the что production", 10);
   expect(ids).toContain("mixed-lang");
   expect(ids).not.toContain("mixed-unrelated");
+});
+
+// ── Relevance-confidence signal (issue #155, task #884/885) ─────────────────
+
+test("isStrongMatch: bm25 hit always passes regardless of similarity", () => {
+  expect(isStrongMatch({ match_source: ["bm25"], similarity: 0 }, 0.9)).toBe(true);
+  expect(isStrongMatch({ match_source: ["bm25"], similarity: 0.5 }, 0.9)).toBe(true);
+  expect(isStrongMatch({ match_source: ["vector", "bm25"], similarity: 0.8 }, 0.9)).toBe(true);
+});
+
+test("isStrongMatch: vector-only below floor → false", () => {
+  expect(isStrongMatch({ match_source: ["vector"], similarity: 0.85 }, 0.9)).toBe(false);
+  expect(isStrongMatch({ match_source: ["vector"], similarity: 0.0 }, 0.9)).toBe(false);
+});
+
+test("isStrongMatch: vector-only at exact floor → true", () => {
+  expect(isStrongMatch({ match_source: ["vector"], similarity: 0.9 }, 0.9)).toBe(true);
+});
+
+test("isStrongMatch: vector-only above floor → true", () => {
+  expect(isStrongMatch({ match_source: ["vector"], similarity: 0.95 }, 0.9)).toBe(true);
+  expect(isStrongMatch({ match_source: ["vector"], similarity: 1.0 }, 0.9)).toBe(true);
+});
+
+test("isStrongMatch: no legs → false", () => {
+  expect(isStrongMatch({ match_source: [], similarity: 0 }, 0.9)).toBe(false);
+});
+
+// ── low_confidence DB-layer matrix (vec-gated, issue #155) ───────────────────
+
+// Vector-only path, sim below floor → low_confidence=true.
+itVec("low_confidence: vector-only sim < floor ⇒ true", () => {
+  withVecTestDb((db) => {
+    seedThoughtRow(db, "lc-vec-low", "semantic low-similarity content here");
+    seedVecEmbedding(db, "lc-vec-low");
+    const results = searchThoughts(db, {
+      embedding: new Float32Array(384),
+      topK: 10,
+      hybrid: false,
+      confidenceFloor: 0.9,
+    });
+    const hit = results.find((r) => r.thought.id === "lc-vec-low");
+    expect(hit).toBeDefined();
+    expect(hit!.low_confidence).toBe(true);
+    expect(hit!.match_source).toEqual(["vector"]);
+  });
+});
+
+// Vector-only path, sim exactly at the floor → low_confidence=false (confident).
+itRealVec("low_confidence: sim == floor exactly ⇒ false; just above ⇒ true", () => {
+  withVecTestDb((db) => {
+    seedThoughtRow(db, "lc-vec-boundary", "semantic boundary content");
+    // Stored unit vector e0; query = 0.9·e0 + sqrt(0.19)·e1 has cosine ≈ 0.9.
+    const stored = new Float32Array(384);
+    stored[0] = 1;
+    seedVecEmbeddingRaw(db, "lc-vec-boundary", stored);
+    const query = new Float32Array(384);
+    query[0] = 0.9;
+    query[1] = Math.sqrt(1 - 0.9 * 0.9);
+
+    // Probe the measured similarity first, then reuse it as the exact floor so
+    // the `sim >= floor` comparison is exercised at the true boundary (the raw
+    // float32 distance is not guaranteed to be exactly 1 - 0.9).
+    const probe = searchThoughts(db, {
+      embedding: query,
+      topK: 10,
+      hybrid: false,
+      confidenceFloor: 0,
+    });
+    const measured = probe.find((r) => r.thought.id === "lc-vec-boundary");
+    expect(measured).toBeDefined();
+    expect(measured!.similarity).toBeGreaterThan(0);
+    expect(measured!.similarity).toBeLessThan(1);
+    const sim = measured!.similarity;
+
+    const atFloor = searchThoughts(db, {
+      embedding: query,
+      topK: 10,
+      hybrid: false,
+      confidenceFloor: sim,
+    });
+    const atFloorHit = atFloor.find((r) => r.thought.id === "lc-vec-boundary");
+    expect(atFloorHit).toBeDefined();
+    expect(atFloorHit!.low_confidence).toBe(false);
+    expect(atFloorHit!.match_source).toEqual(["vector"]);
+
+    const aboveFloor = searchThoughts(db, {
+      embedding: query,
+      topK: 10,
+      hybrid: false,
+      confidenceFloor: sim + 1e-6,
+    });
+    const aboveFloorHit = aboveFloor.find((r) => r.thought.id === "lc-vec-boundary");
+    expect(aboveFloorHit).toBeDefined();
+    expect(aboveFloorHit!.low_confidence).toBe(true);
+  });
+});
+
+// BM25 hit → low_confidence=false even with zero vector similarity.
+test("low_confidence: BM25 hit ⇒ false (lexical anchor)", () => {
+  const db = getDb();
+  seedThoughtRow(db, "lc-bm25-hit", "EXACT_LC_BM25 keyword anchor");
+  seedFts(db, "lc-bm25-hit", "EXACT_LC_BM25 keyword anchor");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "EXACT_LC_BM25",
+    topK: 10,
+    hybrid: true,
+    confidenceFloor: 0.9,
+  });
+
+  const hit = results.find((r) => r.thought.id === "lc-bm25-hit");
+  expect(hit).toBeDefined();
+  expect(hit!.low_confidence).toBe(false);
+  expect(hit!.match_source).toContain("bm25");
+});
+
+// Hybrid nonsense (BM25 empty) → all results low_confidence=true.
+itVec("low_confidence: hybrid nonsense (BM25 empty) ⇒ all true", () => {
+  withVecTestDb((db) => {
+    seedThoughtRow(db, "lc-nonsense-a", "zebra quantum banana irrelevant");
+    seedThoughtRow(db, "lc-nonsense-b", "xyzzy plugh nonsense unrelated");
+    seedVecEmbedding(db, "lc-nonsense-a");
+    seedVecEmbedding(db, "lc-nonsense-b");
+    // No FTS entries — BM25 leg returns empty.
+
+    const results = searchThoughts(db, {
+      embedding: new Float32Array(384),
+      query: "zebra quantum banana unrelated nonsense xyzzy",
+      topK: 10,
+      hybrid: true,
+      confidenceFloor: 0.9,
+    });
+
+    // All vector-only results should be flagged low_confidence.
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    for (const r of results) {
+      expect(r.low_confidence).toBe(true);
+    }
+  });
+});
+
+// Embedding-empty (BM25-only degradation) → low_confidence=false.
+test("low_confidence: embedding-empty BM25-only ⇒ false", () => {
+  const db = getDb();
+  seedThoughtRow(db, "lc-bm25-only", "production deployment MCP server");
+  seedFts(db, "lc-bm25-only", "production deployment MCP server");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "production deployment MCP",
+    topK: 10,
+    hybrid: true,
+    confidenceFloor: 0.9,
+  });
+
+  const hit = results.find((r) => r.thought.id === "lc-bm25-only");
+  expect(hit).toBeDefined();
+  expect(hit!.low_confidence).toBe(false);
+  expect(hit!.match_source).toContain("bm25");
+});
+
+// Every result carries low_confidence (even when undefined pre-#884).
+itVec("low_confidence: always present on every result", () => {
+  withVecTestDb((db) => {
+    seedThoughtRow(db, "lc-always-a", "semantic content one");
+    seedThoughtRow(db, "lc-always-b", "semantic content two");
+    seedVecEmbedding(db, "lc-always-a");
+    seedVecEmbedding(db, "lc-always-b");
+
+    const results = searchThoughts(db, {
+      embedding: new Float32Array(384),
+      topK: 10,
+      hybrid: false,
+      confidenceFloor: 0.9,
+    });
+
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    for (const r of results) {
+      expect(typeof r.low_confidence).toBe("boolean");
+    }
+  });
+});
+
+// Confidence floor override: a very high floor makes even vector hits low_confidence.
+itVec("low_confidence: high confidenceFloor flags vector hits as low", () => {
+  withVecTestDb((db) => {
+    seedThoughtRow(db, "lc-high-floor", "semantic content");
+    seedVecEmbedding(db, "lc-high-floor");
+
+    const results = searchThoughts(db, {
+      embedding: new Float32Array(384),
+      topK: 10,
+      hybrid: false,
+      confidenceFloor: 1.0, // impossible to reach with zero vector
+    });
+
+    const hit = results.find((r) => r.thought.id === "lc-high-floor");
+    expect(hit).toBeDefined();
+    expect(hit!.low_confidence).toBe(true);
+  });
+});
+
+// Confidence floor override: a floor of 0 makes all vector hits confident.
+itVec("low_confidence: floor=0 makes all vector hits confident", () => {
+  withVecTestDb((db) => {
+    seedThoughtRow(db, "lc-zero-floor", "semantic content");
+    seedVecEmbedding(db, "lc-zero-floor");
+
+    const results = searchThoughts(db, {
+      embedding: new Float32Array(384),
+      topK: 10,
+      hybrid: false,
+      confidenceFloor: 0,
+    });
+
+    const hit = results.find((r) => r.thought.id === "lc-zero-floor");
+    expect(hit).toBeDefined();
+    expect(hit!.low_confidence).toBe(false);
+  });
 });

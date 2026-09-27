@@ -37,7 +37,8 @@ const handlers = {
         minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
         hybrid: args.hybrid as boolean | undefined, supersessionMode, contradictionMode,
         recencyWeight: args.recency_weight as number | undefined,
-        recencyHalfLifeDays: args.recency_half_life_days as number | undefined
+        recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
+        minRelevance: args.min_relevance as number | undefined
       }
       const results = args.group_by_cluster
         ? await searchThoughtsGrouped(baseOptions)
@@ -77,7 +78,8 @@ const handlers = {
         minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
         hybrid: args.hybrid as boolean | undefined,
         recencyWeight: args.recency_weight as number | undefined,
-        recencyHalfLifeDays: args.recency_half_life_days as number | undefined
+        recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
+        minRelevance: args.min_relevance as number | undefined
       })
       return postProcessSearchResults(results, { query: args.query as string, topK, showPrimers: true })
     }
@@ -120,6 +122,14 @@ export function registerMemoryRecall(server: McpServer) {
         .max(3650)
         .optional()
         .describe('Recency decay half-life in days (default 30, 1-3650); only used when recency_weight > 0'),
+      min_relevance: z
+        .number()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe(
+          'Opt-in relevance gate (0-1, default 0). >0 drops weak vector-only results: keeps lexical (bm25) hits and vector hits with similarity >= min_relevance. 0 preserves the full result set'
+        ),
       supersession_mode: z
         .enum(['off', 'flag', 'suppress'])
         .optional()

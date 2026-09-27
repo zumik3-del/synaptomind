@@ -41,6 +41,7 @@ interface Config {
   }
   slots: { defaultMaxChars: number; hardLimit: number }
   graph: { maxDegree: number }
+  search: { confidence: { vectorFloor: number } }
   rateLimit: { max: number; windowMs: number; trustProxy: boolean }
   ttl: { archivedTtlDays: number; cleanupIntervalMs: number }
 }
@@ -86,6 +87,12 @@ export const DEFAULTS: Config = {
   },
   slots: { defaultMaxChars: 2000, hardLimit: 20000 },
   graph: { maxDegree: 50 },
+  // Conservative placeholder pending issue #156 calibration: above the observed
+  // nonsense band so noise is never marked confident. Re-derive from a labeled
+  // real-embedder run; override with SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR.
+  // Single source of truth for the DB-layer fallback in `src/db/search.ts` (which
+  // reads `DEFAULTS.search.confidence.vectorFloor` directly — keep them in sync).
+  search: { confidence: { vectorFloor: 0.9 } },
   rateLimit: { max: 200, windowMs: 60_000, trustProxy: false },
   ttl: { archivedTtlDays: 90, cleanupIntervalMs: 86400000 }
 }
@@ -169,6 +176,8 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_SLOTS_HARD_LIMIT', path: 'slots.hardLimit', type: 'int' },
 
   { env: 'SYNAPTOMIND_GRAPH_MAX_DEGREE', path: 'graph.maxDegree', type: 'int' },
+
+  { env: 'SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR', path: 'search.confidence.vectorFloor', type: 'float' },
 
   { env: 'SYNAPTOMIND_RATE_LIMIT', path: 'rateLimit.max', type: 'int' },
   { env: 'SYNAPTOMIND_RATE_LIMIT_WINDOW_MS', path: 'rateLimit.windowMs', type: 'int' },

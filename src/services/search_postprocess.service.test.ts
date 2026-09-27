@@ -94,6 +94,24 @@ test('prependPrimerResults preserves group structure when primer is in group', (
   expect((reordered[0] as SearchResult).thought.id).toBe('a')
 })
 
+test('prependPrimerResults preserves low_confidence on a hoisted primer', () => {
+  const weakPrimer = makeSearchResult('weak-primer', {
+    low_confidence: true,
+    match_source: ['vector'],
+    similarity: 0.2
+  })
+  const strong = makeSearchResult('strong', {
+    low_confidence: false,
+    match_source: ['bm25'],
+    similarity: 0
+  })
+  const reordered = prependPrimerResults([strong, weakPrimer], ['weak-primer']) as SearchResult[]
+  // Hoisting must not recompute or drop the confidence verdict.
+  expect(reordered[0].thought.id).toBe('weak-primer')
+  expect(reordered[0].low_confidence).toBe(true)
+  expect(reordered).toHaveLength(2)
+})
+
 // ── prependProfileResults ────────────────────────────────────────────────────
 
 test('prependProfileResults hoists profile thoughts for @profile query', () => {

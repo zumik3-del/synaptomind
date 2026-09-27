@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createEdge } from "../db/edges";
 import { getDb } from "../db/container";
-import { closeDb, hasVec } from "../db/init";
+import { closeDb, hasVec, initDb } from "../db/init";
 import { createTestDb, seedEmbedding, seedThought } from "../test/helpers";
 import { searchThoughts, searchThoughtsGrouped } from "./search.service";
 
@@ -15,6 +19,45 @@ beforeEach(createTestDb);
 afterEach(closeDb);
 
 const itVec = test.skipIf(!hasVec());
+
+/**
+ * `hasVec()` is only true after a file-backed `initDb`, so at module-load time
+ * `itVec` is always `false` and vec tests are skipped. Probe vec0 directly
+ * (throwaway connection — no global-container side effects) so the
+ * `min_relevance` gate below can exercise a real vector leg wherever vec0 is
+ * installed. The service tests otherwise run on `:memory:`, where vec0 is
+ * unavailable and every hit is a BM25 (always-strong) anchor.
+ */
+const CAN_USE_VEC = (() => {
+	try {
+		const probe = new Database(":memory:");
+		probe.loadExtension(`${import.meta.dir}/../../vec0.so`);
+		probe.close();
+		return true;
+	} catch {
+		return false;
+	}
+})();
+const itRealVec = test.skipIf(!CAN_USE_VEC);
+
+/** File-backed DB (vec0 available) for tests that need a genuine vector leg. */
+async function withVecDb<T>(fn: (d: Database) => Promise<T>): Promise<T> {
+	const dir = mkdtempSync(join(tmpdir(), "synaptomind-search-service-"));
+	const dbPath = join(dir, "test.db");
+	try {
+		initDb({ dbPath, runMigrations: true });
+		return await fn(getDb());
+	} finally {
+		closeDb();
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+/** Seed a specific 384-d vector so cosine similarity is controllable. */
+function seedVecEmbeddingRaw(db: Database, thoughtId: string, vector: Float32Array): void {
+	const buf = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength);
+	db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf);
+}
 
 describe("searchThoughts", () => {
 	itVec("returns results", async () => {
@@ -293,5 +336,357 @@ describe("recency boost — service layer", () => {
     expect(itemIds).toContain(memberNew);
     // Newer member ranks first within the cluster group.
     expect(itemIds.indexOf(memberNew)).toBeLessThan(itemIds.indexOf(memberOld));
+  });
+});
+
+// ── Relevance-confidence signal (issue #155, task #884/885) ─────────────────
+
+describe("low_confidence + min_relevance — service layer", () => {
+  test("min_relevance=0 (default) preserves all results and their low_confidence flags", async () => {
+    seedThought({ content: "MIN_REL marker content here" });
+    seedThought({ content: "MIN_REL marker content also" });
+
+    const results = await searchThoughts({
+      query: "MIN_REL",
+      topK: 10,
+      hybrid: true,
+    });
+
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    for (const r of results) {
+      expect(typeof r.low_confidence).toBe("boolean");
+    }
+  });
+
+  test("min_relevance=0 yields identical id set/order to ungated baseline", async () => {
+    seedThought({ content: "MIN_REL_ID same keyword anchor" });
+    seedThought({ content: "MIN_REL_ID same keyword anchor" });
+
+    const baseline = await searchThoughts({
+      query: "MIN_REL_ID",
+      topK: 10,
+      hybrid: true,
+    });
+    const gated = await searchThoughts({
+      query: "MIN_REL_ID",
+      topK: 10,
+      hybrid: true,
+      minRelevance: 0,
+    });
+
+    const baselineIds = baseline.map((r) => r.thought.id);
+    const gatedIds = gated.map((r) => r.thought.id);
+    expect(gatedIds).toEqual(baselineIds);
+  });
+
+  itRealVec("min_relevance>0 filters out weak vector-only results, keeps BM25 anchors", async () => {
+    await withVecDb(async (db) => {
+      // BM25 hit: contains the keyword → strong lexical anchor.
+      const bm25Id = seedThought({
+        content: "MIN_REL_BM25 unique keyword anchor",
+      });
+      db.prepare(
+        `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
+      ).run(bm25Id, "MIN_REL_BM25 unique keyword anchor");
+      // Vector-only hit: cosine ≈ 0.2 against the query → weak, below the floor.
+      const vecOnlyId = seedThought({
+        content: "MIN_REL_VEC unrelated semantic noise",
+      });
+      const stored = new Float32Array(384);
+      stored[0] = 1;
+      seedVecEmbeddingRaw(db, vecOnlyId, stored);
+      const weakQuery = new Float32Array(384);
+      weakQuery[0] = 0.2;
+      weakQuery[1] = Math.sqrt(1 - 0.2 * 0.2);
+
+      const baseline = await searchThoughts(
+        {
+          query: "MIN_REL_BM25 unique keyword anchor",
+          topK: 10,
+          hybrid: true,
+          embedding: weakQuery,
+        },
+        db,
+      );
+      const ungated = await searchThoughts(
+        {
+          query: "MIN_REL_BM25 unique keyword anchor",
+          topK: 10,
+          hybrid: true,
+          embedding: weakQuery,
+          minRelevance: 0,
+        },
+        db,
+      );
+      const gated = await searchThoughts(
+        {
+          query: "MIN_REL_BM25 unique keyword anchor",
+          topK: 10,
+          hybrid: true,
+          embedding: weakQuery,
+          minRelevance: 0.9,
+        },
+        db,
+      );
+
+      // The weak vector-only hit is a real candidate (present ungated)...
+      const baselineIds = baseline.map((r) => r.thought.id);
+      expect(baselineIds).toContain(bm25Id);
+      expect(baselineIds).toContain(vecOnlyId);
+      expect(ungated.map((r) => r.thought.id)).toContain(vecOnlyId);
+      // ...and the gate drops it while keeping the lexical anchor. Without the
+      // gate `gatedIds` would equal the baseline and the negative assertion
+      // below would fail.
+      const gatedIds = gated.map((r) => r.thought.id);
+      expect(gatedIds).toContain(bm25Id);
+      expect(gatedIds).not.toContain(vecOnlyId);
+    });
+  });
+
+  test("min_relevance>0 backfills to topK from overfetch pool", async () => {
+    const db = getDb();
+    // Create many thoughts so we can test backfill.
+    const ids: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const id = seedThought({ content: `MIN_REL_FILL topic marker ${i}` });
+      ids.push(id);
+    }
+    // Add FTS for a few so they become BM25 hits (strong matches).
+    for (let i = 0; i < 3; i++) {
+      db.prepare(
+        `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
+      ).run(ids[i], `MIN_REL_FILL topic marker ${i}`);
+    }
+
+    const results = await searchThoughts({
+      query: "MIN_REL_FILL topic marker",
+      topK: 5,
+      hybrid: true,
+      minRelevance: 0.9,
+    });
+
+    // Should still return topK results because the overfetch pool backfills.
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    // All returned results should be strong matches.
+    for (const r of results) {
+      expect(r.low_confidence).toBe(false);
+    }
+  });
+
+  test("suppress + min_relevance combined: suppress drops then gate filters", async () => {
+    const db = getDb();
+    const oldId = seedThought({ content: "MIN_REL_SUP old claim" });
+    const newId = seedThought({ content: "MIN_REL_SUP new claim" });
+    createEdge(db, newId, oldId, "replaces");
+    // Make oldId a BM25 hit (so it would survive gating).
+    db.prepare(
+      `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
+    ).run(oldId, "MIN_REL_SUP old claim");
+    db.prepare(
+      `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
+    ).run(newId, "MIN_REL_SUP new claim");
+
+    const results = await searchThoughts({
+      query: "MIN_REL_SUP",
+      topK: 10,
+      hybrid: true,
+      supersessionMode: "suppress",
+      minRelevance: 0.9,
+    });
+
+    const resultIds = results.map((r) => r.thought.id);
+    // Suppressed old thought should be gone.
+    expect(resultIds).not.toContain(oldId);
+    // New thought should be present.
+    expect(resultIds).toContain(newId);
+  });
+
+  test("recency invariance: low_confidence identical for recencyWeight=0 vs 1", async () => {
+    seedThought({ content: "MIN_REL_REC same marker here" });
+    seedThought({ content: "MIN_REL_REC same marker here" });
+
+    const noRecency = await searchThoughts({
+      query: "MIN_REL_REC",
+      topK: 10,
+      hybrid: true,
+      recencyWeight: 0,
+    });
+    const withRecency = await searchThoughts({
+      query: "MIN_REL_REC",
+      topK: 10,
+      hybrid: true,
+      recencyWeight: 1,
+    });
+
+    const noRecIds = new Set(noRecency.map((r) => r.thought.id));
+    const withRecIds = new Set(withRecency.map((r) => r.thought.id));
+    // Same result set (recency only changes order, not membership).
+    expect(noRecIds).toEqual(withRecIds);
+    // low_confidence flags are identical per-id.
+    const noRecById = new Map(noRecency.map((r) => [r.thought.id, r.low_confidence]));
+    for (const r of withRecency) {
+      expect(noRecById.get(r.thought.id)).toBe(r.low_confidence);
+    }
+  });
+
+  test("confidenceFloor clamp: out-of-range values clamped to [0,1]", async () => {
+    seedThought({ content: "MIN_REL_CLAMP marker" });
+
+    // confidenceFloor > 1 → clamped to 1.
+    const over = await searchThoughts({
+      query: "MIN_REL_CLAMP",
+      topK: 10,
+      hybrid: true,
+      confidenceFloor: 5,
+    });
+    expect(Array.isArray(over)).toBe(true);
+
+    // confidenceFloor < 0 → clamped to 0.
+    const under = await searchThoughts({
+      query: "MIN_REL_CLAMP",
+      topK: 10,
+      hybrid: true,
+      confidenceFloor: -0.5,
+    });
+    expect(Array.isArray(under)).toBe(true);
+    // With floor=0, all vector hits are strong matches.
+    for (const r of under) {
+      expect(r.low_confidence).toBe(false);
+    }
+  });
+
+  test("low_confidence field present on every result", async () => {
+    seedThought({ content: "MIN_REL_FIELD marker content" });
+
+    const results = await searchThoughts({
+      query: "MIN_REL_FIELD",
+      topK: 10,
+      hybrid: true,
+    });
+
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    for (const r of results) {
+      expect(typeof r.low_confidence).toBe("boolean");
+    }
+  });
+
+  test("min_relevance>0 over an empty DB returns [] without crashing", async () => {
+    const results = await searchThoughts({
+      query: "MIN_REL_EMPTY missing keyword",
+      topK: 10,
+      hybrid: true,
+      embedding: new Float32Array(384),
+      minRelevance: 0.9,
+    });
+    expect(results).toEqual([]);
+  });
+
+  test("min_relevance>0 still fills topK when survivors exceed topK", async () => {
+    const db = getDb();
+    for (let i = 0; i < 8; i++) {
+      const id = seedThought({ content: `MIN_REL_TOPK anchor marker ${i}` });
+      db.prepare(
+        `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
+      ).run(id, `MIN_REL_TOPK anchor marker ${i}`);
+    }
+
+    const results = await searchThoughts({
+      query: "MIN_REL_TOPK",
+      topK: 3,
+      hybrid: true,
+      minRelevance: 0.9,
+    });
+
+    // Every BM25 anchor is strong, so the gate must not shrink the set below topK.
+    expect(results.length).toBe(3);
+    for (const r of results) {
+      expect(r.low_confidence).toBe(false);
+    }
+  });
+
+  test("min_relevance>0 under-fills when the candidate pool is exhausted", async () => {
+    const db = getDb();
+    const onlyId = seedThought({ content: "MIN_REL_UNDER sole anchor" });
+    db.prepare(
+      `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
+    ).run(onlyId, "MIN_REL_UNDER sole anchor");
+
+    const results = await searchThoughts({
+      query: "MIN_REL_UNDER",
+      topK: 5,
+      hybrid: true,
+      minRelevance: 0.9,
+    });
+
+    // Only one candidate exists → the gate returns it and under-fills `topK`.
+    expect(results.map((r) => r.thought.id)).toEqual([onlyId]);
+  });
+
+  test("tagFilter + min_relevance keeps only tagged strong matches", async () => {
+    const db = getDb();
+    const taggedId = seedThought({
+      content: "MIN_REL_TAG anchor marker keep",
+      tags: JSON.stringify(["keepme"]),
+    });
+    db.prepare(
+      `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
+    ).run(taggedId, "MIN_REL_TAG anchor marker keep");
+    const untaggedId = seedThought({ content: "MIN_REL_TAG anchor marker drop" });
+    db.prepare(
+      `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
+    ).run(untaggedId, "MIN_REL_TAG anchor marker drop");
+
+    const results = await searchThoughts({
+      query: "MIN_REL_TAG",
+      topK: 10,
+      hybrid: true,
+      tagFilter: "keepme",
+      minRelevance: 0.9,
+    });
+
+    const ids = results.map((r) => r.thought.id);
+    expect(ids).toContain(taggedId);
+    expect(ids).not.toContain(untaggedId);
+    // No over-drop: the surviving tagged anchor is strong and retained.
+    for (const r of results) {
+      expect(r.low_confidence).toBe(false);
+    }
+  });
+
+  itRealVec("min_relevance=1 keeps lexical anchors and exact-1.0 vector hits only", async () => {
+    await withVecDb(async (db) => {
+      const bm25Id = seedThought({ content: "MIN_REL_ONE lexical anchor" });
+      db.prepare(
+        `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
+      ).run(bm25Id, "MIN_REL_ONE lexical anchor");
+      // sim == 1.0 against the query (identical unit vectors). Content has no
+      // query token, so it can only survive via the vector leg.
+      const exactId = seedThought({ content: "semantic exact vector content" });
+      const unit = new Float32Array(384);
+      unit[0] = 1;
+      seedVecEmbeddingRaw(db, exactId, unit);
+      // sim ≈ 0.1 → weak; no query token either.
+      const weakId = seedThought({ content: "semantic weak vector content" });
+      const weak = new Float32Array(384);
+      weak[0] = 0.1;
+      weak[1] = Math.sqrt(1 - 0.1 * 0.1);
+      seedVecEmbeddingRaw(db, weakId, weak);
+
+      const results = await searchThoughts(
+        {
+          query: "MIN_REL_ONE",
+          topK: 10,
+          hybrid: true,
+          embedding: unit,
+          minRelevance: 1,
+        },
+        db,
+      );
+
+      const ids = results.map((r) => r.thought.id);
+      expect(ids).toContain(bm25Id);
+      expect(ids).toContain(exactId);
+      expect(ids).not.toContain(weakId);
+    });
   });
 });
