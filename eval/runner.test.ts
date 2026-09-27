@@ -27,6 +27,7 @@ function queryRun(metrics: Partial<QueryMetrics> = {}): QueryRun {
   return {
     query: 'q',
     relevant: ['a'],
+    hits: [],
     metrics: {
       recall: 1,
       precision: 1,
@@ -129,6 +130,68 @@ describe('evaluateChecks', () => {
     )
 
     expect(errors).toEqual([])
+  })
+
+  test('expectNoStrongMatch passes when every retrieved hit is low-confidence', () => {
+    const hits = [
+      { id: 'd1', lowConfidence: true, similarity: 0.1, matchSource: ['vector'] },
+      { id: 'd2', lowConfidence: true, similarity: 0.05, matchSource: ['bm25'] }
+    ]
+    const errors = evaluateChecks(
+      { query: 'q', relevant: [], noRelevant: true, expectNoStrongMatch: true },
+      ['d1', 'd2'],
+      ['own-a'],
+      hits
+    )
+
+    expect(errors).toEqual([])
+  })
+
+  test('expectNoStrongMatch flags a strong match among retrieved hits', () => {
+    const hits = [
+      { id: 'd1', lowConfidence: true, similarity: 0.1, matchSource: ['vector'] },
+      { id: 'd2', lowConfidence: false, similarity: 0.9, matchSource: ['vector'] }
+    ]
+    const errors = evaluateChecks(
+      { query: 'q', relevant: [], expectNoStrongMatch: true },
+      ['d1', 'd2'],
+      ['own-a'],
+      hits
+    )
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain('strong match')
+    expect(errors[0]).toContain('d2')
+  })
+
+  test('expectNoStrongMatch reports a missing-confidence entry when a retrieved id has no hit', () => {
+    const hits = [{ id: 'd1', lowConfidence: true, similarity: 0.1, matchSource: ['vector'] }]
+    const errors = evaluateChecks(
+      { query: 'q', relevant: [], expectNoStrongMatch: true },
+      ['d1', 'd2'],
+      ['own-a'],
+      hits
+    )
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain('missing confidence')
+    expect(errors[0]).toContain('d2')
+  })
+
+  test('expectNoStrongMatch fails on every strong match, not just the first', () => {
+    const hits = [
+      { id: 'a', lowConfidence: false, similarity: 0.9, matchSource: ['vector'] },
+      { id: 'b', lowConfidence: false, similarity: 0.85, matchSource: ['vector'] }
+    ]
+    const errors = evaluateChecks(
+      { query: 'q', relevant: [], expectNoStrongMatch: true },
+      ['a', 'b'],
+      [],
+      hits
+    )
+
+    expect(errors).toHaveLength(2)
+    expect(errors.every(e => e.includes('strong match'))).toBe(true)
   })
 })
 

@@ -15,7 +15,13 @@ import {
   realEmbedder,
   realSearcher
 } from './search'
-import type { AggregateMetrics, EvalQuery, EvalScenario, QueryMetrics } from './types'
+import type {
+  AggregateMetrics,
+  EvalQuery,
+  EvalScenario,
+  QueryMetrics,
+  RetrievedHit
+} from './types'
 
 export const DEFAULT_TOP_K = 5
 export type EvalMode = 'deterministic' | 'real'
@@ -23,6 +29,8 @@ export type EvalMode = 'deterministic' | 'real'
 export interface QueryRun {
   query: string
   relevant: string[]
+  /** Retrieved hits with their #155 confidence signals (eval-local view). */
+  hits: RetrievedHit[]
   metrics: QueryMetrics
 }
 
@@ -64,11 +72,15 @@ interface RunOptions {
 /**
  * Hard per-query assertions. `scenarioThoughtIds` are the scenario's own
  * (non-distractor) thought ids, used only by the `noRelevant` contract.
+ * `hits` carries the per-result confidence signals needed by
+ * `expectNoStrongMatch`; when the query requests that contract every retrieved
+ * id MUST have a matching hit so the assertion cannot pass vacuously.
  */
 export function evaluateChecks(
   query: EvalQuery,
   retrieved: string[],
-  scenarioThoughtIds: string[] = []
+  scenarioThoughtIds: string[] = [],
+  hits: RetrievedHit[] = []
 ): string[] {
   const errors: string[] = []
   const found = new Set(retrieved)
@@ -78,6 +90,17 @@ export function evaluateChecks(
   if (query.noRelevant) {
     for (const id of scenarioThoughtIds) {
       if (found.has(id)) errors.push(`noRelevant query retrieved scenario thought "${id}"`)
+    }
+  }
+  if (query.expectNoStrongMatch) {
+    const byId = new Map(hits.map(hit => [hit.id, hit]))
+    for (const id of retrieved) {
+      const hit = byId.get(id)
+      if (!hit) {
+        errors.push(`expectNoStrongMatch query is missing confidence for retrieved thought "${id}"`)
+      } else if (!hit.lowConfidence) {
+        errors.push(`expectNoStrongMatch query retrieved strong match "${id}"`)
+      }
     }
   }
   if (query.rankBefore) {
@@ -142,11 +165,20 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
           recencyWeight: query.recencyWeight,
           recencyHalfLifeDays: query.recencyHalfLifeDays
         })
-        const retrieved = found.map(result => result.thought.id)
-        const checkErrors = evaluateChecks(query, retrieved, ownThoughtIds)
+        // Capture the #155 confidence signals before the ids are flattened, so
+        // `expectNoStrongMatch` can assert on them (see eval/types.ts).
+        const hits: RetrievedHit[] = found.map(result => ({
+          id: result.thought.id,
+          lowConfidence: result.low_confidence,
+          similarity: result.similarity,
+          matchSource: result.match_source
+        }))
+        const retrieved = hits.map(hit => hit.id)
+        const checkErrors = evaluateChecks(query, retrieved, ownThoughtIds, hits)
         queries.push({
           query: query.query,
           relevant: query.relevant,
+          hits,
           metrics: computeQueryMetrics(retrieved, query.relevant, checkErrors)
         })
       }

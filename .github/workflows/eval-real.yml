@@ -1,0 +1,39 @@
+name: Eval · real embedder
+
+on:
+  schedule:
+    # Weekly check for real-embedder regressions. Does not run on PRs/pushes;
+    # the deterministic gate lives in ci.yml (task #891).
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-real-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval-real:
+    name: "Eval · real (weekly)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout@v5
+
+      - name: "Setup: install bun"
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
+
+      - name: "Setup: bun install"
+        run: bun install --frozen-lockfile
+
+      - name: Cache HuggingFace model (~465M)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # actions/cache@v4
+        with:
+          path: data/huggingface/Xenova/multilingual-e5-small
+          key: hf-model-multilingual-e5-small-${{ runner.os }}
+          restore-keys: |
+            hf-model-multilingual-e5-small-
+
+      - name: "Eval: real embedder baseline gate"
+        run: bun run eval --real

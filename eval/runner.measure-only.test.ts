@@ -198,12 +198,16 @@ describe('runEval — measureOnly end-to-end', () => {
     expect(clean.measureOnly).toBe(true)
     expect(leak.measureOnly).toBe(true)
 
-    // Behaviour: the shipped probe passes; the injected leak fails noRelevant.
+    // Behaviour: the shipped probe passes; the injected leak fails both the
+    // noRelevant contract AND the #156 confidence contract — replacing an own
+    // thought's content with the query text turns it into a BM25-anchored,
+    // confident hit, which `expectNoStrongMatch` must catch.
     expect(clean.status).toBe('pass')
     expect(clean.checkErrors).toEqual([])
     expect(leak.status).toBe('fail')
     expect(leak.checkErrors).toEqual([
-      'noRelevant query retrieved scenario thought "nm-garden"'
+      'noRelevant query retrieved scenario thought "nm-garden"',
+      'expectNoStrongMatch query retrieved strong match "nm-garden"'
     ])
 
     // Aggregates: only the gated scenario contributes; no-match has no floor.
@@ -211,7 +215,7 @@ describe('runEval — measureOnly end-to-end', () => {
     expect(res.categories['explicit-fact']?.queries).toBe(1)
     expect(res.categories['no-match']).toBeUndefined()
 
-    // Gating: the probe assertion failure is a regression even without a baseline.
+    // Gating: both probe assertion failures are regressions even without a baseline.
     expect(evaluateAssertions(res)).toEqual([
       {
         scope: 'scenario:negative-no-match-leak',
@@ -219,8 +223,15 @@ describe('runEval — measureOnly end-to-end', () => {
         actual: 0,
         threshold: 1,
         detail: 'noRelevant query retrieved scenario thought "nm-garden"'
+      },
+      {
+        scope: 'scenario:negative-no-match-leak',
+        metric: 'assertion',
+        actual: 0,
+        threshold: 1,
+        detail: 'expectNoStrongMatch query retrieved strong match "nm-garden"'
       }
     ])
-    expect(collectGatingRegressions(res, null)).toHaveLength(1)
+    expect(collectGatingRegressions(res, null)).toHaveLength(2)
   })
 })
