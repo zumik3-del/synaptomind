@@ -1,6 +1,6 @@
 # HTTP API Reference
 
-REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Server version at time of writing: **0.7.3**.
+REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Server version at time of writing: **0.8.0-beta.2**.
 
 - **Auth:** all `/api/*` endpoints require `Authorization: Bearer <token>` (401 otherwise). The token is set via the `SYNAPTOMIND_SECRET` or `SYNAPTOMIND_SERVICE_TOKEN` environment variable. `GET /health` is the only public endpoint.
 - **Body limit:** request bodies over 5 MB are rejected with `413`.
@@ -28,6 +28,9 @@ Hybrid (vector + FTS5) search over thoughts. Results can be grouped by cluster a
 | show_primers | query | bool | true | Set `false` to hide primer results |
 | exclude_flagged | query | bool | false | `true` excludes flagged thoughts |
 | hybrid | query | bool | true | `0` disables hybrid search |
+| recency_weight | query | float | 0 | Opt-in recency boost weight (0-1); `0` preserves relevance-only ranking, `>0` adds `recency_weight × 0.5^(ageDays/recency_half_life_days)` |
+| recency_half_life_days | query | int | 30 | Recency decay half-life in days (clamped 1-3650); only meaningful when `recency_weight > 0` |
+| min_relevance | query | float | 0 | Opt-in relevance gate (0-1); with `>0` only strong matches are kept (BM25, or vector with `similarity >= min_relevance`) |
 | supersession_mode | query | string | suppress | Superseded thoughts: `off` (no annotation), `flag` (annotate), `suppress` (drop) |
 | contradiction_mode | query | string | flag | Contradicted thoughts: `off` or `flag`; never suppressed |
 
@@ -692,4 +695,4 @@ Public liveness/readiness probe (no auth). Returns 200 when healthy, 503 when de
 
 curl `http://127.0.0.1:3005/health`
 
-Response: `{"status": "ok", "version": "0.7.3", "checks": {"database": "ok", "embedder": "ok"}}`
+Response: `{"status": "ok", "version": "0.8.0-beta.2", "checks": {"database": "ok", "embedder": "ok"}}`

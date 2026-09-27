@@ -44,8 +44,8 @@ docker compose pull && docker compose up -d
 ### Systemd install (not a container path)
 
 The `deploy/` framework installs a Bun process under systemd (`DIST="source"` in
-`deploy/app.env`); it does **not** manage containers. For that path see the
-README "Server installation" section. This guide covers Docker only — manage the
+`deploy/app.env`); it does **not** manage containers. For that path see
+[DEPLOY.md](DEPLOY.md). This guide covers Docker only — manage the
 stack with `docker compose`.
 
 ---
@@ -226,7 +226,7 @@ Response:
 ```json
 {
   "status": "ok",
-  "version": "0.3.0",
+  "version": "0.6.1",
   "checks": {
     "database": "ok",
     "embedder": "ok"
