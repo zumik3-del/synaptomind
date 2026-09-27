@@ -96,10 +96,10 @@ print_recovery() {
 # ── Fetch & swap ───────────────────────────────────────────────────────────
 update_source() {
   local bun=""
+  git -C "$INSTALL_DIR" fetch --tags --force origin
   if [ -n "$ARG_VERSION" ]; then
     TARGET_REF="$ARG_VERSION"; TARGET_KIND="tag"
   else
-    git -C "$INSTALL_DIR" fetch --tags --force origin
     resolve_source_ref "$INSTALL_DIR"
     if [ "$TARGET_KIND" = "branch" ]; then
       local head want
@@ -219,11 +219,11 @@ main() {
   else
     TARGET_VERSION=""
     TARGET_REF=""
+    git -C "$INSTALL_DIR" fetch --tags --force origin
     if [ -n "$ARG_VERSION" ]; then
       ARG_VERSION="$(normalize_v "$ARG_VERSION")"
       TARGET_REF="$ARG_VERSION"; TARGET_KIND="tag"; TARGET_VERSION="${ARG_VERSION#v}"
     else
-      git -C "$INSTALL_DIR" fetch --tags --force origin
       resolve_source_ref "$INSTALL_DIR"
       if [ "$TARGET_KIND" = "tag" ]; then
         TARGET_VERSION="${TARGET_REF#v}"

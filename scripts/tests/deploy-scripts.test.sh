@@ -466,6 +466,109 @@ else
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
+# 12. update.sh --version path: fetches tags before checkout (issue #877 guard)
+# ═════════════════════════════════════════════════════════════════════════════
+
+echo ""
+echo "--- update.sh --version tag fetch guard ---"
+
+# 12a. Structural: update.sh must contain unconditional fetch on source path.
+if grep -q 'fetch --tags --force origin' "$DEPLOY/update.sh"; then
+  pass "update.sh contains git fetch --tags --force origin (structural)"
+else
+  fail "update.sh missing git fetch --tags --force origin"
+fi
+
+# 12b. Scratch: install at one stable tag, delete another tag ref locally,
+#      then update.sh --version must succeed (fetch restores the missing tag).
+TMPROOT4="$(mktemp -d)"
+INSTALL_DIR_T4="$TMPROOT4/install"
+DATA_DIR_T4="$TMPROOT4/data"
+RUN_DIR_T4="$TMPROOT4/run"
+REPO_URL_T4="file://$(pwd)"
+DEPLOY_TMP4="$TMPROOT4/deploy"
+cp -r "$DEPLOY" "$DEPLOY_TMP4"
+APP_ENV_TMP4="$DEPLOY_TMP4/app.env"
+sed -i "s|^INSTALL_DIR=.*|INSTALL_DIR=\"$INSTALL_DIR_T4\"|" "$APP_ENV_TMP4"
+sed -i "s|^DATA_DIR=.*|DATA_DIR=\"$DATA_DIR_T4\"|" "$APP_ENV_TMP4"
+sed -i "s|^RUN_DIR=.*|RUN_DIR=\"$RUN_DIR_T4\"|" "$APP_ENV_TMP4"
+sed -i "s|^REPO_URL=.*|REPO_URL=\"$REPO_URL_T4\"|" "$APP_ENV_TMP4"
+sed -i 's|^HEALTH_URL=.*|HEALTH_URL="http://127.0.0.1:99999/health"|' "$APP_ENV_TMP4"
+sed -i 's|^HEALTH_TIMEOUT=.*|HEALTH_TIMEOUT="2"|' "$APP_ENV_TMP4"
+
+STUB_DIR4="$TMPROOT4/stubbin"
+mkdir -p "$STUB_DIR4"
+cat > "$STUB_DIR4/systemctl" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+cat > "$STUB_DIR4/sudo" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+chmod +x "$STUB_DIR4/systemctl" "$STUB_DIR4/sudo"
+export PATH="$STUB_DIR4:$PATH"
+
+# Install at the latest stable tag (v0.7.3).
+bash "$DEPLOY_TMP4/install.sh" --no-service --dir "$INSTALL_DIR_T4" < /dev/null 2>&1 || true
+
+# Pick a different stable tag that exists in the remote.
+# Use package.json version to identify the current installed version, then
+# scan stable tags for one that differs.
+CURRENT_VER="$(read_package_version "${INSTALL_DIR_T4}/package.json")"
+ALL_STABLE_TAGS=( $(git tag --sort=-v:refname | grep -v -- '-' | head -5) )
+TARGET_TAG=""
+for t in "${ALL_STABLE_TAGS[@]}"; do
+  tag_ver="${t#v}"
+  if [ "$tag_ver" != "$CURRENT_VER" ]; then
+    TARGET_TAG="$t"
+    break
+  fi
+done
+
+if [ -z "$TARGET_TAG" ]; then
+  fail "could not find a target tag different from current ($CURRENT_TAG) for scratch test"
+else
+  # Delete the target tag ref from the local clone so it is unavailable.
+  git -C "$INSTALL_DIR_T4" tag -d "$TARGET_TAG" >/dev/null 2>&1 || true
+
+  # Verify the tag ref is actually gone.
+  if git -C "$INSTALL_DIR_T4" show "$TARGET_TAG" >/dev/null 2>&1; then
+    fail "target tag ref $TARGET_TAG still exists after deletion (scratch setup failed)"
+  else
+    pass "target tag ref deleted from local clone: $TARGET_TAG"
+  fi
+
+  # Run update.sh --version targeting the deleted tag.
+  # Without the fetch-before-checkout fix this fails with "pathspec did not match".
+  UPDATE_OUT4=""
+  UPDATE_RC4=0
+  UPDATE_OUT4="$(bash "$RUN_DIR_T4/scripts/update.sh" --yes --version "$TARGET_TAG" < /dev/null 2>&1)" || UPDATE_RC4=$?
+
+  if [ "$UPDATE_RC4" -eq 0 ] || [ "$UPDATE_RC4" -eq 1 ]; then
+    # Exit code 1 may come from the health-check timeout (expected with port 99999);
+    # what matters is that the code swap succeeded (no pathspec error).
+    if printf '%s\n' "$UPDATE_OUT4" | grep -qi 'pathspec.*did not match\|refname.*ambiguous\|cannot lock'; then
+      fail "update.sh --version $TARGET_TAG failed with pathspec/ref error (fetch guard broken): rc=$UPDATE_RC4"
+      printf '%s\n' "$UPDATE_OUT4" | head -20
+    else
+      pass "update.sh --version $TARGET_TAG succeeded (fetch restored missing tag, rc=$UPDATE_RC4)"
+    fi
+  else
+    fail "update.sh --version $TARGET_TAG exited unexpectedly (rc=$UPDATE_RC4)"
+    printf '%s\n' "$UPDATE_OUT4" | head -20
+  fi
+
+  # Verify the checkout actually landed on the target tag.
+  CHECKED_OUT="$(git -C "$INSTALL_DIR_T4" tag --points-at HEAD 2>/dev/null | head -1 || true)"
+  if [ "$CHECKED_OUT" = "${TARGET_TAG#v}" ] || [ "$CHECKED_OUT" = "$TARGET_TAG" ]; then
+    pass "update.sh checked out $TARGET_TAG"
+  else
+    fail "update.sh did not check out $TARGET_TAG (got: ${CHECKED_OUT:-empty})"
+  fi
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Summary
 # ═════════════════════════════════════════════════════════════════════════════
 
