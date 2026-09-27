@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.0-beta.2
+
+> September 27, 2026
+
+- [`926ec2d`](https://github.com/zumik3-del/synaptomind/commit/926ec2d9c5e9f89351443d9ae6b26b0f0435717e): feat(search): relevance confidence + eval/vec test hardening (#154 #155 #156 #157) (#159)
+- [`c0e547d`](https://github.com/zumik3-del/synaptomind/commit/c0e547dc6665bf7ebdff7f63c46823905af2a858): fix(deploy): fetch tags before explicit --version checkout in update.sh (#153)
+- [`d3c139a`](https://github.com/zumik3-del/synaptomind/commit/d3c139afc434ed82f34a10f95093647dfa4915b8): feat(ci): create releases from main on version-bump merge (#152)
+
 ## v0.8.0-beta.1
 
 > September 26, 2026
