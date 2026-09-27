@@ -19,15 +19,11 @@
 
 <!-- 
   ⚠️ PR titles follow Conventional Commits and become the commit message on main.
-  They help decide the next release type when running scripts/release.sh:
-
-  - fix(...)   → patch release (0.3.1 → 0.3.2)
-  - feat(...)  → minor release (0.3.1 → 0.4.0)
-  - feat!(...) → major release (0.3.1 → 1.0.0)
-  - chore/docs/refactor/test/ci/build → NO release
-
-  Do NOT use feat/fix for trivial changes that don't warrant a release.
-  Use chore/docs/refactor instead.
+  Releases are triggered by a `package.json` version bump merged to main — CI
+  tags and publishes on merge, so the PR title does not decide the release type
+  (see AGENTS.md §6). Types still group the generated GitHub Release notes into
+  Features / Fixes / Other: do NOT use feat/fix for trivial changes — use
+  chore/docs/refactor instead.
 -->
 
 ```

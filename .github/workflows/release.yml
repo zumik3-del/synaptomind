@@ -2,8 +2,7 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v[0-9]*'
+    branches: [main]
 
 permissions:
   contents: write
@@ -11,9 +10,83 @@ permissions:
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
+  detect:
+    name: "Detect · version bump"
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+      prev_tag: ${{ steps.check.outputs.prev_tag }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve versions
+        id: check
+        shell: bash
+        run: |
+          NEW_SHA="${{ github.sha }}"
+          BEFORE="${{ github.event.before }}"
+
+          get_pkg_version() {
+            local sha="$1"
+            git show "${sha}:package.json" 2>/dev/null \
+              | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',''))" \
+              || true
+          }
+
+          NEW_VERSION=$(get_pkg_version "$NEW_SHA")
+          if [ -z "$NEW_VERSION" ]; then
+            echo "No version found at $NEW_SHA — not a release"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            return
+          fi
+
+          PREV_VERSION=""
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            PREV_VERSION=$(get_pkg_version "$BEFORE")
+          fi
+
+          TAG="v${NEW_VERSION}"
+
+          # Check whether the tag already exists in the repo
+          EXISTING=$(git tag -l "$TAG")
+          TAG_EXISTS=false
+          if [ -n "$EXISTING" ]; then
+            TAG_EXISTS=true
+          fi
+
+          # Prerelease: version string contains '-'
+          PRERELEASE=false
+          if [[ "$NEW_VERSION" == *-* ]]; then
+            PRERELEASE=true
+          fi
+
+          # Only release when version changed AND tag does not exist
+          SHOULD_RELEASE=false
+          if [ "$NEW_VERSION" != "$PREV_VERSION" ] && [ "$TAG_EXISTS" = "false" ]; then
+            SHOULD_RELEASE=true
+          fi
+
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+          echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          # Output previous tag for release notes
+          if [ -n "$PREV_VERSION" ]; then
+            echo "prev_tag=v${PREV_VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "prev_tag=" >> "$GITHUB_OUTPUT"
+          fi
+
   verify:
     name: "Verify · CI gate"
     runs-on: ubuntu-latest
@@ -33,37 +106,28 @@ jobs:
         run: bun test
 
   release:
-    needs: [verify]
+    needs: [detect, verify]
+    if: ${{ needs.detect.outputs.should_release == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Detect prerelease
-        id: prerelease
-        run: |
-          TAG="${{ github.ref_name }}"
-          VERSION="${TAG#v}"
-          if [[ "$VERSION" == *-* ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build Release Notes
+        id: notes
         shell: bash
         run: |
-          TAG="${{ github.ref_name }}"
-          PREV_TAG=$(git tag --sort=-v:refname | grep -Fxv "$TAG" | head -n 1 || true)
+          TAG="${{ needs.detect.outputs.tag }}"
+          PREV_TAG="${{ needs.detect.outputs.prev_tag }}"
           REPO="${{ github.repository }}"
           COMMIT_FMT="- [\`%h\`](https://github.com/${REPO}/commit/%H): %s"
 
           TMP=$(mktemp)
           if [ -n "$PREV_TAG" ]; then
-            git log "${PREV_TAG}..${TAG}" --no-merges --pretty="$COMMIT_FMT" | grep -v CHANGELOG > "$TMP"
+            git log "${PREV_TAG}..${{ github.sha }}" --no-merges --pretty="$COMMIT_FMT" > "$TMP"
           else
-            git log "$TAG" --no-merges --pretty="$COMMIT_FMT" | grep -v CHANGELOG > "$TMP"
+            git log ${{ github.sha }} --no-merges --pretty="$COMMIT_FMT" > "$TMP"
           fi
 
           FEATURES=$(grep -i '^-.*: *feat[:(]' "$TMP" || true)
@@ -94,17 +158,35 @@ jobs:
           rm -f "$TMP"
           echo "Generated release notes:"
           cat RELEASE_NOTES.md
+          echo "RELEASE_NOTES_PATH=${{ runner.temp }}/RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create annotated tag
+        run: |
+          TAG="${{ needs.detect.outputs.tag }}"
+          if git tag -l "$TAG" | grep -q .; then
+            echo "Tag $TAG already exists — skipping creation"
+          else
+            git tag -a "$TAG" -m "Release $TAG" "${{ github.sha }}"
+            git push origin "$TAG"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
         run: |
-          PRERELEASE_FLAG=()
-          if [ "${{ steps.prerelease.outputs.prerelease }}" = "true" ]; then
-            PRERELEASE_FLAG+=(--prerelease)
+          TAG="${{ needs.detect.outputs.tag }}"
+          if gh release view "$TAG" --json id 2>/dev/null | grep -q '"id"'; then
+            echo "Release $TAG already exists — skipping creation"
+          else
+            PRERELEASE_FLAG=()
+            if [ "${{ needs.detect.outputs.prerelease }}" = "true" ]; then
+              PRERELEASE_FLAG+=(--prerelease)
+            fi
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file RELEASE_NOTES.md \
+              "${PRERELEASE_FLAG[@]}"
           fi
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --notes-file RELEASE_NOTES.md \
-            "${PRERELEASE_FLAG[@]}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -112,35 +194,34 @@ jobs:
     # Secondary job — does not gate the canonical GitHub Release.
     # The supported install path is the deploy/ framework (deploy/install.sh / deploy/update.sh).
     # The container image is provided as a convenience only.
-    needs: [verify]
+    needs: [detect, verify]
+    if: ${{ needs.detect.outputs.should_release == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout@v5
 
+      - name: Get version from detect output
+        id: version
+        run: |
+          echo "version=${{ needs.detect.outputs.version }}" >> "$GITHUB_OUTPUT"
+
       - name: Detect prerelease
         id: prerelease
         run: |
-          TAG="${{ github.ref_name }}"
-          VERSION="${TAG#v}"
-          if [[ "$VERSION" == *-* ]]; then
+          if [ "${{ needs.detect.outputs.prerelease }}" = "true" ]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Get version from tag
-        id: version
-        run: |
-          TAG="${{ github.ref_name }}"
-          VERSION="${TAG#v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Compute Docker tags
         id: docker-tags
         run: |
-          TAGS="ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="ghcr.io/${{ github.repository }}"
+          TAGS="${REPO}:${VERSION}"
           if [ "${{ steps.prerelease.outputs.prerelease }}" = "false" ]; then
-            TAGS=$(printf '%s\n%s' "$TAGS" "ghcr.io/${{ github.repository }}:latest")
+            TAGS=$(printf '%s\n%s' "$TAGS" "${REPO}:latest")
           fi
           {
             echo "tags<<EOF"

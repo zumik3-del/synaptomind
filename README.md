@@ -553,6 +553,21 @@ For performance benchmarks (search latency, write throughput, embedding speed), 
 
 For the memory evaluation harness (metrics, datasets, thresholds), see [docs/EVAL.md](docs/EVAL.md).
 
+### Releasing
+
+Releases are created by CI on `main`; the version is set explicitly, not derived
+from commit types.
+
+1. From a clean `dev` tree, prepare the bump:
+   `bash scripts/release.sh <version>` (or `bun run release <version>`) — bumps
+   `version` in `package.json` and regenerates the pending `CHANGELOG.md`
+   section. It does not create a tag, commit, or push.
+2. Commit the bump + changelog, push, and open a PR `dev` → `main`.
+3. Merging the PR triggers `.github/workflows/release.yml` on `main`: it
+   verifies the tree (`tsc` + `bun test`), creates the annotated tag
+   `v<version>` plus the GitHub Release (prerelease when the version contains
+   `-`), and separately publishes the Docker image.
+
 ---
 
 ## Contributing
