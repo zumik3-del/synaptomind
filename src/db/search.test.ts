@@ -3,6 +3,7 @@ import { createTestDb, seedEmbedding, seedThought } from "../test/helpers";
 import { getDb } from "./container";
 import { closeDb, hasVec } from "./init";
 import { bm25SearchIds, rrfMerge, searchThoughts } from "./search";
+import { bm25ScoredIds } from "./search-bm25";
 
 const itVec = test.skipIf(!hasVec());
 
@@ -688,4 +689,185 @@ itVec("recency rrf_score stays raw/un-boosted", () => {
   for (const id of rrfWith.keys()) {
     expect(rrfWith.get(id)).toBe(rrfWithout.get(id));
   }
+});
+
+// ── BM25 Stopword Filtering Regression (issue #154, task #880) ────────────────
+
+import { bm25ScoredIdsFiltered } from "./search-bm25";
+
+test("stopword-only English query yields empty BM25 results", () => {
+  const db = getDb();
+  // Seed thoughts whose content contains English stopwords
+  seedThought({ id: "sw-en-a", content: "the of and to a is are was were" });
+  seedFts(db, "sw-en-a", "the of and to a is are was were");
+  seedThought({ id: "sw-en-b", content: "completely unrelated content here" });
+  seedFts(db, "sw-en-b", "completely unrelated content here");
+
+  // Stopword-only query should return []
+  const ids = bm25SearchIds(db, "the of and to a is", 10);
+  expect(ids).toEqual([]);
+
+  const scored = bm25ScoredIds(db, "the of and to a is", 10);
+  expect(scored).toEqual([]);
+});
+
+test("stopword-only Russian query yields empty BM25 results", () => {
+  const db = getDb();
+  // Seed thoughts whose content contains Russian stopwords
+  seedThought({ id: "sw-ru-a", content: "что такое для как он на я с со" });
+  seedFts(db, "sw-ru-a", "что такое для как он на я с со");
+  seedThought({ id: "sw-ru-b", content: "другое содержание без стоп-слов" });
+  seedFts(db, "sw-ru-b", "другое содержание без стоп-слов");
+
+  // Stopword-only query should return []
+  const ids = bm25SearchIds(db, "что такое для как", 10);
+  expect(ids).toEqual([]);
+
+  const scored = bm25ScoredIds(db, "что такое для как", 10);
+  expect(scored).toEqual([]);
+});
+
+test("mixed query filters stopwords but matches content words", () => {
+  const db = getDb();
+  // Seed thought with content words
+  seedThought({ id: "mix-content", content: "как обновить production deployment MCP" });
+  seedFts(db, "mix-content", "как обновить production deployment MCP");
+  seedThought({ id: "mix-unrelated", content: "nothing relevant here" });
+  seedFts(db, "mix-unrelated", "nothing relevant here");
+
+  // Mixed query: Russian stopword + content words
+  const ids = bm25SearchIds(db, "как обновить production deployment", 10);
+  expect(ids).toContain("mix-content");
+  expect(ids).not.toContain("mix-unrelated");
+});
+
+test("mixed English query filters stopwords but matches content words", () => {
+  const db = getDb();
+  seedThought({ id: "mix-en-content", content: "MCP rrf_score database connection" });
+  seedFts(db, "mix-en-content", "MCP rrf_score database connection");
+  seedThought({ id: "mix-en-unrelated", content: "unrelated generic text" });
+  seedFts(db, "mix-en-unrelated", "unrelated generic text");
+
+  // Query: English stopword + content words
+  const ids = bm25SearchIds(db, "the MCP rrf_score", 10);
+  expect(ids).toContain("mix-en-content");
+  expect(ids).not.toContain("mix-en-unrelated");
+});
+
+test("meaningful short tokens are NOT dropped (Caddy, MCP, ai, rrf)", () => {
+  const db = getDb();
+  // Seed thoughts with meaningful short tokens
+  seedThought({ id: "short-caddy", content: "Caddy proxy configuration" });
+  seedFts(db, "short-caddy", "Caddy proxy configuration");
+  seedThought({ id: "short-mcp", content: "MCP protocol specification" });
+  seedFts(db, "short-mcp", "MCP protocol specification");
+  seedThought({ id: "short-ai", content: "AI model training pipeline" });
+  seedFts(db, "short-ai", "AI model training pipeline");
+  seedThought({ id: "short-rrf", content: "RRF fusion algorithm tuning" });
+  seedFts(db, "short-rrf", "RRF fusion algorithm tuning");
+
+  // Each meaningful short token should match its respective thought
+  expect(bm25SearchIds(db, "Caddy", 10)).toContain("short-caddy");
+  expect(bm25SearchIds(db, "MCP", 10)).toContain("short-mcp");
+  expect(bm25SearchIds(db, "ai", 10)).toContain("short-ai");
+  expect(bm25SearchIds(db, "rrf", 10)).toContain("short-rrf");
+});
+
+test("case-insensitive stopword matching (ЧТО → that's a stopword)", () => {
+  const db = getDb();
+  // Uppercase Russian stopwords should still be filtered
+  seedThought({ id: "case-sw", content: "что такое для как он" });
+  seedFts(db, "case-sw", "что такое для как он");
+
+  // Uppercase query should also return []
+  const ids = bm25SearchIds(db, "ЧТО ТАКОЕ ДЛЯ КАК", 10);
+  expect(ids).toEqual([]);
+});
+
+test("ё→е folding: ё-containing token matches е-variant", () => {
+  const db = getDb();
+  // Seed thought with ё in content
+  seedThought({ id: "yo-en-content", content: "ёлка зелёная деревья растут" });
+  seedFts(db, "yo-en-content", "ёлка зелёная деревья растут");
+  seedThought({ id: "yo-en-unrelated", content: "unrelated content here" });
+  seedFts(db, "yo-en-unrelated", "unrelated content here");
+
+  // Query with е (no dot) should still match ё-containing content
+  const ids = bm25SearchIds(db, "елка зелёная", 10);
+  expect(ids).toContain("yo-en-content");
+  expect(ids).not.toContain("yo-en-unrelated");
+});
+
+test("stopword filtering prevents FTS blanket match (regression guard)", () => {
+  const db = getDb();
+  // This test would FAIL against pre-#880 behavior where stopwords were not filtered.
+  // Before #880: query "the of and" would produce FTS query "the OR of OR and"
+  // which matches EVERY document (blanket match).
+  // After #880: query produces '' (empty) and returns [] (no match).
+  seedThought({ id: "reg-a", content: "document with common words" });
+  seedFts(db, "reg-a", "document with common words");
+  seedThought({ id: "reg-b", content: "another document with different words" });
+  seedFts(db, "reg-b", "another document with different words");
+  seedThought({ id: "reg-c", content: "yet another document here" });
+  seedFts(db, "reg-c", "yet another document here");
+
+  // Stopword-only query must return [], not all documents
+  const ids = bm25SearchIds(db, "the of and to a is", 10);
+  expect(ids).toEqual([]);
+
+  // Verify that meaningful query still works
+  const meaningful = bm25SearchIds(db, "document", 10);
+  expect(meaningful.length).toBeGreaterThan(0);
+});
+
+test("bm25ScoredIdsFiltered respects stopword filter with project filter", () => {
+  const db = getDb();
+  const p1 = crypto.randomUUID();
+  const p2 = crypto.randomUUID();
+  db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, 'P1', ?)`).run(p1, new Date().toISOString());
+  db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, 'P2', ?)`).run(p2, new Date().toISOString());
+
+  seedThought({ id: "filt-p1", content: "production deployment MCP server", project_id: p1 });
+  seedFts(db, "filt-p1", "production deployment MCP server");
+  seedThought({ id: "filt-p2", content: "caddy proxy configuration", project_id: p2 });
+  seedFts(db, "filt-p2", "caddy proxy configuration");
+
+  // Empty query with filter should return []
+  const filtered = bm25ScoredIdsFiltered(db, "the of and", 10, "AND t.project_id = ?", [p1]);
+  expect(filtered).toEqual([]);
+
+  // Meaningful query with filter should return results
+  const meaningfulFiltered = bm25ScoredIdsFiltered(db, "production deployment", 10, "AND t.project_id = ?", [p1]);
+  expect(meaningfulFiltered.length).toBeGreaterThan(0);
+  expect(meaningfulFiltered.find(r => r.id === "filt-p1")).toBeDefined();
+});
+
+test("stopword-only query in searchThoughts returns [] (integration test)", () => {
+  const db = getDb();
+  seedThought({ id: "int-sw-a", content: "the of and to a is are" });
+  seedFts(db, "int-sw-a", "the of and to a is are");
+  seedThought({ id: "int-sw-b", content: "unrelated content here" });
+  seedFts(db, "int-sw-b", "unrelated content here");
+
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(0),
+    query: "the of and to a is",
+    topK: 10,
+    hybrid: true,
+  });
+
+  expect(results).toEqual([]);
+});
+
+test("mixed Russian-English query filters both language stopwords", () => {
+  const db = getDb();
+  seedThought({ id: "mixed-lang", content: "MCP production deployment server" });
+  seedFts(db, "mixed-lang", "MCP production deployment server");
+  seedThought({ id: "mixed-unrelated", content: "something completely different" });
+  seedFts(db, "mixed-unrelated", "something completely different");
+
+  // Mixed language query: English stopword + Russian stopword + content words
+  const ids = bm25SearchIds(db, "the что production", 10);
+  expect(ids).toContain("mixed-lang");
+  expect(ids).not.toContain("mixed-unrelated");
 });

@@ -10,4 +10,3 @@ vec0.so
 .env
 benchmark/
 eval/report.json
-scripts/quick_deploy.sh
