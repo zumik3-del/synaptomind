@@ -1,20 +1,36 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
-import { createTestDb, seedEmbedding, seedThought } from "../test/helpers";
+import type { Database } from "bun:sqlite";
+import {
+	createTestDb,
+	isVecExtensionAvailable,
+	seedEmbedding,
+	seedThought,
+	withVecDb,
+} from "../test/helpers";
 import { getDb } from "./container";
-import { closeDb, hasVec } from "./init";
+import { closeDb } from "./init";
 import { bm25SearchIds, isStrongMatch, rrfMerge, searchThoughts } from "./search";
 import { bm25ScoredIds } from "./search-bm25";
 
-const itVec = test.skipIf(!hasVec());
+const VEC_AVAILABLE = isVecExtensionAvailable();
+
+/**
+ * Vec-gated test. `:memory:` cannot load vec0, so each body runs on a fresh
+ * file-backed DB supplied by `withVecDb` and skips when the extension is absent.
+ */
+function itVec(
+	name: string,
+	fn: (db: Database) => void | Promise<void>,
+): void {
+	test.skipIf(!VEC_AVAILABLE)(name, () => withVecDb(fn));
+}
 
 beforeEach(createTestDb);
 afterEach(closeDb);
 
 itVec(
 	"searchThoughts with minImportance filters out low-importance thoughts",
-	() => {
-		const db = getDb();
+	(db) => {
 		const high = seedThought({ content: "important thought" });
 		const low = seedThought({ content: "unimportant thought" });
 		seedEmbedding(high);
@@ -44,8 +60,7 @@ itVec(
 	},
 );
 
-itVec("searchThoughts without minImportance does not filter", () => {
-	const db = getDb();
+itVec("searchThoughts without minImportance does not filter", (db) => {
 	const t = seedThought({ content: "something" });
 	seedEmbedding(t);
 	db.prepare(
@@ -60,8 +75,7 @@ itVec("searchThoughts without minImportance does not filter", () => {
 	expect(results.map((r) => r.thought.id)).toContain(t);
 });
 
-itVec("searchThoughts with minImportance=0 returns all", () => {
-	const db = getDb();
+itVec("searchThoughts with minImportance=0 returns all", (db) => {
 	const t = seedThought({ content: "something" });
 	seedEmbedding(t);
 	db.prepare(
@@ -77,15 +91,14 @@ itVec("searchThoughts with minImportance=0 returns all", () => {
 	expect(results.map((r) => r.thought.id)).toContain(t);
 });
 
-itVec("searchThoughts with excludeFlagged omits flagged thoughts", () => {
-	const db = getDb();
+itVec("searchThoughts with excludeFlagged omits flagged thoughts", (db) => {
 	const clean = seedThought({ content: "clean thought" });
 	const flagged = seedThought({ content: "flagged thought" });
 	seedEmbedding(clean);
 	seedEmbedding(flagged);
 	db.prepare(
-		`INSERT INTO thought_verify (thought_id, flagged) VALUES (?, 1)`,
-	).run(flagged);
+		`INSERT INTO thought_verify (id, thought_id, flagged, created_at) VALUES (?, ?, 1, ?)`,
+	).run(Bun.randomUUIDv7(), flagged, new Date().toISOString());
 
 	const excluding = searchThoughts(db, {
 		embedding: new Float32Array(384),
@@ -157,8 +170,7 @@ test("hybrid search respects topK without vector search", () => {
 
 itVec(
 	"hybrid search surfaces an exact-keyword thought even with a useless embedding",
-	() => {
-		const db = getDb();
+	(db) => {
 		const target = seedThought({
 			content: "EXACTTOKEN_MARKER_xyz unique marker",
 		});
@@ -178,8 +190,7 @@ itVec(
 	},
 );
 
-itVec("semantic baseline (hybrid=false) still returns vector results", () => {
-	const db = getDb();
+itVec("semantic baseline (hybrid=false) still returns vector results", (db) => {
 	const t = seedThought({ content: "semantic only baseline" });
 	seedEmbedding(t);
 	const results = searchThoughts(db, {
@@ -191,8 +202,7 @@ itVec("semantic baseline (hybrid=false) still returns vector results", () => {
 	expect(results.map((r) => r.thought.id)).toContain(t);
 });
 
-itVec("searchThoughts with statusFilter excludes non-matching status", () => {
-	const db = getDb();
+itVec("searchThoughts with statusFilter excludes non-matching status", (db) => {
 	const active = seedThought({ content: "active thought", status: "active" });
 	const draft = seedThought({ content: "draft thought", status: "draft" });
 	seedEmbedding(active);
@@ -207,8 +217,7 @@ itVec("searchThoughts with statusFilter excludes non-matching status", () => {
 	expect(results.map((r) => r.thought.id)).not.toContain(draft);
 });
 
-itVec("searchThoughts with projectFilter scopes to project", () => {
-	const db = getDb();
+itVec("searchThoughts with projectFilter scopes to project", (db) => {
 	const p1 = crypto.randomUUID()
 	const p2 = crypto.randomUUID()
 	db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, 'P1', ?)`).run(p1, new Date().toISOString())
@@ -229,8 +238,7 @@ itVec("searchThoughts with projectFilter scopes to project", () => {
 	expect(results.map((r) => r.thought.id)).not.toContain(inP2);
 });
 
-itVec("searchThoughts with clusterFilter=only returns only clusters", () => {
-	const db = getDb();
+itVec("searchThoughts with clusterFilter=only returns only clusters", (db) => {
 	const cluster = seedThought({ content: "cluster thought", is_cluster: 1 });
 	const regular = seedThought({ content: "regular thought", is_cluster: 0 });
 	seedEmbedding(cluster);
@@ -246,8 +254,7 @@ itVec("searchThoughts with clusterFilter=only returns only clusters", () => {
 	expect(results.map((r) => r.thought.id)).not.toContain(regular);
 });
 
-itVec("searchThoughts with clusterFilter=exclude hides clusters", () => {
-	const db = getDb();
+itVec("searchThoughts with clusterFilter=exclude hides clusters", (db) => {
 	const cluster = seedThought({ content: "cluster thought", is_cluster: 1 });
 	const regular = seedThought({ content: "regular thought", is_cluster: 0 });
 	seedEmbedding(cluster);
@@ -272,8 +279,7 @@ test("toFtsQuery escapes special characters", () => {
 	expect(Array.isArray(ids)).toBeTrue();
 });
 
-itVec("searchThoughts project-filtered BM25 returns topK when local thought exists", () => {
-	const db = getDb();
+itVec("searchThoughts project-filtered BM25 returns topK when local thought exists", (db) => {
 	const p1 = crypto.randomUUID();
 	const p2 = crypto.randomUUID();
 	db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, 'P1', ?)`).run(p1, new Date().toISOString());
@@ -299,25 +305,7 @@ itVec("searchThoughts project-filtered BM25 returns topK when local thought exis
 
 // ── Ranking signal field regression (issue #143, task #816) ─────────────────
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { initDb } from "./init";
-
-/** File-backed DB with vec0 available — needed for vector-leg assertions. */
-function withVecTestDb(fn: (db: import("bun:sqlite").Database) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "synaptomind-search-signal-"));
-  const dbPath = join(dir, "test.db");
-  try {
-    initDb({ dbPath, runMigrations: true });
-    fn(getDb());
-  } finally {
-    closeDb();
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-function seedThoughtRow(db: import("bun:sqlite").Database, id: string, content: string): void {
+function seedThoughtRow(db: Database, id: string, content: string): void {
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, created_at, updated_at)
@@ -329,14 +317,14 @@ function seedThoughtRow(db: import("bun:sqlite").Database, id: string, content: 
   ).run(id, now, now);
 }
 
-function seedVecEmbedding(db: import("bun:sqlite").Database, thoughtId: string): void {
+function seedVecEmbedding(db: Database, thoughtId: string): void {
   const buf = Buffer.from(new Float32Array(384).buffer);
   db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf);
 }
 
 /** Seed a specific 384-d vector so cosine similarity is controllable. */
 function seedVecEmbeddingRaw(
-  db: import("bun:sqlite").Database,
+  db: Database,
   thoughtId: string,
   vector: Float32Array,
 ): void {
@@ -344,28 +332,9 @@ function seedVecEmbeddingRaw(
   db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf);
 }
 
-function seedFts(db: import("bun:sqlite").Database, thoughtId: string, content: string): void {
+function seedFts(db: Database, thoughtId: string, content: string): void {
   db.prepare(`INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`).run(thoughtId, content);
 }
-
-/**
- * `hasVec()` is only true after a file-backed `initDb`, but `itVec` is evaluated
- * at module-load time — so it is `false` here and every vec test above is
- * skipped. Probe the extension directly (throwaway connection, no global
- * container side effects) so exact-boundary tests can run wherever vec0 is
- * installed.
- */
-const CAN_USE_VEC = (() => {
-  try {
-    const probe = new Database(":memory:");
-    probe.loadExtension(`${import.meta.dir}/../../vec0.so`);
-    probe.close();
-    return true;
-  } catch {
-    return false;
-  }
-})();
-const itRealVec = test.skipIf(!CAN_USE_VEC);
 
 test("BM25-only hit carries match_source=['bm25'] and a positive bm25_score", () => {
   const db = getDb();
@@ -428,63 +397,57 @@ test("non-matching thought has no bm25_score and no match_source entry for bm25"
   expect(hit).toBeUndefined();
 });
 
-test("hybrid overlap hit lists both vector and bm25 in match_source", () => {
-  withVecTestDb((db) => {
-    seedThoughtRow(db, "sig-overlap", "HYBRID_OVERLAP marker test");
-    seedVecEmbedding(db, "sig-overlap");
-    seedFts(db, "sig-overlap", "HYBRID_OVERLAP marker test");
+itVec("hybrid overlap hit lists both vector and bm25 in match_source", (db) => {
+  seedThoughtRow(db, "sig-overlap", "HYBRID_OVERLAP marker test");
+  seedVecEmbedding(db, "sig-overlap");
+  seedFts(db, "sig-overlap", "HYBRID_OVERLAP marker test");
 
-    const results = searchThoughts(db, {
-      embedding: new Float32Array(384),
-      query: "HYBRID_OVERLAP marker test",
-      topK: 10,
-      hybrid: true,
-    });
-
-    const hit = results.find((r) => r.thought.id === "sig-overlap");
-    expect(hit).toBeDefined();
-    expect(hit!.match_source).toEqual(["vector", "bm25"]);
-    expect(hit!.rrf_score).toBeDefined();
-    expect(hit!.bm25_score).toBeGreaterThan(0);
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(384),
+    query: "HYBRID_OVERLAP marker test",
+    topK: 10,
+    hybrid: true,
   });
+
+  const hit = results.find((r) => r.thought.id === "sig-overlap");
+  expect(hit).toBeDefined();
+  expect(hit!.match_source).toEqual(["vector", "bm25"]);
+  expect(hit!.rrf_score).toBeDefined();
+  expect(hit!.bm25_score).toBeGreaterThan(0);
 });
 
-test("vector-only hit has match_source=['vector'] with no bm25_score", () => {
-  withVecTestDb((db) => {
-    seedThoughtRow(db, "sig-vec-only", "semantic similarity content");
-    seedVecEmbedding(db, "sig-vec-only");
+itVec("vector-only hit has match_source=['vector'] with no bm25_score", (db) => {
+  seedThoughtRow(db, "sig-vec-only", "semantic similarity content");
+  seedVecEmbedding(db, "sig-vec-only");
 
-    const results = searchThoughts(db, {
-      embedding: new Float32Array(384),
-      topK: 10,
-      hybrid: false,
-    });
-
-    const hit = results.find((r) => r.thought.id === "sig-vec-only");
-    expect(hit).toBeDefined();
-    expect(hit!.match_source).toEqual(["vector"]);
-    expect(hit!.bm25_score).toBeUndefined();
-    expect(hit!.rrf_score).toBeUndefined();
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(384),
+    topK: 10,
+    hybrid: false,
   });
+
+  const hit = results.find((r) => r.thought.id === "sig-vec-only");
+  expect(hit).toBeDefined();
+  expect(hit!.match_source).toEqual(["vector"]);
+  expect(hit!.bm25_score).toBeUndefined();
+  expect(hit!.rrf_score).toBeUndefined();
 });
 
-test("no-query path (hybrid=true, no query) is vector-only: rrf_score absent", () => {
-  withVecTestDb((db) => {
-    seedThoughtRow(db, "sig-noquery", "semantic content only");
-    seedVecEmbedding(db, "sig-noquery");
+itVec("no-query path (hybrid=true, no query) is vector-only: rrf_score absent", (db) => {
+  seedThoughtRow(db, "sig-noquery", "semantic content only");
+  seedVecEmbedding(db, "sig-noquery");
 
-    const results = searchThoughts(db, {
-      embedding: new Float32Array(384),
-      topK: 10,
-      hybrid: true,
-    });
-
-    const hit = results.find((r) => r.thought.id === "sig-noquery");
-    expect(hit).toBeDefined();
-    expect(hit!.match_source).toEqual(["vector"]);
-    expect(hit!.rrf_score).toBeUndefined();
-    expect(hit!.bm25_score).toBeUndefined();
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(384),
+    topK: 10,
+    hybrid: true,
   });
+
+  const hit = results.find((r) => r.thought.id === "sig-noquery");
+  expect(hit).toBeDefined();
+  expect(hit!.match_source).toEqual(["vector"]);
+  expect(hit!.rrf_score).toBeUndefined();
+  expect(hit!.bm25_score).toBeUndefined();
 });
 
 test("bm25SearchIds returns string[] (public contract preserved)", () => {
@@ -504,8 +467,7 @@ function recencyCreatedAt(offsetDays: number): string {
 }
 
 // Row 1: w unset/0 → identical id order AND no recency_score/final_score; rrf_score unchanged.
-itVec("recency w=0: no recency fields, order preserved, rrf_score unchanged", () => {
-  const db = getDb();
+itVec("recency w=0: no recency fields, order preserved, rrf_score unchanged", (db) => {
   seedThought({ id: "rec-w0-a", content: "REC_W0 same marker" });
   seedThought({ id: "rec-w0-b", content: "REC_W0 same marker" });
   seedFts(db, "rec-w0-a", "REC_W0 same marker");
@@ -531,8 +493,7 @@ itVec("recency w=0: no recency fields, order preserved, rrf_score unchanged", ()
 });
 
 // Row 2: w>0 → recency_score present on every result, in [0,1]; =1 at age 0, =0.5 at one half-life.
-itVec("recency w>0: recency_score present, =1 at age 0, =0.5 at one half-life", () => {
-  const db = getDb();
+itVec("recency w>0: recency_score present, =1 at age 0, =0.5 at one half-life", (db) => {
   seedThought({ id: "rec-age0", content: "REC_AGE marker", created_at: recencyCreatedAt(0) });
   seedThought({ id: "rec-age30", content: "REC_AGE marker", created_at: recencyCreatedAt(30) });
   seedFts(db, "rec-age0", "REC_AGE marker");
@@ -562,8 +523,7 @@ itVec("recency w>0: recency_score present, =1 at age 0, =0.5 at one half-life", 
 });
 
 // Row 3: equal relevance, different age → newer ranks first.
-itVec("recency equal relevance: newer ranks above older", () => {
-  const db = getDb();
+itVec("recency equal relevance: newer ranks above older", (db) => {
   seedThought({ id: "rec-eq-old", content: "REC_EQ same keyword today", created_at: recencyCreatedAt(60) });
   seedThought({ id: "rec-eq-new", content: "REC_EQ same keyword today", created_at: recencyCreatedAt(0) });
   seedFts(db, "rec-eq-old", "REC_EQ same keyword today");
@@ -585,8 +545,7 @@ itVec("recency equal relevance: newer ranks above older", () => {
 });
 
 // Row 4: bounded influence — higher-relevance old thought beats low-relevance fresh at small w.
-itVec("recency bounded influence: high-relevance old beats low-relevance fresh at small w", () => {
-  const db = getDb();
+itVec("recency bounded influence: high-relevance old beats low-relevance fresh at small w", (db) => {
   // High-BM25: repeated keyword → higher score. Old.
   seedThought({
     id: "rec-bounds-old",
@@ -619,34 +578,32 @@ itVec("recency bounded influence: high-relevance old beats low-relevance fresh a
 });
 
 // Row 5: vector-only path (hybrid=false, !query) applies recency via similarity.
-itVec("recency vector-only path: recency applies via similarity, fields present", () => {
-  withVecTestDb((db) => {
-    seedThought({ id: "rec-vec-old", content: "REC_VEC semantic content", created_at: recencyCreatedAt(60) });
-    seedThought({ id: "rec-vec-new", content: "REC_VEC semantic content", created_at: recencyCreatedAt(0) });
-    seedVecEmbedding(db, "rec-vec-old");
-    seedVecEmbedding(db, "rec-vec-new");
+itVec("recency vector-only path: recency applies via similarity, fields present", (db) => {
+  seedThought({ id: "rec-vec-old", content: "REC_VEC semantic content", created_at: recencyCreatedAt(60) });
+  seedThought({ id: "rec-vec-new", content: "REC_VEC semantic content", created_at: recencyCreatedAt(0) });
+  seedVecEmbedding(db, "rec-vec-old");
+  seedVecEmbedding(db, "rec-vec-new");
 
-    const results = searchThoughts(db, {
-      embedding: new Float32Array(384),
-      topK: 10,
-      hybrid: false,
-      recencyWeight: 0.5,
-      recencyHalfLifeDays: RECENCY_HALF_LIFE_DAYS,
-      nowMs: RECENCY_NOW_MS,
-    });
-
-    expect(results.length).toBeGreaterThanOrEqual(2);
-    const olderR = results.find((r) => r.thought.id === "rec-vec-old");
-    const newerR = results.find((r) => r.thought.id === "rec-vec-new");
-    expect(olderR).toBeDefined();
-    expect(newerR).toBeDefined();
-    expect(olderR!.recency_score).toBeDefined();
-    expect(newerR!.final_score).toBeDefined();
-    expect(newerR!.match_source).toEqual(["vector"]);
-    // Newer ranks first (same similarity, recency breaks tie).
-    const ids = results.map((r) => r.thought.id);
-    expect(ids.indexOf("rec-vec-new")).toBeLessThan(ids.indexOf("rec-vec-old"));
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(384),
+    topK: 10,
+    hybrid: false,
+    recencyWeight: 0.5,
+    recencyHalfLifeDays: RECENCY_HALF_LIFE_DAYS,
+    nowMs: RECENCY_NOW_MS,
   });
+
+  expect(results.length).toBeGreaterThanOrEqual(2);
+  const olderR = results.find((r) => r.thought.id === "rec-vec-old");
+  const newerR = results.find((r) => r.thought.id === "rec-vec-new");
+  expect(olderR).toBeDefined();
+  expect(newerR).toBeDefined();
+  expect(olderR!.recency_score).toBeDefined();
+  expect(newerR!.final_score).toBeDefined();
+  expect(newerR!.match_source).toEqual(["vector"]);
+  // Newer ranks first (same similarity, recency breaks tie).
+  const ids = results.map((r) => r.thought.id);
+  expect(ids.indexOf("rec-vec-new")).toBeLessThan(ids.indexOf("rec-vec-old"));
 });
 
 // Row 6: empty query + empty embedding → [], no crash.
@@ -664,8 +621,7 @@ test("recency empty query + empty embedding returns [] without crash", () => {
 });
 
 // Row 7: equal final_score tie → stable incoming order preserved.
-itVec("recency tie: equal final_score preserves incoming order", () => {
-  const db = getDb();
+itVec("recency tie: equal final_score preserves incoming order", (db) => {
   // Same content, same created_at → same relevance and same recency → same final_score.
   seedThought({ id: "rec-tie-a", content: "REC_TIE same today", created_at: recencyCreatedAt(10) });
   seedThought({ id: "rec-tie-b", content: "REC_TIE same today", created_at: recencyCreatedAt(10) });
@@ -689,8 +645,7 @@ itVec("recency tie: equal final_score preserves incoming order", () => {
 });
 
 // Row 8: rrf_score stays raw/un-boosted.
-itVec("recency rrf_score stays raw/un-boosted", () => {
-  const db = getDb();
+itVec("recency rrf_score stays raw/un-boosted", (db) => {
   seedThought({ id: "rec-rrf-a", content: "REC_RRF keyword match" });
   seedThought({ id: "rec-rrf-b", content: "REC_RRF keyword match" });
   seedFts(db, "rec-rrf-a", "REC_RRF keyword match");
@@ -931,71 +886,73 @@ test("isStrongMatch: no legs → false", () => {
 // ── low_confidence DB-layer matrix (vec-gated, issue #155) ───────────────────
 
 // Vector-only path, sim below floor → low_confidence=true.
-itVec("low_confidence: vector-only sim < floor ⇒ true", () => {
-  withVecTestDb((db) => {
-    seedThoughtRow(db, "lc-vec-low", "semantic low-similarity content here");
-    seedVecEmbedding(db, "lc-vec-low");
-    const results = searchThoughts(db, {
-      embedding: new Float32Array(384),
-      topK: 10,
-      hybrid: false,
-      confidenceFloor: 0.9,
-    });
-    const hit = results.find((r) => r.thought.id === "lc-vec-low");
-    expect(hit).toBeDefined();
-    expect(hit!.low_confidence).toBe(true);
-    expect(hit!.match_source).toEqual(["vector"]);
+itVec("low_confidence: vector-only sim < floor ⇒ true", (db) => {
+  seedThoughtRow(db, "lc-vec-low", "semantic low-similarity content here");
+  // Stored e0 vs query e1 → orthogonal, cosine similarity 0 < floor. A
+  // zero-vector seed would instead read as similarity 1 (degenerate cosine).
+  const stored = new Float32Array(384);
+  stored[0] = 1;
+  seedVecEmbeddingRaw(db, "lc-vec-low", stored);
+  const weakQuery = new Float32Array(384);
+  weakQuery[1] = 1;
+  const results = searchThoughts(db, {
+    embedding: weakQuery,
+    topK: 10,
+    hybrid: false,
+    confidenceFloor: 0.9,
   });
+  const hit = results.find((r) => r.thought.id === "lc-vec-low");
+  expect(hit).toBeDefined();
+  expect(hit!.low_confidence).toBe(true);
+  expect(hit!.match_source).toEqual(["vector"]);
 });
 
 // Vector-only path, sim exactly at the floor → low_confidence=false (confident).
-itRealVec("low_confidence: sim == floor exactly ⇒ false; just above ⇒ true", () => {
-  withVecTestDb((db) => {
-    seedThoughtRow(db, "lc-vec-boundary", "semantic boundary content");
-    // Stored unit vector e0; query = 0.9·e0 + sqrt(0.19)·e1 has cosine ≈ 0.9.
-    const stored = new Float32Array(384);
-    stored[0] = 1;
-    seedVecEmbeddingRaw(db, "lc-vec-boundary", stored);
-    const query = new Float32Array(384);
-    query[0] = 0.9;
-    query[1] = Math.sqrt(1 - 0.9 * 0.9);
+itVec("low_confidence: sim == floor exactly ⇒ false; just above ⇒ true", (db) => {
+  seedThoughtRow(db, "lc-vec-boundary", "semantic boundary content");
+  // Stored unit vector e0; query = 0.9·e0 + sqrt(0.19)·e1 has cosine ≈ 0.9.
+  const stored = new Float32Array(384);
+  stored[0] = 1;
+  seedVecEmbeddingRaw(db, "lc-vec-boundary", stored);
+  const query = new Float32Array(384);
+  query[0] = 0.9;
+  query[1] = Math.sqrt(1 - 0.9 * 0.9);
 
-    // Probe the measured similarity first, then reuse it as the exact floor so
-    // the `sim >= floor` comparison is exercised at the true boundary (the raw
-    // float32 distance is not guaranteed to be exactly 1 - 0.9).
-    const probe = searchThoughts(db, {
-      embedding: query,
-      topK: 10,
-      hybrid: false,
-      confidenceFloor: 0,
-    });
-    const measured = probe.find((r) => r.thought.id === "lc-vec-boundary");
-    expect(measured).toBeDefined();
-    expect(measured!.similarity).toBeGreaterThan(0);
-    expect(measured!.similarity).toBeLessThan(1);
-    const sim = measured!.similarity;
-
-    const atFloor = searchThoughts(db, {
-      embedding: query,
-      topK: 10,
-      hybrid: false,
-      confidenceFloor: sim,
-    });
-    const atFloorHit = atFloor.find((r) => r.thought.id === "lc-vec-boundary");
-    expect(atFloorHit).toBeDefined();
-    expect(atFloorHit!.low_confidence).toBe(false);
-    expect(atFloorHit!.match_source).toEqual(["vector"]);
-
-    const aboveFloor = searchThoughts(db, {
-      embedding: query,
-      topK: 10,
-      hybrid: false,
-      confidenceFloor: sim + 1e-6,
-    });
-    const aboveFloorHit = aboveFloor.find((r) => r.thought.id === "lc-vec-boundary");
-    expect(aboveFloorHit).toBeDefined();
-    expect(aboveFloorHit!.low_confidence).toBe(true);
+  // Probe the measured similarity first, then reuse it as the exact floor so
+  // the `sim >= floor` comparison is exercised at the true boundary (the raw
+  // float32 distance is not guaranteed to be exactly 1 - 0.9).
+  const probe = searchThoughts(db, {
+    embedding: query,
+    topK: 10,
+    hybrid: false,
+    confidenceFloor: 0,
   });
+  const measured = probe.find((r) => r.thought.id === "lc-vec-boundary");
+  expect(measured).toBeDefined();
+  expect(measured!.similarity).toBeGreaterThan(0);
+  expect(measured!.similarity).toBeLessThan(1);
+  const sim = measured!.similarity;
+
+  const atFloor = searchThoughts(db, {
+    embedding: query,
+    topK: 10,
+    hybrid: false,
+    confidenceFloor: sim,
+  });
+  const atFloorHit = atFloor.find((r) => r.thought.id === "lc-vec-boundary");
+  expect(atFloorHit).toBeDefined();
+  expect(atFloorHit!.low_confidence).toBe(false);
+  expect(atFloorHit!.match_source).toEqual(["vector"]);
+
+  const aboveFloor = searchThoughts(db, {
+    embedding: query,
+    topK: 10,
+    hybrid: false,
+    confidenceFloor: sim + 1e-6,
+  });
+  const aboveFloorHit = aboveFloor.find((r) => r.thought.id === "lc-vec-boundary");
+  expect(aboveFloorHit).toBeDefined();
+  expect(aboveFloorHit!.low_confidence).toBe(true);
 });
 
 // BM25 hit → low_confidence=false even with zero vector similarity.
@@ -1019,28 +976,33 @@ test("low_confidence: BM25 hit ⇒ false (lexical anchor)", () => {
 });
 
 // Hybrid nonsense (BM25 empty) → all results low_confidence=true.
-itVec("low_confidence: hybrid nonsense (BM25 empty) ⇒ all true", () => {
-  withVecTestDb((db) => {
-    seedThoughtRow(db, "lc-nonsense-a", "zebra quantum banana irrelevant");
-    seedThoughtRow(db, "lc-nonsense-b", "xyzzy plugh nonsense unrelated");
-    seedVecEmbedding(db, "lc-nonsense-a");
-    seedVecEmbedding(db, "lc-nonsense-b");
-    // No FTS entries — BM25 leg returns empty.
+itVec("low_confidence: hybrid nonsense (BM25 empty) ⇒ all true", (db) => {
+  // Content shares no token with the query below, so the FTS auto-sync trigger
+  // (v028) leaves the BM25 leg genuinely empty.
+  seedThoughtRow(db, "lc-nonsense-a", "alpha beta gamma delta");
+  seedThoughtRow(db, "lc-nonsense-b", "epsilon zeta eta theta");
+  // Stored e0 vs query e1 → cosine similarity 0 < floor (a zero-vector seed
+  // would read as similarity 1).
+  const stored = new Float32Array(384);
+  stored[0] = 1;
+  seedVecEmbeddingRaw(db, "lc-nonsense-a", stored);
+  seedVecEmbeddingRaw(db, "lc-nonsense-b", stored);
+  const weakQuery = new Float32Array(384);
+  weakQuery[1] = 1;
 
-    const results = searchThoughts(db, {
-      embedding: new Float32Array(384),
-      query: "zebra quantum banana unrelated nonsense xyzzy",
-      topK: 10,
-      hybrid: true,
-      confidenceFloor: 0.9,
-    });
-
-    // All vector-only results should be flagged low_confidence.
-    expect(results.length).toBeGreaterThanOrEqual(1);
-    for (const r of results) {
-      expect(r.low_confidence).toBe(true);
-    }
+  const results = searchThoughts(db, {
+    embedding: weakQuery,
+    query: "zebra quantum banana unrelated nonsense xyzzy",
+    topK: 10,
+    hybrid: true,
+    confidenceFloor: 0.9,
   });
+
+  // All vector-only results should be flagged low_confidence.
+  expect(results.length).toBeGreaterThanOrEqual(1);
+  for (const r of results) {
+    expect(r.low_confidence).toBe(true);
+  }
 });
 
 // Embedding-empty (BM25-only degradation) → low_confidence=false.
@@ -1064,61 +1026,61 @@ test("low_confidence: embedding-empty BM25-only ⇒ false", () => {
 });
 
 // Every result carries low_confidence (even when undefined pre-#884).
-itVec("low_confidence: always present on every result", () => {
-  withVecTestDb((db) => {
-    seedThoughtRow(db, "lc-always-a", "semantic content one");
-    seedThoughtRow(db, "lc-always-b", "semantic content two");
-    seedVecEmbedding(db, "lc-always-a");
-    seedVecEmbedding(db, "lc-always-b");
+itVec("low_confidence: always present on every result", (db) => {
+  seedThoughtRow(db, "lc-always-a", "semantic content one");
+  seedThoughtRow(db, "lc-always-b", "semantic content two");
+  seedVecEmbedding(db, "lc-always-a");
+  seedVecEmbedding(db, "lc-always-b");
 
-    const results = searchThoughts(db, {
-      embedding: new Float32Array(384),
-      topK: 10,
-      hybrid: false,
-      confidenceFloor: 0.9,
-    });
-
-    expect(results.length).toBeGreaterThanOrEqual(1);
-    for (const r of results) {
-      expect(typeof r.low_confidence).toBe("boolean");
-    }
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(384),
+    topK: 10,
+    hybrid: false,
+    confidenceFloor: 0.9,
   });
+
+  expect(results.length).toBeGreaterThanOrEqual(1);
+  for (const r of results) {
+    expect(typeof r.low_confidence).toBe("boolean");
+  }
 });
 
 // Confidence floor override: a very high floor makes even vector hits low_confidence.
-itVec("low_confidence: high confidenceFloor flags vector hits as low", () => {
-  withVecTestDb((db) => {
-    seedThoughtRow(db, "lc-high-floor", "semantic content");
-    seedVecEmbedding(db, "lc-high-floor");
+itVec("low_confidence: high confidenceFloor flags vector hits as low", (db) => {
+  seedThoughtRow(db, "lc-high-floor", "semantic content");
+  // Stored e0 vs query e1 → cosine similarity 0 < 1.0 (a zero-vector seed
+  // would read as similarity 1 and pass the floor).
+  const stored = new Float32Array(384);
+  stored[0] = 1;
+  seedVecEmbeddingRaw(db, "lc-high-floor", stored);
+  const weakQuery = new Float32Array(384);
+  weakQuery[1] = 1;
 
-    const results = searchThoughts(db, {
-      embedding: new Float32Array(384),
-      topK: 10,
-      hybrid: false,
-      confidenceFloor: 1.0, // impossible to reach with zero vector
-    });
-
-    const hit = results.find((r) => r.thought.id === "lc-high-floor");
-    expect(hit).toBeDefined();
-    expect(hit!.low_confidence).toBe(true);
+  const results = searchThoughts(db, {
+    embedding: weakQuery,
+    topK: 10,
+    hybrid: false,
+    confidenceFloor: 1.0,
   });
+
+  const hit = results.find((r) => r.thought.id === "lc-high-floor");
+  expect(hit).toBeDefined();
+  expect(hit!.low_confidence).toBe(true);
 });
 
 // Confidence floor override: a floor of 0 makes all vector hits confident.
-itVec("low_confidence: floor=0 makes all vector hits confident", () => {
-  withVecTestDb((db) => {
-    seedThoughtRow(db, "lc-zero-floor", "semantic content");
-    seedVecEmbedding(db, "lc-zero-floor");
+itVec("low_confidence: floor=0 makes all vector hits confident", (db) => {
+  seedThoughtRow(db, "lc-zero-floor", "semantic content");
+  seedVecEmbedding(db, "lc-zero-floor");
 
-    const results = searchThoughts(db, {
-      embedding: new Float32Array(384),
-      topK: 10,
-      hybrid: false,
-      confidenceFloor: 0,
-    });
-
-    const hit = results.find((r) => r.thought.id === "lc-zero-floor");
-    expect(hit).toBeDefined();
-    expect(hit!.low_confidence).toBe(false);
+  const results = searchThoughts(db, {
+    embedding: new Float32Array(384),
+    topK: 10,
+    hybrid: false,
+    confidenceFloor: 0,
   });
+
+  const hit = results.find((r) => r.thought.id === "lc-zero-floor");
+  expect(hit).toBeDefined();
+  expect(hit!.low_confidence).toBe(false);
 });

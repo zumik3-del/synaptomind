@@ -5,8 +5,6 @@ import { config } from '../config'
 import { clearDb, getDb, setDb } from './container'
 import { MIGRATIONS } from './migrations'
 
-let vecLoaded = false
-
 const VEC0_PATH = `${import.meta.dir}/../../vec0.so`
 
 function loadVecExtension(database: Database, isMemory: boolean): void {
@@ -101,7 +99,6 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
         id        TEXT PRIMARY KEY,
         embedding FLOAT[${dimensions}] distance_metric=cosine
       )`)
-      vecLoaded = true
     } catch (err) {
       if (isMemory) return
       throw err
@@ -182,10 +179,6 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
   setDb(db)
 }
 
-export function hasVec(): boolean {
-  return vecLoaded
-}
-
 export function closeDb(): void {
   try {
     getDb().close()
@@ -193,5 +186,4 @@ export function closeDb(): void {
     // ignore close errors
   }
   clearDb()
-  vecLoaded = false
 }

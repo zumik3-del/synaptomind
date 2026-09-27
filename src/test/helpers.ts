@@ -1,9 +1,55 @@
+import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getDb } from "../db/container";
 import { closeDb, initDb } from "../db/init";
 
 export function createTestDb(): void {
 	closeDb();
 	initDb({ dbPath: ":memory:", runMigrations: true });
+}
+
+const VEC0_PATH = `${import.meta.dir}/../../vec0.so`;
+
+/**
+ * Probe vec0 availability on a throwaway connection. vec0 only loads
+ * after a file-backed `initDb`, so it cannot gate tests at module-load time;
+ * this opens `:memory:` (which cannot host a vec0 table, but can *load* the
+ * extension), calls `loadExtension(vec0.so)` and closes it — no global-container
+ * side effects, safe to call while registering tests.
+ */
+export function isVecExtensionAvailable(): boolean {
+	try {
+		const probe = new Database(":memory:");
+		try {
+			probe.loadExtension(VEC0_PATH);
+		} finally {
+			probe.close();
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Run `fn` against a fresh file-backed DB with vec0 loaded, then tear it down.
+ * `:memory:` cannot load vec0 (see `src/db/init.ts`), so any test that exercises
+ * the vector leg must use this helper. Cleans up even when `fn` throws.
+ */
+export async function withVecDb<T>(
+	fn: (db: Database) => T | Promise<T>,
+): Promise<T> {
+	const dir = mkdtempSync(join(tmpdir(), "synaptomind-vec-"));
+	const dbPath = join(dir, "test.db");
+	try {
+		initDb({ dbPath, runMigrations: true });
+		return await fn(getDb());
+	} finally {
+		closeDb();
+		rmSync(dir, { recursive: true, force: true });
+	}
 }
 
 export function seedThought(overrides?: {

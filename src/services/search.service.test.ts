@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import type { Database } from "bun:sqlite";
 import { createEdge } from "../db/edges";
 import { getDb } from "../db/container";
-import { closeDb, hasVec, initDb } from "../db/init";
-import { createTestDb, seedEmbedding, seedThought } from "../test/helpers";
+import { closeDb } from "../db/init";
+import {
+	createTestDb,
+	isVecExtensionAvailable,
+	seedEmbedding,
+	seedThought,
+	withVecDb,
+} from "../test/helpers";
 import { searchThoughts, searchThoughtsGrouped } from "./search.service";
 
 mock.module("../embedder/client", () => ({
@@ -18,39 +21,17 @@ mock.module("../embedder/client", () => ({
 beforeEach(createTestDb);
 afterEach(closeDb);
 
-const itVec = test.skipIf(!hasVec());
+const VEC_AVAILABLE = isVecExtensionAvailable();
 
 /**
- * `hasVec()` is only true after a file-backed `initDb`, so at module-load time
- * `itVec` is always `false` and vec tests are skipped. Probe vec0 directly
- * (throwaway connection — no global-container side effects) so the
- * `min_relevance` gate below can exercise a real vector leg wherever vec0 is
- * installed. The service tests otherwise run on `:memory:`, where vec0 is
- * unavailable and every hit is a BM25 (always-strong) anchor.
+ * Vec-gated test. `:memory:` cannot load vec0, so each body runs on a fresh
+ * file-backed DB supplied by `withVecDb` and skips when the extension is absent.
  */
-const CAN_USE_VEC = (() => {
-	try {
-		const probe = new Database(":memory:");
-		probe.loadExtension(`${import.meta.dir}/../../vec0.so`);
-		probe.close();
-		return true;
-	} catch {
-		return false;
-	}
-})();
-const itRealVec = test.skipIf(!CAN_USE_VEC);
-
-/** File-backed DB (vec0 available) for tests that need a genuine vector leg. */
-async function withVecDb<T>(fn: (d: Database) => Promise<T>): Promise<T> {
-	const dir = mkdtempSync(join(tmpdir(), "synaptomind-search-service-"));
-	const dbPath = join(dir, "test.db");
-	try {
-		initDb({ dbPath, runMigrations: true });
-		return await fn(getDb());
-	} finally {
-		closeDb();
-		rmSync(dir, { recursive: true, force: true });
-	}
+function itVec(
+	name: string,
+	fn: (db: Database) => void | Promise<void>,
+): void {
+	test.skipIf(!VEC_AVAILABLE)(name, () => withVecDb(fn));
 }
 
 /** Seed a specific 384-d vector so cosine similarity is controllable. */
@@ -379,68 +360,66 @@ describe("low_confidence + min_relevance — service layer", () => {
     expect(gatedIds).toEqual(baselineIds);
   });
 
-  itRealVec("min_relevance>0 filters out weak vector-only results, keeps BM25 anchors", async () => {
-    await withVecDb(async (db) => {
-      // BM25 hit: contains the keyword → strong lexical anchor.
-      const bm25Id = seedThought({
-        content: "MIN_REL_BM25 unique keyword anchor",
-      });
-      db.prepare(
-        `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
-      ).run(bm25Id, "MIN_REL_BM25 unique keyword anchor");
-      // Vector-only hit: cosine ≈ 0.2 against the query → weak, below the floor.
-      const vecOnlyId = seedThought({
-        content: "MIN_REL_VEC unrelated semantic noise",
-      });
-      const stored = new Float32Array(384);
-      stored[0] = 1;
-      seedVecEmbeddingRaw(db, vecOnlyId, stored);
-      const weakQuery = new Float32Array(384);
-      weakQuery[0] = 0.2;
-      weakQuery[1] = Math.sqrt(1 - 0.2 * 0.2);
-
-      const baseline = await searchThoughts(
-        {
-          query: "MIN_REL_BM25 unique keyword anchor",
-          topK: 10,
-          hybrid: true,
-          embedding: weakQuery,
-        },
-        db,
-      );
-      const ungated = await searchThoughts(
-        {
-          query: "MIN_REL_BM25 unique keyword anchor",
-          topK: 10,
-          hybrid: true,
-          embedding: weakQuery,
-          minRelevance: 0,
-        },
-        db,
-      );
-      const gated = await searchThoughts(
-        {
-          query: "MIN_REL_BM25 unique keyword anchor",
-          topK: 10,
-          hybrid: true,
-          embedding: weakQuery,
-          minRelevance: 0.9,
-        },
-        db,
-      );
-
-      // The weak vector-only hit is a real candidate (present ungated)...
-      const baselineIds = baseline.map((r) => r.thought.id);
-      expect(baselineIds).toContain(bm25Id);
-      expect(baselineIds).toContain(vecOnlyId);
-      expect(ungated.map((r) => r.thought.id)).toContain(vecOnlyId);
-      // ...and the gate drops it while keeping the lexical anchor. Without the
-      // gate `gatedIds` would equal the baseline and the negative assertion
-      // below would fail.
-      const gatedIds = gated.map((r) => r.thought.id);
-      expect(gatedIds).toContain(bm25Id);
-      expect(gatedIds).not.toContain(vecOnlyId);
+  itVec("min_relevance>0 filters out weak vector-only results, keeps BM25 anchors", async (db) => {
+    // BM25 hit: contains the keyword → strong lexical anchor.
+    const bm25Id = seedThought({
+      content: "MIN_REL_BM25 unique keyword anchor",
     });
+    db.prepare(
+      `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
+    ).run(bm25Id, "MIN_REL_BM25 unique keyword anchor");
+    // Vector-only hit: cosine ≈ 0.2 against the query → weak, below the floor.
+    const vecOnlyId = seedThought({
+      content: "MIN_REL_VEC unrelated semantic noise",
+    });
+    const stored = new Float32Array(384);
+    stored[0] = 1;
+    seedVecEmbeddingRaw(db, vecOnlyId, stored);
+    const weakQuery = new Float32Array(384);
+    weakQuery[0] = 0.2;
+    weakQuery[1] = Math.sqrt(1 - 0.2 * 0.2);
+
+    const baseline = await searchThoughts(
+      {
+        query: "MIN_REL_BM25 unique keyword anchor",
+        topK: 10,
+        hybrid: true,
+        embedding: weakQuery,
+      },
+      db,
+    );
+    const ungated = await searchThoughts(
+      {
+        query: "MIN_REL_BM25 unique keyword anchor",
+        topK: 10,
+        hybrid: true,
+        embedding: weakQuery,
+        minRelevance: 0,
+      },
+      db,
+    );
+    const gated = await searchThoughts(
+      {
+        query: "MIN_REL_BM25 unique keyword anchor",
+        topK: 10,
+        hybrid: true,
+        embedding: weakQuery,
+        minRelevance: 0.9,
+      },
+      db,
+    );
+
+    // The weak vector-only hit is a real candidate (present ungated)...
+    const baselineIds = baseline.map((r) => r.thought.id);
+    expect(baselineIds).toContain(bm25Id);
+    expect(baselineIds).toContain(vecOnlyId);
+    expect(ungated.map((r) => r.thought.id)).toContain(vecOnlyId);
+    // ...and the gate drops it while keeping the lexical anchor. Without the
+    // gate `gatedIds` would equal the baseline and the negative assertion
+    // below would fail.
+    const gatedIds = gated.map((r) => r.thought.id);
+    expect(gatedIds).toContain(bm25Id);
+    expect(gatedIds).not.toContain(vecOnlyId);
   });
 
   test("min_relevance>0 backfills to topK from overfetch pool", async () => {
@@ -653,40 +632,38 @@ describe("low_confidence + min_relevance — service layer", () => {
     }
   });
 
-  itRealVec("min_relevance=1 keeps lexical anchors and exact-1.0 vector hits only", async () => {
-    await withVecDb(async (db) => {
-      const bm25Id = seedThought({ content: "MIN_REL_ONE lexical anchor" });
-      db.prepare(
-        `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
-      ).run(bm25Id, "MIN_REL_ONE lexical anchor");
-      // sim == 1.0 against the query (identical unit vectors). Content has no
-      // query token, so it can only survive via the vector leg.
-      const exactId = seedThought({ content: "semantic exact vector content" });
-      const unit = new Float32Array(384);
-      unit[0] = 1;
-      seedVecEmbeddingRaw(db, exactId, unit);
-      // sim ≈ 0.1 → weak; no query token either.
-      const weakId = seedThought({ content: "semantic weak vector content" });
-      const weak = new Float32Array(384);
-      weak[0] = 0.1;
-      weak[1] = Math.sqrt(1 - 0.1 * 0.1);
-      seedVecEmbeddingRaw(db, weakId, weak);
+  itVec("min_relevance=1 keeps lexical anchors and exact-1.0 vector hits only", async (db) => {
+    const bm25Id = seedThought({ content: "MIN_REL_ONE lexical anchor" });
+    db.prepare(
+      `INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`,
+    ).run(bm25Id, "MIN_REL_ONE lexical anchor");
+    // sim == 1.0 against the query (identical unit vectors). Content has no
+    // query token, so it can only survive via the vector leg.
+    const exactId = seedThought({ content: "semantic exact vector content" });
+    const unit = new Float32Array(384);
+    unit[0] = 1;
+    seedVecEmbeddingRaw(db, exactId, unit);
+    // sim ≈ 0.1 → weak; no query token either.
+    const weakId = seedThought({ content: "semantic weak vector content" });
+    const weak = new Float32Array(384);
+    weak[0] = 0.1;
+    weak[1] = Math.sqrt(1 - 0.1 * 0.1);
+    seedVecEmbeddingRaw(db, weakId, weak);
 
-      const results = await searchThoughts(
-        {
-          query: "MIN_REL_ONE",
-          topK: 10,
-          hybrid: true,
-          embedding: unit,
-          minRelevance: 1,
-        },
-        db,
-      );
+    const results = await searchThoughts(
+      {
+        query: "MIN_REL_ONE",
+        topK: 10,
+        hybrid: true,
+        embedding: unit,
+        minRelevance: 1,
+      },
+      db,
+    );
 
-      const ids = results.map((r) => r.thought.id);
-      expect(ids).toContain(bm25Id);
-      expect(ids).toContain(exactId);
-      expect(ids).not.toContain(weakId);
-    });
+    const ids = results.map((r) => r.thought.id);
+    expect(ids).toContain(bm25Id);
+    expect(ids).toContain(exactId);
+    expect(ids).not.toContain(weakId);
   });
 });
