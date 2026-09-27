@@ -10,6 +10,24 @@ const INSTALL_SH = join(import.meta.dir, 'install.sh')
 const REAL_COMMON_SH = join(import.meta.dir, 'lib', 'common.sh')
 const DEFAULT_BASE = 'https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy'
 
+const callTargetsBase = (call: string, base: string): boolean => {
+  const normalizeBase = (value: string): string => value.replace(/\/+$/, '')
+  const normalizedBase = normalizeBase(base)
+
+  return call
+    .split(/\s+/)
+    .filter((token) => token.includes('://'))
+    .some((token) => {
+      try {
+        const u = new URL(token)
+        const candidate = normalizeBase(`${u.origin}${u.pathname}`)
+        return candidate === normalizedBase || candidate.startsWith(`${normalizedBase}/`)
+      } catch {
+        return false
+      }
+    })
+}
+
 // Stub curl: records every invocation, and serves a real common.sh when asked
 // for a `.../common.sh` URL so load_common() succeeds and the script proceeds
 // to fetch app.env. Every other fetch fails (exit 22) — no network is used.
@@ -118,7 +136,7 @@ describe('install.sh — piped raw-base derivation', () => {
     const { calls } = runPiped({ DEPLOY_RAW_URL: base })
     expect(calls[0]).toContain(`${base}/lib/common.sh`)
     expect(calls.some((c) => c.includes(`${base}/app.env`))).toBe(true)
-    expect(calls.some((c) => c.includes(DEFAULT_BASE))).toBe(false)
+    expect(calls.some((c) => callTargetsBase(c, DEFAULT_BASE))).toBe(false)
   })
 
   test('an explicit LIB_RAW_URL wins over the derived default', () => {
