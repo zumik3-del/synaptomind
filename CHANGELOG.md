@@ -1,9 +1,20 @@
 # Changelog
 
+## v0.8.0
+
+> September 27, 2026
+
+- [`a9662db`](https://github.com/zumik3-del/synaptomind/commit/a9662db4948df28dc1d7e2979c081a8685c748cb): test(install): assert exact URLs to clear CodeQL substring warning
+- [`8e0dd4e`](https://github.com/zumik3-del/synaptomind/commit/8e0dd4e26f6a99418b50b02b7659a99b71fdb9cc): feat(install): default raw base so the piped install is a true one-liner
+- [`5628f09`](https://github.com/zumik3-del/synaptomind/commit/5628f0979a8354775f4ae0ac439f3513f6d41c90): docs: extract install/update guide to docs/DEPLOY.md and audit docs
+- [`93dc990`](https://github.com/zumik3-del/synaptomind/commit/93dc990ad17fef9d1d5567243374643a826e64ed): feat(deploy): add frozen updater.sh stable self-updating bootstrap
+- [`84f1397`](https://github.com/zumik3-del/synaptomind/commit/84f1397fc2957f861aa362874d071bb898e23dde): fix(ci): create release tag with committer identity + manual re-trigger (#160)
+
 ## v0.8.0-beta.2
 
 > September 27, 2026
 
+- [`e2900cf`](https://github.com/zumik3-del/synaptomind/commit/e2900cfff83f21a15cfdff9821e20ab3072181b3): fix(ci): create release tag with committer identity + manual re-trigger (#160) (#161)
 - [`926ec2d`](https://github.com/zumik3-del/synaptomind/commit/926ec2d9c5e9f89351443d9ae6b26b0f0435717e): feat(search): relevance confidence + eval/vec test hardening (#154 #155 #156 #157) (#159)
 - [`c0e547d`](https://github.com/zumik3-del/synaptomind/commit/c0e547dc6665bf7ebdff7f63c46823905af2a858): fix(deploy): fetch tags before explicit --version checkout in update.sh (#153)
 - [`d3c139a`](https://github.com/zumik3-del/synaptomind/commit/d3c139afc434ed82f34a10f95093647dfa4915b8): feat(ci): create releases from main on version-bump merge (#152)
