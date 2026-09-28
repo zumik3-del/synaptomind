@@ -68,8 +68,13 @@ export const DEFAULTS: Config = {
   },
   primer: { promoteThreshold: 5, topN: 3 },
   verify: { enabled: true, driftThreshold: 0.25, staleWarnDays: 30 },
+  // `minSimilarity` is compared against vec0's cosine DISTANCE (see
+  // auto-cluster.service.ts `r.distance < minSimilarity`), so lower = tighter.
+  // 0.3 chained the whole active graph into one 1122-member mega-cluster via
+  // Union-Find transitive closure; 0.09 is the calibrated value for e5-small
+  // cosine distance (ADR 2026-09-28, thought 01a094b2-…).
   autoCluster: {
-    minAgeDays: 3, minSimilarity: 0.3,
+    minAgeDays: 3, minSimilarity: 0.09,
     minMembers: 3, dryRun: false
   },
   autoLink: {

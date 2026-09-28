@@ -68,7 +68,7 @@ export function registerMemoryStatus(server: McpServer) {
 - profile: Get user profile stats and thoughts
 - config: Show current configuration with defaults and env vars
 - health: Audit graph health (broken links, orphans, duplicates, structural issues)
-- edge_suggestions: Detect potential contradicts/supports candidates (read-only; confirm via memory_store action=link)
+- edge_suggestions: Propose unconfirmed \`related\` candidate pairs from embedding similarity (read-only; never implies conflict; confirm via memory_store action=link)
 - cleanup: Preview expired archived thoughts based on TTL config (dry-run by default; pass dry_run=false to delete)`,
     inputSchema: {
       action: z.enum(['slots', 'frontier', 'profile', 'config', 'health', 'edge_suggestions', 'cleanup']).describe('Action'),

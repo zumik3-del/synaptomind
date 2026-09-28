@@ -84,6 +84,8 @@ Result ranking signals: \`match_source\` (legs that matched, in fixed order \`ve
 
 **Recency boost (opt-in):** \`recency_weight\` (0–1, default **0**) adds a time term to the ranking; \`recency_half_life_days\` (1–3650, default 30) sets its decay half-life. At \`recency_weight > 0\` each result also carries \`recency_score\` (\`0.5^(ageDays/halfLifeDays)\`, \`1\` = created now) and \`final_score\` (\`relevant + recency_weight × recency_score\`, where \`relevant\` is \`rrf_score\` normalised to \`[0,1]\` on the fused path or \`similarity\` on the vector-only path). \`rrf_score\` stays raw/un-boosted. \`recency_weight = 0\` (unset) preserves the relevance-only ranking and omits both fields.
 
+**Standing (per-axis opt-out):** results carry \`standing\` (\`current\` | \`contradicted\` | \`superseded\`) from the \`supersession_mode\` (\`off\`/\`flag\`/\`suppress\`, agent default \`suppress\`) and \`contradiction_mode\` (\`off\`/\`flag\`, default \`flag\`) axes. \`off\` disables only its own axis' annotation (\`suppress\` also drops superseded rows); contradicted rows are never suppressed. \`standing\` is emitted whenever at least one axis is enabled and omitted entirely only when both are \`off\`. Numeric arguments accept numbers (string-serialized numbers are coerced).
+
 Post-processing: hit counting → primer promotion → primer hoisting → profile hoisting.
 
 ## Lifecycle
@@ -116,13 +118,15 @@ Run \`memory_status\` (action=health) to audit graph integrity. Pass fix=true fo
 
 Categories: structural integrity (orphan/self-loop edges), cluster health (empty/singleton), connectivity (islands), content quality (duplicates, stale drafts), semantic consistency (circular chains, contradiction interactions), data drift (missing embeddings).
 
-Score: 100 - (critical×10) - (warning×3) - (info×0.5), clamped [0,100].
+Score: 100 - (criticalCategories×40) - (warningCategories×15) - (infoOccurrences×0.25), clamped [0,100]. The score penalises the PRESENCE of a flagged category, not its counts — a large island count dominates via the per-occurrence info term.
 
-## Contradiction / Support Suggestions
+Accepted trade-offs on a dense, hub-centric graph (do not "fix" by mutating the graph): \`overlinked_thoughts\` flags curated cross-domain hubs; \`clusterless_dense_thoughts\` is age-gated to the auto-cluster window (task #935). ADR: \`ai-workdir/synaptomind/plans/2026-09-28-928-health-overlinked-clusterless-adr.md\`; recalibration #934.
 
-Run \`memory_status\` (action=edge_suggestions) to get *candidate* pairs for \`contradicts\`/\`supports\` edges. Detection is a filter, never a source of truth: it is read-only and never writes edges. Confirm a suggestion explicitly with \`memory_store\` (action=link).
+## Edge Suggestions
 
-When no contradiction classifier is available, proposals are similarity-only: they mean "same subject matter", NOT "conflict". Such proposals carry \`review_required: true\` and \`rationale: embedding_similarity_only\` — treat them as unconfirmed *related* candidates and never link them as \`contradicts\` without reading both thoughts.
+Run \`memory_status\` (action=edge_suggestions) to get *candidate* pairs worth reviewing for a link. Detection is a filter, never a source of truth: it is read-only and never writes edges. Confirm a suggestion explicitly with \`memory_store\` (action=link).
+
+Every proposal is similarity-only and always \`type: related\`: high embedding similarity means "same subject matter", **not** "conflict". Each one carries \`review_required: true\` and \`rationale: embedding_similarity_only\` — read both thoughts and decide the real type (\`contradicts\`/\`supports\`/other) yourself; never report or link a proposal as a contradiction on the strength of the proposal alone.
 
 Config: \`edgeDetect.minSimilarity\` (recall threshold), \`topK\`, \`maxCandidates\`, \`maxProposals\`. Embedder unavailability degrades to an empty result (\`degraded: true\`) instead of failing.
 

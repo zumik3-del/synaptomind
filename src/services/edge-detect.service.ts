@@ -12,7 +12,7 @@ import { generateEmbeddings } from '../embedder/client'
 import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from './edge-candidates.service'
 
 /**
- * Contradiction/support candidate detection (ADR #142, D3).
+ * Edge candidate detection (ADR #142, D3).
  *
  * This service is a *filter*, never a source of truth: it returns scored
  * proposals for human/agent confirmation and **never writes an edge**. The
@@ -25,10 +25,17 @@ import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from './edge-candi
  *     -> similarity threshold + existing-edge exclusion
  *     -> EdgeProposal[] (no graph mutation)
  *
- * The recall filter alone cannot tell conflict from agreement, so proposals are
- * emitted as low-confidence `contradicts` candidates with rationale
- * `embedding_similarity_only` and `review_required: true` (similarity ≠
- * conflict).
+ * Decision (task #927, 2026-09-28): proposals are emitted as
+ * `type: 'related'`, never `contradicts`. High embedding similarity only means
+ * the pair shares subject matter; it is not evidence of mutual exclusivity. The
+ * optional NLI precision filter was removed permanently, so this pipeline has
+ * no conflict signal at all — labelling similarity-only pairs `contradicts`
+ * made a naive consumer read "same subject matter" as "conflict" (prod
+ * 2026-09-28 reported 20 phantom contradictions). The honest output is an
+ * unconfirmed `related` candidate: `type: 'related'`,
+ * `rationale: 'embedding_similarity_only'`, `review_required: true`. Consumers
+ * must key on `review_required`/`rationale` and read both thoughts before
+ * promoting the pair to a specific type (`contradicts`/`supports`).
  */
 
 // ── Proposal / result types ──────────────────────────────────────────────────
@@ -40,7 +47,11 @@ interface EdgeProposalSignals {
 interface EdgeProposal {
   source_id: string
   target_id: string
-  type: 'contradicts' | 'supports'
+  /**
+   * Suggested edge type. Always `related`: the pipeline has no conflict signal,
+   * so it must not propose `contradicts`/`supports` (similarity ≠ conflict).
+   */
+  type: 'related'
   confidence: number
   /** Human-readable provenance: why this pair was proposed. */
   rationale: string
@@ -94,9 +105,11 @@ export function findDetectionCandidates(
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 /**
- * Detect contradiction/support candidate pairs. Read-only: no edge is created or
- * modified. Returns an empty result set (never throws) when there are too few
- * candidates or the embedder is unavailable (`degraded: true`).
+ * Detect similarity-based `related` candidate pairs. Read-only: no edge is
+ * created or modified. Returns an empty result set (never throws) when there
+ * are too few candidates or the embedder is unavailable (`degraded: true`).
+ * Every proposal is unconfirmed (`review_required: true`); the service never
+ * claims conflict.
  */
 export async function detectEdgeProposals(
   options: EdgeDetectOptions = {},
@@ -162,7 +175,7 @@ export async function detectEdgeProposals(
     proposals.push({
       source_id: pair.source_id,
       target_id: pair.target_id,
-      type: 'contradicts',
+      type: 'related',
       confidence: pair.embeddingSimilarity,
       rationale: 'embedding_similarity_only',
       review_required: true,

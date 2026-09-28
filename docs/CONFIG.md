@@ -149,7 +149,7 @@ Batch grouping by embedding proximity.
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | `autoCluster.minAgeDays` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_AGE_DAYS` | `3` | Don't cluster thoughts younger than this |
-| `autoCluster.minSimilarity` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_SIMILARITY` | `0.3` | Min cosine similarity to include in cluster |
+| `autoCluster.minSimilarity` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_SIMILARITY` | `0.09` | Max cosine **distance** between neighbours (lower = tighter; 0.3 chains the whole graph into one mega-cluster) |
 | `autoCluster.minMembers` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_MEMBERS` | `3` | Min thoughts to form a cluster |
 | `autoCluster.dryRun` | `SYNAPTOMIND_AUTO_CLUSTER_DRY_RUN` | `false` | Preview without creating clusters |
 
@@ -169,7 +169,7 @@ Automatically create edges between related thoughts.
 
 ## Edge Detect
 
-Read-only candidate detection for `contradicts`/`supports` edges (used by `POST /api/thoughts/edge-detect` and `memory_status action=edge_suggestions`). Detection never writes edges; it ranks neighbor pairs by embedding similarity, so a proposal is an unconfirmed candidate, not a settled relation.
+Read-only proposal of unconfirmed `related` candidates (used by `POST /api/thoughts/edge-detect` and `memory_status action=edge_suggestions`). Detection never writes edges. It ranks neighbor pairs by embedding similarity alone, so every proposal has `type: related`, `rationale: embedding_similarity_only`, and `review_required: true` — similarity means "same subject matter", not conflict. Confirm a proposal explicitly with a link (e.g. `POST /api/thoughts/:id/link`).
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
@@ -299,7 +299,7 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
   "primer": { "promoteThreshold": 5, "topN": 3 },
   "verify": { "enabled": true, "driftThreshold": 0.25, "staleWarnDays": 30 },
   "autoCluster": {
-    "minAgeDays": 3, "minSimilarity": 0.3,
+    "minAgeDays": 3, "minSimilarity": 0.09,
     "minMembers": 3, "dryRun": false
   },
   "autoLink": {

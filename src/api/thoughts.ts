@@ -47,7 +47,7 @@ thoughtsRouter.post('/auto-link', async c => {
   })
 })
 
-// Read-only: returns scored contradicts/supports candidates; never writes edges.
+// Read-only: returns unconfirmed `related` candidate pairs (similarity-only); never writes edges.
 thoughtsRouter.post('/edge-detect', async c => {
   return withTelemetry(c, { action: 'read', toolName: 'edge_suggestions' }, async c2 => {
     const body = await jsonBodyOrDefault<{

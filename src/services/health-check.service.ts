@@ -105,6 +105,9 @@ const CLUSTER_CHECKS: CheckDef[] = [
   { name: 'empty_clusters', severity: 'warning', finder: findEmptyClusters, autofix: autofixThoughtIds },
   { name: 'singleton_clusters', severity: 'warning', finder: findSingletonClusters },
   { name: 'orphaned_cluster_members', severity: 'warning', finder: findOrphanedClusterMembers, autofix: autofixClusterMemberEdges },
+  // Age-gated by `autoCluster.minAgeDays` (finder default): auto-cluster only
+  // sees candidates older than that window, so younger dense thoughts are not
+  // yet actionable and must not be flagged as warnings.
   { name: 'clusterless_dense_thoughts', severity: 'warning', finder: findClusterlessDense },
 ]
 

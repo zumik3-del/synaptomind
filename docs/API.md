@@ -227,7 +227,7 @@ curl `-d '{"dry_run": true}' http://127.0.0.1:3005/api/thoughts/auto-link`
 
 ### POST /api/thoughts/edge-detect
 
-Detects contradiction/support candidate pairs among active, non-cluster thoughts. Read-only: it never creates or modifies an edge. Confirm a proposal by linking the pair (`POST /api/thoughts/:id/link`). Returns an empty proposal list (never an error) when there are fewer than two candidates or the embedder is unavailable (`degraded: true`).
+Proposes unconfirmed `related` candidate pairs among active, non-cluster thoughts. Read-only: it never creates or modifies an edge. Confirm a proposal by linking the pair (`POST /api/thoughts/:id/link`). Returns an empty proposal list (never an error) when there are fewer than two candidates or the embedder is unavailable (`degraded: true`).
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
@@ -239,9 +239,9 @@ Detects contradiction/support candidate pairs among active, non-cluster thoughts
 
 curl `-d '{"project_id": "<id>", "min_similarity": 0.8}' http://127.0.0.1:3005/api/thoughts/edge-detect`
 
-Response: `{"proposals": [{"source_id": "...", "target_id": "...", "type": "contradicts", "confidence": 0.86, "rationale": "embedding_similarity_only", "review_required": true, "signals": {"embeddingSimilarity": 0.86}}], "candidates": 120, "pairs_evaluated": 8, "degraded": false}`
+Response: `{"proposals": [{"source_id": "...", "target_id": "...", "type": "related", "confidence": 0.86, "rationale": "embedding_similarity_only", "review_required": true, "signals": {"embeddingSimilarity": 0.86}}], "candidates": 120, "pairs_evaluated": 8, "degraded": false}`
 
-`type` is emitted as `contradicts` with `review_required: true`: the detector ranks by embedding similarity alone, which means the pair is about the same subject matter, not necessarily in conflict. Consumers must treat such a proposal as an unconfirmed candidate, never as a settled contradiction.
+`type` is always emitted as `related` with `review_required: true`: the detector ranks by embedding similarity alone, which means the pair is about the same subject matter, not necessarily in conflict. Consumers must read both thoughts and decide the real type (`contradicts`/`supports`/other) themselves; never treat a proposal as a settled contradiction.
 
 ### POST /api/thoughts/self-improve/run
 
@@ -688,6 +688,14 @@ Graph health audit: broken links, orphans, duplicates, structural issues. Requir
 | fix | query | bool | false | `true` auto-fixes safe issues |
 
 curl `'http://127.0.0.1:3005/api/health-check?severity=warning'`
+
+#### Accepted graph-health trade-offs
+
+Two checks fire by design on a dense, hub-centric graph and are accepted as trade-offs rather than defects (ADR: `ai-workdir/synaptomind/plans/2026-09-28-928-health-overlinked-clusterless-adr.md`; tasks #934/#935):
+
+- `overlinked_thoughts` (connectivity, warning) — active non-cluster thoughts above the finder's `maxEdges`. The flagged set is curated cross-domain hubs, not link decay: on the reference dataset active non-cluster thoughts average 4.66 edges, while the 31 flagged hubs sit at 11–24. Raising the threshold cannot change `health_score` and would only hide signal.
+- `clusterless_dense_thoughts` (cluster health, warning) — transient. The finder is age-gated to the same `autoCluster.minAgeDays` window auto-cluster uses (task #935), so it reports only thoughts old enough for the clusterer to act on (see `src/db/health-check/clusters.ts`).
+- `health_score` penalises the presence of a flagged *category*, not occurrence counts: `100 − criticalCategories×40 − warningCategories×15 − infoOccurrences×0.25`, clamped to `[0,100]`. Because the `info` term is per-occurrence, a large `island_thoughts` count dominates the score, while clearing a single `overlinked_thoughts` hub does not move it (`src/services/health-check.service.ts`).
 
 ### GET /health
 

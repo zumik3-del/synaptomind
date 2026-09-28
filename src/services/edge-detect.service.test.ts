@@ -28,7 +28,7 @@ function deps(
 }
 
 describe("detectEdgeProposals", () => {
-	test("emits an embedding-only contradicts proposal with full shape", async () => {
+	test("emits a similarity-only related proposal with full shape", async () => {
 		const a = seedThought({ content: "the sky is blue" });
 		const b = seedThought({ content: "the sky is green" });
 
@@ -44,7 +44,7 @@ describe("detectEdgeProposals", () => {
 		expect(result.proposals).toHaveLength(1);
 
 		const proposal = result.proposals[0]!;
-		expect(proposal.type).toBe("contradicts");
+		expect(proposal.type).toBe("related");
 		expect(proposal.rationale).toBe("embedding_similarity_only");
 		expect(proposal.review_required).toBe(true);
 		expect(proposal.confidence).toBeCloseTo(0.9, 5);
@@ -52,6 +52,29 @@ describe("detectEdgeProposals", () => {
 		expect(new Set([proposal.source_id, proposal.target_id])).toEqual(
 			new Set([a, b]),
 		);
+	});
+
+	test("every similarity-only proposal is a non-conflict related candidate", async () => {
+		const ids = Array.from({ length: 3 }, (_, i) =>
+			seedThought({ content: `candidate ${i}` }),
+		);
+		const neighbors: Record<string, EmbeddingNeighbor[]> = {};
+		for (let i = 0; i < ids.length; i++) {
+			neighbors[ids[i]!] = ids
+				.filter((_, j) => j !== i)
+				.map((id) => ({ id, similarity: 0.9 }));
+		}
+		const result = await detectEdgeProposals(
+			{ minSimilarity: 0.5, maxProposals: 10 },
+			deps(neighbors),
+			getDb(),
+		);
+		expect(result.proposals.length).toBeGreaterThan(0);
+		for (const proposal of result.proposals) {
+			expect(proposal.type).toBe("related");
+			expect(proposal.review_required).toBe(true);
+			expect(proposal.rationale).toBe("embedding_similarity_only");
+		}
 	});
 
 	test("drops pairs below minSimilarity (recall filter)", async () => {
