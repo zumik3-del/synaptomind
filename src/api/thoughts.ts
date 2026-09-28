@@ -5,6 +5,7 @@ import type { ThoughtStatus } from '../types/thought'
 import { jsonBodyOrDefault } from './utils'
 import { runAutoLinkJob } from '../services/auto-link.service'
 import { detectEdgeProposals } from '../services/edge-detect.service'
+import { proposePlacementPlan } from '../services/placement/engine'
 import { getChainService } from '../services/graph.service'
 import { getLastSelfImproveStatus, runSelfImproveJob } from '../services/self-improve.service'
 import {
@@ -60,6 +61,22 @@ thoughtsRouter.post('/edge-detect', async c => {
       minSimilarity: body.min_similarity,
       maxProposals: body.max_proposals
     })
+    return c2.json(result)
+  })
+})
+
+// Read-only: returns one placement/link plan for a thought (or draft); never writes.
+thoughtsRouter.post('/propose', async c => {
+  return withTelemetry(c, { action: 'read', toolName: 'propose_placement' }, async c2 => {
+    const body = await jsonBodyOrDefault<{
+      thought_id?: string
+      content?: string
+      project_id?: string
+    }>(c2, {})
+    const result = await proposePlacementPlan(
+      { thoughtId: body.thought_id, content: body.content, projectId: body.project_id },
+      { projectId: body.project_id }
+    )
     return c2.json(result)
   })
 })

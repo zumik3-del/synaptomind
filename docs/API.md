@@ -243,6 +243,50 @@ Response: `{"proposals": [{"source_id": "...", "target_id": "...", "type": "rela
 
 `type` is always emitted as `related` with `review_required: true`: the detector ranks by embedding similarity alone, which means the pair is about the same subject matter, not necessarily in conflict. Consumers must read both thoughts and decide the real type (`contradicts`/`supports`/other) themselves; never treat a proposal as a settled contradiction.
 
+### POST /api/thoughts/propose
+
+Proposes a read-only placement/link plan for one thought: where it belongs (`placement`), which typed edges to add (`edges[]`), and which lifecycle move to make (`lifecycle`). Read-only: it never creates an edge or cluster and never changes a status. Provide at least one of `thought_id` (an existing thought) or `content` (an unpersisted draft) — otherwise 400; when both are passed, `thought_id` takes precedence. An unknown `thought_id` returns 404.
+
+| Name | In | Type | Default | Description |
+|---|---|---|---|---|
+| thought_id | body | string | optional | Existing thought to analyse (provide this or `content`) |
+| content | body | string | optional | Draft content to analyse before it is persisted (provide this or `thought_id`) |
+| project_id | body | string | optional | Project scope; defaults to the thought's own project, then the default project |
+
+curl `-d '{"thought_id": "<id>"}' http://127.0.0.1:3005/api/thoughts/propose`
+
+Response: `{"thought_id": "...", "placement": {...} | null, "edges": [...], "lifecycle": {...}, "degraded": false, "generated_at": "..."}`
+
+- `placement` — `{"kind": "cluster" | "parent", "target_id", "confidence", "rationale", "review_required"}`, or `null` when no cluster majority or parent/`develops` chain node applies.
+- `edges[]` — at most one proposal per unordered pair: `{"source_id", "target_id", "type", "direction", "confidence", "rationale", "review_required", "rule_id", "signals"}`. `type` is the `related` fallback (similarity-only) or a typed `contradicts`/`supports`/`develops`/`depends_on`/`replaces` when a non-embedding cue fired; `rule_id` names the fired rule and `signals` is the exact `PairSignals` input that produced it. Pairs that already carry any edge are excluded.
+- `lifecycle` — `{"action": "keep" | "link" | "merge" | "replaces+archive", "confidence", "rationale", "review_required", "blocked_by[]"}`. `blocked_by` lists the reasons a proposed move cannot be confirmed (e.g. `"source is profile"`).
+- `degraded` — `true` when the embedder is unavailable: the plan falls back to lexical-only signals (no embedding-derived placement or edges) and still returns a `keep`/`merge` decision instead of failing.
+
+Example:
+
+```json
+{
+  "thought_id": "<id>",
+  "placement": {"kind": "cluster", "target_id": "<cluster-id>", "confidence": 0.80, "rationale": "cluster majority: 3/4 clustered embedding neighbours belong to cluster <cluster-id> (avg similarity 0.85)", "review_required": true},
+  "edges": [{"source_id": "<id>", "target_id": "<other-id>", "type": "related", "direction": "symmetric", "confidence": 0.87, "rationale": "embedding_similarity_only", "review_required": true, "rule_id": "fallback.embedding_related", "signals": {"sourceId": "<id>", "targetId": "<other-id>", "embeddingSimilarity": 0.87, "lexicalOverlap": 0.18, "negationDelta": 0, "evidentialCue": false, "evolutionCue": false, "temporalOrder": "older", "tagOverlap": 0, "dependencyCue": false, "existingEdgeType": null, "sourceStatus": "active", "targetStatus": "active", "sourceStanding": "current", "targetStanding": "current", "sameProject": true}}],
+  "lifecycle": {"action": "link", "confidence": 0.87, "rationale": "1 edge proposal(s); highest confidence 0.87 (fallback.embedding_related)", "review_required": true, "blocked_by": []},
+  "degraded": false,
+  "generated_at": "2026-09-28T19:30:00.000Z"
+}
+```
+
+Every proposal carries `review_required: true` and an **ordinal** (not calibrated) `confidence` in `[0,1]`. The result is a filter, never a source of truth — there is deliberately no `apply` endpoint. Confirm its proposals with the existing writers:
+
+| Proposal | Confirm via |
+|---|---|
+| edge (`edges[]`, `lifecycle.action: link`) | `POST /api/thoughts/:id/link` (`target_id`, `type`) |
+| merge | `POST /api/thoughts/:targetId/merge` (`source_id`) |
+| replaces + archive | `POST /api/thoughts/:id/link` (`type: replaces`), then archive the source (`PUT /api/thoughts/:id` `{"status":"archived"}`, or `DELETE /api/thoughts/:id`) |
+| placement `kind: cluster` | `POST /api/cluster` (create the cluster from the thought and its members) |
+| placement `kind: parent` | `POST /api/thoughts/:id/link` to `target_id` with `type: parent`/`develops` |
+
+Typed edge proposals require a non-embedding cue (negation, evidential, evolution, temporal ordering). Embedding similarity alone yields `type: related` with `rationale: embedding_similarity_only` — similarity means "same subject matter", not conflict; `contradicts` is never inferred from similarity. See ADR #142 and task #927. MCP parity: `memory_status action=propose`.
+
 ### POST /api/thoughts/self-improve/run
 
 Runs the self-improve analysis job (orphan detection, merge suggestions).

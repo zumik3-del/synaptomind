@@ -33,6 +33,7 @@ interface Config {
     minSimilarity: number; topK: number; maxCandidates: number;
     maxProposals: number
   }
+  placement: { maxClusterSize: number }
   selfImprove: {
     enabled: boolean; intervalMs: number; orphanThreshold: number;
     activationThreshold: number; hitsThreshold: number;
@@ -84,6 +85,10 @@ export const DEFAULTS: Config = {
     minSimilarity: 0.75, topK: 10, maxCandidates: 100,
     maxProposals: 20
   },
+  // Skip a cluster proposal once a cluster already holds this many members:
+  // prevents feeding the mega-cluster defect (lessons #934/#928). Read-only
+  // proposer — the cap only suppresses the suggestion, it never mutates.
+  placement: { maxClusterSize: 50 },
   selfImprove: {
     enabled: false, intervalMs: 86400000, orphanThreshold: 0.5,
     activationThreshold: 0.3, hitsThreshold: 5,
@@ -167,6 +172,8 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_EDGE_DETECT_TOP_K', path: 'edgeDetect.topK', type: 'int' },
   { env: 'SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES', path: 'edgeDetect.maxCandidates', type: 'int' },
   { env: 'SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS', path: 'edgeDetect.maxProposals', type: 'int' },
+
+  { env: 'SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE', path: 'placement.maxClusterSize', type: 'int' },
 
   { env: 'SYNAPTOMIND_SELF_IMPROVE_ENABLED', path: 'selfImprove.enabled', type: 'bool' },
   { env: 'SYNAPTOMIND_SELF_IMPROVE_INTERVAL_MS', path: 'selfImprove.intervalMs', type: 'int' },

@@ -6,6 +6,7 @@ import { getProfileService } from '../../services/profile.service'
 import { buildConfigDisplay } from '../../services/config-display.service'
 import { runHealthCheck } from '../../services/health-check.service'
 import { detectEdgeProposals } from '../../services/edge-detect.service'
+import { proposePlacementPlan } from '../../services/placement/engine'
 import { cleanupArchivedThoughts } from '../../services/ttl-cleanup.service'
 import { resolveProjectId } from './utils'
 import { registerActionTool, type ActionArgs } from './action-tool'
@@ -52,6 +53,29 @@ const handlers = {
     }
   },
 
+  propose: {
+    input: z
+      .object({
+        thought_id: z.string().optional(),
+        content: z.string().optional()
+      })
+      .refine(v => v.thought_id !== undefined || v.content !== undefined, {
+        message: 'provide thought_id (existing thought) or content (draft)',
+        path: ['thought_id']
+      }),
+    async run(args: ActionArgs) {
+      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      return proposePlacementPlan(
+        {
+          thoughtId: args.thought_id as string | undefined,
+          content: args.content as string | undefined,
+          projectId: projectFilter
+        },
+        { projectId: projectFilter }
+      )
+    }
+  },
+
   cleanup: {
     run(args: ActionArgs) {
       return cleanupArchivedThoughts((args.dry_run as boolean | undefined) ?? true)
@@ -69,12 +93,15 @@ export function registerMemoryStatus(server: McpServer) {
 - config: Show current configuration with defaults and env vars
 - health: Audit graph health (broken links, orphans, duplicates, structural issues)
 - edge_suggestions: Propose unconfirmed \`related\` candidate pairs from embedding similarity (read-only; never implies conflict; confirm via memory_store action=link)
+- propose: Propose a read-only placement/link plan for one thought (placement, edge proposals, lifecycle); confirm via memory_store action=link, memory_supersede, memory_crystallize
 - cleanup: Preview expired archived thoughts based on TTL config (dry-run by default; pass dry_run=false to delete)`,
     inputSchema: {
-      action: z.enum(['slots', 'frontier', 'profile', 'config', 'health', 'edge_suggestions', 'cleanup']).describe('Action'),
+      action: z.enum(['slots', 'frontier', 'profile', 'config', 'health', 'edge_suggestions', 'propose', 'cleanup']).describe('Action'),
       names: z.array(z.string()).optional().describe('Filter by slot names (slots only)'),
-      project_id: z.string().optional().describe('Filter by project (slots/frontier/edge_suggestions only)'),
-      cwd: z.string().optional().describe('Working directory — auto-resolves project (slots/frontier/edge_suggestions only)'),
+      project_id: z.string().optional().describe('Filter by project (slots/frontier/edge_suggestions/propose only)'),
+      cwd: z.string().optional().describe('Working directory — auto-resolves project (slots/frontier/edge_suggestions/propose only)'),
+      thought_id: z.string().optional().describe('Existing thought to analyse (propose only; provide this or content)'),
+      content: z.string().optional().describe('Draft content to analyse when the thought is not persisted yet (propose only; provide this or thought_id)'),
       k: z.number().int().min(1).max(50).optional().describe('Max results (default 10, 1-50; frontier only)'),
       severity: z.enum(['critical', 'warning', 'info']).optional().describe('Minimum severity (health only)'),
       fix: z.boolean().optional().describe('Auto-fix safe issues (health only)'),

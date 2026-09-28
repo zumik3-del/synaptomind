@@ -180,6 +180,16 @@ Read-only proposal of unconfirmed `related` candidates (used by `POST /api/thoug
 
 ---
 
+## Placement
+
+Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory_status action=propose` (see ADR 2026-09-28). The engine never writes the graph: this cap only suppresses a proposal, it never mutates.
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `placement.maxClusterSize` | `SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE` | `50` | Skip a cluster placement proposal when the target cluster already holds this many members (`>=`). Prevents routing new thoughts into an oversized mega-cluster (lessons #934/#928) |
+
+---
+
 ## Self-Improve
 
 Automatic graph maintenance (disabled by default).
@@ -310,6 +320,7 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
     "minSimilarity": 0.75, "topK": 10,
     "maxCandidates": 100, "maxProposals": 20
   },
+  "placement": { "maxClusterSize": 50 },
   "selfImprove": {
     "enabled": false, "intervalMs": 86400000,
     "orphanThreshold": 0.5, "activationThreshold": 0.3,

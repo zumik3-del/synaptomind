@@ -50,6 +50,7 @@ const TOOL_ROUTES: Record<string, { default?: ToolRoute; actions?: Record<string
       config: { action: 'read', toolName: 'get_config' },
       health: { action: 'read', toolName: 'health_check' },
       edge_suggestions: { action: 'read', toolName: 'edge_suggestions' },
+      propose: { action: 'read', toolName: 'propose_placement' },
       cleanup: { action: 'write', toolName: 'cleanup_archived' }
     }
   },

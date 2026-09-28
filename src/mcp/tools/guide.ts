@@ -13,6 +13,7 @@ function buildGuideText(softLimit: number): string {
 | Find | \`memory_recall\` | action=search/get/context/chain/clusters |
 | Connect | \`memory_store\` | action=link |
 | Group | \`memory_crystallize\` | action=cluster/auto_cluster |
+| Plan | \`memory_status\` | action=propose |
 | Prioritize | \`memory_status\` | action=frontier |
 | Compress | \`memory_crystallize\` | action=crystallize |
 | Maintain | \`memory_status\` | action=health |
@@ -27,7 +28,7 @@ function buildGuideText(softLimit: number): string {
 | \`memory_recall\` | search, get, context, chain, clusters | Find and retrieve thoughts |
 | \`memory_store\` | create, update, link | Write and connect thoughts |
 | \`memory_supersede\` | archive, merge | Version and supersede thoughts |
-| \`memory_status\` | slots, frontier, profile, config, health, edge_suggestions, cleanup | Query system state |
+| \`memory_status\` | slots, frontier, profile, config, health, edge_suggestions, propose, cleanup | Query system state |
 | \`memory_manage\` | list, create, update, delete, resolve | Project management |
 | \`memory_crystallize\` | crystallize, graph, cluster, auto_cluster | Consolidate and visualize |
 | \`memory_reflect\` | reflect, timeline | Session management |
@@ -129,6 +130,16 @@ Run \`memory_status\` (action=edge_suggestions) to get *candidate* pairs worth r
 Every proposal is similarity-only and always \`type: related\`: high embedding similarity means "same subject matter", **not** "conflict". Each one carries \`review_required: true\` and \`rationale: embedding_similarity_only\` — read both thoughts and decide the real type (\`contradicts\`/\`supports\`/other) yourself; never report or link a proposal as a contradiction on the strength of the proposal alone.
 
 Config: \`edgeDetect.minSimilarity\` (recall threshold), \`topK\`, \`maxCandidates\`, \`maxProposals\`. Embedder unavailability degrades to an empty result (\`degraded: true\`) instead of failing.
+
+## Placement Proposal
+
+Run \`memory_status\` (action=propose) to get one read-only plan for a single thought: pass \`thought_id\` (existing thought) **or** \`content\` (unpersisted draft), plus optional \`project_id\`/\`cwd\`.
+
+The result is a \`PlacementPlan\` — \`placement\` (cluster or parent, or null), \`edges[]\`, \`lifecycle\`, \`degraded\`, \`generated_at\`. Every element carries \`rationale\`, \`confidence\` (ordinal, not calibrated) and \`review_required\`; \`lifecycle.action\` is one of \`keep\`/\`link\`/\`merge\`/\`replaces+archive\`, with \`blocked_by[]\` explaining why a proposed move cannot be confirmed. Pairs that already carry an edge are excluded.
+
+The engine is a filter, never a source of truth: it is read-only and never writes the graph. Confirmation always uses the existing writers — \`memory_store\` (action=link) for edges, \`memory_supersede\` (action=merge/archive) for a merge or supersede, \`memory_crystallize\` (action=cluster) for a placement. There is deliberately **no** \`apply\` action. Embedder unavailability degrades to lexical-only signals (\`degraded: true\`) instead of failing.
+
+Typed edge proposals require a non-embedding cue; embedding similarity alone yields \`related\` with \`rationale: embedding_similarity_only\`. ADR: \`ai-workdir/synaptomind/plans/2026-09-28-placement-link-policy-engine-adr.md\`; see also ADR #142 and task #927. HTTP parity: \`POST /api/thoughts/propose\` (see \`docs/API.md\` §Propose).
 
 ## Crystals
 

@@ -115,6 +115,7 @@ const CANONICAL_ROUTES: CanonicalRoute[] = [
   { tool: 'memory_status', action: 'config', actionType: 'read', toolName: 'get_config' },
   { tool: 'memory_status', action: 'health', actionType: 'read', toolName: 'health_check' },
   { tool: 'memory_status', action: 'edge_suggestions', actionType: 'read', toolName: 'edge_suggestions' },
+  { tool: 'memory_status', action: 'propose', actionType: 'read', toolName: 'propose_placement' },
   { tool: 'memory_status', action: 'cleanup', actionType: 'write', toolName: 'cleanup_archived' },
   { tool: 'memory_status', action: undefined, actionType: 'read', toolName: 'get_slots' },
   { tool: 'memory_manage', action: 'list', actionType: 'read', toolName: 'list_projects' },
