@@ -79,7 +79,7 @@ into Features / Fixes / Other.
 ```
 src/
   api/          HTTP routes (Hono)
-  config/       Configuration loading
+  config.ts     Configuration loading
   db/           SQLite schema, migrations, queries
   mcp/          MCP server + tools
   services/     Business logic

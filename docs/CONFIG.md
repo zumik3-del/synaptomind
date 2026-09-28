@@ -167,6 +167,19 @@ Automatically create edges between related thoughts.
 
 ---
 
+## Edge Detect
+
+Read-only candidate detection for `contradicts`/`supports` edges (used by `POST /api/thoughts/edge-detect` and `memory_status action=edge_suggestions`). Detection never writes edges; it ranks neighbor pairs by embedding similarity, so a proposal is an unconfirmed candidate, not a settled relation.
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `edgeDetect.minSimilarity` | `SYNAPTOMIND_EDGE_DETECT_MIN_SIMILARITY` | `0.75` | Min embedding similarity for a neighbor pair to be proposed |
+| `edgeDetect.topK` | `SYNAPTOMIND_EDGE_DETECT_TOP_K` | `10` | Max nearest neighbors considered per thought |
+| `edgeDetect.maxCandidates` | `SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES` | `100` | Max candidate thoughts loaded for detection |
+| `edgeDetect.maxProposals` | `SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS` | `20` | Cap on returned proposals |
+
+---
+
 ## Self-Improve
 
 Automatic graph maintenance (disabled by default).
@@ -200,6 +213,14 @@ Context windows for agent startup.
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | `graph.maxDegree` | `SYNAPTOMIND_GRAPH_MAX_DEGREE` | `50` | Max edges per thought in chain traversal |
+
+---
+
+## Search
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `search.confidence.vectorFloor` | `SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR` | `0.9` | Vector similarity at or above which a hit is not marked `low_confidence` |
 
 ---
 
@@ -264,7 +285,8 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
     "cacheDir": "./data/huggingface",
     "idleTimeoutMs": 600000,
     "precache": false,
-    "batchSize": 8
+    "batchSize": 8,
+    "resetDeadLetters": false
   },
   "thoughts": { "softLimit": 600, "hardLimitBufferPercent": 20 },
   "decay": {
@@ -284,6 +306,10 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
     "minSimilarity": 0.65, "maxEdgesPerRun": 20,
     "dryRun": false
   },
+  "edgeDetect": {
+    "minSimilarity": 0.75, "topK": 10,
+    "maxCandidates": 100, "maxProposals": 20
+  },
   "selfImprove": {
     "enabled": false, "intervalMs": 86400000,
     "orphanThreshold": 0.5, "activationThreshold": 0.3,
@@ -292,6 +318,7 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
   },
   "slots": { "defaultMaxChars": 2000, "hardLimit": 20000 },
   "graph": { "maxDegree": 50 },
+  "search": { "confidence": { "vectorFloor": 0.9 } },
   "rateLimit": { "max": 200, "windowMs": 60000, "trustProxy": false }
 }
 ```
