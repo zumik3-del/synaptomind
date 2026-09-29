@@ -5,7 +5,7 @@ import { ValidationError } from '../errors'
 import { jsonBodyOrDefault } from './utils'
 import { applyProposal } from '../services/placement-apply.service'
 import { rollback } from '../services/placement-rollback.service'
-import { checkDryRunFirst, noteDryRun } from '../services/apply-run-guards'
+import { checkDryRunFirst, checkItemGuards, noteDryRun } from '../services/apply-run-guards'
 import { enqueueThoughtProposals, list as listProposals, reject } from '../services/placement-proposals.service'
 
 const proposalsRouter = new Hono()
@@ -46,7 +46,10 @@ proposalsRouter.post('/:id/apply', async c => {
     const proposalId = c2.req.param('id')!
     const confirm = body.confirm === true
     if (confirm) {
-      const refusal = checkDryRunFirst([proposalId], body.run_id)
+      // Same envelope as the MCP surface: a prior preview of the run plus the
+      // per-run caps, so the single-item path cannot exceed a run's budget.
+      const refusal =
+        checkDryRunFirst([proposalId], body.run_id) ?? checkItemGuards(proposalId, { confirm, runId: body.run_id })
       if (refusal) return c2.json({ proposal_id: proposalId, status: 'refused', refusal })
     }
     const result = applyProposal(proposalId, { confirm, runId: body.run_id, decidedBy: 'api' })

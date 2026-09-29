@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { closeDb, getDb } from '../db'
-import { createTestDb } from '../test/helpers'
+import { createTestDb, seedThought } from '../test/helpers'
 import { config } from '../config'
 import { insertProposal, updateProposalState, type PlacementProposalRow, type ProposalItemKind, type ProposalState } from '../db/placement-proposals'
 import {
@@ -12,6 +12,7 @@ import {
   isLinkKind,
   checkBatchGuards,
   checkDryRunFirst,
+  checkItemGuards,
   noteDryRun,
 } from './apply-run-guards'
 
@@ -370,5 +371,74 @@ describe('checkBatchGuards — maxLinksPerRun', () => {
     // Without run_id, the function returns undefined for non-triage rows
     // (the run_id_required check only fires for triage pending rows)
     expect(checkBatchGuards([row], 1, { confirm: true, runId: undefined })).toBeUndefined()
+  })
+})
+
+// ── single-item apply: the same caps apply one at a time ──────────────────────
+
+describe('checkItemGuards', () => {
+  function triageRow(sourceId: string, itemKind: 'triage_activate' | 'triage_archive' = 'triage_activate'): PlacementProposalRow {
+    const db = getDb()
+    seedThought({ id: sourceId, content: `source ${sourceId}`, status: 'draft', created_at: NOW })
+    return insertProposal(db, {
+      source_thought_id: sourceId,
+      item_kind: itemKind,
+      confidence: 0.5,
+      rationale: 'test',
+      payload: '{}',
+      fingerprint: `fp-${sourceId}`,
+      run_id: RUN_ID,
+    })
+  }
+
+  test('is a no-op for a dry-run', () => {
+    const row = triageRow('dry-src')
+    expect(checkItemGuards(row.id, { confirm: false, runId: RUN_ID })).toBeUndefined()
+  })
+
+  test('refuses a triage item with no run_id', () => {
+    const row = triageRow('no-run-src')
+    expect(checkItemGuards(row.id, { confirm: true })).toEqual({
+      code: 'run_id_required',
+      reason: 'run_id is required for triage items',
+    })
+  })
+
+  test('repeated single applies cannot exceed maxItemsPerRun', () => {
+    const db = getDb()
+    const original = config.triage.maxItemsPerRun
+    config.triage.maxItemsPerRun = 2
+    try {
+      const ids = [triageRow('single-src-0'), triageRow('single-src-1'), triageRow('single-src-2')].map(r => r.id)
+
+      // Confirm one at a time: the cap is cumulative over the run, so the third
+      // single apply is refused instead of quietly applying a prefix.
+      expect(checkItemGuards(ids[0], { confirm: true, runId: RUN_ID })).toBeUndefined()
+      updateProposalState(db, ids[0], { state: 'accepted', applied_at: NOW, decided_at: NOW })
+      expect(checkItemGuards(ids[1], { confirm: true, runId: RUN_ID })).toBeUndefined()
+      updateProposalState(db, ids[1], { state: 'accepted', applied_at: NOW, decided_at: NOW })
+
+      expect(checkItemGuards(ids[2], { confirm: true, runId: RUN_ID })?.code).toBe('max_items_exceeded')
+    } finally {
+      config.triage.maxItemsPerRun = original
+    }
+  })
+
+  test('repeated single applies cannot exceed maxArchivesPerRun', () => {
+    const db = getDb()
+    const original = config.triage.maxArchivesPerRun
+    config.triage.maxArchivesPerRun = 1
+    try {
+      const ids = [triageRow('single-arc-0', 'triage_archive'), triageRow('single-arc-1', 'triage_archive')].map(r => r.id)
+      expect(checkItemGuards(ids[0], { confirm: true, runId: RUN_ID })).toBeUndefined()
+      updateProposalState(db, ids[0], { state: 'accepted', applied_at: NOW, decided_at: NOW })
+      expect(checkItemGuards(ids[1], { confirm: true, runId: RUN_ID })?.code).toBe('max_archives_exceeded')
+    } finally {
+      config.triage.maxArchivesPerRun = original
+    }
+  })
+
+  test('an unknown proposal id does not fabricate a refusal', () => {
+    expect(checkItemGuards('does-not-exist', { confirm: true, runId: RUN_ID })).toBeUndefined()
   })
 })

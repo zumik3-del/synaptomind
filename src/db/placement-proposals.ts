@@ -167,6 +167,24 @@ export function listProposalsByRun(db: Database, runId: string): PlacementPropos
     .all(runId) as PlacementProposalRow[]
 }
 
+/**
+ * The rollback manifest of one run: its accepted rows in *reverse application
+ * order* (ADR 2026-09-29 §2.8). Application order is `applied_at`, not
+ * `created_at` — a row enqueued early can be applied late, so ordering by
+ * creation would invert a run whose items were confirmed out of order. The
+ * `created_at`/`id` tie-breakers keep the order total when two rows share an
+ * `applied_at` (a caller-supplied `now`, or same-millisecond applies).
+ */
+export function listAcceptedProposalsByRun(db: Database, runId: string): PlacementProposalRow[] {
+  return db
+    .prepare(
+      `SELECT * FROM placement_proposals
+        WHERE run_id = ? AND state = 'accepted'
+        ORDER BY applied_at DESC, created_at DESC, id DESC`
+    )
+    .all(runId) as PlacementProposalRow[]
+}
+
 /** Transition a proposal to a terminal state, recording the decision metadata. */
 export function updateProposalState(
   db: Database,
@@ -196,20 +214,42 @@ export function updateProposalState(
 /**
  * Delete terminal rows decided before `cutoff` and expire `pending` rows whose
  * `expires_at` has passed (ADR §2.4). Returns the number of rows removed.
+ *
+ * Expiring stamps `decided_at`: without it these rows were invisible to the
+ * prune half of this very function (`decided_at IS NOT NULL`) and accumulated
+ * forever. They are now decided-at-`now` and pruned one retention window later,
+ * like every other terminal row.
  */
 export function deleteExpired(db: Database, cutoff: string, now: string = new Date().toISOString()): number {
   const expired = db
-    .prepare(`UPDATE placement_proposals SET state = 'expired' WHERE state = 'pending' AND expires_at IS NOT NULL AND expires_at < ?`)
-    .run(now).changes
+    .prepare(
+      `UPDATE placement_proposals SET state = 'expired', decided_at = ?
+        WHERE state = 'pending' AND expires_at IS NOT NULL AND expires_at < ?`
+    )
+    .run(now, now).changes
   const pruned = db
     .prepare(`DELETE FROM placement_proposals WHERE state != 'pending' AND decided_at IS NOT NULL AND decided_at < ?`)
     .run(cutoff).changes
   return expired + pruned
 }
 
+/** Live (non-overdue) `pending` rows — the denominator of `maxPendingProposals`. */
+export function countLivePendingProposals(db: Database, now: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM placement_proposals
+        WHERE state = 'pending' AND (expires_at IS NULL OR expires_at > ?)`
+    )
+    .get(now) as { n: number }
+  return row.n
+}
+
 /** The live row for the same item, if any — the dedup key of `idx_pp_dedup`. */
-function findPendingByItem(db: Database, input: InsertProposalInput): { id: string } | undefined {
-  return db
+export function findPendingByItem(db: Database, input: InsertProposalInput): { id: string } | undefined {
+  // `Statement.get` yields `null` for no match; normalise to `undefined` so
+  // callers can test `=== undefined` (a bare `as` cast here made every
+  // "is this a new item?" check silently report false).
+  const row = db
     .prepare(
       `SELECT id FROM placement_proposals
         WHERE state = 'pending'
@@ -225,5 +265,6 @@ function findPendingByItem(db: Database, input: InsertProposalInput): { id: stri
       input.target_id ?? null,
       input.edge_type ?? null,
       input.lifecycle_action ?? null
-    ) as { id: string } | undefined
+    ) as { id: string } | null
+  return row ?? undefined
 }

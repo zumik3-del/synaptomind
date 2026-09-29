@@ -13,7 +13,7 @@
 
 import type { Database } from 'bun:sqlite'
 import { getDb } from '../db'
-import { listProposalsByRun, type PlacementProposalRow, updateProposalState } from '../db/placement-proposals'
+import { listAcceptedProposalsByRun, updateProposalState, type PlacementProposalRow } from '../db/placement-proposals'
 import { ValidationError } from '../errors'
 import { insertLog } from '../logging/log'
 import { deleteEdgeService } from './edges.service'
@@ -101,8 +101,9 @@ export function rollback(runId: string, options: RollbackOptions = {}, d: Databa
   const confirm = options.confirm === true
   const now = options.now ?? new Date().toISOString()
   const decidedBy = options.decidedBy ?? null
-  // `listProposalsByRun` is newest-first — the reverse of application order.
-  const accepted = listProposalsByRun(d, runId).filter(row => row.state === 'accepted')
+  // Reverse application order is `applied_at` descending — the order the run
+  // confirmed its items in, not the order they were enqueued (ADR 2026-09-29 §2.8).
+  const accepted = listAcceptedProposalsByRun(d, runId)
 
   const items: RollbackItemReport[] = []
   for (const row of accepted) {

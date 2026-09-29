@@ -422,14 +422,42 @@ describe('enqueuePlan: dedup refresh', () => {
     const tgt = seedThought({ id: 'rf-tgt', content: 'refresh-stale target', created_at: T_TGT })
     const plan = edgePlan(src, tgt)
     const first = enqueuePlan(plan, { now: NOW }, db)[0]
-    db.prepare('UPDATE thoughts SET status = ? WHERE id = ?').run('archived', src)
+    // Mutate the source in place without changing its status: the fingerprint
+    // covers `updated_at`, so this drifts the snapshot while keeping the source
+    // `active` (an archived/other-status source is refused at the enqueue seam).
+    const mutatedAt = '2026-01-15T00:00:00.000Z'
+    db.prepare('UPDATE thoughts SET updated_at = ? WHERE id = ?').run(mutatedAt, src)
     const refreshed = enqueuePlan(plan, { now: NOW_LATER }, db)
     expect(refreshed).toHaveLength(1)
     expect(refreshed[0].id).toBe(first.id)
     expect(refreshed[0].fingerprint).not.toBe(first.fingerprint)
     expect(refreshed[0].fingerprint).toBe(
-      computeFingerprint({ sourceId: src, sourceUpdatedAt: T_SRC, sourceStatus: 'archived', targetId: tgt, targetUpdatedAt: T_TGT, targetStatus: 'active', existingEdgeType: null })
+      computeFingerprint({ sourceId: src, sourceUpdatedAt: mutatedAt, sourceStatus: 'active', targetId: tgt, targetUpdatedAt: T_TGT, targetStatus: 'active', existingEdgeType: null })
     )
+  })
+
+  test('enqueuePlan refuses a persisted draft — placement is the phase after triage', () => {
+    const db = getDb()
+    const src = seedThought({ id: 'dr-src', content: 'still a draft', created_at: T_SRC })
+    const tgt = seedThought({ id: 'dr-tgt', content: 'draft-source target', created_at: T_TGT })
+    db.prepare("UPDATE thoughts SET status = 'draft' WHERE id = ?").run(src)
+    expect(() => enqueuePlan(edgePlan(src, tgt), { now: NOW }, db)).toThrow(ValidationError)
+    expect(list({ now: NOW }, db)).toHaveLength(0)
+  })
+
+  test('list clamps a hostile limit into 1..1000', () => {
+    const db = getDb()
+    for (let i = 0; i < 5; i++) {
+      const src = seedThought({ id: `cl-src-${i}`, content: `limit clamp source ${i}`, created_at: T_SRC })
+      const tgt = seedThought({ id: `cl-tgt-${i}`, content: `limit clamp target ${i}`, created_at: T_TGT })
+      enqueuePlan(edgePlan(src, tgt), { now: NOW }, db)
+    }
+    // `LIMIT -1` means *no limit* in SQLite and `LIMIT 0` returns nothing, so
+    // both are clamped into range instead of reaching SQLite unvalidated.
+    expect(list({ limit: -1, now: NOW }, db)).toHaveLength(1)
+    expect(list({ limit: 0, now: NOW }, db)).toHaveLength(1)
+    expect(list({ limit: Number.NaN, now: NOW }, db)).toHaveLength(5)
+    expect(list({ limit: 10_000, now: NOW }, db)).toHaveLength(5)
   })
 })
 

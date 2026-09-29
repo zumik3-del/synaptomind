@@ -170,6 +170,70 @@ describe('triage_archive gate matrix', () => {
   })
 })
 
+// ── TTL and structural guards ──────────────────────────────────────────────────
+
+describe('TTL and structural guards', () => {
+  test('triage_archive with a null target → failed (no verified duplicate)', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'arc-notgt-s', content: 'draft src', status: 'draft', created_at: NOW })
+    // A malformed row: an `archive` verdict exists only because a live duplicate
+    // was found, so a null target must not be able to archive a draft.
+    const fp = computeFingerprint({
+      sourceId: s, sourceUpdatedAt: NOW, sourceStatus: 'draft',
+      targetId: '', targetUpdatedAt: '', targetStatus: '', existingEdgeType: null
+    })
+    const id = 'row-arc-notgt'
+    db.prepare(`
+      INSERT INTO placement_proposals
+        (id, project_id, source_thought_id, item_kind, target_id, edge_type, lifecycle_action,
+         direction, confidence, rationale, rule_id, payload, state, fingerprint, created_at, expires_at, run_id)
+      VALUES (?, 'default', ?, 'triage_archive', NULL, NULL, NULL, NULL,
+              0.5, 'test', 'duplicate.active_near_duplicate', '{}', 'pending', ?, ?, NULL, NULL)
+    `).run(id, s, fp, NOW)
+    expect(gate(id)).toEqual({ kind: 'failed', reason: 'triage_archive item has no duplicate target' })
+  })
+
+  test('an overdue row is stale even when the graph still matches', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'ttl-s', content: 'draft src', status: 'draft', created_at: NOW })
+    const row = insertPendingTriage(db, 'triage_activate', s)
+    db.prepare('UPDATE placement_proposals SET expires_at = ? WHERE id = ?').run(PAST, row.id)
+    // Retention only hides overdue rows; it never made them safe to apply.
+    expect(gate(row.id)).toEqual({ kind: 'stale', reason: expect.stringContaining('proposal expired at') })
+  })
+
+  test('an overdue row is stale even when the requested state already holds', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'ttl-early-s', content: 'active src', status: 'active', created_at: PAST })
+    const row = insertPendingTriage(db, 'triage_activate', s)
+    db.prepare('UPDATE placement_proposals SET expires_at = ? WHERE id = ?').run(PAST, row.id)
+    // Expiry is checked first: an idempotent accept would inject a phantom
+    // entry into a run's rollback manifest for a mutation that never happened.
+    expect(gate(row.id)).toEqual({ kind: 'stale', reason: expect.stringContaining('proposal expired at') })
+  })
+
+  test('the expiry boundary matches retention: expires_at === now is still live', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'ttl-eq-s', content: 'draft src', status: 'draft', created_at: NOW })
+    const row = insertPendingTriage(db, 'triage_activate', s)
+    db.prepare('UPDATE placement_proposals SET expires_at = ? WHERE id = ?').run(NOW, row.id)
+    // Same strict `expires_at < now` comparison as `deleteExpired`, so the gate
+    // and the retention job never disagree about which row is overdue.
+    expect(gate(row.id, { now: NOW })).toEqual({ kind: 'ok' })
+    expect(gate(row.id, { now: '2026-01-01T00:00:00.001Z' })).toEqual({
+      kind: 'stale',
+      reason: expect.stringContaining('proposal expired at')
+    })
+  })
+
+  test('a row with no expires_at never expires', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'ttl-null-s', content: 'draft src', status: 'draft', created_at: NOW })
+    const row = insertPendingTriage(db, 'triage_activate', s)
+    expect(gate(row.id, { now: '2099-01-01T00:00:00.000Z' })).toEqual({ kind: 'ok' })
+  })
+})
+
 // ── Safety scan ────────────────────────────────────────────────────────────────
 
 describe('safety: no deleteThought, no disallowed writer imports', () => {

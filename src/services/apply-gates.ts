@@ -58,6 +58,16 @@ export function plannedEdge(row: PlacementProposalRow, options: ApplyOptions): P
  * can run for a dry-run too.
  */
 export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, d: Database): Gate {
+  // TTL is authoritative and checked before anything else: an overdue row is
+  // no longer a live decision, so it must not be confirmed — nor recorded as an
+  // idempotent accept, which would inject a phantom entry into a run manifest
+  // (ADR 2026-09-28 §2.4). Retention only *hides* overdue rows; it never made
+  // them safe to apply.
+  const now = options.now ?? new Date().toISOString()
+  if (row.expires_at !== null && row.expires_at < now) {
+    return { kind: 'stale', reason: `proposal expired at ${row.expires_at}; re-enqueue it` }
+  }
+
   const source = getThoughtRow(d, row.source_thought_id)
   if (!source) return { kind: 'stale', reason: 'source thought no longer exists' }
   const target = row.target_id ? getThoughtRow(d, row.target_id) : undefined
@@ -69,12 +79,16 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
   if (row.item_kind === 'triage_activate' || row.item_kind === 'triage_archive') {
     const archive = row.item_kind === 'triage_archive'
     if (source.is_cluster || source.is_profile) return { kind: 'failed', reason: 'cluster/profile thoughts cannot be triaged' }
+    // An `archive` verdict exists because a live duplicate was found, so a row
+    // without one is malformed: archiving here would drop a draft with no
+    // verified near-duplicate behind it (ADR 2026-09-29 §2.3.4).
+    if (archive && !row.target_id) return { kind: 'failed', reason: 'triage_archive item has no duplicate target' }
     if (archive && source.status === 'archived') return { kind: 'already_applied' }
     if (source.status !== 'draft') {
       if (!archive && source.status === 'active') return { kind: 'already_applied' }
       return { kind: 'stale', reason: `source is '${source.status}', not draft` }
     }
-    if (isScheduledReminder(source, options.now ?? new Date().toISOString())) {
+    if (isScheduledReminder(source, now)) {
       return { kind: 'stale', reason: 'source became a scheduled reminder since enqueue' }
     }
     if (archive) {

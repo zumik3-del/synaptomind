@@ -173,3 +173,55 @@ describe('applyBatch: triage rows', () => {
     assertAccepted(db, rowOk.id)
   })
 })
+
+// ── TTL and structural guards at the apply seam ───────────────────────────────
+
+describe('apply: TTL and structural guards', () => {
+  test('an overdue row is refused before the retention sweep runs', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'ttl-apply-s', content: 'overdue src', status: 'draft', created_at: NOW })
+    const row = insertPendingTriage(db, 'triage_activate', s)
+    // Retention only hides overdue rows from `list`; knowing the id must not be
+    // enough to confirm one.
+    db.prepare('UPDATE placement_proposals SET expires_at = ? WHERE id = ?').run(PAST, row.id)
+
+    const out = applyProposal(row.id, { confirm: true, now: NOW, runId: 'run-ttl' }, db)
+    expect(out.status).toBe('stale')
+    expect(getThoughtRow(db, s)!.status).toBe('draft')
+
+    const stored = db.prepare('SELECT state FROM placement_proposals WHERE id = ?').get(row.id) as { state: string }
+    expect(stored.state).toBe('stale')
+  })
+
+  test('an overdue row is refused in dry-run too', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'ttl-dry-s', content: 'overdue dry src', status: 'draft', created_at: NOW })
+    const row = insertPendingTriage(db, 'triage_activate', s)
+    db.prepare('UPDATE placement_proposals SET expires_at = ? WHERE id = ?').run(PAST, row.id)
+    expect(applyProposal(row.id, { now: NOW }, db).status).toBe('stale')
+    assertStillPending(db, row.id)
+  })
+
+  test('an overdue row is not idempotently accepted into a run manifest', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'ttl-early-s', content: 'early src', status: 'active', created_at: PAST })
+    const row = insertPendingTriage(db, 'triage_activate', s)
+    db.prepare('UPDATE placement_proposals SET expires_at = ? WHERE id = ?').run(PAST, row.id)
+
+    const out = applyProposal(row.id, { confirm: true, now: NOW, runId: 'run-ttl-early' }, db)
+    expect(out.status).toBe('stale')
+    // No phantom accepted row: the run manifest must not gain an entry for a
+    // mutation that never happened, or rollback would try to invert it.
+    const manifest = db.prepare("SELECT COUNT(*) AS n FROM placement_proposals WHERE run_id = 'run-ttl-early' AND state = 'accepted'").get() as { n: number }
+    expect(manifest.n).toBe(0)
+  })
+
+  test('a triage_archive row without a target cannot archive the draft', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'notgt-apply-s', content: 'no target src', status: 'draft', created_at: NOW })
+    const row = insertPendingTriage(db, 'triage_archive', s, null)
+    const out = applyProposal(row.id, { confirm: true, now: NOW, runId: 'run-notgt' }, db)
+    expect(out.status).toBe('failed')
+    expect(getThoughtRow(db, s)!.status).toBe('draft')
+  })
+})

@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { closeDb, getDb } from '../db'
-import { getThoughtRow } from '../db/thoughts'
+import { getThoughtRow, type Thought } from '../db/thoughts'
 import type { PlacementProposalRow } from '../db/placement-proposals'
 import { createTestDb, seedThought } from '../test/helpers'
 import { config } from '../config'
@@ -790,5 +790,94 @@ describe('backfill job lifecycle', () => {
     } finally {
       config.triage.enabled = original
     }
+  })
+})
+
+// ── Queue backpressure and reminder semantics ──────────────────────────────────
+
+describe('triage: queue backpressure', () => {
+  function draft(id: string, content: string): Thought {
+    const db = getDb()
+    return getThoughtRow(db, seedThought({ id, content, status: 'draft', created_at: NOW }))!
+  }
+
+  function pendingCount(): number {
+    return (getDb().prepare("SELECT COUNT(*) AS n FROM placement_proposals WHERE state = 'pending'").get() as { n: number }).n
+  }
+
+  test('a new draft is skipped while maxPendingProposals is reached', () => {
+    const db = getDb()
+    const previous = config.placement.maxPendingProposals
+    config.placement.maxPendingProposals = 1
+    try {
+      expect(enqueueTriageItem(draft('cap-d1', DUP_DRAFT_CONTENT), db)).not.toBeNull()
+
+      // A second, different draft would be a new live row — the cap refuses it
+      // instead of growing the shared queue past the bound.
+      expect(enqueueTriageItem(draft('cap-d2', 'a completely unrelated second draft'), db)).toBeNull()
+      expect(pendingCount()).toBe(1)
+    } finally {
+      config.placement.maxPendingProposals = previous
+    }
+  })
+
+  test('a re-enqueue refreshes its live row even at the cap', () => {
+    const db = getDb()
+    const previous = config.placement.maxPendingProposals
+    config.placement.maxPendingProposals = 1
+    try {
+      const subject = draft('cap-refresh', DUP_DRAFT_CONTENT)
+      const first = enqueueTriageItem(subject, db)
+      expect(first).not.toBeNull()
+      // Not a new row, so the cap must not block the refresh.
+      const again = enqueueTriageItem(subject, db)
+      expect(again?.id).toBe(first!.id)
+      expect(pendingCount()).toBe(1)
+    } finally {
+      config.placement.maxPendingProposals = previous
+    }
+  })
+
+  test('backfill stops adding rows once the queue is full and resumes after draining', () => {
+    const db = getDb()
+    const previous = config.placement.maxPendingProposals
+    config.placement.maxPendingProposals = 1
+    try {
+      seedThought({ id: 'bf-cap-1', content: DUP_DRAFT_CONTENT, status: 'draft', created_at: NOW })
+      seedThought({ id: 'bf-cap-2', content: 'another unrelated draft entirely', status: 'draft', created_at: NOW })
+      expect(runTriageBackfill(10, db).enqueued).toBe(1)
+
+      // A sweep that cannot add anything must not throw — the ambient job and
+      // the create seam both have to keep working.
+      expect(() => runTriageBackfill(10, db)).not.toThrow()
+      expect(runTriageBackfill(10, db).enqueued).toBe(0)
+
+      // Draining the queue lets the deferred draft in on a later sweep.
+      db.prepare("UPDATE placement_proposals SET state = 'rejected', decided_at = ? WHERE state = 'pending'").run(NOW)
+      expect(runTriageBackfill(10, db).enqueued).toBe(1)
+    } finally {
+      config.placement.maxPendingProposals = previous
+    }
+  })
+})
+
+describe('isScheduledReminder: tag case-insensitivity', () => {
+  test('Pending (capitalised) is a reminder, matching the frontier query', () => {
+    const thought = getThoughtRow(getDb(), seedThought({ id: 'rem-case', content: 'reminder', status: 'draft', tags: '["Pending"]', created_at: NOW }))!
+    // The frontier resolves `lower(g.name) = 'pending'`, so this thought is a
+    // reminder there; triage must agree or it would archive a pending item.
+    expect(isScheduledReminder(thought, NOW)).toBe(true)
+  })
+
+  test('a Pending-tagged draft is not a triage candidate', () => {
+    const db = getDb()
+    seedThought({ id: 'rem-case-2', content: DUP_DRAFT_CONTENT, status: 'draft', tags: '["Pending"]', created_at: NOW })
+    expect(enqueueTriageItem(getThoughtRow(db, 'rem-case-2')!, db)).toBeNull()
+  })
+
+  test('a pending-tagged draft never enters a backfill sweep', () => {
+    const db = getDb()
+    seedThought({ id: 'rem-case-3', content: DUP_DRAFT_CONTENT, status: 'draft', tags: '["pending"]', created_at: NOW })
+    expect(runTriageBackfill(10, db).enqueued).toBe(0)
   })
 })

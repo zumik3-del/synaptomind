@@ -3,9 +3,11 @@ import { createTestDb, seedThought } from '../test/helpers'
 import { getDb } from './container'
 import { closeDb } from './init'
 import {
+  countLivePendingProposals,
   deleteExpired,
   getProposal,
   insertProposal,
+  listAcceptedProposalsByRun,
   listProposals,
   type InsertProposalInput,
   updateProposalState,
@@ -182,10 +184,57 @@ test('listProposals excludes expired rows by default', () => {
   const src = seedThought()
   const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString()
   insertProposal(db, makeInput({ source_thought_id: src, payload: 'expired-was-pending', expires_at: twoDaysAgo }))
-  deleteExpired(db, '2099-12-31T00:00:00.000Z')
+  // A retention cutoff in the past: the row expires but is still inside the
+  // window, so it is hidden from the default list yet retained as `expired`.
+  deleteExpired(db, new Date(Date.now() - 30 * 86400000).toISOString())
   expect(listProposals(db)).toHaveLength(0)
   // The expired row is still in the DB, just not returned by default
   expect(listProposals(db, { state: 'expired' })).toHaveLength(1)
+})
+
+test('deleteExpired stamps decided_at so an expired row is pruned one window later', () => {
+  const db = getDb()
+  const src = seedThought()
+  const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString()
+  insertProposal(db, makeInput({ source_thought_id: src, expires_at: twoDaysAgo }))
+
+  deleteExpired(db, new Date(Date.now() - 30 * 86400000).toISOString())
+  const expired = listProposals(db, { state: 'expired' })
+  expect(expired).toHaveLength(1)
+  // Without a decided_at stamp the row was invisible to the prune half of
+  // deleteExpired itself and accumulated forever.
+  expect(expired[0].decided_at).not.toBeNull()
+
+  // One retention window after the decision, the prune half removes it.
+  const row = listProposals(db, { state: 'expired' })[0]
+  const afterWindow = new Date(Date.parse(row.decided_at as string) + 1).toISOString()
+  expect(deleteExpired(db, afterWindow)).toBe(1)
+  expect(listProposals(db, { state: 'expired' })).toHaveLength(0)
+})
+
+test('countLivePendingProposals ignores overdue rows', () => {
+  const db = getDb()
+  const now = '2026-01-10T00:00:00.000Z'
+  const overdue = new Date(Date.parse(now) - 86400_000).toISOString()
+  const live = new Date(Date.parse(now) + 86400_000).toISOString()
+  insertProposal(db, makeInput({ source_thought_id: seedThought(), expires_at: overdue }))
+  insertProposal(db, makeInput({ source_thought_id: seedThought(), expires_at: live }))
+  insertProposal(db, makeInput({ source_thought_id: seedThought(), expires_at: null }))
+  expect(countLivePendingProposals(db, now)).toBe(2)
+})
+
+test('listAcceptedProposalsByRun orders by applied_at, not created_at', () => {
+  const db = getDb()
+  const src = seedThought()
+  const first = insertProposal(db, makeInput({ source_thought_id: src, run_id: 'run-1' }))
+  const second = insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'placement', run_id: 'run-1' }))
+  // Applied in the opposite order to creation: the manifest must follow
+  // `applied_at` (reverse application order), not `created_at`.
+  updateProposalState(db, first.id, { state: 'accepted', decided_at: '2026-01-02T00:00:00.000Z', applied_at: '2026-01-03T00:00:00.000Z' })
+  updateProposalState(db, second.id, { state: 'accepted', decided_at: '2026-01-01T00:00:00.000Z', applied_at: '2026-01-01T00:00:00.000Z' })
+
+  const manifest = listAcceptedProposalsByRun(db, 'run-1')
+  expect(manifest.map(row => row.id)).toEqual([first.id, second.id])
 })
 
 test('listProposals filters by project_id', () => {

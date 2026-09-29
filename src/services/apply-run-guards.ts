@@ -83,9 +83,24 @@ export function noteDryRun(proposalIds: string[], runId: string | undefined, d: 
 }
 
 /**
+ * The same caps for the single-item `apply` path. Without this the per-run
+ * budgets were only reachable through `apply_batch`, so a caller could confirm
+ * one item at a time and exceed `maxItemsPerRun`/`maxArchivesPerRun`/
+ * `maxLinksPerRun` by an unbounded margin (ADR 2026-09-29 §2.7).
+ */
+export function checkItemGuards(
+  proposalId: string,
+  options: { confirm?: boolean; runId?: string },
+  d: Database = getDb()
+): RunRefusal | undefined {
+  if (options.confirm !== true) return undefined
+  return checkBatchGuards([getProposal(d, proposalId)], 1, options, d)
+}
+
+/**
  * Per-run caps + batch limit, evaluated before any item runs
- * (ADR §2.7). Counts are cumulative over the run's already-accepted rows, so
- * several small batches cannot together exceed a cap.
+ * (ADR 2026-09-29 §2.7). Counts are cumulative over the run's already-accepted
+ * rows, so several small batches cannot together exceed a cap.
  */
 export function checkBatchGuards(
   rows: Array<PlacementProposalRow | undefined>,

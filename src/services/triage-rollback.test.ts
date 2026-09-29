@@ -8,12 +8,14 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { closeDb, getDb } from '../db'
 import { getThoughtRow } from '../db/thoughts'
+import { updateProposalState } from '../db/placement-proposals'
 import { createTestDb, seedThought } from '../test/helpers'
 import { applyProposal } from './placement-apply.service'
 import { rollback } from './placement-rollback.service'
 import {
   assertAccepted,
   assertRolledBack,
+  assertStillPending,
   NOW,
   NOW_LATER,
   PAST,
@@ -228,5 +230,48 @@ describe('rollback: mixed run', () => {
     expect(getThoughtRow(db, s2)!.status).toBe('draft')
     assertRolledBack(db, actRowId)
     assertRolledBack(db, arcRowId)
+  })
+})
+
+// ── Manifest order ─────────────────────────────────────────────────────────────
+
+describe('rollback: manifest order', () => {
+  test('rows are reverted in reverse application order, not reverse creation order', () => {
+    const db = getDb()
+    // Created first, applied last: `created_at DESC` would put it FIRST and
+    // revert the run forwards, so the inverse order would be wrong.
+    const first = seedThought({ id: 'ord-s1', content: 'order src one', status: 'draft', created_at: NOW })
+    const second = seedThought({ id: 'ord-s2', content: 'order src two', status: 'draft', created_at: NOW })
+
+    const early = insertPendingTriage(db, 'triage_activate', second)
+    const late = insertPendingTriage(db, 'triage_activate', first)
+    expect(early.created_at <= late.created_at).toBe(true)
+
+    applyProposal(late.id, { confirm: true, now: '2026-03-02T00:00:00.000Z', runId: RUN_ID }, db)
+    applyProposal(early.id, { confirm: true, now: '2026-03-01T00:00:00.000Z', runId: RUN_ID }, db)
+
+    // `late` was applied most recently, so it must be reverted first.
+    const dry = rollback(RUN_ID, { confirm: false })
+    expect(dry.items.map(item => item.proposal_id)).toEqual([late.id, early.id])
+
+    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    expect(report.summary.reverted).toBe(2)
+    expect(getThoughtRow(db, first)!.status).toBe('draft')
+    expect(getThoughtRow(db, second)!.status).toBe('draft')
+  })
+
+  test('a rollback manifest ignores rows that are not accepted', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'ord-pend-s', content: 'order pending', status: 'draft', created_at: NOW })
+    const other = seedThought({ id: 'ord-pend-s2', content: 'order pending two', status: 'draft', created_at: NOW })
+    const applied = insertPendingTriage(db, 'triage_activate', s)
+    const stillPending = insertPendingTriage(db, 'triage_activate', other)
+    // Same run envelope, but never confirmed — it is not part of the manifest.
+    updateProposalState(db, stillPending.id, { state: 'pending', run_id: RUN_ID })
+    applyProposal(applied.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
+
+    const report = rollback(RUN_ID, { confirm: false })
+    expect(report.items.map(item => item.proposal_id)).toEqual([applied.id])
+    assertStillPending(db, stillPending.id)
   })
 })

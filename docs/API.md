@@ -281,7 +281,7 @@ Every proposal carries `review_required: true` and an **ordinal** (not calibrate
 |---|---|
 | edge (`edges[]`, `lifecycle.action: link`) | `POST /api/thoughts/:id/link` (`target_id`, `type`) |
 | merge | `POST /api/thoughts/:targetId/merge` (`source_id`) |
-| replaces + archive | `POST /api/thoughts/:id/link` (`type: replaces`), then archive the source (`PUT /api/thoughts/:id` `{"status":"archived"}`, or `DELETE /api/thoughts/:id`) |
+| replaces + archive | `POST /api/thoughts/:id/link` (`type: replaces`), then archive the **target** — the superseded (older) thought (`PUT /api/thoughts/:targetId` `{"status":"archived"}`, or `DELETE /api/thoughts/:targetId`). The newer thought is the source and survives |
 | placement `kind: cluster` | `POST /api/cluster` (create the cluster from the thought and its members) |
 | placement `kind: parent` | `POST /api/thoughts/:id/link` to `target_id` with `type: parent`/`develops` |
 
@@ -404,7 +404,7 @@ curl `-d '{"thought_ids": ["<id1>", "<id2>"], "title": "Auth notes"}' http://127
 
 The persisted placement-proposal queue. `POST /api/thoughts/propose` is read-only and persists nothing; the review queue stores its confirmable items so a reviewer can apply or reject them one at a time. The queue never re-runs the engine and never auto-applies: an apply is an explicit, per-item write gated by `confirm:true`. MCP parity: `memory_review` (actions `enqueue`/`list`/`apply`/`apply_batch`/`rollback`/`reject`); only `apply`/`apply_batch`/`rollback` execute a write, and no read tool can reach them.
 
-A queued item carries an `item_kind` (`edge` | `placement` | `lifecycle` | `triage_activate` | `triage_archive`) and a `state`: `pending` (live) → `accepted` | `rejected` | `expired` | `stale` | `rolled_back` (terminal). Enqueueing a draft is rejected — the source thought must be persisted first. The `triage_*` kinds are the deterministic draft-triage verdicts (ADR 2026-09-29): they mutate a *draft* source, require a `run_id`, and obey the per-run caps `triage.maxItemsPerRun` / `triage.maxArchivesPerRun`.
+A queued item carries an `item_kind` (`edge` | `placement` | `lifecycle` | `triage_activate` | `triage_archive`) and a `state`: `pending` (live) → `accepted` | `rejected` | `expired` | `stale` | `rolled_back` (terminal). Enqueueing a non-active source is rejected: the thought must be persisted **and** `active`, because placement is the phase *after* a triage verdict activates a draft. The `triage_*` kinds are the deterministic draft-triage verdicts (ADR 2026-09-29): they mutate a *draft* source, require a `run_id`, and obey the per-run caps `triage.maxItemsPerRun` / `triage.maxArchivesPerRun`.
 
 ### GET /api/proposals
 
@@ -415,7 +415,7 @@ Lists queued proposals, newest first. Read-only; never applies anything. Default
 | state | query | string | pending | One of: `pending`, `accepted`, `rejected`, `expired`, `stale`, `rolled_back` |
 | item_kind | query | string | optional | Item-kind filter: `edge`, `placement`, `lifecycle`, `triage_activate`, `triage_archive` |
 | project_id | query | string | optional | Project scope |
-| limit | query | int | 100 | Max rows |
+| limit | query | int | 100 | Max rows (clamped to 1..1000) |
 
 curl `'http://127.0.0.1:3005/api/proposals?state=pending'`
 
@@ -425,11 +425,11 @@ Telemetry: `action: read`, tool `list_placement_proposals`.
 
 ### POST /api/proposals
 
-Proposes a plan for a persisted thought and queues its confirmable items (plan shape in §Propose above). Returns 201 with the enqueued/refreshed rows, or `[]` when the plan has no confirmable item. Re-enqueueing the same item refreshes its live `pending` row instead of inserting a duplicate. 400 without `thought_id`, 404 for an unknown thought, and 400 when the queue already holds `placement.maxPendingProposals` live rows and the plan would add a new item.
+Proposes a plan for a persisted thought and queues its confirmable items (plan shape in §Propose above). Returns 201 with the enqueued/refreshed rows, or `[]` when the plan has no confirmable item. Re-enqueueing the same item refreshes its live `pending` row instead of inserting a duplicate. 400 without `thought_id`, 404 for an unknown thought, 400 when the source thought is not `active`, and 400 when the queue already holds `placement.maxPendingProposals` live rows and the plan would add a new item. The cap covers the whole queue: draft-triage rows share it, so triage backs off (skips, never throws) once the queue is full.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
-| thought_id | body | string | required | Persisted thought to analyse (drafts are not enqueued) |
+| thought_id | body | string | required | Persisted **active** thought to analyse (drafts and other non-active statuses are rejected) |
 | project_id | body | string | optional | Project scope |
 
 curl `-d '{"thought_id": "<id>"}' http://127.0.0.1:3005/api/proposals`
@@ -438,7 +438,7 @@ Telemetry: `action: write`, tool `enqueue_placement_proposals`.
 
 ### POST /api/proposals/:id/apply
 
-Applies exactly one queued item. `confirm` is the dry-run switch: absent or `false` validates the item and reports the writer call **without touching the graph or the queue** (the row stays `pending`); `true` executes **exactly one** existing writer inside the same transaction as the queue-state update. The stored target/type is used as-is — a proposal cannot be redirected. A triage item (`triage_activate`/`triage_archive`) additionally requires `run_id`, and when `triage.requireDryRunFirst` is set (default true) it must be previewed with `confirm: false` before a confirm is accepted. 404 for an unknown id.
+Applies exactly one queued item. `confirm` is the dry-run switch: absent or `false` validates the item and reports the writer call **without touching the graph or the queue** (the row stays `pending`); `true` executes **exactly one** existing writer inside the same transaction as the queue-state update. The stored target/type is used as-is — a proposal cannot be redirected. A triage item (`triage_activate`/`triage_archive`) additionally requires `run_id`, and when `triage.requireDryRunFirst` is set (default true) it must be previewed with `confirm: false` before a confirm is accepted. The per-run caps apply here exactly as they do to a batch: they are cumulative over the run's already-accepted rows, so confirming items one at a time cannot exceed them. 404 for an unknown id.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
@@ -453,15 +453,15 @@ Response is a typed result, not a throw (only an unknown id errors):
 |---|---|---|
 | `dry_run` | Non-mutating: `{"proposal_id", "item_kind", "status": "dry_run", "calls": [{"writer", "args"}]}` — the existing-writer call `confirm:true` would run | stays `pending` |
 | `accepted` | Writer ran; `idempotent: true` when the requested state already held (no writer ran). Carries `calls[]` and `result` | `accepted` |
-| `stale` | Refused: the snapshot no longer matches (fingerprint change, archived/deleted endpoint, conflicting edge, project split, or a cluster already at `placement.maxClusterSize`) | `stale` (terminal; must be re-proposed, never auto-repaired) |
-| `failed` | Refused on a retryable precondition (e.g. profile merge, invalid edge type, cluster shape) | stays `pending` (fix and retry) |
-| `refused` | Typed `{"refusal": {"code", "reason"}}` guard refusal (e.g. `run_id_required`, `dry_run_required`); nothing ran | stays `pending` |
+| `stale` | Refused: the item is no longer a live decision (TTL passed — re-enqueue it), or the snapshot no longer matches (fingerprint change, archived/deleted endpoint, conflicting edge, project split, or a cluster already at `placement.maxClusterSize`) | `stale` (terminal; must be re-proposed, never auto-repaired) |
+| `failed` | Refused on a retryable precondition (e.g. profile merge, invalid edge type, cluster shape, a `triage_archive` row with no duplicate target) | stays `pending` (fix and retry) |
+| `refused` | Typed `{"refusal": {"code", "reason"}}` guard refusal (e.g. `run_id_required`, `dry_run_required`, `max_items_exceeded`); nothing ran | stays `pending` |
 
-Every apply re-checks the staleness fingerprint and the state-dependent gates (`placement.maxClusterSize`, project isolation) against the live graph. A dry-run of an already `stale`/`failed` row returns that same status and still leaves the row unchanged. Telemetry: `action: write`, tool `apply_placement_proposal`.
+Every apply re-checks the staleness fingerprint and the state-dependent gates (`placement.maxClusterSize`, project isolation) against the live graph. The TTL is checked first and applies to dry-runs too, so an overdue row can never be confirmed — nor recorded as an idempotent accept, which would put a phantom entry in a run's rollback manifest. A dry-run of an already `stale`/`failed` row returns that same status and still leaves the row unchanged. Telemetry: `action: write`, tool `apply_placement_proposal`.
 
 ### POST /api/proposals/rollback
 
-Rolls back every reversible mutation of one explicit run (ADR 2026-09-29 §2.8). `confirm` is the dry-run switch: absent or `false` reports what would be reverted (`items[]`, `summary`) **without mutating anything**; `true` inverts each `accepted` row of the run in reverse order through existing writers only (re-draft the triage source, delete the edge the run created) and marks it `rolled_back`. A `lifecycle` merge is refused (not auto-rollbackable) and a row whose fingerprint drifted since apply is skipped with a warning. No thought is ever deleted.
+Rolls back every reversible mutation of one explicit run (ADR 2026-09-29 §2.8). `confirm` is the dry-run switch: absent or `false` reports what would be reverted (`items[]`, `summary`) **without mutating anything**; `true` inverts each `accepted` row of the run in reverse **application** order (`applied_at` descending, not enqueue order) through existing writers only (re-draft the triage source, delete the edge the run created) and marks it `rolled_back`. A `lifecycle` merge is refused (not auto-rollbackable) and a row whose fingerprint drifted since apply is skipped with a warning. No thought is ever deleted.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
@@ -491,7 +491,7 @@ MCP parity for the routes above, plus `apply_batch` (no HTTP equivalent).
 | `rollback` | graph write | `run_id`, `confirm` (default false) | `RollbackReport` (`run_id`, `confirm`, `items[]`, `summary`) |
 | `reject` | queue write | `proposal_id` | Updated row (`state: "rejected"`) |
 
-`enqueue` requires a persisted `thought_id`. `apply`/`apply_batch`/`rollback` default to a non-mutating dry-run and execute only on `confirm: true`. Triage applies require `run_id`, obey `triage.maxItemsPerRun`/`triage.maxArchivesPerRun`, and — when `triage.requireDryRunFirst` (default true) — must be previewed before a confirm. `enqueue` and `reject` touch only the queue, never the graph; only `apply`/`apply_batch`/`rollback` call a writer. Apply is deliberately absent from every read tool — `memory_status` `propose`/`edge_suggestions` stay read-only, and `list` cannot reach `apply` (enforced by a static test in `src/mcp/tools/memory-review.contract.test.ts`).
+`enqueue` requires a persisted, `active` `thought_id`. `apply`/`apply_batch`/`rollback` default to a non-mutating dry-run and execute only on `confirm: true`. Triage applies require `run_id`, obey `triage.maxItemsPerRun`/`triage.maxArchivesPerRun` on the single-item `apply` path as well as on `apply_batch` (the caps are cumulative per `run_id`, so one-at-a-time confirms cannot exceed them), and — when `triage.requireDryRunFirst` (default true) — must be previewed before a confirm. `enqueue` and `reject` touch only the queue, never the graph; only `apply`/`apply_batch`/`rollback` call a writer. Apply is deliberately absent from every read tool — `memory_status` `propose`/`edge_suggestions` stay read-only, and `list` cannot reach `apply` (enforced by a static test in `src/mcp/tools/memory-review.contract.test.ts`).
 
 ## Projects
 

@@ -82,7 +82,9 @@ export interface RejectOptions {
  * Enqueue every confirmable item of `plan` (ADR §2.2–2.4). Re-enqueueing the
  * same item refreshes the live pending row (dedup via `insertProposal`);
  * enqueueing a *new* item while `maxPendingProposals` live rows exist throws.
- * Drafts cannot be enqueued (ADR OQ-2) — the thought must be persisted first.
+ * Drafts cannot be enqueued (ADR OQ-2) — the thought must be persisted first,
+ * and it must be `active`: placement is the second phase, downstream of the
+ * triage verdict that activates a draft.
  */
 export function enqueuePlan(
   plan: PlacementPlan,
@@ -93,6 +95,12 @@ export function enqueuePlan(
   if (plan.thought_id === DRAFT_THOUGHT_ID || !source) {
     throw new ValidationError(
       'cannot enqueue proposals for a draft or unknown thought; persist the thought first'
+    )
+  }
+  if (source.status !== 'active') {
+    throw new ValidationError(
+      `cannot enqueue placement proposals for '${source.status}' thought '${source.id}'; ` +
+        'placement is the phase after triage activation, so the source must be active'
     )
   }
 
@@ -172,6 +180,20 @@ export async function enqueueThoughtProposals(
   return enqueuePlan(plan, { now: options.now }, d)
 }
 
+/** Default and hard ceiling of the `list` page size (matches the MCP schema). */
+const DEFAULT_LIST_LIMIT = 100
+const MAX_LIST_LIMIT = 1000
+
+/**
+ * Clamp a caller-supplied page size into `1..1000`. Without this an unbounded or
+ * negative value reaches SQLite, where `LIMIT -1` means *no limit* and `LIMIT 0`
+ * returns nothing — so one request could read the whole queue.
+ */
+function clampListLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIST_LIMIT
+  return Math.min(MAX_LIST_LIMIT, Math.max(1, Math.floor(limit)))
+}
+
 /**
  * List proposals newest first (ADR §2.2, §2.9). Defaults to live `pending`
  * rows and drops pending rows whose `expires_at` has passed, so terminal and
@@ -184,7 +206,7 @@ export function list(options: ListOptions = {}, d: Database = getDb()): Placemen
     state,
     project_id: options.projectId,
     item_kind: options.itemKind,
-    limit: options.limit ?? 100
+    limit: clampListLimit(options.limit)
   })
   if (state !== 'pending') return rows
   return rows.filter(row => row.expires_at === null || row.expires_at > now)

@@ -18,7 +18,14 @@ import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { getDb } from '../db'
 import { getEdgePairBetween } from '../db/edges'
-import { insertProposal, type PlacementProposalRow, type ProposalItemKind } from '../db/placement-proposals'
+import {
+  countLivePendingProposals,
+  findPendingByItem,
+  insertProposal,
+  type InsertProposalInput,
+  type PlacementProposalRow,
+  type ProposalItemKind
+} from '../db/placement-proposals'
 import { getThoughtRow, type Thought } from '../db/thoughts'
 import { insertLog } from '../logging/log'
 import { clamp01 } from '../utils'
@@ -110,9 +117,14 @@ export interface TriageBackfillResult {
  * A scheduled reminder must never be triaged (ADR §2.5): the `pending` tag or a
  * future `surface_after` marks it as intentionally deferred. `now` is the
  * comparison clock supplied by the caller, so the check is deterministic.
+ *
+ * The tag match is case-insensitive to stay consistent with the frontier query
+ * (`lower(name) = 'pending'`): a `Pending`-tagged draft is a reminder there and
+ * must be a reminder here too, or triage would archive a thought the frontier
+ * still expects to surface.
  */
 export function isScheduledReminder(t: Thought, now: string): boolean {
-  if (t.tags.some(tag => tag.name === 'pending')) return true
+  if (t.tags.some(tag => tag.name.toLowerCase() === 'pending')) return true
   return t.surface_after !== null && t.surface_after > now
 }
 
@@ -213,7 +225,7 @@ export function enqueueTriageItem(draft: Thought, d: Database = getDb()): Placem
     review_required: true
   }
 
-  return insertProposal(d, {
+  const input: InsertProposalInput = {
     project_id: draft.project_id,
     source_thought_id: draft.id,
     item_kind: itemKindFor(verdict.action),
@@ -227,7 +239,20 @@ export function enqueueTriageItem(draft: Thought, d: Database = getDb()): Placem
     payload: JSON.stringify(payload),
     fingerprint: triageFingerprint(d, draft, verdict.targetId),
     expires_at: proposalExpiry(now)
-  })
+  }
+
+  // Backpressure: triage writes into the same queue as ordinary placement, so
+  // it is bound by `maxPendingProposals` too — otherwise an ambient create
+  // storm grows the table past the cap and then blocks every ordinary enqueue.
+  // A refresh of an item that already has a live row is not a new row and stays
+  // allowed at the cap; a genuinely new item is skipped rather than thrown, so
+  // the create seam and the backfill sweep keep working. The sweep is
+  // idempotent, so a later sweep enqueues this draft once the queue drains
+  // (ADR 2026-09-28 §2.4).
+  const isNew = findPendingByItem(d, input) === undefined
+  if (isNew && countLivePendingProposals(d, now) >= config.placement.maxPendingProposals) return null
+
+  return insertProposal(d, input)
 }
 
 /**
