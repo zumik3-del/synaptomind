@@ -70,10 +70,11 @@ describe('classifyEdgeType', () => {
   })
 
   describe('conflict.explicit_negation', () => {
-    test('fires when one-sided negation and high similarity', () => {
+    test('fires when one-sided negation, high similarity and same-claim overlap', () => {
       const sig = makeSignals({
         negationDelta: 1,
         embeddingSimilarity: 0.8,
+        lexicalOverlap: 0.6,
       })
       const proposal = classifyEdgeType(sig)
       expect(proposal).not.toBeNull()
@@ -87,7 +88,7 @@ describe('classifyEdgeType', () => {
     })
 
     test('does not fire when similarity is below threshold', () => {
-      const sig = makeSignals({ negationDelta: 1, embeddingSimilarity: 0.5 })
+      const sig = makeSignals({ negationDelta: 1, embeddingSimilarity: 0.5, lexicalOverlap: 0.8 })
       const proposal = classifyEdgeType(sig)
       // Fallback fires at > 0, so just assert it is not the conflict rule
       expect(proposal).not.toBeNull()
@@ -194,6 +195,7 @@ describe('classifyEdgeType', () => {
         negationDelta: 1,
         evidentialCue: true,
         embeddingSimilarity: 0.9,
+        lexicalOverlap: 0.6,
       })
       const proposal = classifyEdgeType(sig)
       expect(proposal).not.toBeNull()

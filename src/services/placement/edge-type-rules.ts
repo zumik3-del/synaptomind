@@ -46,6 +46,12 @@ const DEVELOPS_OVERLAP_MIN = 0.3
 const SIMILARITY_MIN = 0.75
 /** A one-sided negation against a similar statement is an explicit conflict cue. */
 const NEGATION_DELTA_MIN = 0.5
+/**
+ * Same-claim floor for a conflict: opposite negation polarity only contradicts
+ * when the two texts talk about the same claim above this lexical overlap.
+ * Below it the pair is merely `related` (a negation cue on divergent text).
+ */
+const CONFLICT_OVERLAP_MIN = 0.5
 
 /**
  * Runtime guard for {@link EdgeTypeRule.requires}: a rule is applicable only
@@ -77,10 +83,13 @@ export const EDGE_TYPE_RULES: EdgeTypeRule[] = [
     id: 'conflict.explicit_negation',
     type: 'contradicts',
     direction: 'symmetric',
-    requires: ['negationDelta', 'embeddingSimilarity'],
-    predicate: s => s.negationDelta >= NEGATION_DELTA_MIN && s.embeddingSimilarity >= SIMILARITY_MIN,
+    requires: ['negationDelta', 'embeddingSimilarity', 'lexicalOverlap'],
+    predicate: s =>
+      s.negationDelta >= NEGATION_DELTA_MIN &&
+      s.embeddingSimilarity >= SIMILARITY_MIN &&
+      s.lexicalOverlap >= CONFLICT_OVERLAP_MIN,
     confidence: s => clamp01(s.embeddingSimilarity),
-    rationale: 'similar statements with opposite negation polarity; explicit conflict cue',
+    rationale: 'same claim with opposite negation polarity; explicit conflict cue',
     reviewRequired: true
   },
   {

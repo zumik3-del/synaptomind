@@ -83,10 +83,10 @@ describe('extractThoughtSignals', () => {
     expect(s.dependencyCue).toBeTrue()
   })
 
-  test('dependencyCue is true via content prefix', () => {
-    const t = makeThought({ content: 'task: finish this later' })
+  test('dependencyCue is false for a generic "Task " content prefix', () => {
+    const t = makeThought({ content: 'Task: finish this later' })
     const s = extractThoughtSignals(t)
-    expect(s.dependencyCue).toBeTrue()
+    expect(s.dependencyCue).toBeFalse()
   })
 
   test('dependencyCue is false when no cue present', () => {

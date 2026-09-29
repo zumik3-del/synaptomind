@@ -31,7 +31,12 @@ const EVOLUTION_RE =
   /\b(?:now|updated?|changed?|instead|revis(?:ed|ion)|replac(?:e|es|ed)|supersed(?:e|es|ed)|deprecated|obsolete|newer|previously|longer)\b/g
 
 const DEPENDENCY_TAGS = new Set(['pending', 'todo', 'blocked', 'task'])
-const DEPENDENCY_RE = /^\s*(?:todo|pending|blocked|task)\b/i
+/**
+ * Text-prefix dependency cue. Deliberately excludes `task`: a generic
+ * "Task ..." heading is not a dependency signal (it only counts as the `task`
+ * tag), so it must not promote `dependency.blocked_by` on its own.
+ */
+const DEPENDENCY_RE = /^\s*(?:todo|pending|blocked)\b/i
 
 /** Distinct substrings of `text` matched by the global regex `re`. */
 function matches(re: RegExp, text: string): string[] {
