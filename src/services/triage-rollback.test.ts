@@ -19,6 +19,7 @@ import {
   PAST,
   RUN_ID,
   insertPendingTriage,
+  pairFingerprint,
 } from './triage-apply-helpers'
 
 beforeEach(createTestDb)
@@ -175,6 +176,37 @@ describe('rollback: row state after revert', () => {
     const s = seedThought({ id: 'rb-shape-s', content: 'shape src', status: 'draft', created_at: NOW })
     const { rowId } = appliedActivateRow(db, s)
     rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    assertRolledBack(db, rowId)
+  })
+})
+
+// ── Mixed run: activate + archive ──────────────────────────────────────────────
+
+// ── lifecycle/replaces+archive: the target returns to active ───────────────────
+
+describe('rollback: lifecycle replaces+archive round-trip', () => {
+  test('target returns to active (not draft) after rollback', () => {
+    const db = getDb()
+    const source = seedThought({ id: 'rb-sup-s', content: 'newer thought', status: 'active', created_at: NOW })
+    const target = seedThought({ id: 'rb-sup-t', content: 'older thought', status: 'active', created_at: PAST })
+    const rowId = 'row-supersede-rb'
+    db.prepare(`
+      INSERT INTO placement_proposals
+        (id, project_id, source_thought_id, item_kind, target_id, edge_type, lifecycle_action, direction,
+         confidence, rationale, rule_id, payload, fingerprint, state, created_at, run_id)
+      VALUES (?, 'default', ?, 'lifecycle', ?, 'replaces', 'replaces+archive', null,
+              0.9, 'supersede older', null, '{}', ?, 'pending', ?, ?)
+    `).run(rowId, source, target, pairFingerprint(db, source, target), NOW, RUN_ID)
+
+    const applied = applyProposal(rowId, { confirm: true, now: NOW, runId: RUN_ID, decidedBy: 'test' }, db)
+    expect(applied.status).toBe('accepted')
+    expect(getThoughtRow(db, target)!.status).toBe('archived')
+
+    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    expect(report.summary.reverted).toBe(1)
+    // The apply-time gate only admits an `active` target, so the inverse must
+    // restore `active` — restoring `draft` would drop it out of active recall.
+    expect(getThoughtRow(db, target)!.status).toBe('active')
     assertRolledBack(db, rowId)
   })
 })

@@ -71,7 +71,11 @@ function applyInverse(row: PlacementProposalRow, d: Database): void {
   }
   if (row.item_kind === 'lifecycle' && row.lifecycle_action === 'replaces+archive') {
     if (edgeId) deleteEdgeService(edgeId, d)
-    if (row.target_id) updateThoughtById(row.target_id, { status: 'draft' }, d)
+    // The apply-time gate only admits this item when the target is `active`
+    // (`apply-gates.ts`), and the writer archived it — so the inverse restores
+    // `active`. Restoring `draft` here would silently drop the thought out of
+    // active recall.
+    if (row.target_id) updateThoughtById(row.target_id, { status: 'active' }, d)
     return
   }
   throw new ValidationError(`proposal '${row.id}' has no reversible apply action`)
