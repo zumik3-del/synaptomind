@@ -31,12 +31,10 @@ const job = createIntervalJob({
   name: 'placement-retention',
   intervalMs: config.ttl.cleanupIntervalMs,
   guard: () => config.placement.proposalTtlDays >= 0,
-  onError: (err) => console.error('[placement-retention] job error:', err)
+  onError: err => insertLog('warning', 'placement-retention', 'Placement retention job failed', { error: String(err) })
 }, () => {
-  const affected = cleanupPlacementProposals()
-  if (affected > 0) {
-    console.error(`[placement-retention] expired/pruned ${affected} placement proposals`)
-  }
+  // `cleanupPlacementProposals` already logs the affected count.
+  cleanupPlacementProposals()
 })
 
 export function startPlacementRetentionJob(): void { job.start() }
