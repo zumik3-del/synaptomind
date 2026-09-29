@@ -129,7 +129,7 @@ describe('proposePlacementPlan', () => {
       expect(p.edges[0].signals.temporalOrder).toBe('newer')
       expect(p.edges[0].signals.targetStatus).toBe('active')
       expect(p.edges[0].signals.lexicalOverlap).toBeCloseTo(5 / 6, 2)
-      expect(p.lifecycle.rationale).toContain('archive this thought')
+      expect(p.lifecycle.rationale).toContain('archive the older target')
       // The lexical overlap (5/6 ≈ 0.83) also qualifies a merge target, but
       // replaces+archive takes precedence over merge (lifecycle ordering).
       expect(p.lifecycle.action).not.toBe('merge')
@@ -207,7 +207,7 @@ describe('proposePlacementPlan', () => {
       expect(p.lifecycle.blocked_by).toEqual(['source is profile'])
     })
 
-    test('replaces+archive blocks when the newer source is archived', async () => {
+    test('replaces+archive does not block when the newer source is archived (the older target is the archive candidate)', async () => {
       const db = getDb()
       const old_ = seedThought({ id: 'raa-old', content: 'x y z', created_at: T0 })
       const new_ = seedThought({ id: 'raa-new', content: 'x y z updated w', created_at: T1, status: 'archived' })
@@ -217,8 +217,10 @@ describe('proposePlacementPlan', () => {
         { embed: okEmbed(), searchNeighbors: stubSearch({ [new_]: [{ id: old_, similarity: 0.9 }] }) },
         db
       )
+      // Option (b): the newer source survives, so its own status is not a
+      // blocker; the archive candidate is the active older target.
       expect(p.lifecycle.action).toBe('replaces+archive')
-      expect(p.lifecycle.blocked_by).toEqual(['source is archived'])
+      expect(p.lifecycle.blocked_by).toEqual([])
     })
   })
 

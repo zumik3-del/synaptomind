@@ -33,7 +33,9 @@ interface Config {
     minSimilarity: number; topK: number; maxCandidates: number;
     maxProposals: number
   }
-  placement: { maxClusterSize: number }
+  placement: {
+    maxClusterSize: number; proposalTtlDays: number; maxPendingProposals: number
+  }
   selfImprove: {
     enabled: boolean; intervalMs: number; orphanThreshold: number;
     activationThreshold: number; hitsThreshold: number;
@@ -88,7 +90,9 @@ export const DEFAULTS: Config = {
   // Skip a cluster proposal once a cluster already holds this many members:
   // prevents feeding the mega-cluster defect (lessons #934/#928). Read-only
   // proposer — the cap only suppresses the suggestion, it never mutates.
-  placement: { maxClusterSize: 50 },
+  // `proposalTtlDays` bounds the review queue (ADR §2.4): terminal rows are
+  // pruned after the TTL and live `pending` rows use `expires_at`.
+  placement: { maxClusterSize: 50, proposalTtlDays: 30, maxPendingProposals: 500 },
   selfImprove: {
     enabled: false, intervalMs: 86400000, orphanThreshold: 0.5,
     activationThreshold: 0.3, hitsThreshold: 5,
@@ -174,6 +178,8 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS', path: 'edgeDetect.maxProposals', type: 'int' },
 
   { env: 'SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE', path: 'placement.maxClusterSize', type: 'int' },
+  { env: 'SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS', path: 'placement.proposalTtlDays', type: 'int' },
+  { env: 'SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS', path: 'placement.maxPendingProposals', type: 'int' },
 
   { env: 'SYNAPTOMIND_SELF_IMPROVE_ENABLED', path: 'selfImprove.enabled', type: 'bool' },
   { env: 'SYNAPTOMIND_SELF_IMPROVE_INTERVAL_MS', path: 'selfImprove.intervalMs', type: 'int' },

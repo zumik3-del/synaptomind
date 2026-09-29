@@ -400,6 +400,82 @@ Creates a cluster thought from existing thoughts. Returns 201.
 
 curl `-d '{"thought_ids": ["<id1>", "<id2>"], "title": "Auth notes"}' http://127.0.0.1:3005/api/cluster`
 
+## Review
+
+The persisted placement-proposal queue. `POST /api/thoughts/propose` is read-only and persists nothing; the review queue stores its confirmable items so a reviewer can apply or reject them one at a time. The queue never re-runs the engine and never auto-applies: an apply is an explicit, per-item write gated by `confirm:true`. MCP parity: `memory_review` (actions `enqueue`/`list`/`apply`/`apply_batch`/`reject`); only `apply`/`apply_batch` execute a write, and no read tool can reach them.
+
+A queued item carries an `item_kind` (`edge` | `placement` | `lifecycle`) and a `state`: `pending` (live) → `accepted` | `rejected` | `expired` | `stale` (terminal). Enqueueing a draft is rejected — the source thought must be persisted first.
+
+### GET /api/proposals
+
+Lists queued proposals, newest first. Read-only; never applies anything. Defaults to live `pending` rows and drops `pending` rows whose `expires_at` has passed, so terminal/expired rows appear only when an explicit `state` is requested.
+
+| Name | In | Type | Default | Description |
+|---|---|---|---|---|
+| state | query | string | pending | One of: `pending`, `accepted`, `rejected`, `expired`, `stale` |
+| project_id | query | string | optional | Project scope |
+| limit | query | int | 100 | Max rows |
+
+curl `'http://127.0.0.1:3005/api/proposals?state=pending'`
+
+Response: `[{"id": "...", "project_id": "...", "source_thought_id": "...", "item_kind": "edge", "target_id": "...", "edge_type": "related", "lifecycle_action": null, "direction": "symmetric", "state": "pending", "confidence": 0.8, "rationale": "...", "rule_id": "...", "created_at": "...", "expires_at": "...", "decided_at": null, "decided_by": null, "applied_at": null, "result": null}]`
+
+Telemetry: `action: read`, tool `list_placement_proposals`.
+
+### POST /api/proposals
+
+Proposes a plan for a persisted thought and queues its confirmable items (plan shape in §Propose above). Returns 201 with the enqueued/refreshed rows, or `[]` when the plan has no confirmable item. Re-enqueueing the same item refreshes its live `pending` row instead of inserting a duplicate. 400 without `thought_id`, 404 for an unknown thought, and 400 when the queue already holds `placement.maxPendingProposals` live rows and the plan would add a new item.
+
+| Name | In | Type | Default | Description |
+|---|---|---|---|---|
+| thought_id | body | string | required | Persisted thought to analyse (drafts are not enqueued) |
+| project_id | body | string | optional | Project scope |
+
+curl `-d '{"thought_id": "<id>"}' http://127.0.0.1:3005/api/proposals`
+
+Telemetry: `action: write`, tool `enqueue_placement_proposals`.
+
+### POST /api/proposals/:id/apply
+
+Applies exactly one queued item. `confirm` is the dry-run switch: absent or `false` validates the item and reports the writer call **without touching the graph or the queue** (the row stays `pending`); `true` executes **exactly one** existing writer inside the same transaction as the queue-state update. The stored target/type is used as-is — a proposal cannot be redirected. 404 for an unknown id.
+
+| Name | In | Type | Default | Description |
+|---|---|---|---|---|
+| confirm | body | bool | false | `true` executes the write; absent/`false` is a non-mutating dry-run |
+
+curl `-d '{"confirm": true}' http://127.0.0.1:3005/api/proposals/<id>/apply`
+
+Response is a typed result, not a throw (only an unknown id errors):
+
+| `status` | Meaning | Row after |
+|---|---|---|
+| `dry_run` | Non-mutating: `{"proposal_id", "item_kind", "status": "dry_run", "calls": [{"writer", "args"}]}` — the existing-writer call `confirm:true` would run | stays `pending` |
+| `accepted` | Writer ran; `idempotent: true` when the requested state already held (no writer ran). Carries `calls[]` and `result` | `accepted` |
+| `stale` | Refused: the snapshot no longer matches (fingerprint change, archived/deleted endpoint, conflicting edge, project split, or a cluster already at `placement.maxClusterSize`) | `stale` (terminal; must be re-proposed, never auto-repaired) |
+| `failed` | Refused on a retryable precondition (e.g. profile merge, invalid edge type, cluster shape) | stays `pending` (fix and retry) |
+
+Every apply re-checks the staleness fingerprint and the state-dependent gates (`placement.maxClusterSize`, project isolation) against the live graph. A dry-run of an already `stale`/`failed` row returns that same status and still leaves the row unchanged. Telemetry: `action: write`, tool `apply_placement_proposal`.
+
+### POST /api/proposals/:id/reject
+
+Rejects one live `pending` item (no graph write). Returns the updated row with `state: "rejected"`, `decided_at`, and `decided_by`. 404 for an unknown id; 400 if the row is not `pending` (terminal rows cannot be re-decided). Telemetry: `action: write`, tool `reject_placement_proposal`.
+
+curl -X POST http://127.0.0.1:3005/api/proposals/<id>/reject
+
+### memory_review (MCP)
+
+MCP parity for the routes above, plus `apply_batch` (no HTTP equivalent).
+
+| Action | Kind | Inputs | Result |
+|---|---|---|---|
+| `enqueue` | queue write | `thought_id` | Rows queued/refreshed for the thought |
+| `list` | read | `state` (default `pending`), `project_id`, `limit` | Queued rows |
+| `apply` | graph write | `proposal_id`, `confirm` (default false) | One `ApplyResult` (`dry_run`/`accepted`/`stale`/`failed`) |
+| `apply_batch` | graph write | `proposal_ids[]` (non-empty), `confirm` | `{"results": [ApplyResult], "errors": [{"proposal_id", "error"}]}` — each item applied independently, a partial batch is a valid outcome |
+| `reject` | queue write | `proposal_id` | Updated row (`state: "rejected"`) |
+
+`enqueue` requires a persisted `thought_id`. `apply`/`apply_batch` default to a non-mutating dry-run and execute only on `confirm: true`. `enqueue` and `reject` touch only the queue, never the graph; only `apply`/`apply_batch` call a writer. Apply is deliberately absent from every read tool — `memory_status` `propose`/`edge_suggestions` stay read-only, and `list` cannot reach `apply` (enforced by a static test in `src/mcp/tools/memory-review.contract.test.ts`).
+
 ## Projects
 
 ### GET /api/projects/

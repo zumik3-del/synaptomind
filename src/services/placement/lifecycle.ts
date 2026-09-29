@@ -62,6 +62,12 @@ function mergeBlockers(source: Thought): string[] {
  * Lifecycle precedence (ADR §2.6): `replaces+archive` > `merge` > `link` >
  * `keep`. Deterministic and side-effect free.
  *
+ * `replaces+archive` archives the **older** `replaceEdge.target_id` (the
+ * superseded endpoint, Finding F1 option (b)); the newer source is kept and
+ * the emitted `replaces` edge already points source(newer) → target(older),
+ * matching `mergeThoughtsService` and `getReplacedTargetIds`. The blocker is
+ * therefore the target's status, not the source's.
+ *
  * `replaceEdge` is probed on the *uncapped* proposal list (see
  * {@link proposePlacementPlan}) so a supersede candidate that sorts past
  * `maxProposals` still wins precedence. `emittedEdges` is the post-cap list
@@ -79,9 +85,10 @@ export function decideLifecycle(
     return {
       action: 'replaces+archive',
       confidence: replaceEdge.confidence,
-      rationale: `newer near-duplicate of active target ${replaceEdge.target_id}; propose a replaces edge then archive this thought`,
+      rationale: `newer near-duplicate of target ${replaceEdge.target_id}; propose a replaces edge then archive the older target`,
       review_required: true,
-      blocked_by: source.status === 'archived' ? ['source is archived'] : []
+      blocked_by: replaceEdge.signals.targetStatus === 'archived' ? ['target is archived'] : [],
+      target_id: replaceEdge.target_id
     }
   }
 
@@ -92,7 +99,8 @@ export function decideLifecycle(
       confidence: clamp01(mergeTarget.overlap),
       rationale: `near-duplicate of ${mergeTarget.id} (lexical overlap ${mergeTarget.overlap.toFixed(2)})${blocked.length > 0 ? '; blocked' : ''}`,
       review_required: true,
-      blocked_by: blocked
+      blocked_by: blocked,
+      target_id: mergeTarget.id
     }
   }
 

@@ -14,6 +14,7 @@ function buildGuideText(softLimit: number): string {
 | Connect | \`memory_store\` | action=link |
 | Group | \`memory_crystallize\` | action=cluster/auto_cluster |
 | Plan | \`memory_status\` | action=propose |
+| Review | \`memory_review\` | action=enqueue/list/apply/apply_batch/reject |
 | Prioritize | \`memory_status\` | action=frontier |
 | Compress | \`memory_crystallize\` | action=crystallize |
 | Maintain | \`memory_status\` | action=health |
@@ -30,6 +31,7 @@ function buildGuideText(softLimit: number): string {
 | \`memory_supersede\` | archive, merge | Version and supersede thoughts |
 | \`memory_status\` | slots, frontier, profile, config, health, edge_suggestions, propose, cleanup | Query system state |
 | \`memory_manage\` | list, create, update, delete, resolve | Project management |
+| \`memory_review\` | enqueue, list, apply, apply_batch, reject | Review and apply queued placement proposals |
 | \`memory_crystallize\` | crystallize, graph, cluster, auto_cluster | Consolidate and visualize |
 | \`memory_reflect\` | reflect, timeline | Session management |
 | \`memory_telemetry\` | query, analyze, primers | Analytics and self-improvement |
@@ -137,9 +139,11 @@ Run \`memory_status\` (action=propose) to get one read-only plan for a single th
 
 The result is a \`PlacementPlan\` — \`placement\` (cluster or parent, or null), \`edges[]\`, \`lifecycle\`, \`degraded\`, \`generated_at\`. Every element carries \`rationale\`, \`confidence\` (ordinal, not calibrated) and \`review_required\`; \`lifecycle.action\` is one of \`keep\`/\`link\`/\`merge\`/\`replaces+archive\`, with \`blocked_by[]\` explaining why a proposed move cannot be confirmed. Pairs that already carry an edge are excluded.
 
-The engine is a filter, never a source of truth: it is read-only and never writes the graph. Confirmation always uses the existing writers — \`memory_store\` (action=link) for edges, \`memory_supersede\` (action=merge/archive) for a merge or supersede, \`memory_crystallize\` (action=cluster) for a placement. There is deliberately **no** \`apply\` action. Embedder unavailability degrades to lexical-only signals (\`degraded: true\`) instead of failing.
+The engine is a filter, never a source of truth: it is read-only and never writes the graph. Confirmation never goes through the plan itself: either use the existing writers directly — \`memory_store\` (action=link) for edges, \`memory_supersede\` (action=merge/archive) for a merge or supersede, \`memory_crystallize\` (action=cluster) for a placement — or queue the plan for a separate, explicit review with \`memory_review\`.
 
-Typed edge proposals require a non-embedding cue; embedding similarity alone yields \`related\` with \`rationale: embedding_similarity_only\`. ADR: \`ai-workdir/synaptomind/plans/2026-09-28-placement-link-policy-engine-adr.md\`; see also ADR #142 and task #927. HTTP parity: \`POST /api/thoughts/propose\` (see \`docs/API.md\` §Propose).
+\`memory_review\` persists proposals so they can be confirmed one item at a time: \`enqueue\` requires a persisted \`thought_id\` (drafts are not enqueued — create the thought first), \`list\` shows the live queue (default \`state=pending\`), and \`apply\`/\`apply_batch\`/\`reject\` are explicit writes. \`apply\` defaults to a non-mutating dry-run and executes only when \`confirm: true\`, taking a \`proposal_id\` alone — the stored target/type cannot be redirected — and re-checks the staleness fingerprint and cluster-size gates before any mutation. Each item delegates to exactly one existing writer inside its own transaction; a stale item is marked \`stale\` and must be re-proposed, never auto-repaired. Embedder unavailability degrades to lexical-only signals (\`degraded: true\`) instead of failing.
+
+Typed edge proposals require a non-embedding cue; embedding similarity alone yields \`related\` with \`rationale: embedding_similarity_only\`. ADR: \`ai-workdir/synaptomind/plans/2026-09-28-placement-link-policy-engine-adr.md\`; the review queue/apply workflow is specified by \`ai-workdir/synaptomind/plans/2026-09-28-p8-review-queue-apply-adr.md\`; see also ADR #142 and task #927. HTTP parity: \`POST /api/thoughts/propose\` (see \`docs/API.md\` §Propose); the review queue is \`GET/POST /api/proposals\`, \`POST /api/proposals/:id/apply\`, \`POST /api/proposals/:id/reject\` (see \`docs/API.md\` §Review).
 
 ## Crystals
 

@@ -84,6 +84,16 @@ const TOOL_ROUTES: Record<string, { default?: ToolRoute; actions?: Record<string
       primers: { action: 'read', toolName: 'list_primers' }
     }
   },
+  memory_review: {
+    default: { action: 'read', toolName: 'list_placement_proposals' },
+    actions: {
+      enqueue: { action: 'write', toolName: 'enqueue_placement_proposals' },
+      list: { action: 'read', toolName: 'list_placement_proposals' },
+      apply: { action: 'write', toolName: 'apply_placement_proposal' },
+      apply_batch: { action: 'write', toolName: 'apply_placement_proposals' },
+      reject: { action: 'write', toolName: 'reject_placement_proposal' }
+    }
+  },
   memory_guide: {
     default: { action: 'read', toolName: 'guide' }
   }

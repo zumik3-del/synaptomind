@@ -129,6 +129,12 @@ export interface LifecycleProposal {
   review_required: boolean
   /** Reasons a proposed move cannot be confirmed, e.g. `['source is profile']`. */
   blocked_by: string[]
+  /**
+   * Target thought the action applies to (`merge` → merge target,
+   * `replaces+archive` → superseded older target). Required to persist a
+   * queueable lifecycle item (ADR P8 §2.5); absent for `keep`/`link`.
+   */
+  target_id?: string
 }
 
 /** The single per-thought output of the policy engine (ADR §2). */
