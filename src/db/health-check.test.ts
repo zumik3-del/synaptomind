@@ -251,19 +251,38 @@ test("findOrphanedClusterMembers finds cluster edges from non-cluster sources", 
 
 test("findClusterlessDense finds well-connected thoughts outside any cluster", () => {
 	const db = getDb();
-	const dense = seedThought({ content: "dense thought" });
-	const clustered = seedThought({ content: "clustered thought" });
-	const cluster = seedThought({ content: "its cluster", is_cluster: 1 });
+	const old = new Date(Date.now() - 10 * 86400000).toISOString();
+	const dense = seedThought({ content: "dense thought", created_at: old });
+	const clustered = seedThought({ content: "clustered thought", created_at: old });
+	const cluster = seedThought({ content: "its cluster", is_cluster: 1, created_at: old });
 	for (let i = 0; i < 2; i++) {
-		seedEdge(dense, seedThought({ content: `dense peer ${i}` }), "related");
-		seedEdge(clustered, seedThought({ content: `clustered peer ${i}` }), "related");
+		seedEdge(dense, seedThought({ content: `dense peer ${i}`, created_at: old }), "related");
+		seedEdge(clustered, seedThought({ content: `clustered peer ${i}`, created_at: old }), "related");
 	}
 	seedEdge(cluster, clustered, "cluster");
 
+	// Default minAgeDays mirrors autoCluster.minAgeDays (3); 10 days old clears it.
 	const denseOnes = findClusterlessDense(db, 2);
 	expect(denseOnes).toHaveLength(1);
 	expect(denseOnes[0]?.id).toBe(dense);
 	expect(denseOnes[0]?.edge_count).toBe(2);
+});
+
+test("findClusterlessDense age-gates young thoughts out of the warning", () => {
+	const db = getDb();
+	const old = new Date(Date.now() - 10 * 86400000).toISOString();
+	const young = new Date(Date.now() - 1 * 86400000).toISOString();
+	const oldDense = seedThought({ content: "old dense thought", created_at: old });
+	const youngDense = seedThought({ content: "young dense thought", created_at: young });
+	for (let i = 0; i < 2; i++) {
+		seedEdge(oldDense, seedThought({ content: `old peer ${i}`, created_at: old }), "related");
+		seedEdge(youngDense, seedThought({ content: `young peer ${i}`, created_at: young }), "related");
+	}
+
+	const flagged = findClusterlessDense(db, 2, 3).map((c) => c.id);
+	// young+dense+clusterless -> not flagged; old+dense+clusterless -> flagged
+	expect(flagged).toEqual([oldDense]);
+	expect(flagged).not.toContain(youngDense);
 });
 
 // ── Connectivity ─────────────────────────────────────────────────────────────

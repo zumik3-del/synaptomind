@@ -11,6 +11,7 @@ import { graphRouter } from './graph'
 import { linksRouter } from './links'
 import { primersRouter } from './primers'
 import { profileRouter } from './profile'
+import { proposalsRouter } from './proposals'
 import { projectsRouter } from './projects'
 import { settingsRouter } from './settings'
 import { slotsRouter } from './slots'
@@ -53,6 +54,7 @@ export function createApp(): Hono {
   app.route('/api/frontier', frontierRouter)
   app.route('/api', autoClusterRouter)
   app.route('/api', healthCheckRouter)
+  app.route('/api/proposals', proposalsRouter)
 
   // /health is a pure liveness probe (no memory/graph operation) and stays uninstrumented.
   app.get('/health', c => {

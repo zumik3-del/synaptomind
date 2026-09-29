@@ -13,7 +13,9 @@ export type ActionArgs = Record<string, unknown>
  * fields this action requires (the handler still receives the full argument
  * object). When present it replaces the old inline `if (!args.x) throw`
  * checks, so missing/invalid fields surface as a normal `isError` envelope with
- * a precise message (audit F18).
+ * a precise message (audit F18). The parsed/validated values overlay the raw
+ * args, so any coercion or transform declared by the action schema reaches the
+ * handler without dropping the arguments the schema does not mention.
  */
 interface ActionHandler {
   input?: z.ZodType
@@ -72,12 +74,18 @@ export function registerActionTool(server: McpServer, config: ActionToolConfig):
         const handler = config.handlers[action]
         if (!handler) return errorResult(`Unknown action: ${action}`)
 
+        let effectiveArgs: ActionArgs = args
         if (handler.input) {
           const parsed = handler.input.safeParse(args)
           if (!parsed.success) return errorResult(formatIssues(parsed.error))
+          // Overlay the action schema's normalized values on the full argument
+          // object: handlers read fields the conditional schema does not
+          // declare, so raw args must survive while declared fields (with any
+          // coercion/transform) replace their unparsed counterparts.
+          effectiveArgs = { ...args, ...(parsed.data as ActionArgs) }
         }
 
-        const result = await handler.run(args)
+        const result = await handler.run(effectiveArgs)
         return isToolResult(result) ? result : jsonResult(result)
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : `${config.name} failed`)

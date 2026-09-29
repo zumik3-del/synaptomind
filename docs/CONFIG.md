@@ -149,7 +149,7 @@ Batch grouping by embedding proximity.
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | `autoCluster.minAgeDays` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_AGE_DAYS` | `3` | Don't cluster thoughts younger than this |
-| `autoCluster.minSimilarity` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_SIMILARITY` | `0.3` | Min cosine similarity to include in cluster |
+| `autoCluster.minSimilarity` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_SIMILARITY` | `0.09` | Max cosine **distance** between neighbours (lower = tighter; 0.3 chains the whole graph into one mega-cluster) |
 | `autoCluster.minMembers` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_MEMBERS` | `3` | Min thoughts to form a cluster |
 | `autoCluster.dryRun` | `SYNAPTOMIND_AUTO_CLUSTER_DRY_RUN` | `false` | Preview without creating clusters |
 
@@ -169,7 +169,7 @@ Automatically create edges between related thoughts.
 
 ## Edge Detect
 
-Read-only candidate detection for `contradicts`/`supports` edges (used by `POST /api/thoughts/edge-detect` and `memory_status action=edge_suggestions`). Detection never writes edges; it ranks neighbor pairs by embedding similarity, so a proposal is an unconfirmed candidate, not a settled relation.
+Read-only proposal of unconfirmed `related` candidates (used by `POST /api/thoughts/edge-detect` and `memory_status action=edge_suggestions`). Detection never writes edges. It ranks neighbor pairs by embedding similarity alone, so every proposal has `type: related`, `rationale: embedding_similarity_only`, and `review_required: true` — similarity means "same subject matter", not conflict. Confirm a proposal explicitly with a link (e.g. `POST /api/thoughts/:id/link`).
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
@@ -177,6 +177,33 @@ Read-only candidate detection for `contradicts`/`supports` edges (used by `POST 
 | `edgeDetect.topK` | `SYNAPTOMIND_EDGE_DETECT_TOP_K` | `10` | Max nearest neighbors considered per thought |
 | `edgeDetect.maxCandidates` | `SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES` | `100` | Max candidate thoughts loaded for detection |
 | `edgeDetect.maxProposals` | `SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS` | `20` | Cap on returned proposals |
+
+---
+
+## Placement
+
+Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory_status action=propose` (see ADR 2026-09-28), plus the persisted review queue they feed (`memory_review`, `GET/POST /api/proposals` — see [API.md](./API.md) §Review). The engine never writes the graph: `maxClusterSize` only suppresses a proposal, it never mutates; queued proposals are applied only on an explicit `confirm:true`.
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `placement.maxClusterSize` | `SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE` | `50` | Skip a cluster placement proposal when the target cluster already holds this many members (`>=`). Re-checked against the live count at apply time. Prevents routing new thoughts into an oversized mega-cluster (lessons #934/#928) |
+| `placement.proposalTtlDays` | `SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS` | `30` | Review-queue TTL in days. A newly enqueued (or refreshed) `pending` proposal gets `expires_at = now + this`; the retention job expires overdue `pending` rows and prunes terminal rows this long after they were decided. `0` expires immediately; a negative value disables expiry (`expires_at = null`) and the retention job |
+| `placement.maxPendingProposals` | `SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS` | `500` | Cap on live `pending` proposals. Enqueueing a *new* item at the cap throws a validation error; refreshing an existing live row is unaffected |
+
+---
+
+## Triage
+
+Deterministic draft triage (ADR 2026-09-29). A triage run turns plain drafts into `triage_activate` / `triage_archive` verdicts in the placement-proposal review queue (see §Placement). The caps below bound one autonomy run: phase 1 applies the triage verdicts, phase 2 runs the existing placement engine for activated thoughts. They are cumulative over the run's already-accepted rows and are enforced on **both** `apply` and `apply_batch`, so confirming items one at a time cannot exceed them. `requireDryRunFirst` forces a preview before a run may confirm, so nothing is applied without an explicit `confirm:true`.
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `triage.enabled` | `SYNAPTOMIND_TRIAGE_ENABLED` | `true` | Master switch for the triage **producer**: no draft is triaged on the create path or by the backfill sweep. Already-queued triage rows stay applicable — turning it off stops new work, it does not retract a verdict |
+| `triage.maxItemsPerRun` | `SYNAPTOMIND_TRIAGE_MAX_ITEMS_PER_RUN` | `25` | Max triage verdicts applied per run. Excess items are refused with a typed error, never partially applied |
+| `triage.maxArchivesPerRun` | `SYNAPTOMIND_TRIAGE_MAX_ARCHIVES_PER_RUN` | `25` | Max `triage_archive` verdicts (draft archived as a near-duplicate) per run |
+| `triage.maxLinksPerRun` | `SYNAPTOMIND_TRIAGE_MAX_LINKS_PER_RUN` | `20` | Max phase-2 link proposals per run (counted only for items carrying that `run_id`). Mirrors `autoLink.maxEdgesPerRun` |
+| `triage.requireDryRunFirst` | `SYNAPTOMIND_TRIAGE_REQUIRE_DRY_RUN_FIRST` | `true` | Require a dry-run preview before a run may be confirmed |
+| `triage.backfillEnabled` | `SYNAPTOMIND_TRIAGE_BACKFILL_ENABLED` | `true` | Enable the bounded, idempotent backfill sweep that enqueues triage items for drafts that have no live/accepted row yet |
 
 ---
 
@@ -299,7 +326,7 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
   "primer": { "promoteThreshold": 5, "topN": 3 },
   "verify": { "enabled": true, "driftThreshold": 0.25, "staleWarnDays": 30 },
   "autoCluster": {
-    "minAgeDays": 3, "minSimilarity": 0.3,
+    "minAgeDays": 3, "minSimilarity": 0.09,
     "minMembers": 3, "dryRun": false
   },
   "autoLink": {
@@ -309,6 +336,11 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
   "edgeDetect": {
     "minSimilarity": 0.75, "topK": 10,
     "maxCandidates": 100, "maxProposals": 20
+  },
+  "placement": { "maxClusterSize": 50, "proposalTtlDays": 30, "maxPendingProposals": 500 },
+  "triage": {
+    "enabled": true, "maxItemsPerRun": 25, "maxArchivesPerRun": 25,
+    "maxLinksPerRun": 20, "requireDryRunFirst": true, "backfillEnabled": true
   },
   "selfImprove": {
     "enabled": false, "intervalMs": 86400000,

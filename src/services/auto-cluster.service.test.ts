@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { createTestDb } from '../test/helpers'
+import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb } from '../db/init'
+import { config, DEFAULTS } from '../config'
 import { findComponents, generateClusterTitle, groupCandidates, getLastAutoClusterStatus, runAutoClusterJob } from './auto-cluster.service'
 import type { ClusterCandidate } from '../db/thoughts'
 
@@ -88,4 +89,106 @@ test('runAutoClusterJob dry run does not create clusters', async () => {
 
 test('getLastAutoClusterStatus returns null before any run', () => {
   expect(getLastAutoClusterStatus().last_run).toBeNull()
+})
+
+// ── runAutoClusterJob with injected embed + searchNeighbors ───────────────────
+
+/**
+ * Build four past-dated thoughts and return their IDs in order [A, B, C, D].
+ * minAgeDays=0 ensures they are all eligible candidates.
+ */
+function seedFourThoughts(): string[] {
+  const past = new Date(Date.now() - 10 * 86400000).toISOString()
+  return ['A', 'B', 'C', 'D'].map(tag => seedThought({ content: `thought ${tag}`, created_at: past }))
+}
+
+test('runAutoClusterJob: minSimilarity 0.3 groups A-B only (distances 0.25/0.5/0.6, minMembers=2)', async () => {
+  const ids = seedFourThoughts()
+  const dist: Record<string, number> = {
+    [`${ids[0]}|${ids[1]}`]: 0.25, [`${ids[1]}|${ids[0]}`]: 0.25,
+    [`${ids[1]}|${ids[2]}`]: 0.5,  [`${ids[2]}|${ids[1]}`]: 0.5,
+    [`${ids[2]}|${ids[3]}`]: 0.6,  [`${ids[3]}|${ids[2]}`]: 0.6
+  }
+  const deps = {
+    embed: async (_texts: string[]) => _texts.map(() => new Float32Array(384)),
+    searchNeighbors: (id: string) =>
+      ids.filter(x => x !== id).map(x => ({ id: x, distance: dist[`${id}|${x}`] ?? 0.9 }))
+  }
+  const result = await runAutoClusterJob(
+    { minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: true },
+    deps
+  )
+  expect(result.groups).toHaveLength(1)
+  expect(result.groups[0].members.length).toBe(2)
+  expect(result.groups[0].members).toEqual(expect.arrayContaining([ids[0], ids[1]]))
+})
+
+test('runAutoClusterJob: minSimilarity 0.68 groups all four (distances 0.25/0.5/0.6, minMembers=2)', async () => {
+  const ids = seedFourThoughts()
+  const dist: Record<string, number> = {
+    [`${ids[0]}|${ids[1]}`]: 0.25, [`${ids[1]}|${ids[0]}`]: 0.25,
+    [`${ids[1]}|${ids[2]}`]: 0.5,  [`${ids[2]}|${ids[1]}`]: 0.5,
+    [`${ids[2]}|${ids[3]}`]: 0.6,  [`${ids[3]}|${ids[2]}`]: 0.6
+  }
+  const deps = {
+    embed: async (_texts: string[]) => _texts.map(() => new Float32Array(384)),
+    searchNeighbors: (id: string) =>
+      ids.filter(x => x !== id).map(x => ({ id: x, distance: dist[`${id}|${x}`] ?? 0.9 }))
+  }
+  const result = await runAutoClusterJob(
+    { minAgeDays: 0, minMembers: 2, minSimilarity: 0.68, dryRun: true },
+    deps
+  )
+  expect(result.groups).toHaveLength(1)
+  expect(result.groups[0].members.length).toBe(4)
+  expect(result.groups[0].members).toEqual(expect.arrayContaining(ids))
+})
+
+test('runAutoClusterJob: omitted minSimilarity falls back to config default (recalibrated 0.09)', async () => {
+  const ids = seedFourThoughts()
+  const dist: Record<string, number> = {
+    [`${ids[0]}|${ids[1]}`]: 0.05, [`${ids[1]}|${ids[0]}`]: 0.05,
+    [`${ids[1]}|${ids[2]}`]: 0.5,  [`${ids[2]}|${ids[1]}`]: 0.5,
+    [`${ids[2]}|${ids[3]}`]: 0.6,  [`${ids[3]}|${ids[2]}`]: 0.6
+  }
+  const deps = {
+    embed: async (_texts: string[]) => _texts.map(() => new Float32Array(384)),
+    searchNeighbors: (id: string) =>
+      ids.filter(x => x !== id).map(x => ({ id: x, distance: dist[`${id}|${x}`] ?? 0.9 }))
+  }
+  // minSimilarity omitted — should use config.autoCluster.minSimilarity (= DEFAULTS.autoCluster.minSimilarity after recalibration)
+  const result = await runAutoClusterJob(
+    { minAgeDays: 0, minMembers: 2, dryRun: true },
+    deps
+  )
+  expect(result.groups).toHaveLength(1)
+  expect(result.groups[0].members.length).toBe(2)
+  expect(result.groups[0].members).toEqual(expect.arrayContaining([ids[0], ids[1]]))
+})
+
+test('runAutoClusterJob: explicit minSimilarity overrides config default after recalibration', async () => {
+  // Same distance layout as the 0.3 test: A-B=0.25, B-C=0.5, C-D=0.6.
+  // Passing minSimilarity=0.3 explicitly should group only A-B (2 members),
+  // proving the explicit option still wins over the recalibrated default.
+  const ids = seedFourThoughts()
+  const dist: Record<string, number> = {
+    [`${ids[0]}|${ids[1]}`]: 0.25, [`${ids[1]}|${ids[0]}`]: 0.25,
+    [`${ids[1]}|${ids[2]}`]: 0.5,  [`${ids[2]}|${ids[1]}`]: 0.5,
+    [`${ids[2]}|${ids[3]}`]: 0.6,  [`${ids[3]}|${ids[2]}`]: 0.6
+  }
+  const deps = {
+    embed: async (_texts: string[]) => _texts.map(() => new Float32Array(384)),
+    searchNeighbors: (id: string) =>
+      ids.filter(x => x !== id).map(x => ({ id: x, distance: dist[`${id}|${x}`] ?? 0.9 }))
+  }
+  const result = await runAutoClusterJob(
+    { minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: true },
+    deps
+  )
+  expect(result.groups).toHaveLength(1)
+  expect(result.groups[0].members.length).toBe(2)
+  expect(result.groups[0].members).toEqual(expect.arrayContaining([ids[0], ids[1]]))
+  // Sanity: the default from config/DEFAULTS is the recalibrated value, not the old 0.3.
+  expect(config.autoCluster.minSimilarity).toBe(DEFAULTS.autoCluster.minSimilarity)
+  expect(DEFAULTS.autoCluster.minSimilarity).toBe(0.09)
 })

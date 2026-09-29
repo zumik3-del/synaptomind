@@ -227,7 +227,7 @@ curl `-d '{"dry_run": true}' http://127.0.0.1:3005/api/thoughts/auto-link`
 
 ### POST /api/thoughts/edge-detect
 
-Detects contradiction/support candidate pairs among active, non-cluster thoughts. Read-only: it never creates or modifies an edge. Confirm a proposal by linking the pair (`POST /api/thoughts/:id/link`). Returns an empty proposal list (never an error) when there are fewer than two candidates or the embedder is unavailable (`degraded: true`).
+Proposes unconfirmed `related` candidate pairs among active, non-cluster thoughts. Read-only: it never creates or modifies an edge. Confirm a proposal by linking the pair (`POST /api/thoughts/:id/link`). Returns an empty proposal list (never an error) when there are fewer than two candidates or the embedder is unavailable (`degraded: true`).
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
@@ -239,9 +239,53 @@ Detects contradiction/support candidate pairs among active, non-cluster thoughts
 
 curl `-d '{"project_id": "<id>", "min_similarity": 0.8}' http://127.0.0.1:3005/api/thoughts/edge-detect`
 
-Response: `{"proposals": [{"source_id": "...", "target_id": "...", "type": "contradicts", "confidence": 0.86, "rationale": "embedding_similarity_only", "review_required": true, "signals": {"embeddingSimilarity": 0.86}}], "candidates": 120, "pairs_evaluated": 8, "degraded": false}`
+Response: `{"proposals": [{"source_id": "...", "target_id": "...", "type": "related", "confidence": 0.86, "rationale": "embedding_similarity_only", "review_required": true, "signals": {"embeddingSimilarity": 0.86}}], "candidates": 120, "pairs_evaluated": 8, "degraded": false}`
 
-`type` is emitted as `contradicts` with `review_required: true`: the detector ranks by embedding similarity alone, which means the pair is about the same subject matter, not necessarily in conflict. Consumers must treat such a proposal as an unconfirmed candidate, never as a settled contradiction.
+`type` is always emitted as `related` with `review_required: true`: the detector ranks by embedding similarity alone, which means the pair is about the same subject matter, not necessarily in conflict. Consumers must read both thoughts and decide the real type (`contradicts`/`supports`/other) themselves; never treat a proposal as a settled contradiction.
+
+### POST /api/thoughts/propose
+
+Proposes a read-only placement/link plan for one thought: where it belongs (`placement`), which typed edges to add (`edges[]`), and which lifecycle move to make (`lifecycle`). Read-only: it never creates an edge or cluster and never changes a status. Provide at least one of `thought_id` (an existing thought) or `content` (an unpersisted draft) — otherwise 400; when both are passed, `thought_id` takes precedence. An unknown `thought_id` returns 404.
+
+| Name | In | Type | Default | Description |
+|---|---|---|---|---|
+| thought_id | body | string | optional | Existing thought to analyse (provide this or `content`) |
+| content | body | string | optional | Draft content to analyse before it is persisted (provide this or `thought_id`) |
+| project_id | body | string | optional | Project scope; defaults to the thought's own project, then the default project |
+
+curl `-d '{"thought_id": "<id>"}' http://127.0.0.1:3005/api/thoughts/propose`
+
+Response: `{"thought_id": "...", "placement": {...} | null, "edges": [...], "lifecycle": {...}, "degraded": false, "generated_at": "..."}`
+
+- `placement` — `{"kind": "cluster" | "parent", "target_id", "confidence", "rationale", "review_required"}`, or `null` when no cluster majority or parent/`develops` chain node applies.
+- `edges[]` — at most one proposal per unordered pair: `{"source_id", "target_id", "type", "direction", "confidence", "rationale", "review_required", "rule_id", "signals"}`. `type` is the `related` fallback (similarity-only) or a typed `contradicts`/`supports`/`develops`/`depends_on`/`replaces` when a non-embedding cue fired; `rule_id` names the fired rule and `signals` is the exact `PairSignals` input that produced it. Pairs that already carry any edge are excluded.
+- `lifecycle` — `{"action": "keep" | "link" | "merge" | "replaces+archive", "confidence", "rationale", "review_required", "blocked_by[]"}`. `blocked_by` lists the reasons a proposed move cannot be confirmed (e.g. `"source is profile"`).
+- `degraded` — `true` when the embedder is unavailable: the plan falls back to lexical-only signals (no embedding-derived placement or edges) and still returns a `keep`/`merge` decision instead of failing.
+
+Example:
+
+```json
+{
+  "thought_id": "<id>",
+  "placement": {"kind": "cluster", "target_id": "<cluster-id>", "confidence": 0.80, "rationale": "cluster majority: 3/4 clustered embedding neighbours belong to cluster <cluster-id> (avg similarity 0.85)", "review_required": true},
+  "edges": [{"source_id": "<id>", "target_id": "<other-id>", "type": "related", "direction": "symmetric", "confidence": 0.87, "rationale": "embedding_similarity_only", "review_required": true, "rule_id": "fallback.embedding_related", "signals": {"sourceId": "<id>", "targetId": "<other-id>", "embeddingSimilarity": 0.87, "lexicalOverlap": 0.18, "negationDelta": 0, "evidentialCue": false, "evolutionCue": false, "temporalOrder": "older", "tagOverlap": 0, "dependencyCue": false, "existingEdgeType": null, "sourceStatus": "active", "targetStatus": "active", "sourceStanding": "current", "targetStanding": "current", "sameProject": true}}],
+  "lifecycle": {"action": "link", "confidence": 0.87, "rationale": "1 edge proposal(s); highest confidence 0.87 (fallback.embedding_related)", "review_required": true, "blocked_by": []},
+  "degraded": false,
+  "generated_at": "2026-09-28T19:30:00.000Z"
+}
+```
+
+Every proposal carries `review_required: true` and an **ordinal** (not calibrated) `confidence` in `[0,1]`. The result is a filter, never a source of truth — there is deliberately no `apply` endpoint. Confirm its proposals with the existing writers:
+
+| Proposal | Confirm via |
+|---|---|
+| edge (`edges[]`, `lifecycle.action: link`) | `POST /api/thoughts/:id/link` (`target_id`, `type`) |
+| merge | `POST /api/thoughts/:targetId/merge` (`source_id`) |
+| replaces + archive | `POST /api/thoughts/:id/link` (`type: replaces`), then archive the **target** — the superseded (older) thought (`PUT /api/thoughts/:targetId` `{"status":"archived"}`, or `DELETE /api/thoughts/:targetId`). The newer thought is the source and survives |
+| placement `kind: cluster` | `POST /api/cluster` (create the cluster from the thought and its members) |
+| placement `kind: parent` | `POST /api/thoughts/:id/link` to `target_id` with `type: parent`/`develops` |
+
+Typed edge proposals require a non-embedding cue (negation, evidential, evolution, temporal ordering). Embedding similarity alone yields `type: related` with `rationale: embedding_similarity_only` — similarity means "same subject matter", not conflict; `contradicts` is never inferred from similarity. See ADR #142 and task #927. MCP parity: `memory_status action=propose`.
 
 ### POST /api/thoughts/self-improve/run
 
@@ -355,6 +399,99 @@ Creates a cluster thought from existing thoughts. Returns 201.
 | project_id | body | string | optional | Project scope |
 
 curl `-d '{"thought_ids": ["<id1>", "<id2>"], "title": "Auth notes"}' http://127.0.0.1:3005/api/cluster`
+
+## Review
+
+The persisted placement-proposal queue. `POST /api/thoughts/propose` is read-only and persists nothing; the review queue stores its confirmable items so a reviewer can apply or reject them one at a time. The queue never re-runs the engine and never auto-applies: an apply is an explicit, per-item write gated by `confirm:true`. MCP parity: `memory_review` (actions `enqueue`/`list`/`apply`/`apply_batch`/`rollback`/`reject`); only `apply`/`apply_batch`/`rollback` execute a write, and no read tool can reach them.
+
+A queued item carries an `item_kind` (`edge` | `placement` | `lifecycle` | `triage_activate` | `triage_archive`) and a `state`: `pending` (live) → `accepted` | `rejected` | `expired` | `stale` | `rolled_back` (terminal). Enqueueing a non-active source is rejected: the thought must be persisted **and** `active`, because placement is the phase *after* a triage verdict activates a draft. The `triage_*` kinds are the deterministic draft-triage verdicts (ADR 2026-09-29): they mutate a *draft* source, require a `run_id`, and obey the per-run caps `triage.maxItemsPerRun` / `triage.maxArchivesPerRun`.
+
+### GET /api/proposals
+
+Lists queued proposals, newest first. Read-only; never applies anything. Defaults to live `pending` rows and drops `pending` rows whose `expires_at` has passed, so terminal/expired rows appear only when an explicit `state` is requested.
+
+| Name | In | Type | Default | Description |
+|---|---|---|---|---|
+| state | query | string | pending | One of: `pending`, `accepted`, `rejected`, `expired`, `stale`, `rolled_back` |
+| item_kind | query | string | optional | Item-kind filter: `edge`, `placement`, `lifecycle`, `triage_activate`, `triage_archive` |
+| project_id | query | string | optional | Project scope |
+| limit | query | int | 100 | Max rows (clamped to 1..1000) |
+
+curl `'http://127.0.0.1:3005/api/proposals?state=pending'`
+
+Response: `[{"id": "...", "project_id": "...", "source_thought_id": "...", "item_kind": "edge", "target_id": "...", "edge_type": "related", "lifecycle_action": null, "direction": "symmetric", "state": "pending", "confidence": 0.8, "rationale": "...", "rule_id": "...", "run_id": null, "created_at": "...", "expires_at": "...", "decided_at": null, "decided_by": null, "applied_at": null, "result": null}]`
+
+Telemetry: `action: read`, tool `list_placement_proposals`.
+
+### POST /api/proposals
+
+Proposes a plan for a persisted thought and queues its confirmable items (plan shape in §Propose above). Returns 201 with the enqueued/refreshed rows, or `[]` when the plan has no confirmable item. Re-enqueueing the same item refreshes its live `pending` row instead of inserting a duplicate. 400 without `thought_id`, 404 for an unknown thought, 400 when the source thought is not `active`, and 400 when the queue already holds `placement.maxPendingProposals` live rows and the plan would add a new item. The cap covers the whole queue: draft-triage rows share it, so triage backs off (skips, never throws) once the queue is full.
+
+| Name | In | Type | Default | Description |
+|---|---|---|---|---|
+| thought_id | body | string | required | Persisted **active** thought to analyse (drafts and other non-active statuses are rejected) |
+| project_id | body | string | optional | Project scope |
+
+curl `-d '{"thought_id": "<id>"}' http://127.0.0.1:3005/api/proposals`
+
+Telemetry: `action: write`, tool `enqueue_placement_proposals`.
+
+### POST /api/proposals/:id/apply
+
+Applies exactly one queued item. `confirm` is the dry-run switch: absent or `false` validates the item and reports the writer call **without touching the graph or the queue** (the row stays `pending`); `true` executes **exactly one** existing writer inside the same transaction as the queue-state update. The stored target/type is used as-is — a proposal cannot be redirected. A triage item (`triage_activate`/`triage_archive`) additionally requires `run_id`, and when `triage.requireDryRunFirst` is set (default true) it must be previewed with `confirm: false` before a confirm is accepted. The per-run caps apply here exactly as they do to a batch: they are cumulative over the run's already-accepted rows, so confirming items one at a time cannot exceed them. 404 for an unknown id.
+
+| Name | In | Type | Default | Description |
+|---|---|---|---|---|
+| confirm | body | bool | false | `true` executes the write; absent/`false` is a non-mutating dry-run |
+| run_id | body | string | optional | Run envelope; required for `triage_activate`/`triage_archive` items (groups the rollback manifest) |
+
+curl `-d '{"confirm": true}' http://127.0.0.1:3005/api/proposals/<id>/apply`
+
+Response is a typed result, not a throw (only an unknown id errors):
+
+| `status` | Meaning | Row after |
+|---|---|---|
+| `dry_run` | Non-mutating: `{"proposal_id", "item_kind", "status": "dry_run", "calls": [{"writer", "args"}]}` — the existing-writer call `confirm:true` would run | stays `pending` |
+| `accepted` | Writer ran; `idempotent: true` when the requested state already held (no writer ran). Carries `calls[]` and `result` | `accepted` |
+| `stale` | Refused: the item is no longer a live decision (TTL passed — re-enqueue it), or the snapshot no longer matches (fingerprint change, archived/deleted endpoint, conflicting edge, project split, or a cluster already at `placement.maxClusterSize`) | `stale` (terminal; must be re-proposed, never auto-repaired) |
+| `failed` | Refused on a retryable precondition (e.g. profile merge, invalid edge type, cluster shape, a `triage_archive` row with no duplicate target) | stays `pending` (fix and retry) |
+| `refused` | Typed `{"refusal": {"code", "reason"}}` guard refusal (e.g. `run_id_required`, `dry_run_required`, `max_items_exceeded`); nothing ran | stays `pending` |
+
+Every apply re-checks the staleness fingerprint and the state-dependent gates (`placement.maxClusterSize`, project isolation) against the live graph. The TTL is checked first and applies to dry-runs too, so an overdue row can never be confirmed — nor recorded as an idempotent accept, which would put a phantom entry in a run's rollback manifest. A dry-run of an already `stale`/`failed` row returns that same status and still leaves the row unchanged. Telemetry: `action: write`, tool `apply_placement_proposal`.
+
+### POST /api/proposals/rollback
+
+Rolls back every reversible mutation of one explicit run (ADR 2026-09-29 §2.8). `confirm` is the dry-run switch: absent or `false` reports what would be reverted (`items[]`, `summary`) **without mutating anything**; `true` inverts each `accepted` row of the run in reverse **application** order (`applied_at` descending, not enqueue order) through existing writers only (re-draft the triage source, delete the edge the run created) and marks it `rolled_back`. A `lifecycle` merge is refused (not auto-rollbackable) and a row whose fingerprint drifted since apply is skipped with a warning. No thought is ever deleted.
+
+| Name | In | Type | Default | Description |
+|---|---|---|---|---|
+| run_id | body | string | required | Run envelope to reverse (400 when missing) |
+| confirm | body | bool | false | `true` executes the inverse writes; absent/`false` is a non-mutating report |
+
+curl `-d '{"run_id": "<run>", "confirm": true}' http://127.0.0.1:3005/api/proposals/rollback`
+
+Telemetry: `action: write`, tool `rollback_placement_proposals`.
+
+### POST /api/proposals/:id/reject
+
+Rejects one live `pending` item (no graph write). Returns the updated row with `state: "rejected"`, `decided_at`, and `decided_by`. 404 for an unknown id; 400 if the row is not `pending` (terminal rows cannot be re-decided). Telemetry: `action: write`, tool `reject_placement_proposal`.
+
+curl -X POST http://127.0.0.1:3005/api/proposals/<id>/reject
+
+### memory_review (MCP)
+
+MCP parity for the routes above, plus `apply_batch` (no HTTP equivalent).
+
+| Action | Kind | Inputs | Result |
+|---|---|---|---|
+| `enqueue` | queue write | `thought_id` | Rows queued/refreshed for the thought |
+| `list` | read | `state` (default `pending`), `item_kind`, `project_id`, `limit` | Queued rows |
+| `apply` | graph write | `proposal_id`, `confirm` (default false), `run_id` (required for triage kinds) | One `ApplyResult` (`dry_run`/`accepted`/`stale`/`failed`/`refused`) |
+| `apply_batch` | graph write | `proposal_ids[]` (non-empty), `confirm`, `run_id`, `limit` | `{"results": [ApplyResult], "errors": [{"proposal_id", "error"}]}`; each item applied independently, a partial batch is a valid outcome. When a run cap/`limit`/`run_id` guard trips, `{"results": [], "errors": [], "refused": {"code", "reason"}}` — the whole batch is refused, nothing applied |
+| `rollback` | graph write | `run_id`, `confirm` (default false) | `RollbackReport` (`run_id`, `confirm`, `items[]`, `summary`) |
+| `reject` | queue write | `proposal_id` | Updated row (`state: "rejected"`) |
+
+`enqueue` requires a persisted, `active` `thought_id`. `apply`/`apply_batch`/`rollback` default to a non-mutating dry-run and execute only on `confirm: true`. Triage applies require `run_id`, obey `triage.maxItemsPerRun`/`triage.maxArchivesPerRun` on the single-item `apply` path as well as on `apply_batch` (the caps are cumulative per `run_id`, so one-at-a-time confirms cannot exceed them), and — when `triage.requireDryRunFirst` (default true) — must be previewed before a confirm. `enqueue` and `reject` touch only the queue, never the graph; only `apply`/`apply_batch`/`rollback` call a writer. Apply is deliberately absent from every read tool — `memory_status` `propose`/`edge_suggestions` stay read-only, and `list` cannot reach `apply` (enforced by a static test in `src/mcp/tools/memory-review.contract.test.ts`).
 
 ## Projects
 
@@ -688,6 +825,14 @@ Graph health audit: broken links, orphans, duplicates, structural issues. Requir
 | fix | query | bool | false | `true` auto-fixes safe issues |
 
 curl `'http://127.0.0.1:3005/api/health-check?severity=warning'`
+
+#### Accepted graph-health trade-offs
+
+Two checks fire by design on a dense, hub-centric graph and are accepted as trade-offs rather than defects (ADR: `ai-workdir/synaptomind/plans/2026-09-28-928-health-overlinked-clusterless-adr.md`; tasks #934/#935):
+
+- `overlinked_thoughts` (connectivity, warning) — active non-cluster thoughts above the finder's `maxEdges`. The flagged set is curated cross-domain hubs, not link decay: on the reference dataset active non-cluster thoughts average 4.66 edges, while the 31 flagged hubs sit at 11–24. Raising the threshold cannot change `health_score` and would only hide signal.
+- `clusterless_dense_thoughts` (cluster health, warning) — transient. The finder is age-gated to the same `autoCluster.minAgeDays` window auto-cluster uses (task #935), so it reports only thoughts old enough for the clusterer to act on (see `src/db/health-check/clusters.ts`).
+- `health_score` penalises the presence of a flagged *category*, not occurrence counts: `100 − criticalCategories×40 − warningCategories×15 − infoOccurrences×0.25`, clamped to `[0,100]`. Because the `info` term is per-occurrence, a large `island_thoughts` count dominates the score, while clearing a single `overlinked_thoughts` hub does not move it (`src/services/health-check.service.ts`).
 
 ### GET /health
 

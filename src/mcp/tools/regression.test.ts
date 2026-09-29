@@ -260,7 +260,7 @@ describe('structuredContent mirrors the text payload', () => {
 
   test('every registered tool advertises the shared output envelope', async () => {
     const { tools } = await client.listTools()
-    expect(tools.length).toBe(9)
+    expect(tools.length).toBe(10)
     for (const tool of tools) {
       const outputSchema = tool.outputSchema as { required?: string[]; properties?: Record<string, unknown> } | undefined
       expect(outputSchema).toBeDefined()

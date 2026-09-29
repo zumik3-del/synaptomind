@@ -12,6 +12,9 @@ export function createIntervalJob(opts: IntervalJobOptions, fn: () => void | Pro
   let timer: ReturnType<typeof setInterval> | null = null
 
   function start(): void {
+    // Starting an already-running job would overwrite the handle and orphan the
+    // previous timer — `stop` could then only ever clear the last one.
+    if (timer) return
     if (opts.guard && !opts.guard()) return
     timer = setInterval(() => {
       try {

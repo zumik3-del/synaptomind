@@ -115,6 +115,7 @@ const CANONICAL_ROUTES: CanonicalRoute[] = [
   { tool: 'memory_status', action: 'config', actionType: 'read', toolName: 'get_config' },
   { tool: 'memory_status', action: 'health', actionType: 'read', toolName: 'health_check' },
   { tool: 'memory_status', action: 'edge_suggestions', actionType: 'read', toolName: 'edge_suggestions' },
+  { tool: 'memory_status', action: 'propose', actionType: 'read', toolName: 'propose_placement' },
   { tool: 'memory_status', action: 'cleanup', actionType: 'write', toolName: 'cleanup_archived' },
   { tool: 'memory_status', action: undefined, actionType: 'read', toolName: 'get_slots' },
   { tool: 'memory_manage', action: 'list', actionType: 'read', toolName: 'list_projects' },
@@ -131,7 +132,13 @@ const CANONICAL_ROUTES: CanonicalRoute[] = [
   { tool: 'memory_telemetry', action: 'query', actionType: 'read', toolName: 'query_telemetry' },
   { tool: 'memory_telemetry', action: 'analyze', actionType: 'write', toolName: 'analyze_telemetry' },
   { tool: 'memory_telemetry', action: 'primers', actionType: 'read', toolName: 'list_primers' },
-  { tool: 'memory_guide', action: undefined, actionType: 'read', toolName: 'guide' }
+  { tool: 'memory_guide', action: undefined, actionType: 'read', toolName: 'guide' },
+  { tool: 'memory_review', action: 'enqueue', actionType: 'write', toolName: 'enqueue_placement_proposals' },
+  { tool: 'memory_review', action: 'list', actionType: 'read', toolName: 'list_placement_proposals' },
+  { tool: 'memory_review', action: 'apply', actionType: 'write', toolName: 'apply_placement_proposal' },
+  { tool: 'memory_review', action: 'apply_batch', actionType: 'write', toolName: 'apply_placement_proposals' },
+  { tool: 'memory_review', action: 'reject', actionType: 'write', toolName: 'reject_placement_proposal' },
+  { tool: 'memory_review', action: undefined, actionType: 'read', toolName: 'list_placement_proposals' }
 ]
 
 beforeEach(createTestDb)

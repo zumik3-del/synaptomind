@@ -46,7 +46,7 @@ beforeAll(async () => {
 // ── Tool registration ────────────────────────────────────────────────────────
 
 describe('tool registration', () => {
-  test('registers all 9 tools', async () => {
+  test('registers all 10 tools', async () => {
     const { tools } = await client.listTools()
     const names = tools.map(t => t.name)
     expect(names).toContain('memory_recall')
@@ -57,8 +57,9 @@ describe('tool registration', () => {
     expect(names).toContain('memory_crystallize')
     expect(names).toContain('memory_reflect')
     expect(names).toContain('memory_telemetry')
+    expect(names).toContain('memory_review')
     expect(names).toContain('memory_guide')
-    expect(tools.length).toBe(9)
+    expect(tools.length).toBe(10)
   })
 
   test('memory_store advertises the effective soft limit at registration', async () => {

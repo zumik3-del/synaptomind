@@ -19,6 +19,8 @@ const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/
 const { startDecayJob, stopDecayJob } = await import('./services/decay.service')
 const { startSelfImproveJob, stopSelfImproveJob } = await import('./services/self-improve.service')
 const { startTtlCleanupJob, stopTtlCleanupJob } = await import('./services/ttl-cleanup.service')
+const { startPlacementRetentionJob, stopPlacementRetentionJob } = await import('./services/placement-retention.service')
+const { startTriageBackfillJob, stopTriageBackfillJob } = await import('./services/triage.service')
 
 const isStdio = process.argv.includes('--stdio')
 // Single-owner default: a stdio MCP client must not spawn its own embedder and
@@ -68,6 +70,8 @@ if (!ownsBackgroundJobs) {
   startDecayJob()
   startSelfImproveJob()
   startTtlCleanupJob()
+  startPlacementRetentionJob()
+  startTriageBackfillJob()
 }
 
 let shutdownStarted = false
@@ -79,6 +83,8 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   stopDecayJob()
   stopSelfImproveJob()
   stopTtlCleanupJob()
+  stopPlacementRetentionJob()
+  stopTriageBackfillJob()
   await stopEmbedderProcess()
   closeLogDb()
   if (extra) await extra()

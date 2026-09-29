@@ -31,7 +31,7 @@ const VALID_EDGE_TYPES = new Set([
  * in both directions. Directed types (`supports`, `parent`, ...) follow the
  * strict one-edge-per-pair rule and reject a reverse duplicate with a conflict.
  */
-const SYMMETRIC_EDGE_TYPES = new Set(['related', 'contradicts'])
+export const SYMMETRIC_EDGE_TYPES = new Set(['related', 'contradicts'])
 
 export function isValidEdgeType(type: string): boolean {
   return VALID_EDGE_TYPES.has(type)
@@ -55,7 +55,7 @@ export function createEdge(db: Database, sourceId: string, targetId: string, typ
   }
   validateClusterConstraint(db, sourceId, targetId, type)
 
-  const existing = findEdgeBetween(db, sourceId, targetId)
+  const existing = getEdgePairBetween(db, sourceId, targetId)
   if (existing) {
     if (existing.type === type) {
       if (SYMMETRIC_EDGE_TYPES.has(type)) return existing
@@ -200,14 +200,19 @@ function findEdge(db: Database, id: string): Edge {
   return db.prepare('SELECT * FROM edges WHERE id = ?').get(id) as Edge
 }
 
-function findEdgeBetween(db: Database, sourceId: string, targetId: string): Edge | undefined {
+/**
+ * The (single) edge connecting `sourceId` and `targetId`, in either direction,
+ * or `undefined` when the pair is not linked. Read-only counterpart of
+ * {@link getEdgePairKeys} for a single pair.
+ */
+export function getEdgePairBetween(db: Database, sourceId: string, targetId: string): Edge | undefined {
   return db
     .prepare('SELECT * FROM edges WHERE (source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)')
     .get(sourceId, targetId, targetId, sourceId) as Edge | undefined
 }
 
 /**
- * Batched counterpart of {@link findEdgeBetween}: returns canonical unordered
+ * Batched counterpart of {@link getEdgePairBetween}: returns canonical unordered
  * pair keys for every edge touching `thoughtIds`. Used by candidate detection to
  * skip pairs that are already linked without an N+1 query.
  */

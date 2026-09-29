@@ -5,6 +5,7 @@ import { findActiveDecisionThoughts } from '../db/session-reflection'
 import { getSlotRow, upsertSlot } from '../db/slots'
 import { createThought } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
+import { jaccard, normalise } from './text-similarity'
 import type { Database } from 'bun:sqlite'
 
 export interface ReflectInput {
@@ -36,22 +37,6 @@ function tail(content: string, maxChars: number): string {
 
 function assertProjectExists(projectId: string, db: Database): void {
   if (!projectExists(db, projectId)) throw new NotFoundError('Project not found')
-}
-
-/** Normalise a string for fuzzy comparison: lowercase, collapse whitespace. */
-function normalise(s: string): string {
-  return s.toLowerCase().replace(/\s+/g, ' ').trim()
-}
-
-/** Word-set Jaccard similarity on normalised text. */
-function jaccard(a: string, b: string): number {
-  const setA = new Set(a.split(/\s+/).filter(Boolean))
-  const setB = new Set(b.split(/\s+/).filter(Boolean))
-  if (setA.size === 0 && setB.size === 0) return 1
-  if (setA.size === 0 || setB.size === 0) return 0
-  let overlap = 0
-  for (const w of setA) if (setB.has(w)) overlap++
-  return overlap / (setA.size + setB.size - overlap)
 }
 
 /**

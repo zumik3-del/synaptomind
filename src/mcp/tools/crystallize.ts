@@ -7,6 +7,27 @@ import { runAutoClusterJob } from '../../services/auto-cluster.service'
 import { resolveProjectId } from './utils'
 import { registerActionTool, type ActionArgs } from './action-tool'
 
+/**
+ * Normalize an optional numeric argument that may arrive as a number or as a
+ * numeric string (MCP clients differ in how they serialize numbers). Returns
+ * `undefined` for absent/blank/non-finite values so the service falls back to
+ * `config.autoCluster.*` defaults.
+ */
+function optionalNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : undefined
+}
+
+/** Normalize an optional boolean argument, tolerating `'true'`/`'false'` strings. */
+function optionalBoolean(value: unknown): boolean | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'boolean') return value
+  if (value === 'true') return true
+  if (value === 'false') return false
+  return undefined
+}
+
 const handlers = {
   crystallize: {
     run(args: ActionArgs) {
@@ -37,7 +58,12 @@ const handlers = {
   auto_cluster: {
     // auto_cluster is a global operation and must not resolve or warn about a project.
     async run(args: ActionArgs) {
-      return runAutoClusterJob({ minAgeDays: args.min_age_days as number | undefined, minSimilarity: args.min_similarity as number | undefined, minMembers: args.min_members as number | undefined, dryRun: args.dry_run as boolean | undefined })
+      return runAutoClusterJob({
+        minAgeDays: optionalNumber(args.min_age_days),
+        minSimilarity: optionalNumber(args.min_similarity),
+        minMembers: optionalNumber(args.min_members),
+        dryRun: optionalBoolean(args.dry_run)
+      })
     }
   }
 }
@@ -58,12 +84,12 @@ export function registerMemoryCrystallize(server: McpServer) {
       project_id: z.string().optional().describe('Project ID (crystallize/graph/cluster only; auto_cluster operates globally)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project (crystallize/graph/cluster only; auto_cluster operates globally)'),
       status: z.string().optional().describe('Filter by status (default: active, graph only)'),
-      limit: z.number().int().min(1).max(2000).optional().describe('Max nodes to return (default 500, 1-2000; graph only)'),
+      limit: z.coerce.number().int().min(1).max(2000).optional().describe('Max nodes to return (default 500, 1-2000; graph only)'),
       title: z.string().optional().describe('Cluster title (cluster only)'),
       tags: z.array(z.string()).optional().describe('Tags (cluster only)'),
-      min_age_days: z.number().int().min(0).max(3650).optional().describe('Min age in days (auto_cluster only)'),
-      min_similarity: z.number().min(0).max(1).optional().describe('Min similarity threshold 0-1 (auto_cluster only)'),
-      min_members: z.number().int().min(1).max(1000).optional().describe('Min members per cluster (auto_cluster only)'),
+      min_age_days: z.coerce.number().int().min(0).max(3650).optional().describe('Min age in days (auto_cluster only)'),
+      min_similarity: z.coerce.number().min(0).max(1).optional().describe('Min similarity threshold 0-1 (auto_cluster only)'),
+      min_members: z.coerce.number().int().min(1).max(1000).optional().describe('Min members per cluster (auto_cluster only)'),
       dry_run: z.boolean().optional().describe('Dry run mode (auto_cluster only)')
     },
     handlers

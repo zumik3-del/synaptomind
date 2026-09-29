@@ -53,7 +53,7 @@
   },
   "autoCluster": {
     "minAgeDays": 3,
-    "minSimilarity": 0.3,
+    "minSimilarity": 0.09,
     "minMembers": 3,
     "dryRun": false
   },

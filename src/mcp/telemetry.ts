@@ -50,6 +50,7 @@ const TOOL_ROUTES: Record<string, { default?: ToolRoute; actions?: Record<string
       config: { action: 'read', toolName: 'get_config' },
       health: { action: 'read', toolName: 'health_check' },
       edge_suggestions: { action: 'read', toolName: 'edge_suggestions' },
+      propose: { action: 'read', toolName: 'propose_placement' },
       cleanup: { action: 'write', toolName: 'cleanup_archived' }
     }
   },
@@ -81,6 +82,17 @@ const TOOL_ROUTES: Record<string, { default?: ToolRoute; actions?: Record<string
       query: { action: 'read', toolName: 'query_telemetry' },
       analyze: { action: 'write', toolName: 'analyze_telemetry' },
       primers: { action: 'read', toolName: 'list_primers' }
+    }
+  },
+  memory_review: {
+    default: { action: 'read', toolName: 'list_placement_proposals' },
+    actions: {
+      enqueue: { action: 'write', toolName: 'enqueue_placement_proposals' },
+      list: { action: 'read', toolName: 'list_placement_proposals' },
+      apply: { action: 'write', toolName: 'apply_placement_proposal' },
+      apply_batch: { action: 'write', toolName: 'apply_placement_proposals' },
+      rollback: { action: 'write', toolName: 'rollback_placement_proposals' },
+      reject: { action: 'write', toolName: 'reject_placement_proposal' }
     }
   },
   memory_guide: {

@@ -33,6 +33,13 @@ interface Config {
     minSimilarity: number; topK: number; maxCandidates: number;
     maxProposals: number
   }
+  placement: {
+    maxClusterSize: number; proposalTtlDays: number; maxPendingProposals: number
+  }
+  triage: {
+    enabled: boolean; maxItemsPerRun: number; maxArchivesPerRun: number;
+    maxLinksPerRun: number; requireDryRunFirst: boolean; backfillEnabled: boolean
+  }
   selfImprove: {
     enabled: boolean; intervalMs: number; orphanThreshold: number;
     activationThreshold: number; hitsThreshold: number;
@@ -68,8 +75,13 @@ export const DEFAULTS: Config = {
   },
   primer: { promoteThreshold: 5, topN: 3 },
   verify: { enabled: true, driftThreshold: 0.25, staleWarnDays: 30 },
+  // `minSimilarity` is compared against vec0's cosine DISTANCE (see
+  // auto-cluster.service.ts `r.distance < minSimilarity`), so lower = tighter.
+  // 0.3 chained the whole active graph into one 1122-member mega-cluster via
+  // Union-Find transitive closure; 0.09 is the calibrated value for e5-small
+  // cosine distance (ADR 2026-09-28, thought 01a094b2-…).
   autoCluster: {
-    minAgeDays: 3, minSimilarity: 0.3,
+    minAgeDays: 3, minSimilarity: 0.09,
     minMembers: 3, dryRun: false
   },
   autoLink: {
@@ -78,6 +90,19 @@ export const DEFAULTS: Config = {
   edgeDetect: {
     minSimilarity: 0.75, topK: 10, maxCandidates: 100,
     maxProposals: 20
+  },
+  // Skip a cluster proposal once a cluster already holds this many members:
+  // prevents feeding the mega-cluster defect (lessons #934/#928). Read-only
+  // proposer — the cap only suppresses the suggestion, it never mutates.
+  // `proposalTtlDays` bounds the review queue (ADR §2.4): terminal rows are
+  // pruned after the TTL and live `pending` rows use `expires_at`.
+  placement: { maxClusterSize: 50, proposalTtlDays: 30, maxPendingProposals: 500 },
+  // Draft-triage per-run caps (ADR 2026-09-29 §2.7/§2.8). `maxLinksPerRun`
+  // mirrors `autoLink.maxEdgesPerRun` (phase-2 link proposals), and
+  // `requireDryRunFirst` forces a preview before a run may confirm.
+  triage: {
+    enabled: true, maxItemsPerRun: 25, maxArchivesPerRun: 25,
+    maxLinksPerRun: 20, requireDryRunFirst: true, backfillEnabled: true
   },
   selfImprove: {
     enabled: false, intervalMs: 86400000, orphanThreshold: 0.5,
@@ -162,6 +187,17 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_EDGE_DETECT_TOP_K', path: 'edgeDetect.topK', type: 'int' },
   { env: 'SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES', path: 'edgeDetect.maxCandidates', type: 'int' },
   { env: 'SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS', path: 'edgeDetect.maxProposals', type: 'int' },
+
+  { env: 'SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE', path: 'placement.maxClusterSize', type: 'int' },
+  { env: 'SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS', path: 'placement.proposalTtlDays', type: 'int' },
+  { env: 'SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS', path: 'placement.maxPendingProposals', type: 'int' },
+
+  { env: 'SYNAPTOMIND_TRIAGE_ENABLED', path: 'triage.enabled', type: 'bool' },
+  { env: 'SYNAPTOMIND_TRIAGE_MAX_ITEMS_PER_RUN', path: 'triage.maxItemsPerRun', type: 'int' },
+  { env: 'SYNAPTOMIND_TRIAGE_MAX_ARCHIVES_PER_RUN', path: 'triage.maxArchivesPerRun', type: 'int' },
+  { env: 'SYNAPTOMIND_TRIAGE_MAX_LINKS_PER_RUN', path: 'triage.maxLinksPerRun', type: 'int' },
+  { env: 'SYNAPTOMIND_TRIAGE_REQUIRE_DRY_RUN_FIRST', path: 'triage.requireDryRunFirst', type: 'bool' },
+  { env: 'SYNAPTOMIND_TRIAGE_BACKFILL_ENABLED', path: 'triage.backfillEnabled', type: 'bool' },
 
   { env: 'SYNAPTOMIND_SELF_IMPROVE_ENABLED', path: 'selfImprove.enabled', type: 'bool' },
   { env: 'SYNAPTOMIND_SELF_IMPROVE_INTERVAL_MS', path: 'selfImprove.intervalMs', type: 'int' },

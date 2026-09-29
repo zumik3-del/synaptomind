@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { config } from '../../config'
 import type {
   ClusterlessDense,
   EmptyCluster,
@@ -41,7 +42,21 @@ export function findOrphanedClusterMembers(db: Database): OrphanedClusterMember[
   `).all() as OrphanedClusterMember[]
 }
 
-export function findClusterlessDense(db: Database, minEdges: number = 5): ClusterlessDense[] {
+/**
+ * Dense regular thoughts that no cluster has picked up yet.
+ *
+ * `minAgeDays` mirrors `autoCluster.minAgeDays` by default: auto-cluster only
+ * considers candidates older than that window, so flagging younger thoughts
+ * would be a structural false positive they cannot yet be repaired from.
+ * Keep the two aligned (see the registration comment in
+ * `src/services/health-check.service.ts`).
+ */
+export function findClusterlessDense(
+  db: Database,
+  minEdges: number = 5,
+  minAgeDays: number = config.autoCluster.minAgeDays
+): ClusterlessDense[] {
+  const cutoff = new Date(Date.now() - minAgeDays * 86400000).toISOString()
   return db.prepare(`
     SELECT t.id, t.content, COUNT(e.id) AS edge_count
     FROM thoughts t
@@ -49,6 +64,7 @@ export function findClusterlessDense(db: Database, minEdges: number = 5): Cluste
       AND e.type = 'related'
     WHERE t.is_cluster = 0
       AND t.status = 'active'
+      AND t.created_at <= ?
       AND NOT EXISTS (
         SELECT 1 FROM edges ce
         WHERE (ce.source_id = t.id OR ce.target_id = t.id)
@@ -56,7 +72,7 @@ export function findClusterlessDense(db: Database, minEdges: number = 5): Cluste
       )
     GROUP BY t.id
     HAVING edge_count >= ?
-  `).all(minEdges) as ClusterlessDense[]
+  `).all(cutoff, minEdges) as ClusterlessDense[]
 }
 
 export function findIslandThoughts(db: Database): IslandThought[] {
