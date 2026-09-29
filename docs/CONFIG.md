@@ -192,6 +192,21 @@ Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory
 
 ---
 
+## Triage
+
+Deterministic draft triage (ADR 2026-09-29). A triage run turns plain drafts into `triage_activate` / `triage_archive` verdicts in the placement-proposal review queue (see §Placement). The caps below bound one autonomy run: phase 1 applies the triage verdicts, phase 2 runs the existing placement engine for activated thoughts. `requireDryRunFirst` forces a preview before a run may confirm, so nothing is applied without an explicit `confirm:true`.
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `triage.enabled` | `SYNAPTOMIND_TRIAGE_ENABLED` | `true` | Master switch for the triage pipeline |
+| `triage.maxItemsPerRun` | `SYNAPTOMIND_TRIAGE_MAX_ITEMS_PER_RUN` | `25` | Max triage verdicts applied per run. Excess items are refused with a typed error, never partially applied |
+| `triage.maxArchivesPerRun` | `SYNAPTOMIND_TRIAGE_MAX_ARCHIVES_PER_RUN` | `25` | Max `triage_archive` verdicts (draft archived as a near-duplicate) per run |
+| `triage.maxLinksPerRun` | `SYNAPTOMIND_TRIAGE_MAX_LINKS_PER_RUN` | `20` | Max phase-2 link proposals per run. Mirrors `autoLink.maxEdgesPerRun` |
+| `triage.requireDryRunFirst` | `SYNAPTOMIND_TRIAGE_REQUIRE_DRY_RUN_FIRST` | `true` | Require a dry-run preview before a run may be confirmed |
+| `triage.backfillEnabled` | `SYNAPTOMIND_TRIAGE_BACKFILL_ENABLED` | `true` | Enable the bounded, idempotent backfill sweep that enqueues triage items for drafts that have no live/accepted row yet |
+
+---
+
 ## Self-Improve
 
 Automatic graph maintenance (disabled by default).
@@ -323,6 +338,10 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
     "maxCandidates": 100, "maxProposals": 20
   },
   "placement": { "maxClusterSize": 50, "proposalTtlDays": 30, "maxPendingProposals": 500 },
+  "triage": {
+    "enabled": true, "maxItemsPerRun": 25, "maxArchivesPerRun": 25,
+    "maxLinksPerRun": 20, "requireDryRunFirst": true, "backfillEnabled": true
+  },
   "selfImprove": {
     "enabled": false, "intervalMs": 86400000,
     "orphanThreshold": 0.5, "activationThreshold": 0.3,

@@ -91,6 +91,7 @@ const TOOL_ROUTES: Record<string, { default?: ToolRoute; actions?: Record<string
       list: { action: 'read', toolName: 'list_placement_proposals' },
       apply: { action: 'write', toolName: 'apply_placement_proposal' },
       apply_batch: { action: 'write', toolName: 'apply_placement_proposals' },
+      rollback: { action: 'write', toolName: 'rollback_placement_proposals' },
       reject: { action: 'write', toolName: 'reject_placement_proposal' }
     }
   },

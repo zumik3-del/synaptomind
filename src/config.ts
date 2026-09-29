@@ -36,6 +36,10 @@ interface Config {
   placement: {
     maxClusterSize: number; proposalTtlDays: number; maxPendingProposals: number
   }
+  triage: {
+    enabled: boolean; maxItemsPerRun: number; maxArchivesPerRun: number;
+    maxLinksPerRun: number; requireDryRunFirst: boolean; backfillEnabled: boolean
+  }
   selfImprove: {
     enabled: boolean; intervalMs: number; orphanThreshold: number;
     activationThreshold: number; hitsThreshold: number;
@@ -93,6 +97,13 @@ export const DEFAULTS: Config = {
   // `proposalTtlDays` bounds the review queue (ADR §2.4): terminal rows are
   // pruned after the TTL and live `pending` rows use `expires_at`.
   placement: { maxClusterSize: 50, proposalTtlDays: 30, maxPendingProposals: 500 },
+  // Draft-triage per-run caps (ADR 2026-09-29 §2.7/§2.8). `maxLinksPerRun`
+  // mirrors `autoLink.maxEdgesPerRun` (phase-2 link proposals), and
+  // `requireDryRunFirst` forces a preview before a run may confirm.
+  triage: {
+    enabled: true, maxItemsPerRun: 25, maxArchivesPerRun: 25,
+    maxLinksPerRun: 20, requireDryRunFirst: true, backfillEnabled: true
+  },
   selfImprove: {
     enabled: false, intervalMs: 86400000, orphanThreshold: 0.5,
     activationThreshold: 0.3, hitsThreshold: 5,
@@ -180,6 +191,13 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   { env: 'SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE', path: 'placement.maxClusterSize', type: 'int' },
   { env: 'SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS', path: 'placement.proposalTtlDays', type: 'int' },
   { env: 'SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS', path: 'placement.maxPendingProposals', type: 'int' },
+
+  { env: 'SYNAPTOMIND_TRIAGE_ENABLED', path: 'triage.enabled', type: 'bool' },
+  { env: 'SYNAPTOMIND_TRIAGE_MAX_ITEMS_PER_RUN', path: 'triage.maxItemsPerRun', type: 'int' },
+  { env: 'SYNAPTOMIND_TRIAGE_MAX_ARCHIVES_PER_RUN', path: 'triage.maxArchivesPerRun', type: 'int' },
+  { env: 'SYNAPTOMIND_TRIAGE_MAX_LINKS_PER_RUN', path: 'triage.maxLinksPerRun', type: 'int' },
+  { env: 'SYNAPTOMIND_TRIAGE_REQUIRE_DRY_RUN_FIRST', path: 'triage.requireDryRunFirst', type: 'bool' },
+  { env: 'SYNAPTOMIND_TRIAGE_BACKFILL_ENABLED', path: 'triage.backfillEnabled', type: 'bool' },
 
   { env: 'SYNAPTOMIND_SELF_IMPROVE_ENABLED', path: 'selfImprove.enabled', type: 'bool' },
   { env: 'SYNAPTOMIND_SELF_IMPROVE_INTERVAL_MS', path: 'selfImprove.intervalMs', type: 'int' },

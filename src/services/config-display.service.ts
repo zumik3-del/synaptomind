@@ -24,7 +24,7 @@ const SECTION_LABELS: Record<string, string> = {
   primer: 'Primer', verify: 'Verify',
   autoCluster: 'Auto Cluster', autoLink: 'Auto Link', selfImprove: 'Self Improve',
   edgeDetect: 'Edge Detect', slots: 'Slots', git: 'Git', search: 'Search',
-  placement: 'Placement'
+  placement: 'Placement', triage: 'Triage'
 }
 
 // Filesystem layout must not leak to MCP clients: redact path-bearing settings.

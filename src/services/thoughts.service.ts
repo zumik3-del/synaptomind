@@ -20,6 +20,7 @@ import type { ThoughtStatus } from '../types/thought'
 import { validateContentLength, validateStatus } from '../validation'
 import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from '../errors'
 import { transferEdgesFromSource, validateMergePreconditions } from './merge'
+import { enqueueTriageItem } from './triage.service'
 
 export function getThoughtById(id: string, d: Database = getDb()): Thought | null {
   return dbGetThought(d, id) ?? null
@@ -57,6 +58,18 @@ export function createThoughtWithParent(
     return thought
   })
   const thought = create()
+  // ADR 2026-09-29 §2.3.2: after the create transaction commits, give every
+  // newly created plain draft one triage item. Best-effort — triage must never
+  // fail a create; `enqueueTriageItem`'s guard is the sole classifier (draft &&
+  // !cluster && !profile && !scheduled reminder).
+  try {
+    enqueueTriageItem(thought, d)
+  } catch (err) {
+    insertLog('warning', 'triage', `Failed to enqueue triage item for thought ${thought.id}`, {
+      thought_id: thought.id,
+      error: err instanceof Error ? err.message : String(err)
+    })
+  }
   return { ...thought, content_language: config.contentLanguage } as Thought
 }
 

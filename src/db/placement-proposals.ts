@@ -1,10 +1,16 @@
 import type { Database } from 'bun:sqlite'
 
-/** Item classes a placement plan maps to (ADR §2.1). */
-export type ProposalItemKind = 'edge' | 'placement' | 'lifecycle'
+/**
+ * Item classes a placement plan maps to (ADR §2.1). `triage_activate` /
+ * `triage_archive` are the deterministic draft-triage verdicts (ADR 2026-09-29 §2.2).
+ */
+export type ProposalItemKind = 'edge' | 'placement' | 'lifecycle' | 'triage_activate' | 'triage_archive'
 
-/** Queue lifecycle: `pending` is live, every other state is terminal (ADR §2.2). */
-export type ProposalState = 'pending' | 'accepted' | 'rejected' | 'expired' | 'stale'
+/**
+ * Queue lifecycle: `pending` is live, every other state is terminal (ADR §2.2).
+ * `rolled_back` marks rows reverted by an explicit run rollback (ADR 2026-09-29 §2.8).
+ */
+export type ProposalState = 'pending' | 'accepted' | 'rejected' | 'expired' | 'stale' | 'rolled_back'
 
 export interface PlacementProposalRow {
   id: string
@@ -19,6 +25,8 @@ export interface PlacementProposalRow {
   rationale: string
   rule_id: string | null
   payload: string
+  /** Run envelope of the explicit apply/rollback run that decided the row. */
+  run_id: string | null
   state: ProposalState
   fingerprint: string
   created_at: string
@@ -44,11 +52,14 @@ export interface InsertProposalInput {
   payload: string
   fingerprint: string
   expires_at?: string | null
+  run_id?: string | null
 }
 
 export interface ListProposalsOptions {
   state?: ProposalState
   project_id?: string
+  /** Optional item-kind filter (ADR 2026-09-29 §2.7). */
+  item_kind?: ProposalItemKind
   limit?: number
 }
 
@@ -58,6 +69,14 @@ export interface UpdateProposalStateInput {
   decided_by?: string | null
   applied_at?: string | null
   result?: string | null
+  /** Run envelope; omitted leaves any existing `run_id` untouched. */
+  run_id?: string | null
+  /**
+   * Refresh the staleness fingerprint; omitted leaves the stored value. Apply
+   * rewrites it to the post-writer snapshot so rollback can detect later drift
+   * (ADR 2026-09-29 §2.8).
+   */
+  fingerprint?: string | null
 }
 
 /**
@@ -91,8 +110,8 @@ export function insertProposal(db: Database, input: InsertProposalInput): Placem
   db.prepare(`
     INSERT INTO placement_proposals (
       id, project_id, source_thought_id, item_kind, target_id, edge_type, lifecycle_action,
-      direction, confidence, rationale, rule_id, payload, state, fingerprint, created_at, expires_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+      direction, confidence, rationale, rule_id, payload, state, fingerprint, created_at, expires_at, run_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
   `).run(
     id,
     input.project_id ?? null,
@@ -108,7 +127,8 @@ export function insertProposal(db: Database, input: InsertProposalInput): Placem
     input.payload,
     input.fingerprint,
     now,
-    input.expires_at ?? null
+    input.expires_at ?? null,
+    input.run_id ?? null
   )
   return getProposal(db, id) as PlacementProposalRow
 }
@@ -130,10 +150,21 @@ export function listProposals(db: Database, options: ListProposalsOptions = {}):
     clauses.push('project_id = ?')
     params.push(options.project_id)
   }
+  if (options.item_kind !== undefined) {
+    clauses.push('item_kind = ?')
+    params.push(options.item_kind)
+  }
   params.push(limit)
   return db
     .prepare(`SELECT * FROM placement_proposals WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT ?`)
     .all(...params) as PlacementProposalRow[]
+}
+
+/** List every row of one run, newest first, across all states (ADR 2026-09-29 §2.2). */
+export function listProposalsByRun(db: Database, runId: string): PlacementProposalRow[] {
+  return db
+    .prepare('SELECT * FROM placement_proposals WHERE run_id = ? ORDER BY created_at DESC')
+    .all(runId) as PlacementProposalRow[]
 }
 
 /** Transition a proposal to a terminal state, recording the decision metadata. */
@@ -145,7 +176,7 @@ export function updateProposalState(
   const result = db
     .prepare(
       `UPDATE placement_proposals
-         SET state = ?, decided_at = ?, decided_by = ?, applied_at = ?, result = ?
+         SET state = ?, decided_at = ?, decided_by = ?, applied_at = ?, result = ?, run_id = COALESCE(?, run_id), fingerprint = COALESCE(?, fingerprint)
        WHERE id = ?`
     )
     .run(
@@ -154,6 +185,8 @@ export function updateProposalState(
       input.decided_by ?? null,
       input.applied_at ?? null,
       input.result ?? null,
+      input.run_id ?? null,
+      input.fingerprint ?? null,
       id
     )
   if (result.changes === 0) return undefined

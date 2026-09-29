@@ -2,7 +2,8 @@
  * Contract tests for the R5 HTTP /api/proposals surface (task #978, epic #964).
  *
  * Covers error envelopes (unknown id, missing param, double reject), status
- * codes, and telemetry `action` values (read on list, write on enqueue/apply/reject).
+ * codes, telemetry `action` values (read on list, write on enqueue/apply/reject),
+ * and the rollback endpoint (ADR §2.8).
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { config } from '../config'
@@ -291,6 +292,139 @@ describe('POST /api/proposals/:id/reject', () => {
       expect(rows.length).toBe(1)
       expect(rows[0].action).toBe('write')
       expect(rows[0].tool_name).toBe('reject_placement_proposal')
+    })
+  })
+})
+
+// ── POST /api/proposals/rollback ──────────────────────────────────────────────
+
+/** Insert an accepted edge proposal row with a real edge so rollback can invert it. */
+function insertAcceptedEdgeRunWithRunId(
+  src: string,
+  tgt: string,
+  runId: string
+): { rowId: string; edgeId: string } {
+  const db = getDb()
+  // Create the actual edge that the proposal would have created.
+  const edgeId = Bun.randomUUIDv7()
+  const now = new Date().toISOString()
+  db.prepare(
+    `INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'related', ?)`
+  ).run(edgeId, src, tgt, now)
+  // Compute a real fingerprint so rollback does not skip on drift.
+  const source = getThoughtRow(db, src)
+  const target = getThoughtRow(db, tgt)
+  if (!source || !target) throw new Error('thought not found in test setup')
+  const fp = computeFingerprint({
+    sourceId: src,
+    sourceUpdatedAt: source.updated_at,
+    sourceStatus: source.status,
+    targetId: tgt,
+    targetUpdatedAt: target.updated_at,
+    targetStatus: target.status,
+    existingEdgeType: 'related',
+  })
+  // Insert an accepted proposal row with run_id and result referencing the edge.
+  const rowId = Bun.randomUUIDv7()
+  db.prepare(`
+    INSERT INTO placement_proposals (
+      id, project_id, source_thought_id, item_kind, target_id, edge_type, lifecycle_action,
+      direction, confidence, rationale, rule_id, payload, state, fingerprint, created_at,
+      expires_at, run_id, decided_at, decided_by, applied_at, result
+    ) VALUES (?, 'default', ?, 'edge', ?, 'related', null, 'symmetric',
+      0.8, 'contract test edge', null, '{}', 'accepted', ?, ?,
+      NULL, ?, ?, ?, ?, ?)
+  `).run(rowId, src, tgt, fp, now, runId, now, now, now, JSON.stringify({ edge_id: edgeId }))
+  return { rowId, edgeId }
+}
+
+describe('POST /api/proposals/rollback', () => {
+  test('400 when run_id is missing', async () => {
+    const res = await request('/api/proposals/rollback', {
+      method: 'POST',
+      body: JSON.stringify({}),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: string }
+    expect(body.error.toLowerCase()).toContain('run_id')
+  })
+
+  test('200 dry-run (no confirm) returns a report with reverted items, no graph mutation', async () => {
+    const src = seedThought({ content: 'rollback dry source' })
+    const tgt = seedThought({ content: 'rollback dry target' })
+    const { rowId, edgeId } = insertAcceptedEdgeRunWithRunId(src, tgt, 'run-dry')
+
+    const res = await request('/api/proposals/rollback', {
+      method: 'POST',
+      body: JSON.stringify({ run_id: 'run-dry' }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.run_id).toBe('run-dry')
+    expect(body.confirm).toBe(false)
+    expect(Array.isArray(body.items)).toBe(true)
+    expect((body.items as unknown[]).length).toBe(1)
+    expect((body.items as Array<Record<string, unknown>>)[0].action).toBe('reverted')
+    // Edge still exists — dry-run does not mutate.
+    const edge = getDb().prepare('SELECT id FROM edges WHERE id = ?').get(edgeId)
+    expect(edge).toBeDefined()
+    // Row stays accepted — dry-run does not change state.
+    expect(propState(rowId)).toBe('accepted')
+  })
+
+  test('200 with confirm:true rolls back accepted rows; edge is deleted and row state becomes rolled_back', async () => {
+    const src = seedThought({ content: 'rollback confirm source' })
+    const tgt = seedThought({ content: 'rollback confirm target' })
+    const { rowId, edgeId } = insertAcceptedEdgeRunWithRunId(src, tgt, 'run-confirm')
+
+    const res = await request('/api/proposals/rollback', {
+      method: 'POST',
+      body: JSON.stringify({ run_id: 'run-confirm', confirm: true }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.run_id).toBe('run-confirm')
+    expect(body.confirm).toBe(true)
+    expect((body.items as unknown[]).length).toBe(1)
+    expect((body.items as Array<Record<string, unknown>>)[0].action).toBe('reverted')
+    expect(body.summary).toBeDefined()
+    // Edge deleted by rollback.
+    const edge = getDb().prepare('SELECT id FROM edges WHERE id = ?').get(edgeId)
+    expect(edge).toBeFalsy()
+    // Row state transitions to rolled_back.
+    expect(propState(rowId)).toBe('rolled_back')
+  })
+
+  test('unknown run_id → 200 with empty items report', async () => {
+    const res = await request('/api/proposals/rollback', {
+      method: 'POST',
+      body: JSON.stringify({ run_id: 'no-such-run', confirm: true }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.run_id).toBe('no-such-run')
+    expect(body.items).toEqual([])
+    expect(body.summary).toEqual({ reverted: 0, skipped: 0, refused: 0 })
+  })
+
+  test('writes telemetry with action=write', async () => {
+    const src = seedThought({ content: 'telemetry-rollback source' })
+    const tgt = seedThought({ content: 'telemetry-rollback target' })
+    insertAcceptedEdgeRunWithRunId(src, tgt, 'run-tel')
+    await withMemoryLogDb(async () => {
+      await request('/api/proposals/rollback', {
+        method: 'POST',
+        body: JSON.stringify({ run_id: 'run-tel', confirm: true }),
+        headers: { 'Content-Type': 'application/json' }
+      })
+      const rows = telemetryRows()
+      expect(rows.length).toBe(1)
+      expect(rows[0].action).toBe('write')
+      expect(rows[0].tool_name).toBe('rollback_placement_proposals')
     })
   })
 })

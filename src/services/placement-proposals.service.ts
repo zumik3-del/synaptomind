@@ -31,6 +31,7 @@ import {
   updateProposalState,
   type InsertProposalInput,
   type PlacementProposalRow,
+  type ProposalItemKind,
   type ProposalState
 } from '../db/placement-proposals'
 import { getThoughtRow, type Thought } from '../db/thoughts'
@@ -64,6 +65,8 @@ export interface ListOptions {
   /** State filter; defaults to live `pending` rows (ADR §2.2). */
   state?: ProposalState
   projectId?: string
+  /** Optional item-kind filter, e.g. `triage_activate` (ADR 2026-09-29 §2.7). */
+  itemKind?: ProposalItemKind
   limit?: number
   /** Clock override for the expired-row filter (default now). */
   now?: string
@@ -177,7 +180,12 @@ export async function enqueueThoughtProposals(
 export function list(options: ListOptions = {}, d: Database = getDb()): PlacementProposalRow[] {
   const state = options.state ?? 'pending'
   const now = options.now ?? new Date().toISOString()
-  const rows = listProposals(d, { state, project_id: options.projectId, limit: options.limit ?? 100 })
+  const rows = listProposals(d, {
+    state,
+    project_id: options.projectId,
+    item_kind: options.itemKind,
+    limit: options.limit ?? 100
+  })
   if (state !== 'pending') return rows
   return rows.filter(row => row.expires_at === null || row.expires_at > now)
 }

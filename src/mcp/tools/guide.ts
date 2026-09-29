@@ -14,7 +14,7 @@ function buildGuideText(softLimit: number): string {
 | Connect | \`memory_store\` | action=link |
 | Group | \`memory_crystallize\` | action=cluster/auto_cluster |
 | Plan | \`memory_status\` | action=propose |
-| Review | \`memory_review\` | action=enqueue/list/apply/apply_batch/reject |
+| Review | \`memory_review\` | action=enqueue/list/apply/apply_batch/rollback/reject |
 | Prioritize | \`memory_status\` | action=frontier |
 | Compress | \`memory_crystallize\` | action=crystallize |
 | Maintain | \`memory_status\` | action=health |
@@ -31,7 +31,7 @@ function buildGuideText(softLimit: number): string {
 | \`memory_supersede\` | archive, merge | Version and supersede thoughts |
 | \`memory_status\` | slots, frontier, profile, config, health, edge_suggestions, propose, cleanup | Query system state |
 | \`memory_manage\` | list, create, update, delete, resolve | Project management |
-| \`memory_review\` | enqueue, list, apply, apply_batch, reject | Review and apply queued placement proposals |
+| \`memory_review\` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
 | \`memory_crystallize\` | crystallize, graph, cluster, auto_cluster | Consolidate and visualize |
 | \`memory_reflect\` | reflect, timeline | Session management |
 | \`memory_telemetry\` | query, analyze, primers | Analytics and self-improvement |
@@ -141,9 +141,11 @@ The result is a \`PlacementPlan\` — \`placement\` (cluster or parent, or null)
 
 The engine is a filter, never a source of truth: it is read-only and never writes the graph. Confirmation never goes through the plan itself: either use the existing writers directly — \`memory_store\` (action=link) for edges, \`memory_supersede\` (action=merge/archive) for a merge or supersede, \`memory_crystallize\` (action=cluster) for a placement — or queue the plan for a separate, explicit review with \`memory_review\`.
 
-\`memory_review\` persists proposals so they can be confirmed one item at a time: \`enqueue\` requires a persisted \`thought_id\` (drafts are not enqueued — create the thought first), \`list\` shows the live queue (default \`state=pending\`), and \`apply\`/\`apply_batch\`/\`reject\` are explicit writes. \`apply\` defaults to a non-mutating dry-run and executes only when \`confirm: true\`, taking a \`proposal_id\` alone — the stored target/type cannot be redirected — and re-checks the staleness fingerprint and cluster-size gates before any mutation. Each item delegates to exactly one existing writer inside its own transaction; a stale item is marked \`stale\` and must be re-proposed, never auto-repaired. Embedder unavailability degrades to lexical-only signals (\`degraded: true\`) instead of failing.
+\`memory_review\` persists proposals so they can be confirmed one item at a time: \`enqueue\` requires a persisted \`thought_id\` (drafts are not enqueued — create the thought first), \`list\` shows the live queue (default \`state=pending\`, optional \`item_kind\` filter), and \`apply\`/\`apply_batch\`/\`rollback\`/\`reject\` are explicit writes. \`apply\` defaults to a non-mutating dry-run and executes only when \`confirm: true\`, taking a \`proposal_id\` alone — the stored target/type cannot be redirected — and re-checks the staleness fingerprint and cluster-size gates before any mutation. Each item delegates to exactly one existing writer inside its own transaction; a stale item is marked \`stale\` and must be re-proposed, never auto-repaired. Embedder unavailability degrades to lexical-only signals (\`degraded: true\`) instead of failing.
 
-Typed edge proposals require a non-embedding cue; embedding similarity alone yields \`related\` with \`rationale: embedding_similarity_only\`. ADR: \`ai-workdir/synaptomind/plans/2026-09-28-placement-link-policy-engine-adr.md\`; the review queue/apply workflow is specified by \`ai-workdir/synaptomind/plans/2026-09-28-p8-review-queue-apply-adr.md\`; see also ADR #142 and task #927. HTTP parity: \`POST /api/thoughts/propose\` (see \`docs/API.md\` §Propose); the review queue is \`GET/POST /api/proposals\`, \`POST /api/proposals/:id/apply\`, \`POST /api/proposals/:id/reject\` (see \`docs/API.md\` §Review).
+**Triage items.** Draft-triage verdicts are queued as \`triage_activate\` (promote a draft to active) and \`triage_archive\` (archive a duplicate draft) alongside the engine's \`edge\`/\`placement\`/\`lifecycle\` items. They mutate a *draft* source, so they are gated before the active-source check. Applying a triage kind requires a \`run_id\`: the accepted rows of a run are its rollback manifest. \`apply_batch\` also takes \`run_id\` + \`limit\`, and a batch obeys the per-run caps \`triage.maxItemsPerRun\` and \`triage.maxArchivesPerRun\` (triage verdicts) and \`triage.maxLinksPerRun\` (\`edge\`/\`placement\`/\`lifecycle\` link items); exceeding a cap or the limit refuses the whole batch (typed \`refused\`, nothing applied). When \`triage.requireDryRunFirst\` is set (default true) a triage run must be previewed with \`confirm: false\` before any confirm; \`rollback\` (also default dry-run) reverses a run's reversible mutations and refuses a \`merge\`.
+
+Typed edge proposals require a non-embedding cue; embedding similarity alone yields \`related\` with \`rationale: embedding_similarity_only\`. ADR: \`ai-workdir/synaptomind/plans/2026-09-28-placement-link-policy-engine-adr.md\`; the review queue/apply workflow is specified by \`ai-workdir/synaptomind/plans/2026-09-28-p8-review-queue-apply-adr.md\` and the draft-triage run by \`ai-workdir/synaptomind/plans/2026-09-29-auto-draft-triage-adr.md\`; see also ADR #142 and task #927. HTTP parity: \`POST /api/thoughts/propose\` (see \`docs/API.md\` §Propose); the review queue is \`GET/POST /api/proposals\`, \`POST /api/proposals/:id/apply\`, \`POST /api/proposals/rollback\`, \`POST /api/proposals/:id/reject\` (see \`docs/API.md\` §Review).
 
 ## Crystals
 
