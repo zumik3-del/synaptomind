@@ -206,9 +206,12 @@ export async function proposePlacementPlan(
 
   let placement: PlacementProposal | null = null
   if (!degraded) {
+    // Reuse the pairs the shared pass above already produced: the proposer
+    // would otherwise rebuild the same pool and repeat the vector search
+    // (ADR §2.2 "must not duplicate").
     const decision = await proposePlacement(
       thought,
-      { projectId, maxClusterSize, minSimilarity, topK, maxCandidates },
+      { projectId, maxClusterSize, minSimilarity, topK, maxCandidates, precomputedPairs: pairs },
       { ...deps, embed },
       d
     )

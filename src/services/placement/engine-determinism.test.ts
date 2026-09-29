@@ -120,6 +120,38 @@ describe('proposePlacementPlan', () => {
     })
   })
 
+  // ── cost: the shared embedding pass is not repeated ────────────────────────
+
+  describe('single embedding pass', () => {
+    test('one plan embeds and searches each candidate exactly once', async () => {
+      const db = getDb()
+      seedThought({ id: 'cost-s', content: 'topic alpha', created_at: T0 })
+      seedThought({ id: 'cost-a', content: 'topic beta',  created_at: T0 })
+      seedThought({ id: 'cost-b', content: 'topic gamma', created_at: T0 })
+
+      let searchCalls = 0
+      const countingSearch = (_id: string, _emb: Float32Array, _topK: number) => {
+        searchCalls++
+        return [{ id: 'cost-a', similarity: 0.9 }, { id: 'cost-b', similarity: 0.8 }]
+      }
+      const embedSizes: number[] = []
+
+      const p = await proposePlacementPlan(
+        { thoughtId: 'cost-s' },
+        { now: NOW, minSimilarity: 0.1, topK: 10, maxCandidates: 50 },
+        { embed: okEmbed(embedSizes), searchNeighbors: countingSearch },
+        db
+      )
+
+      const poolSize = 3 // source + two candidates
+      // The proposer reuses the engine's pairs instead of rebuilding the pool
+      // and repeating the vector search (ADR §2.2 "must not duplicate").
+      expect(embedSizes).toEqual([poolSize])
+      expect(searchCalls).toBe(poolSize)
+      expect(p.degraded).toBe(false)
+    })
+  })
+
   // ── degraded path ────────────────────────────────────────────────────────
 
   describe('degraded path: embedder failure or mismatch', () => {

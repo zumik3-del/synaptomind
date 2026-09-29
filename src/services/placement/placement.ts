@@ -54,6 +54,16 @@ export interface PlacementOptions {
   topK?: number
   /** Candidate-pool bound (default `edgeDetect.maxCandidates`). */
   maxCandidates?: number
+  /**
+   * Precomputed embedding-neighbour pairs for this thought, produced by the
+   * shared pool the caller already built. When set, {@link proposePlacement}
+   * skips the candidate-pool build, the embedder round-trip and the vector
+   * search and derives its neighbours from these pairs directly. This is the
+   * seam that lets the engine reuse its single embedding pass instead of
+   * repeating it (ADR §2.2 "must not duplicate"); the pairs are identical to
+   * what this function would compute, so determinism is unchanged.
+   */
+  precomputedPairs?: ReturnType<typeof findEmbeddingNeighborPairs>
 }
 
 /** Injectable dependencies, mirroring `EdgeDetectDeps` for deterministic tests. */
@@ -206,39 +216,48 @@ export async function proposePlacement(
 
   if (thought.is_cluster) return noPlacement('source is a cluster thought')
 
-  const pool = buildCandidatePool(d, thought, projectId, maxCandidates)
-  const embed = deps.embed ?? generateEmbeddings
+  let pairs: ReturnType<typeof findEmbeddingNeighborPairs>
 
-  let embeddings: Float32Array[]
-  try {
-    embeddings = await embed(pool.map(t => t.content))
-  } catch (err) {
-    console.error('[placement] embedding failed, no placement proposed:', err)
-    return noPlacement('embedder unavailable')
+  if (options.precomputedPairs) {
+    // The caller already built the pool and ran the single shared embedding
+    // pass; reuse its pairs instead of repeating the vector search.
+    pairs = options.precomputedPairs
+  } else {
+    const pool = buildCandidatePool(d, thought, projectId, maxCandidates)
+    const embed = deps.embed ?? generateEmbeddings
+
+    let embeddings: Float32Array[]
+    try {
+      embeddings = await embed(pool.map(t => t.content))
+    } catch (err) {
+      console.error('[placement] embedding failed, no placement proposed:', err)
+      return noPlacement('embedder unavailable')
+    }
+    if (embeddings.length !== pool.length) {
+      console.error(`[placement] embedder returned ${embeddings.length} vectors for ${pool.length} candidates`)
+      return noPlacement('embedder returned a mismatched number of vectors')
+    }
+
+    const searchNeighbors: SearchNeighborsFn =
+      deps.searchNeighbors ??
+      ((_id, embedding, k) => {
+        try {
+          return searchThoughts(d, {
+            embedding,
+            topK: k,
+            statusFilter: 'active',
+            projectFilter: projectId,
+            hybrid: false
+          }).map(r => ({ id: r.thought.id, similarity: r.similarity }))
+        } catch (err) {
+          console.debug('[placement] neighbour search failed:', err)
+          return []
+        }
+      })
+
+    pairs = findEmbeddingNeighborPairs(pool, embeddings, minSimilarity, searchNeighbors, topK)
   }
-  if (embeddings.length !== pool.length) {
-    console.error(`[placement] embedder returned ${embeddings.length} vectors for ${pool.length} candidates`)
-    return noPlacement('embedder returned a mismatched number of vectors')
-  }
 
-  const searchNeighbors: SearchNeighborsFn =
-    deps.searchNeighbors ??
-    ((_id, embedding, k) => {
-      try {
-        return searchThoughts(d, {
-          embedding,
-          topK: k,
-          statusFilter: 'active',
-          projectFilter: projectId,
-          hybrid: false
-        }).map(r => ({ id: r.thought.id, similarity: r.similarity }))
-      } catch (err) {
-        console.debug('[placement] neighbour search failed:', err)
-        return []
-      }
-    })
-
-  const pairs = findEmbeddingNeighborPairs(pool, embeddings, minSimilarity, searchNeighbors, topK)
   const neighbors = neighborsOf(thought.id, pairs)
   if (neighbors.length === 0) return noPlacement('no embedding neighbours above the similarity threshold')
 
