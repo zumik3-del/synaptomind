@@ -190,11 +190,17 @@ function triageFingerprint(d: Database, draft: Thought, targetId: string | null)
 
 /**
  * Enqueue exactly one triage row for a plain draft (ADR §2.3.1). Returns `null`
- * when the guard rejects the thought (non-draft, cluster/profile, reminder);
- * dedup/refresh for the same `(source, kind, target)` is delegated to
- * `insertProposal`'s partial unique index.
+ * when the guard rejects the thought (non-draft, cluster/profile, reminder) or
+ * when the documented `triage.enabled` master switch is off; dedup/refresh for
+ * the same `(source, kind, target)` is delegated to `insertProposal`'s partial
+ * unique index.
+ *
+ * This is the single seam every triage producer goes through — the create path
+ * in `thoughts.service.ts` and the backfill sweep below — so the master switch
+ * is honoured in exactly one place.
  */
 export function enqueueTriageItem(draft: Thought, d: Database = getDb()): PlacementProposalRow | null {
+  if (!config.triage.enabled) return null
   const now = new Date().toISOString()
   if (!isTriageCandidate(draft, now)) return null
 
@@ -274,17 +280,17 @@ export function runTriageBackfill(
 }
 
 /**
- * Periodic self-healing sweep (ADR 2026-09-29 §2.3.3), gated by
- * `config.triage.backfillEnabled` (default true) and bounded by
- * `config.triage.maxItemsPerRun`. Mirrors the existing interval-job pattern
- * (`decay.service.ts`, `placement-retention.service.ts`); the sweep itself is
- * idempotent, so a re-run enqueues 0.
+ * Periodic self-healing sweep (ADR 2026-09-29 §2.3.3), gated by the
+ * `triage.enabled` master switch and `config.triage.backfillEnabled` (default
+ * true) and bounded by `config.triage.maxItemsPerRun`. Mirrors the existing
+ * interval-job pattern (`decay.service.ts`, `placement-retention.service.ts`);
+ * the sweep itself is idempotent, so a re-run enqueues 0.
  */
 const backfillJob = createIntervalJob(
   {
     name: 'triage-backfill',
     intervalMs: config.ttl.cleanupIntervalMs,
-    guard: () => config.triage.backfillEnabled,
+    guard: () => config.triage.enabled && config.triage.backfillEnabled,
     onError: err => insertLog('warning', 'triage', 'Triage backfill job failed', { error: String(err) })
   },
   () => {

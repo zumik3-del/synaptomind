@@ -766,4 +766,29 @@ describe('backfill job lifecycle', () => {
       config.triage.backfillEnabled = original
     }
   })
+
+  test('triage.enabled=false is the master switch: no draft is triaged anywhere', () => {
+    const db = getDb()
+    const original = config.triage.enabled
+    config.triage.enabled = false
+    try {
+      seedDistinctActive()
+      const draftId = seedThought({
+        id: 'master-off-draft',
+        content: 'master switch subject',
+        status: 'draft',
+        created_at: NOW,
+      })
+      const draft = getThoughtRow(db, draftId)!
+
+      // The enqueue seam is shared by the create path and the backfill sweep,
+      // so switching it off must silence both.
+      expect(enqueueTriageItem(draft, db)).toBeNull()
+      expect(runTriageBackfill(DEFAULT_BACKFILL_LIMIT, db).enqueued).toBe(0)
+      const rows = db.prepare('SELECT COUNT(*) AS n FROM placement_proposals').get() as { n: number }
+      expect(rows.n).toBe(0)
+    } finally {
+      config.triage.enabled = original
+    }
+  })
 })
