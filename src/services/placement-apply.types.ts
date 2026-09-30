@@ -67,6 +67,14 @@ export interface AcceptedApplyResult extends ApplyResultBase {
   idempotent: boolean
   calls: PlannedWriterCall[]
   result: string | null
+  /**
+   * Run envelope the row was accepted under, echoed from `row.run_id` so the
+   * caller can `rollback(run_id)` without a second query (ADR 2026-09-29 §2.7).
+   * Never null for an apply the service accepted: a confirming apply that the
+   * caller left un-enveloped gets a synthesized `auto-…` id. Null only when
+   * re-reading a row accepted before ids were recorded.
+   */
+  run_id: string | null
 }
 
 export interface StaleApplyResult extends ApplyResultBase {
@@ -92,6 +100,13 @@ export interface ApplyBatchOutcome {
   errors: Array<{ proposal_id: string; error: string }>
   /** Present when the whole batch was refused before any item ran (no partial surprise). */
   refused?: RunRefusal
+  /**
+   * The one run envelope every row this batch accepted shares, so a single
+   * `rollback(run_id)` reverts the whole batch (ADR 2026-09-29 §2.7, §2.8).
+   * The caller's own id when it supplied one, otherwise the synthesized
+   * `auto-…` id; absent when the batch decided nothing that needs an envelope.
+   */
+  run_id?: string | null
 }
 
 /** Options for the run-scoped rollback (ADR 2026-09-29 §2.8). */

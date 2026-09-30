@@ -19,6 +19,13 @@
  * `updateThoughtById`/`archiveThoughtById`; the accepted row records the
  * `run_id` envelope that `rollback` (in `placement-rollback.service.ts`)
  * inverts later.
+ *
+ * Every row this service accepts carries such an envelope (ADR 2026-09-29
+ * §2.7, §2.8): the caller's `run_id` verbatim, or — for a non-triage item the
+ * caller left un-enveloped — one synthesized here and handed back, so no
+ * committed mutation is unreachable by `rollback(run_id)`. Triage kinds keep
+ * requiring a caller-supplied `run_id`; `applyBatch` shares one envelope
+ * across the whole batch.
  */
 
 import type { Database } from 'bun:sqlite'
@@ -78,11 +85,11 @@ interface WriterRun {
 function executeWriter(row: PlacementProposalRow, options: ApplyOptions, d: Database): WriterRun {
   if (row.item_kind === 'triage_activate') {
     updateThoughtById(row.source_thought_id, { status: 'active' }, d)
-    return { calls: plannedCalls(row, options), result: triageEnvelope(row, options, 'active') }
+    return { calls: plannedCalls(row, options), result: triageEnvelope(row, 'active') }
   }
   if (row.item_kind === 'triage_archive') {
     archiveThoughtById(row.source_thought_id, d)
-    return { calls: plannedCalls(row, options), result: triageEnvelope(row, options, 'archived') }
+    return { calls: plannedCalls(row, options), result: triageEnvelope(row, 'archived') }
   }
   const edge = plannedEdge(row, options)
   if (edge) {
@@ -100,15 +107,29 @@ function executeWriter(row: PlacementProposalRow, options: ApplyOptions, d: Data
   throw new ValidationError('proposal has no supported apply action')
 }
 
-/** The provenance envelope a triage apply records (ADR 2026-09-29 §2.3.4). */
-function triageEnvelope(row: PlacementProposalRow, options: ApplyOptions, afterStatus: 'active' | 'archived'): Record<string, unknown> {
+/**
+ * The provenance envelope a triage apply records (ADR 2026-09-29 §2.3.4).
+ * `run_id` is deliberately absent: the accepting branch stamps the resolved
+ * envelope id into the stored JSON for every kind, so one place writes it.
+ */
+function triageEnvelope(row: PlacementProposalRow, afterStatus: 'active' | 'archived'): Record<string, unknown> {
   return {
-    run_id: options.runId ?? null,
     before_status: 'draft',
     after_status: afterStatus,
     rule_id: row.rule_id,
     target_id: row.target_id
   }
+}
+
+/**
+ * The run envelope of a confirming apply the caller did not group into a run
+ * (ADR 2026-09-29 §2.7 "run_id on every row", §2.8 rollback by `run_id`).
+ * Without it an accepted row is a committed graph mutation that no
+ * `rollback(run_id)` can reach. `auto-` marks the envelope as synthesized in
+ * rows and logs — advisory only, a caller id that looks like this still works.
+ */
+function autoRunId(): string {
+  return `auto-${Bun.randomUUIDv7()}`
 }
 
 /**
@@ -152,16 +173,28 @@ function mapWriterError(err: unknown): WriterErrorOutcome {
   return { kind: 'failed', reason: err instanceof Error ? err.message : String(err) }
 }
 
-/** Mark an already-satisfied item accepted without calling a writer (ADR §2.7). */
-function acceptIdempotent(row: PlacementProposalRow, now: string, decidedBy: string | null, options: ApplyOptions, d: Database): AcceptedApplyResult {
-  const result = JSON.stringify({ idempotent: true })
-  updateProposalState(d, row.id, { state: 'accepted', decided_at: now, decided_by: decidedBy, applied_at: now, result, run_id: options.runId })
+/**
+ * Mark an already-satisfied item accepted without calling a writer (ADR §2.7).
+ * It mutates nothing, but it is still an accepted row and still joins a run —
+ * `rollback` reads `result.idempotent` to report it as `skipped`, not reverted.
+ */
+function acceptIdempotent(
+  row: PlacementProposalRow,
+  now: string,
+  decidedBy: string | null,
+  options: ApplyOptions,
+  runId: string | null,
+  d: Database
+): AcceptedApplyResult {
+  const result = JSON.stringify({ idempotent: true, run_id: runId })
+  updateProposalState(d, row.id, { state: 'accepted', decided_at: now, decided_by: decidedBy, applied_at: now, result, run_id: runId })
   insertLog('info', 'placement', `Applied placement proposal ${row.id} (idempotent)`, {
     proposal_id: row.id,
     item_kind: row.item_kind,
-    agent: decidedBy
+    agent: decidedBy,
+    run_id: runId
   })
-  return { proposal_id: row.id, item_kind: row.item_kind, status: 'accepted', idempotent: true, calls: plannedCalls(row, options), result }
+  return { proposal_id: row.id, item_kind: row.item_kind, status: 'accepted', idempotent: true, calls: plannedCalls(row, options), result, run_id: runId }
 }
 
 /**
@@ -196,9 +229,10 @@ export function applyProposal(proposalId: string, options: ApplyOptions = {}, d:
   const base = { proposal_id: proposalId, item_kind: row.item_kind }
 
   // Re-applying an accepted row is idempotent: the queue row is the guard and
-  // no writer is called (ADR §2.7).
+  // no writer is called (ADR §2.7). The run it was accepted under is echoed
+  // back, so this stays a faithful report of the row.
   if (row.state === 'accepted') {
-    return { ...base, status: 'accepted', idempotent: true, calls: [], result: row.result }
+    return { ...base, status: 'accepted', idempotent: true, calls: [], result: row.result, run_id: row.run_id }
   }
   if (row.state === 'stale') return { ...base, status: 'stale', reason: 'proposal is already stale' }
   if (row.state !== 'pending') return { ...base, status: 'failed', reason: `proposal is '${row.state}', not 'pending'` }
@@ -234,7 +268,16 @@ export function applyProposal(proposalId: string, options: ApplyOptions = {}, d:
     persistOutcome(row, 'failed', gate.reason, now, decidedBy, d)
     return { ...base, status: 'failed', reason: gate.reason }
   }
-  if (gate.kind === 'already_applied') return acceptIdempotent(row, now, decidedBy, options, d)
+
+  // The envelope every accepted row carries (ADR 2026-09-29 §2.7, §2.8): the
+  // caller's id verbatim, or — for a non-triage item the caller left
+  // un-enveloped — a synthesized one, so the mutation is never unreachable by
+  // `rollback(run_id)`. This is past the dry-run branch and the triage refusal
+  // above, so nothing is synthesized for a preview and a synthesized id can
+  // never satisfy `run_id_required` (triage kinds keep requiring the caller's).
+  const runId = options.runId ?? (isTriageKind(row.item_kind) ? null : autoRunId())
+
+  if (gate.kind === 'already_applied') return acceptIdempotent(row, now, decidedBy, options, runId, d)
 
   try {
     // One item = one transaction: the existing writer and the queue-state
@@ -242,14 +285,16 @@ export function applyProposal(proposalId: string, options: ApplyOptions = {}, d:
     // savepoints, so a writer failure rolls both back.
     const run = d.transaction(() => {
       const executed = executeWriter(row, options, d)
-      const result = JSON.stringify(executed.result)
+      // The column is the rollback key; the id is echoed into the stored JSON
+      // and the log purely for audit (`result` stays opaque JSON elsewhere).
+      const result = JSON.stringify({ ...executed.result, run_id: runId })
       const updated = updateProposalState(d, proposalId, {
         state: 'accepted',
         decided_at: now,
         decided_by: decidedBy,
         applied_at: now,
         result,
-        run_id: options.runId,
+        run_id: runId,
         fingerprint: postWriterFingerprint(d, row)
       })
       return { executed, updated }
@@ -261,6 +306,7 @@ export function applyProposal(proposalId: string, options: ApplyOptions = {}, d:
       source_id: row.source_thought_id,
       target_id: row.target_id,
       agent: decidedBy,
+      run_id: runId,
       result: outcome.executed.result
     })
     return {
@@ -268,7 +314,8 @@ export function applyProposal(proposalId: string, options: ApplyOptions = {}, d:
       status: 'accepted',
       idempotent: false,
       calls: outcome.executed.calls,
-      result: outcome.updated?.result ?? null
+      result: outcome.updated?.result ?? null,
+      run_id: runId
     }
   } catch (err) {
     const mapped = mapWriterError(err)
@@ -281,7 +328,7 @@ export function applyProposal(proposalId: string, options: ApplyOptions = {}, d:
       return { ...base, status: 'failed', reason: mapped.reason }
     }
     // already_applied: the writer signalled the requested state already held.
-    return acceptIdempotent(row, now, decidedBy, options, d)
+    return acceptIdempotent(row, now, decidedBy, options, runId, d)
   }
 }
 
@@ -303,14 +350,28 @@ export function applyBatch(
   const refusal = checkBatchGuards(rows, proposalIds.length, options, d)
   if (refusal) return { results: [], errors: [], refused: refusal }
 
+  // One envelope for the whole batch, not one per item: the batch *is* the run,
+  // and a single `rollback(run_id)` must revert everything it committed
+  // (ADR 2026-09-29 §2.7, §2.8). Synthesized only for a confirming batch that
+  // the caller left un-enveloped and that will decide at least one pending
+  // non-triage row — a dry-run decides nothing, and the guard above already
+  // refused any batch holding a pending triage row, so this cannot satisfy
+  // `run_id_required`.
+  const decidesPendingNonTriage = rows.some(row => row !== undefined && row.state === 'pending' && !isTriageKind(row.item_kind))
+  const batchRunId = options.runId ?? (options.confirm === true && decidesPendingNonTriage ? autoRunId() : undefined)
+
   const results: ApplyResult[] = []
   const errors: ApplyBatchOutcome['errors'] = []
   for (const proposalId of proposalIds) {
     try {
-      results.push(applyProposal(proposalId, options, d))
+      results.push(applyProposal(proposalId, { ...options, runId: batchRunId }, d))
     } catch (err) {
       errors.push({ proposal_id: proposalId, error: err instanceof Error ? err.message : String(err) })
     }
   }
-  return { results, errors }
+  // Hand the envelope back only when a row actually joined it: a batch that
+  // accepted nothing (e.g. every item went `stale`) has no manifest to roll
+  // back, so reporting an id there would send the caller after an empty run.
+  const joinedRun = batchRunId !== undefined && results.some(r => r.status === 'accepted' && r.run_id === batchRunId)
+  return joinedRun ? { results, errors, run_id: batchRunId } : { results, errors }
 }
