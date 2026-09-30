@@ -1,14 +1,49 @@
 # Changelog
 
-## v0.8.0
+## v0.9.0
 
-> September 27, 2026
+> September 30, 2026
 
+- [`53668b6`](https://github.com/zumik3-del/synaptomind/commit/53668b652ad51817d7695fc0fb2495835e2d193d): fix(deploy): truthful upgrade verdict, correct release channels, real backup paths
+- [`1dbb739`](https://github.com/zumik3-del/synaptomind/commit/1dbb739493d119abd18825c7b98a0ffafef56a1c): fix(deploy): guard unit syntax by measurement, and never unlink the unit
+- [`ebb26c8`](https://github.com/zumik3-del/synaptomind/commit/ebb26c8a3bad754d9ef10b1fe88a1f7015546878): fix(deploy): write unit files atomically at every entry point
+- [`cc15c74`](https://github.com/zumik3-del/synaptomind/commit/cc15c74d51349752c25e41c6067c356e80098700): fix(deploy): render the unit as data, and replace it atomically
+- [`d9ff4bb`](https://github.com/zumik3-del/synaptomind/commit/d9ff4bbd2f099f95eda1ea0f46bfd36692303a9d): fix(deploy): always restart after a graceful exit, and deliver the policy
+- [`52a84ee`](https://github.com/zumik3-del/synaptomind/commit/52a84ee22aae4eae084addf2af55229bc03c446a): test(deploy): cover the dead-embedder health gate in both directions
+- [`2fad264`](https://github.com/zumik3-del/synaptomind/commit/2fad2643249b058916bd91efcca25e141756a1a3): refactor(placement): extract the run envelope and drop the unreachable null arm
+- [`2526a0b`](https://github.com/zumik3-del/synaptomind/commit/2526a0b3866ba6d5c44e8b6f245770fe7b8b4ef8): fix(deploy): align the seeded mcp.httpPort with the instance's ports
+- [`366c83b`](https://github.com/zumik3-del/synaptomind/commit/366c83b94643bf91b2b2874bd0f125f8aa1c3187): fix(embedder): report a dead embedder instead of only "not ready"
+- [`9b464a2`](https://github.com/zumik3-del/synaptomind/commit/9b464a2357f567598198350e0008fa35d67584e7): fix(deploy): a failed unit refresh must not report a successful update
+- [`daae44c`](https://github.com/zumik3-del/synaptomind/commit/daae44cdb94944a637592cd14668ecd735af3659): docs: correct the cap and clock claims, and the ADR risk-table drift
+- [`b2f3a80`](https://github.com/zumik3-del/synaptomind/commit/b2f3a80ac53a44e590c42b67691aea6d006817a3): feat(deploy): install and update from the binary tarball (DIST=binary)
+- [`eedd1d7`](https://github.com/zumik3-del/synaptomind/commit/eedd1d71c671f65fd8aa4e7708cfbffc8777ec7b): feat(ci): publish the self-contained tarball as a release asset (ADR 0001)
+- [`79a362a`](https://github.com/zumik3-del/synaptomind/commit/79a362acb2033d7cb9bce40b10ac3e7e4db5c0c6): docs: document the run envelope and the rollback window (F-14, F-28)
+- [`d5cc492`](https://github.com/zumik3-del/synaptomind/commit/d5cc4924b6fa1a42b5ceeeea2d56b33b576f16ec): docs(adr): align ADR 0001 with the implemented code (conformance audit)
+- [`f74c944`](https://github.com/zumik3-del/synaptomind/commit/f74c9446a79913085f2644e099a334bca9d2d185): feat(placement): synthesize a run_id for un-enveloped applies (F-28)
+- [`e0bc295`](https://github.com/zumik3-del/synaptomind/commit/e0bc295919b11590be6b4bbf720247f77db6a32d): fix(placement): refuse rollback outside the proposal retention window (F-14)
+- [`92dd2fa`](https://github.com/zumik3-del/synaptomind/commit/92dd2faa3adbd5577c7fb5da00498307f63c3414): feat(build): build a self-contained binary from one artifact (ADR 0001)
+- [`fb965e9`](https://github.com/zumik3-del/synaptomind/commit/fb965e913ded4427ea5f3f7e381d7fdd566e6819): chore(deploy): correct app.env PORT to 3105
+- [`e233181`](https://github.com/zumik3-del/synaptomind/commit/e2331813709c108897cb4adafed46f022c3a72f2): fix(placement): enforce review-queue TTL, cap and gate guarantees
+- [`b519dd9`](https://github.com/zumik3-del/synaptomind/commit/b519dd9a0f56bd28f2abb671581d3247f7263945): fix(placement): log retention success at info level
+- [`aacbb9a`](https://github.com/zumik3-del/synaptomind/commit/aacbb9a6972a70e32e9e9446cd97ed68b741ac76): fix(triage): honour the triage.enabled master switch
+- [`4567577`](https://github.com/zumik3-del/synaptomind/commit/45675773f40fb66105bbc4fabef70196e4e77893): fix(placement): run the vector search once per placement plan
+- [`fe7b0bd`](https://github.com/zumik3-del/synaptomind/commit/fe7b0bd0f0d18e3da536c9b96ffc7253d8cae039): fix(placement): restore supersede rollback target to active
+- [`b91b94e`](https://github.com/zumik3-del/synaptomind/commit/b91b94e96f9d28616792bcb529a36e7fad580325): feat(triage): auto draft-triage pipeline and autonomous review envelope
+- [`6fb3042`](https://github.com/zumik3-del/synaptomind/commit/6fb3042288821efd975f4f85634ef453eabd8884): fix(placement): gate conflict rule by lexical overlap and drop task word cue
+- [`e882b38`](https://github.com/zumik3-del/synaptomind/commit/e882b38f95fcdf203d0e6435a890c7269db9e685): feat(placement): add persisted review queue and explicit apply
+- [`4469400`](https://github.com/zumik3-del/synaptomind/commit/4469400ddbb62c10b382c250ef4f986c09cc661e): feat(placement): add propose-only placement & link policy engine
+- [`8a6652b`](https://github.com/zumik3-del/synaptomind/commit/8a6652b12df0557ce5bb8d12ce1881384153ccf5): fix(mcp): honor numeric action args, label edge suggestions as related, calibrate auto-cluster
 - [`a9662db`](https://github.com/zumik3-del/synaptomind/commit/a9662db4948df28dc1d7e2979c081a8685c748cb): test(install): assert exact URLs to clear CodeQL substring warning
 - [`8e0dd4e`](https://github.com/zumik3-del/synaptomind/commit/8e0dd4e26f6a99418b50b02b7659a99b71fdb9cc): feat(install): default raw base so the piped install is a true one-liner
 - [`5628f09`](https://github.com/zumik3-del/synaptomind/commit/5628f0979a8354775f4ae0ac439f3513f6d41c90): docs: extract install/update guide to docs/DEPLOY.md and audit docs
 - [`93dc990`](https://github.com/zumik3-del/synaptomind/commit/93dc990ad17fef9d1d5567243374643a826e64ed): feat(deploy): add frozen updater.sh stable self-updating bootstrap
 - [`84f1397`](https://github.com/zumik3-del/synaptomind/commit/84f1397fc2957f861aa362874d071bb898e23dde): fix(ci): create release tag with committer identity + manual re-trigger (#160)
+
+## v0.8.0
+
+> September 28, 2026
+
+- [`3fae2bb`](https://github.com/zumik3-del/synaptomind/commit/3fae2bb0a069803f3ab0fc9e63834cafe6fce1b8): feat(deploy): add frozen updater.sh stable self-updating bootstrap (#162)
 
 ## v0.8.0-beta.2
 
