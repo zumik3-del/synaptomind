@@ -22,10 +22,10 @@
  *
  * Every row this service accepts carries such an envelope (ADR 2026-09-29
  * §2.7, §2.8): the caller's `run_id` verbatim, or — for a non-triage item the
- * caller left un-enveloped — one synthesized here and handed back, so no
- * committed mutation is unreachable by `rollback(run_id)`. Triage kinds keep
- * requiring a caller-supplied `run_id`; `applyBatch` shares one envelope
- * across the whole batch.
+ * caller left un-enveloped — one synthesized by `apply-run-envelope.ts` and
+ * handed back, so no committed mutation is unreachable by `rollback(run_id)`.
+ * Triage kinds keep requiring a caller-supplied `run_id`; `applyBatch` shares
+ * one envelope across the whole batch.
  */
 
 import type { Database } from 'bun:sqlite'
@@ -46,6 +46,7 @@ import { insertLog } from '../logging/log'
 import { evaluateGates, plannedEdge } from './apply-gates'
 import { createEdgeService } from './edges.service'
 import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriterCall } from './placement-apply.types'
+import { resolveApplyRunId, resolveBatchRunId, triageEnvelope } from './apply-run-envelope'
 import { checkBatchGuards, isTriageKind } from './apply-run-guards'
 import { computeFingerprint } from './placement-proposals.service'
 import { archiveThoughtById, mergeThoughtsService, updateThoughtById } from './thoughts.service'
@@ -108,31 +109,6 @@ function executeWriter(row: PlacementProposalRow, options: ApplyOptions, d: Data
 }
 
 /**
- * The provenance envelope a triage apply records (ADR 2026-09-29 §2.3.4).
- * `run_id` is deliberately absent: the accepting branch stamps the resolved
- * envelope id into the stored JSON for every kind, so one place writes it.
- */
-function triageEnvelope(row: PlacementProposalRow, afterStatus: 'active' | 'archived'): Record<string, unknown> {
-  return {
-    before_status: 'draft',
-    after_status: afterStatus,
-    rule_id: row.rule_id,
-    target_id: row.target_id
-  }
-}
-
-/**
- * The run envelope of a confirming apply the caller did not group into a run
- * (ADR 2026-09-29 §2.7 "run_id on every row", §2.8 rollback by `run_id`).
- * Without it an accepted row is a committed graph mutation that no
- * `rollback(run_id)` can reach. `auto-` marks the envelope as synthesized in
- * rows and logs — advisory only, a caller id that looks like this still works.
- */
-function autoRunId(): string {
-  return `auto-${Bun.randomUUIDv7()}`
-}
-
-/**
  * Fingerprint of the post-writer snapshot. Apply stores it so `rollback` can
  * distinguish "unchanged since apply" from "drifted" via the existing
  * `isProposalStale` recipe (ADR 2026-09-29 §2.8).
@@ -183,7 +159,7 @@ function acceptIdempotent(
   now: string,
   decidedBy: string | null,
   options: ApplyOptions,
-  runId: string | null,
+  runId: string,
   d: Database
 ): AcceptedApplyResult {
   const result = JSON.stringify({ idempotent: true, run_id: runId })
@@ -269,13 +245,11 @@ export function applyProposal(proposalId: string, options: ApplyOptions = {}, d:
     return { ...base, status: 'failed', reason: gate.reason }
   }
 
-  // The envelope every accepted row carries (ADR 2026-09-29 §2.7, §2.8): the
-  // caller's id verbatim, or — for a non-triage item the caller left
-  // un-enveloped — a synthesized one, so the mutation is never unreachable by
-  // `rollback(run_id)`. This is past the dry-run branch and the triage refusal
-  // above, so nothing is synthesized for a preview and a synthesized id can
+  // The envelope every accepted row carries (ADR 2026-09-29 §2.7, §2.8), and
+  // it MUST be resolved here — past the dry-run branch and the triage refusal
+  // above — so nothing is synthesized for a preview and a synthesized id can
   // never satisfy `run_id_required` (triage kinds keep requiring the caller's).
-  const runId = options.runId ?? (isTriageKind(row.item_kind) ? null : autoRunId())
+  const runId = resolveApplyRunId(options)
 
   if (gate.kind === 'already_applied') return acceptIdempotent(row, now, decidedBy, options, runId, d)
 
@@ -350,15 +324,10 @@ export function applyBatch(
   const refusal = checkBatchGuards(rows, proposalIds.length, options, d)
   if (refusal) return { results: [], errors: [], refused: refusal }
 
-  // One envelope for the whole batch, not one per item: the batch *is* the run,
-  // and a single `rollback(run_id)` must revert everything it committed
-  // (ADR 2026-09-29 §2.7, §2.8). Synthesized only for a confirming batch that
-  // the caller left un-enveloped and that will decide at least one pending
-  // non-triage row — a dry-run decides nothing, and the guard above already
-  // refused any batch holding a pending triage row, so this cannot satisfy
-  // `run_id_required`.
-  const decidesPendingNonTriage = rows.some(row => row !== undefined && row.state === 'pending' && !isTriageKind(row.item_kind))
-  const batchRunId = options.runId ?? (options.confirm === true && decidesPendingNonTriage ? autoRunId() : undefined)
+  // One envelope for the whole batch, not one per item: the batch *is* the run
+  // (ADR 2026-09-29 §2.7, §2.8). Resolved only after the guards above, which
+  // already refused any batch holding a pending triage row without a `run_id`.
+  const batchRunId = resolveBatchRunId(rows, options)
 
   const results: ApplyResult[] = []
   const errors: ApplyBatchOutcome['errors'] = []
