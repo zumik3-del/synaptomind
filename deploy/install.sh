@@ -167,6 +167,10 @@ require_binary_config() {
   [ -n "${ASSET_PATTERN:-}" ]  || error "ASSET_PATTERN is empty (required for DIST=binary)"
   [ -n "${APP_VERSION_CMD:-}" ] || error "APP_VERSION_CMD is empty (required for DIST=binary)"
   command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || error "need curl or wget"
+  # A host with no published asset must be told so by name, not by a 404 from
+  # url_get a few lines later (ADR 0001 §2.7).
+  require_binary_platform
+  need_cmd tar
 }
 
 # Install Bun (source mode) when the app declares REQUIRES_BUN=yes.
@@ -247,10 +251,8 @@ resolve_binary_version() {
   if [ -n "$ARG_VERSION" ]; then
     TAG="$ARG_VERSION"
   else
-    [ -n "${RELEASE_API:-}" ] || error "RELEASE_API is empty; set it or pass --version"
-    TAG="$(release_latest_tag || true)"
-    [ -n "$TAG" ] || error "could not resolve the latest version from ${RELEASE_API}"
-    TAG="$(normalize_v "$TAG")"
+    release_resolve_tag
+    TAG="$RESOLVED_TAG"
   fi
   info "Target version: ${TAG#v}"
 }
@@ -261,33 +263,21 @@ binary_up_to_date_check() {
   [ -f "$bin" ] || return 0
   [ "$FORCE" = true ] && return 0
   cur="$(app_version "$bin")"
-  case "$(ver_cmp "${cur:-0}" "${TAG#v}")" in
-    same)  up_to_date_exit "${cur}" ;;
+  # BOTH operands normalised: app_version keeps the leading "v" (common.sh
+  # strips only the app name) and the tag is v-prefixed too, while
+  # `ver_cmp "v0.8.0" "0.8.0"` answers "newer" — a correct, already-installed
+  # payload used to abort with "use --force" (ADR 0001 §2.6).
+  case "$(ver_cmp "$(normalize_v "$cur")" "$(normalize_v "$TAG")")" in
+    same)  up_to_date_exit "${cur#v}" ;;
     newer) error "newer version ${cur} is already installed; use --force to override" ;;
   esac
 }
 
-# Binary mode: download, verify, atomic swap.
+# Binary mode: download the release tarball, extract it, verify it, swap it in.
+# The whole sequence lives in lib/common.sh so update.sh takes the identical
+# path (ADR 0001 §2.9).
 install_binary() {
-  local asset url tmp got
-  asset="$(render_template "$ASSET_PATTERN")"
-  url="${RELEASES_BASE}/${TAG}/${asset}"
-  mkdir -p "$INSTALL_DIR"
-  tmp="${INSTALL_DIR}/.${APP_NAME}.$$.tmp"
-  cleanup_add "$tmp"
-
-  info "Downloading ${asset} ${TAG}..."
-  url_get "$url" "$tmp" || error "download failed: ${url}"
-  chmod +x "$tmp"
-
-  got="$(app_version "$tmp")"
-  if [ "$got" != "${TAG#v}" ]; then
-    error "downloaded binary failed version check (got '${got:-nothing}', expected '${TAG#v}')"
-  fi
-
-  # Atomic swap: replaces the directory entry without truncating a running binary.
-  mv -f "$tmp" "${INSTALL_DIR}/${APP_NAME}"
-  info "Installed ${INSTALL_DIR}/${APP_NAME} (${got})"
+  binary_install_payload
 }
 
 # ── Phase: seed state (config files, secret, data dir) ─────────────────────
@@ -433,7 +423,9 @@ install_service() {
     return 0
   fi
 
-  local unit="/etc/systemd/system/${APP_NAME}.service" tmpdir tmp
+  # UNIT_FILE is overridable so a non-standard unit path (and the deploy tests)
+  # need not write to /etc/systemd/system. Mirrors update.sh's refresh_unit.
+  local unit="${UNIT_FILE:-/etc/systemd/system/${APP_NAME}.service}" tmpdir tmp
   # Render under a valid unit name: systemd-analyze verify rejects other suffixes.
   tmpdir="$(mktemp -d)"; tmp="${tmpdir}/${APP_NAME}.service"
   cleanup_add "$tmp"
@@ -495,7 +487,7 @@ print_summary() {
   echo "  Config:     ${RUN_DIR}/scripts/app.env"
   echo ""
   if [ "$SERVICE_INSTALLED" = true ]; then
-    echo "  Service:    /etc/systemd/system/${APP_NAME}.service"
+    echo "  Service:    ${UNIT_FILE:-/etc/systemd/system/${APP_NAME}.service}"
     echo "  Stop:       sudo systemctl stop ${APP_NAME}"
     echo "  Logs:       journalctl -u ${APP_NAME} -f"
   else

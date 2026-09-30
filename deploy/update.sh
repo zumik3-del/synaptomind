@@ -14,7 +14,12 @@
 #
 #  Order of operations:
 #      compare versions -> refuse same/downgrade -> pre-update hook
-#      -> fetch + swap -> post-update hook -> restart + health -> rollback hint
+#      -> fetch + swap -> post-update hook -> refresh unit -> restart + health
+#      -> rollback hint
+#
+#  DIST=binary swaps a release tarball's payload (executable + vec0.so +
+#  lib/libonnxruntime.so.1) instead of a git checkout; see
+#  docs/adr/0001-self-contained-binary-tarball-deployment.md.
 # ════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -85,11 +90,64 @@ run_hook() {
 print_recovery() {
   warn "update did not finish cleanly — previous state:"
   if [ "$DIST" = "binary" ]; then
-    warn "  previous binary: ${INSTALL_DIR}/${APP_NAME}.prev"
-    warn "  rollback:        mv -f ${INSTALL_DIR}/${APP_NAME}.prev ${INSTALL_DIR}/${APP_NAME} && systemctl restart ${APP_NAME}"
+    # The payload is three files, not one commit, and migrations are forward-only
+    # (src/db/init.ts), so a rollback MUST restore the DB backup as well (ADR 0001 §2.9).
+    warn "  rollback:"
+    warn "    sudo systemctl stop ${APP_NAME}"
+    warn "    cd ${INSTALL_DIR}"
+    warn "    for f in ${BINARY_ROLLBACK_FILES}; do [ -f \"\$f.prev\" ] && sudo mv -f \"\$f.prev\" \"\$f\"; done"
+    warn "    sudo cp data/synaptomind.db.backup/synaptomind.db.<timestamp>.bak data/synaptomind.db"
+    warn "    sudo rm -f data/synaptomind.db-wal data/synaptomind.db-shm"
+    warn "    sudo systemctl start ${APP_NAME}"
+    warn "  The cp/rm pair must be repeated for EVERY database the pre-update hook"
+    warn "  backed up (the main DB plus logDbPath from config.json) — the hook"
+    warn "  printed each backup path. Restoring the DB is mandatory: a pre-upgrade"
+    warn "  binary against a post-upgrade schema is unsafe."
   else
     warn "  previous commit: ${PREV_REF}"
     warn "  rollback:        git -C ${INSTALL_DIR} checkout --force ${PREV_REF} && (cd ${INSTALL_DIR} && bun install --frozen-lockfile --production)"
+  fi
+}
+
+# ── systemd unit ────────────────────────────────────────────────────────────
+# render_systemd_unit() has exactly ONE call site in the framework
+# (install.sh). A unit written before the LD_LIBRARY_PATH line existed therefore
+# kept its old body through every update, so a host that updates INTO binary mode
+# would run a binary whose embedder cannot dlopen libonnxruntime.so.1
+# (ADR 0001 §2.2). Binary mode re-renders and reinstalls the unit here.
+#
+# Scope is deliberately narrow: source mode returns immediately, because the
+# rendered body is unchanged for it and re-rendering would clobber an operator's
+# hand edits to the unit.
+refresh_unit() {
+  # UNIT_FILE is overridable so a non-standard unit path (and the deploy tests)
+  # need not write to /etc/systemd/system.
+  local unit="${UNIT_FILE:-/etc/systemd/system/${APP_NAME}.service}" tmpdir tmp
+  [ "${UNIT_FILE:-}" ] || UNIT_FILE_DEFAULT=1
+  [ "$DIST" = "binary" ] || return 0
+  command -v systemctl >/dev/null 2>&1 || return 0
+  systemd_running || return 0
+  if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+    warn "sudo not available — keeping the existing unit (a binary install needs"
+    warn "  Environment=LD_LIBRARY_PATH=${INSTALL_DIR}/lib; re-run as root to refresh it)"
+    return 0
+  fi
+
+  tmpdir="$(mktemp -d)"; tmp="${tmpdir}/${APP_NAME}.service"
+  cleanup_add "$tmp"
+  render_systemd_unit "$EXEC_START" > "$tmp"
+
+  if command -v systemd-analyze >/dev/null 2>&1; then
+    systemd-analyze verify "$tmp" >/dev/null 2>&1 || warn "systemd-analyze verify reported issues"
+  fi
+
+  # `enable` is deliberately NOT repeated: that is install.sh's job.
+  if run_root cp -f "$tmp" "$unit" && run_root chmod 644 "$unit"; then
+    rm -f "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
+    run_root systemctl daemon-reload || warn "systemctl daemon-reload failed"
+    info "Refreshed ${unit}"
+  else
+    warn "cannot write ${unit} — keeping the existing unit"
   fi
 }
 
@@ -129,27 +187,7 @@ update_source() {
 }
 
 update_binary() {
-  local asset url tmp got
-  asset="$(render_template "$ASSET_PATTERN")"
-  url="${RELEASES_BASE}/${TAG}/${asset}"
-  tmp="${INSTALL_DIR}/.${APP_NAME}.$$.tmp"
-  cleanup_add "$tmp"
-
-  info "Downloading ${asset} ${TAG}..."
-  url_get "$url" "$tmp" || error "download failed: ${url}"
-  chmod +x "$tmp"
-
-  got="$(app_version "$tmp")"
-  if [ "$got" != "${TAG#v}" ]; then
-    error "downloaded binary failed version check (got '${got:-nothing}', expected '${TAG#v}')"
-  fi
-
-  # Keep exactly one previous binary for rollback, then swap atomically.
-  if [ -f "${INSTALL_DIR}/${APP_NAME}" ]; then
-    cp -f "${INSTALL_DIR}/${APP_NAME}" "${INSTALL_DIR}/${APP_NAME}.prev"
-  fi
-  mv -f "$tmp" "${INSTALL_DIR}/${APP_NAME}"
-  info "Installed ${INSTALL_DIR}/${APP_NAME} (${got})"
+  binary_install_payload
 }
 
 # ── Restart & verify ───────────────────────────────────────────────────────
@@ -209,13 +247,14 @@ main() {
     if [ -n "$ARG_VERSION" ]; then
       TAG="$(normalize_v "$ARG_VERSION")"
     else
-      [ -n "${RELEASE_API:-}" ] || error "RELEASE_API is empty; set it or pass --version"
-      TAG="$(release_latest_tag || true)"
-      [ -n "$TAG" ] || error "could not resolve the latest version from ${RELEASE_API}"
-      TAG="$(normalize_v "$TAG")"
+      release_resolve_tag
+      TAG="$RESOLVED_TAG"
     fi
     TARGET_VERSION="${TAG#v}"
     TARGET_REF="$TAG"
+    # refresh_unit needs it; binary mode has no bun, so the default is the
+    # artefact itself (mirrors install.sh default_exec_start).
+    [ -n "${EXEC_START:-}" ] || EXEC_START="${INSTALL_DIR}/${APP_NAME}"
   else
     TARGET_VERSION=""
     TARGET_REF=""
@@ -239,7 +278,12 @@ main() {
 
   # -- guards --
   if [ -n "$TARGET_VERSION" ] && [ "$TARGET_VERSION" != "unknown" ] && [ "$CURRENT" != "unknown" ]; then
-    case "$(ver_cmp "$CURRENT" "$TARGET_VERSION")" in
+    # BOTH operands normalised. current_version() returns app_version's
+    # v-prefixed output for a binary install but a bare package.json version for
+    # a source one, and TARGET_VERSION is bare — so without this,
+    # `ver_cmp "v0.8.0" "0.9.0"` answers "newer" and a plain upgrade is
+    # misreported as a downgrade needing confirmation (ADR 0001 §2.6).
+    case "$(ver_cmp "$(normalize_v "$CURRENT")" "$(normalize_v "$TARGET_VERSION")")" in
       same)
         info "Already up to date."
         exit 0 ;;
@@ -263,6 +307,9 @@ main() {
   run_hook post-update
 
   # -- restart & health --
+  # The unit is refreshed BEFORE the restart, so the service comes back with the
+  # Environment=LD_LIBRARY_PATH a binary payload needs.
+  refresh_unit
   restart_and_verify
 
   echo ""

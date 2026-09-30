@@ -1,9 +1,11 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import {
+  cpSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -643,3 +645,485 @@ describe('updater.sh — exit-code contract', () => {
     expect(res.status, res.stderr + '\n' + res.stdout).toBe(0)
   })
 })
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DIST=binary — release tarball update (ADR 0001 §2.9) and the unit re-render
+//  the conformance audit found missing (audit finding 1: render_systemd_unit
+//  had exactly ONE call site, install.sh, so an install updating INTO binary
+//  mode never received Environment=LD_LIBRARY_PATH).
+//
+//  No real sudo and no real systemctl: both are PATH stubs whose sudo variant is
+//  a GUARDED passthrough — it refuses to execute unless every path-like argument
+//  lives under the fixture root, so the suite cannot touch the live service even
+//  by accident (AGENTS.md §8).
+// ════════════════════════════════════════════════════════════════════════════
+
+const U_APP = 'synaptomind'
+
+/** Guarded sudo: logs argv, then executes only if every path is under ROOT. */
+function makeGuardedSudo(privLog: string, guard: string): string {
+  return [
+    '#!/usr/bin/env bash',
+    'printf \'sudo\' >> "$STUB_PRIV_LOG"',
+    'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done',
+    'printf \'\\n\' >> "$STUB_PRIV_LOG"',
+    // Everything must be inside the fixture root, or refuse loudly.
+    'for a in "$@"; do',
+    '  case "$a" in /*) case "$a" in ' + guard + ') ;; *) echo "REFUSED: $a" >&2; exit 99 ;; esac ;; esac',
+    'done',
+    'exec "$@"',
+  ].join('\n')
+}
+
+const SYSTEMCTL_STUB = [
+  '#!/usr/bin/env bash',
+  'printf \'systemctl\' >> "$STUB_PRIV_LOG"',
+  'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done',
+  'printf \'\\n\' >> "$STUB_PRIV_LOG"',
+  'case "$1" in',
+  '  is-system-running) echo running ;;',
+  '  is-active) exit 0 ;;',
+  'esac',
+  'exit 0',
+].join('\n')
+
+/**
+ * A scratch install tree that already holds an OLD binary-mode payload, plus
+ * the deploy/ scripts and a RELEASE_API file listing the target tag.
+ */
+function seedBinaryUpdate(opts: {
+  currentVersion: string
+  targetVersion: string
+  includeDb?: boolean
+}): ReturnType<typeof seedBinaryUpdateShape> {
+  return seedBinaryUpdateShape(opts)
+}
+
+function seedBinaryUpdateShape(opts: {
+  currentVersion: string
+  targetVersion: string
+  includeDb?: boolean
+}) {
+  const root = mkdtempSync(join(tmpdir(), 'synapto-binu-'))
+  const deployDir = join(root, 'deploy')
+  const stubsDir = join(root, 'stubs')
+  const installDir = join(root, 'opt', U_APP)
+  const runDir = join(root, 'run')
+  const privLog = join(root, 'privileged.log')
+  const unitFile = join(root, 'unit', `${U_APP}.service`)
+  // Copy only the scripts update.sh actually needs; the flat `common.sh` only
+  // exists inside an installed ${RUN_DIR}/scripts, never in the repo.
+  mkdirSync(deployDir, { recursive: true })
+  for (const f of ['update.sh', 'updater.sh', 'uninstall.sh']) {
+    cpSync(join(import.meta.dir, f), join(deployDir, f))
+  }
+  mkdirSync(join(deployDir, 'lib'), { recursive: true })
+  cpSync(join(import.meta.dir, 'lib', 'common.sh'), join(deployDir, 'lib', 'common.sh'))
+  mkdirSync(join(deployDir, 'hooks'), { recursive: true })
+  for (const f of ['pre-update', 'post-update']) {
+    cpSync(join(import.meta.dir, 'hooks', f), join(deployDir, 'hooks', f))
+  }
+  mkdirSync(stubsDir, { recursive: true })
+  mkdirSync(join(root, 'unit'), { recursive: true })
+  mkdirSync(join(runDir, 'scripts'), { recursive: true })
+  mkdirSync(join(runDir, 'hooks'), { recursive: true })
+  mkdirSync(installDir, { recursive: true })
+  mkdirSync(join(installDir, 'lib'), { recursive: true })
+  writeFileSync(privLog, '')
+
+  // An old, already-installed payload (as a previous release left it).
+  writeFileSync(join(installDir, U_APP), `#!/bin/sh\necho "${U_APP} ${opts.currentVersion}"\n`)
+  chmodSync(join(installDir, U_APP), 0o755)
+  writeFileSync(join(installDir, 'vec0.so'), 'old vec0\n')
+  writeFileSync(join(installDir, 'lib', 'libonnxruntime.so.1'), 'old onnxruntime\n')
+
+  // The NEW payload as a release directory.
+  const releases = join(root, 'releases')
+  const tag = `v${opts.targetVersion}`
+  const build = join(root, 'build', `${U_APP}-${opts.targetVersion}-linux-x86_64`)
+  const payload: Record<string, string> = {
+    [U_APP]: `#!/bin/sh\necho "${U_APP} v${opts.targetVersion}"\n`,
+    'vec0.so': 'new vec0\n',
+    'lib/libonnxruntime.so.1': 'new onnxruntime\n',
+    'config.json.example': '{ "server": { "port": 3999 }, "database": { "path": "./data/synaptomind.db" } }\n',
+    '.env.example': 'SYNAPTOMIND_SECRET=\n',
+  }
+  for (const [rel, content] of Object.entries(payload)) {
+    const full = join(build, rel)
+    mkdirSync(resolve(full, '..'), { recursive: true })
+    writeFileSync(full, content)
+  }
+  chmodSync(join(build, U_APP), 0o755)
+  mkdirSync(join(releases, tag), { recursive: true })
+  const tarRes = spawnSync(
+    'tar',
+    ['-czf', join(releases, tag, `${U_APP}-${tag}-linux-x86_64.tar.gz`), '-C', join(root, 'build'), `${U_APP}-${opts.targetVersion}-linux-x86_64`],
+    { encoding: 'utf8' },
+  )
+  expect(tarRes.status, tarRes.stderr).toBe(0)
+
+  // A file:// "RELEASE_API" — release_resolve_tag reads it with url_get, which
+  // handles file:// through curl, so no HTTP server is needed.
+  writeFileSync(
+    join(releases, 'api.json'),
+    JSON.stringify([{ tag_name: tag, draft: false }]),
+  )
+
+  if (opts.includeDb) {
+    mkdirSync(join(installDir, 'data'), { recursive: true })
+    spawnSync('sqlite3', [join(installDir, 'data', 'synaptomind.db'), 'create table t(x int); insert into t values (1);'], {
+      encoding: 'utf8',
+    })
+  }
+
+  // Helpers, hooks and the installed app.env (the layout update.sh expects).
+  for (const f of ['update.sh', 'updater.sh', 'uninstall.sh']) {
+    cpSync(join(import.meta.dir, f), join(runDir, 'scripts', f))
+  }
+  for (const f of ['pre-update', 'post-update']) {
+    cpSync(join(import.meta.dir, 'hooks', f), join(runDir, 'hooks', f))
+    chmodSync(join(runDir, 'hooks', f), 0o755)
+  }
+  cpSync(join(import.meta.dir, 'lib', 'common.sh'), join(runDir, 'scripts', 'common.sh'))
+
+  // UNIT_FILE redirects refresh_unit away from the real /etc unit.
+  const env = {
+    APP_NAME: U_APP,
+    APP_DESC: 'Synaptomind — thought-graph engine',
+    DIST: 'binary',
+    INSTALL_DIR: installDir,
+    DATA_DIR: join(root, 'data'),
+    RUN_DIR: runDir,
+    PORT: '3999',
+    RELEASES_BASE: `file://${releases}`,
+    RELEASE_API: `file://${join(releases, 'api.json')}`,
+    // SINGLE-QUOTED, like the shipped app.env: the file is SOURCED, so a
+    // double-quoted ${TAG} would be expanded at load time to an empty string.
+    ASSET_PATTERN: "'${APP_NAME}-${TAG}-${OS}-${ARCH}.tar.gz'",
+    APP_VERSION_CMD: "'${BIN} --version'",
+    CHECKOUT_POLICY: 'stable',
+    REQUIRES_BUN: 'no',
+    SYSTEM_DEP_CMDS: '',
+    SERVICE_USER: '',
+    SEED_FILES: 'config.json.example:config.json .env.example:.env',
+    GENERATE_SECRET_IN: '.env',
+    HOOKS_DIR: '',
+    UNIT_FILE: unitFile,
+    // No service runs in these tests, so point the post-restart poll at a
+    // closed port. The poll is stubbed (see FAKE_HEALTH_STUB) to answer on the
+    // first attempt; without it wait_health sleeps for the full HEALTH_TIMEOUT.
+    HEALTH_URL: 'http://127.0.0.1:1/health',
+    HEALTH_TIMEOUT: '1',
+  }
+  writeFileSync(
+    join(runDir, 'scripts', 'app.env'),
+    Object.entries(env)
+      .map(([k, v]) => (k === 'ASSET_PATTERN' || k === 'APP_VERSION_CMD' ? `${k}=${v}` : `${k}="${v}"`))
+      .join('\n') + '\n',
+  )
+
+  // The sudo guard allows: everything under the fixture root, plus the $TMPDIR
+  // paths that render_systemd_unit's `mktemp -d` produces before the copy.
+  const guard = [
+    `"${root}"/*|"${root}"/*`,
+    `"${tmpdir()}"/*|"${tmpdir()}"/*`,
+  ].join('|')
+  writeFileSync(join(stubsDir, 'sudo'), makeGuardedSudo(privLog, guard))
+  writeFileSync(join(stubsDir, 'systemctl'), SYSTEMCTL_STUB)
+  for (const s of ['sudo', 'systemctl']) chmodSync(join(stubsDir, s), 0o755)
+
+  // The unit is rendered into $TMPDIR by render_systemd_unit before it is
+  // copied to UNIT_FILE, so the sudo guard must also allow mktemp -d paths.
+  // curl stub: the /health poll only. Everything else (the file:// release
+  // downloads) must reach the REAL curl, so the stub passes non-health URLs
+  // straight through.
+  const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
+  writeFileSync(
+    join(stubsDir, 'curl'),
+    [
+      '#!/usr/bin/env bash',
+      'for a in "$@"; do',
+      '  case "$a" in',
+      `    */health) printf '%s' "$FAKE_HEALTH_BODY"; exit 0 ;;`,
+      '  esac',
+      'done',
+      `exec ${realCurl} "$@"`,
+    ].join('\n'),
+  )
+  chmodSync(join(stubsDir, 'curl'), 0o755)
+
+  const healthBody = JSON.stringify({
+    status: 'ok',
+    version: opts.targetVersion,
+    checks: { database: 'ok', embedder: 'ok' },
+  })
+  return { root, deployDir, stubsDir, installDir, runDir, privLog, unitFile, healthBody }
+}
+
+function runUpdate(fx: ReturnType<typeof seedBinaryUpdate>, args: string[]) {
+  return spawnSync('bash', [join(fx.runDir, 'scripts', 'update.sh'), ...args], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${fx.stubsDir}:${process.env.PATH}`,
+      STUB_PRIV_LOG: fx.privLog,
+      // The fake /health body must report the version update.sh is polling for,
+      // otherwise wait_health times out. Tests that want a FAILING health check
+      // override FAKE_HEALTH_BODY with something the version check rejects.
+      FAKE_HEALTH_BODY: fx.healthBody,
+    },
+    timeout: 60_000,
+  })
+}
+
+describe('update.sh — DIST=binary', () => {
+  afterEach(() => {
+    // nothing global; each test cleans its own tree
+  })
+
+  test('swaps the payload, keeps .prev for all three files, and moves the executable last', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      // New payload in place.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+      expect(readFileSync(join(fx.installDir, 'lib', 'libonnxruntime.so.1'), 'utf8')).toBe(
+        'new onnxruntime\n',
+      )
+      // Previous copy kept for a no-git rollback.
+      expect(readFileSync(join(fx.installDir, 'vec0.so.prev'), 'utf8')).toBe('old vec0\n')
+      expect(readFileSync(join(fx.installDir, U_APP + '.prev'), 'utf8')).toContain('v0.7.1')
+      expect(readFileSync(join(fx.installDir, 'lib', 'libonnxruntime.so.1.prev'), 'utf8')).toBe(
+        'old onnxruntime\n',
+      )
+      // No staging or tarball left behind.
+      const leftovers = readdirSync(fx.installDir).filter(
+        (f) => f.startsWith('.stage.') || f.endsWith('.tar.gz'),
+      )
+      expect(leftovers).toEqual([])
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('the version guard sees an upgrade, not a downgrade (v-prefix normalisation)', () => {
+    // current_version() returns app_version's "v0.7.1"; TARGET_VERSION is bare
+    // "0.8.0". Unnormalised, ver_cmp "v0.7.1" "0.8.0" answers "newer" and a
+    // plain upgrade is misreported as a downgrade (ADR §2.6).
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stderr).not.toContain('Downgrade')
+      expect(res.stdout).toContain('Current:  v0.7.1')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('refreshes the systemd unit so LD_LIBRARY_PATH reaches an updated host', () => {
+    // Audit finding 1: without this, a host updating INTO binary mode keeps a
+    // unit without Environment=LD_LIBRARY_PATH and the embedder dies on
+    // ERR_DLOPEN_FAILED.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      expect(unit).toContain(`Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      expect(unit).toContain(`ExecStart=${fx.installDir}/${U_APP}`)
+      // The line must be immediately after NODE_ENV, per ADR §2.2.
+      const lines = unit.split('\n')
+      const i = lines.indexOf(`Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      expect(lines[i - 1]).toBe('Environment=NODE_ENV=production')
+      // daemon-reload must follow the write, before the restart.
+      const log = readFileSync(fx.privLog, 'utf8')
+      expect(log).toContain('daemon-reload')
+      expect(log).not.toContain('enable')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('the pre-update hook backs up the DB before the swap, and its backup is usable', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0', includeDb: true })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const db = join(fx.installDir, 'data', 'synaptomind.db')
+      const backups = readdirSync(`${db}.backup`)
+      expect(backups).toHaveLength(1)
+      const restored = spawnSync('sqlite3', [join(`${db}.backup`, backups[0]!), 'select count(*) from t'], {
+        encoding: 'utf8',
+      })
+      expect(restored.stdout.trim()).toBe('1')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('source mode does NOT rewrite the unit', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      // Flip the installed app.env to source mode and give it a checkout.
+      const envFile = join(fx.runDir, 'scripts', 'app.env')
+      writeFileSync(envFile, readFileSync(envFile, 'utf8').replace('DIST="binary"', 'DIST="source"'))
+      writeFileSync(fx.unitFile, '# hand-edited source unit\n')
+      // update_binary is unreachable in source mode, so run --help-free path:
+      // the guard rejects the missing .git before anything else.
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status).toBe(1)
+      expect(res.stderr).toContain('not installed at')
+      // The hand-edited unit is untouched.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe('# hand-edited source unit\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('the recovery block names the .prev set and the mandatory DB restore', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      // Make the poll report a version update.sh did not ask for: that is a
+      // health-check failure, which must exit non-zero with the recovery block.
+      fx.healthBody = JSON.stringify({ status: 'ok', version: '0.0.1' })
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status).toBe(1)
+      expect(res.stderr).toContain('update did not finish cleanly')
+      expect(res.stderr).toContain('.prev')
+      expect(res.stderr).toContain('synaptomind.db.backup')
+      // Migrations are forward-only: the DB restore is mandatory, not optional.
+      expect(res.stderr).toContain('Restoring the DB is mandatory')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a payload missing lib/libonnxruntime.so.1 aborts before the swap', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      // Rebuild the release tarball without the shared library.
+      const tag = 'v0.8.0'
+      const build = join(fx.root, 'build')
+      rmSync(join(build, `${U_APP}-0.8.0-linux-x86_64`, 'lib', 'libonnxruntime.so.1'))
+      const releases = join(fx.root, 'releases')
+      rmSync(join(releases, tag, `${U_APP}-${tag}-linux-x86_64.tar.gz`))
+      const tarRes = spawnSync(
+        'tar',
+        ['-czf', join(releases, tag, `${U_APP}-${tag}-linux-x86_64.tar.gz`), '-C', build, `${U_APP}-0.8.0-linux-x86_64`],
+        { encoding: 'utf8' },
+      )
+      expect(tarRes.status, tarRes.stderr).toBe(0)
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status).toBe(1)
+      expect(res.stderr).toContain('lib/libonnxruntime.so.1')
+      // The old payload must be intact — nothing was swapped.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('old vec0\n')
+      expect(existsSync(join(fx.installDir, 'vec0.so.prev'))).toBe(false)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+//  updater.sh in DIST=binary — the two changes ADR 0001 §2.9 sanctions and
+//  nothing else: the DIST guard must accept `binary`, and the version read must
+//  prefer app_version. The frozen contract (path, flags, exit codes,
+//  stable-only) is untouched and still asserted by the suites above.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('updater.sh — DIST=binary bootstrap', () => {
+  test('the DIST guard accepts binary (it used to reject everything but source)', () => {
+    const repo = seedSingleTagRepo('v0.8.0', {
+      'deploy/update.sh': makeTrackingUpdateSh(),
+      'deploy/lib/common.sh': MINIMAL_COMMON_SH,
+      'package.json': '{"name":"synaptomind","version":"0.7.0"}',
+    })
+    setupBootstrap({ repoUrl: 'file://' + repo, overrides: { DIST: 'binary' } })
+    const artifact = join(FIXTURE_DIR, 'args.txt')
+    const res = runUpdater(['--yes'], undefined, { UPDATER_ARTIFACT: artifact })
+    expect(res.stderr).not.toContain('updater supports DIST=source only')
+    expect(res.status, res.stderr + '\n' + res.stdout).toBe(0)
+    expect(readFileSync(artifact, 'utf8')).toContain('v0.8.0')
+  })
+
+  test('an unknown DIST is still refused, naming both valid values', () => {
+    const repo = seedSingleTagRepo('v0.8.0', {
+      'deploy/update.sh': makeTrackingUpdateSh(),
+      'deploy/lib/common.sh': MINIMAL_COMMON_SH,
+      'package.json': '{"name":"synaptomind","version":"0.7.0"}',
+    })
+    setupBootstrap({ repoUrl: 'file://' + repo, overrides: { DIST: 'tarball' } })
+    const res = runUpdater(['--yes'])
+    expect(res.status).toBe(1)
+    expect(res.stderr).toContain('DIST=source or DIST=binary')
+  })
+
+  test('current_version prefers app_version for a binary install (offline, no HTTP)', () => {
+    // app_version returns a v-PREFIXED string; the mark and the printed messages
+    // must strip it, or the current version never matches in the menu.
+    const fakeInstall = mkdtempSync(join(tmpdir(), 'synapto-binver-'))
+    writeFileSync(join(fakeInstall, 'synaptomind'), '#!/bin/sh\necho "synaptomind v0.7.4"\n')
+    chmodSync(join(fakeInstall, 'synaptomind'), 0o755)
+
+    // current_version() is updater.sh's own, so probe the REAL function instead of
+    // a copy: extract it from the real script by sourcing a prefix of it.
+    const realUpdater = readFileSync(join(import.meta.dir, 'updater.sh'), 'utf8')
+    const fnStart = realUpdater.indexOf('current_version() {')
+    const fnEnd = realUpdater.indexOf('\n}\n', fnStart) + 3
+    expect(fnStart, 'current_version() not found in updater.sh').toBeGreaterThan(-1)
+    const script = join(FIXTURE_DIR, 'probe.sh')
+    const helper = join(FIXTURE_DIR, 'common-with-app-version.sh')
+    writeFileSync(helper, MINIMAL_COMMON_SH_WITH_APP_VERSION)
+    // probe.sh: source the helpers, define the REAL current_version, run it.
+    writeFileSync(
+      script,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'APP_NAME="synaptomind"',
+        'DIST="binary"',
+        `APP_VERSION_CMD='\${BIN} --version'`,
+        'HEALTH_URL="http://127.0.0.1:1/health"',
+        '. "$1"',
+        'INSTALL_DIR="$2"',
+        realUpdater.slice(fnStart, fnEnd),
+        'CURRENT="$(current_version)"',
+        'printf \'CURRENT=%s\\n\' "$CURRENT"',
+        // The menu marker compares a v-stripped tag against the raw value.
+        'printf \'MENU=%s\\n\' "$([ "${CURRENT#v}" = "0.7.4" ] && echo yes || echo no)"',
+        // The old comparison, unnormalised, must NOT match — that is the bug.
+        'printf \'OLD_MARKER=%s\\n\' "$([ "0.7.4" = "$CURRENT" ] && echo yes || echo no)"',
+      ].join('\n'),
+    )
+    const res = spawnSync('bash', [script, helper, fakeInstall], {
+      encoding: 'utf8',
+    })
+    expect(res.status, res.stderr).toBe(0)
+    // No HTTP fallback needed: the binary answered, v-prefixed.
+    expect(res.stdout).toContain('CURRENT=v0.7.4')
+    // ${CURRENT#v} matches a v-stripped tag (the fixed marker)…
+    expect(res.stdout).toContain('MENU=yes')
+    // …while the old unnormalised comparison does not — that was the bug.
+    expect(res.stdout).toContain('OLD_MARKER=no')
+    rmSync(fakeInstall, { recursive: true, force: true })
+  })
+})
+
+/** MINIMAL_COMMON_SH plus app_version — what current_version() needs in binary mode. */
+const MINIMAL_COMMON_SH_WITH_APP_VERSION =
+  MINIMAL_COMMON_SH +
+  '\n' +
+  [
+    'app_version() {',
+    '  local bin="$1" out cmd',
+    '  cmd="${APP_VERSION_CMD:-\\${BIN} --version}"',
+    '  out="$(BIN="$bin" sh -c "$cmd" 2>/dev/null || true)"',
+    '  out="${out%%$\'\\n\'*}"',
+    '  printf \'%s\' "${out#"${APP_NAME}" }"',
+    '}',
+  ].join('\n')
