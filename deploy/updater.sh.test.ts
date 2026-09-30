@@ -11,7 +11,9 @@ import {
   writeFileSync,
   chmodSync,
   copyFileSync,
+  lstatSync,
   statSync,
+  symlinkSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -1224,14 +1226,24 @@ describe('update.sh — DIST=binary', () => {
  * blanket failure would abort the swap itself and the run would exit 1 for an
  * unrelated reason.
  */
-function makeCpFailingFor(dest: string): string {
+/**
+ * A `cp` that fails for every destination inside `dir` — "cannot write the unit"
+ * as an operator experiences it (a read-only or full unit directory).
+ *
+ * Matched on the DIRECTORY, not on the exact path: the unit is no longer written
+ * by `cp` straight onto itself, so a stub that failed only for the unit's own
+ * path would now fail NOTHING and the test would pass for the wrong reason.
+ * Every cp aimed at the staging file and at the .bak is refused; every other cp
+ * in the run passes through, so the payload swap still happens for real.
+ */
+function makeCpFailingInDir(dir: string): string {
   const realCp = spawnSync('bash', ['-c', 'command -v cp'], { encoding: 'utf8' }).stdout.trim()
   return [
     '#!/usr/bin/env bash',
     'for a in "$@"; do',
-    `  if [ "$a" = '${dest}' ]; then`,
+    `  case "$a" in ${dir}/*)`,
     '    echo "cp: cannot create regular file $a: Permission denied" >&2; exit 1',
-    '  fi',
+    '  ;; esac',
     'done',
     `exec ${realCp} "$@"`,
   ].join('\n')
@@ -1248,7 +1260,7 @@ describe('update.sh — a failed unit refresh is fatal in binary mode', () => {
     const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
     try {
       writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
-      rewriteStub(fx, 'cp', makeCpFailingFor(fx.unitFile))
+      rewriteStub(fx, 'cp', makeCpFailingInDir(dirname(fx.unitFile)))
       const res = runUpdate(fx, ['--yes'])
       expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
       expect(res.stdout).not.toContain('Done.')
@@ -1262,18 +1274,25 @@ describe('update.sh — a failed unit refresh is fatal in binary mode', () => {
     }
   })
 
-  test('a refused privileged copy aborts, and the service keeps running the old payload', () => {
+  test('a refused privileged write aborts, and the service keeps running the old payload', () => {
     const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
     try {
-      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
-      // sudo exists and works for systemctl, but refuses the copy (no tty).
-      rewriteStub(fx, 'sudo', makeGuardedSudo(fx.privLog, fx.guard, { refuse: ['cp', 'chmod'] }))
+      const stale = '# stale pre-binary unit\n'
+      writeFileSync(fx.unitFile, stale)
+      // sudo exists and works for systemctl, but refuses every write primitive
+      // the atomic replacement needs (no tty to ask for a password). The FIRST
+      // refusal now lands on `chmod 600` of the staging file rather than on the
+      // copy, so the log is asserted on the file being written, not on which
+      // command happened to be refused first.
+      rewriteStub(fx, 'sudo', makeGuardedSudo(fx.privLog, fx.guard, { refuse: ['cp', 'chmod', 'mv', 'touch'] }))
       const res = runUpdate(fx, ['--yes'])
       expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
       expect(res.stdout).not.toContain('Done.')
       const log = readFileSync(fx.privLog, 'utf8')
-      expect(log).toContain('cp')
+      expect(log).toContain(dirname(fx.unitFile))
       expect(log).not.toContain('restart')
+      // A refused write is a no-op: the operator's unit is byte for byte intact.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(stale)
     } finally {
       rmSync(fx.root, { recursive: true, force: true })
     }
@@ -1318,7 +1337,7 @@ describe('update.sh — a failed unit refresh is fatal in binary mode', () => {
     const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
     try {
       writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
-      rewriteStub(fx, 'cp', makeCpFailingFor(fx.unitFile))
+      rewriteStub(fx, 'cp', makeCpFailingInDir(dirname(fx.unitFile)))
       const res = runUpdate(fx, ['--yes'])
       const err = res.stderr
       // What failed, in words an operator can act on.
@@ -1826,6 +1845,307 @@ describe('update.sh — the restart-policy write is atomic and honest', () => {
     } finally {
       rmSync(fx.root, { recursive: true, force: true })
       rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  // ── task #1094: the same block, for the two paths #1092's diff never
+  // reached, plus the staging-file hazards its own fix left behind. Each test
+  // below reproduces a counterexample measured against cc15c74; the same
+  // fixture now serves as the direction control for the new code.
+  //
+  // The staging file is a dot-file whose name systemd never loads, and it now
+  // lives in THREE places: the unit swap, the unit's .bak recovery copy (which
+  // is itself written through the same atomic path, so a .bak is never a
+  // truncated file), and — via the shared mechanism — both binary-mode writes.
+  const SECRETED = [
+    '[Unit]',
+    'Description=Synaptomind — thought-graph engine (v0.7.1)',
+    '',
+    '[Service]',
+    'Type=simple',
+    'Environment=SYNAPTOMIND_API_TOKEN=super-secret-value',
+    'ExecStart=/usr/local/bin/bun run start',
+    'Restart=on-failure',
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+    '',
+  ].join('\n')
+
+  /** Every leftover staging file in the unit directory, with its mode. */
+  function stagedLeftovers(unit: string): { name: string; mode: number; body: string }[] {
+    return readdirSync(dirname(unit))
+      .filter((f) => f.includes('.new.'))
+      .map((name) => {
+        const p = join(dirname(unit), name)
+        return { name, mode: statSync(p).mode & 0o777, body: readFileSync(p, 'utf8') }
+      })
+  }
+
+  test('a FAILED stage leaves no partial staging file in the unit directory', () => {
+    // cc15c74's failure branch removed only $tmpdir, so a partial
+    // .synaptomind.service.new.$$ survived: the reviewer's run left 6 of them,
+    // one per update.sh process, and systemd logged "Failed to prepare filename
+    // ... Invalid argument" for each. The old test above covers only the success
+    // path — a green suite proved nothing about the branch that actually fails.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      breakCpForTheUnit(fx)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      // The stage FAILED (cp died), and the directory is still clean.
+      expect(stagedLeftovers(fx.unitFile), 'a failed stage must clean up after itself').toEqual([])
+      expect(readdirSync(dirname(fx.unitFile))).toEqual([`${U_APP}.service`])
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a partial stage of a 600 unit never exposes Environment= secrets', () => {
+    // The optional security finding from the #1093 re-review, reproduced with
+    // the shape it needs: a 600 unit carrying a secret, a write that dies
+    // partway. cc15c74 staged with `cp -p` from an awk redirect, so the staging
+    // file inherited 644 (umask 022) and `chmod "$mode"` ran only AFTER a
+    // successful stage — leaving the first bytes of a root-only unit readable by
+    // anyone, in /etc/systemd/system in production. The pre-fix code leaked it
+    // too; only this shape exposes it.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, SECRETED)
+      chmodSync(fx.unitFile, 0o600)
+      breakCpForTheUnit(fx)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      for (const leftover of stagedLeftovers(fx.unitFile)) {
+        // Nothing is left at all (the stronger property), and if a future
+        // change ever does leave a fragment it must not be group/other-readable.
+        expect(leftover.mode & 0o077, `${leftover.name} must not be world-readable`).toBe(0)
+        expect(leftover.body).not.toContain('super-secret-value')
+      }
+      // The live unit is byte-identical, and still 600.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(SECRETED)
+      expect(statSync(fx.unitFile).mode & 0o777).toBe(0o600)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a successful rewrite keeps a 600 unit at 600 and secrets out of the .bak', () => {
+    // The success path of the same property: the mode is the OPERATOR's, the
+    // .bak is a copy of their file (mode and all), and neither is widened.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, SECRETED)
+      chmodSync(fx.unitFile, 0o600)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      expect(unit).toContain('\nRestart=always\n')
+      expect(statSync(fx.unitFile).mode & 0o777).toBe(0o600)
+      const backup = `${fx.unitFile}.bak`
+      expect(readFileSync(backup, 'utf8')).toBe(SECRETED)
+      expect(statSync(backup).mode & 0o777).toBe(0o600)
+      expect(stagedLeftovers(fx.unitFile)).toEqual([])
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a symlinked unit is written THROUGH, not replaced by a regular file', () => {
+    // The third #1093 finding, and a deliberate decision rather than an
+    // accident: `systemctl link` puts a symlink in /etc/systemd/system, and the
+    // operator edits the real file elsewhere. cc15c74's `mv -f` replaced the
+    // LINK with a regular file — silently changing the unit's shape, orphaning
+    // the file systemd was NOT loading — and `stat -c %a` without -L reported
+    // the link's own mode (777, a symlink always is), so the resulting unit
+    // landed world-writable and systemd warned about it. DECIDED: follow the
+    // link and swap the file it points at; the link survives.
+    //
+    // Production's unit is a regular file (verified), so this is about not
+    // surprising an operator who linked one.
+    const fx = seedSourceUpdate()
+    const real = join(fx.root, 'linked', `${U_APP}.service`)
+    try {
+      mkdirSync(join(fx.root, 'linked'), { recursive: true })
+      writeFileSync(real, HAND_EDITED)
+      chmodSync(real, 0o600)
+      // seedSourceUpdate() does not pre-create the unit, so rmSync needs force.
+      rmSync(fx.unitFile, { force: true })
+      symlinkSync(real, fx.unitFile)
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      // The link is still a link...
+      expect(lstatSync(fx.unitFile).isSymbolicLink(), 'the link must survive the rewrite').toBe(true)
+      // ...and the update landed in the file it points at.
+      expect(readFileSync(real, 'utf8')).toContain('\nRestart=always\n')
+      // Mode is the TARGET's (600), not the link's own 777.
+      expect(statSync(real).mode & 0o777).toBe(0o600)
+      // And the operator is told their link was followed, not silently ignored.
+      expect(res.stdout).toContain('is a link; wrote through it to')
+      // A .bak beside the link is a plain file (nothing linked it), and its mode
+      // is the unit's own — not 777.
+      const backup = `${fx.unitFile}.bak`
+      expect(lstatSync(backup).isSymbolicLink()).toBe(false)
+      expect(statSync(backup).mode & 0o777).toBe(0o600)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a dangling link is not silently replaced by a regular file', () => {
+    // The corner the follow-the-link decision has to answer. write_file_atomically
+    // replaces a DANGLING link on purpose — there is no file to write through
+    // and nothing that could be reading it — and says so. This path never
+    // reaches it: ensure_restart_policy returns early on a unit it cannot READ,
+    // and a dangling link is exactly that. The link must still be there.
+    const fx = seedSourceUpdate()
+    try {
+      mkdirSync(join(fx.root, 'linked'), { recursive: true })
+      rmSync(fx.unitFile, { force: true })
+      symlinkSync(join(fx.root, 'linked', 'gone.service'), fx.unitFile)
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).not.toContain('wrote through it to')
+      expect(lstatSync(fx.unitFile).isSymbolicLink(), 'a dangling link must be reported, not reshaped').toBe(true)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+//  The binary-mode write: `cp -f "$tmp" "$unit" && run_root chmod 644 "$unit"`
+//  (update.sh refresh_unit) — the SAME O_TRUNC-over-the-live-unit pattern and
+//  the same forced 644 that was a blocker in #1092, at an entry point outside
+//  that diff. app.env ships DIST="binary", so a fresh 0.9.0 install lands here
+//  and so does every binary-mode update.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — the binary-mode unit refresh is atomic too', () => {
+  /** A pre-binary unit: hand-edited, with a secret, at mode 600. */
+  const STALE_SECRETED = [
+    '# stale pre-binary unit, hand-edited',
+    '[Unit]',
+    'Description=Synaptomind — thought-graph engine (v0.7.1)',
+    '',
+    '[Service]',
+    'Type=simple',
+    'Environment=SYNAPTOMIND_API_TOKEN=super-secret-value',
+    `ExecStart=/opt/synaptomind/synaptomind`,
+    'Restart=on-failure',
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+    '',
+  ].join('\n')
+
+  /**
+   * A `cp` that dies after truncating its destination, aimed at the unit
+   * directory only, so the payload swap and the rest of the update still run for
+   * real. Installed into the fixture's stubs, never system-wide.
+   */
+  function breakCpForTheUnitDir(fx: ReturnType<typeof seedBinaryUpdate>): void {
+    const real = spawnSync('bash', ['-c', 'command -v cp'], { encoding: 'utf8' }).stdout.trim()
+    writeFileSync(
+      join(fx.stubsDir, 'cp'),
+      [
+        '#!/usr/bin/env bash',
+        `dst="\${@: -1}"; src="\${@: -2:1}"`,
+        `case "$dst" in ${dirname(fx.unitFile)}/*) ;; *) exec ${real} "$@" ;; esac`,
+        ': > "$dst"                     # cp(1) opens the destination O_TRUNC...',
+        'head -c 24 "$src" > "$dst"     # ...and only part of the payload lands',
+        'echo "cp: error writing $dst: No space left on device" >&2',
+        'exit 1',
+      ].join('\n'),
+    )
+    chmodSync(join(fx.stubsDir, 'cp'), 0o755)
+  }
+
+  test('a copy that dies partway leaves the installed unit byte-identical', () => {
+    // The counterexample, measured: the 265 B unit became 24 B ("[Unit]" /
+    // "Description=Synap") while the message said the unit was "left unchanged"
+    // and pointed the operator at a remedy. The refresh is fatal in binary mode,
+    // so the run must still abort — but it must abort with the operator's unit
+    // intact and the message true.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, STALE_SECRETED)
+      chmodSync(fx.unitFile, 0o600)
+      breakCpForTheUnitDir(fx)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+      // The unit is NOT a 24-byte stub any more.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(STALE_SECRETED)
+      expect(statSync(fx.unitFile).mode & 0o777).toBe(0o600)
+      // No staging litter in the unit directory either.
+      expect(readdirSync(dirname(fx.unitFile)).filter((f) => f.includes('.new.'))).toEqual([])
+      // The payload swap still happened; only the unit refresh failed.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a successful refresh keeps the replaced unit as <unit>.bak', () => {
+    // The rendered unit replaces a hand-edited one on a binary refresh, so the
+    // body it replaces is kept: main()'s "Already up to date" guard returns
+    // before refresh_unit is reached again, so a plain re-run cannot fix a bad
+    // refresh. The .bak is written through the same atomic path, so it is a
+    // complete copy rather than a fragment.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, STALE_SECRETED)
+      chmodSync(fx.unitFile, 0o600)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(0)
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      expect(unit).toContain(`Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      // The old 644 is not imposed on a 600 unit, and the recovery copy keeps
+      // the operator's file, mode and all.
+      expect(statSync(fx.unitFile).mode & 0o777).toBe(0o600)
+      const backup = `${fx.unitFile}.bak`
+      expect(readFileSync(backup, 'utf8')).toBe(STALE_SECRETED)
+      expect(statSync(backup).mode & 0o777).toBe(0o600)
+      expect(readdirSync(dirname(fx.unitFile)).filter((f) => f.includes('.new.'))).toEqual([])
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a symlinked unit is written through, not replaced at mode 777', () => {
+    // Same decision as in the source-mode block, on the path a binary install
+    // takes. Measured against cc15c74: the link became a regular file and the
+    // unit landed mode 777 (stat -c '%a' without -L reports the link's own
+    // mode), which systemd warns about as world-writable.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    const real = join(fx.root, 'linked', `${U_APP}.service`)
+    try {
+      mkdirSync(join(fx.root, 'linked'), { recursive: true })
+      writeFileSync(real, STALE_SECRETED)
+      // seedSourceUpdate() does not pre-create the unit, so rmSync needs force.
+      rmSync(fx.unitFile, { force: true })
+      symlinkSync(real, fx.unitFile)
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(0)
+      expect(lstatSync(fx.unitFile).isSymbolicLink(), 'the link must survive the refresh').toBe(true)
+      expect(readFileSync(real, 'utf8')).toContain(
+        `Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`,
+      )
+      // The target's own mode, never the link's 777.
+      expect(statSync(real).mode & 0o777).toBe(0o644)
+      expect(res.stdout).toContain('is a link; wrote through it to')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
     }
   })
 })

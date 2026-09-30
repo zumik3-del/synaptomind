@@ -144,12 +144,22 @@ print_recovery() {
 #     staged beside the unit and swapped in with rename(2), so the unit is
 #     either the old file or the new one — never a hybrid — and the previous
 #     body is kept as <unit>.bak the way the binary path keeps one.
+#     That staging lives in lib/common.sh's write_file_atomically(), which
+#     install.sh and refresh_unit() below also use: the same O_TRUNC pattern
+#     survived in those two entry points (task #1094) precisely because the
+#     mechanism was inlined here instead of shared, so it is shared now.
 #   * A unit's mode was forced to 644, which widened a hand-edited unit that may
 #     carry Environment= secrets. cp -f over an existing file does not change
 #     its mode, so the chmod bought nothing and only ever lost the operator's
-#     choice. The mode is now captured and re-applied to the STAGED file.
+#     choice. The mode is now read from the unit and re-applied to the STAGED
+#     file by write_file_atomically(), which also stages that file 600 BEFORE
+#     any byte lands in it and widens it only after the copy succeeded — the
+#     staging file used to inherit the awk render's 644 (umask 022), so a failed
+#     stage left the start of a 600 unit, Environment= secrets included, in a
+#     world-readable file in the unit directory, and it was left there (task
+#     #1094: both findings reproduced, both now covered by the shared function).
 ensure_restart_policy() {
-  local unit="$1" unit_dir staged body mode current backup now tmpdir tmp
+  local unit="$1" body current backup now tmpdir tmp
   [ -e "$unit" ] || return 0
 
   # Read the unit ONCE and tell a read FAILURE apart from an absent directive:
@@ -217,28 +227,25 @@ ensure_restart_policy() {
     return 0
   fi
 
-  unit_dir="$(dirname -- "$unit")"
-  staged="${unit_dir}/.${APP_NAME}.service.new.$$"
-  mode="$(stat -c '%a' -- "$unit" 2>/dev/null || printf '644')"
-
-  # Stage BESIDE the unit, under a name nothing loads. cp into a NEW name can
-  # only ever fail harmlessly; the live unit is not opened until the rename.
-  if ! run_root cp -p -- "$tmp" "$staged" 2>/dev/null; then
-    warn "Restart policy unchanged in ${unit}: cannot stage the new unit in ${unit_dir} (it needs write access)."
-    warn "  it still says ${current}; the unit was NOT touched."
-    rm -rf "$tmpdir"
-    return 0
-  fi
-  # The rename below REPLACES the inode, so the staged file's own mode would win.
-  # Put the operator's mode back on it, rather than imposing one.
-  run_root chmod "$mode" -- "$staged" 2>/dev/null || true
-
+  # Stage BESIDE the unit, under a name nothing loads, and swap with rename(2).
+  # write_file_atomically() owns the whole sequence (empty 600 staging file, cp
+  # onto it, mode widened only on success, rename, staging file removed on every
+  # failure) because each of those steps was a separate finding: a staging file
+  # that inherited the awk render's 644 mode carried the first bytes of a 600
+  # unit — Environment= secrets included — world-readable in the unit directory,
+  # and a FAILED stage left that partial file behind.
+  #
   # The previous body, kept for recovery: a swap that turns out to be wrong is
-  # only recoverable if the old file still exists somewhere.
-  backup="${unit}.bak"
-  run_root cp -p -- "$unit" "$backup" 2>/dev/null || backup=""
+  # only recoverable if the old file still exists somewhere. It goes through the
+  # same atomic path, so a .bak is never itself a truncated file.
+  backup=""
+  if write_file_atomically "${unit}.bak" "$unit"; then
+    backup="${unit}.bak"
+  else
+    warn "  proceeding WITHOUT a recovery copy of the previous unit."
+  fi
 
-  if run_root mv -f -- "$staged" "$unit"; then
+  if write_file_atomically "$unit" "$tmp"; then
     # Report what is on disk NOW, not what was intended: if something replaced
     # the unit underneath us (a concurrent install), say so.
     now="$(unit_restart_state "$unit")"
@@ -256,9 +263,10 @@ ensure_restart_policy() {
       warn "  something replaced the file during this run; leaving it to the operator."
     fi
   else
-    run_root rm -f -- "$staged" 2>/dev/null || true
-    warn "Restart policy unchanged in ${unit}: cannot swap the new unit in (mv failed)."
-    warn "  on disk now: $(unit_restart_state "$unit")"
+    # The unit is untouched, so it still says what it said: report that, not the
+    # directive this run meant to write.
+    warn "Restart policy unchanged in ${unit}: ${ATOMIC_WRITE_REASON}."
+    warn "  it still says ${current}; the unit was NOT touched."
     if [ -n "$backup" ]; then warn "  previous unit kept at ${backup}"; fi
   fi
   rm -rf "$tmpdir"
@@ -347,8 +355,21 @@ refresh_unit() {
     return 1
   fi
 
+  # The previous body is kept, so a rendered unit that turns out to be wrong is
+  # recoverable: main()'s "Already up to date" guard returns before
+  # refresh_unit is reached again, so a plain re-run cannot fix it.
+  if [ -e "$unit" ] && ! write_file_atomically "${unit}.bak" "$unit"; then
+    warn "  proceeding WITHOUT a recovery copy of the unit this refresh replaces."
+  fi
+
   # `enable` is deliberately NOT repeated: that is install.sh's job.
-  if run_root cp -f "$tmp" "$unit" && run_root chmod 644 "$unit"; then
+  # Atomic replacement, not `cp -f` + chmod 644: that pair opened the LIVE unit
+  # O_TRUNC, so a copy dying partway (ENOSPC, EIO, killed) left a 24-byte stub
+  # where a hand-edited unit was — while this very function went on to report
+  # the unit as "left unchanged", and while the forced 644 widened a unit that
+  # may carry Environment= secrets. Staged beside the unit and swapped with
+  # rename(2), so a failed write is a no-op and the mode is preserved.
+  if write_file_atomically "$unit" "$tmp"; then
     # The unit is correct on disk, but until systemd has read it a restart would
     # apply the OLD body — the same failure one step later, so it is fatal too.
     if ! run_root systemctl daemon-reload; then
@@ -358,7 +379,7 @@ refresh_unit() {
     rm -f "$saved" "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
     info "Refreshed ${unit}"
   else
-    unit_not_refreshed "$unit" "cannot write ${unit} (cp or chmod failed)" "$saved"
+    unit_not_refreshed "$unit" "the unit was NOT replaced — ${ATOMIC_WRITE_REASON}" "$saved"
     return 1
   fi
 }

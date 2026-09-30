@@ -41,7 +41,7 @@ function quote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-type UnitOpts = { dist?: string; dataDir?: string; bunBin?: string }
+type UnitOpts = { dist?: string; dataDir?: string; bunBin?: string; [key: string]: string | undefined }
 
 /** Render a unit with the real common.sh, exactly as install.sh/update.sh do. */
 function renderUnit(opts: UnitOpts = {}): string {
@@ -50,15 +50,23 @@ function renderUnit(opts: UnitOpts = {}): string {
   return res.stdout
 }
 
+/**
+ * Render with the real common.sh. `opts` overrides the default values by name
+ * (dataDir/bunBin/dist for the common cases, or any substituted variable such as
+ * APP_DESC / INSTALL_DIR); `env` overrides the ENVIRONMENT of the render process
+ * itself, which is what a PATH stub needs.
+ */
 function renderWithPath(opts: UnitOpts = {}, env: Record<string, string> = {}) {
+  const { dataDir, bunBin, dist, ...overrides } = opts
   const base: Record<string, string> = {
     APP_DESC: 'Synaptomind — thought-graph engine',
     TARGET_USER: 'synaptomind',
     TARGET_HOME: '/home/synaptomind',
     INSTALL_DIR: '/opt/synaptomind',
-    DATA_DIR: opts.dataDir ?? '/var/lib/synaptomind',
-    BUN_BIN: opts.bunBin ?? '/usr/local/bin/bun',
-    DIST: opts.dist ?? 'source',
+    DATA_DIR: dataDir ?? '/var/lib/synaptomind',
+    BUN_BIN: bunBin ?? '/usr/local/bin/bun',
+    DIST: dist ?? 'source',
+    ...overrides,
     ...env,
   }
   const script =
@@ -202,6 +210,84 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       'deploy/systemd-unit.test.ts',
     ]) {
       expect(unit, phrase).toContain(phrase)
+    }
+  })
+
+  // ── a line break in a value forges a DIRECTIVE (decided, task #1094) ──────
+  // The body is data, not shell, so such a value is inert as shell and NOT
+  // inert as unit text. The #1093 re-review measured three forgeries on the
+  // shipped renderer: an APP_DESC with a newline produced its own
+  // `ExecStartPre=` line, a TARGET_HOME with one produced an `Environment=`
+  // line, and an INSTALL_DIR with one produced `ReadWritePaths=/ /`, which with
+  // ProtectSystem=strict re-opens the whole filesystem for writing.
+  //
+  // DECIDED: guard, do not accept. The values are operator-sourced from app.env,
+  // so "the operator wrote it" is true and useless — a newline is never a
+  // legitimate path or description, and accepting one means shipping a unit
+  // whose hardening the operator never wrote. Both answers were live (guard vs.
+  // document-and-accept) and leaving it undecided was the one outcome a
+  // reviewer cannot check. Refusing fails CLOSED, before anything is written,
+  // and names the variable to fix.
+  test('a value with a line break is refused, and the variable is named', () => {
+    const cases: [string, string][] = [
+      ['APP_DESC', 'Synaptomind\nExecStartPre=/bin/sh -c "id > /tmp/pwned"'],
+      ['TARGET_HOME', '/home/synaptomind\nEnvironment=EVIL=1'],
+      ['INSTALL_DIR', '/opt/synaptomind\nReadWritePaths=/ /'],
+      ['DATA_DIR', '/var/lib/synaptomind\rEnvironment=EVIL=1'],
+      ['TARGET_USER', 'root\nUser=root'],
+      ['BUN_BIN', '/usr/local/bin/bun\nExecStartPre=/bin/false'],
+    ]
+    for (const [name, value] of cases) {
+      const res = renderWithPath({}, { [name]: value })
+      // Non-zero, and nothing rendered: a forged unit is not a degraded one.
+      expect(res.status, `${name} must fail the render`).not.toBe(0)
+      expect(res.stdout, `${name} must not render a unit at all`).toBe('')
+      // The message names the variable and the consequence, not just "error".
+      expect(res.stderr).toContain(name)
+      expect(res.stderr).toContain('line break')
+      // The operator is told what a newline would do, because "invalid input"
+      // is not actionable.
+      expect(res.stderr).toContain('directive')
+    }
+  })
+
+  test('the refusal happens before anything is written or reloaded', () => {
+    // A renderer that half-writes is worse than one that refuses. Same
+    // recording stubs as above: a refusal must not have reached systemctl,
+    // systemd-run or sudo on the way out.
+    const dir = mkdtempSync(join(tmpdir(), 'synapto-render-refuse-'))
+    try {
+      makeRecordingStubs(dir)
+      const log = join(dir, 'invocations.log')
+      const res = renderWithPath(
+        {},
+        {
+          INSTALL_DIR: '/opt/synaptomind\nReadWritePaths=/ /',
+          PATH: `${dir}:${process.env.PATH}`,
+          STUB_INVOCATION_LOG: log,
+        },
+      )
+      expect(res.status).not.toBe(0)
+      expect(spawnSync('cat', [log], { encoding: 'utf8' }).stdout).toBe('')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a value with no line break is unaffected (the guard is not a blanket ban)', () => {
+    // A guard that rejected ordinary values would make the renderer useless, so
+    // pin what it does NOT touch: a path with a space, a dash, an equals sign
+    // and a percent, plus a legit multi-line app.env value shape. If a future
+    // edit widens the guard, this fails.
+    for (const [name, value] of [
+      ['INSTALL_DIR', '/opt/synaptomind v2'],
+      ['DATA_DIR', '/var/lib/synaptomind-data'],
+      ['TARGET_HOME', '/home/synaptomind=1'],
+      ['APP_DESC', 'Synaptomind — thought-graph engine (100% coverage)'],
+    ] as [string, string][]) {
+      const unit = renderUnit({ [name]: value } as UnitOpts & Record<string, string>)
+      expect(unit, name).toContain('[Service]')
+      expect(unit, name).toContain('Restart=always')
     }
   })
 

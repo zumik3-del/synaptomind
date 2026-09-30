@@ -419,6 +419,37 @@ render_systemd_unit() {
   if [ -n "${DATA_DIR:-}" ]; then rw="${rw} ${DATA_DIR}"; fi
   if [ -n "${BUN_BIN:-}" ]; then bun_path="$(dirname "$BUN_BIN"):"; fi
 
+  # ── A line break in a substituted value forges a DIRECTIVE ───────────────
+  # The body below is data, not shell, so a hostile value is inert as shell and
+  # NOT inert as unit text: an APP_DESC with a newline renders its own
+  # ExecStartPre= line, a TARGET_HOME with one renders an Environment= line, and
+  # an INSTALL_DIR with one renders `ReadWritePaths=/ /`, which undoes
+  # ProtectSystem=strict for the whole filesystem.
+  #
+  # DECIDED 2026-09-30 (task #1094): guard, do not accept. The values are
+  # operator-sourced from app.env, so "the operator wrote it" is true — and
+  # useless: a newline is never a legitimate path or description, and accepting
+  # one means silently shipping a unit whose hardening the operator never wrote.
+  # Both answers were live (guard vs. document-and-accept) and leaving it
+  # undecided was the one outcome neither can be reviewed against. Refusing
+  # fails CLOSED, before anything has been written, and names the variable.
+  local vname vvalue
+  for vname in APP_DESC TARGET_USER TARGET_HOME INSTALL_DIR DATA_DIR BUN_BIN; do
+    vvalue="${!vname-}"
+    case "$vvalue" in
+      *$'\n'*|*$'\r'*)
+        warn "${vname} contains a line break, which would render as an extra systemd directive."
+        warn "  e.g. INSTALL_DIR with a newline renders 'ReadWritePaths=/ /', which cancels ProtectSystem=strict."
+        error "refusing to render a unit from a value that can forge one — fix ${vname} in app.env"
+        ;;
+    esac
+  done
+  case "$exec_start" in
+    *$'\n'*|*$'\r'*)
+      error "ExecStart contains a line break, which would render as an extra systemd directive"
+      ;;
+  esac
+
   env_lines=("Environment=NODE_ENV=production")
   # ADR 0001 §2.2: a compiled binary dlopens an embedded addon whose RUNPATH
   # ($ORIGIN) resolves inside /$bunfs, so libonnxruntime.so.1 is only found when
@@ -500,6 +531,143 @@ render_systemd_unit() {
     'WantedBy=multi-user.target'
   )
   printf '%s\n' "${lines[@]}"
+}
+
+# ── Atomic file replacement ────────────────────────────────────────────────
+# The ONE mechanism every unit write goes through: install.sh's install_service,
+# update.sh's refresh_unit and ensure_restart_policy all use this, so a fix
+# cannot reach one entry point and miss the others (that is how `cp -f` onto the
+# live unit survived in the two paths outside #1092's diff).
+#
+# Reports: $ATOMIC_WRITE_REASON on failure, $ATOMIC_WRITE_DEST (the path really
+# written) and $ATOMIC_WRITE_NOTE (a link that was followed) on success.
+ATOMIC_WRITE_REASON=""
+ATOMIC_WRITE_DEST=""
+ATOMIC_WRITE_NOTE=""
+
+# A failed replacement, reported honestly: the reason, the file that was NOT
+# replaced, and what is really on disk. Naming the INTENDED state instead is how
+# a unit truncated to 24 bytes came to be reported as "left unchanged".
+_atomic_write_failed() {
+  local dest="$1" reason="$2" staged="$3" state
+  ATOMIC_WRITE_REASON="$reason"
+  [ -n "$staged" ] && run_root rm -f -- "$staged" 2>/dev/null
+  if [ ! -e "$dest" ]; then
+    state="it does not exist"
+  elif ! state="$(wc -c <"$dest" 2>/dev/null | tr -d ' ')"; then
+    state="it cannot be READ"
+  else
+    state="${state} bytes"
+  fi
+  warn "not replaced: ${dest} — ${reason}"
+  warn "  on disk now: ${state}"
+  return 1
+}
+
+# write_file_atomically DEST SRC [MODE]
+#   Install SRC as DEST so no reader can observe a half-written DEST, and so a
+#   write that FAILS leaves DEST byte for byte as it was.
+#
+#   Each property below is a defect this replaced, reproduced against the code
+#   that had it (task #1094 — the same pattern was a review blocker in #1092):
+#
+#   1. The payload never touches DEST. `cp -f SRC DEST` opens DEST O_TRUNC, so
+#      a copy that dies partway (ENOSPC, EIO, a killed process — / on this host
+#      reached 100% with zero bytes free during the 0.9.0 review) leaves DEST
+#      TRUNCATED. On a unit file that destroys a hand-edited production unit
+#      while the run reports "cannot write … skipping", and — in refresh_unit —
+#      while the very message claims the installed unit was "left unchanged".
+#   2. The swap is rename(2) out of DEST's own directory, so it is atomic and
+#      cannot fail partway. Same directory = same filesystem by construction, so
+#      the rename can never degrade into a copy.
+#   3. The staging file is created EMPTY and narrowed to 600 BEFORE a byte of
+#      SRC lands in it, and MODE is applied only after the copy SUCCEEDED.
+#      cp(1) never changes the mode of an EXISTING destination, so the 600 holds
+#      for the whole copy. A failed copy therefore leaves at most a mode-600
+#      fragment — an operator's Environment= secrets readable by root alone —
+#      never a world-readable partial unit in the directory systemd scans. The
+#      staging file is created by root (touch), so the unit keeps root
+#      ownership; `cp -p` from an unprivileged render left the unit owned by the
+#      INVOKING user, which in /etc/systemd/system is a privilege-escalation
+#      vector. (Root ownership cannot be asserted in the deploy suite, which
+#      runs unprivileged with sudo stubbed; the suite asserts the rest.)
+#   4. The staging file is removed on EVERY failure, so a dead run leaves no
+#      litter for the next one to trip over.
+#
+#   A symlinked DEST (the `systemctl link` shape) is FOLLOWED, deliberately: the
+#   old `cp -f` wrote through the link, so replacing the link with a regular file
+#   silently changes the unit's shape, and stat(1) without -L reports the LINK's
+#   own mode — always 777 — which installed a world-writable unit systemd refuses
+#   to load. A DANGLING link has no file to write through and nothing could be
+#   reading it, so it is removed and replaced on purpose; both cases say so.
+#
+#   MODE defaults to the mode DEST already has (an operator's 600 unit with
+#   secrets stays 600), else the mode of SRC (a recovery copy inherits what it
+#   copies), else 644.
+write_file_atomically() {
+  local dest="$1" src="$2" mode="${3:-}" dir staged target
+  ATOMIC_WRITE_REASON=""; ATOMIC_WRITE_DEST=""; ATOMIC_WRITE_NOTE=""
+
+  if [ -L "$dest" ]; then
+    target="$(readlink -f -- "$dest" 2>/dev/null || true)"
+    if [ -n "$target" ] && [ -e "$target" ]; then
+      ATOMIC_WRITE_NOTE="${dest} is a link; wrote through it to ${target}"
+      dest="$target"
+    else
+      ATOMIC_WRITE_NOTE="${dest} is a dangling link; replaced it with a regular file"
+      if ! run_root rm -f -- "$dest" 2>/dev/null; then
+        _atomic_write_failed "$dest" "cannot remove the dangling link (no write access?)" ""
+        return 1
+      fi
+    fi
+  fi
+
+  dir="$(dirname -- "$dest")"
+  # A name systemd never loads (its suffix is the PID, not a unit type) and
+  # beside DEST, which is what keeps the swap a rename(2) on one filesystem.
+  staged="${dir}/.${APP_NAME:-app}.service.new.$$"
+  # Never inherit a previous run's bytes: a leftover from a dead process whose
+  # PID got recycled is content nobody rendered.
+  run_root rm -f -- "$staged" 2>/dev/null || true
+
+  if [ -z "$mode" ]; then
+    # The file being replaced keeps its mode (an operator's 600 unit with
+    # secrets is not widened); a NEW file — a <unit>.bak — inherits the mode of
+    # the file it is a copy of, since that is what "recovery copy" means.
+    if [ -e "$dest" ]; then
+      mode="$(stat -L -c '%a' -- "$dest" 2>/dev/null || printf '644')"
+    elif [ -e "$src" ]; then
+      mode="$(stat -L -c '%a' -- "$src" 2>/dev/null || printf '644')"
+    else
+      mode="644"
+    fi
+  fi
+
+  if ! run_root touch -- "$staged" 2>/dev/null; then
+    _atomic_write_failed "$dest" "cannot create a staging file in ${dir} (no write access?)" "$staged"
+    return 1
+  fi
+  if ! run_root chmod 600 -- "$staged" 2>/dev/null; then
+    _atomic_write_failed "$dest" "cannot restrict the staging file in ${dir} to mode 600" "$staged"
+    return 1
+  fi
+  if ! run_root cp -- "$src" "$staged" 2>/dev/null; then
+    _atomic_write_failed "$dest" "cannot write the replacement into ${dir} (out of space, or no write access)" "$staged"
+    return 1
+  fi
+  if [ "$mode" != "600" ] && ! run_root chmod "$mode" -- "$staged" 2>/dev/null; then
+    # Not fatal: the bytes are right and the file stays root-only, so the swap
+    # still delivers. Say which mode landed rather than leaving it unchosen.
+    warn "cannot set mode ${mode} on the replacement for ${dest}; it will be installed mode 600."
+  fi
+  if ! run_root mv -f -- "$staged" "$dest" 2>/dev/null; then
+    _atomic_write_failed "$dest" "cannot swap the replacement in (rename failed)" "$staged"
+    return 1
+  fi
+
+  ATOMIC_WRITE_DEST="$dest"
+  [ -n "$ATOMIC_WRITE_NOTE" ] && info "$ATOMIC_WRITE_NOTE"
+  return 0
 }
 
 # ── Binary payload: download, stage, verify, ordered swap ──────────────────

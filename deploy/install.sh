@@ -457,7 +457,21 @@ install_service() {
     if systemd-analyze verify "$tmp" >/dev/null 2>&1; then info "Unit verified"; else warn "systemd-analyze verify reported issues"; fi
   fi
 
-  if run_root cp -f "$tmp" "$unit" && run_root chmod 644 "$unit"; then
+  # Keep the body being replaced, so a re-install over a hand-edited unit is
+  # recoverable. A fresh install has no unit to lose, and then there is no .bak.
+  if [ -e "$unit" ] && ! write_file_atomically "${unit}.bak" "$unit"; then
+    warn "  proceeding WITHOUT a recovery copy of the unit this install replaces."
+  fi
+
+  # Atomic replacement, staged beside the unit and swapped with rename(2) — the
+  # same mechanism update.sh uses, and the same reason: `cp -f` opens the LIVE
+  # unit O_TRUNC, so a copy that dies partway (ENOSPC, EIO, killed) truncates an
+  # existing hand-edited production unit while this run reports "cannot write".
+  # / on this host reached 100% with zero bytes free during the 0.9.0 review, so
+  # the trigger is demonstrated rather than theoretical — and this is the path a
+  # FRESH install takes, i.e. the 0.9.0 cutover. The mode is preserved rather
+  # than forced to 644, so a unit carrying Environment= secrets is not widened.
+  if write_file_atomically "$unit" "$tmp"; then
     rm -f "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
   else
     warn "cannot write ${unit} — skipping service installation"
