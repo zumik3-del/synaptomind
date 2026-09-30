@@ -13,6 +13,7 @@ import {
   cpSync,
   statSync,
   symlinkSync,
+  utimesSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -389,6 +390,158 @@ describe('install.sh — DIST=binary tarball install', () => {
     expect(res.status, res.stderr + res.stdout).toBe(0)
     // A ~119 MB tarball per install would otherwise leak into INSTALL_DIR.
     expect(tempLeftovers(join(ROOT, 'opt', APP))).toEqual([])
+  })
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  F7 — a --force re-install must not rewrite a ~119 MB .prev set of
+  //  byte-identical files, and the rollback story must say what that means.
+  //
+  //  binary_keep_previous() copied vec0.so, lib/libonnxruntime.so.1 and the
+  //  executable into <file>.prev on every install, including a --force
+  //  re-install of the SAME payload. The copies are byte-identical, so nothing
+  //  is gained, while the cost is the full payload written again onto the same
+  //  filesystem as the database — and / on this host reached 100% with zero
+  //  bytes free during the 0.9.0 review.
+  //
+  //  A re-install of the same payload therefore keeps the copy it has, and says
+  //  so: the .prev then describes THIS version, not an older one, so a rollback
+  //  to it is a no-op — a fact the operator has to be told, not left to infer.
+  //  ══════════════════════════════════════════════════════════════════════════
+
+  test('a --force re-install of the same payload does not rewrite an identical .prev (F7)', () => {
+    // Run 1 is a fresh install (nothing to keep: there is no previous payload).
+    // Run 2 is the first one that CAN write a .prev, so the stamp goes after it.
+    //
+    // execSudo, or this test proves nothing: the .prev copy goes through
+    // write_file_atomically, which stages and renames via run_root, and the
+    // logging sudo stub executes nothing — every run would "pass" by never
+    // writing a file at all.
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
+      releasesBase: `file://${RELEASES}`,
+      execSudo: true,
+    })
+    const installDir = join(ROOT, 'opt', APP)
+    const args = ['--version', 'v0.8.0', '--force', '--no-service']
+
+    expect(runBinaryInstall(deployDir, stubsDir, sudoLog, args).status).toBe(0)
+    const second = runBinaryInstall(deployDir, stubsDir, sudoLog, args)
+    expect(second.status, second.stderr + second.stdout).toBe(0)
+
+    // Stamp every .prev with a known old mtime. A rewrite updates it; a skipped
+    // copy leaves it exactly as it was, which is the whole assertion.
+    const prevs = ['vec0.so.prev', 'lib/libonnxruntime.so.1.prev', `${APP}.prev`]
+    const STAMP = new Date('2001-02-03T04:05:06Z')
+    for (const rel of prevs) {
+      expect(existsSync(join(installDir, rel)), `${rel} must exist after the second install`).toBe(true)
+      utimesSync(join(installDir, rel), STAMP, STAMP)
+    }
+
+    const third = runBinaryInstall(deployDir, stubsDir, sudoLog, args)
+    expect(third.status, third.stderr + third.stdout).toBe(0)
+
+    for (const rel of prevs) {
+      expect(
+        statSync(join(installDir, rel)).mtimeMs,
+        `${rel} was rewritten with byte-identical content`,
+      ).toBe(STAMP.getTime())
+    }
+    // The story is told, not left to be inferred: the kept copy describes THIS
+    // version, so rolling back to it restores this version.
+    expect(third.stdout).toContain('byte-identical')
+    expect(third.stdout).toMatch(/same version|this version/i)
+  }, 60_000)
+
+  test('a --force re-install of a CHANGED payload still refreshes every .prev (F7)', () => {
+    // The other direction, and the one that must not regress: skipping must be
+    // decided by CONTENT, never by "a .prev already exists". Three payloads in a
+    // row, each re-published under the same tag, so run 4 sees a .prev that
+    // differs from the installed file and has to be replaced.
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
+      releasesBase: `file://${RELEASES}`,
+      // The .prev write runs through the shared atomic writer, so the sudo stub
+      // has to execute for it (see the test above).
+      execSudo: true,
+    })
+    const installDir = join(ROOT, 'opt', APP)
+    const args = ['--version', 'v0.8.0', '--force', '--no-service']
+    const republish = (vec: string, onnx: string) => {
+      rmSync(join(RELEASES, 'v0.8.0'), { recursive: true, force: true })
+      seedRelease(RELEASES, 'v0.8.0', {
+        ...stubPayload('v0.8.0'),
+        'vec0.so': vec,
+        'lib/libonnxruntime.so.1': onnx,
+      })
+    }
+
+    // 1) stub, 2) stub again (the .prev is created, byte-identical to installed)
+    expect(runBinaryInstall(deployDir, stubsDir, sudoLog, args).status).toBe(0)
+    expect(runBinaryInstall(deployDir, stubsDir, sudoLog, args).status).toBe(0)
+    expect(readFileSync(join(installDir, 'vec0.so.prev'), 'utf8')).toBe('stub vec0\n')
+
+    // 3) a rebuilt artifact. The rollback point is the state from BEFORE this
+    //    run, so .prev legitimately still holds the stub bytes here — the copy
+    //    would be identical, which is exactly the case F7 stops paying for.
+    republish('rebuilt vec0\n', 'rebuilt onnxruntime\n')
+    const third = runBinaryInstall(deployDir, stubsDir, sudoLog, args)
+    expect(third.status, third.stderr + third.stdout).toBe(0)
+    expect(readFileSync(join(installDir, 'vec0.so'), 'utf8')).toBe('rebuilt vec0\n')
+    expect(readFileSync(join(installDir, 'vec0.so.prev'), 'utf8')).toBe('stub vec0\n')
+
+    // 4) a second rebuild. Now the installed file and .prev DIFFER, so the skip
+    //    must not apply: rolling back has to restore "rebuilt", not the stub.
+    //    This is the assertion that fails if the skip is ever decided by
+    //    "a .prev already exists" instead of by content.
+    republish('rebuilt2 vec0\n', 'rebuilt2 onnxruntime\n')
+    const fourth = runBinaryInstall(deployDir, stubsDir, sudoLog, args)
+    expect(fourth.status, fourth.stderr + fourth.stdout).toBe(0)
+    expect(readFileSync(join(installDir, 'vec0.so'), 'utf8')).toBe('rebuilt2 vec0\n')
+    expect(readFileSync(join(installDir, 'vec0.so.prev'), 'utf8')).toBe('rebuilt vec0\n')
+    expect(readFileSync(join(installDir, 'lib/libonnxruntime.so.1.prev'), 'utf8')).toBe(
+      'rebuilt onnxruntime\n',
+    )
+  }, 60_000)
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  F5 — a bare version leaked into stdout.
+  //
+  //  binary_install_payload() ended with `printf '%s' "$got"`, and BOTH callers
+  //  invoke it uncaptured (install.sh: install_binary; update.sh: update_binary),
+  //  so the version reached the operator's terminal as an unlabelled fragment
+  //  glued to whatever line came next — "0.8.2[synaptomind] Running post-update
+  //  hook…". It is now INSTALLED_VERSION, like RESOLVED_TAG and STAGED_PAYLOAD:
+  // a variable, because a command substitution would run the swap in a subshell
+  //  where cleanup_add could not reach the caller's EXIT trap, and because no
+  //  caller could have used the printed value anyway.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  test('no bare version is written to stdout (F5)', () => {
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
+      releasesBase: `file://${RELEASES}`,
+    })
+
+    const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
+      '--version',
+      'v0.8.0',
+      '--no-service',
+    ])
+    expect(res.status, res.stderr + res.stdout).toBe(0)
+
+    // Every stdout line belongs to the [app]-prefixed log. The leak was a line
+    // with no prefix at all, so assert on the shape of the whole stream rather
+    // than on a substring a future log line could contain.
+    for (const line of res.stdout.split('\n')) {
+      if (line.trim() === '') continue
+      expect(line, `unprefixed stdout line: ${JSON.stringify(line)}`).toMatch(
+        /^\[synaptomind\]|^\[app\]|^===|^  [A-Za-z]|^$/,
+      )
+    }
+    expect(res.stdout).not.toMatch(/^0\.8\.2/)
+    // The version is still reported — as a labelled line.
+    expect(res.stdout).toContain('Installed')
+    expect(res.stdout).toContain('0.8.0')
   })
 
   test('a payload missing lib/libonnxruntime.so.1 aborts by name, with nothing swapped', () => {

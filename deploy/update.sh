@@ -76,37 +76,180 @@ remote_pkg_version() {
 }
 
 # ── Hooks ──────────────────────────────────────────────────────────────────
+# The backups the pre-update hook reported, filled by collect_db_backups from the
+# hook's own output. print_recovery restores exactly these.
+DB_BACKUPS=()
+
+# collect_db_backups FILE — the backup paths the pre-update hook printed.
+#
+# The hook's line IS the record: "… Database backed up: <path>", where <path> is
+# <db>.backup/<name>.<timestamp>.bak. It is parsed rather than re-derived because
+# the hook is the INSTALLED copy, possibly from an older release: those print the
+# same line, while a path re-derived from this release's config.json would be
+# wrong for any host whose database lives elsewhere.
+collect_db_backups() {
+  local file="$1" line path
+  DB_BACKUPS=()
+  if [ ! -f "$file" ]; then return 0; fi
+  while IFS= read -r line; do
+    case "$line" in
+      *"Database backed up: "*)
+        path="${line##*Database backed up: }"
+        # Strip trailing whitespace, never a leading one: a path may contain a
+        # space, and a mangled path is worse than none.
+        path="${path%"${path##*[![:space:]]}"}"
+        if [ -n "$path" ]; then DB_BACKUPS+=("$path"); fi
+        ;;
+    esac
+  done < "$file"
+  return 0
+}
+
 run_hook() {
-  local hook="${HOOKS_DIR}/$1" rc=0
+  local hook="${HOOKS_DIR}/$1" rc=0 out=""
   if [ -x "$hook" ]; then
     info "Running ${1} hook..."
-    "$hook" || rc=$?
+    # The hook's output is DATA, not only a transcript: pre-update names the
+    # backup files it produced, and the recovery block restores exactly those
+    # (task #1079 F6 — it used to print a literal `synaptomind.db.<timestamp>.bak`,
+    # a path that does not exist, so the only DB restore it offered could not
+    # run). Teed, so a long backup still streams instead of looking hung; the
+    # hook's stderr joins its stdout in that transcript, and `{ … || rc=$?; }`
+    # carries the hook's own exit status through the pipe without tripping `set -e`
+    # (the pipeline's own status is tee's, which is always 0).
+    if out="$(mktemp 2>/dev/null)"; then
+      { "$hook" 2>&1 || rc=$?; } | tee "$out"
+      if [ "$1" = "pre-update" ]; then collect_db_backups "$out"; fi
+    else
+      out=""
+      "$hook" || rc=$?
+      warn "could not capture the ${1} hook's output (no temp file) — the recovery block will name no backup path"
+    fi
     if [ "$rc" -ne 0 ]; then warn "${1} hook failed (continuing)"; fi
   fi
   return "$rc"
 }
 
 # ── Rollback guidance (no automatic revert) ────────────────────────────────
+# shell_quote STRING — single-quoted, so a path containing a space or a quote
+# survives being pasted into a shell. The printed commands are run by a human,
+# and a path from config.json is operator content.
+shell_quote() {
+  local s="$1"
+  printf "'%s'" "${s//\'/\'\\\'\'}"
+}
+
+# print_db_restore — the mandatory DB restore, naming the REAL backup files.
+#
+# The payload is three files, not one commit, and migrations are forward-only
+# (src/db/init.ts:127), so a rollback MUST restore the DB backup as well
+# (ADR 0001 §2.9). The old text named `data/synaptomind.db.backup/
+# synaptomind.db.<timestamp>.bak` — a template, not a file, and one the operator
+# had to guess a timestamp into — while claiming the hook "printed each backup
+# path" instead of printing the paths it had.
+print_db_restore() {
+  local b dir db
+  if [ "${#DB_BACKUPS[@]}" -eq 0 ]; then
+    warn "    # no database backup was reported by the pre-update hook, so there is"
+    warn "    # nothing to restore here. On a host that HAS backups, newest first:"
+    warn "    sudo ls -lt ${INSTALL_DIR}/data/synaptomind.db.backup/*.bak ${INSTALL_DIR}/data/*.backup/*.bak"
+  else
+    for b in "${DB_BACKUPS[@]}"; do
+      # The hook writes <db>.backup/<name>.<timestamp>.bak (hooks/pre-update), so
+      # the database a backup belongs to is the DIRECTORY minus its .backup
+      # suffix. Deriving it from the shape the hook itself writes is what keeps
+      # this command runnable for a database that does not live under data/ at
+      # all, which a re-derived hardcoded path never was.
+      dir="${b%/*}"
+      db="${dir%.backup}"
+      if [ "$dir" = "$b" ] || [ "$db" = "$dir" ] || [ "${b##*/}" = "$b" ]; then
+        # Not that shape: name the file and say that its database cannot be
+        # derived, rather than printing a guess that would restore over the
+        # wrong file.
+        warn "    # not a <db>.backup/<name>.bak path — which database it backs up is unknown:"
+        warn "    #   sudo cp -p $(shell_quote "$b") <that database>"
+        continue
+      fi
+      warn "    sudo cp -p $(shell_quote "$b") $(shell_quote "$db")"
+      warn "    sudo rm -f $(shell_quote "${db}-wal") $(shell_quote "${db}-shm")"
+    done
+  fi
+  warn "  Restoring the DB is mandatory: migrations are forward-only (src/db/init.ts),"
+  warn "  so a pre-upgrade binary against a post-upgrade schema is unsafe. Every"
+  warn "  database the pre-update hook backed up is listed above — those are the paths"
+  warn "  it reported, not a template."
+  warn "  A .prev kept only because it was byte-identical restores THIS version rather"
+  warn "  than an older one (see binary_keep_previous) — check it before relying on it."
+}
+
+# print_unverified — the verdict when the service never answered.
+#
+# Printed INSTEAD of the rollback block, which used to be printed for exactly this
+# case: a service that was merely slow (or an HEALTH_TIMEOUT of 2) was handed a
+# remedy that stops the unit, moves the .prev payload back and restores the
+# database over the new schema's. Nothing destructive is advised for a silence —
+# the payload that was just installed is not evidence of anything, and the
+# rollback point stays on disk, named, for an operator who has established that
+# the service really is broken (task #1079 F4).
+print_unverified() {
+  local f port
+  port="$(health_url_port "${HEALTH_URL}")"
+  warn "the service did not confirm the new version — this update is UNVERIFIED, not failed."
+  if [ "${HEALTH_RECHECKED:-false}" = true ]; then
+    warn "  ${HEALTH_URL} did not answer as ${APP_NAME} in ${HEALTH_TIMEOUT}s, nor in the"
+    warn "  ${HEALTH_CONFIRM_TIMEOUT}s re-check that followed it."
+  else
+    warn "  ${HEALTH_URL} did not answer as ${APP_NAME} within ${HEALTH_TIMEOUT}s."
+  fi
+  warn "  what IS done: the payload is swapped in, the unit is refreshed and the"
+  warn "  pre-update hook ran. Nothing was rolled back, nothing was restored."
+  warn "  check, in this order:"
+  warn "    sudo systemctl status ${APP_NAME}"
+  warn "    journalctl -u ${APP_NAME} -n 100 --no-pager"
+  warn "    curl -sS ${HEALTH_URL}                     # does OUR service answer?"
+  if [ -n "$port" ]; then
+    warn "    sudo ss -ltnp | grep ':${port}'            # or something else on that port?"
+  fi
+  warn "  a slow start is the likeliest cause. Raise HEALTH_TIMEOUT (or"
+  warn "  HEALTH_CONFIRM_TIMEOUT) in ${RUN_DIR}/scripts/app.env and re-run rather than"
+  warn "  reverting a payload that may well be serving."
+  if [ "$DIST" = "binary" ]; then
+    warn "  if the service does turn out to be broken, the rollback point is still here:"
+    for f in $BINARY_ROLLBACK_FILES; do
+      if [ -f "${INSTALL_DIR}/${f}.prev" ]; then warn "    ${INSTALL_DIR}/${f}.prev"; fi
+    done
+  else
+    warn "  if the service does turn out to be broken, the previous commit is ${PREV_REF}."
+  fi
+  if [ "${#DB_BACKUPS[@]}" -gt 0 ]; then
+    warn "  the pre-update database backup(s) are untouched:"
+    for f in ${DB_BACKUPS[@]+"${DB_BACKUPS[@]}"}; do warn "    ${f}"; done
+  fi
+  return 0
+}
+
+# print_recovery CONFIRMED|UNCONFIRMED
+# The remedy for an OBSERVED failure only. A timeout is not observed (see
+# print_unverified), so it must never reach this block.
 print_recovery() {
+  local verdict="${1:-confirmed}"
+  if [ "$verdict" != "confirmed" ]; then
+    print_unverified
+    return 0
+  fi
   warn "update did not finish cleanly — previous state:"
   if [ "$DIST" = "binary" ]; then
-    # The payload is three files, not one commit, and migrations are forward-only
-    # (src/db/init.ts), so a rollback MUST restore the DB backup as well (ADR 0001 §2.9).
     warn "  rollback:"
     warn "    sudo systemctl stop ${APP_NAME}"
     warn "    cd ${INSTALL_DIR}"
     warn "    for f in ${BINARY_ROLLBACK_FILES}; do [ -f \"\$f.prev\" ] && sudo mv -f \"\$f.prev\" \"\$f\"; done"
-    warn "    sudo cp data/synaptomind.db.backup/synaptomind.db.<timestamp>.bak data/synaptomind.db"
-    warn "    sudo rm -f data/synaptomind.db-wal data/synaptomind.db-shm"
+    print_db_restore
     warn "    sudo systemctl start ${APP_NAME}"
-    warn "  The cp/rm pair must be repeated for EVERY database the pre-update hook"
-    warn "  backed up (the main DB plus logDbPath from config.json) — the hook"
-    warn "  printed each backup path. Restoring the DB is mandatory: a pre-upgrade"
-    warn "  binary against a post-upgrade schema is unsafe."
   else
     warn "  previous commit: ${PREV_REF}"
     warn "  rollback:        git -C ${INSTALL_DIR} checkout --force ${PREV_REF} && (cd ${INSTALL_DIR} && bun install --frozen-lockfile --production)"
   fi
+  return 0
 }
 
 # ── restart policy: the source-mode half of the unit refresh ────────────────
@@ -502,9 +645,26 @@ update_binary() {
 }
 
 # ── Restart & verify ───────────────────────────────────────────────────────
+# Set to true when the health verdict was re-checked, so the UNVERIFIED report
+# can say that both windows were used (task #1079 F4).
+HEALTH_RECHECKED=false
+
 restart_and_verify() {
   local restarted=false expected="$TARGET_VERSION"
   if [ "$expected" = "unknown" ]; then expected=""; fi
+  # Never poll without an expectation when one can be derived. A version-less
+  # gate accepts any well-formed /health on the port, which is how a proxy — or
+  # a second instance of this app — passed as the service this update installed
+  # (F4). The artefact just swapped in is the authority, and it is what /health
+  # must report back.
+  if [ -z "$expected" ]; then
+    installed_version
+    expected="$INSTALLED_VERSION"
+    if [ -z "$expected" ]; then
+      warn "the target version is unknown and cannot be read from ${INSTALL_DIR} —"
+      warn "  the health check can no longer tell this service from another one on ${HEALTH_URL}."
+    fi
+  fi
   if systemd_running && systemctl is-active "$APP_NAME" >/dev/null 2>&1; then
     info "Restarting ${APP_NAME}..."
     run_root systemctl restart "$APP_NAME"
@@ -515,11 +675,28 @@ restart_and_verify() {
   fi
 
   if [ "$restarted" = true ]; then
-    if ! wait_health "$HEALTH_URL" "$expected" "$HEALTH_TIMEOUT"; then
-      print_recovery
-      exit 1
+    if wait_health "$HEALTH_URL" "$expected" "$HEALTH_TIMEOUT"; then
+      return 0
     fi
+    # A timeout is this run's own bound, not a fact about the service: with
+    # HEALTH_TIMEOUT=2 a healthy upgrade was declared failed — with a remedy
+    # that stops the unit and restores the database — while the service went on
+    # answering eight seconds later. Re-check before deciding (F4).
+    if [ "$HEALTH_FAILURE" = "timeout" ]; then
+      if health_recheck "$HEALTH_URL" "$expected" "$HEALTH_CONFIRM_TIMEOUT"; then
+        return 0
+      fi
+      HEALTH_RECHECKED=true
+    fi
+    # Only a sample that CONTRADICTED the update is a verdict; a silence is not.
+    if [ "$HEALTH_FAILURE" = "timeout" ]; then
+      print_recovery unconfirmed
+    else
+      print_recovery confirmed
+    fi
+    exit 1
   fi
+  return 0
 }
 
 # ── Main ───────────────────────────────────────────────────────────────────
@@ -534,6 +711,10 @@ main() {
    INSTALL_DIR="${INSTALL_DIR:-/opt/${APP_NAME}}"
    PORT="${PORT:-3000}"
    HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-60}"
+   # A second health window, used only when the first one expired with no answer
+   # (task #1079 F4). 0 disables the re-check, which is NOT recommended: it is
+   # the difference between "unverified" and a destructive remedy.
+   HEALTH_CONFIRM_TIMEOUT="${HEALTH_CONFIRM_TIMEOUT:-30}"
    HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:$(resolve_port)/health}"
    HOOKS_DIR="${HOOKS_DIR:-${RUN_DIR}/hooks}"
    # Export RUN_DIR so hook scripts (pre-update / post-update) can locate

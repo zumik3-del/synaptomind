@@ -252,12 +252,61 @@ url_get() {
   fi
 }
 
+# The tag names in a release-metadata payload, in payload order, one per line.
+#
+# NOT line-based, and that is the whole point of this helper. A JSON array of
+# releases is served as ONE minified line — `[{"tag_name":…},{"tag_name":…},…]`
+# — so a `sed` that transforms a line sees a single entry in it: the LAST one,
+# and reports it as the only release that exists. The consequences were not
+# cosmetic (task #1079 F3): with the newest prerelease last, CHECKOUT_POLICY=stable
+# hard-failed with "no stable release tag" while that prerelease was the answer
+# for `latest` and `prerelease` alike.
+#
+# `grep -o` emits EVERY match on a line, so a minified array, a pretty-printed
+# one and a single release object all yield the same list of names. Both shapes
+# are pinned in deploy/updater.sh.test.ts.
+release_tag_names() {
+  grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+    | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+}
+
+# release_sort_key TAG — a sort key that ranks a release ABOVE its own
+# prereleases, which `sort -V` does not.
+#
+# MEASURED, GNU coreutils 9.x: `sort -V` compares "0.9.0beta.1" against "0.9.0"
+# as text once the digit runs are exhausted, so it answers
+#     printf '%s\n' v0.9.0 v0.8.2 v0.9.0-beta.1 | sort -V | tail -1  ->  v0.9.0-beta.1
+# — a prerelease of 0.9.0 ranked above 0.9.0 itself. `latest` is "newest tag of
+# ANY kind", so that turned the channel into "prefer a beta of the version just
+# below the newest one" (task #1079 F3). The key splits the tag into its core
+# version and its channel marker, so the core decides first and a stable tag
+# wins its own core: 0.9.0-beta.1 < 0.9.0 < 0.10.0-rc.1, and alpha.2 < alpha.10
+# (digit runs still compare numerically, so `sort -V` is kept rather than
+# replaced by a hand-rolled comparator).
+release_sort_key() {
+  local tag="$1" core pre
+  core="${tag%%-*}"
+  if [ "$core" = "$tag" ]; then pre="1-"; else pre="0-${tag#*-}-"; fi
+  printf '%s-%s' "$core" "$pre"
+}
+
+# release_newest — the newest tag on stdin, by release_sort_key. Prints nothing
+# for an empty stream. The key is emitted alongside the tag and the tag is read
+# back out, because the key is not the tag: the keys are prefix-free (a stable
+# key ends in the 1-marker, a prerelease key in 0-<pre>-), so the tab-delimited
+# line sorts exactly as the key alone would.
+release_newest() {
+  while IFS= read -r t; do
+    if [ -n "$t" ]; then printf '%s\t%s\n' "$(release_sort_key "$t")" "$t"; fi
+  done | sort -V | cut -f2 | tail -1
+}
+
 # Latest release tag from RELEASE_API (JSON with "tag_name"); prints the tag.
 release_latest_tag() {
   if [ -z "${RELEASE_API:-}" ]; then warn "RELEASE_API is not set"; return 1; fi
   local json tag
   json="$(url_get "$RELEASE_API" 2>/dev/null || true)"
-  tag="$(printf '%s' "$json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  tag="$(printf '%s' "$json" | release_tag_names | head -1)"
   if [ -z "$tag" ]; then
     warn "no \"tag_name\" in release metadata from ${RELEASE_API}"
     return 1
@@ -290,16 +339,25 @@ release_resolve_tag() {
   [ -n "$json" ] || error "could not read ${RELEASE_API} (GitHub API rate limit or network); re-run with --version <tag>"
 
   local names
-  names="$(printf '%s' "$json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  # Every tag in the payload, not the one that happens to sit last on a line.
+  # RELEASE_API is the LIST endpoint, and a JSON array arrives as a single
+  # minified line: a line-based read saw one entry in it and treated the last as
+  # the only release, so `stable` hard-failed whenever a prerelease was listed
+  # last and every channel silently resolved to that prerelease (task #1079 F3).
+  # The channel selection below then sorts what is really there, so the order the
+  # API happens to use (newest first) cannot change the answer either.
+  names="$(printf '%s' "$json" | release_tag_names)"
   case "$policy" in
-    stable)     tags="$(printf '%s\n' "$names" | grep -E '^v[0-9]' | grep -v -- '-'          | sort -V | tail -1 || true)" ;;
-    latest)     tags="$(printf '%s\n' "$names" | grep -E '^v[0-9]'                             | sort -V | tail -1 || true)" ;;
-    prerelease) tags="$(printf '%s\n' "$names" | grep -E '^v[0-9].*-(alpha|beta|rc)\.'         | sort -V | tail -1 || true)" ;;
+    stable)     tags="$(printf '%s\n' "$names" | grep -E '^v[0-9]' | grep -v -- '-'         | release_newest)" ;;
+    latest)     tags="$(printf '%s\n' "$names" | grep -E '^v[0-9]'                           | release_newest)" ;;
+    prerelease) tags="$(printf '%s\n' "$names" | grep -E '^v[0-9].*-(alpha|beta|rc)\.'       | release_newest)" ;;
   esac
   # The tag is interpolated into a download URL: accept only what a release tag
   # may look like (same shape updater.sh's TAG_RE enforces).
+  local listed
+  listed="$(printf '%s\n' "$names" | grep -c . || true)"
   [[ "$tags" =~ ^v[0-9][0-9A-Za-z.+-]*$ ]] \
-    || error "no ${policy} release tag in ${RELEASE_API} (last entry: '${tags:-none}'); re-run with --version <tag>"
+    || error "no ${policy} release tag in ${RELEASE_API} (${listed} tag(s) listed, none of them ${policy}); re-run with --version <tag>"
   RESOLVED_TAG="$tags"
 }
 
@@ -337,10 +395,21 @@ resolve_mcp_port() {
 }
 
 # ── Health check ───────────────────────────────────────────────────────────
+# The verdict of the last wait_health call, for the caller's own reporting:
+#   timeout   nobody answered as this service inside the window
+#   contract  something answered, and it is not this app's /health
+#   version   this app's /health answered with a version we did not ask for
+#   embedder  /health reports checks.embedder=failed
+# Empty on success. Only the last three are an OBSERVED failure; a timeout is a
+# silence, and a remedy that stops a unit and restores a database must never be
+# printed for one (task #1079 F4: a healthy 0.8.2 upgrade was declared failed,
+# with that remedy, while it served fine eight seconds later).
+HEALTH_FAILURE=""
+
 # wait_health URL [EXPECTED_VERSION] [TIMEOUT]
 # Polls URL until it answers. With EXPECTED_VERSION the body must also carry
 # "version":"<expected>" (the /health contract). Returns 0 on success, 1 on
-# timeout; progress is printed with the app prefix.
+# timeout; progress is printed with the app prefix, and HEALTH_FAILURE says why.
 #
 # SynaptoMind deviation: accepts status "ok" OR "degraded". The upstream
 # template requires exactly "ok", but SynaptoMind returns "degraded" when
@@ -361,9 +430,30 @@ resolve_mcp_port() {
 # polling so a self-healing child can still pass, and the failure is reported
 # when the timeout expires — the gate then exits non-zero, so install.sh and
 # update.sh surface it instead of printing clean success.
+#
+# IDENTITY (task #1079 F4): a sample counts only when it carries this app's
+# /health CONTRACT — a `status` of ok|degraded AND a `version`. Without the
+# version arm, an empty EXPECTED_VERSION accepted ANY non-empty body: a reverse
+# proxy, a stale second instance, or anything else on the port passed as "Service
+# is healthy" and the run reported success for a service that never answered.
+# Requiring the contract always is what lets the gate tell its own service from
+# another process on the port; `version` is what it compares when it has an
+# expectation, and requiring it always is what keeps the version-less call from
+# passing on a stranger.
+#
+# An EXPECTED_VERSION of "unknown" is treated as no expectation: install.sh
+# passes that when the payload carries no readable version, and a gate demanding
+# the literal string "unknown" could never pass on any payload.
 wait_health() {
-  local url="$1" expected="${2:-}" timeout="${3:-60}" deadline body status version embedder
-  local embedder_dead=false
+  local url="$1" expected="${2:-}" timeout="${3:-60}" deadline
+  # Every sample field is initialised: a window in which NOTHING ever answered
+  # still reaches the verdict below, and `set -u` treats an unset `local` as an
+  # error — which turned "the service never answered" into a crash instead of
+  # the `timeout` verdict it is.
+  local body="" status="" version="" embedder=""
+  local embedder_dead=false foreign=false
+  HEALTH_FAILURE=""
+  if [ "$expected" = "unknown" ]; then expected=""; fi
   case "$timeout" in ''|*[!0-9]*) timeout=60 ;; esac
   deadline=$((SECONDS + timeout))
   if [ -n "$expected" ]; then
@@ -382,14 +472,16 @@ wait_health() {
       # once the embedder becomes ready, and a crash that recovers on the retry
       # must not fail the install it actually left healthy.
       if [ "$embedder" = "failed" ]; then embedder_dead=true; else embedder_dead=false; fi
-      if [ -z "$expected" ]; then
-        if [ "$embedder_dead" != true ]; then
-          info "Service is healthy."
-          return 0
-        fi
-      elif [ "$embedder_dead" != true ] \
-        && { [ "$status" = "ok" ] || [ "$status" = "degraded" ]; } \
-        && [ -n "$version" ] && [ "$version" = "$expected" ]; then
+      # Is this our /health at all? Re-derived per sample like the latch: a
+      # foreign responder that goes away must not fail a run it did not break.
+      if [ -n "$status" ] && [ -n "$version" ] \
+        && { [ "$status" = "ok" ] || [ "$status" = "degraded" ]; }; then
+        foreign=false
+      else
+        foreign=true
+      fi
+      if [ "$embedder_dead" != true ] && [ "$foreign" != true ] \
+        && { [ -z "$expected" ] || [ "$version" = "$expected" ]; }; then
         info "Service is healthy, reported version ${version}."
         return 0
       fi
@@ -398,6 +490,7 @@ wait_health() {
   done
 
   if [ "$embedder_dead" = true ]; then
+    HEALTH_FAILURE="embedder"
     warn "health check failed after ${timeout}s: /health reports checks.embedder=failed."
     warn "  The embedder child dies before the model loads — it cannot load its native runtime."
     warn "  For DIST=binary the unit needs Environment=LD_LIBRARY_PATH=${INSTALL_DIR:-<install-dir>}/lib (ADR 0001 §2.2)."
@@ -405,10 +498,76 @@ wait_health() {
     warn "check: journalctl -u ${APP_NAME:-app} -n 100 --no-pager"
     return 1
   fi
+  if [ "$foreign" = true ]; then
+    HEALTH_FAILURE="contract"
+    warn "health check failed after ${timeout}s: ${url} answered, but not with a ${APP_NAME:-app} /health payload."
+    warn "  Something else is on that port, or the service is not the one this deploy manages:"
+    warn "  a body without a status of ok/degraded and a version is not this app's health check."
+    warn "check: sudo ss -ltnp | grep ':$(health_url_port "$url")'   # who holds the port"
+    return 1
+  fi
+  if [ -n "$expected" ] && [ -n "$version" ] && [ "$version" != "$expected" ]; then
+    HEALTH_FAILURE="version"
+    warn "health check failed after ${timeout}s: /health reports version ${version}, expected ${expected}."
+    warn "  The service answering is NOT the payload this update installed."
+    return 1
+  fi
 
+  HEALTH_FAILURE="timeout"
   warn "health check timed out after ${timeout}s (expected ${expected:-any version})"
   return 1
 }
+
+# health_url_port URL — the TCP port in a health URL, for a diagnostic that has
+# to name what holds it. Empty when the URL carries none.
+health_url_port() {
+  printf '%s' "$1" | sed -n 's#^[a-zA-Z][a-zA-Z0-9+.-]*://[^/]*:\([0-9][0-9]*\).*#\1#p'
+}
+
+# installed_version — the version THIS install directory holds, read the way each
+# entry point reads its own: the artefact itself for DIST=binary (exact, offline)
+# and package.json for a source checkout. BARE — the leading "v" is stripped,
+# because /health reports a bare version (src/services/health.service.ts).
+#
+# Sets INSTALLED_VERSION instead of printing it, like RESOLVED_TAG and
+# STAGED_PAYLOAD: a command substitution would run this in a subshell, where
+# app_version's own command substitution and any cleanup_add would not reach the
+# caller. Empty means "cannot be read", which callers must treat as CANNOT
+# VERIFY rather than as "any version will do".
+INSTALLED_VERSION=""
+installed_version() {
+  local v=""
+  if [ "${DIST:-source}" = "binary" ] && [ -x "${INSTALL_DIR:-}/${APP_NAME:-app}" ]; then
+    v="$(app_version "${INSTALL_DIR}/${APP_NAME}")"
+  fi
+  [ -n "$v" ] || v="$(read_package_version "${INSTALL_DIR:-}/package.json" 2>/dev/null || true)"
+  INSTALLED_VERSION="${v#v}"
+}
+
+# health_recheck URL EXPECTED [TIMEOUT] — one more wait_health window, after a
+# verdict of `timeout` (task #1079 F4).
+#
+# A timeout is a bound this run chose, not a fact about the service: with
+# HEALTH_TIMEOUT=2 a healthy upgrade was declared failed while the service went
+# on answering eight seconds later, and the remedy handed to the operator stopped
+# the unit and restored the database. So the caller re-checks before it calls a
+# timeout a failure.
+#
+# It re-polls; it does not decide. A second window that answers returns 0, and a
+# second window that times out leaves the verdict at `timeout` — UNCONFIRMED,
+# still not a failure. Only a sample that contradicts the update (wrong version,
+# dead embedder, a foreign responder) is a verdict.
+health_recheck() {
+  local url="$1" expected="${2:-}" timeout="${3:-30}"
+  case "$timeout" in ''|*[!0-9]*) timeout=30 ;; esac
+  info "no answer in the first window; re-checking ${url} for up to ${timeout}s before calling this a failure..."
+  if wait_health "$url" "$expected" "$timeout"; then
+    info "the service answered on the re-check — the update is healthy, just slow to start."
+    return 0
+  fi
+  return 1
+}
+
 
 # ── Values that would not be values once systemd parses them ───────────────
 # The unit body is DATA, rendered by printf from single-quoted formats, so a
@@ -440,8 +599,24 @@ wait_health() {
 # path or a user name, and accepting one means silently shipping a unit whose
 # hardening the operator never wrote. Two of them are plausible in a DESCRIPTION
 # and are refused anyway (a quote, a %), because the guard does not want a
-# per-variable rule and because systemd rewrites the value either way. Refusing
-# fails CLOSED, before anything has been written, and names the variable.
+# per-variable rule. Refusing fails CLOSED, before anything has been written, and
+# names the variable.
+#
+# MEASURED about that %, and the reason is narrower than "systemd rewrites the
+# value either way" (which is what this comment claimed until task #1079 — the
+# '100% coverage' description the suite once asserted passed through systemd 255
+# VERBATIM). A % is read as a specifier only when a letter follows it, and then it
+# is not a character any more:
+#   * `%co`  → the value became `…/r1.serviceoINEL` (the config-file path);
+#   * `%n`   → `…r4.serviceINEL`, silently, with no diagnostic at all;
+#   * `%zz`  → "Failed to resolve unit specifiers …: Invalid slot", the whole
+#              assignment DROPPED;
+#   * `% ` (a space, as in "100% coverage") → not a specifier, passed through as
+#              written.
+# So the rule is per-character and the refusal is right for that value too: a
+# description one edit away from '%n' must not hinge on the guard knowing the
+# difference. What would be wrong is claiming the value was mangled when it was
+# not.
 #
 # MEASURED, not assumed (systemd 255; deploy/systemd-unit.test.ts repeats the
 # sweep against whatever systemd the host has and fails if these numbers move):
@@ -849,15 +1024,54 @@ binary_check_version() {
 }
 
 # binary_keep_previous — one previous copy per rollback-critical file (§2.9 step 6).
+# A fresh install has no previous payload, so the existence guard below skips this
+# step without a special case.
+#
+# The rollback point is the state from BEFORE this run, so a copy is only worth
+# making when it would differ from the one already there. A --force re-install of
+# the SAME payload wrote a ~119 MB set of byte-identical .prev files on every run
+# and never pruned them: no new rollback point, the whole payload written again
+# onto the same filesystem as the database (/ on this host reached 100% with zero
+# bytes free during the 0.9.0 review), for a copy that describes this very
+# version (task #1079 F7).
+#
+# So the decision is by CONTENT, never by existence: `cmp -s` against the kept
+# copy, and only a real difference is written. A version change always differs in
+# the executable, so the rollback point is refreshed exactly when it has to be.
+#
+# WHAT THE ROLLBACK STORY BECOMES, which is the part an operator has to be told
+# rather than infer: a copy left in place is byte-identical to what is installed,
+# so `mv "$f.prev" "$f"` after a --force re-install restores THIS version — a
+# no-op for the payload, and no protection either. The real rollback point is
+# written by the next run that changes a payload. print_recovery repeats this
+# where the remedy is printed.
+#
+# The write goes through write_file_atomically, the one mechanism every payload
+# write uses: `cp -f` opens the destination O_TRUNC, so a copy of a 119 MB file
+# that dies partway (ENOSPC, EIO, a killed process) left a TRUNCATED .prev — the
+# rollback point destroyed by the very run meant to create it, silently, since the
+# executable is last in the list and the data files are what get clobbered first.
 binary_keep_previous() {
-  local f
+  local f src prev kept=0 same=0
   for f in $BINARY_ROLLBACK_FILES; do
-    if [ -f "${INSTALL_DIR}/${f}" ]; then
-      mkdir -p "$(dirname "${INSTALL_DIR}/${f}")"
-      cp -f "${INSTALL_DIR}/${f}" "${INSTALL_DIR}/${f}.prev" \
-        || error "cannot keep the previous ${INSTALL_DIR}/${f}"
+    src="${INSTALL_DIR}/${f}"
+    prev="${src}.prev"
+    [ -f "$src" ] || continue
+    mkdir -p "$(dirname "$src")"
+    if [ -f "$prev" ] && cmp -s -- "$src" "$prev"; then
+      same=$((same + 1))
+      info "previous ${f} left as it is: the kept copy is byte-identical, so a rollback to it restores this same version"
+      continue
     fi
+    if ! write_file_atomically "$prev" "$src"; then
+      error "cannot keep the previous ${src} — ${ATOMIC_WRITE_REASON}"
+    fi
+    kept=$((kept + 1))
   done
+  if [ "$same" -gt 0 ]; then
+    info "rollback point: ${kept} of $((kept + same)) payload file(s) refreshed, ${same} already identical"
+  fi
+  return 0
 }
 
 # binary_swap_payload — ordered swap from the staging dir into INSTALL_DIR (§2.9
@@ -874,16 +1088,30 @@ binary_swap_payload() {
 }
 
 # binary_install_payload — the whole §2.9 sequence: stage, version-check, keep
-# the previous files, swap, drop the staging dir. Prints the installed version.
+# the previous files, swap, drop the staging dir. Sets INSTALLED_VERSION; it does
+# NOT print the version.
+#
+# The trailing `printf '%s' "$got"` it used to end with leaked a bare version into
+# stdout, because BOTH callers invoke this uncaptured (install.sh: install_binary,
+# update.sh: update_binary) — the operator saw "0.8.0[synaptomind] Running
+# post-update hook…", a fragment glued to whatever came next (task #1079 F5).
+# A variable is also the only shape that could work: capturing it in `$( )` would
+# run the whole swap in a subshell, where cleanup_add() could not reach the
+# caller's EXIT trap — the reason STAGED_PAYLOAD and RESOLVED_TAG are variables.
+# No caller needed the value: install.sh reads it from $TAG and update.sh from
+# $TARGET_VERSION.
+INSTALLED_VERSION=""
 binary_install_payload() {
   local got
+  INSTALLED_VERSION=""
   binary_stage_payload                 # §2.9 steps 1-4
   got="$(binary_check_version "${STAGED_PAYLOAD}/${APP_NAME}")"   # step 5
   binary_keep_previous                 # step 6
   binary_swap_payload "$STAGED_PAYLOAD" # step 7
   rm -rf -- "$STAGED_PAYLOAD"          # step 8
+  INSTALLED_VERSION="$got"
   info "Installed ${INSTALL_DIR}/${APP_NAME} (${got})"
-  printf '%s' "$got"
+  return 0
 }
 
 # ── app.env loading ────────────────────────────────────────────────────────

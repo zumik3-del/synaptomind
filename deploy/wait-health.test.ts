@@ -158,3 +158,54 @@ describe('wait_health — checks.embedder gate (both directions)', () => {
     expect(otherChecks.status, otherChecks.stderr).toBe(0)
   })
 })
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  F4 — the gate must be able to tell its OWN service from another process
+//  holding the port.
+//
+//  The version-less arm used to accept ANY non-empty body: a reverse proxy, a
+//  stale instance of the app, or anything else on the port answered, the gate
+//  read "not a dead embedder" and returned 0. update.sh's poll is only
+//  version-less when the target version could not be resolved, which is exactly
+//  when the one signal that could have identified the responder was dropped.
+//
+//  So a sample must carry the /health CONTRACT before it can pass: a `status`
+//  of ok|degraded and a `version`. `version` is what the check compares when it
+//  has an expectation; requiring it always is what keeps the version-less call
+//  from passing on a stranger.
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('wait_health — a foreign responder on the port is not the service', () => {
+  test('a non-/health body fails the version-less gate', () => {
+    // The counterexample: the old gate returned 0 for any non-empty body, so a
+    // foreign process on the port passed as "Service is healthy". expected: null
+    // is the point — with an expectation the version check would have caught it.
+    const gate = runGate([JSON.stringify({ hello: 'world' })], { expected: null })
+
+    expect(gate.status, gate.stdout + gate.stderr).toBe(1)
+    expect(gate.stdout).not.toContain('Service is healthy')
+  })
+
+  test('an HTML error page from a proxy fails the version-less gate', () => {
+    const gate = runGate(['<html><body>502 Bad Gateway</body></html>'], { expected: null })
+
+    expect(gate.status, gate.stdout + gate.stderr).toBe(1)
+  })
+
+  test('a well-formed /health still passes the version-less gate', () => {
+    // The contract is the discriminator, not a blanket "no expectation means no
+    // check": the real payload carries status + version, so it passes.
+    const gate = runGate([payload('ok')], { expected: null })
+
+    expect(gate.status, gate.stderr).toBe(0)
+    expect(gate.stdout).toContain('Service is healthy')
+  })
+
+  test('a /health with no version field is not accepted as identity', () => {
+    // `status` alone cannot tell two instances of the same app apart, and a
+    // responder that reports no version cannot be identified at all.
+    const gate = runGate([JSON.stringify({ status: 'ok', checks: {} })], { expected: null })
+
+    expect(gate.status, gate.stdout + gate.stderr).toBe(1)
+  })
+})

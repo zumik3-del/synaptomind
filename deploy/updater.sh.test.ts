@@ -663,6 +663,167 @@ describe('updater.sh — exit-code contract', () => {
 
 const U_APP = 'synaptomind'
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  F3 — release_resolve_tag must read the release list the API actually returns.
+//
+//  RELEASE_API is the LIST endpoint, and a JSON array of releases is served as
+//  ONE minified line: `[{"tag_name":…},{"tag_name":…},…]`. The extraction was a
+//  line-based `sed`, so it saw a single entry in that line — the LAST one — and
+//  treated it as the only release that exists. With the newest prerelease last
+//  (the shape GitHub's newest-first ordering produces whenever a beta follows a
+//  stable), `stable` hard-failed with "no stable release tag" and stable, latest
+//  and prerelease ALL resolved to that one prerelease.
+//
+//  No test used a multi-entry list: the fixture's api.json holds exactly one,
+//  which a line-based parse handles by accident.
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** The LIST endpoint shape, minified the way the API serves it: one line. */
+const RELEASE_LIST_MINIFIED = JSON.stringify([
+  { tag_name: 'v0.9.0', draft: false },
+  { tag_name: 'v0.8.2', draft: false },
+  { tag_name: 'v0.9.0-beta.1', prerelease: true },
+])
+
+/** The same list pretty-printed, which is what a hand-written fixture used to be. */
+const RELEASE_LIST_PRETTY = JSON.stringify(
+  [
+    { tag_name: 'v0.9.0', draft: false },
+    { tag_name: 'v0.8.2', draft: false },
+    { tag_name: 'v0.9.0-beta.1', prerelease: true },
+  ],
+  null,
+  2,
+)
+
+/** The single-object shape (/releases/latest), which must keep working. */
+const RELEASE_OBJECT_STABLE = JSON.stringify({
+  tag_name: 'v0.9.0',
+  draft: false,
+  prerelease: false,
+})
+const RELEASE_OBJECT_PRERELEASE = JSON.stringify({
+  tag_name: 'v0.9.0-beta.1',
+  draft: false,
+  prerelease: true,
+})
+
+/**
+ * Run the real release_resolve_tag against a payload, with url_get replaced so
+ * the LIST is the fixture's bytes. Prints the resolved tag, or the error.
+ */
+function resolveTag(body: string, policy: string): { status: number | null; out: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'synapto-tag-'))
+  try {
+    const api = join(dir, 'api.json')
+    writeFileSync(api, body)
+    const res = spawnSync(
+      'bash',
+      [
+        '-c',
+        [
+          `APP_NAME=${U_APP}`,
+          `CHECKOUT_POLICY=${policy}`,
+          `RELEASE_API=file://${api}`,
+          `. "${resolve(import.meta.dir, 'lib', 'common.sh')}"`,
+          'url_get() { cat "${1#file://}"; }',
+          'release_resolve_tag',
+          'printf "%s" "$RESOLVED_TAG"',
+        ].join('\n'),
+      ],
+      { encoding: 'utf8', timeout: 30_000 },
+    )
+    return { status: res.status, out: `${res.stdout}${res.stderr}` }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+describe('release_resolve_tag — both payload shapes, every channel', () => {
+  for (const [shape, body] of [
+    ['a minified list', RELEASE_LIST_MINIFIED],
+    ['a pretty-printed list', RELEASE_LIST_PRETTY],
+  ] as const) {
+    test(`stable resolves v0.9.0 from ${shape}`, () => {
+      const r = resolveTag(body, 'stable')
+      expect(r.status, r.out).toBe(0)
+      expect(r.out).toContain('v0.9.0')
+    })
+
+    test(`prerelease resolves v0.9.0-beta.1 from ${shape}`, () => {
+      // The direction that used to hard-fail outright: a minified list whose last
+      // entry is the prerelease hid every stable release from `stable` and made
+      // `prerelease` succeed by accident, on the wrong evidence.
+      const r = resolveTag(body, 'prerelease')
+      expect(r.status, r.out).toBe(0)
+      expect(r.out).toContain('v0.9.0-beta.1')
+    })
+
+    test(`stable does not fall through to the prerelease in ${shape}`, () => {
+      // The silent half of the same defect, asserted on its own: a policy must
+      // never resolve a tag of the WRONG channel, in either direction.
+      const r = resolveTag(body, 'stable')
+      expect(r.out).not.toContain('beta')
+    })
+  }
+
+  // The other shape the endpoint can answer with: a single release object. It has
+  // to keep working, and a channel it cannot satisfy must fail by name rather than
+  // hand back a tag of the wrong kind.
+  test('stable resolves the tag of a single release object', () => {
+    const r = resolveTag(RELEASE_OBJECT_STABLE, 'stable')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toContain('v0.9.0')
+  })
+
+  test('prerelease resolves the tag of a single prerelease object', () => {
+    const r = resolveTag(RELEASE_OBJECT_PRERELEASE, 'prerelease')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toContain('v0.9.0-beta.1')
+  })
+
+  test('stable on a prerelease-only object fails by name, and names no tag', () => {
+    const r = resolveTag(RELEASE_OBJECT_PRERELEASE, 'stable')
+    expect(r.status).toBe(1)
+    expect(r.out).toContain('no stable release tag')
+    expect(r.out).not.toMatch(/RESOLVED_TAG=v/)
+  })
+
+  test('latest takes the HIGHEST tag, not the last line and not the first entry', () => {
+    // Both wrong answers are pinned: a line-based parse took the last entry of a
+    // minified list, and trusting the endpoint's newest-first order would take the
+    // first. The channel is "newest", so it has to be a version comparison.
+    const r = resolveTag(RELEASE_LIST_MINIFIED, 'latest')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toContain('v0.9.0')
+    expect(r.out).not.toContain('beta.1')
+  })
+
+  test('a list with the OLDEST entry last is not mistaken for the newest', () => {
+    // The silent direction: newest-first, no prerelease, and the last entry is
+    // v0.8.2. A line-based parse resolved `latest` to v0.8.2, so an installed
+    // 0.8.2 host reported "already up to date" instead of upgrading.
+    const r = resolveTag(
+      JSON.stringify([{ tag_name: 'v0.9.0' }, { tag_name: 'v0.8.2' }]),
+      'latest',
+    )
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toContain('v0.9.0')
+  })
+
+  test('a payload with no release at all still fails by name', () => {
+    const r = resolveTag(JSON.stringify([{ message: 'Not Found' }]), 'stable')
+    expect(r.status).toBe(1)
+    expect(r.out).toContain('no stable release tag')
+  })
+
+  test('a branch policy is still refused (a branch has no release asset)', () => {
+    const r = resolveTag(RELEASE_LIST_MINIFIED, 'main')
+    expect(r.status).toBe(1)
+    expect(r.out).toContain('requires DIST=source')
+  })
+})
+
 /**
  * Guarded sudo: logs argv, then executes only if every path is under ROOT.
  * `refuse` names commands the stub pretends to be denied for (a sudo that needs
@@ -672,7 +833,7 @@ const U_APP = 'synaptomind'
 function makeGuardedSudo(
   privLog: string,
   guard: string,
-  opts: { refuse?: string[] } = {},
+  opts: { refuse?: string[]; refuseUnder?: string } = {},
 ): string {
   const lines = [
     '#!/usr/bin/env bash',
@@ -683,6 +844,16 @@ function makeGuardedSudo(
   for (const cmd of opts.refuse ?? []) {
     lines.push(
       `case " $* " in *" ${cmd} "*) echo "sudo: ${cmd}: a terminal is required to ask for a password" >&2; exit 1 ;; esac`,
+    )
+  }
+  // Refuse every privileged write AIMED AT one directory — a read-only or full
+  // unit directory, the way an operator meets it. Narrower than refusing a
+  // command by name: the payload's .prev copy is a privileged write too now
+  // (write_file_atomically, task #1079 F7), and refusing ALL of them aborts the
+  // run before the unit is ever reached, which would test something else.
+  if (opts.refuseUnder) {
+    lines.push(
+      `for a in "$@"; do case "$a" in ${opts.refuseUnder}/*) echo "sudo: $a: a terminal is required to ask for a password" >&2; exit 1 ;; esac; done`,
     )
   }
   lines.push(
@@ -724,6 +895,8 @@ function seedBinaryUpdate(opts: {
   currentVersion: string
   targetVersion: string
   includeDb?: boolean
+  /** Override the release-metadata payload; the default is a one-entry list. */
+  releasesBody?: string
 }): ReturnType<typeof seedBinaryUpdateShape> {
   return seedBinaryUpdateShape(opts)
 }
@@ -732,6 +905,7 @@ function seedBinaryUpdateShape(opts: {
   currentVersion: string
   targetVersion: string
   includeDb?: boolean
+  releasesBody?: string
 }) {
   const root = mkdtempSync(join(tmpdir(), 'synapto-binu-'))
   const deployDir = join(root, 'deploy')
@@ -793,9 +967,11 @@ function seedBinaryUpdateShape(opts: {
 
   // A file:// "RELEASE_API" — release_resolve_tag reads it with url_get, which
   // handles file:// through curl, so no HTTP server is needed.
+  // A one-entry list by default, which is what every test before #1079 used: a
+  // line-based read of a minified list happens to be right for exactly one entry.
   writeFileSync(
     join(releases, 'api.json'),
-    JSON.stringify([{ tag_name: tag, draft: false }]),
+    opts.releasesBody ?? JSON.stringify([{ tag_name: tag, draft: false }]),
   )
 
   if (opts.includeDb) {
@@ -843,6 +1019,9 @@ function seedBinaryUpdateShape(opts: {
     // first attempt; without it wait_health sleeps for the full HEALTH_TIMEOUT.
     HEALTH_URL: 'http://127.0.0.1:1/health',
     HEALTH_TIMEOUT: '1',
+    // The shipped default is 30s; 2s here so a test that reaches the re-check
+    // window does not spend 30 seconds proving that nothing answered.
+    HEALTH_CONFIRM_TIMEOUT: '2',
   }
   writeFileSync(
     join(runDir, 'scripts', 'app.env'),
@@ -1199,6 +1378,242 @@ describe('update.sh — DIST=binary', () => {
 })
 
 // ════════════════════════════════════════════════════════════════════════════
+//  F4 — the health verdict must survive a slow start, and only a CONFIRMED
+//  failure may be answered with a destructive remedy.
+//
+//  The verdict used to be version-only and time-boxed, and the two properties
+//  compounded: with HEALTH_TIMEOUT=2 a HEALTHY 0.8.2 upgrade was declared "did
+//  not finish cleanly" — together with a remedy that stops the unit, moves the
+//  .prev payload back and RESTORES THE DATABASE over the new schema's — while
+//  the very same service went on answering /health 0.8.2 eight seconds later.
+//  A timeout is not evidence that an upgrade is bad, and a remedy that destroys
+//  state must never be printed for one.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — the health verdict is re-checked, and only a confirmed failure is destructive', () => {
+  const HEALTHY_082 = JSON.stringify({
+    status: 'ok',
+    version: '0.8.2',
+    checks: { database: 'ok', embedder: 'ok' },
+  })
+
+  test('a healthy upgrade is not failed when HEALTH_TIMEOUT buys only ONE poll (F4)', () => {
+    // The counterexample, verbatim: HEALTH_TIMEOUT=2 and a service that answers
+    // from the second poll on (a cold start). The gate sleeps 2s between polls,
+    // so a 2s window buys exactly one sample and the old code read that as a
+    // timeout — a failure verdict, plus a rollback that restores the database.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.8.1', targetVersion: '0.8.2' })
+    try {
+      const counter = sequenceHealth(fx, ['', HEALTHY_082], 2)
+
+      const res = runUpdate(fx, ['--yes'])
+
+      // The healthy sample was really consumed by a SECOND window: this is not a
+      // gate that passed without ever looking again.
+      expect(
+        Number(readFileSync(counter, 'utf8').trim()),
+        'the verdict must be re-checked, not decided on the first window',
+      ).toBeGreaterThanOrEqual(2)
+      expect(res.status, res.stdout + res.stderr).toBe(0)
+      expect(res.stdout).toContain('Done.')
+      // And the successful path prints no remedy of any kind.
+      expect(res.stderr).not.toContain('did not finish cleanly')
+      expect(res.stderr).not.toContain('sudo cp')
+      expect(res.stderr).not.toContain('sudo mv -f')
+      // A successful update, not a skipped one: the payload really swapped.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a service that never answers fails UNCONFIRMED, with no destructive remedy (F4)', () => {
+    // The other direction, and the one that destroys data: a payload swapped in
+    // and a service that is merely slow must not be answered with "stop the
+    // unit, move the .prev payload back and restore the database". Re-checking
+    // cannot manufacture an answer, so a second timed-out window is still
+    // unconfirmed — the re-check must not promote it to a failure.
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.8.1',
+      targetVersion: '0.8.2',
+      includeDb: true,
+    })
+    try {
+      const counter = sequenceHealth(fx, [''], 1)
+      const db = join(fx.installDir, 'data', 'synaptomind.db')
+
+      const res = runUpdate(fx, ['--yes'])
+
+      // The pre-update hook creates the backup directory DURING the run, so the
+      // rollback point is only readable after it.
+      const backups = readdirSync(`${db}.backup`)
+      expect(backups).toHaveLength(1)
+      expect(backups[0]).toMatch(/\.bak$/)
+      // Both windows were used, and the verdict stayed unconfirmed.
+      expect(Number(readFileSync(counter, 'utf8').trim())).toBeGreaterThanOrEqual(2)
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(res.stderr).toContain('UNVERIFIED')
+      // Nothing destructive is advised. Each of these is a line the old
+      // recovery block printed for a timeout it had not actually observed.
+      expect(res.stderr).not.toContain('did not finish cleanly')
+      expect(res.stderr).not.toContain('Restoring the DB is mandatory')
+      expect(res.stderr).not.toContain('sudo cp')
+      expect(res.stderr).not.toContain('sudo mv -f')
+      expect(res.stderr).not.toContain('git checkout --force')
+      // The rollback point is left exactly where it was: the backup is still on
+      // disk and the swapped payload is not reverted behind the operator's back.
+      expect(readdirSync(`${db}.backup`)).toEqual(backups)
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a service that answers with the WRONG version is confirmed, and keeps the remedy (F4)', () => {
+    // The re-check must not soften a failure that was actually OBSERVED: this
+    // answer came from the service (a stale 0.8.1 still holding the port, the
+    // shape the identity check in wait_health exists for), so the destructive
+    // remedy is earned and must still be printed.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.8.1', targetVersion: '0.8.2' })
+    try {
+      fx.healthBody = JSON.stringify({ status: 'ok', version: '0.8.1' })
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(res.stderr).toContain('did not finish cleanly')
+      expect(res.stderr).toContain('Restoring the DB is mandatory')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  F6 — the recovery block must name the backups the pre-update hook produced.
+//
+//  It used to print `sudo cp data/synaptomind.db.backup/synaptomind.db.
+//  <timestamp>.bak data/synaptomind.db` — a template, not a path. The only DB
+//  restore it offered was a command that cannot run, and the very next lines
+//  told the operator the hook "printed each backup path" instead of printing the
+//  paths it had. The hook's own output is the record, so it is read from there.
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — the recovery block names the real database backups (F6)', () => {
+  test('every backup the hook made is named, with a runnable cp/rm pair', () => {
+    // A CONFIRMED failure (the service answers with a version nobody asked for),
+    // so the destructive block is the right output here — and it has to be
+    // runnable. Two databases, because the block used to hand the operator one
+    // template and a note to "repeat for every database the hook backed up".
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.8.1',
+      targetVersion: '0.8.2',
+      includeDb: true,
+    })
+    try {
+      const db = join(fx.installDir, 'data', 'synaptomind.db')
+      const logDb = join(fx.installDir, 'data', 'logs.db')
+      writeFileSync(
+        join(fx.installDir, 'config.json'),
+        JSON.stringify({ server: { port: 3999 }, database: { path: './data/synaptomind.db' }, logDbPath: './data/logs.db' }),
+      )
+      spawnSync('sqlite3', [logDb, 'create table l(x int);'], { encoding: 'utf8' })
+      fx.healthBody = JSON.stringify({ status: 'ok', version: '0.0.1' })
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+
+      // Both databases were really backed up…
+      const mainBackups = readdirSync(`${db}.backup`)
+      const logBackups = readdirSync(`${logDb}.backup`)
+      expect(mainBackups).toHaveLength(1)
+      expect(logBackups).toHaveLength(1)
+
+      // …and the block names both, by their real file names, in a form that can
+      // be pasted: the backup path and the database it restores.
+      const restores = res.stderr.split('\n').filter((l) => l.includes('sudo cp -p'))
+      expect(restores).toHaveLength(2)
+      for (const name of [...mainBackups, ...logBackups]) {
+        const line = restores.find((l) => l.includes(name))
+        expect(line, `the recovery block must name the real backup ${name}`).toBeDefined()
+        // Single-quoted operands, so a path with a space survives being pasted.
+        expect(line).toMatch(/sudo cp -p '[^']+' '[^']+'/)
+      }
+      // And the placeholder is gone: no command here is unrunnable.
+      expect(res.stderr).not.toContain('<timestamp>')
+      // The WAL pair is named per database, next to its own cp.
+      const rms = res.stderr.split('\n').filter((l) => l.includes('sudo rm -f'))
+      expect(rms).toHaveLength(2)
+      expect(res.stderr).toContain('Restoring the DB is mandatory')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  F3, end to end — the tag a real update resolves, through release_resolve_tag.
+//
+//  The direct shape tests above pin the parse; these two pin what the parse is
+//  FOR, on the path the 0.9.0 cutover takes: which payload an update installs.
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — the release list decides which payload is installed (F3)', () => {
+  test('stable upgrades to v0.9.0 from a minified list whose LAST entry is a prerelease', () => {
+    // The hard-fail direction, through the real code path: with the prerelease
+    // last, a line-based read saw one entry, `stable` found no stable tag and the
+    // update aborted with "no stable release tag" — on a host whose newest stable
+    // release was sitting in the very same list.
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.8.1',
+      targetVersion: '0.9.0',
+      releasesBody: JSON.stringify([
+        { tag_name: 'v0.9.0', draft: false },
+        { tag_name: 'v0.8.2', draft: false },
+        { tag_name: 'v0.9.0-beta.1', prerelease: true },
+      ]),
+    })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stdout + res.stderr).toBe(0)
+      expect(res.stdout).toContain('Target:   0.9.0')
+      expect(res.stdout).not.toContain('no stable release tag')
+      expect(readFileSync(join(fx.installDir, U_APP), 'utf8')).toContain('v0.9.0')
+      expect(readFileSync(join(fx.installDir, U_APP + '.prev'), 'utf8')).toContain('v0.8.1')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('latest upgrades to v0.9.0 from a newest-first list, not to the oldest entry', () => {
+    // The silent direction: newest-first with v0.8.2 last, `latest` is "newest
+    // tag of ANY kind". A line-based read resolved v0.8.2, which this host already
+    // runs — so the update reported "already up to date" and exited 0 without
+    // installing anything. An exit code of 0 for the wrong payload is the worst
+    // of the two failures, so it gets its own test.
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.8.2',
+      targetVersion: '0.9.0',
+      releasesBody: JSON.stringify([{ tag_name: 'v0.9.0' }, { tag_name: 'v0.8.2' }]),
+    })
+    try {
+      const envFile = join(fx.runDir, 'scripts', 'app.env')
+      writeFileSync(envFile, readFileSync(envFile, 'utf8').replace('CHECKOUT_POLICY="stable"', 'CHECKOUT_POLICY="latest"'))
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stdout + res.stderr).toBe(0)
+      expect(res.stdout).not.toContain('Already up to date')
+      expect(res.stdout).toContain('Target:   0.9.0')
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+// ════════════════════════════════════════════════════════════════════════════
 //  A FAILED unit refresh must not report a successful binary update.
 //
 //  Epic-review finding (task #1039, the reviewer's own): refresh_unit
@@ -1221,10 +1636,10 @@ describe('update.sh — DIST=binary', () => {
 
 /**
  * A `cp` that fails only for the given destination and passes everything else
- * to the real cp. It has to be narrow: binary_keep_previous() uses `cp -f` for
- * the payload and refresh_unit saves the rendered unit with `cp` as well, so a
- * blanket failure would abort the swap itself and the run would exit 1 for an
- * unrelated reason.
+ * to the real cp. It has to be narrow: the payload's .prev copy and the unit's
+ * .bak both go through write_file_atomically (task #1094 / #1079 F7), and
+ * refresh_unit saves the rendered unit as well, so a blanket failure would abort
+ * the swap itself and the run would exit 1 for an unrelated reason.
  */
 /**
  * A `cp` that fails for every destination inside `dir` — "cannot write the unit"
@@ -1292,12 +1707,13 @@ describe('update.sh — a failed unit refresh is fatal in binary mode', () => {
     try {
       const stale = '# stale pre-binary unit\n'
       writeFileSync(fx.unitFile, stale)
-      // sudo exists and works for systemctl, but refuses every write primitive
-      // the atomic replacement needs (no tty to ask for a password). The FIRST
-      // refusal now lands on `chmod 600` of the staging file rather than on the
-      // copy, so the log is asserted on the file being written, not on which
-      // command happened to be refused first.
-      rewriteStub(fx, 'sudo', makeGuardedSudo(fx.privLog, fx.guard, { refuse: ['cp', 'chmod', 'mv', 'touch'] }))
+      // sudo works for systemctl, but every write aimed at the UNIT DIRECTORY is
+      // refused (no tty to ask for a password) — a read-only or full unit
+      // directory as an operator meets it. Scoped to that directory on purpose:
+      // the payload's .prev copy is a privileged write too (write_file_atomically,
+      // task #1079 F7), so refusing every write primitive would abort the run at
+      // step 6 and never reach refresh_unit at all.
+      rewriteStub(fx, 'sudo', makeGuardedSudo(fx.privLog, fx.guard, { refuseUnder: dirname(fx.unitFile) }))
       const res = runUpdate(fx, ['--yes'])
       expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
       expect(res.stdout).not.toContain('Done.')
@@ -1541,6 +1957,7 @@ function seedSourceUpdate() {
     UNIT_FILE: unitFile,
     HEALTH_URL: 'http://127.0.0.1:1/health',
     HEALTH_TIMEOUT: '1',
+    HEALTH_CONFIRM_TIMEOUT: '2',
   }
   writeFileSync(
     join(runDir, 'scripts', 'app.env'),
