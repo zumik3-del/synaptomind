@@ -2,6 +2,7 @@ import { type Subprocess, spawn } from 'bun'
 import { getEmbedderIdleTimeoutMs, getEmbedderPrecache } from '../db/settings'
 import { insertLog } from '../logging'
 import { EmbedderNotReadyError, EmbedderOverloadedError } from '../errors'
+import { isCompiled } from '../runtime-mode'
 
 type EmbeddingPayload = number[] | number[][]
 
@@ -34,9 +35,17 @@ let readyPromise: Promise<void> | null = null
 let readyResolve: (() => void) | null = null
 let readyReject: ((err: Error) => void) | null = null
 
-function getScriptPath(): string {
+/**
+ * Child argv (ADR 0001 §2.4). A compiled binary re-invokes *itself* with
+ * `--embedder`, so one artifact serves both roles; source mode keeps
+ * `bun run <script>`. The IPC contract is identical either way.
+ */
+function getSpawnArgv(): string[] {
   // Test hook: point the client at a stub subprocess (see __fixtures__/stub-embedder.ts).
-  return process.env.SYNAPTOMIND_EMBEDDER_SCRIPT ?? `${import.meta.dir}/embedder-process.ts`
+  const stub = process.env.SYNAPTOMIND_EMBEDDER_SCRIPT
+  if (stub) return [process.execPath, 'run', stub]
+  if (isCompiled()) return [process.execPath, '--embedder']
+  return [process.execPath, 'run', `${import.meta.dir}/embedder-process.ts`]
 }
 
 function rejectAllPending(err: Error) {
@@ -62,7 +71,7 @@ function spawnProcess(): void {
   // on Windows a launcher shim (Chocolatey/scoop) drops the fd table, so the
   // child never gets the IPC pipe — same limitation as Node.js. `process.execPath`
   // points at the running bun.exe even when the parent itself came from a shim.
-  const child = spawn([process.execPath, 'run', getScriptPath()], {
+  const child = spawn(getSpawnArgv(), {
     ipc: (message: IpcMessage) => {
       if (message.type === 'ready') {
         ready = true

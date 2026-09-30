@@ -4,13 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getDb } from "../db/container";
 import { closeDb, initDb } from "../db/init";
+import { vec0Path } from "../runtime-mode";
 
 export function createTestDb(): void {
 	closeDb();
 	initDb({ dbPath: ":memory:", runMigrations: true });
 }
-
-const VEC0_PATH = `${import.meta.dir}/../../vec0.so`;
 
 /**
  * Probe vec0 availability on a throwaway connection. vec0 only loads
@@ -18,12 +17,15 @@ const VEC0_PATH = `${import.meta.dir}/../../vec0.so`;
  * this opens `:memory:` (which cannot host a vec0 table, but can *load* the
  * extension), calls `loadExtension(vec0.so)` and closes it — no global-container
  * side effects, safe to call while registering tests.
+ *
+ * Uses the production resolver (`src/runtime-mode.ts`) so tests cannot drift
+ * onto a path production no longer loads.
  */
 export function isVecExtensionAvailable(): boolean {
 	try {
 		const probe = new Database(":memory:");
 		try {
-			probe.loadExtension(VEC0_PATH);
+			probe.loadExtension(vec0Path());
 		} finally {
 			probe.close();
 		}

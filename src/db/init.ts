@@ -2,19 +2,20 @@ import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { config } from '../config'
+import { vec0Path } from '../runtime-mode'
 import { clearDb, getDb, setDb } from './container'
 import { MIGRATIONS } from './migrations'
 
-const VEC0_PATH = `${import.meta.dir}/../../vec0.so`
-
 function loadVecExtension(database: Database, isMemory: boolean): void {
   if (isMemory) return
+  const vec0 = vec0Path()
   try {
-    database.loadExtension(VEC0_PATH)
+    database.loadExtension(vec0)
   } catch {
     throw new Error(
-      `vec0 extension failed to load from ${VEC0_PATH}. ` +
-        'Install the sqlite-vec package or build vec0.so for your platform.'
+      `vec0 extension failed to load from ${vec0}. ` +
+        'Place vec0.so next to the synaptomind executable (or in the repository root ' +
+        'when running from source), or point SYNAPTOMIND_VEC0_PATH at it.'
     )
   }
 }

@@ -5,6 +5,29 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
   process.exit(0)
 }
 
+// Embedder self-mode (ADR 0001 §2.4): a compiled binary spawns itself with this
+// flag, so one artifact serves both roles. Checked after --version and before
+// any server bootstrap — embedder-process.ts is a side-effect module (initDb,
+// model validation, worker, IPC) that owns the event loop once imported, so no
+// port may be opened and no scheduler started before this branch.
+if (process.argv.includes('--embedder')) {
+  await import('./embedder/embedder-process')
+  // The import RESOLVES: a module's top-level evaluation ends at
+  // process.send?.({ type: 'ready' }) (src/embedder/embedder-process.ts:200), so
+  // control comes back here even though the module just installed the poll,
+  // sweep and idle timers that keep this process alive. The ADR's trailing
+  // process.exit(0) therefore killed the very timers that owned the event loop
+  // — the child exited immediately with code 0, the parent never saw `ready`,
+  // and /health stayed "embedder":"not ready" forever. (Source mode never
+  // showed this: there the file is the entry point, so it never returns.)
+  //
+  // Park on a promise that never settles instead of exiting. The branch can no
+  // longer fall through into the server bootstrap, and only the module's own
+  // idle timeout or a parent `shutdown` message ends the process — both call
+  // process.exit themselves.
+  await new Promise<never>(() => {})
+}
+
 const { mkdirSync } = await import('fs')
 const { dirname } = await import('path')
 const { serve } = await import('bun')
