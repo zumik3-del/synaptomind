@@ -733,8 +733,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     expect(readFileSync(sudoLog, 'utf8')).toContain('daemon-reload')
   })
 
-  test('a symlinked unit is written through, not replaced by a regular file at 777', () => {
-    // The `systemctl link` shape. DECIDED (task #1094): follow the link and swap
+  test('a symlinked unit is written through, not replaced by a regular file at 777', () => {    // The `systemctl link` shape. DECIDED (task #1094): follow the link and swap
     // the file it points at. `mv -f` over a link would replace the link with a
     // regular file — changing the unit's shape, orphaning the file systemd was
     // NOT loading — and `stat -c '%a'` without -L reports the LINK's own mode
@@ -771,6 +770,47 @@ describe('install.sh — DIST=binary tarball install', () => {
     expect(statSync(backup).mode & 0o777).toBe(0o600)
     // The operator is told their link was followed, not silently reshaped.
     expect(res.stdout).toContain('is a link; wrote through it to')
+  })
+
+  // ── a value systemd would not parse is refused before anything is written ──
+  // #1096 F1/F3. The renderer guards the substituted values (a trailing
+  // backslash CONTINUES the next directive away — the whole hardening block can
+  // go, with `systemd-analyze verify` still reporting success). install.sh is
+  // the FRESH-install path, i.e. the 0.9.0 cutover, and it is the one place
+  // where the value is read for the first time on a host: nothing is written
+  // before the render, so the refusal can be the whole answer.
+  test('a value systemd would fold aborts the install, with no unit written', () => {
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const unitFile = join(ROOT, 'unit', `${APP}.service`)
+    mkdirSync(join(ROOT, 'unit'), { recursive: true })
+    const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
+      releasesBase: `file://${RELEASES}`,
+      appEnv: { UNIT_FILE: unitFile, APP_DESC: 'Synaptomind — thought-graph engine' },
+      execSudo: true,
+    })
+    // DATA_DIR ending in a backslash: `ReadWritePaths=<install> <data>\` swallows
+    // the PrivateTmp=true that follows it. Single-quoted, because the file is
+    // SOURCED and a backslash inside single quotes is literal — the reachable
+    // shape of this value, not a shape the test had to invent.
+    const envFile = join(deployDir, 'app.env')
+    writeFileSync(
+      envFile,
+      readFileSync(envFile, 'utf8').replace(/^DATA_DIR=.*$/m, `DATA_DIR='${join(ROOT, 'data')}\\'`),
+    )
+
+    const res = runBinaryInstall(deployDir, stubsDir, sudoLog, ['--version', 'v0.8.0'])
+    expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+    expect(res.stdout).not.toContain('Done.')
+    // The operator is told WHICH value to fix, and what it would have done.
+    expect(res.stderr).toContain('DATA_DIR')
+    expect(res.stderr).toContain('backslash')
+    // Nothing was installed, so nothing is claimed: no unit, no daemon-reload,
+    // no enable — and no "Service: installed" in the summary.
+    expect(existsSync(unitFile)).toBe(false)
+    const log = readFileSync(sudoLog, 'utf8')
+    expect(log).not.toContain('daemon-reload')
+    expect(log).not.toContain('enable')
+    expect(res.stdout).not.toContain('Service:    installed')
   })
 })
 

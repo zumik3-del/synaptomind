@@ -450,7 +450,14 @@ install_service() {
   # Render under a valid unit name: systemd-analyze verify rejects other suffixes.
   tmpdir="$(mktemp -d)"; tmp="${tmpdir}/${APP_NAME}.service"
   cleanup_add "$tmp"
-  render_systemd_unit "$EXEC_START" > "$tmp"
+  # The renderer REFUSES a value that would not survive systemd's parser and
+  # returns 1 instead of exiting, so the reason it printed reaches the operator
+  # together with the decision to stop. Nothing has been written at this point,
+  # so aborting the install is fail-closed: the alternative is shipping a unit
+  # whose hardening a value in app.env silently removed.
+  if ! render_systemd_unit "$EXEC_START" > "$tmp"; then
+    error "cannot render a unit for ${unit} — fix the value named above in app.env and re-run"
+  fi
 
   # Best-effort: systemd-analyze can complain about paths that only exist post-boot.
   if command -v systemd-analyze >/dev/null 2>&1; then

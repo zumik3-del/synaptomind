@@ -410,45 +410,108 @@ wait_health() {
   return 1
 }
 
+# ── Values that would not be values once systemd parses them ───────────────
+# The unit body is DATA, rendered by printf from single-quoted formats, so a
+# substituted value is inert as shell — and NOT inert as unit text. systemd's
+# unit-file parser has several ways a value stops being the value that was
+# written, and every one of them is silent unless the operator reads verify(1)'s
+# output:
+#
+#   * a line ending in `\` CONTINUES onto the next line, so the directive that
+#     follows is absorbed into this value and the hardening it carried is gone.
+#     `ReadWritePaths=/opt/x\` + `PrivateTmp=true` leaves ProtectSystem=strict
+#     with NO writable path, and systemd-analyze verify still exits 0;
+#   * `\x` anywhere in a value is unescaped, so the value systemd sees is not the
+#     one that was written (`S` + `\` + `INEL` parses as `SINEL`);
+#   * a quote (`"` or `'`) is a quote, not a character, so the value it delimits
+#     is read as something shorter;
+#   * `%` is a specifier (%I is the machine id), and expands;
+#   * `#` and `;` are the config parser's comment characters;
+#   * a leading or trailing space is stripped.
+#
+# The rule is therefore not "reject \n" — a newline was the first instance of
+# this bug and `\` was the same bug in another character. It is: reject every
+# character this parser reads as SYNTAX, so a value that is inert text on its
+# own line cannot forge, fold or rewrite the directive it lands in.
+#
+# DECIDED 2026-09-30 (task #1094 for the newline, #1096 for the class): guard,
+# do not accept. The values are operator-sourced from app.env, so "the operator
+# wrote it" is true — and useless: none of these characters is ever needed in a
+# path or a user name, and accepting one means silently shipping a unit whose
+# hardening the operator never wrote. Two of them are plausible in a DESCRIPTION
+# and are refused anyway (a quote, a %), because the guard does not want a
+# per-variable rule and because systemd rewrites the value either way. Refusing
+# fails CLOSED, before anything has been written, and names the variable.
+#
+# MEASURED, not assumed (systemd 255; deploy/systemd-unit.test.ts repeats the
+# sweep against whatever systemd the host has and fails if these numbers move):
+# of the 127 ASCII values, systemd mangles eight — TAB, LF, CR, space, `"`, `'`,
+# `%`, `\` — and exactly one CONTINUES a line, the backslash. The other 119 pass
+# through verbatim, which is why the guard is a list of eight and not a regex
+# over "anything suspicious". Two characters are refused WITHOUT being in that
+# measurement: `#` and `;`, the config parser's comment characters, which systemd
+# 255 passes through mid-value but which are syntax to this parser by
+# construction. Bytes above 127 are NOT refused: valid UTF-8 — the em dash in the
+# shipped APP_DESC — passes through verbatim, and a lone invalid byte is reported
+# loudly by systemd itself ("String is not UTF-8 clean, ignoring assignment").
+unit_value_defect() {
+  case "$1" in
+    *$'\n'*|*$'\r'*)
+      printf 'a line break' ;;
+    *[[:cntrl:]]*)
+      printf 'a control character' ;;
+    *\\*)
+      printf 'a backslash (to systemd, a line continuation or an escape)' ;;
+    *'"'*|*"'"*)
+      printf 'a quote, which systemd reads as quoting' ;;
+    *%*)
+      printf 'a %%, which systemd expands as a specifier' ;;
+    *'#'*|*";"*)
+      printf 'a # or ;, the comment characters' ;;
+    " "*|*" ")
+      printf 'leading or trailing whitespace, which systemd strips' ;;
+  esac
+}
+
+# assert_unit_value NAME VALUE — the guard, one value at a time. Returns 1 and
+# says why, or returns 0 silently. It does NOT exit: the caller knows whether
+# the failure is fatal before anything was written (install.sh) or after the
+# payload was swapped (update.sh's refresh_unit), and only the caller can report
+# that difference — see #1096 F3, where a bare exit(1) here skipped main()'s
+# recovery block entirely.
+assert_unit_value() {
+  local name="$1" defect
+  defect="$(unit_value_defect "$2")"
+  [ -n "$defect" ] || return 0
+  warn "${name} contains ${defect} — systemd's unit parser reads that as syntax, not as data."
+  warn "  it would not just render oddly: it folds, forges or rewrites the directive it"
+  warn "  lands in, and systemd drops what it cannot read WITHOUT failing. e.g. an"
+  warn "  INSTALL_DIR ending in a backslash renders 'ReadWritePaths=…\\', which swallows"
+  warn "  the next directive and cancels ProtectSystem=strict — with verify still ok."
+  warn "  fix ${name} in app.env; the value is used as a path, a user name or a description."
+  return 1
+}
+
 # ── systemd unit rendering ─────────────────────────────────────────────────
 # render_systemd_unit EXEC_START — print a hardened unit for the current app.
 # Reads APP_DESC, TARGET_USER, TARGET_HOME, INSTALL_DIR, DATA_DIR, BUN_BIN, DIST.
+# Returns 1 (without printing a partial body) if any value would not survive
+# systemd's parser; it never exits, so the caller controls what the operator is
+# told. See assert_unit_value.
 render_systemd_unit() {
   local exec_start="$1" rw="${INSTALL_DIR}" bun_path=""
   local -a env_lines lines
   if [ -n "${DATA_DIR:-}" ]; then rw="${rw} ${DATA_DIR}"; fi
   if [ -n "${BUN_BIN:-}" ]; then bun_path="$(dirname "$BUN_BIN"):"; fi
 
-  # ── A line break in a substituted value forges a DIRECTIVE ───────────────
-  # The body below is data, not shell, so a hostile value is inert as shell and
-  # NOT inert as unit text: an APP_DESC with a newline renders its own
-  # ExecStartPre= line, a TARGET_HOME with one renders an Environment= line, and
-  # an INSTALL_DIR with one renders `ReadWritePaths=/ /`, which undoes
-  # ProtectSystem=strict for the whole filesystem.
-  #
-  # DECIDED 2026-09-30 (task #1094): guard, do not accept. The values are
-  # operator-sourced from app.env, so "the operator wrote it" is true — and
-  # useless: a newline is never a legitimate path or description, and accepting
-  # one means silently shipping a unit whose hardening the operator never wrote.
-  # Both answers were live (guard vs. document-and-accept) and leaving it
-  # undecided was the one outcome neither can be reviewed against. Refusing
-  # fails CLOSED, before anything has been written, and names the variable.
-  local vname vvalue
+  # Every substituted value is checked as a value, not as a line: the class of
+  # characters systemd's parser reads as syntax is guarded in one place
+  # (unit_value_defect) rather than one character at a time here.
+  local vname
   for vname in APP_DESC TARGET_USER TARGET_HOME INSTALL_DIR DATA_DIR BUN_BIN; do
-    vvalue="${!vname-}"
-    case "$vvalue" in
-      *$'\n'*|*$'\r'*)
-        warn "${vname} contains a line break, which would render as an extra systemd directive."
-        warn "  e.g. INSTALL_DIR with a newline renders 'ReadWritePaths=/ /', which cancels ProtectSystem=strict."
-        error "refusing to render a unit from a value that can forge one — fix ${vname} in app.env"
-        ;;
-    esac
+    assert_unit_value "$vname" "${!vname-}" || return 1
   done
-  case "$exec_start" in
-    *$'\n'*|*$'\r'*)
-      error "ExecStart contains a line break, which would render as an extra systemd directive"
-      ;;
-  esac
+  assert_unit_value "ExecStart" "$exec_start" || return 1
 
   env_lines=("Environment=NODE_ENV=production")
   # ADR 0001 §2.2: a compiled binary dlopens an embedded addon whose RUNPATH
@@ -552,7 +615,12 @@ _atomic_write_failed() {
   local dest="$1" reason="$2" staged="$3" state
   ATOMIC_WRITE_REASON="$reason"
   [ -n "$staged" ] && run_root rm -f -- "$staged" 2>/dev/null
-  if [ ! -e "$dest" ]; then
+  if [ -L "$dest" ] && [ ! -e "$dest" ]; then
+    # A dangling link is not "absent" — the path is still there, it just has
+    # nothing behind it. Reporting it as missing is how a reader ends up
+    # hunting for a file that is present.
+    state="it is a dangling link, with nothing behind it"
+  elif [ ! -e "$dest" ]; then
     state="it does not exist"
   elif ! state="$(wc -c <"$dest" 2>/dev/null | tr -d ' ')"; then
     state="it cannot be READ"
@@ -598,8 +666,10 @@ _atomic_write_failed() {
 #   old `cp -f` wrote through the link, so replacing the link with a regular file
 #   silently changes the unit's shape, and stat(1) without -L reports the LINK's
 #   own mode — always 777 — which installed a world-writable unit systemd refuses
-#   to load. A DANGLING link has no file to write through and nothing could be
-#   reading it, so it is removed and replaced on purpose; both cases say so.
+#   to load. A DANGLING link has no file to write through, and it is REPLACED by
+#   the rename below rather than removed first: the destination moves from the
+#   link to the new file in one step and never passes through an absent state.
+#   Both cases say so on stdout.
 #
 #   MODE defaults to the mode DEST already has (an operator's 600 unit with
 #   secrets stays 600), else the mode of SRC (a recovery copy inherits what it
@@ -614,11 +684,18 @@ write_file_atomically() {
       ATOMIC_WRITE_NOTE="${dest} is a link; wrote through it to ${target}"
       dest="$target"
     else
+      # A DANGLING link: leave it in place. rename(2) replaces the LINK ITSELF,
+      # so the destination goes from the link to the new file in one step and
+      # never passes through an absent state — which is the whole invariant this
+      # function exists for. It used to `rm -f` the link first (a state change
+      # nothing can undo) and then run four fallible steps, so a failure in any
+      # of them — and the window spanned the whole touch -> chmod -> cp
+      # sequence — left NO unit at the destination at all. That is a regression
+      # against the code it replaced: GNU `cp -f` refuses a dangling symlink
+      # outright ("not writing through dangling symlink"), so the old writer
+      # left the link in place and reported the failure. One fewer privileged
+      # call, and the same end shape either way.
       ATOMIC_WRITE_NOTE="${dest} is a dangling link; replaced it with a regular file"
-      if ! run_root rm -f -- "$dest" 2>/dev/null; then
-        _atomic_write_failed "$dest" "cannot remove the dangling link (no write access?)" ""
-        return 1
-      fi
     fi
   fi
 

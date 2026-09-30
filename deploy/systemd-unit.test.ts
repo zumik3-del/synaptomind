@@ -251,6 +251,192 @@ describe('render_systemd_unit — rendering executes nothing', () => {
     }
   })
 
+  // ── the same bug in other characters: the CLASS, not the instance ─────────
+  // A newline was the first instance of this defect (task #1094) and refusing it
+  // was right — but the rule it implemented, "reject \n", is narrower than the
+  // defect. systemd's unit parser has several ways to read a value as syntax
+  // rather than as data (deploy/lib/common.sh: unit_value_defect), and the
+  // backslash is the worst of them: a value ENDING in `\` continues onto the
+  // next line, so the directive that follows is absorbed into it, and what it
+  // carried is silently gone. Measured on systemd 255 through this renderer
+  // (the #1095 review, reproduced by the test below):
+  //
+  //   DATA_DIR='/var/lib/x\'  -> ReadWritePaths=/opt/y /var/lib/x\
+  //                             systemd: "ReadWritePaths= path is not absolute,
+  //                             ignoring: PrivateTmp=true"
+  //                             => ProtectSystem=strict with NO writable path
+  //   APP_DESC='engine\'       -> eats After=network-online.target
+  //   TARGET_HOME='/home/x\'   -> eats Environment=PATH=…
+  //
+  // and systemd-analyze verify reports success, so install.sh prints
+  // "Unit verified" over a unit that lost its hardening.
+  test('a value systemd would FOLD — a trailing backslash — is refused, and the variable is named', () => {
+    const cases: [string, string][] = [
+      ['DATA_DIR', '/var/lib/synaptomind\\'],
+      ['APP_DESC', 'thought-graph engine\\'],
+      ['TARGET_HOME', '/home/synaptomind\\'],
+      ['TARGET_USER', 'root\\'],
+      ['INSTALL_DIR', '/opt/synaptomind\\'],
+      ['BUN_BIN', '/usr/local/bin/bun\\'],
+    ]
+    for (const [name, value] of cases) {
+      const res = renderWithPath({}, { [name]: value })
+      expect(res.status, `${name}=${JSON.stringify(value)} must fail the render`).not.toBe(0)
+      // Nothing at all rendered: a folded unit is not a degraded one, it is a
+      // different unit.
+      expect(res.stdout, `${name} must not render a unit at all`).toBe('')
+      expect(res.stderr).toContain(name)
+      expect(res.stderr).toContain('backslash')
+      expect(res.stderr).toContain('directive')
+    }
+  })
+
+  test('every character systemd reads as syntax is refused, not just the backslash', () => {
+    // The class, enumerated. Each entry is a value that this host's systemd
+    // measurably does NOT pass through verbatim (the sweep below proves which);
+    // the guard is what makes that a refusal instead of a silently mangled
+    // directive. This is the test that fails if someone narrows unit_value_defect
+    // back to a single character.
+    const cases: [string, string][] = [
+      // escapes and continuations
+      ['INSTALL_DIR', '/opt/synaptomind\\n'],
+      ['INSTALL_DIR', '/opt/synaptomind\\ '],
+      ['DATA_DIR', '/var/lib/synaptomind\\'],
+      // quoting
+      ['TARGET_HOME', '/home/"synaptomind'],
+      ['TARGET_USER', '"root"'],
+      // specifier expansion
+      ['INSTALL_DIR', '/opt/%I-synaptomind'],
+      ['APP_DESC', 'thought-graph %n engine'],
+      // comment characters
+      ['APP_DESC', 'thought-graph engine # production'],
+      ['APP_DESC', 'thought-graph engine; production'],
+      // whitespace systemd strips (an internal space is legitimate and allowed)
+      ['INSTALL_DIR', ' /opt/synaptomind'],
+      ['DATA_DIR', '/var/lib/synaptomind '],
+      // other control characters
+      ['APP_DESC', 'thought-graph engine\tproduction'],
+      ['APP_DESC', 'thought-graph engineproduction'],
+    ]
+    for (const [name, value] of cases) {
+      const res = renderWithPath({}, { [name]: value })
+      expect(res.status, `${name}=${JSON.stringify(value)} must fail the render`).not.toBe(0)
+      expect(res.stdout, `${name} must not render a unit at all`).toBe('')
+      expect(res.stderr, `${name} must be named`).toContain(name)
+    }
+  })
+
+  test('the guard covers every character the LOCAL systemd parser folds or rewrites', () => {
+    // The two lists above are only as good as the claim behind them, so MEASURE
+    // them here instead of trusting them: for every ASCII byte, put it in a
+    // value and ask systemd what it made of it. Anything systemd does not pass
+    // through verbatim must be refused by the guard — otherwise this is one more
+    // hand-written denylist a future systemd can walk straight past. Measured
+    // with `systemd-analyze verify` (never the running manager), one invocation
+    // for all the files, diagnostics attributed per file.
+    //
+    // FOLD: the byte is the last character of a Description value, and a key
+    // systemd does NOT know follows on the next line. If that warning is gone,
+    // the byte CONTINUED the line and took the directive after it with it —
+    // which is finding #1 of the #1095 review. Description= constrains nothing,
+    // so a continuation is the only reason its value line can swallow the next
+    // one; a value systemd merely rejects leaves the next line in place.
+    //
+    // REWRITE: the byte sits in the middle of a ReadWritePaths= path, whose
+    // diagnostic quotes the path systemd parsed. A different quote is a value
+    // that is not the one that was written.
+    const probe = spawnSync('bash', ['-c', 'command -v systemd-analyze'], { encoding: 'utf8' })
+    if (probe.status !== 0) return
+    const dir = mkdtempSync(join(tmpdir(), 'synapto-parser-'))
+    try {
+      const files: string[] = []
+      for (let byte = 1; byte < 128; byte++) {
+        const ch = String.fromCharCode(byte)
+        const fold = join(dir, `fold${byte}.service`)
+        writeFileSync(
+          fold,
+          [
+            '[Unit]',
+            `Description=SENTINEL${ch}`,
+            'ZzProbe=1',
+            '',
+            '[Service]',
+            'Type=simple',
+            'ExecStart=/bin/true',
+            '',
+          ].join('\n'),
+        )
+        const path = join(dir, `path${byte}.service`)
+        writeFileSync(
+          path,
+          [
+            '[Unit]',
+            'Description=probe',
+            '',
+            '[Service]',
+            'Type=simple',
+            'ExecStart=/bin/true',
+            `ReadWritePaths=SENT${ch}INEL`,
+            '',
+          ].join('\n'),
+        )
+        files.push(fold, path)
+      }
+      // SYSTEMD_UNIT_PATH so only these files are loaded: a plain
+      // `systemd-analyze verify <file>` also loads every other unit in the
+      // host's search path, and their diagnostics would be read as ours.
+      const res = spawnSync('systemd-analyze', ['verify', ...files], {
+        encoding: 'utf8',
+        env: { ...process.env, SYSTEMD_UNIT_PATH: dir },
+        timeout: 120_000,
+      })
+      const lines = `${res.stdout}${res.stderr}`.split('\n')
+      const forFile = (name: string) => lines.filter((l) => l.startsWith(`${join(dir, name)}:`))
+
+      // The controls, or the probes measure something other than what they claim:
+      // a clean value must be reported verbatim, and the probe line must survive.
+      expect(forFile('fold88.service').join('\n'), 'a clean value must keep the next line').toContain(`'ZzProbe'`)
+      expect(forFile('path88.service').join('\n'), 'a clean value must be read verbatim').toContain('SENTXINEL')
+
+      // FINDING #1, measured: over all 127 ASCII values, exactly one continues
+      // the line — the backslash. Any other entry here is a character a future
+      // systemd folds, and the guard has to grow with it.
+      const folded: number[] = []
+      const rewritten: number[] = []
+      for (let byte = 1; byte < 128; byte++) {
+        const ch = String.fromCharCode(byte)
+        if (!forFile(`fold${byte}.service`).some((l) => l.includes(`'ZzProbe'`))) folded.push(byte)
+        const quoted = forFile(`path${byte}.service`).join('\n').match(/not absolute, ignoring: (.*)$/)?.[1]
+        if (quoted !== `SENT${ch}INEL`) rewritten.push(byte)
+      }
+      expect(folded, 'these characters CONTINUE the value line onto the next one').toEqual([92])
+      // Rewritten: TAB and CR (stripped or split), space (a list separator in
+      // ReadWritePaths=), both quotes, the % specifier and the backslash. LF (10)
+      // forges a line of its own rather than rewriting one — that one is
+      // asserted by the newline test above, where the forged line is the tell.
+      expect(rewritten, 'these characters change the value systemd parses').toEqual([9, 10, 13, 32, 34, 37, 39, 92])
+
+      // And the guard refuses each of them, in the shape that mangles it. The
+      // space is the one value-level rule that is POSITIONAL: systemd splits a
+      // list directive on it and strips it at the edges of a value, so the guard
+      // refuses it at the edges only — `INSTALL_DIR='/opt/synaptomind v2'` renders,
+      // and the "not a blanket ban" test above says so on the record.
+      const refused: [string, string][] = [
+        ['INSTALL_DIR', '/opt/synaptomind\\'],
+        ...rewritten.filter((b) => b !== 32).map((b) => ['INSTALL_DIR', `/opt/x${String.fromCharCode(b)}y`] as [string, string]),
+        ['INSTALL_DIR', ' /opt/synaptomind'],
+        ['DATA_DIR', '/var/lib/synaptomind '],
+      ]
+      for (const [name, value] of refused) {
+        const res = renderWithPath({}, { [name]: value })
+        expect(res.status, `${name}=${JSON.stringify(value)} must be refused`).not.toBe(0)
+        expect(res.stdout, `${name}=${JSON.stringify(value)} must render nothing`).toBe('')
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   test('the refusal happens before anything is written or reloaded', () => {
     // A renderer that half-writes is worse than one that refuses. Same
     // recording stubs as above: a refusal must not have reached systemctl,
@@ -283,7 +469,18 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       ['INSTALL_DIR', '/opt/synaptomind v2'],
       ['DATA_DIR', '/var/lib/synaptomind-data'],
       ['TARGET_HOME', '/home/synaptomind=1'],
-      ['APP_DESC', 'Synaptomind — thought-graph engine (100% coverage)'],
+      // The percent this test used to assert is a REAL mangling, not a legit
+      // value: systemd expands specifiers in unit values, and one it cannot
+      // resolve makes it drop the whole assignment — "Failed to resolve unit
+      // specifiers in '…', ignoring: Invalid slot". So it is refused now, and
+      // this description (which a unit may legitimately carry) is not.
+      ['APP_DESC', 'Synaptomind — thought-graph engine (stable)'],
+      // Non-ASCII is NOT refused: the em dash above is in the shipped app.env,
+      // and valid UTF-8 passes through systemd's parser verbatim (measured by
+      // the sweep above; only bytes 1..127 are probed, because a lone byte above
+      // 127 is invalid UTF-8 and systemd rejects the whole assignment loudly).
+      ['INSTALL_DIR', '/opt/synaptomind/данные'],
+      ['APP_DESC', 'Synaptomind — Thought-graph engine'],
     ] as [string, string][]) {
       const unit = renderUnit({ [name]: value } as UnitOpts & Record<string, string>)
       expect(unit, name).toContain('[Service]')

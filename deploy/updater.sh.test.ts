@@ -1255,6 +1255,19 @@ function rewriteStub(fx: ReturnType<typeof seedBinaryUpdate>, name: string, body
   chmodSync(join(fx.stubsDir, name), 0o755)
 }
 
+/**
+ * Override one key of the installed app.env, which is `.`-sourced, so the value
+ * is written single-quoted (a double-quoted one would be expanded at source
+ * time — the reason the shipped app.env quotes ASSET_PATTERN that way).
+ */
+function setAppEnv(fx: ReturnType<typeof seedBinaryUpdate>, key: string, value: string): void {
+  const envFile = join(fx.runDir, 'scripts', 'app.env')
+  const text = readFileSync(envFile, 'utf8')
+  const line = new RegExp(`^${key}=.*$`, 'm')
+  expect(text, `app.env must carry ${key}`).toMatch(line)
+  writeFileSync(envFile, text.replace(line, `${key}='${value.replace(/'/g, `'\\''`)}'`))
+}
+
 describe('update.sh — a failed unit refresh is fatal in binary mode', () => {
   test('a unit that cannot be written aborts instead of reporting success', () => {
     const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
@@ -1371,6 +1384,80 @@ describe('update.sh — a failed unit refresh is fatal in binary mode', () => {
       expect(res.status, res.stderr + res.stdout).toBe(0)
       expect(res.stdout).toContain('Done.')
       expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  // ── a value the render REFUSES reports recovery like every other failure ──
+  // #1096 F3. render_systemd_unit() guards the substituted values (a trailing
+  // backslash folds the next directive away, a newline forges one), and until
+  // this task the guard ended in `error`, which is exit(1). It runs inside
+  // refresh_unit — AFTER the payload has been swapped — so main()'s
+  //   if ! refresh_unit; then print_recovery; error …
+  // never ran: the operator got no rollback block, no "a re-run will not fix
+  // this" warning, and a re-run reported the version as already up to date
+  // without touching the unit. The exit code was right; the report was missing.
+  test('a refused value aborts with the recovery block, not a bare exit', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      const stale = '# stale pre-binary unit\n'
+      writeFileSync(fx.unitFile, stale)
+      // A DATA_DIR ending in a backslash: `ReadWritePaths=/opt/x /var/lib/y\`
+      // CONTINUES onto the next line, so PrivateTmp=true is absorbed into it.
+      // Same refusal, same fail-closed exit, as a newline.
+      setAppEnv(fx, 'DATA_DIR', `${join(fx.root, 'data')}\\`)
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+
+      // THE FINDING. The recovery block, exactly as every other failure prints.
+      expect(res.stderr).toContain('update did not finish cleanly')
+      expect(res.stderr).toContain('rollback:')
+      // …and the warning that the unit on disk is not this update's unit.
+      expect(res.stderr).toContain('systemd unit NOT refreshed')
+      expect(res.stderr).toContain('DATA_DIR')
+      expect(res.stderr).toContain(`Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      expect(res.stderr).toContain('ERR_DLOPEN_FAILED')
+      // …and the trap a re-run walks into, which is why the remedy is not
+      // "just re-run".
+      expect(res.stderr).toContain('already up to date')
+
+      // The state this is about, asserted rather than assumed: the payload IS
+      // swapped (so the rollback block is the honest output), the unit is NOT
+      // touched, and the service is not restarted on a unit that cannot load it.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(stale)
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('restart')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('the refused-value remedy is actionable, because a re-run cannot fix it', () => {
+    // The two halves of the trap, pinned: the re-run really does refuse to fix
+    // the unit, and the message says what to do instead of sending the operator
+    // into that re-run.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      setAppEnv(fx, 'DATA_DIR', `${join(fx.root, 'data')}\\`)
+
+      const first = runUpdate(fx, ['--yes'])
+      expect(first.status, first.stderr).toBe(1)
+      expect(first.stderr).toContain('fix the value named above')
+      // Nothing to install over the installed one: the refusal happens before
+      // any unit text is written, so the message must not name a rendered file.
+      expect(first.stderr).toContain('no file to install over the installed one')
+      expect(first.stderr).not.toMatch(/sudo install -m 644 \S+/)
+
+      const second = runUpdate(fx, ['--yes'])
+      expect(second.status, second.stderr).toBe(0)
+      expect(second.stdout).toContain('Already up to date')
+      // …and the unit is still the stale one: the trap the remedy must route
+      // around rather than tell the operator to walk into.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe('# stale pre-binary unit\n')
     } finally {
       rmSync(fx.root, { recursive: true, force: true })
     }

@@ -317,8 +317,18 @@ refresh_unit() {
 
   # Render first, unconditionally: it needs neither root nor systemd, and the
   # rendered body is what the failure message has to point at.
+  #
+  # The render REFUSES (returns 1) rather than exiting, so this path returns 1
+  # like every other refresh failure and main() still prints the recovery block.
+  # It used to `error` from inside the renderer, which is exit(1): the payload
+  # was already swapped, and the operator got neither the rollback block nor the
+  # warning that a re-run will not fix it — and then could not fix it.
   tmpdir="$(mktemp -d)"; tmp="${tmpdir}/${APP_NAME}.service"
-  render_systemd_unit "$EXEC_START" > "$tmp"
+  if ! render_systemd_unit "$EXEC_START" > "$tmp"; then
+    rm -f "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
+    unit_not_rendered "$unit"
+    return 1
+  fi
 
   if command -v systemd-analyze >/dev/null 2>&1; then
     systemd-analyze verify "$tmp" >/dev/null 2>&1 || warn "systemd-analyze verify reported issues"
@@ -387,14 +397,32 @@ refresh_unit() {
 # A unit is installed that this update could not refresh, so the payload just
 # swapped in would start under a stale unit. Names what failed, the line at
 # stake, the difference between the two units, and a remedy. Prints only.
-unit_not_refreshed() {
-  local unit="$1" reason="$2" saved="$3"
+#
+# Split in two so the remedy can differ while the CONSEQUENCE cannot: the unit
+# on disk is the previous body in both cases, and only one of them has a
+# rendered unit to hand over. See unit_not_rendered.
+_unit_stale_warning() {
+  local unit="$1" reason="$2"
   warn "systemd unit NOT refreshed: ${reason}"
   warn "  installed:  ${unit} (left unchanged)"
   warn "  required:   Environment=LD_LIBRARY_PATH=${INSTALL_DIR}/lib"
   warn "  the payload just installed cannot dlopen lib/libonnxruntime.so.1 without"
   warn "  that line: the embedder child dies on ERR_DLOPEN_FAILED while /health"
   warn "  still reports status ok, so nothing else in this run would notice."
+}
+
+# What the operator must not do while the unit is stale, whatever stopped the
+# refresh. A re-run does not reach the refresh: the payload is already swapped,
+# so main() reports the version as already up to date and returns 0.
+_unit_stale_tail() {
+  warn "  the running service still serves the PREVIOUS payload; do not restart it"
+  warn "  until the unit is fixed, and re-running update.sh will NOT fix it (it"
+  warn "  reports the version as already up to date before refreshing anything)."
+}
+
+unit_not_refreshed() {
+  local unit="$1" reason="$2" saved="$3"
+  _unit_stale_warning "$unit" "$reason"
   if [ -n "$saved" ]; then
     warn "  rendered:   ${saved} (this update's unit — diff it against the installed one)"
     warn "  remedy:     sudo install -m 644 ${saved} ${unit}"
@@ -405,9 +433,33 @@ unit_not_refreshed() {
     warn "  remedy:     sudo systemctl daemon-reload"
   fi
   warn "              sudo systemctl restart ${APP_NAME}"
-  warn "  the running service still serves the PREVIOUS payload; do not restart it"
-  warn "  until the unit is fixed, and re-running update.sh will NOT fix it (it"
-  warn "  reports the version as already up to date before refreshing anything)."
+  _unit_stale_tail
+}
+
+# The unit could not be RENDERED at all: a value in app.env would not survive
+# systemd's parser (see unit_value_defect), so there is no new body to install
+# and — unlike every other failure here — no rendered file to hand over. The
+# remedy is therefore not "install this unit over that one": the value has to be
+# fixed first, and then something has to re-render. install.sh is that something
+# (it re-renders from app.env and re-installs the unit); a plain re-run of
+# update.sh is not, for the reason in _unit_stale_tail.
+unit_not_rendered() {
+  local unit="$1"
+  _unit_stale_warning "$unit" "the unit on disk is the PREVIOUS body — it was NOT re-rendered, because a value in app.env would fold, forge or rewrite a directive (named above)"
+  warn "  rendered:   nothing — the refusal happens before any unit text is written,"
+  warn "              so there is no file to install over the installed one"
+  # No rendered file to hand over, so the remedy cannot be "install this unit
+  # over that one". The value has to be fixed first, and then something has to
+  # re-render — and that something is install.sh, not a re-run of this script
+  # (see _unit_stale_tail). install.sh is NOT named by path: it does not copy
+  # itself into ${RUN_DIR}/scripts, so a path printed here would not exist.
+  warn "  remedy:     fix the value named above in ${RUN_DIR}/scripts/app.env, then"
+  warn "              re-run install.sh (the deploy/ copy this update came from) — it"
+  warn "              re-renders the unit from the fixed value and installs it"
+  warn "  or add the one line above by hand, then:"
+  warn "              sudo systemctl daemon-reload"
+  warn "              sudo systemctl restart ${APP_NAME}"
+  _unit_stale_tail
 }
 
 # ── Fetch & swap ───────────────────────────────────────────────────────────
