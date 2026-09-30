@@ -492,6 +492,61 @@ describe('install.sh — DIST=binary tarball install', () => {
     expect(res.status, res.stderr + res.stdout).toBe(0)
     expect(readFileSync(sudoLog, 'utf8')).toBe('')
   })
+
+  // ── the unit-write failure path ───────────────────────────────────────────
+  // install_service() warns and returns 0 when the unit cannot be written, so
+  // install.sh still reports success. That is defensible for a FRESH install —
+  // there is no service to misreport and the summary says "Service: skipped" —
+  // but the same path on a re-install over an existing unit leaves that stale
+  // unit in place, and the next boot then starts the new payload without
+  // Environment=LD_LIBRARY_PATH. The characterising assertions below are the
+  // ones that make that visible; changing the exit code is install.sh's own
+  // call, not this suite's.
+  test('a unit that cannot be written: the install still succeeds but claims no service', () => {
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const unitFile = join(ROOT, 'unit', `${APP}.service`)
+    mkdirSync(join(ROOT, 'unit'), { recursive: true })
+    writeFileSync(unitFile, '# unit from a previous install, without LD_LIBRARY_PATH\n')
+    const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
+      releasesBase: `file://${RELEASES}`,
+      appEnv: { UNIT_FILE: unitFile, APP_DESC: 'Synaptomind — thought-graph engine' },
+    })
+    // sudo that refuses the copy (no tty for a password) and does nothing else.
+    // Nothing privileged is executed, exactly as in the other tests here.
+    writeFileSync(
+      join(stubsDir, 'sudo'),
+      [
+        '#!/usr/bin/env bash',
+        'printf \'sudo\' >> "$STUB_PRIV_LOG"',
+        'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done',
+        'printf \'\\n\' >> "$STUB_PRIV_LOG"',
+        'case " $* " in *" cp "*|*" chmod "*) exit 1 ;; esac',
+        'exit 0',
+      ].join('\n'),
+    )
+    chmodSync(join(stubsDir, 'sudo'), 0o755)
+
+    const res = runBinaryInstall(deployDir, stubsDir, sudoLog, ['--version', 'v0.8.0'])
+    expect(res.status, res.stderr + res.stdout).toBe(0)
+    // It must NOT claim a service it did not install, and it must name the
+    // command the operator needs instead.
+    expect(res.stdout).toContain('Service:    skipped')
+    expect(res.stdout).toContain('Start:')
+    const log = readFileSync(sudoLog, 'utf8')
+    expect(log).toContain('cp')
+    // No daemon-reload and no enable: the unit was never written, so systemd
+    // must not be told the new body is live.
+    expect(log).not.toContain('daemon-reload')
+    expect(log).not.toContain('enable')
+    // The payload is complete — the failure is scoped to the unit.
+    const installDir = join(ROOT, 'opt', APP)
+    expect(existsSync(join(installDir, 'lib', 'libonnxruntime.so.1'))).toBe(true)
+    // The pre-existing unit is left exactly as it was: this is the deferred
+    // harm, and it is asserted rather than left to a reader's imagination.
+    expect(readFileSync(unitFile, 'utf8')).toBe(
+      '# unit from a previous install, without LD_LIBRARY_PATH\n',
+    )
+  })
 })
 
 // ════════════════════════════════════════════════════════════════════════════

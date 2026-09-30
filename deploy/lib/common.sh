@@ -6,6 +6,8 @@
 #   * release_resolve_tag() — CHECKOUT_POLICY over the RELEASE_API list (§2.10).
 #   * binary_stage_payload() and friends — tarball extract/verify/swap (§2.9).
 #   * render_systemd_unit() — Environment=LD_LIBRARY_PATH when DIST=binary (§2.2).
+#   * wait_health()         — also reads checks.embedder, so an embedder that can
+#                             never load fails the gate instead of passing as ok.
 # ════════════════════════════════════════════════════════════════════════════
 #  lib/common.sh — shared helpers for the deploy/ framework
 #
@@ -179,6 +181,13 @@ parse_json_version() {
   sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p'
 }
 
+# `checks.embedder` field of a JSON document read from stdin; empty when the
+# payload predates the field (or carries no `checks`), which callers treat as
+# "no signal" rather than as a failure.
+parse_json_embedder() {
+  sed -n 's/.*"embedder"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
 # Run APP_VERSION_CMD against a concrete binary and print the bare version.
 # APP_VERSION_CMD prints "APP_NAME <version>"; the app-name prefix is stripped.
 # The result KEEPS a leading "v" (synaptomind --version prints "synaptomind
@@ -315,10 +324,26 @@ resolve_port() {
 #
 # SynaptoMind deviation: accepts status "ok" OR "degraded". The upstream
 # template requires exactly "ok", but SynaptoMind returns "degraded" when
-# non-fatal checks fail (e.g. embedder not yet ready) — src/services/
-# health.service.ts:32. A reachable service must not fail install/update.
+# non-fatal checks fail (e.g. embedder not yet ready) — getHealthService() in
+# src/services/health.service.ts. A reachable service must not fail
+# install/update.
+#
+# Second SynaptoMind deviation: `checks.embedder` is read as well, because
+# status alone cannot separate a first install from a dead one. A fresh binary
+# install answers "not ready" for as long as the model downloads (ADR 0001 §2.2
+# relies on that), while a unit rendered WITHOUT Environment=LD_LIBRARY_PATH
+# makes the embedder child die on ERR_DLOPEN_FAILED in a loop — and the client
+# keeps respawning it, so the payload stays "not ready" forever. That is the
+# blind spot this closes: src/embedder/client-core.ts latches the crashed state
+# and the payload reports it as "failed" (src/services/health.service.ts).
+#
+# An embedder that reported "failed" is not waved through: the loop keeps
+# polling so a self-healing child can still pass, and the failure is reported
+# when the timeout expires — the gate then exits non-zero, so install.sh and
+# update.sh surface it instead of printing clean success.
 wait_health() {
-  local url="$1" expected="${2:-}" timeout="${3:-60}" deadline body status version
+  local url="$1" expected="${2:-}" timeout="${3:-60}" deadline body status version embedder
+  local embedder_dead=false
   case "$timeout" in ''|*[!0-9]*) timeout=60 ;; esac
   deadline=$((SECONDS + timeout))
   if [ -n "$expected" ]; then
@@ -332,17 +357,34 @@ wait_health() {
     if [ -n "$body" ]; then
       status="$(printf '%s' "$body" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
       version="$(printf '%s' "$body" | parse_json_version)"
+      embedder="$(printf '%s' "$body" | parse_json_embedder)"
+      # Re-derived from every sample, NOT latched: the app clears its own latch
+      # once the embedder becomes ready, and a crash that recovers on the retry
+      # must not fail the install it actually left healthy.
+      if [ "$embedder" = "failed" ]; then embedder_dead=true; else embedder_dead=false; fi
       if [ -z "$expected" ]; then
-        info "Service is healthy."
-        return 0
-      fi
-      if { [ "$status" = "ok" ] || [ "$status" = "degraded" ]; } && [ -n "$version" ] && [ "$version" = "$expected" ]; then
+        if [ "$embedder_dead" != true ]; then
+          info "Service is healthy."
+          return 0
+        fi
+      elif [ "$embedder_dead" != true ] \
+        && { [ "$status" = "ok" ] || [ "$status" = "degraded" ]; } \
+        && [ -n "$version" ] && [ "$version" = "$expected" ]; then
         info "Service is healthy, reported version ${version}."
         return 0
       fi
     fi
     sleep 2
   done
+
+  if [ "$embedder_dead" = true ]; then
+    warn "health check failed after ${timeout}s: /health reports checks.embedder=failed."
+    warn "  The embedder child dies before the model loads — it cannot load its native runtime."
+    warn "  For DIST=binary the unit needs Environment=LD_LIBRARY_PATH=${INSTALL_DIR:-<install-dir>}/lib (ADR 0001 §2.2)."
+    warn "  Fix it and re-run, or roll back; embeddings stay permanently dead until then."
+    warn "check: journalctl -u ${APP_NAME:-app} -n 100 --no-pager"
+    return 1
+  fi
 
   warn "health check timed out after ${timeout}s (expected ${expected:-any version})"
   return 1

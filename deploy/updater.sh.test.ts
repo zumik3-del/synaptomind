@@ -660,19 +660,36 @@ describe('updater.sh — exit-code contract', () => {
 
 const U_APP = 'synaptomind'
 
-/** Guarded sudo: logs argv, then executes only if every path is under ROOT. */
-function makeGuardedSudo(privLog: string, guard: string): string {
-  return [
+/**
+ * Guarded sudo: logs argv, then executes only if every path is under ROOT.
+ * `refuse` names commands the stub pretends to be denied for (a sudo that needs
+ * a password it cannot get), so a test can fail ONE privileged call — the unit
+ * copy — while every other call still runs.
+ */
+function makeGuardedSudo(
+  privLog: string,
+  guard: string,
+  opts: { refuse?: string[] } = {},
+): string {
+  const lines = [
     '#!/usr/bin/env bash',
     'printf \'sudo\' >> "$STUB_PRIV_LOG"',
     'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done',
     'printf \'\\n\' >> "$STUB_PRIV_LOG"',
+  ]
+  for (const cmd of opts.refuse ?? []) {
+    lines.push(
+      `case " $* " in *" ${cmd} "*) echo "sudo: ${cmd}: a terminal is required to ask for a password" >&2; exit 1 ;; esac`,
+    )
+  }
+  lines.push(
     // Everything must be inside the fixture root, or refuse loudly.
     'for a in "$@"; do',
     '  case "$a" in /*) case "$a" in ' + guard + ') ;; *) echo "REFUSED: $a" >&2; exit 99 ;; esac ;; esac',
     'done',
     'exec "$@"',
-  ].join('\n')
+  )
+  return lines.join('\n')
 }
 
 const SYSTEMCTL_STUB = [
@@ -686,6 +703,15 @@ const SYSTEMCTL_STUB = [
   'esac',
   'exit 0',
 ].join('\n')
+
+/** The same stub on a host where systemd is not PID 1 (is-system-running -> offline). */
+const SYSTEMCTL_STUB_OFFLINE = SYSTEMCTL_STUB.replace('echo running', 'echo offline')
+
+/** A stub that reloads nothing: daemon-reload fails, everything else answers. */
+const SYSTEMCTL_STUB_RELOAD_FAILS = SYSTEMCTL_STUB.replace(
+  '  is-active) exit 0 ;;',
+  '  is-active) exit 0 ;;\n  daemon-reload) echo "Failed to reload daemon" >&2; exit 1 ;;',
+)
 
 /**
  * A scratch install tree that already holds an OLD binary-mode payload, plus
@@ -857,10 +883,13 @@ function seedBinaryUpdateShape(opts: {
     version: opts.targetVersion,
     checks: { database: 'ok', embedder: 'ok' },
   })
-  return { root, deployDir, stubsDir, installDir, runDir, privLog, unitFile, healthBody }
+  return { root, deployDir, stubsDir, installDir, runDir, privLog, unitFile, healthBody, guard }
 }
 
-function runUpdate(fx: ReturnType<typeof seedBinaryUpdate>, args: string[]) {
+/** The four fields every update.sh fixture needs to be run. */
+type UpdateFixture = { runDir: string; stubsDir: string; privLog: string; healthBody: string }
+
+function runUpdate(fx: UpdateFixture, args: string[]) {
   return spawnSync('bash', [join(fx.runDir, 'scripts', 'update.sh'), ...args], {
     encoding: 'utf8',
     env: {
@@ -1025,6 +1054,284 @@ describe('update.sh — DIST=binary', () => {
       expect(existsSync(join(fx.installDir, 'vec0.so.prev'))).toBe(false)
     } finally {
       rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+//  A FAILED unit refresh must not report a successful binary update.
+//
+//  Epic-review finding (task #1039, the reviewer's own): refresh_unit
+//  warn-and-continued on every failure path, so update.sh returned 0, restarted
+//  the service and printed "Done." while the installed unit still lacked
+//  Environment=LD_LIBRARY_PATH. The payload just swapped in is a compiled
+//  binary whose embedder child cannot dlopen lib/libonnxruntime.so.1 without
+//  that line, so it dies on ERR_DLOPEN_FAILED — and /health still answers
+//  status "ok", which is all the health gate read (finding F1).
+//
+//  In binary mode a refresh that did not happen is FATAL. What must NOT become
+//  fatal: source mode (no LD_LIBRARY_PATH line exists there) and a host with no
+//  unit on disk to go stale (a --no-service / container install) — both
+//  asserted below, so the rule cannot widen by accident.
+//
+//  The rendered unit is kept on failure, because the remedy cannot be "re-run
+//  update.sh": the "Already up to date" guard in main() exits BEFORE
+//  refresh_unit is reached again, so a re-run is a no-op.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * A `cp` that fails only for the given destination and passes everything else
+ * to the real cp. It has to be narrow: binary_keep_previous() uses `cp -f` for
+ * the payload and refresh_unit saves the rendered unit with `cp` as well, so a
+ * blanket failure would abort the swap itself and the run would exit 1 for an
+ * unrelated reason.
+ */
+function makeCpFailingFor(dest: string): string {
+  const realCp = spawnSync('bash', ['-c', 'command -v cp'], { encoding: 'utf8' }).stdout.trim()
+  return [
+    '#!/usr/bin/env bash',
+    'for a in "$@"; do',
+    `  if [ "$a" = '${dest}' ]; then`,
+    '    echo "cp: cannot create regular file $a: Permission denied" >&2; exit 1',
+    '  fi',
+    'done',
+    `exec ${realCp} "$@"`,
+  ].join('\n')
+}
+
+/** Rewrite one PATH stub of an existing fixture. */
+function rewriteStub(fx: ReturnType<typeof seedBinaryUpdate>, name: string, body: string): void {
+  writeFileSync(join(fx.stubsDir, name), body)
+  chmodSync(join(fx.stubsDir, name), 0o755)
+}
+
+describe('update.sh — a failed unit refresh is fatal in binary mode', () => {
+  test('a unit that cannot be written aborts instead of reporting success', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      rewriteStub(fx, 'cp', makeCpFailingFor(fx.unitFile))
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+      // The service must not be restarted on a unit that was not refreshed.
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('restart')
+      // The stale unit is still the one on disk, and the payload is in place.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe('# stale pre-binary unit\n')
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a refused privileged copy aborts, and the service keeps running the old payload', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      // sudo exists and works for systemctl, but refuses the copy (no tty).
+      rewriteStub(fx, 'sudo', makeGuardedSudo(fx.privLog, fx.guard, { refuse: ['cp', 'chmod'] }))
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+      const log = readFileSync(fx.privLog, 'utf8')
+      expect(log).toContain('cp')
+      expect(log).not.toContain('restart')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('systemd down with a unit already on disk aborts (that unit governs the next boot)', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      rewriteStub(fx, 'systemctl', SYSTEMCTL_STUB_OFFLINE)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe('# stale pre-binary unit\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a failed daemon-reload aborts too — a restart would apply the old body', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      rewriteStub(fx, 'systemctl', SYSTEMCTL_STUB_RELOAD_FAILS)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+      expect(res.stderr).toContain('daemon-reload')
+      // The unit on disk IS the refreshed one here, so the remedy must not
+      // install the unit over itself.
+      expect(readFileSync(fx.unitFile, 'utf8')).toContain(
+        `Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`,
+      )
+      expect(res.stderr).not.toContain('sudo install')
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('restart')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('the failure names what failed, the line at stake, and a remedy that works', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      rewriteStub(fx, 'cp', makeCpFailingFor(fx.unitFile))
+      const res = runUpdate(fx, ['--yes'])
+      const err = res.stderr
+      // What failed, in words an operator can act on.
+      expect(err).toContain(fx.unitFile)
+      expect(err).toContain(`Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      expect(err).toContain('ERR_DLOPEN_FAILED')
+      // The remedy must point at a file that really exists and really carries
+      // the line, not just at words.
+      const saved = err.match(/rendered:\s*(\S+)/)?.[1]
+      expect(saved, `no rendered-unit path in:\n${err}`).toBeTruthy()
+      expect(readFileSync(saved!, 'utf8')).toContain(
+        `Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`,
+      )
+      expect(err).toContain('sudo install')
+      expect(err).toContain('daemon-reload')
+      // The rollback block still ships: the payload is already swapped, and
+      // migrations are forward-only.
+      expect(err).toContain('update did not finish cleanly')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('no unit on disk and no systemd is NOT fatal — there is nothing stale to refresh', () => {
+    // The counter-test that keeps the rule honest: a --no-service / container
+    // binary install has no unit to go stale, so the update must still succeed.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      rewriteStub(fx, 'systemctl', SYSTEMCTL_STUB_OFFLINE)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done.')
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── Source mode ──────────────────────────────────────────────────────────────
+
+/**
+ * A DIST=source install: a real clone sitting at v0.7.1 whose origin carries a
+ * newer stable tag, plus the installed-layout state dir. REQUIRES_BUN=no keeps
+ * the fixture off `bun install` — the unit decision does not depend on it.
+ */
+function seedSourceUpdate() {
+  const origin = seedTwoStableTagsRepo('v0.7.1', 'v0.8.0', {
+    'package.json': '{"name":"synaptomind","version":"0.7.1"}',
+  })
+  const root = mkdtempSync(join(tmpdir(), 'synapto-src-'))
+  const installDir = join(root, 'opt', U_APP)
+  const runDir = join(root, 'run')
+  const stubsDir = join(root, 'stubs')
+  const privLog = join(root, 'privileged.log')
+  const unitFile = join(root, 'unit', `${U_APP}.service`)
+  mkdirSync(join(root, 'unit'), { recursive: true })
+  mkdirSync(join(runDir, 'scripts'), { recursive: true })
+  mkdirSync(join(runDir, 'hooks'), { recursive: true })
+  mkdirSync(stubsDir, { recursive: true })
+  writeFileSync(privLog, '')
+
+  const clone = spawnSync('git', ['clone', '-q', origin, installDir], { encoding: 'utf8' })
+  expect(clone.status, clone.stderr).toBe(0)
+  // Park the installed checkout on the OLD tag, so the run is a real upgrade.
+  const co = spawnSync('git', ['-C', installDir, 'checkout', '-q', '--force', 'v0.7.1'], {
+    encoding: 'utf8',
+  })
+  expect(co.status, co.stderr).toBe(0)
+
+  for (const f of ['update.sh', 'updater.sh', 'uninstall.sh']) {
+    cpSync(join(import.meta.dir, f), join(runDir, 'scripts', f))
+  }
+  for (const f of ['pre-update', 'post-update']) {
+    cpSync(join(import.meta.dir, 'hooks', f), join(runDir, 'hooks', f))
+    chmodSync(join(runDir, 'hooks', f), 0o755)
+  }
+  cpSync(join(import.meta.dir, 'lib', 'common.sh'), join(runDir, 'scripts', 'common.sh'))
+
+  const guard = [`"${root}"/*|"${root}"/*`, `"${tmpdir()}"/*|"${tmpdir()}"/*`].join('|')
+  writeFileSync(join(stubsDir, 'sudo'), makeGuardedSudo(privLog, guard))
+  writeFileSync(join(stubsDir, 'systemctl'), SYSTEMCTL_STUB)
+  for (const s of ['sudo', 'systemctl']) chmodSync(join(stubsDir, s), 0o755)
+  const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
+  writeFileSync(
+    join(stubsDir, 'curl'),
+    [
+      '#!/usr/bin/env bash',
+      'for a in "$@"; do case "$a" in */health) printf \'%s\' "$FAKE_HEALTH_BODY"; exit 0 ;; esac; done',
+      `exec ${realCurl} "$@"`,
+    ].join('\n'),
+  )
+  chmodSync(join(stubsDir, 'curl'), 0o755)
+
+  const env = {
+    APP_NAME: U_APP,
+    APP_DESC: 'Synaptomind — thought-graph engine',
+    DIST: 'source',
+    INSTALL_DIR: installDir,
+    DATA_DIR: join(root, 'data'),
+    RUN_DIR: runDir,
+    PORT: '3999',
+    RELEASES_BASE: '',
+    RELEASE_API: '',
+    ASSET_PATTERN: "'${APP_NAME}-${TAG}-${OS}-${ARCH}.tar.gz'",
+    APP_VERSION_CMD: "'${BIN} --version'",
+    CHECKOUT_POLICY: 'stable',
+    REQUIRES_BUN: 'no',
+    SYSTEM_DEP_CMDS: '',
+    SERVICE_USER: '',
+    SEED_FILES: 'config.json.example:config.json .env.example:.env',
+    GENERATE_SECRET_IN: '.env',
+    HOOKS_DIR: '',
+    UNIT_FILE: unitFile,
+    HEALTH_URL: 'http://127.0.0.1:1/health',
+    HEALTH_TIMEOUT: '1',
+  }
+  writeFileSync(
+    join(runDir, 'scripts', 'app.env'),
+    Object.entries(env)
+      .map(([k, v]) => (k === 'ASSET_PATTERN' || k === 'APP_VERSION_CMD' ? `${k}=${v}` : `${k}="${v}"`))
+      .join('\n') + '\n',
+  )
+
+  const healthBody = JSON.stringify({
+    status: 'ok',
+    version: '0.8.0',
+    checks: { database: 'ok', embedder: 'ok' },
+  })
+  return { root, origin, stubsDir, installDir, runDir, privLog, unitFile, healthBody, guard }
+}
+
+describe('update.sh — source mode leaves the unit alone', () => {
+  test('a source update succeeds and never touches the unit', () => {
+    // Source mode is NOT made fatal, and the reason is structural: the rendered
+    // body is unchanged for DIST=source (no LD_LIBRARY_PATH line is emitted),
+    // so there is nothing stale to repair, and re-rendering would clobber an
+    // operator's hand edits to the unit.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, '# hand-edited source unit\n')
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done. Now at 0.8.0.')
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe('# hand-edited source unit\n')
+      const log = readFileSync(fx.privLog, 'utf8')
+      expect(log).toContain('restart')
+      expect(log).not.toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
     }
   })
 })

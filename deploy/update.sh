@@ -119,36 +119,100 @@ print_recovery() {
 # Scope is deliberately narrow: source mode returns immediately, because the
 # rendered body is unchanged for it and re-rendering would clobber an operator's
 # hand edits to the unit.
+#
+# In binary mode a refresh that did NOT happen is FATAL (returns 1, and main()
+# aborts before the restart). Rationale: the payload has already been swapped at
+# this point, so a unit left without Environment=LD_LIBRARY_PATH is a unit that
+# starts the new binary with an embedder which dies on ERR_DLOPEN_FAILED — and
+# /health still answers status "ok", so nothing downstream would notice. The one
+# case that stays non-fatal is a host with NO unit on disk (a --no-service or
+# container install): there is nothing there to go stale.
 refresh_unit() {
   # UNIT_FILE is overridable so a non-standard unit path (and the deploy tests)
   # need not write to /etc/systemd/system.
-  local unit="${UNIT_FILE:-/etc/systemd/system/${APP_NAME}.service}" tmpdir tmp
-  [ "${UNIT_FILE:-}" ] || UNIT_FILE_DEFAULT=1
+  local unit="${UNIT_FILE:-/etc/systemd/system/${APP_NAME}.service}" tmpdir tmp saved
   [ "$DIST" = "binary" ] || return 0
-  command -v systemctl >/dev/null 2>&1 || return 0
-  systemd_running || return 0
-  if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
-    warn "sudo not available — keeping the existing unit (a binary install needs"
-    warn "  Environment=LD_LIBRARY_PATH=${INSTALL_DIR}/lib; re-run as root to refresh it)"
-    return 0
-  fi
 
+  # Render first, unconditionally: it needs neither root nor systemd, and the
+  # rendered body is what the failure message has to point at.
   tmpdir="$(mktemp -d)"; tmp="${tmpdir}/${APP_NAME}.service"
-  cleanup_add "$tmp"
   render_systemd_unit "$EXEC_START" > "$tmp"
 
   if command -v systemd-analyze >/dev/null 2>&1; then
     systemd-analyze verify "$tmp" >/dev/null 2>&1 || warn "systemd-analyze verify reported issues"
   fi
 
+  # Keep a copy for the remedy. A plain re-run cannot fix a failed refresh —
+  # main()'s "Already up to date" guard returns before refresh_unit is reached
+  # again — so the operator needs the rendered unit as a file to install.
+  # cleanup_add is deferred to the branch that has a durable copy; when RUN_DIR
+  # is unwritable the render dir itself must survive the EXIT trap, or the
+  # remedy would name a path the trap just deleted.
+  saved="${RUN_DIR}/unit-refresh/${APP_NAME}.service"
+  if mkdir -p "${RUN_DIR}/unit-refresh" 2>/dev/null && cp -f "$tmp" "$saved" 2>/dev/null; then
+    cleanup_add "$tmpdir"
+  else
+    saved="$tmp"
+  fi
+
+  local blocked=""
+  if ! command -v systemctl >/dev/null 2>&1; then
+    blocked="systemctl is not on PATH"
+  elif ! systemd_running; then
+    blocked="systemd is not running"
+  elif [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+    blocked="sudo is not available, and writing ${unit} needs root"
+  fi
+  if [ -n "$blocked" ]; then
+    if [ ! -e "$unit" ]; then
+      info "No systemd unit at ${unit} — nothing to refresh; start ${EXEC_START} by hand."
+      rm -f "$saved" "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
+      return 0
+    fi
+    unit_not_refreshed "$unit" "$blocked" "$saved"
+    return 1
+  fi
+
   # `enable` is deliberately NOT repeated: that is install.sh's job.
   if run_root cp -f "$tmp" "$unit" && run_root chmod 644 "$unit"; then
-    rm -f "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
-    run_root systemctl daemon-reload || warn "systemctl daemon-reload failed"
+    # The unit is correct on disk, but until systemd has read it a restart would
+    # apply the OLD body — the same failure one step later, so it is fatal too.
+    if ! run_root systemctl daemon-reload; then
+      unit_not_refreshed "$unit" "systemctl daemon-reload failed after the unit was written" ""
+      return 1
+    fi
+    rm -f "$saved" "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
     info "Refreshed ${unit}"
   else
-    warn "cannot write ${unit} — keeping the existing unit"
+    unit_not_refreshed "$unit" "cannot write ${unit} (cp or chmod failed)" "$saved"
+    return 1
   fi
+}
+
+# A unit is installed that this update could not refresh, so the payload just
+# swapped in would start under a stale unit. Names what failed, the line at
+# stake, the difference between the two units, and a remedy. Prints only.
+unit_not_refreshed() {
+  local unit="$1" reason="$2" saved="$3"
+  warn "systemd unit NOT refreshed: ${reason}"
+  warn "  installed:  ${unit} (left unchanged)"
+  warn "  required:   Environment=LD_LIBRARY_PATH=${INSTALL_DIR}/lib"
+  warn "  the payload just installed cannot dlopen lib/libonnxruntime.so.1 without"
+  warn "  that line: the embedder child dies on ERR_DLOPEN_FAILED while /health"
+  warn "  still reports status ok, so nothing else in this run would notice."
+  if [ -n "$saved" ]; then
+    warn "  rendered:   ${saved} (this update's unit — diff it against the installed one)"
+    warn "  remedy:     sudo install -m 644 ${saved} ${unit}"
+    warn "              sudo systemctl daemon-reload"
+  else
+    # The unit on disk is already correct; systemd simply has not read it yet.
+    warn "  the unit on disk IS this update's unit — systemd has not reloaded it"
+    warn "  remedy:     sudo systemctl daemon-reload"
+  fi
+  warn "              sudo systemctl restart ${APP_NAME}"
+  warn "  the running service still serves the PREVIOUS payload; do not restart it"
+  warn "  until the unit is fixed, and re-running update.sh will NOT fix it (it"
+  warn "  reports the version as already up to date before refreshing anything)."
 }
 
 # ── Fetch & swap ───────────────────────────────────────────────────────────
@@ -306,10 +370,17 @@ main() {
   if [ "$DIST" = "binary" ]; then update_binary; else update_source; fi
   run_hook post-update
 
-  # -- restart & health --
+  # -- refresh unit, restart & health --
   # The unit is refreshed BEFORE the restart, so the service comes back with the
-  # Environment=LD_LIBRARY_PATH a binary payload needs.
-  refresh_unit
+  # Environment=LD_LIBRARY_PATH a binary payload needs. A refresh that failed is
+  # fatal in binary mode (refresh_unit returns 1): the payload is already
+  # swapped, so a restart here would start it under a unit that cannot load
+  # libonnxruntime.so.1, and the health gate cannot see that. The recovery block
+  # still prints, because the swap is not rolled back automatically.
+  if ! refresh_unit; then
+    print_recovery
+    error "aborting before the restart: the systemd unit is not what this update needs"
+  fi
   restart_and_verify
 
   echo ""
