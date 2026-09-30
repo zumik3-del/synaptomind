@@ -1480,6 +1480,121 @@ describe('update.sh — source mode leaves the unit alone', () => {
 //  stable-only) is untouched and still asserted by the suites above.
 // ════════════════════════════════════════════════════════════════════════════
 
+describe('update.sh — source mode delivers the restart policy surgically', () => {
+  // Production is DIST=source (ExecStart=bun run start), so refresh_unit()'s
+  // source-mode early return — correct while the rendered body was identical for
+  // source mode — made the template's Restart= line undeliverable to exactly the
+  // hosts that had the outage. ensure_restart_policy() therefore rewrites ONE
+  // line in place instead of re-rendering, which is what keeps the hand-edit
+  // invariant of the block above intact.
+
+  const HAND_EDITED = [
+    '[Unit]',
+    'Description=Synaptomind — thought-graph engine (v0.7.1)',
+    'Group=opencode',
+    'StartLimitIntervalSec=60',
+    '',
+    '[Service]',
+    'Type=simple',
+    'Environment=HAND_EDITED=yes',
+    'ExecStart=/usr/local/bin/bun run start',
+    'Restart=on-failure',
+    'RestartSec=5',
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+    '',
+  ].join('\n')
+
+  test('a source update rewrites only the Restart= line and keeps every hand edit', () => {
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      expect(unit).toContain('\nRestart=always\n')
+      expect(unit).not.toContain('Restart=on-failure')
+      // The whole point of the surgical path: the operator's unit survives.
+      expect(unit).toContain('Description=Synaptomind — thought-graph engine (v0.7.1)')
+      expect(unit).toContain('Group=opencode')
+      expect(unit).toContain('Environment=HAND_EDITED=yes')
+      expect(unit).toContain('ExecStart=/usr/local/bin/bun run start')
+      // Exactly one Restart directive — a second one would win in systemd.
+      expect(unit.split('\n').filter((l) => /^Restart=/.test(l))).toHaveLength(1)
+      expect(res.stdout).toContain('now carries Restart=always (was: Restart=on-failure)')
+      // systemd must read it, and only then does the restart apply it.
+      expect(readFileSync(fx.privLog, 'utf8')).toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a unit already on Restart=always is not rewritten and does not daemon-reload', () => {
+    // Idempotency: an update that changed nothing must not spend a privileged
+    // write plus a daemon-reload on every run.
+    const fx = seedSourceUpdate()
+    try {
+      const already = HAND_EDITED.replace('Restart=on-failure', 'Restart=always')
+      writeFileSync(fx.unitFile, already)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(already)
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a unit with no Restart= line is left byte-identical and the remedy is named', () => {
+    // Nothing is ever INSERTED: where the directive belongs is not something to
+    // guess, and a comment-only unit must survive untouched. This is the same
+    // invariant the "source mode leaves the unit alone" block asserts, reached
+    // through a real update instead of an aborted one.
+    const fx = seedSourceUpdate()
+    try {
+      const unit = '# hand-edited source unit\n[Service]\nExecStart=/usr/local/bin/bun run start\n'
+      writeFileSync(fx.unitFile, unit)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(unit)
+      expect(res.stderr).toContain('it declares no Restart= line')
+      expect(res.stderr).toContain('Restart=always')
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a unit that cannot be rewritten warns and still lets the update succeed', () => {
+    // Never fatal, unlike refresh_unit() in binary mode: an undelivered restart
+    // policy leaves a running service, whereas failing here would block updates
+    // on an otherwise healthy host.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      writeFileSync(
+        join(fx.stubsDir, 'sudo'),
+        makeGuardedSudo(fx.privLog, fx.guard, { refuse: ['cp'] }),
+      )
+      chmodSync(join(fx.stubsDir, 'sudo'), 0o755)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done. Now at 0.8.0.')
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(HAND_EDITED)
+      expect(res.stderr).toContain('Restart policy unchanged')
+      expect(res.stderr).toContain('Restart=on-failure')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('updater.sh — DIST=binary bootstrap', () => {
   test('the DIST guard accepts binary (it used to reject everything but source)', () => {
     const repo = seedSingleTagRepo('v0.8.0', {

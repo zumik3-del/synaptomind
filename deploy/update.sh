@@ -109,6 +109,78 @@ print_recovery() {
   fi
 }
 
+# ── restart policy: the source-mode half of the unit refresh ────────────────
+# Deliver the template's restart policy to a SOURCE-mode host.
+#
+# refresh_unit() re-renders the whole unit in binary mode, which carries the
+# Restart= line with it. Source mode returns early there, because a full
+# re-render would clobber an operator's hand edits — and that made the policy
+# UNDELIVERABLE to exactly the hosts that need it: production is DIST=source
+# (ExecStart=bun run start), so after the 2026-09-30 outage (an agent's
+# name-pattern pkill; the process handled SIGTERM and exited 0; Restart=
+# on-failure then left it down for 12 minutes) an update would have kept
+# Restart=on-failure forever.
+#
+# So source mode gets a SURGICAL refresh: the existing Restart= line is rewritten
+# in place, and only when it differs. Every other byte of the unit — an operator's
+# hand edits included — is preserved, which is the invariant the early return was
+# protecting. Nothing is ever INSERTED: a unit with no Restart= line is left
+# alone and warned about rather than having a directive appended into an unknown
+# section.
+#
+# Never fatal, unlike refresh_unit: an undelivered restart policy leaves a
+# running service (the pre-incident behaviour), whereas failing here would block
+# updates outright on a host that is otherwise fine. Every path returns 0.
+ensure_restart_policy() {
+  local unit="$1" tmpdir tmp current
+  [ -e "$unit" ] || return 0
+  if grep -qE '^[[:space:]]*Restart=always[[:space:]]*$' "$unit" 2>/dev/null; then
+    return 0
+  fi
+
+  current="$(grep -m1 -E '^[[:space:]]*Restart=' "$unit" 2>/dev/null || true)"
+  if [ -z "$current" ]; then
+    # No Restart= line at all: systemd's default is "no restart", the same
+    # outage shape. Refuse to guess where the directive belongs.
+    warn "Restart policy unchanged in ${unit}: it declares no Restart= line."
+    warn "  a signalled or cleanly-exited process would then NOT be restarted."
+    warn "  remedy: add 'Restart=always' under [Service] in ${unit}, then sudo systemctl daemon-reload"
+    return 0
+  fi
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    warn "Restart policy unchanged in ${unit}: systemctl is not on PATH."
+    warn "  it still says ${current}; remedy: sudo systemctl daemon-reload after editing it"
+    return 0
+  fi
+  if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+    warn "Restart policy unchanged in ${unit}: writing it needs root and sudo is not available."
+    warn "  it still says ${current}; remedy: sudo sed -i 's/^Restart=.*/Restart=always/' ${unit} && sudo systemctl daemon-reload"
+    return 0
+  fi
+
+  tmpdir="$(mktemp -d)"
+  tmp="${tmpdir}/${APP_NAME}.service"
+  if ! sed -E 's/^([[:space:]]*)Restart=.*/\1Restart=always/' "$unit" > "$tmp" 2>/dev/null; then
+    warn "Restart policy unchanged in ${unit}: cannot read or rewrite the unit."
+    rm -rf "$tmpdir"
+    return 0
+  fi
+  if run_root cp -f "$tmp" "$unit" && run_root chmod 644 "$unit"; then
+    if run_root systemctl daemon-reload; then
+      info "Restart policy: ${unit} now carries Restart=always (was: ${current})"
+    else
+      warn "Restart policy written to ${unit}, but systemctl daemon-reload failed."
+      warn "  systemd still has the old policy in memory until it reloads; the service keeps running."
+    fi
+  else
+    warn "Restart policy unchanged in ${unit}: cannot write the unit (cp or chmod failed)."
+    warn "  it still says ${current}."
+  fi
+  rm -rf "$tmpdir"
+  return 0
+}
+
 # ── systemd unit ────────────────────────────────────────────────────────────
 # render_systemd_unit() has exactly ONE call site in the framework
 # (install.sh). A unit written before the LD_LIBRARY_PATH line existed therefore
@@ -116,9 +188,12 @@ print_recovery() {
 # would run a binary whose embedder cannot dlopen libonnxruntime.so.1
 # (ADR 0001 §2.2). Binary mode re-renders and reinstalls the unit here.
 #
-# Scope is deliberately narrow: source mode returns immediately, because the
-# rendered body is unchanged for it and re-rendering would clobber an operator's
-# hand edits to the unit.
+# Scope is deliberately narrow: source mode returns immediately, because a full
+# re-render would clobber an operator's hand edits to the unit. (The other half of
+# that justification — "the rendered body is unchanged for source mode" — stopped
+# being true once the template gained its Restart= line, so source mode no longer
+# returns without an effect: it delegates to ensure_restart_policy above, which
+# rewrites that one line and nothing else. A full re-render is still refused.)
 #
 # In binary mode a refresh that did NOT happen is FATAL (returns 1, and main()
 # aborts before the restart). Rationale: the payload has already been swapped at
@@ -131,7 +206,10 @@ refresh_unit() {
   # UNIT_FILE is overridable so a non-standard unit path (and the deploy tests)
   # need not write to /etc/systemd/system.
   local unit="${UNIT_FILE:-/etc/systemd/system/${APP_NAME}.service}" tmpdir tmp saved
-  [ "$DIST" = "binary" ] || return 0
+  # Source mode takes the surgical path instead of a full re-render, so the
+  # template's restart policy still reaches a source host without clobbering a
+  # hand-edited unit. It cannot fail the update.
+  if [ "$DIST" != "binary" ]; then ensure_restart_policy "$unit"; return 0; fi
 
   # Render first, unconditionally: it needs neither root nor systemd, and the
   # rendered body is what the failure message has to point at.

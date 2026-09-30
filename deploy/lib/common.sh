@@ -447,7 +447,18 @@ User=${TARGET_USER}
 WorkingDirectory=${INSTALL_DIR}
 $(printf '%s\n' "${env_lines[@]}")
 ExecStart=${exec_start}
-Restart=on-failure
+# Restart=always, not on-failure (2026-09-30 incident, 12 min outage). The app
+# registers SIGTERM/SIGINT handlers (src/index.ts:117-123), so an EXTERNAL signal
+# ends in a graceful shutdown and exit status 0 — which on-failure deliberately
+# does not restart, turning a signal into a one-way outage. on-abnormal is not
+# the fix either: a handler that exits 0 is a CLEAN exit, which on-abnormal also
+# ignores; only `always` closes that door. Deliberate operator intent is still
+# honoured — `systemctl stop` sets the unit inactive and systemd does not restart
+# it (verified by reproduction against a transient `systemd-run --user` unit, not
+# by CI: see the header of deploy/systemd-unit.test.ts). StartLimit* above bounds
+# a genuine crash loop, so `always` cannot become a respawn storm. The policy and
+# that bound are both asserted in deploy/systemd-unit.test.ts.
+Restart=always
 RestartSec=5
 
 # --- hardening ---
