@@ -8,7 +8,15 @@ import { insertProposal, type PlacementProposalRow } from '../db/placement-propo
 import { computeFingerprint } from './placement-proposals.service'
 
 export const NOW = '2026-01-01T00:00:00.000Z'
-export const NOW_LATER = '2026-02-01T00:00:00.000Z'
+/**
+ * A second clock reading 19 days after `NOW` — deliberately INSIDE the F-14
+ * rollback window. `rollback` refuses an accepted row decided more than
+ * `placement.proposalTtlDays` (default 30 d) before `now`, so widening this gap
+ * past 30 days puts every rollback fixture out of window. The out-of-window
+ * cases are pinned on purpose in `placement-rollback.service.test.ts`; these
+ * shared fixtures must keep the ordinary round-trips in-window.
+ */
+export const NOW_LATER = '2026-01-20T00:00:00.000Z'
 export const PAST = '2025-01-01T00:00:00.000Z'
 export const FUTURE = '2027-01-01T00:00:00.000Z'
 export const RUN_ID = 'run-triage-001'

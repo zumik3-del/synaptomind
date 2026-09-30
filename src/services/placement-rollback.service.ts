@@ -5,13 +5,15 @@
  * The accepted rows of one `run_id` are the rollback manifest: `rollback`
  * iterates them in reverse application order and inverts each reversible
  * mutation through **existing** writers only (`updateThoughtById`,
- * `deleteEdgeService`). Nothing is hard-deleted: a `merge` row is refused as
- * not auto-rollbackable, and a row whose stored fingerprint no longer matches
+ * `deleteEdgeService`). Nothing is hard-deleted: a row decided outside the
+ * rollback window is refused, a `merge` row is refused as not
+ * auto-rollbackable, and a row whose stored fingerprint no longer matches
  * the graph is skipped with a warning. `confirm: false` (default) is a
  * non-mutating dry-run report. No ambient/scheduled caller invokes this.
  */
 
 import type { Database } from 'bun:sqlite'
+import { config } from '../config'
 import { getDb } from '../db'
 import { listAcceptedProposalsByRun, updateProposalState, type PlacementProposalRow } from '../db/placement-proposals'
 import { ValidationError } from '../errors'
@@ -22,6 +24,8 @@ import { isProposalStale } from './placement-proposals.service'
 import { updateThoughtById } from './thoughts.service'
 
 type Decision = { action: 'revert' } | { action: 'skipped' | 'refused'; reason: string }
+
+const MS_PER_DAY = 86400000
 
 /** Parse a stored JSON `result` without throwing on legacy/null values. */
 function parseResult(raw: string | null): Record<string, unknown> {
@@ -41,11 +45,47 @@ function createdEdgeId(row: PlacementProposalRow): string | undefined {
 }
 
 /**
- * Read-only verdict for one accepted row (ADR §2.8): `merge` is refused, an
- * idempotent accept mutated nothing, and a fingerprint drift means the graph
- * moved since apply — all non-revertible; everything else is revertible.
+ * Refuse a row decided outside the rollback window (ADR 2026-09-29 §2.8, OQ-3:
+ * "While the run's rows are retained (proposal TTL) …; older → refuse + warn").
+ * The window IS the retention window — `placement.proposalTtlDays` — so this is
+ * the read-time backstop for a not-yet-run/slow retention job. A negative TTL
+ * disables retention and therefore the guard. Fails closed: a row that cannot
+ * be measured (missing/unparseable `decided_at` or clock) is refused, never
+ * reverted. Returns `null` when the row is in-window.
  */
-function decideRollback(row: PlacementProposalRow, d: Database): Decision {
+function windowRefusal(row: PlacementProposalRow, now: string): Decision | null {
+  const ttlDays = config.placement.proposalTtlDays
+  if (ttlDays < 0) return null
+
+  const nowMs = Date.parse(now)
+  if (Number.isNaN(nowMs)) {
+    return { action: 'refused', reason: 'cannot verify the rollback window: unparseable now' }
+  }
+  const decidedMs = row.decided_at === null ? Number.NaN : Date.parse(row.decided_at)
+  if (Number.isNaN(decidedMs)) {
+    return { action: 'refused', reason: 'accepted row has no decided_at; cannot verify the rollback window' }
+  }
+
+  const cutoff = new Date(nowMs - ttlDays * MS_PER_DAY).toISOString()
+  if (decidedMs < Date.parse(cutoff)) {
+    return {
+      action: 'refused',
+      reason: `decided_at ${row.decided_at} is older than the ${ttlDays}d rollback window (cutoff ${cutoff})`
+    }
+  }
+  return null
+}
+
+/**
+ * Read-only verdict for one accepted row (ADR §2.8): the rollback window is
+ * checked first (a refusal is terminal and outranks the rest), `merge` is
+ * refused, an idempotent accept mutated nothing, and a fingerprint drift means
+ * the graph moved since apply — all non-revertible; everything else is
+ * revertible.
+ */
+function decideRollback(row: PlacementProposalRow, now: string, d: Database): Decision {
+  const outsideWindow = windowRefusal(row, now)
+  if (outsideWindow) return outsideWindow
   if (row.item_kind === 'lifecycle' && row.lifecycle_action === 'merge') {
     return { action: 'refused', reason: 'merge is not auto-rollbackable' }
   }
@@ -107,10 +147,10 @@ export function rollback(runId: string, options: RollbackOptions = {}, d: Databa
 
   const items: RollbackItemReport[] = []
   for (const row of accepted) {
-    const decision = decideRollback(row, d)
+    const decision = decideRollback(row, now, d)
     if (decision.action !== 'revert') {
-      if (confirm && decision.action === 'skipped') {
-        insertLog('warning', 'placement', `Rollback skipped proposal ${row.id}: ${decision.reason}`, {
+      if (confirm) {
+        insertLog('warning', 'placement', `Rollback ${decision.action} proposal ${row.id}: ${decision.reason}`, {
           proposal_id: row.id,
           run_id: runId,
           item_kind: row.item_kind
