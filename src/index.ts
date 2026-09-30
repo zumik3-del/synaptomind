@@ -1,3 +1,4 @@
+import type { McpHttpHandle } from './mcp/http-transport'
 import { VERSION } from './version'
 
 if (process.argv.includes('--version') || process.argv.includes('-v')) {
@@ -39,6 +40,7 @@ const { closeLogDb } = await import('./logging')
 const { startMcpHttpServer } = await import('./mcp/http-transport')
 const { createMcpServer } = await import('./mcp/server')
 const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js')
+const { McpHttpPortInUseError } = await import('./errors')
 const { startDecayJob, stopDecayJob } = await import('./services/decay.service')
 const { startSelfImproveJob, stopSelfImproveJob } = await import('./services/self-improve.service')
 const { startTtlCleanupJob, stopTtlCleanupJob } = await import('./services/ttl-cleanup.service')
@@ -147,9 +149,22 @@ if (isStdio) {
   console.log(`[synaptomind] API server running on http://${config.server.host}:${config.server.port}`)
 
   const mcpPort = config.mcp?.httpPort ?? 3006
-  const mcpHandle = startMcpHttpServer(config.server.host, mcpPort, {
-    corsOrigins: config.mcp.corsOrigins
-  })
+  let mcpHandle: McpHttpHandle
+  try {
+    mcpHandle = startMcpHttpServer(config.server.host, mcpPort, {
+      corsOrigins: config.mcp.corsOrigins
+    })
+  } catch (err) {
+    // serve() throws EADDRINUSE on a taken port. Unnamed, that surfaces as a
+    // bare Bun stack trace and the deploy gate reports a failed health check on
+    // the API port — sending the operator to the listener that is actually fine
+    // (task #1077). Name the key and the port instead; anything else is rethrown
+    // untouched so a real bug is not relabelled.
+    if ((err as NodeJS.ErrnoException | null)?.code === 'EADDRINUSE') {
+      throw new McpHttpPortInUseError(mcpPort, err)
+    }
+    throw err
+  }
 
   registerShutdownSignals(async () => {
     // stop() closes every per-session server/transport before clearing the

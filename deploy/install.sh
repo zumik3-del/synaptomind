@@ -23,6 +23,11 @@
 #      --no-service    Skip systemd unit installation and start
 #      --help, -h      Show this help
 #
+#  Seeded ports: a FRESH config.json gets server.port = PORT and
+#  mcp.httpPort = MCP_PORT (app.env, optional — defaults to PORT + 1). An
+#  existing config.json is preserved verbatim, so an installed host keeps its
+#  own MCP port. See resolve_mcp_port() in lib/common.sh.
+#
 #  Pipeline (see the phase banners in main):
 #      config -> platform + OS deps -> fetch code/binary -> seed state
 #      -> data symlink -> helper scripts -> systemd unit -> health check
@@ -102,7 +107,7 @@ parse_args() {
       --force)      FORCE=true;       shift   ;;
       --no-service) NO_SERVICE=true;  shift   ;;
       --help|-h)
-        sed -n '3,28p' "$0" 2>/dev/null || echo "See the comment header of install.sh"
+        sed -n '3,33p' "$0" 2>/dev/null || echo "See the comment header of install.sh"
         exit 0 ;;
       *) error "unknown option: $1 (try --help)" ;;
     esac
@@ -282,6 +287,17 @@ install_binary() {
 
 # ── Phase: seed state (config files, secret, data dir) ─────────────────────
 SEEDED_SECRET_FILE=false
+
+# align_config_port FILE KEY VALUE — rewrite `"KEY": <n>` in FILE to
+# `"KEY": VALUE`. KEY is matched literally INCLUDING its quotes, which is what
+# keeps '"port"' from touching '"httpPort"'. A missing key is a no-op, so a
+# payload that ships neither key seeds unchanged.
+align_config_port() {
+  local file="$1" key="$2" value="$3"
+  [ -f "$file" ] || return 0
+  sed -i "s/${key}[[:space:]]*:[[:space:]]*[0-9][0-9]*/${key}: ${value}/" "$file"
+}
+
 seed_files() {
   local pair src dest base
   SEEDED_SECRET_FILE=false
@@ -298,9 +314,14 @@ seed_files() {
     base="$(basename "$dest")"
     ( umask 077; cp "${INSTALL_DIR}/${src}" "${INSTALL_DIR}/${dest}" )
     case "$base" in .*) chmod 600 "${INSTALL_DIR}/${dest}" ;; esac
-    # A seeded config.json is the port source: align it with PORT.
-    if [ "$base" = "config.json" ] && grep -q '"port"' "${INSTALL_DIR}/${dest}" 2>/dev/null; then
-      sed -i "s/\"port\"[[:space:]]*:[[:space:]]*[0-9][0-9]*/\"port\": ${PORT}/" "${INSTALL_DIR}/${dest}"
+    # A seeded config.json is the port source: align BOTH listeners with the
+    # ports this install resolved. mcp.httpPort is rewritten for the same
+    # reason server.port is — the example ships 3006, and a host that already
+    # owns 3006 would otherwise install a service that can never start
+    # (resolve_mcp_port in lib/common.sh for the rule; task #1077).
+    if [ "$base" = "config.json" ]; then
+      align_config_port "${INSTALL_DIR}/${dest}" '"port"' "$PORT"
+      align_config_port "${INSTALL_DIR}/${dest}" '"httpPort"' "$MCP_PORT"
     fi
     if [ -n "${GENERATE_SECRET_IN:-}" ] && [ "$dest" = "$GENERATE_SECRET_IN" ]; then
       SEEDED_SECRET_FILE=true
@@ -514,6 +535,16 @@ main() {
 
   INSTALL_DIR="${INSTALL_DIR:-/opt/${APP_NAME}}"
   PORT="${PORT:-3000}"
+  # Seeding target for mcp.httpPort. Resolved before seed_files() and NOT from
+  # an existing config.json: that file is preserved verbatim (see
+  # resolve_mcp_port), so an already-installed host keeps its own MCP port.
+  MCP_PORT="$(resolve_mcp_port)"
+  # The one way the two listeners can collide is an explicit MCP_PORT equal to
+  # PORT. Reject it here — before the payload is fetched — rather than install a
+  # service whose only possible outcome is EADDRINUSE on the second listener.
+  if [ "$MCP_PORT" = "$PORT" ]; then
+    error "MCP_PORT (${MCP_PORT}) must differ from PORT (${PORT})"
+  fi
   HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-60}"
   HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:$(resolve_port)/health}"
   HOOKS_DIR="${HOOKS_DIR:-${RUN_DIR}/hooks}"

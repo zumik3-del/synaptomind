@@ -316,6 +316,26 @@ resolve_port() {
   printf '%s' "${PORT:-3000}"
 }
 
+# Effective MCP HTTP port for a SEEDED config.json: the optional app.env knob
+# MCP_PORT when set, otherwise the API port + 1.
+#
+# Why the offset is the default (task #1077): the payload ships
+# config.json.example with mcp.httpPort 3006, so a seeded config that never
+# inherits the instance's own ports binds whatever the host happens to be using
+# at 3006 — an install that succeeds and then dies on EADDRINUSE. Deriving both
+# listeners from the SAME PORT value is what makes the rule deterministic and
+# collision-free: server.port and mcp.httpPort differ by construction, and the
+# layout matches production (API 3105 / MCP 3106).
+#
+# This only ever runs on the SEEDING path. seed_files() skips a config.json that
+# already exists ("Preserved existing config.json"), so an installed host keeps
+# its own mcp.httpPort verbatim — prod's deliberate 3106 included — and update.sh
+# never seeds at all.
+resolve_mcp_port() {
+  if [ -n "${MCP_PORT:-}" ]; then printf '%s' "$MCP_PORT"; return 0; fi
+  printf '%s' "$((${PORT:-3000} + 1))"
+}
+
 # ── Health check ───────────────────────────────────────────────────────────
 # wait_health URL [EXPECTED_VERSION] [TIMEOUT]
 # Polls URL until it answers. With EXPECTED_VERSION the body must also carry
