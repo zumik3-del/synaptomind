@@ -889,6 +889,50 @@ function seedBinaryUpdateShape(opts: {
 /** The four fields every update.sh fixture needs to be run. */
 type UpdateFixture = { runDir: string; stubsDir: string; privLog: string; healthBody: string }
 
+/**
+ * Replace the fixture's /health curl stub with one that answers a SEQUENCE of
+ * payloads, one per poll, repeating the last one once exhausted. FAKE_HEALTH_BODY
+ * can only express a single static body, so a recovery case ("failed now,
+ * healthy on the next poll") needs a counter — kept in a file, because wait_health
+ * calls url_get inside a command substitution and a shell variable would be lost.
+ *
+ * Returns the counter file so a test can assert how many samples were consumed;
+ * the HEALTH_TIMEOUT in the seeded app.env is raised from 1s to match the number
+ * of samples, otherwise the gate times out after the first one.
+ */
+function sequenceHealth(fx: UpdateFixture, bodies: string[], timeout = 6): string {
+  const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
+  const counter = join(fx.runDir, 'health-polls')
+  const script = [
+    `__bodies=(${bodies.map(b => `'${b}'`).join(' ')})`,
+    `__poll='${counter}'`,
+    '__n=$(cat "$__poll" 2>/dev/null || printf 0)',
+    '__n=$((__n + 1))',
+    'printf "%s" "$__n" > "$__poll"',
+    '__max=${#__bodies[@]}',
+    '[ "$__n" -gt "$__max" ] && __n=$__max',
+    'printf "%s" "${__bodies[$((__n - 1))]}"',
+  ].join('\n')
+  writeFileSync(
+    join(fx.stubsDir, 'curl'),
+    [
+      '#!/usr/bin/env bash',
+      'for a in "$@"; do',
+      '  case "$a" in',
+      '    */health)',
+      script,
+      '      exit 0 ;;',
+      '  esac',
+      'done',
+      `exec ${realCurl} "$@"`,
+    ].join('\n'),
+  )
+  chmodSync(join(fx.stubsDir, 'curl'), 0o755)
+  const envFile = join(fx.runDir, 'scripts', 'app.env')
+  writeFileSync(envFile, readFileSync(envFile, 'utf8').replace('HEALTH_TIMEOUT="1"', `HEALTH_TIMEOUT="${timeout}"`))
+  return counter
+}
+
 function runUpdate(fx: UpdateFixture, args: string[]) {
   return spawnSync('bash', [join(fx.runDir, 'scripts', 'update.sh'), ...args], {
     encoding: 'utf8',
@@ -1056,6 +1100,99 @@ describe('update.sh — DIST=binary', () => {
       rmSync(fx.root, { recursive: true, force: true })
     }
   })
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  The health gate must see a DEAD embedder, not wave it through as "ok".
+  //
+  //  A unit rendered without Environment=LD_LIBRARY_PATH makes the embedder
+  //  child die on ERR_DLOPEN_FAILED in a loop. /health still answers status
+  //  "ok" (the payload's status is DB-only on purpose — the gate fetches it
+  //  with `curl -f`, so a 503 would discard the payload that explains the
+  //  failure), which is why a gate reading only `status` reports clean success
+  //  over permanently dead embeddings. The client latches the crashed state and
+  //  the payload carries it as checks.embedder="failed".
+  //
+  //  Both directions are asserted, and the loading direction matters just as
+  //  much: a first binary install legitimately answers "not ready" while the
+  //  model downloads, so a gate that rejected it would break every cold install.
+  //  (wait_health itself is covered in wait-health.test.ts.)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  test('a dead embedder (checks.embedder=failed) fails the update and names the remedy', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      // Everything the gate checks apart from the embedder is healthy: status
+      // ok and the exact version update.sh asked for.
+      fx.healthBody = JSON.stringify({
+        status: 'ok',
+        version: '0.8.0',
+        checks: { database: 'ok', embedder: 'failed' },
+      })
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status).not.toBe(0)
+      expect(res.stdout).not.toContain('Done.')
+      // The specific failure, and what to do about it.
+      expect(res.stderr).toContain('checks.embedder=failed')
+      expect(res.stderr).toContain(`LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      // A failed gate is a failed update: the recovery block must be printed.
+      expect(res.stderr).toContain('update did not finish cleanly')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  test('a still-loading embedder (checks.embedder="not ready") passes the update', () => {
+    // The first install of a binary: the model is still downloading. This must
+    // succeed, or every cold install is reported as broken.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      fx.healthBody = JSON.stringify({
+        status: 'ok',
+        version: '0.8.0',
+        checks: { database: 'ok', embedder: 'not ready' },
+      })
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done.')
+      expect(res.stderr).not.toContain('checks.embedder=failed')
+      // The payload really did swap.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('an embedder that recovers on the retry does not fail the update', () => {
+    // The check is re-derived per sample, not latched: a crash that clears
+    // itself must not fail the install it left healthy.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      const counter = sequenceHealth(
+        fx,
+        [
+          JSON.stringify({ status: 'ok', version: '0.8.0', checks: { database: 'ok', embedder: 'failed' } }),
+          JSON.stringify({ status: 'ok', version: '0.8.0', checks: { database: 'ok', embedder: 'ok' } }),
+        ],
+        // The gate sleeps 2s between polls; the slack keeps the second sample
+        // reachable on a loaded machine.
+        8,
+      )
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done.')
+      // The failing sample was really served first — otherwise this test would
+      // pass on a gate that never saw a failure.
+      expect(Number(readFileSync(counter, 'utf8').trim())).toBeGreaterThanOrEqual(2)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 30_000)
 })
 
 // ════════════════════════════════════════════════════════════════════════════
