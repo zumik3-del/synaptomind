@@ -17,11 +17,16 @@
 
 A host install today runs from a git checkout (`deploy/app.env:14` `DIST="source"`, `deploy/app.env:17-18`): the installer clones the repo to `/opt/synaptomind`, installs Bun if missing (`deploy/install.sh:172-188`), and runs `bun install --production` (`deploy/install.sh:235-243`). A production checkout with `node_modules` is ~623 MB, carries a full dev toolchain on the host, and makes the running version a function of whatever the working tree happens to contain. Every release also drags `git`, `unzip` and a Bun runtime into the host's system-dependency surface (`deploy/app.env:37-38`).
 
-The goal is a per-platform tarball published as a GitHub Release asset, installed by the existing `deploy/` framework, that needs **no bun, no `node_modules`, no TypeScript sources, no git** on the host — while embeddings stay on the native onnxruntime backend. The win is dependency and class-of-artifact, not raw size: the footprint goes 623 MB → ~115 MB unpacked, of which 35 MB is a shared library that must ship somewhere (§2.1).
+The goal is a per-platform tarball published as a GitHub Release asset, installed by the existing `deploy/` framework, that needs **no bun, no `node_modules`, no TypeScript sources, no git** on the host — while embeddings stay on the native onnxruntime backend. The win is dependency and class-of-artifact, not raw size: the footprint goes 623 MB → ~114 MiB unpacked, of which ~34 MiB is a shared library that must ship somewhere (§2.1).
 
 ### 1.2 Measured baseline (bun 1.4.2, linux-x86_64, dev host, 2026-09-30)
 
 These were measured, not assumed. Anything the design depends on is in this table.
+
+Two evidence classes, so a reader can tell what was observed from what can be re-read:
+
+- **cited** — re-derivable from this repository at the anchor given, without building anything: **M4, M7, M8**.
+- **measured** — observed on a binary built by the §3.1 App slice on the dev host on 2026-09-30. Re-verifying these needs `bun run build:binary` plus the checks in §3.2; a read-only conformance pass **cannot** re-derive them, and a conformance re-read of this ADR has not: **M1, M2, M3, M5, M6, M9**. They are corroborated only by in-code comments (`src/runtime-mode.ts:8-11`, `src/version.ts:1-3`, `src/index.ts:15-27`, `scripts/stubs/sharp-stub.ts:4-7`). Treat them as carried forward, and re-measure before relying on them.
 
 | # | Finding | Consequence for the design |
 |---|---|---|
@@ -53,7 +58,7 @@ Gaps to close: `install_binary`/`update_binary` assume a *single file* asset, no
 
 1. `vec0.so` is an external SQLite loadable extension (`src/db/init.ts:13` `database.loadExtension(VEC0_PATH)`) — a single-file distribution is impossible. The unit of distribution is a **tarball**.
 2. Native addons cannot be cross-compiled; CI must build on native runners.
-3. Migrations are forward-only — the apply loop is `for (const migration of MIGRATIONS) { if (current >= migration.version) continue; … }` (`src/db/init.ts:124-131`) — so a rollback must restore a pre-update DB backup, not just an older binary.
+3. Migrations are forward-only — the apply loop is `for (const migration of MIGRATIONS) { if (current >= migration.version) continue; … }` (`src/db/init.ts:125-131`) — so a rollback must restore a pre-update DB backup, not just an older binary.
 4. Production runs on the dev host and must not be disrupted mid-epic; the migration (§2.11) is a deliberate, separately-scheduled step.
 5. No new dependencies. The build must use the JS API (`Bun.build`) because `--compile` on the CLI cannot take plugins (task #1034 recipe).
 
@@ -65,7 +70,7 @@ Gaps to close: `install_binary`/`update_binary` assume a *single file* asset, no
 
 **One tarball per platform per release tag, containing the compiled executable plus the two native artefacts it loads at runtime.
 
-Measured component sizes (this host, 2026-09-30): executable ~79 MB, `libonnxruntime.so.1` 35,164,376 B, `vec0.so` 159,816 B — ~115 MB unpacked. The compressed tarball is smaller but the build task must record the real number in the release notes; the epic's "~90 MB" figure counted the executable alone and is optimistic.
+Measured component sizes (this host, 2026-09-30, byte-exact from the committed payload): executable 84,039,136 B (~80 MiB), `libonnxruntime.so.1` 35,164,376 B (~34 MiB), `vec0.so` 159,816 B — **119,363,328 B / ~114 MiB unpacked**. The compressed tarball is smaller but the build task must record the real number in the release notes; the epic's "~90 MB" figure counted the executable alone and is optimistic.
 
 Asset URL contract (already implemented in the framework): `${RELEASES_BASE}/${TAG}/${render_template(ASSET_PATTERN)}` (`deploy/install.sh:273-274`, `deploy/update.sh:133-134`, `deploy/lib/common.sh:201-208`).
 
@@ -74,7 +79,7 @@ Archive layout — a **single top-level directory**, so extraction cannot spill 
 ```
 synaptomind-v0.8.0-linux-x86_64.tar.gz
 └── synaptomind-0.8.0-linux-x86_64/          # <app>-<version>-<os>-<arch>, no `v` prefix
-    ├── synaptomind                          # 0755, compiled ELF ~79 MB (server + embedder, see §2.4)
+    ├── synaptomind                          # 0755, compiled ELF ~80 MiB (server + embedder, see §2.4)
     ├── vec0.so                              # 0644, sqlite-vec loadable extension (~160 KB)
     ├── lib/
     │   └── libonnxruntime.so.1              # 0644, ~35 MB, copied verbatim from onnxruntime-node
@@ -84,7 +89,7 @@ synaptomind-v0.8.0-linux-x86_64.tar.gz
 
 | Ships | Does **not** ship | Why |
 |---|---|---|
-| `synaptomind` (self-contained: JS bundle, `package.json` version inlined, `onnxruntime_binding.node` embedded in `/$bunfs`) | `node_modules/` | 623 MB → ~115 MB unpacked; the only reason a host needed `node_modules` was `bun install` |
+| `synaptomind` (self-contained: JS bundle, `package.json` version inlined, `onnxruntime_binding.node` embedded in `/$bunfs`) | `node_modules/` | 623 MB → ~114 MiB unpacked (119,363,328 B); the only reason a host needed `node_modules` was `bun install` |
 | `vec0.so` | TypeScript sources, `tsconfig.json`, `bun.lock` | the bundle is the program; sources would be a second, divergent copy |
 | `lib/libonnxruntime.so.1` | `bun`, `bunx`, any system toolchain | M3 — the library is loaded by the dynamic loader, not by the bundle |
 | `config.json.example`, `.env.example` | `config.json`, `.env` (live) | `seed_files()` copies the examples **only when the destination is absent** (`deploy/install.sh:300-303`); shipping live config would overwrite a production install |
@@ -104,8 +109,8 @@ synaptomind-v0.8.0-linux-x86_64.tar.gz
 Rationale:
 
 1. It is the only mechanism **verified** to work (M3). The failure M2 describes is a `dlopen` failure inside the loader's search, and `LD_LIBRARY_PATH` is consulted for every `dlopen`, including the lazy one that loads the embedded `.node`.
-2. The child inherits it: `spawn(..., { env: { ...process.env, … } })` (`src/embedder/client-core.ts:109-110`) propagates the server's environment to the embedder, so one unit line covers both roles.
-3. `render_systemd_unit()` is the single place that already interpolates `${INSTALL_DIR}` into `WorkingDirectory` and `ExecStart` (`deploy/lib/common.sh:318,322`), and the unit is installer-owned and regenerated on every install/update (`deploy/install.sh:436-453`). Nothing else in the framework needs to learn about the library.
+2. The child inherits it: `spawn(..., { env: { ...process.env, … } })` (`src/embedder/client-core.ts:118-120`) propagates the server's environment to the embedder, so one unit line covers both roles.
+3. `render_systemd_unit()` is the single place that already interpolates `${INSTALL_DIR}` into `WorkingDirectory` and `ExecStart` (`deploy/lib/common.sh:318,322`), and the unit is installer-owned: `install.sh` re-renders and re-verifies it on every install (`deploy/install.sh:436-453`), but `update.sh` **never re-renders it** — its only service calls are `systemctl restart` (`:161`) and `is-active` (`:159`), and `render_systemd_unit` has exactly one call site, `deploy/install.sh:440`. A unit written before a change to `render_systemd_unit()` therefore keeps the old body until the next `install.sh`. Binary mode consequently needs `update.sh` to re-render the unit (or the `LD_LIBRARY_PATH` line added to §3.1's update change set); nothing else in the framework needs to learn about the library.
 
 Value is exactly `${INSTALL_DIR}/lib` — no concatenation, no inheritance of an administrator's value, no new `app.env` key. The unit is machine-generated; an operator who needs more edits `/etc/systemd/system/synaptomind.service` or adds an `/etc/ld.so.conf.d/synaptomind.conf` entry, and both are documented (§2.12).
 
@@ -129,13 +134,13 @@ Resolution order (single shared helper, §2.5):
 
 1. `SYNAPTOMIND_VEC0_PATH` — absolute path, used verbatim. The escape hatch.
 2. `dirname(process.execPath) + '/vec0.so'` — in a compiled binary `process.execPath` is the binary itself (M1), so this is the payload root. In source mode it points at the Bun runtime's directory, where no `vec0.so` exists, so the check simply fails and resolution falls through to (3).
-3. The existing source path, `${import.meta.dir}/../../vec0.so` — unchanged behaviour for `bun run src/index.ts` and for every existing test.
+3. The existing source path — `join(import.meta.dir, '..', 'vec0.so')` in the resolver (`src/runtime-mode.ts:48`), one level up because the resolver lives in `src/`, not `src/db/`. Unchanged behaviour for `bun run src/index.ts` and for every existing test.
 
 Compiled-mode detection: `import.meta.dir` starts with `/$bunfs` (M1, bun 1.4.2). It is checked only to order the candidates, never to fail; a future Bun that changes the prefix degrades to "binary mode looks in the wrong place", which the env override fixes, and §3 verification asserts both layouts so the marker cannot rot unnoticed.
 
-`src/db/init.ts:8` (`const VEC0_PATH = ${import.meta.dir}/../../vec0.so`) is replaced by a call to the shared resolver, and the existing failure message (`src/db/init.ts:14-19`) gains the resolved path plus the `SYNAPTOMIND_VEC0_PATH` hint. `src/test/helpers.ts:13` has a **duplicate** of the same constant and must be switched to the shared resolver in the same change, otherwise tests validate a path production no longer uses.
+`src/db/init.ts` resolves through the shared helper: `loadVecExtension()` is now a function of its own (`src/db/init.ts:9-21`) that calls `vec0Path()` (`src/db/init.ts:11`), skips `:memory:` databases entirely (`src/db/init.ts:10` — vec0 cannot host a vec0 table there), and fails with the resolved path plus the `SYNAPTOMIND_VEC0_PATH` hint (`src/db/init.ts:15-20`). `src/test/helpers.ts` uses the same resolver (import `:7`, call `:28`) so tests cannot drift onto a path production no longer uses.
 
-`install.sh` places it by extraction — no extra step, no postinstall hook. The `postinstall` script (`package.json:19` `scripts/setup-vec0.sh`) is meaningless for a binary host and simply never runs there; the download+checksum logic (`scripts/setup-vec0.sh:31-81`) is reused **at build time** by CI to obtain the artefact, which is why the shipped `vec0.so` is checksum-verified once, at release time, rather than at install time.
+`install.sh` places it by extraction — no extra step, no postinstall hook. The `postinstall` script (`package.json:20` `scripts/setup-vec0.sh`) is meaningless for a binary host and simply never runs there; the download+checksum logic (`scripts/setup-vec0.sh:31-81`) is reused **at build time** by CI to obtain the artefact, which is why the shipped `vec0.so` is checksum-verified once, at release time, rather than at install time.
 
 ### 2.4 Embedder self-mode: one binary, two roles
 
@@ -144,22 +149,22 @@ Compiled-mode detection: `import.meta.dir` starts with `/$bunfs` (M1, bun 1.4.2)
 ```
 --version / -v   →  print and exit                       (existing, src/index.ts:3-6)
 --embedder       →  await import('./embedder/embedder-process'), then park (see below)
-otherwise        →  existing server bootstrap            (HTTP + MCP + jobs, src/index.ts:8 onward)
+otherwise        →  existing server bootstrap            (HTTP + MCP + jobs, src/index.ts:31 onward)
 ```
 
-`--embedder` MUST be checked after `--version` (so `--version` still wins when both are passed) and MUST be checked before any of the server bootstrap, so embedder mode never opens a port, never starts a scheduler and never registers MCP tools. This matters because `src/embedder/embedder-process.ts` is a **side-effect module**: it runs `initDb()` (`:190`), `await ensureModelFiles(...)` (`:196`), `startWorker()` (`:198`) and `process.send?.({ type: 'ready' })` (`:199`) at import time, then owns the event loop until the idle timeout or a `shutdown` message.
+`--embedder` MUST be checked after `--version` (so `--version` still wins when both are passed) and MUST be checked before any of the server bootstrap, so embedder mode never opens a port, never starts a scheduler and never registers MCP tools. This matters because `src/embedder/embedder-process.ts` is a **side-effect module**: it runs `initDb()` (`:190`), `await ensureModelFiles(...)` (`:196`), `startWorker()` (`:198`), `resetIdleTimer()` (`:199`) and `process.send?.({ type: 'ready' })` (`:200`) at import time, then owns the event loop until the idle timeout or a `shutdown` message.
 
-**Control DOES return from `await import()`** — a module's top-level evaluation completes at `:199`, and the importer resumes with the poll, sweep and idle timers installed. The branch must therefore **park** on a promise that never settles (`await new Promise<never>(() => {})`) rather than call `process.exit(0)`. An exit at that point kills the very timers that own the event loop: the child dies with code 0 (measured: ~76 ms) before the parent ever sees `ready`, and `/health` stays `"embedder":"not ready"` forever. Source mode never exposed this, because there the file is the entry point and never returns to a caller. With the park, process lifetime is governed only by the module's own idle timeout or a parent `shutdown` message — both of which call `process.exit` themselves. *(Corrected after implementation; the earlier draft wrongly stated that control does not return and proposed the trailing `process.exit(0)` as a defensive guard. That sentence caused the defect it was meant to describe.)*
+**Control DOES return from `await import()`** — a module's top-level evaluation completes at `:200`, and the importer resumes with the poll, sweep and idle timers installed. The branch must therefore **park** on a promise that never settles (`await new Promise<never>(() => {})`) rather than call `process.exit(0)`. An exit at that point kills the very timers that own the event loop: the child dies with code 0 (measured: ~76 ms) before the parent ever sees `ready`, and `/health` stays `"embedder":"not ready"` forever. Source mode never exposed this, because there the file is the entry point and never returns to a caller. With the park, process lifetime is governed only by the module's own idle timeout or a parent `shutdown` message — both of which call `process.exit` themselves. *(Corrected after implementation; the earlier draft wrongly stated that control does not return and proposed the trailing `process.exit(0)` as a defensive guard. That sentence caused the defect it was meant to describe.)*
 
-Client side — `src/embedder/client-core.ts:65`:
+Client side — `src/embedder/client-core.ts:43-49` (`getSpawnArgv()`, called at `:74`):
 
 | Mode | argv |
 |---|---|
 | compiled | `[process.execPath, '--embedder']` |
 | source (`bun run`) | `[process.execPath, 'run', <import.meta.dir>/embedder-process.ts]` (unchanged) |
-| test hook | `SYNAPTOMIND_EMBEDDER_SCRIPT` set → the existing `run <path>` form, unchanged (`src/embedder/client-core.ts:39`) |
+| test hook | `SYNAPTOMIND_EMBEDDER_SCRIPT` set → the existing `run <path>` form, unchanged (`src/embedder/client-core.ts:45-46`) |
 
-`process.execPath` is already the correct executable to spawn in both modes (M1, and the comment at `src/embedder/client-core.ts:61-64` explains why the absolute path is used instead of `bun` on `PATH`). The IPC contract is untouched: the same Bun `spawn({ ipc })` channel, the same message types (`src/embedder/client-core.ts:8-15`), the same dispatch through `handleEmbedderRequest` (`src/embedder/embedder-process.ts:30-32`). This is what makes the fallback in §4 cheap: a fallback that ships a second executable changes exactly one argv array and one build step.
+`process.execPath` is already the correct executable to spawn in both modes (M1, and the comment at `src/embedder/client-core.ts:70-73` explains why the absolute path is used instead of `bun` on `PATH`). The IPC contract is untouched: the same Bun `spawn({ ipc })` channel, the same message types (`src/embedder/client-core.ts:9-16`), the same dispatch through `handleEmbedderRequest` (`src/embedder/embedder-process.ts:186`). This is what makes the fallback in §4 cheap: a fallback that ships a second executable changes exactly one argv array and one build step.
 
 **Direct consequence:** a binary-mode host needs no `bun` and no `bun` on `PATH`. `render_systemd_unit()` already tolerates an empty `BUN_BIN` (it then renders `PATH=/usr/local/bin:/usr/bin:/bin`, `deploy/lib/common.sh:304,321`), so the unit is correct for a host without Bun.
 
@@ -167,12 +172,12 @@ Client side — `src/embedder/client-core.ts:65`:
 
 The measured failure mode is that *every* `import.meta.dir`-relative path silently becomes `/$bunfs/…` (M1). There are exactly three such call sites in production code plus one in test helpers:
 
-| Call site | Today | Becomes |
+| Call site | Before | Becomes (implemented, task #1034) |
 |---|---|---|
 | `src/version.ts:4-6` | `readFileSync(resolve(import.meta.dir, '../package.json'))` | inlined JSON import (M6) |
-| `src/db/init.ts:8` | `${import.meta.dir}/../../vec0.so` | `vec0Path()` (§2.3) |
-| `src/embedder/client-core.ts:39,65` | `${import.meta.dir}/embedder-process.ts`, spawned as `run <script>` | `isCompiled()`-gated argv, §2.4 |
-| `src/test/helpers.ts:13` | duplicated `VEC0_PATH` | `vec0Path()` |
+| `src/db/init.ts:11` | `${import.meta.dir}/../../vec0.so` | `vec0Path()` (§2.3), via `loadVecExtension()` (`src/db/init.ts:9-21`) |
+| `src/embedder/client-core.ts:43-49` | `${import.meta.dir}/embedder-process.ts`, spawned as `run <script>` | `isCompiled()`-gated argv, §2.4 |
+| `src/test/helpers.ts:7,28` | duplicated `VEC0_PATH` | `vec0Path()` |
 
 A new `src/runtime-mode.ts` exports `isCompiled()`, `appRootDir()` and `vec0Path()`; the embedder argv decision lives with the client that owns it. One rule, one place, no fourth copy of "where am I running" (AGENTS.md §4 DRY). `VERSION` keeps its name and type so `src/services/health.service.ts:4,32` and every consumer are unaffected.
 
@@ -185,11 +190,11 @@ got="$(app_version "$bin")"          # "v0.8.0"  (prefix stripped, v kept — co
 [ "$(normalize_v "$got")" = "$TAG" ] # "v0.8.0" = "v0.8.0"  ✅
 ```
 
-Applied at all three comparison points: `binary_up_to_date_check()` (`deploy/install.sh:263-267`), `install_binary()` (`deploy/install.sh:283-286`) and `update_binary()` (`deploy/update.sh:142-145`).
+Applied at all three comparison points: `binary_up_to_date_check()` (`deploy/install.sh:263-267`), `install_binary()` (`deploy/install.sh:283-286`) and `update_binary()` (`deploy/update.sh:142-145`). At each site **both** operands are normalised to the same spelling: the binary's output through `normalize_v` and the tag as `$TAG` (v-prefixed) — **not** `${TAG#v}`, which is the value the current code passes on the right (`deploy/install.sh:264`, `deploy/install.sh:284`, `deploy/update.sh:143`). Normalising only the binary's output leaves every comparison failing.
 
-`binary_up_to_date_check()` is not cosmetic: today `ver_cmp "v0.8.0" "0.8.0"` (`deploy/lib/common.sh:193-198`) sorts `0.8.0` first, so an already-current install reports **`newer`** and `install.sh` errors with *"newer version v0.8.0 is already installed; use --force"* (`deploy/install.sh:266`). Normalising fixes install and update in one line each.
+`binary_up_to_date_check()` is not cosmetic: today `ver_cmp "v0.8.0" "0.8.0"` (`deploy/lib/common.sh:193-198`) sorts `0.8.0` first, so an already-current install reports **`newer`** and `install.sh` errors with *"newer version v0.8.0 is already installed; use --force to override"* (`deploy/install.sh:266`). Normalising both operands fixes install and update in one line each; normalising only the binary's output reproduces the same abort with the operands swapped.
 
-`normalize_v` is deliberately **not** applied to the health-check side: `/health` reports the bare `VERSION` (`src/services/health.service.ts:32`) and `EXPECTED_VERSION` is `${TAG#v}` (`deploy/install.sh:546`, `deploy/update.sh:217`), which already match. `wait_health` also accepts `degraded` as healthy by deliberate SynaptoMind deviation (`deploy/lib/common.sh:263-266`), which is what lets a first binary install pass its health check while the embedder model is still downloading.
+`normalize_v` is deliberately **not** applied to the health-check side: `/health` reports the bare `VERSION` (`src/services/health.service.ts:32`) and the expected value is `${TAG#v}` — `EXPECTED_VERSION` (`deploy/install.sh:546`) and, in `update.sh`, `TARGET_VERSION` (`deploy/update.sh:217`, consumed at `:157`/`:169`) — which already match. `wait_health` also accepts `degraded` as healthy by deliberate SynaptoMind deviation (`deploy/lib/common.sh:286`, rationale at `deploy/lib/common.sh:262-266`), which is what lets a first binary install pass its health check while the embedder model is still downloading.
 
 ### 2.7 Asset naming and platform matrix
 
@@ -238,7 +243,7 @@ Non-negotiable details:
 
 - **The single quotes on `ASSET_PATTERN` and `APP_VERSION_CMD` are required, not stylistic.** `load_app_env()` *sources* the file (`. "$f"`, `deploy/lib/common.sh:350`), so a double-quoted `${APP_NAME}-${TAG}-${OS}-${ARCH}` would be expanded to `synaptomind--` at source time and `render_template()` would then have nothing to substitute. The template already demonstrates the convention (`deploy/app.env.example:31-32`).
 - `APP_VERSION_CMD` keeps the `${BIN}` placeholder: `app_version()` invokes it as `BIN="$bin" sh -c "$cmd"` (`deploy/lib/common.sh:178`).
-- `SYSTEM_DEP_CMDS="git tar"`: `install_system_deps()` (`deploy/install.sh:135-157`) installs them through apt/dnf/yum/apk/pacman and skips cleanly when present. `tar` is the extraction tool; `git` survives only because the frozen `updater.sh` bootstrap shallow-clones the release to stage that release's own `deploy/update.sh` (`deploy/updater.sh:86-101,129`) — a bootstrap dependency, not a runtime one (§2.9). `unzip` is no longer needed (it was never listed).
+- `SYSTEM_DEP_CMDS="git tar"`: `install_system_deps()` (`deploy/install.sh:135-157`) installs them through apt/dnf/yum/apk/pacman and skips cleanly when present. `tar` is the extraction tool; `git` survives only because the frozen `updater.sh` bootstrap shallow-clones the release to stage that release's own `deploy/update.sh` (`deploy/updater.sh:86-101`, `git clone` at `:92`, `need_cmd git` at `:130`) — a bootstrap dependency, not a runtime one (§2.9). `unzip` is no longer needed (it was never listed).
 - `RELEASE_API` points at the **list**, not `/releases/latest`, because `release_latest_tag()` (`deploy/lib/common.sh:231-242`) cannot express a channel policy and `/releases/latest` silently excludes prereleases. See §2.10.
 - `SEED_FILES` (`deploy/app.env:26`) and `GENERATE_SECRET_IN` (`:27`) are unchanged and now resolve against the extracted payload.
 
@@ -246,7 +251,7 @@ Non-negotiable details:
 
 **Install / update = staged extract, verify, ordered swap.** `install_binary()` (`deploy/install.sh:270-291`) and `update_binary()` (`deploy/update.sh:131-153`) become one shared sequence; the framework's existing steps — download, verify version, keep `.prev`, `mv -f` — are preserved, with staging inserted around them:
 
-1. Download `${RELEASES_BASE}/${TAG}/${asset}` to `${INSTALL_DIR}/.${APP_NAME}.$$.tar.gz` (`url_get`, `deploy/lib/common.sh:218-229`).
+1. `mkdir -p "$INSTALL_DIR"` (kept from `deploy/install.sh:275` — a fresh install has no `INSTALL_DIR`), then download `${RELEASES_BASE}/${TAG}/${asset}` to `${INSTALL_DIR}/.${APP_NAME}.$$.tar.gz` (`url_get`, `deploy/lib/common.sh:218-229`) and register it with `cleanup_add` (kept from `deploy/install.sh:277` / `deploy/update.sh:136`, trap at `deploy/install.sh:93`/`deploy/update.sh:36`) — otherwise every install leaves a ~119 MB tarball in `INSTALL_DIR`.
 2. `staging="$(mktemp -d "${INSTALL_DIR}/.stage.XXXXXX")"` — inside `INSTALL_DIR`, so every later `mv` is a same-filesystem rename.
 3. `tar -xzf <tarball> -C "$staging" --no-same-owner`, then require exactly one top-level directory; the payload is `<staging>/<top>`. Extracting into a dedicated directory (never `-C "$INSTALL_DIR"`) is what makes a malformed archive harmless.
 4. Verify the required set (§2.1): `synaptomind` executable, `vec0.so`, `lib/libonnxruntime.so.1`. Missing → `error`, nothing has been touched yet.
@@ -268,15 +273,17 @@ for f in synaptomind vec0.so lib/libonnxruntime.so.1; do
 done
 sudo cp data/synaptomind.db.backup/synaptomind.db.<timestamp>.bak data/synaptomind.db
 sudo rm -f data/synaptomind.db-wal data/synaptomind.db-shm
+# repeat the cp/rm pair for each configured log DB (config.json logDbPath),
+# whose backup the pre-update hook also wrote (deploy/hooks/pre-update:111-114)
 sudo systemctl start synaptomind
 ```
 
-The DB restore is mandatory, not optional: migrations are forward-only (`src/db/init.ts:124-131`), so a pre-upgrade binary against a post-upgrade schema is unsafe. The pre-update hook already produced the backup and is **fatal** before the swap (`deploy/update.sh:259-261`; hook: `deploy/hooks/pre-update:1-10`, WAL-safe `sqlite3 .backup`, per-DB paths from `config.json` at `deploy/hooks/pre-update:35-46`). Neither the hook nor its fatality changes in binary mode. `print_recovery()` must be updated to print the loop above instead of the single-file command (`deploy/update.sh:87-89`).
+The DB restore is mandatory, not optional: migrations are forward-only (`src/db/init.ts:125-131`), so a pre-upgrade binary against a post-upgrade schema is unsafe. The pre-update hook already produced the backup and is **fatal** before the swap (`deploy/update.sh:259-261`; hook: `deploy/hooks/pre-update:1-10`, WAL-safe `sqlite3 .backup`, per-DB paths from `config.json` at `deploy/hooks/pre-update:35-46`). The hook backs up **every** DB it resolves — the main path plus `logDbPath` when `config.json` configures one (`deploy/hooks/pre-update:44-45`, looped at `deploy/hooks/pre-update:111-114`) — so the restore above must be repeated for each backup it produced, not only for `synaptomind.db`. Neither the hook nor its fatality changes in binary mode. `print_recovery()` must be updated to print the loop above instead of the single-file command (`deploy/update.sh:87-89`).
 
 **`updater.sh` — two surgical changes, not a rewrite.** The frozen bootstrap contract (`deploy/updater.sh:12`) is preserved exactly: same path, same flags, same exit codes, still stable-only.
 
 - `deploy/updater.sh:128` (`[ "${DIST:-source}" = "source" ] || error "updater supports DIST=source only"`) must accept `binary` as well.
-- `current_version()` (`deploy/updater.sh:58-63`) needs **no** new fallback path: `read_package_version` on a missing `package.json` returns empty and the function already falls back to `parse_json_version` over `$HEALTH_URL`, which in binary mode reports the bare `VERSION` (`src/services/health.service.ts:32`). The only change worth making is to prefer `app_version` for a binary install (authoritative, offline, no HTTP), keeping the health probe as the fallback. *(The task brief listed the `package.json` read as a blocker; inspection shows the fallback already exists — the blocker is the guard on line 128, not line 60.)*
+- `current_version()` (`deploy/updater.sh:58-63`) needs **no** new fallback path: `read_package_version` on a missing `package.json` returns empty and the function already falls back to `parse_json_version` over `$HEALTH_URL`, which in binary mode reports the bare `VERSION` (`src/services/health.service.ts:32`). The only change worth making is to prefer `app_version` for a binary install (authoritative, offline, no HTTP), keeping the health probe as the fallback — but `app_version()` returns a **v-prefixed** string, because it strips only the app-name prefix and nothing else (`deploy/lib/common.sh:175-181`), so the switch must normalise at the consumer: `deploy/updater.sh:77` must compare `${CURRENT#v}` against `${TAGS[i]#v}`, and the messages at `deploy/updater.sh:134`/`:136` should print `${CURRENT#v}`. *(The task brief listed the `package.json` read as a blocker; inspection shows the fallback already exists — the blocker is the guard on line 128, not line 60.)*
 - `REPO_URL` stays **required** (`deploy/updater.sh:129`): the bootstrap shallow-clones the tag to stage that release's own `deploy/update.sh` (`deploy/updater.sh:86-101`). Binary hosts therefore still need `git` and network access to the repository — but not the repository *on disk*, and not a checkout in `INSTALL_DIR`. This is the one place where "no git on the host" does not hold, and it is a bootstrap dependency, not a runtime one; the ADR accepts it rather than redesigning the frozen contract. It is also why `SYSTEM_DEP_CMDS` is `"git tar"` (§2.8), not `"tar"`.
 - `stage_release()` copies the **installed** `app.env` (`deploy/updater.sh:98`), so an already-installed host keeps its own `DIST`, `INSTALL_DIR`, `DATA_DIR` and `PORT` — the correct behaviour, and the reason §2.11 needs an explicit migration step rather than relying on the updater.
 
@@ -330,7 +337,7 @@ Why the config is pre-placed in step 2, and why `--no-service` is **not** used h
 - `seed_files()` skips any destination that already exists (`deploy/install.sh:300-303`), so a pre-placed `config.json`/`.env` is preserved byte-for-byte; `generate_secret_into()` then returns early (`deploy/install.sh:335`) and **`SYNAPTOMIND_SECRET` is never regenerated**, which would otherwise invalidate every existing client token. If they were seeded fresh, the secret would rotate mid-migration.
 - The port in the preserved `config.json` is what `resolve_port()` reads (`deploy/lib/common.sh:247-255`), so `HEALTH_URL` and the unit stay on 3105 even though `app.env` says `PORT="3105"`.
 - `--no-service` would skip the unit install (`deploy/install.sh:422`) and leave the old source-mode unit — `ExecStart=<bun> run src/index.ts` (`deploy/install.sh:123-131`) — pointing at a directory that no longer exists, so the service could not be started afterwards. The installer must run to completion: it is the only thing that rewrites `ExecStart` to `/opt/synaptomind/synaptomind` (`deploy/install.sh:121-122`) and the only thing that polls `/health`.
-- The health probe is the gate (`deploy/lib/common.sh:267-296`): it must answer with the expected `version`, and `degraded` is accepted (deliberate deviation, `deploy/lib/common.sh:263-266`) so a first run whose embedder model is still downloading still passes.
+- The health probe is the gate (`deploy/lib/common.sh:267-296`): it must answer with the expected `version`, and `degraded` is accepted (deliberate deviation, `deploy/lib/common.sh:286`, rationale at `deploy/lib/common.sh:262-266`) so a first run whose embedder model is still downloading still passes.
 
 Rollback of the migration (the parked checkout is intact and the DB was never re-created, because `DATA_DIR` is unchanged):
 
@@ -359,9 +366,9 @@ Sequencing, because production is the dev host (`AGENTS.md` §8 warns that a "sa
 
 | Slice | Change points (non-exhaustive) |
 |---|---|
-| App (#1034) | `src/runtime-mode.ts` (new); `src/version.ts` → inlined JSON (M6); `src/db/init.ts:8,14-19`; `src/embedder/client-core.ts:39,65`; `src/index.ts` `--embedder` branch; `src/test/helpers.ts:13`. Build script with the truthy sharp stub via the `Bun.build` JS API (`plugins` + `compile`) — the `--compile` CLI cannot take plugins. |
-| Build & release | new non-gating `release.yml` job: install deps → `Bun.build` compile → stage payload (§2.1) → `tar` → upload. `scripts/setup-vec0.sh` supplies `vec0.so`; `node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime.so.1` supplies the library (M8 pins the path). |
-| Deploy | `install.sh:165-170` (platform preflight), `:259-291` (staged swap, `normalize_v`, `.prev` set, `tar`); `update.sh:131-153` + `:84-94` (same + recovery text); `updater.sh:128` (DIST guard) and `:58-63` (`app_version` preference); `common.sh:301-339` (`LD_LIBRARY_PATH` when `DIST=binary`), `:231-242` → policy-aware `release_resolve_tag`; `app.env:14,37-38` + binary block; `app.env.example` comments. |
+| App (#1034) | **done** — `src/runtime-mode.ts` (new); `src/version.ts:4-6` → inlined JSON (M6); `src/db/init.ts:9-21` (`loadVecExtension`, now at `:11`, error `:15-20`); `src/embedder/client-core.ts:43-49` (`getSpawnArgv`); `src/index.ts:13-29` `--embedder` branch; `src/test/helpers.ts:7,28`. Build script `scripts/build-binary.ts` (`bun run build:binary`, `Bun.build` with `plugins` + `compile`, out `dist/synaptomind`) aliases `sharp` to the truthy `scripts/stubs/sharp-stub.ts` — the `--compile` CLI cannot take plugins. The script stops at the executable (`:6-7`): **the release job must copy `dist/synaptomind` to the payload root** alongside `vec0.so` and `lib/`, then `tar` it. |
+| Build & release | new non-gating `release.yml` job: install deps → `bun run build:binary` → copy `dist/synaptomind` into the staged payload (§2.1) → `tar` → upload. `scripts/setup-vec0.sh` supplies `vec0.so`; `node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime.so.1` supplies the library (M8 pins the path). |
+| Deploy | `install.sh:165-170` (platform preflight), `:259-291` (staged swap, both-sided `normalize_v`, `.prev` set, `tar`, `mkdir -p "$INSTALL_DIR"` + `cleanup_add` on the download); `update.sh:131-153` + `:84-94` (same + recovery text); **`update.sh` must also re-render and re-install the unit — `render_systemd_unit` has one call site today (`deploy/install.sh:440`) and `update.sh` never renders it, so without this the `LD_LIBRARY_PATH` line never reaches an updated host (§2.2)**; `updater.sh:128` (DIST guard), `:58-63` (`app_version` preference, with `${CURRENT#v}` normalisation at `:77`/`:134`/`:136`); `common.sh:301-339` (`LD_LIBRARY_PATH` when `DIST=binary`), `:231-242` → policy-aware `release_resolve_tag`; `app.env:14,37-38` + binary block; `app.env.example` comments. |
 | Docs | `docs/DEPLOY.md:63-71` (what the installer does), `:79-91` (channels table gains "no branches in binary mode"), `:174-195` (rollback loses `git checkout`/`bun install`, gains the loop), plus the manual-start line from §2.12; `AGENTS.md` §6 release procedure gains the asset step. Docwriter task — not in this ADR. |
 
 ### 3.2 Verification (each slice is independently checkable)
@@ -375,13 +382,13 @@ Sequencing, because production is the dev host (`AGENTS.md` §8 warns that a "sa
 - **The unit becomes load-bearing for the native library.** A host that starts the binary by hand without the variable gets a working server and a failing embedder — a *degraded*, not a broken, service. Mitigated by documenting the one-line form (§2.12) and by the error text naming the fix.
 - **The payload is not atomic as a set.** Bounded by microseconds and by the executable-last ordering (§2.9).
 - **`vec0.so` and `libonnxruntime.so.1` are duplicated per version in `INSTALL_DIR`** (~35 MB per release kept as `.prev`) because rollback keeps one previous copy of each. This is the price of a no-`git` rollback; if disk ever matters, the `.prev` copy of the library is the first thing to drop — the executable's `.prev` plus a reinstall of the same version would still be recoverable.
-- **The bootstrap still needs `git`** on the host (`deploy/updater.sh:92,129`). Accepted to keep the frozen contract; the *runtime* needs nothing.
+- **The bootstrap still needs `git`** on the host (`git clone` at `deploy/updater.sh:92`, `need_cmd git` at `deploy/updater.sh:130`; `:129` is the `REPO_URL` check). Accepted to keep the frozen contract; the *runtime* needs nothing.
 - **`/$bunfs` prefix detection is version-coupled** (bun 1.4.2, M1). `SYNAPTOMIND_VEC0_PATH` is the escape hatch, and verification asserts both layouts.
-- **A release asset per platform per tag** multiplies release size (~115 MB unpacked × platforms) and makes each release a build-host dependency rather than a pure-Python-style artifact step.
+- **A release asset per platform per tag** multiplies release size (~114 MiB unpacked × platforms) and makes each release a build-host dependency rather than a pure-Python-style artifact step.
 
 ### 3.4 Positive consequences
 
-- Host footprint 623 MB → ~115 MB unpacked (~90 MB for the executable, ~35 MB for the runtime library, ~160 KB for `vec0.so`); no bun, no `node_modules`, no `git` **at runtime**, no source tree on disk.
+- Host footprint 623 MB → 119,363,328 B / ~114 MiB unpacked (executable 84,039,136 B ~80 MiB, runtime library 35,164,376 B ~34 MiB, `vec0.so` 159,816 B ~156 KiB); no bun, no `node_modules`, no `git` **at runtime**, no source tree on disk.
 - The installed version is a named, immutable artefact (`--version` verifies it at install time, `deploy/install.sh:283-286`) rather than a working-tree state.
 - One deploy framework serves both modes; `DIST` is a one-line switch and `DIST=source` remains a supported, tested escape hatch for developers and for any packaging regression.
 - Releases become installable on hosts that are not developer machines, and the release asset is verifiable independently of the repository.
@@ -437,7 +444,7 @@ Ordered by preference; the first that unblocks a release wins, and each is a con
 ```mermaid
 flowchart TB
   subgraph CI["CI - release.yml, non-gating job"]
-    A["src/index.ts + src/embedder/embedder-process.ts"] -->|"Bun.build + truthy sharp plugin"| B["compiled ELF ~79 MB"]
+    A["src/index.ts + src/embedder/embedder-process.ts"] -->|"Bun.build + truthy sharp plugin"| B["compiled ELF ~80 MiB"]
     S["scripts/setup-vec0.sh<br/>checksum-verified"] --> C["vec0.so ~160 KB"]
     D["node_modules/onnxruntime-node<br/>bin/napi-v6/linux/x64"] --> E["libonnxruntime.so.1 ~35 MB"]
     B --> G["tarball<br/>synaptomind-v0.8.0-linux-x86_64.tar.gz"]
@@ -496,11 +503,11 @@ sequenceDiagram
 ## 7. Must-not-improvise (for implementers)
 
 1. `ASSET_PATTERN` and `APP_VERSION_CMD` in `app.env` are **single-quoted** — the file is sourced by bash (`deploy/lib/common.sh:350`).
-2. The sharp stub must be **truthy**; a falsy stub makes `transformers` throw at module load (`transformers.node.mjs:17754,17766`).
+2. The sharp stub must be **truthy**; a falsy stub makes `transformers` throw at module load (`transformers.node.mjs:17754,17766`). *(implemented: `scripts/stubs/sharp-stub.ts:13-17`, wired by `scripts/build-binary.ts:22-29` — do not re-add a second stub.)*
 3. `LD_LIBRARY_PATH` is exported by the **unit**, value exactly `${INSTALL_DIR}/lib`; not by a wrapper script, not baked into the binary.
 4. `vec0.so` sits at the **payload root** and is named exactly `vec0.so`; resolution order is env → binary dir → source tree.
-5. `--embedder` is checked **after** `--version` and **before** the server bootstrap; the embedder side effects live in an imported side-effect module, so the branch must wrap the whole bootstrap.
-6. The executable is moved **last** in the swap; the version comparison is normalised with `normalize_v` on the binary's output only — never on the health side.
+5. `--embedder` is checked **after** `--version` and **before** the server bootstrap; the embedder side effects live in an imported side-effect module, so the branch must wrap the whole bootstrap. *(implemented: `src/index.ts:13-29`.)*
+6. The executable is moved **last** in the swap; every version comparison is normalised on **both** sides to a v-prefixed pair (binary output via `normalize_v`, tag as `$TAG`) — never on the health side, which stays bare.
 7. `updater.sh`'s frozen contract (path, flags, exit codes, stable-only) does not change; only the `DIST` guard and the version read are touched.
 8. `RELEASE_API` is the **list** endpoint, not `/releases/latest`; a `CHECKOUT_POLICY` naming a branch is an error in binary mode.
 9. `SYSTEM_DEP_CMDS` is `"git tar"` — `git` for the updater bootstrap, `tar` for extraction.
