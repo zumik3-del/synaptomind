@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // render_systemd_unit() (deploy/lib/common.sh) is the ONLY place a unit body is
-// produced — install.sh:453 and update.sh:139 both call it. So the restart
-// policy is asserted HERE, at the source, rather than through two install
-// harnesses that would each prove it only for their own DIST.
+// produced — install.sh and update.sh's refresh_unit() both call it. So the
+// restart policy is asserted HERE, at the source, rather than through two
+// install harnesses that would each prove it only for their own DIST.
 //
 // The task it guards: on 2026-09-30 production stayed down for 12 minutes. The
 // app registers SIGTERM/SIGINT handlers (src/index.ts:117-123), so an external
@@ -43,7 +45,13 @@ type UnitOpts = { dist?: string; dataDir?: string; bunBin?: string }
 
 /** Render a unit with the real common.sh, exactly as install.sh/update.sh do. */
 function renderUnit(opts: UnitOpts = {}): string {
-  const env: Record<string, string> = {
+  const res = renderWithPath(opts)
+  if (res.status !== 0) throw new Error(`render_systemd_unit failed: ${res.stderr}`)
+  return res.stdout
+}
+
+function renderWithPath(opts: UnitOpts = {}, env: Record<string, string> = {}) {
+  const base: Record<string, string> = {
     APP_DESC: 'Synaptomind — thought-graph engine',
     TARGET_USER: 'synaptomind',
     TARGET_HOME: '/home/synaptomind',
@@ -51,15 +59,36 @@ function renderUnit(opts: UnitOpts = {}): string {
     DATA_DIR: opts.dataDir ?? '/var/lib/synaptomind',
     BUN_BIN: opts.bunBin ?? '/usr/local/bin/bun',
     DIST: opts.dist ?? 'source',
+    ...env,
   }
   const script =
-    Object.entries(env)
+    Object.entries(base)
       .map(([k, v]) => `${k}=${quote(v)}`)
       .join('\n') +
     `\n. ${quote(LIB)}\nrender_systemd_unit "/usr/local/bin/bun run start"\n`
-  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000 })
-  if (res.status !== 0) throw new Error(`render_systemd_unit failed: ${res.stderr}`)
-  return res.stdout
+  return spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000 })
+}
+
+/**
+ * PATH stubs for systemctl / systemd-run / sudo that RECORD every invocation
+ * and exit 0 without doing anything. Rendering must never reach them.
+ */
+function makeRecordingStubs(dir: string): string {
+  for (const name of ['systemctl', 'systemd-run', 'sudo']) {
+    const p = join(dir, name)
+    writeFileSync(
+      p,
+      [
+        '#!/usr/bin/env bash',
+        `printf '${name}' >> "$STUB_INVOCATION_LOG"`,
+        'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_INVOCATION_LOG"; done',
+        'printf \'\\n\' >> "$STUB_INVOCATION_LOG"',
+        'exit 0',
+      ].join('\n'),
+    )
+    chmodSync(p, 0o755)
+  }
+  return dir
 }
 
 /** Every line that sets a restart policy, in file order. */
@@ -83,9 +112,9 @@ describe('render_systemd_unit — restart policy', () => {
   })
 
   test('the policy is identical in source and binary mode', () => {
-    // install.sh:453 and update.sh:139 share this function, but DIST changes
-    // the [Service] body, so the policy is asserted in both arms rather than
-    // assumed to be shared.
+    // install.sh and update.sh's refresh_unit() share this function, but DIST
+    // changes the [Service] body, so the policy is asserted in both arms rather
+    // than assumed to be shared.
     for (const dist of ['source', 'binary']) {
       expect(restartDirectives(renderUnit({ dist })), `DIST=${dist}`).toEqual(['Restart=always'])
     }
@@ -102,7 +131,93 @@ describe('render_systemd_unit — restart policy', () => {
     expect(unit).toContain('\nStartLimitBurst=5\n')
     // StartLimit* are [Unit] directives, Restart is [Service]: if a future edit
     // merges the sections the ordering below would stop being meaningful.
-    expect(unit.indexOf('[Service]')).toBeLessThan(unit.indexOf('Restart=always'))
-    expect(unit.indexOf('StartLimitBurst=5')).toBeLessThan(unit.indexOf('[Service]'))
+    // Asserted on the DIRECTIVE lines, never on a substring: the comment block
+    // above Restart= also says "Restart=always", so indexOf() would be
+    // satisfied by the comment and a reverted policy would stay green (the
+    // reviewer's mutation M1).
+    const restartAt = unit.indexOf('\nRestart=always\n')
+    expect(restartAt).toBeGreaterThan(unit.indexOf('[Service]'))
+    expect(unit.indexOf('\nStartLimitBurst=5\n')).toBeLessThan(unit.indexOf('[Service]'))
+  })
+})
+
+describe('render_systemd_unit — rendering executes nothing', () => {
+  // The regression CI did not have. The template was an UNQUOTED heredoc
+  // (`cat <<EOF`), so every `...` in the restart comment was a command
+  // substitution: rendering the unit really ran `systemctl stop` and
+  // `systemd-run --user` — on install.sh's path, as root — and the comment
+  // shipped to /etc/systemd/system with five holes in it.
+  //
+  // Stubs record invocations and exit 0; they never exec the real binary, and
+  // no systemd, sudo or service is involved.
+  function renderWithStubsOnPath(): { unit: string; invocations: string; stderr: string } {
+    const dir = mkdtempSync(join(tmpdir(), 'synapto-render-stubs-'))
+    try {
+      makeRecordingStubs(dir)
+      const log = join(dir, 'invocations.log')
+      const res = renderWithPath({}, { PATH: `${dir}:${process.env.PATH}`, STUB_INVOCATION_LOG: log })
+      if (res.status !== 0) throw new Error(`render_systemd_unit failed: ${res.stderr}`)
+      return { unit: res.stdout, invocations: spawnSync('cat', [log], { encoding: 'utf8' }).stdout, stderr: res.stderr }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  test('no stub on PATH is invoked while rendering', () => {
+    const { invocations, stderr } = renderWithStubsOnPath()
+
+    // (a) not one stub ran. Before the fix this was:
+    //   systemctl stop / systemd-run --user, plus "always: command not found" twice.
+    expect(invocations).toBe('')
+    // Command-not-found noise from the comment's backticks would land on stderr.
+    expect(stderr).toBe('')
+  })
+
+  test('the rendered body carries no unexpanded substitution artifact', () => {
+    const { unit } = renderWithStubsOnPath()
+
+    // (b) The holes the substitutions left: "only  closes that door",
+    // "a transient  unit". A backtick pair that renders to nothing shows up as
+    // a doubled space where the word used to be.
+    expect(unit).not.toMatch(/only {2,}closes that door/)
+    expect(unit).not.toMatch(/transient {2,}unit/)
+    expect(unit).not.toContain('`')
+    expect(unit).not.toContain('$(')
+    // Nothing anywhere in the shipped unit may look like shell.
+    expect(unit).not.toMatch(/\$\{?[A-Za-z_]/)
+  })
+
+  test('the comment keeps its meaning: the policy, the incident and the bound', () => {
+    // The comment is documentation an operator reads in `systemctl cat`, so the
+    // fix must not gut it to satisfy the test above.
+    const { unit } = renderWithStubsOnPath()
+
+    for (const phrase of [
+      'Restart=always, not on-failure',
+      '2026-09-30 incident',
+      'CLEAN exit',
+      'systemctl stop',
+      'systemd-run --user',
+      'StartLimit',
+      'deploy/systemd-unit.test.ts',
+    ]) {
+      expect(unit, phrase).toContain(phrase)
+    }
+  })
+
+  test('the units systemd-analyze accepts still verify clean', () => {
+    // Guard against a malformed body slipping past the substring assertions: a
+    // real systemd on the machine verifies the rendered file when it is present.
+    const probe = spawnSync('bash', ['-c', 'command -v systemd-analyze'], { encoding: 'utf8' })
+    if (probe.status !== 0) return
+    const dir = mkdtempSync(join(tmpdir(), 'synapto-unit-verify-'))
+    try {
+      const p = join(dir, 'synaptomind.service')
+      writeFileSync(p, renderUnit())
+      const res = spawnSync('systemd-analyze', ['verify', p], { encoding: 'utf8', timeout: 30_000 })
+      expect(`${res.stdout}${res.stderr}`).not.toContain('Refusing')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

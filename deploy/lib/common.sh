@@ -415,7 +415,7 @@ wait_health() {
 # Reads APP_DESC, TARGET_USER, TARGET_HOME, INSTALL_DIR, DATA_DIR, BUN_BIN, DIST.
 render_systemd_unit() {
   local exec_start="$1" rw="${INSTALL_DIR}" bun_path=""
-  local -a env_lines
+  local -a env_lines lines
   if [ -n "${DATA_DIR:-}" ]; then rw="${rw} ${DATA_DIR}"; fi
   if [ -n "${BUN_BIN:-}" ]; then bun_path="$(dirname "$BUN_BIN"):"; fi
 
@@ -432,48 +432,74 @@ render_systemd_unit() {
   env_lines+=("Environment=HOME=${TARGET_HOME}"
               "Environment=PATH=${bun_path}/usr/local/bin:/usr/bin:/bin")
 
-  cat <<EOF
-[Unit]
-Description=${APP_DESC}
-After=network-online.target
-Wants=network-online.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+  # ── The unit body is DATA, never shell ────────────────────────────────────
+  # Assembled into an array, then emitted with a single printf '%s\n'. Every
+  # literal below is SINGLE-quoted, and each substituted line is built by printf
+  # from a single-quoted format string with its value passed as an ARGUMENT. So
+  # the unit's text is never re-parsed as shell: a backtick, $(...) or $VAR in
+  # it renders as those characters and executes nothing, whatever a future edit
+  # writes into the comment.
+  #
+  # This replaced `cat <<EOF`, an UNQUOTED heredoc. The restart comment below
+  # carries the words 'systemctl stop' and 'systemd-run --user', and the heredoc
+  # EXECUTED them at render time — on install.sh's path, as root — while
+  # install.sh rendered the unit and update.sh re-rendered it on every binary
+  # refresh. The comment also lost five words to the substitutions. Rendering a
+  # unit is a side-effect-free print; that is now structural, not a convention:
+  # deploy/systemd-unit.test.ts renders with recording systemctl/systemd-run/
+  # sudo stubs first on PATH and fails if any of them is invoked.
+  local desc_line user_line workdir_line exec_line rw_line env_block
+  printf -v desc_line    'Description=%s'       "$APP_DESC"
+  printf -v user_line    'User=%s'              "$TARGET_USER"
+  printf -v workdir_line 'WorkingDirectory=%s'  "$INSTALL_DIR"
+  printf -v exec_line    'ExecStart=%s'         "$exec_start"
+  printf -v rw_line      'ReadWritePaths=%s'    "$rw"
+  printf -v env_block '%s\n' "${env_lines[@]}"
+  env_block="${env_block%$'\n'}"   # a command substitution ate this newline; same here
 
-[Service]
-# --- process ---
-Type=simple
-User=${TARGET_USER}
-WorkingDirectory=${INSTALL_DIR}
-$(printf '%s\n' "${env_lines[@]}")
-ExecStart=${exec_start}
-# Restart=always, not on-failure (2026-09-30 incident, 12 min outage). The app
-# registers SIGTERM/SIGINT handlers (src/index.ts:117-123), so an EXTERNAL signal
-# ends in a graceful shutdown and exit status 0 — which on-failure deliberately
-# does not restart, turning a signal into a one-way outage. on-abnormal is not
-# the fix either: a handler that exits 0 is a CLEAN exit, which on-abnormal also
-# ignores; only `always` closes that door. Deliberate operator intent is still
-# honoured — `systemctl stop` sets the unit inactive and systemd does not restart
-# it (verified by reproduction against a transient `systemd-run --user` unit, not
-# by CI: see the header of deploy/systemd-unit.test.ts). StartLimit* above bounds
-# a genuine crash loop, so `always` cannot become a respawn storm. The policy and
-# that bound are both asserted in deploy/systemd-unit.test.ts.
-Restart=always
-RestartSec=5
-
-# --- hardening ---
-NoNewPrivileges=true
-ProtectSystem=strict
-ReadWritePaths=${rw}
-PrivateTmp=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-
-[Install]
-WantedBy=multi-user.target
-EOF
+  lines=(
+    '[Unit]'
+    "$desc_line"
+    'After=network-online.target'
+    'Wants=network-online.target'
+    'StartLimitIntervalSec=60'
+    'StartLimitBurst=5'
+    ''
+    '[Service]'
+    '# --- process ---'
+    'Type=simple'
+    "$user_line"
+    "$workdir_line"
+    "$env_block"
+    "$exec_line"
+    '# Restart=always, not on-failure (2026-09-30 incident, 12 min outage). The app'
+    '# registers SIGTERM/SIGINT handlers (src/index.ts:117-123), so an EXTERNAL signal'
+    '# ends in a graceful shutdown and exit status 0 — which on-failure deliberately'
+    '# does not restart, turning a signal into a one-way outage. on-abnormal is not'
+    '# the fix either: a handler that exits 0 is a CLEAN exit, which on-abnormal also'
+    '# ignores; only Restart=always closes that door. Deliberate operator intent is'
+    '# still honoured: "systemctl stop" sets the unit inactive and systemd does not'
+    '# restart it (reproduced by hand against a transient systemd-run --user unit,'
+    '# NOT by CI — see the header of deploy/systemd-unit.test.ts). The StartLimit*'
+    '# above bounds a genuine crash loop, so always cannot become a respawn storm.'
+    '# The policy and that bound are both asserted in deploy/systemd-unit.test.ts.'
+    'Restart=always'
+    'RestartSec=5'
+    ''
+    '# --- hardening ---'
+    'NoNewPrivileges=true'
+    'ProtectSystem=strict'
+    "$rw_line"
+    'PrivateTmp=true'
+    'ProtectKernelTunables=true'
+    'ProtectKernelModules=true'
+    'ProtectControlGroups=true'
+    'RestrictSUIDSGID=true'
+    ''
+    '[Install]'
+    'WantedBy=multi-user.target'
+  )
+  printf '%s\n' "${lines[@]}"
 }
 
 # ── Binary payload: download, stage, verify, ordered swap ──────────────────

@@ -11,9 +11,10 @@ import {
   writeFileSync,
   chmodSync,
   copyFileSync,
+  statSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
 
@@ -1450,29 +1451,6 @@ function seedSourceUpdate() {
   return { root, origin, stubsDir, installDir, runDir, privLog, unitFile, healthBody, guard }
 }
 
-describe('update.sh — source mode leaves the unit alone', () => {
-  test('a source update succeeds and never touches the unit', () => {
-    // Source mode is NOT made fatal, and the reason is structural: the rendered
-    // body is unchanged for DIST=source (no LD_LIBRARY_PATH line is emitted),
-    // so there is nothing stale to repair, and re-rendering would clobber an
-    // operator's hand edits to the unit.
-    const fx = seedSourceUpdate()
-    try {
-      writeFileSync(fx.unitFile, '# hand-edited source unit\n')
-      const res = runUpdate(fx, ['--yes'])
-      expect(res.status, res.stderr + res.stdout).toBe(0)
-      expect(res.stdout).toContain('Done. Now at 0.8.0.')
-      expect(readFileSync(fx.unitFile, 'utf8')).toBe('# hand-edited source unit\n')
-      const log = readFileSync(fx.privLog, 'utf8')
-      expect(log).toContain('restart')
-      expect(log).not.toContain('daemon-reload')
-    } finally {
-      rmSync(fx.root, { recursive: true, force: true })
-      rmSync(fx.origin, { recursive: true, force: true })
-    }
-  })
-})
-
 // ════════════════════════════════════════════════════════════════════════════
 //  updater.sh in DIST=binary — the two changes ADR 0001 §2.9 sanctions and
 //  nothing else: the DIST guard must accept `binary`, and the version read must
@@ -1588,6 +1566,263 @@ describe('update.sh — source mode delivers the restart policy surgically', () 
       expect(readFileSync(fx.unitFile, 'utf8')).toBe(HAND_EDITED)
       expect(res.stderr).toContain('Restart policy unchanged')
       expect(res.stderr).toContain('Restart=on-failure')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a unit with no Restart= line keeps the invariant its name claims', () => {
+    // The case the deleted "source mode leaves the unit alone" block used to
+    // stand for, but it asserted only that the update exits 0 — it passed
+    // because its fixture unit had no Restart= line, so it could not have
+    // detected a re-render. Here the unit is a REAL one that lacks the
+    // directive, so the bytes on disk after the run are the claim.
+    const fx = seedSourceUpdate()
+    try {
+      const unit = '# hand-edited source unit\n[Service]\nExecStart=/usr/local/bin/bun run start\n'
+      writeFileSync(fx.unitFile, unit)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done. Now at 0.8.0.')
+      // Nothing was ever inserted: where the directive belongs is not guessed.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(unit)
+      expect(res.stderr).toContain('it declares no Restart= line')
+      const log = readFileSync(fx.privLog, 'utf8')
+      expect(log).not.toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+//  The write to the LIVE unit: atomic, recoverable, and honest about the file
+//  on disk. Every test here reproduced a defect in the first version of
+//  ensure_restart_policy (d9ff4bb, review of #1082) — a truncated unit reported
+//  as unchanged, a widened mode, an unreadable unit misreported, and a
+//  last-wins duplicate that skipped the update silently.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — the restart-policy write is atomic and honest', () => {
+  const HAND_EDITED = [
+    '[Unit]',
+    'Description=Synaptomind — thought-graph engine (v0.7.1)',
+    'Group=opencode',
+    'StartLimitIntervalSec=60',
+    '',
+    '[Service]',
+    'Type=simple',
+    'Environment=HAND_EDITED=yes',
+    'ExecStart=/usr/local/bin/bun run start',
+    'Restart=on-failure',
+    'RestartSec=5',
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+    '',
+  ].join('\n')
+
+  /**
+   * A `cp` that dies after truncating its destination, the way cp(1) behaves
+   * when the write fails with ENOSPC/EIO or the process is killed mid-copy.
+   * Every other cp in the run passes through, so only the unit write fails.
+   * Installed INTO the fixture root (not the repo), never system-wide.
+   */
+  function breakCpForTheUnit(fx: ReturnType<typeof seedSourceUpdate>): void {
+    const real = spawnSync('bash', ['-c', 'command -v cp'], { encoding: 'utf8' }).stdout.trim()
+    const p = join(fx.stubsDir, 'cp')
+    writeFileSync(
+      p,
+      [
+        '#!/usr/bin/env bash',
+        // Every cp aimed at the unit's own directory dies after truncating:
+        // the staged body and the .bak copy. Every other cp passes through, so
+        // the rest of the update still runs for real.
+        `dst="\${@: -1}"; src="\${@: -2:1}"`,
+        `case "$dst" in ${dirname(fx.unitFile)}/*) ;; *) exec ${real} "$@" ;; esac`,
+        ': > "$dst"                     # cp(1) opens the destination O_TRUNC...',
+        'head -c 24 "$src" > "$dst"     # ...and only part of the payload lands',
+        'echo "cp: error writing $dst: No space left on device" >&2',
+        'exit 1',
+      ].join('\n'),
+    )
+    chmodSync(p, 0o755)
+  }
+
+  test('a copy that dies partway leaves the live unit intact and reports the real state', () => {
+    // The counterexample from the review: the unit went 711 -> 24 bytes while
+    // stderr said "Restart policy unchanged ... it still says
+    // Restart=on-failure" — both halves false, the file no longer contained
+    // Restart= at all, and the staged good copy was then deleted.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      breakCpForTheUnit(fx)
+      const res = runUpdate(fx, ['--yes'])
+      // Never fatal: a running service beats a blocked update.
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done. Now at 0.8.0.')
+      // The unit is BYTE-IDENTICAL: not truncated, not half-written.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(HAND_EDITED)
+      // And the message describes that file, not the one we meant to write.
+      expect(res.stderr).toContain('Restart policy unchanged')
+      expect(res.stderr).toContain('Restart=on-failure')
+      expect(res.stderr).toContain('was NOT touched')
+      // systemd must not be told to reload a unit that did not change.
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a successful rewrite keeps the previous unit as <unit>.bak', () => {
+    // The binary path keeps a `saved=` artifact for exactly this case
+    // (refresh_unit); a plain re-run cannot fix a bad refresh because main()'s
+    // "already up to date" guard returns first, so the operator needs the old
+    // file as a file.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(readFileSync(fx.unitFile, 'utf8')).toContain('\nRestart=always\n')
+      const backup = `${fx.unitFile}.bak`
+      expect(existsSync(backup), 'the pre-change unit must be recoverable').toBe(true)
+      expect(readFileSync(backup, 'utf8')).toBe(HAND_EDITED)
+      expect(res.stdout).toContain('previous unit kept at')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a hand-edited unit keeps its mode instead of being widened to 644', () => {
+    // cp -f over an EXISTING file does not change its mode, so the old chmod 644
+    // bought nothing and only ever widened a unit that may carry
+    // Environment= secrets — which is the case this function exists to serve.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      chmodSync(fx.unitFile, 0o600)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(readFileSync(fx.unitFile, 'utf8')).toContain('\nRestart=always\n')
+      expect(statSync(fx.unitFile).mode & 0o777).toBe(0o600)
+      // The recovery copy is a copy of the operator's file, mode and all.
+      expect(statSync(`${fx.unitFile}.bak`).mode & 0o777).toBe(0o600)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('an unreadable unit is reported as unreadable, not as declaring no Restart= line', () => {
+    // The greps used to swallow their errors (2>/dev/null, || true), so a
+    // mode-000 unit produced an empty result and was reported as declaring no
+    // Restart= line — with a remedy (edit the unit) the operator cannot apply
+    // for the very permission reason that made it unreadable.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      chmodSync(fx.unitFile, 0o000)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stderr).toContain('could not be READ')
+      // The distinction the fix exists for: a read FAILURE is not an ABSENCE.
+      expect(res.stderr).not.toContain('it declares no Restart= line')
+      expect(res.stderr).not.toContain('add \'Restart=always\' under [Service]')
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('daemon-reload')
+      chmodSync(fx.unitFile, 0o644)
+      // Nothing was written, so the file is still the operator's byte for byte.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(HAND_EDITED)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a duplicate Restart= line is judged on the EFFECTIVE one (last wins)', () => {
+    // The idempotency grep matched Restart=anywhere=always, so a unit with
+    // `Restart=always` followed by `Restart=no` exited 0 silently: no write, no
+    // warning, and the effective policy stayed `no` — the exact outage shape
+    // this change exists to prevent.
+    const fx = seedSourceUpdate()
+    try {
+      const dup = HAND_EDITED.replace('Restart=on-failure', 'Restart=always\nRestart=no')
+      writeFileSync(fx.unitFile, dup)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      // Collapsed onto the policy we want, so last-wins cannot pick `no`.
+      expect(unit.split('\n').filter((l) => /^Restart=/.test(l))).toEqual(['Restart=always'])
+      // The message names the effective directive it replaced.
+      expect(res.stdout).toContain('was: Restart=no')
+      expect(readFileSync(fx.privLog, 'utf8')).toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('an already-correct unit is left byte-identical with no .bak and no reload', () => {
+    const fx = seedSourceUpdate()
+    try {
+      const already = HAND_EDITED.replace('Restart=on-failure', 'Restart=always')
+      writeFileSync(fx.unitFile, already)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(already)
+      // Idempotent means no privileged write at all: no backup, no reload.
+      expect(existsSync(`${fx.unitFile}.bak`)).toBe(false)
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('every rewrite leaves exactly one Restart= line, hand edits intact', () => {
+    // The surgical invariant, on a unit whose edits must all survive: the
+    // rewrite is a rename onto a sed'd body, so nothing else can drift.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      expect(unit.split('\n').filter((l) => /^Restart=/.test(l))).toEqual(['Restart=always'])
+      for (const kept of [
+        'Description=Synaptomind — thought-graph engine (v0.7.1)',
+        'Group=opencode',
+        'Environment=HAND_EDITED=yes',
+        'ExecStart=/usr/local/bin/bun run start',
+        'StartLimitIntervalSec=60',
+      ]) {
+        expect(unit, kept).toContain(kept)
+      }
+      // Only the Restart= line changed, byte for byte.
+      expect(unit.replace('Restart=always', 'Restart=on-failure')).toBe(HAND_EDITED)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('no staging file is left in the unit directory', () => {
+    // The staged copy lives BESIDE the unit (a rename only stays atomic within
+    // one filesystem), so it must not survive the run: systemd scans that
+    // directory, and a leftover .synaptomind.service.new.* is litter that the
+    // next update would trip over.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const leftovers = readdirSync(dirname(fx.unitFile)).filter((f) => f.includes('.new.'))
+      expect(leftovers).toEqual([])
     } finally {
       rmSync(fx.root, { recursive: true, force: true })
       rmSync(fx.origin, { recursive: true, force: true })

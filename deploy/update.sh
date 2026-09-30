@@ -131,14 +131,47 @@ print_recovery() {
 # Never fatal, unlike refresh_unit: an undelivered restart policy leaves a
 # running service (the pre-incident behaviour), whereas failing here would block
 # updates outright on a host that is otherwise fine. Every path returns 0.
+#
+# The write is ATOMIC and the messages describe the unit ON DISK, never the one
+# this function meant to write. Both were defects of the first version, found in
+# review of d9ff4bb:
+#   * `cp -f "$tmp" "$unit"` opens the destination O_TRUNC and then writes, so a
+#     copy that died partway (ENOSPC/EIO/killed — the class of event that took
+#     production down on 2026-09-30) left the live unit truncated at 24 bytes,
+#     while the message said "unchanged ... it still says Restart=on-failure".
+#     Both halves were false: the file no longer contained Restart= at all, and
+#     the staged good copy was rm -rf'd on the way out. Now the new body is
+#     staged beside the unit and swapped in with rename(2), so the unit is
+#     either the old file or the new one — never a hybrid — and the previous
+#     body is kept as <unit>.bak the way the binary path keeps one.
+#   * A unit's mode was forced to 644, which widened a hand-edited unit that may
+#     carry Environment= secrets. cp -f over an existing file does not change
+#     its mode, so the chmod bought nothing and only ever lost the operator's
+#     choice. The mode is now captured and re-applied to the STAGED file.
 ensure_restart_policy() {
-  local unit="$1" tmpdir tmp current
+  local unit="$1" unit_dir staged body mode current backup now tmpdir tmp
   [ -e "$unit" ] || return 0
-  if grep -qE '^[[:space:]]*Restart=always[[:space:]]*$' "$unit" 2>/dev/null; then
+
+  # Read the unit ONCE and tell a read FAILURE apart from an absent directive:
+  # the greps used to swallow their errors, so a mode-000 unit came back with an
+  # empty result and was reported as "declares no Restart= line" — with a remedy
+  # (edit the unit) the operator cannot apply for the very permission reason that
+  # made it unreadable.
+  if ! body="$(cat -- "$unit" 2>/dev/null)"; then
+    warn "Restart policy unchanged in ${unit}: it could not be READ."
+    warn "  permissions, not a missing directive — this run wrote nothing."
+    warn "  remedy: ls -l ${unit} && sudo chown root:root ${unit} && sudo chmod 644 ${unit}"
     return 0
   fi
 
-  current="$(grep -m1 -E '^[[:space:]]*Restart=' "$unit" 2>/dev/null || true)"
+  # The EFFECTIVE directive, not the first line that matches: systemd honours the
+  # LAST Restart= it reads, so a unit with Restart=always followed by Restart=no
+  # is a unit on `no`. Matching a line left that host silently on the outage
+  # shape this function exists to prevent — no write, no warning, exit 0.
+  current="$(printf '%s\n' "$body" | grep -E '^[[:space:]]*Restart=' | tail -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
+  if [ "$current" = "Restart=always" ]; then
+    return 0
+  fi
   if [ -z "$current" ]; then
     # No Restart= line at all: systemd's default is "no restart", the same
     # outage shape. Refuse to guess where the directive belongs.
@@ -159,26 +192,89 @@ ensure_restart_policy() {
     return 0
   fi
 
-  tmpdir="$(mktemp -d)"
+  # Duplicate Restart= lines are COLLAPSED onto a single Restart=always, in the
+  # position and indentation of the first one. Leaving them as several identical
+  # lines would be behaviourally correct (systemd takes the last) but leaves a
+  # unit whose directive count silently grew with each rewrite; and a duplicate
+  # set is itself how the last-wins case got here. Every other byte — an
+  # operator's hand edits, their Environment= lines, their comments — is carried
+  # through untouched.
+  tmpdir="$(mktemp -d)" || { warn "Restart policy unchanged in ${unit}: no temp dir (TMPDIR unwritable?); it still says ${current}."; return 0; }
   tmp="${tmpdir}/${APP_NAME}.service"
-  if ! sed -E 's/^([[:space:]]*)Restart=.*/\1Restart=always/' "$unit" > "$tmp" 2>/dev/null; then
-    warn "Restart policy unchanged in ${unit}: cannot read or rewrite the unit."
+  if ! awk '
+    /^[[:space:]]*Restart=/ {
+      if (held) next              # a later duplicate: drop it
+      held = 1
+      line = $0
+      sub(/^[[:space:]]*Restart=.*/, "Restart=always", line)
+      next
+    }
+    { if (held) { print line; held = 0 }; print }
+    END { if (held) print line }
+  ' "$unit" > "$tmp" 2>/dev/null; then
+    warn "Restart policy unchanged in ${unit}: cannot rewrite the unit (transform failed); it still says ${current}."
     rm -rf "$tmpdir"
     return 0
   fi
-  if run_root cp -f "$tmp" "$unit" && run_root chmod 644 "$unit"; then
-    if run_root systemctl daemon-reload; then
-      info "Restart policy: ${unit} now carries Restart=always (was: ${current})"
+
+  unit_dir="$(dirname -- "$unit")"
+  staged="${unit_dir}/.${APP_NAME}.service.new.$$"
+  mode="$(stat -c '%a' -- "$unit" 2>/dev/null || printf '644')"
+
+  # Stage BESIDE the unit, under a name nothing loads. cp into a NEW name can
+  # only ever fail harmlessly; the live unit is not opened until the rename.
+  if ! run_root cp -p -- "$tmp" "$staged" 2>/dev/null; then
+    warn "Restart policy unchanged in ${unit}: cannot stage the new unit in ${unit_dir} (it needs write access)."
+    warn "  it still says ${current}; the unit was NOT touched."
+    rm -rf "$tmpdir"
+    return 0
+  fi
+  # The rename below REPLACES the inode, so the staged file's own mode would win.
+  # Put the operator's mode back on it, rather than imposing one.
+  run_root chmod "$mode" -- "$staged" 2>/dev/null || true
+
+  # The previous body, kept for recovery: a swap that turns out to be wrong is
+  # only recoverable if the old file still exists somewhere.
+  backup="${unit}.bak"
+  run_root cp -p -- "$unit" "$backup" 2>/dev/null || backup=""
+
+  if run_root mv -f -- "$staged" "$unit"; then
+    # Report what is on disk NOW, not what was intended: if something replaced
+    # the unit underneath us (a concurrent install), say so.
+    now="$(unit_restart_state "$unit")"
+    if [ "$now" = "Restart=always" ]; then
+      if run_root systemctl daemon-reload; then
+        info "Restart policy: ${unit} now carries Restart=always (was: ${current})"
+        if [ -n "$backup" ]; then info "  previous unit kept at ${backup}"; fi
+      else
+        warn "Restart policy written to ${unit} (it now carries Restart=always), but systemctl daemon-reload failed."
+        warn "  systemd still has the old policy in memory until it reloads; the service keeps running."
+        if [ -n "$backup" ]; then warn "  previous unit kept at ${backup}"; fi
+      fi
     else
-      warn "Restart policy written to ${unit}, but systemctl daemon-reload failed."
-      warn "  systemd still has the old policy in memory until it reloads; the service keeps running."
+      warn "Restart policy written to ${unit}, but it now says: ${now}."
+      warn "  something replaced the file during this run; leaving it to the operator."
     fi
   else
-    warn "Restart policy unchanged in ${unit}: cannot write the unit (cp or chmod failed)."
-    warn "  it still says ${current}."
+    run_root rm -f -- "$staged" 2>/dev/null || true
+    warn "Restart policy unchanged in ${unit}: cannot swap the new unit in (mv failed)."
+    warn "  on disk now: $(unit_restart_state "$unit")"
+    if [ -n "$backup" ]; then warn "  previous unit kept at ${backup}"; fi
   fi
   rm -rf "$tmpdir"
   return 0
+}
+
+# What the unit on disk actually says, as ONE line, for a message that must
+# report the real state: the effective (last) Restart= directive, or a plain
+# statement of why it cannot be read.
+unit_restart_state() {
+  local unit="$1" body
+  if [ ! -e "$unit" ]; then printf 'the file is gone'; return 0; fi
+  if ! body="$(cat -- "$unit" 2>/dev/null)"; then printf 'it cannot be READ'; return 0; fi
+  local line
+  line="$(printf '%s\n' "$body" | grep -E '^[[:space:]]*Restart=' | tail -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
+  if [ -z "$line" ]; then printf 'no Restart= line'; else printf '%s' "$line"; fi
 }
 
 # ── systemd unit ────────────────────────────────────────────────────────────
