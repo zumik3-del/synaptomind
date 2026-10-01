@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { installCleanup, mkTempTree } from './tmp-fixtures'
+
+// The gate fixture's scratch tree is owned by mkTempTree, so the sweep removes
+// it even when a test throws mid-run. See tmp-fixtures.ts.
+installCleanup()
 
 // wait_health() (deploy/lib/common.sh) is the gate an install/update passes
 // through. The task it guards: a unit rendered WITHOUT Environment=LD_LIBRARY_PATH
@@ -64,7 +68,7 @@ function runGate(
   const timeout = opts.timeout ?? 1
   const installDir = opts.installDir ?? '/opt/synaptomind-gate-test'
   const samples = bodies.map((b) => (typeof b === 'string' ? { body: b, rc: 0 } : b))
-  const dir = mkdtempSync(join(tmpdir(), 'synaptomind-gate-'))
+  const dir = mkTempTree('synaptomind-gate-')
   const pollFile = join(dir, 'polls')
   const script = `
 APP_NAME=synaptomind

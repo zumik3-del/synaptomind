@@ -1,9 +1,8 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
+import { describe, expect, test, beforeEach } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import {
   cpSync,
   existsSync,
-  mkdtempSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -17,11 +16,18 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { installCleanup, mkTempTree } from './tmp-fixtures'
+
+// Temp-tree ownership: EVERY scratch tree below comes from mkTempTree, and the
+// sweep registered here removes it after each test — including after one that
+// throws. This file used to leak ~28 /tmp directories per run, on the same
+// filesystem as production's database (AGENTS.md §8); see tmp-fixtures.ts.
+installCleanup()
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
 
 function seedSingleTagRepo(tag: string, layout: Record<string, string>): string {
-  const dir = mkdtempSync(join(tmpdir(), 'synapto-single-'))
+  const dir = mkTempTree('synapto-single-')
   spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
   spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -37,7 +43,7 @@ function seedSingleTagRepo(tag: string, layout: Record<string, string>): string 
 }
 
 function seedNoDeployRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'synapto-nodeploy-'))
+  const dir = mkTempTree('synapto-nodeploy-')
   spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
   spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -49,7 +55,7 @@ function seedNoDeployRepo(): string {
 }
 
 function seedMixedTagsRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'synapto-mixed-'))
+  const dir = mkTempTree('synapto-mixed-')
   spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
   spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -74,7 +80,7 @@ function seedTwoStableTagsRepo(
   newerTag: string,
   layout: Record<string, string>,
 ): string {
-  const dir = mkdtempSync(join(tmpdir(), 'synapto-two-stable-'))
+  const dir = mkTempTree('synapto-two-stable-')
   spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
   spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -97,7 +103,7 @@ function seedTwoStableTagsRepo(
 }
 
 function seedNoStableTagsRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'synapto-nostable-'))
+  const dir = mkTempTree('synapto-nostable-')
   spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
   spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -307,8 +313,8 @@ let RUN_DIR = ''
 let BOOTSTRAP_DIR = '' // <tmp>/bootstrap/scripts/ — mirrors installed layout
 
 beforeEach(() => {
-  FIXTURE_DIR = mkdtempSync(join(tmpdir(), 'synapto-updater-fix-'))
-  INSTALL_DIR = mkdtempSync(join(tmpdir(), 'synapto-install-'))
+  FIXTURE_DIR = mkTempTree('synapto-updater-fix-')
+  INSTALL_DIR = mkTempTree('synapto-install-')
   RUN_DIR = join(FIXTURE_DIR, 'run')
   BOOTSTRAP_DIR = join(FIXTURE_DIR, 'bootstrap', 'scripts')
   mkdirSync(join(BOOTSTRAP_DIR, 'lib'), { recursive: true })
@@ -327,10 +333,11 @@ const MINIMAL_APP_ENV = [
   'PORT="3005"',
 ].join('\n')
 
-afterEach(() => {
-  rmSync(FIXTURE_DIR, { recursive: true, force: true })
-  rmSync(INSTALL_DIR, { recursive: true, force: true })
-})
+// FIXTURE_DIR, INSTALL_DIR and every seed*() tree are created through
+// mkTempTree, so the sweep in tmp-fixtures.ts removes them. The explicit
+// rmSync pair that used to live here is gone: it was the per-site cleanup the
+// next test would have had to remember, and the 28-dir leak was what happened
+// when it was forgotten.
 
 /**
  * Write a test-specific app.env into the bootstrap dir and return the
@@ -341,7 +348,7 @@ afterEach(() => {
 function setupBootstrap(opts: { repoUrl?: string; overrides?: Record<string, string> } = {}): void {
   const repoUrl = opts.repoUrl ?? 'file:///tmp/synapto-empty-no-tags'
   // Point RUN_DIR at a scratch dir so the bootstrap never touches the real install.
-  const testRunDir = mkdtempSync(join(tmpdir(), 'synapto-run-'))
+  const testRunDir = mkTempTree('synapto-run-')
   // Bootstrap's stage_release copies ${RUN_DIR}/scripts/app.env into the staging area;
   // the source must exist or cp aborts the run.
   mkdirSync(join(testRunDir, 'scripts'), { recursive: true })
@@ -431,7 +438,7 @@ describe('updater.sh — tag resolution', () => {
   test('excludes prerelease tags from stable selection', () => {
     const artifact = join(FIXTURE_DIR, 'chosen-tag.txt')
     // Repo where a prerelease is newer than the stable tag
-    const dir = mkdtempSync(join(tmpdir(), 'synapto-newer-prerelease-'))
+    const dir = mkTempTree('synapto-newer-prerelease-')
     spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
     spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
     spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -575,7 +582,7 @@ describe('updater.sh — non-interactive mode', () => {
   test('--version with a prerelease tag is rejected', () => {
     // Repo has both a stable tag and a prerelease tag; requesting the prerelease
     // should fail with "not a known stable release", not "no stable tags".
-    const dir = mkdtempSync(join(tmpdir(), 'synapto-prerelease-'))
+    const dir = mkTempTree('synapto-prerelease-')
     spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
     spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
     spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -713,7 +720,7 @@ const RELEASE_OBJECT_PRERELEASE = JSON.stringify({
  * the LIST is the fixture's bytes. Prints the resolved tag, or the error.
  */
 function resolveTag(body: string, policy: string): { status: number | null; out: string } {
-  const dir = mkdtempSync(join(tmpdir(), 'synapto-tag-'))
+  const dir = mkTempTree('synapto-tag-')
   try {
     const api = join(dir, 'api.json')
     writeFileSync(api, body)
@@ -907,7 +914,7 @@ function seedBinaryUpdateShape(opts: {
   includeDb?: boolean
   releasesBody?: string
 }) {
-  const root = mkdtempSync(join(tmpdir(), 'synapto-binu-'))
+  const root = mkTempTree('synapto-binu-')
   const deployDir = join(root, 'deploy')
   const stubsDir = join(root, 'stubs')
   const installDir = join(root, 'opt', U_APP)
@@ -1147,9 +1154,10 @@ function runUpdate(fx: UpdateFixture, args: string[]) {
 }
 
 describe('update.sh — DIST=binary', () => {
-  afterEach(() => {
-    // nothing global; each test cleans its own tree
-  })
+  // No per-describe cleanup is needed: seedBinaryUpdate's tree comes from
+  // mkTempTree and the file-level sweep removes it. The try/finally pairs below
+  // are kept as defence in depth — they release the tree a moment earlier, and
+  // the sweep is `force`, so the second removal is a no-op rather than an error.
 
   test('swaps the payload, keeps .prev for all three files, and moves the executable last', () => {
     const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
@@ -1996,7 +2004,7 @@ function seedSourceUpdate() {
   const origin = seedTwoStableTagsRepo('v0.7.1', 'v0.8.0', {
     'package.json': '{"name":"synaptomind","version":"0.7.1"}',
   })
-  const root = mkdtempSync(join(tmpdir(), 'synapto-src-'))
+  const root = mkTempTree('synapto-src-')
   const installDir = join(root, 'opt', U_APP)
   const runDir = join(root, 'run')
   const stubsDir = join(root, 'stubs')
@@ -2789,7 +2797,7 @@ describe('updater.sh — DIST=binary bootstrap', () => {
   test('current_version prefers app_version for a binary install (offline, no HTTP)', () => {
     // app_version returns a v-PREFIXED string; the mark and the printed messages
     // must strip it, or the current version never matches in the menu.
-    const fakeInstall = mkdtempSync(join(tmpdir(), 'synapto-binver-'))
+    const fakeInstall = mkTempTree('synapto-binver-')
     writeFileSync(join(fakeInstall, 'synaptomind'), '#!/bin/sh\necho "synaptomind v0.7.4"\n')
     chmodSync(join(fakeInstall, 'synaptomind'), 0o755)
 

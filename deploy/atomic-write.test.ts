@@ -5,7 +5,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -13,8 +12,13 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { installCleanup, mkTempTree } from './tmp-fixtures'
+
+// seed()'s scratch tree is owned by mkTempTree, so the sweep removes it even
+// when a test throws mid-run. The per-test try/finally pairs stay (they release
+// earlier; the sweep is `force`). See tmp-fixtures.ts.
+installCleanup()
 
 // write_file_atomically() (deploy/lib/common.sh) is the ONE mechanism every unit
 // write goes through — install.sh's install_service, update.sh's refresh_unit and
@@ -72,7 +76,7 @@ type Fixture = { root: string; unitFile: string; src: string; stubs: string; tar
  */
 function seed(opts: { kind?: Kind; broken?: string } = {}): Fixture {
   const kind = opts.kind ?? 'file'
-  const root = mkdtempSync(join(tmpdir(), 'synapto-atomic-'))
+  const root = mkTempTree('synapto-atomic-')
   const unitDir = join(root, 'unit')
   const srcDir = join(root, 'src')
   const targetDir = join(root, 'linked')

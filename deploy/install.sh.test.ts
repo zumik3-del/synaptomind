@@ -5,7 +5,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -17,6 +16,13 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { installCleanup, mkTempTree } from './tmp-fixtures'
+
+// Temp-tree ownership: the sweep removes every tree mkTempTree hands out, after
+// each test including one that throws. This file's own afterEach hooks are kept
+// (they release earlier, and the sweep is `force`), but no tree depends on a
+// call site remembering them — see tmp-fixtures.ts.
+installCleanup()
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -54,7 +60,7 @@ let STUB_BIN = ''
 let CURL_LOG = ''
 
 beforeEach(() => {
-  FIXTURE_DIR = mkdtempSync(join(tmpdir(), 'synapto-install-fix-'))
+  FIXTURE_DIR = mkTempTree('synapto-install-fix-')
   STUB_BIN = join(FIXTURE_DIR, 'bin')
   CURL_LOG = join(FIXTURE_DIR, 'curl.log')
   mkdirSync(STUB_BIN, { recursive: true })
@@ -388,7 +394,7 @@ describe('install.sh — DIST=binary tarball install', () => {
   let RELEASES = ''
 
   beforeEach(() => {
-    ROOT = mkdtempSync(join(tmpdir(), 'synapto-bin-'))
+    ROOT = mkTempTree('synapto-bin-')
     RELEASES = join(ROOT, 'releases')
     mkdirSync(RELEASES, { recursive: true })
   })
@@ -1598,7 +1604,7 @@ describe.skipIf(!existsSync(REAL_TARBALL))('install.sh — the real published ta
   let RELEASES = ''
 
   beforeEach(() => {
-    ROOT = mkdtempSync(join(tmpdir(), 'synapto-real-'))
+    ROOT = mkTempTree('synapto-real-')
     RELEASES = join(ROOT, 'releases')
     mkdirSync(join(RELEASES, 'v0.8.0'), { recursive: true })
     cpSync(REAL_TARBALL, join(RELEASES, 'v0.8.0', 'synaptomind-v0.8.0-linux-x86_64.tar.gz'))

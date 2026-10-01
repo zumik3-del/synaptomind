@@ -1,8 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { installCleanup, mkTempTree } from './tmp-fixtures'
+
+// Every scratch tree here comes from mkTempTree, so the sweep removes it even if
+// a test throws before its own finally. The per-test try/finally pairs are kept
+// (they release earlier; the sweep is `force`, so the second removal is a
+// no-op). See tmp-fixtures.ts for why ownership belongs to the creator.
+installCleanup()
 
 // render_systemd_unit() (deploy/lib/common.sh) is the ONLY place a unit body is
 // produced — install.sh and update.sh's refresh_unit() both call it. So the
@@ -196,7 +202,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
   // Stubs record invocations and exit 0; they never exec the real binary, and
   // no systemd, sudo or service is involved.
   function renderWithStubsOnPath(): { unit: string; invocations: string; stderr: string } {
-    const dir = mkdtempSync(join(tmpdir(), 'synapto-render-stubs-'))
+    const dir = mkTempTree('synapto-render-stubs-')
     try {
       const log = makeRecordingStubs(dir)
       const res = renderWithPath({}, { PATH: `${dir}:${process.env.PATH}`, STUB_INVOCATION_LOG: log })
@@ -390,7 +396,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       // REWRITE: the byte sits in the middle of a ReadWritePaths= path, whose
       // diagnostic quotes the path systemd parsed. A different quote is a value
       // that is not the one that was written.
-      const dir = mkdtempSync(join(tmpdir(), 'synapto-parser-'))
+      const dir = mkTempTree('synapto-parser-')
       try {
         const files: string[] = []
         for (let byte = 1; byte < 128; byte++) {
@@ -536,7 +542,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
     // A renderer that half-writes is worse than one that refuses. Same
     // recording stubs as above: a refusal must not have reached systemctl,
     // systemd-run or sudo on the way out.
-    const dir = mkdtempSync(join(tmpdir(), 'synapto-render-refuse-'))
+    const dir = mkTempTree('synapto-render-refuse-')
     try {
       const log = makeRecordingStubs(dir)
       const res = renderWithPath(
@@ -598,7 +604,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       // real systemd on the machine verifies the rendered file when it is present.
       // Skipped BY NAME rather than by a bare `return` (task #1097), for the same
       // reason as the sweep above.
-      const dir = mkdtempSync(join(tmpdir(), 'synapto-unit-verify-'))
+      const dir = mkTempTree('synapto-unit-verify-')
       try {
         const p = join(dir, 'synaptomind.service')
         writeFileSync(p, renderUnit())
