@@ -29,8 +29,8 @@
 #  own MCP port. See resolve_mcp_port() in lib/common.sh.
 #
 #  Pipeline (see the phase banners in main):
-#      config -> platform + OS deps -> fetch code/binary -> seed state
-#      -> data symlink -> helper scripts -> systemd unit -> health check
+#      config -> platform + OS deps -> fetch code/binary -> data dir + symlink
+#      -> seed state -> helper scripts -> systemd unit -> health check
 # ════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -301,6 +301,25 @@ align_config_port() {
   sed -i "s/${key}[[:space:]]*:[[:space:]]*[0-9][0-9]*/${key}: ${value}/" "$file"
 }
 
+# seed_copy SRC DST BASE — copy one example into place as DST.
+#
+# BASE is DST's basename, passed in by the caller so the same value can drive the
+# config.json port alignment without a second basename call. It lives here, and
+# not inline in each seeding pass, because both invariants below are the ones a
+# secret-bearing .env depends on: the copy runs under umask 077, and a dotfile is
+# chmod-ed 600. Two copies of that rule in two passes is how one of them drifts
+# into leaving a secret world-readable.
+#
+# The parent is created rather than assumed. R1's DATA_DIR is a home an app
+# declares for its config, so on a host whose only DATA_DIR content is that
+# config the directory may not exist when the seeding pass runs.
+seed_copy() {
+  local src="$1" dst="$2" base="$3"
+  mkdir -p "$(dirname "$dst")"
+  ( umask 077; cp "$src" "$dst" )
+  case "$base" in .*) chmod 600 "$dst" ;; esac
+}
+
 seed_files() {
   local pair src dest base
   SEEDED_SECRET_FILE=false
@@ -315,8 +334,7 @@ seed_files() {
       continue
     fi
     base="$(basename "$dest")"
-    ( umask 077; cp "${INSTALL_DIR}/${src}" "${INSTALL_DIR}/${dest}" )
-    case "$base" in .*) chmod 600 "${INSTALL_DIR}/${dest}" ;; esac
+    seed_copy "${INSTALL_DIR}/${src}" "${INSTALL_DIR}/${dest}" "${base}"
     # A seeded config.json is the port source: align BOTH listeners with the
     # ports this install resolved. mcp.httpPort is rewritten for the same
     # reason server.port is — the example ships 3006, and a host that already
@@ -331,14 +349,91 @@ seed_files() {
     fi
     info "Seeded ${dest} from ${src}"
   done
+  seed_files_data
+}
+
+# seed_files_data — seed SEED_FILES_DATA into DATA_DIR, reusing the rules
+# seed_files() applies to INSTALL_DIR.
+#
+# The sibling key rather than a second destination for SEED_FILES: an app whose
+# config home is DATA_DIR (R1) must be able to seed THERE, and the ADR names the
+# home that way deliberately — the payload tree is swapped by an update, so a
+# config seeded into it competes with the operator's own file for one pathname.
+# Empty (the default) means the second pass does not run at all, so an app.env
+# that does not set it keeps today's behaviour byte for byte.
+#
+# WHY A SECOND PASS AND NOT ONE LOOP OVER BOTH LISTS. Both lists resolve their
+# source against INSTALL_DIR — the payload ships the examples, and DATA_DIR never
+# holds one — and differ only in where the destination lands, so one loop over a
+# (root, list) pair would do. That refactor is deliberately NOT taken here: the
+# two lines below are pinned VERBATIM as strings by install.sh.test.ts's
+# non-vacuity mutations (`align_config_port "${INSTALL_DIR}/${dest}" …` and
+# `if [ -e "${INSTALL_DIR}/${dest}" ]`), and replacing them with a `$root`
+# variable silently breaks those anchors. The duplication is confined to the
+# guard and the two alignment calls; the security-relevant copy is shared through
+# seed_copy() above. Extract the shared body when those anchors move with it.
+#
+# SEEDED_SECRET_FILE is deliberately NOT set here. That flag means "this run
+# created the secret file as a seeded copy, so generate_secret_into() may fill an
+# empty placeholder", and generate_secret_into() resolves its target either as
+# given (absolute) or under INSTALL_DIR — never under DATA_DIR. A file seeded
+# here can therefore never be the secret file, and claiming the flag would
+# authorise generate_secret_into() to write into it.
+seed_files_data() {
+  [ -n "${SEED_FILES_DATA:-}" ] || return 0
+  local pair src dest base
+  # DATA_DIR empty while SEED_FILES_DATA is set is a contradiction, not a
+  # default: seeding into it would resolve against INSTALL_DIR ("" → "dir/file")
+  # and put a data-dir file in the payload tree, which is the exact confusion R1
+  # exists to remove. Refuse rather than seed somewhere the operator did not ask.
+  [ -n "${DATA_DIR:-}" ] || error "SEED_FILES_DATA is set but DATA_DIR is empty"
+  for pair in ${SEED_FILES_DATA}; do
+    src="${pair%%:*}"; dest="${pair#*:}"
+    if [ -e "${DATA_DIR}/${dest}" ]; then
+      info "Preserved existing ${dest}"
+      continue
+    fi
+    if [ ! -f "${INSTALL_DIR}/${src}" ]; then
+      warn "seed source not found: ${src} (skipping ${dest})"
+      continue
+    fi
+    base="$(basename "$dest")"
+    seed_copy "${INSTALL_DIR}/${src}" "${DATA_DIR}/${dest}" "${base}"
+    # Port alignment, and it is what makes this pass safe rather than merely
+    # available: a config.json seeded into DATA_DIR is the file the app READS,
+    # so an unaligned copy leaves the app on the DEFAULTS in its source
+    # (server.port 3005 — ziptask's port, and a collision on this host) instead
+    # of the ports this install resolved. Same rule, same two listeners, as the
+    # INSTALL_DIR pass.
+    if [ "$base" = "config.json" ]; then
+      align_config_port "${DATA_DIR}/${dest}" '"port"' "$PORT"
+      align_config_port "${DATA_DIR}/${dest}" '"httpPort"' "$MCP_PORT"
+    fi
+    info "Seeded ${DATA_DIR}/${dest} from ${src}"
+  done
 }
 
 # Insert/refresh `<APP_NAME>_SECRET` in GENERATE_SECRET_IN. A pre-existing
 # secret is never rotated; an empty placeholder is filled in.
+#
+# B1: an ABSOLUTE GENERATE_SECRET_IN is honoured as given, so R2's
+# /etc/<app>/<app>.env no longer becomes /opt/<app>//etc/<app>/<app>.env. The
+# INSTALL_DIR-relative form is unchanged and remains the default. Parent
+# directories are created, because an absolute path points at a directory the
+# installer has otherwise never touched.
 generate_secret_into() {
   [ -n "${GENERATE_SECRET_IN:-}" ] || return 0
-  local file="${INSTALL_DIR}/${GENERATE_SECRET_IN}" key secret
+  local file key secret
+  case "${GENERATE_SECRET_IN}" in
+    /*) file="${GENERATE_SECRET_IN}" ;;
+    *)  file="${INSTALL_DIR}/${GENERATE_SECRET_IN}" ;;
+  esac
   key="$(printf '%s' "$APP_NAME" | tr '[:lower:]-' '[:upper:]_')_SECRET"
+
+  # mkdir -p is a no-op once the parent exists, and the file's own mode stays
+  # whatever the write below sets (umask 077) — this creates the DIRECTORY, not
+  # the secret.
+  mkdir -p "$(dirname "$file")"
 
   if [ ! -e "$file" ]; then
     secret="$(generate_secret)"
@@ -370,52 +465,80 @@ setup_data() {
   fi
 }
 
-# apply_ownership — chown INSTALL_DIR and DATA_DIR to the user the unit runs as.
+# setup_config_link — point ${INSTALL_DIR}/${CONFIG_LINK_NAME} at
+# ${DATA_DIR}/${CONFIG_LINK_NAME}, so an app whose config home is DATA_DIR (R1,
+# ADR addendum #1122) is still found through the service's fixed
+# WorkingDirectory=/opt/<app>.
 #
-# WHY IT EXISTS. Install runs as root (it must, for /opt and /etc/systemd/system),
-# so every directory it creates is root-owned — including DATA_DIR. The service
-# runs as TARGET_USER, and a root-owned data dir is not writable by it: the
-# failure is an EACCES at the app's first write, which is AFTER the health check
-# has already configured itself around a service it believed was fine. Before this
-# function, `grep -n chown deploy/*.sh deploy/lib/common.sh` returned exactly one
-# hit and it was a WARNING STRING — nothing in the framework ever applied
-# ownership. The host's /var/lib/synaptomind is owned by the service user only
-# because an operator chowned it by hand.
+# WHY A KEY AND NOT A DERIVED LINK. The filename is the app's own business
+# (config.json, settings.json) and is resolved by code the framework cannot see
+# (synaptomind: join(process.cwd(), 'config.json')). Guessing it would produce a
+# link that looks right and is dead — the app reading its DEFAULTS while the
+# operator stares at a correct-looking link. Empty (the default) means this
+# function does not run at all, so an app.env that does not set it behaves
+# exactly as before.
 #
-# WHY -R ON BOTH. INSTALL_DIR holds node_modules, the built artefacts and the
-# seeded config, all of which the service reads; DATA_DIR is where it writes. A
-# non-recursive chown of the two top directories fixes neither, because the
-# payload inside them is what the service touches.
+# CALLED AFTER SEEDING, so that every cp in the seeding passes targets a path that
+# is either absent or a real file — never a symlink. GNU cp REFUSES to write
+# through a dangling symlink ("cp: not writing through dangling symlink", exit
+# 1), which under `set -e` is an aborted install; through a live one it silently
+# writes into the link's target. Both outcomes are reachable only while the link
+# exists and the passes have not run yet, so the link is created afterwards. The
+# order also keeps the dangling-target warning below honest: a link is announced
+# only when nothing in this same run is about to write its target.
 #
-# WHY IT IS NOT FATAL. A run without root and without sudo cannot chown anything
-# to another user, and that is a legitimate configuration (`--no-service` in a
-# container, a --dir install under your own home where you are already
-# TARGET_USER). A warning names the mismatch and the run continues; aborting
-# would turn a cosmetic-ownership difference into a failed install, and the
-# service would be no better off than before. run_root is what makes the
-# non-root case work at all: root runs chown directly, a user with sudo goes
-# through sudo, and a user without either gets the warning.
-apply_ownership() {
-  local p
-  for p in "$INSTALL_DIR" "$DATA_DIR"; do
-    [ -n "$p" ] || continue
-    [ -e "$p" ] || continue
-    # Already owned by the target: say nothing. A non-root install into the
-    # caller's own directory hits this on every run, and a chown that changes
-    # nothing is noise.
-    if [ -n "${TARGET_GROUP:-}" ]; then
-      [ "$(stat -c '%U:%G' "$p" 2>/dev/null || true)" = "${TARGET_USER}:${TARGET_GROUP}" ] && continue
+# NEVER REPLACES A REAL FILE. A regular file or directory at the link path is
+# reported and left alone: an operator's hand-edited config is data, and a deploy
+# script that unlinks it to win an argument about which tree is canonical is a
+# script that can lose a config. The link is created once the path is free, and
+# the warning names the move that finishes R1 by hand.
+setup_config_link() {
+  [ -n "${CONFIG_LINK_NAME:-}" ] || return 0
+  local name="${CONFIG_LINK_NAME}" link target
+  # DATA_DIR empty while CONFIG_LINK_NAME is set is a contradiction, not a
+  # default: the target would resolve against INSTALL_DIR and point the app at a
+  # file in the very tree the link exists to leave. Same refusal as
+  # seed_files_data().
+  [ -n "${DATA_DIR:-}" ] || error "CONFIG_LINK_NAME is set but DATA_DIR is empty"
+  # A bare file name, never a path. A name carrying a separator means something
+  # other than what it says, and "../../etc/x" would write outside INSTALL_DIR.
+  case "$name" in
+    */*|.|..) error "CONFIG_LINK_NAME must be a bare file name (got '${name}')" ;;
+  esac
+  target="${DATA_DIR}/${name}"
+  link="${INSTALL_DIR}/${name}"
+  # Idempotent by design: a re-install over a host that already has the link says
+  # so and changes nothing, which is what makes this safe on every run.
+  if [ -L "$link" ]; then
+    if [ "$(readlink "$link")" = "$target" ]; then
+      info "Preserved ${link} -> ${target}"
+      return 0
     fi
-    if run_root chown -R "${TARGET_USER}:${TARGET_GROUP:-${TARGET_USER}}" "$p" 2>/dev/null; then
-      info "Ownership: ${p} -> ${TARGET_USER}:${TARGET_GROUP:-${TARGET_USER}}"
-    else
-      warn "cannot chown ${p} to ${TARGET_USER}:${TARGET_GROUP:-${TARGET_USER}}."
-      warn "  The service runs as ${TARGET_USER}; if it cannot write there, its first"
-      warn "  database write will fail with EACCES — after the health check has passed."
-      warn "fix: sudo chown -R ${TARGET_USER}:${TARGET_GROUP:-${TARGET_USER}} ${p}"
-    fi
-  done
+    # A symlink is a pointer, not data: re-pointing one that names some other
+    # tree is the "refresh" half of the contract, and whatever it pointed at
+    # keeps its contents either way.
+    rm -f "$link"
+  elif [ -e "$link" ]; then
+    warn "${link} is a real file, not a link — left exactly as it is."
+    warn "the app reads ${link}; R1 wants that config at ${target}."
+    warn "move it there — choosing which file wins if ${target} already exists — and re-run this installer."
+    return 0
+  fi
+  mkdir -p "$DATA_DIR"
+  ln -s "$target" "$link"
+  info "Linked ${link} -> ${target}"
+  # A link to nothing is legitimate — an app that writes its own config on first
+  # run needs exactly that — but it is also how an app ends up on its DEFAULTS,
+  # so the state is stated rather than assumed.
+  if [ ! -e "$target" ]; then
+    warn "${target} does not exist yet — the app uses its DEFAULTS until something writes it there."
+  fi
 }
+
+# apply_ownership, chown_target, ownership_mismatch and apply_run_dir_ownership
+# live in lib/common.sh, so install.sh and update.sh apply ownership through one
+# implementation: an update that swaps a payload creates root-owned files exactly
+# as an install does (#1113), and only the install side owned this logic.
 
 # ── Phase: helper scripts in RUN_DIR/scripts ───────────────────────────────
 # update.sh / updater.sh / uninstall.sh / common.sh / app.env are installed together so the
@@ -614,7 +737,20 @@ print_summary() {
   echo "  Location:   ${INSTALL_DIR}"
   [ -n "${DATA_DIR:-}" ] && echo "  Data:       ${DATA_DIR}"
   echo "  State:      ${RUN_DIR}"
-  echo "  Config:     ${RUN_DIR}/scripts/app.env"
+  # The two files an operator is looking for are BOTH printed, each naming which
+  # one it is. This line used to say `Config:` and print ONLY
+  # ${RUN_DIR}/scripts/app.env — the deploy configuration, which after R1 lives in
+  # the framework's own state dir, not in the app's config home. So the label
+  # pointed at the app's config while printing a file that is not it, and an
+  # operator who went looking for `config.json` found an `app.env` instead
+  # (ADR addendum open item 5). The deploy path keeps its `Config:` prefix — a
+  # state-dir containment assertion pins that exact string, and it is true of
+  # this line — and now says what kind of config it is; the app's own file, which
+  # is what the label used to imply, is printed separately and only when the app
+  # declares one, so an app without a separate config file gains no line naming a
+  # file it does not have.
+  echo "  Config:     ${RUN_DIR}/scripts/app.env (deploy settings)"
+  [ -n "${CONFIG_FILE:-}" ] && echo "  App config: ${CONFIG_FILE}"
   echo ""
   if [ "$SERVICE_INSTALLED" = true ]; then
     echo "  Service:    ${UNIT_FILE:-/etc/systemd/system/${APP_NAME}.service}"
@@ -671,12 +807,24 @@ main() {
     require_source_config
     install_bun_if_needed
     source_prepare
+    # BEFORE the build, and this is the source-mode ordering that is
+    # load-bearing: `git clone`/`checkout` above ran as root, so INSTALL_DIR and
+    # everything in it are root-owned, while install_deps_and_build runs as
+    # TARGET_USER and has to WRITE there (node_modules, build/, .svelte-kit).
+    # Without this the build dies with an EACCES from inside a bundler that
+    # names neither the directory nor this function (#1114). It is also the
+    # reason INSTALL_DIR need not pre-exist owned by TARGET_USER.
+    apply_ownership
     install_deps_and_build
     EXPECTED_VERSION="$(read_package_version "${INSTALL_DIR}/package.json")"
   elif [ "$DIST" = "binary" ]; then
     require_binary_config
     resolve_binary_version
     binary_up_to_date_check
+    # install_binary → binary_swap_payload moves the payload in as root, so the
+    # files that land in INSTALL_DIR are root-owned until ownership is applied
+    # below. The binary path has no build step, so one apply_ownership after it
+    # is the whole fix.
     install_binary
     EXPECTED_VERSION="${TAG#v}"
   else
@@ -684,18 +832,33 @@ main() {
   fi
   EXPECTED_VERSION="${EXPECTED_VERSION:-unknown}"
 
-  # -- seed state, data, helpers + hooks --
-  seed_files
-  generate_secret_into
+  # -- data dir, seed state, helpers + hooks --
+  # setup_data BEFORE seed_files: SEED_FILES_DATA writes into DATA_DIR (R1), and
+  # both the destination directory and the ./data symlink must exist first — the
+  # symlink so a relative default in the seeded config resolves to DATA_DIR, and
+  # the directory so the copy has somewhere to land.
   setup_data
+  seed_files
+  # AFTER the seeding passes and BEFORE apply_ownership. After, so the passes never
+  # hand `cp` a symlink to write through (see setup_config_link); before
+  # apply_ownership, so the link and the file it points at are covered by the same
+  # ownership pass as everything else this run wrote.
+  setup_config_link
+  generate_secret_into
   # AFTER the payload lands and the data dir exists, and BEFORE the service is
   # started: the two orderings are both load-bearing. Chowning earlier would miss
-  # the seeded config and the generated secret (both are written after); starting
-  # earlier would let the service hold an open handle on files whose ownership
-  # then changes underneath it.
+  # the seeded config and the generated secret (both are written after, as root);
+  # starting earlier would let the service hold an open handle on files whose
+  # ownership then changes underneath it. In source mode this is the SECOND call
+  # — the first, before the build, covers what the build itself wrote.
   apply_ownership
   install_helper_scripts
   install_hook_scripts
+  # LAST of the ownership work: install_helper_scripts()/install_hook_scripts()
+  # write RUN_DIR as root, and RUN_DIR is read as TARGET_USER by update.sh,
+  # updater.sh and the pre-update hook (app.env is mode 600). Chowning it before
+  # them would chown nothing.
+  apply_run_dir_ownership
 
   # -- service --
   EXEC_START="${EXEC_START:-$(default_exec_start)}"

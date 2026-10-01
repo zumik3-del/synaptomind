@@ -168,10 +168,29 @@ resolve_target_user() {
   fi
 
   # The group the unit runs as, resolved HERE and not at the point of use,
-  # because TARGET_USER is only known once the branch above has run. Defaults
-  # to the user: the framework never created a group, so the user's own primary
-  # group is the only value that cannot name a group that does not exist (ADR §3e).
-  : "${TARGET_GROUP:=$TARGET_USER}"
+  # because TARGET_USER is only known once the branch above has run.
+  #
+  # Precedence: TARGET_GROUP (the resolved name, when something already set it),
+  # then SERVICE_GROUP (the app.env key — this is what makes THAT key work; it
+  # was documented in app.env.example and read by nothing, so an app.env that
+  # set it got the user's group and a unit that disagreed with its own config),
+  # then the user. The framework never creates a group, so the user's own primary
+  # group is the last fallback because it is the only value that cannot name a
+  # group that does not exist (ADR §3e).
+  : "${TARGET_GROUP:=${SERVICE_GROUP:-$TARGET_USER}}"
+
+  # A group that does not exist is refused HERE, named, rather than rendered into
+  # Group= and left for systemd to fail on at start time: by then the payload is
+  # in place and the message is systemd's, which names neither app.env nor this
+  # function. Only checked when the operator named a group explicitly — the
+  # default is the user's own primary group, which exists by construction — and
+  # skipped entirely when getent is absent, so a host without it is not refused
+  # over a check it cannot run.
+  if [ -n "${SERVICE_GROUP:-}" ] && command -v getent >/dev/null 2>&1; then
+    if ! getent group "$TARGET_GROUP" >/dev/null 2>&1; then
+      error "SERVICE_GROUP='${SERVICE_GROUP}' is not a group on this host — the unit's Group= would fail to start. Fix it in app.env, or leave it empty to use ${TARGET_USER}'s primary group."
+    fi
+  fi
 
   TARGET_HOME=""
   if command -v getent >/dev/null 2>&1; then
@@ -227,6 +246,149 @@ run_as_target_user() {
   fi
   warn "cannot run as ${TARGET_USER} (no runuser, no sudo) — running as ${me} instead"
   "$@"
+}
+
+# ── Ownership ───────────────────────────────────────────────────────────────
+# WHY THIS SECTION EXISTS. Install and update both run as root (they must, for
+# /opt, /var/lib and /etc/systemd/system), so everything they create is
+# root-owned — including DATA_DIR, which the service writes to, and RUN_DIR's
+# scripts/app.env, which the updater and the pre-update hook READ as
+# TARGET_USER. The service runs as TARGET_USER, so the failure is always an
+# EACCES somewhere the operator is not looking: the app's first database write
+# (after the health check has already passed), or `app.env: Permission denied`
+# from the pre-update hook, which then aborts the update with no backup taken.
+#
+# Before this section `grep -n chown deploy/*.sh deploy/lib/common.sh` returned
+# exactly one hit and it was a WARNING STRING: nothing in the framework ever
+# applied ownership. The hosts' /var/lib/<app> dirs were owned by the service
+# user only because an operator chowned them by hand.
+#
+# WHY IT LIVES HERE AND NOT IN install.sh. Two entry points create root-owned
+# files: install.sh (clone, binary swap, seed) and update.sh (checkout, binary
+# swap). The first cutovers left a swapped binary root-owned (#1113) because only
+# install.sh owned this logic, so update.sh had no way to fix what it created.
+# One implementation, called from both, is the only shape in which "every
+# install AND update leaves the tree owned by the service user" is true.
+
+# ownership_target — the `user:group` spec every chown in the framework uses.
+# TARGET_GROUP defaults to TARGET_USER in resolve_target_user; the fallback is
+# repeated here because the unit renderer and these helpers must not disagree if
+# that default is ever moved.
+ownership_target() {
+  printf '%s:%s' "${TARGET_USER}" "${TARGET_GROUP:-${TARGET_USER}}"
+}
+
+# ownership_mismatch PATH — true when PATH ITSELF, or ANY entry beneath it, is
+# not owned by TARGET_USER:TARGET_GROUP.
+#
+# WHY NOT THE TOP DIRECTORY ALONE. The first version compared only
+# `stat -c '%U:%G' "$p"` and skipped the chown when it matched, which is wrong in
+# exactly the case that matters: a `git clone` run by root creates the top
+# directory AND every file under it as root, but an operator (or an earlier
+# partial run) may already have chowned the top directory alone, or the build
+# may have written a subtree as TARGET_USER afterwards. #1114 left 387
+# root-owned entries under /opt/subagentix — whose top directory read
+# opencode:opencode — including .git/index, which is what a `git status` as the
+# service user then fails on. A top-level check cannot see any of that.
+#
+# `-print -quit` stops at the FIRST offender, so a mismatched tree costs one
+# stat and a clean tree costs one read-only walk (no writes). A find without
+# -quit support, or one that cannot descend, exits non-zero: that is treated as
+# a MISMATCH, so an unverifiable tree is chowned rather than trusted. The
+# degraded behaviour is a redundant chown, never a skipped one.
+ownership_mismatch() {
+  local p="$1" hit rc=0
+  [ "$(stat -c '%U:%G' "$p" 2>/dev/null || true)" = "$(ownership_target)" ] || return 0
+  command -v find >/dev/null 2>&1 || return 0
+  hit="$(find "$p" \( ! -user "${TARGET_USER}" -o ! -group "${TARGET_GROUP:-${TARGET_USER}}" \) \
+    -print -quit 2>/dev/null)" || rc=$?
+  [ "$rc" -eq 0 ] || return 0
+  [ -n "$hit" ]
+}
+
+# chown_target PATH — recursive chown of PATH to the service user, through
+# run_root, and NOT FATAL.
+#
+# Never fatal by decision (ADR §3c): a run without root and without sudo cannot
+# chown anything to another user, and that is a legitimate configuration
+# (`--no-service` in a container, a `--dir` install under your own home where
+# you are already TARGET_USER). A warning names the mismatch and the run
+# continues; aborting would turn a cosmetic-ownership difference into a failed
+# install and leave the service no better off. run_root is what makes the
+# non-root case work at all: root runs chown directly, a user with sudo goes
+# through sudo, a user without either gets the warning.
+chown_target() {
+  local p="$1" spec
+  [ -n "$p" ] || return 0
+  [ -e "$p" ] || return 0
+  spec="$(ownership_target)"
+  if run_root chown -R "$spec" "$p" 2>/dev/null; then
+    info "Ownership: ${p} -> ${spec}"
+  else
+    warn "cannot chown ${p} to ${spec}."
+    warn "  The service runs as ${TARGET_USER}; if it cannot write there, its first"
+    warn "  database write will fail with EACCES — after the health check has passed."
+    warn "fix: sudo chown -R ${spec} ${p}"
+  fi
+  return 0
+}
+
+# apply_ownership — INSTALL_DIR and DATA_DIR owned by the user the unit runs as.
+#
+# WHY -R ON BOTH. INSTALL_DIR holds node_modules, the built artefacts and the
+# seeded config, all of which the service reads; DATA_DIR is where it writes. A
+# non-recursive chown of the two top directories fixes neither, because the
+# payload inside them is what the service touches.
+apply_ownership() {
+  local p
+  # ${VAR:-} on both: a host whose app.env omits DATA_DIR (the setup_data path
+  # already tolerates exactly that) must not abort here on `set -u`, and this
+  # runs before the unit exists, so an abort is a failed install over an
+  # unsettable-to-empty key.
+  for p in "${INSTALL_DIR:-}" "${DATA_DIR:-}"; do
+    [ -n "$p" ] || continue
+    [ -e "$p" ] || continue
+    # Already owned, tree-wide: say nothing. A non-root install into the
+    # caller's own directory hits this on every run, and a chown that changes
+    # nothing is noise — as is a recursive chown over a large node_modules.
+    ownership_mismatch "$p" || continue
+    chown_target "$p"
+  done
+  return 0
+}
+
+# apply_run_dir_ownership — the framework's own state under RUN_DIR owned by the
+# service user: RUN_DIR itself, the helper scripts (including the mode-600
+# app.env) and the hooks.
+#
+# WHY THIS IS SEPARATE FROM apply_ownership. RUN_DIR is not part of the install
+# payload: it is written by install_helper_scripts() / install_hook_scripts(),
+# which run AFTER apply_ownership in install.sh's main. Chowning it from there
+# would chown an empty or absent directory.
+#
+# WHY IT MATTERS. update.sh, updater.sh and the pre-update hook all run as
+# TARGET_USER (the operator's `bash ${RUN_DIR}/scripts/updater.sh`, not sudo),
+# and the hook reads ${RUN_DIR}/scripts/app.env for INSTALL_DIR. app.env is
+# installed mode 600, so a root-owned one is unreadable to exactly the process
+# that takes the pre-update database backup: #1113's backup failed silently with
+# "app.env: Permission denied".
+#
+# Scoped to these three paths on purpose. RUN_DIR may also hold app state the
+# framework does not own (a legacy data/ dir, a settings.json); a blind
+# `chown -R ${RUN_DIR}` would silently take that too.
+apply_run_dir_ownership() {
+  local d
+  # Guarded BEFORE the loop, not inside it: the loop list is expanded when the
+  # `for` runs, so a `[ -n "$RUN_DIR" ]` test in the body would be reached only
+  # after "${RUN_DIR}/scripts" had already tripped `set -u` on a host whose
+  # app.env leaves RUN_DIR empty and never reached resolve_target_user.
+  [ -n "${RUN_DIR:-}" ] || return 0
+  for d in "$RUN_DIR" "${RUN_DIR}/scripts" "${RUN_DIR}/hooks"; do
+    [ -e "$d" ] || continue
+    ownership_mismatch "$d" || continue
+    chown_target "$d"
+  done
+  return 0
 }
 
 # Locate an existing Bun binary: PATH first, then the usual install dirs.
@@ -367,11 +529,34 @@ generate_secret() {
 
 # ── Network ────────────────────────────────────────────────────────────────
 # Fetch a URL to stdout (no $2) or to a file ($2). curl, with wget fallback.
+#
+# The file branch and the stdout branch are NOT the same transfer. The stdout
+# branch reads small API/metadata bodies, so --max-time 30 is the whole safety
+# net and silence is desirable (the body is piped into a parser).
+#
+# The file branch fetches multi-megabyte release assets (an ~82 MB ziptask
+# tarball), and the plain `curl -fLsS -o $out $url` it used to carry had no
+# progress, no stall guard and no retry: a link that accepted the connection
+# and then stopped delivering hung the install indefinitely, indistinguishable
+# from a dead one. It also hid the fact that anything was happening at all.
+# So this branch keeps -S (errors still print) but drops -s, and adds:
+#   --connect-timeout 15  bound the TCP/TLS handshake, not just the transfer
+#   --speed-limit/-time   abort when throughput sits under 1 KB/s for 30 s —
+#                         this is the stall guard, and it is what turns a
+#                         silent hang into a fast, reported failure
+#   --retry 3             ride out transient failures
+#   -C -                  resume rather than restart, so a retry over an 82 MB
+#                         asset costs the remaining bytes, not the whole file
+# The stall guard makes --speed-limit/--speed-time fire as error 28, which is
+# retried, so the stall case recovers by resuming instead of failing outright.
 url_get() {
   local url="$1" out="${2:-}"
   if [ -n "$out" ]; then
-    if command -v curl >/dev/null 2>&1; then curl -fLsS -o "$out" "$url"
-    elif command -v wget >/dev/null 2>&1; then wget -q -O "$out" "$url"
+    if command -v curl >/dev/null 2>&1; then
+      curl -fLS --connect-timeout 15 --speed-limit 1024 --speed-time 30 \
+        --retry 3 --retry-delay 2 -C - -o "$out" "$url"
+    elif command -v wget >/dev/null 2>&1; then
+      wget -c --tries=3 --waitretry=2 --timeout=30 -O "$out" "$url"
     else error "need curl or wget"; fi
   else
     if command -v curl >/dev/null 2>&1; then curl -fLsS --max-time 30 "$url"
@@ -534,7 +719,10 @@ resolve_mcp_port() {
 # of them is byte-for-byte the behaviour this file had before (ADR §3d):
 #
 #   HEALTH_STATUS_FIELD   the key carrying state       (default "status")
-#   HEALTH_OK_VALUES      values of it that are healthy (default "ok degraded")
+#   HEALTH_OK_VALUES      values of it that are healthy (default "ok degraded"),
+#                         SPACE separated, each compared as a LITERAL — a `*` in
+#                         one narrows the gate to a status no /health reports,
+#                         and is never a pathname pattern (see wait_health)
 #   HEALTH_VERSION_FIELD  the key carrying the version  (default "version")
 #
 # HEALTH_VERSION_FIELD is the only one of the three whose EMPTY value means
@@ -721,6 +909,31 @@ wait_health() {
   # single run) gets the same treatment as app.env.
   local status_field="${HEALTH_STATUS_FIELD:-status}"
   local ok_values="${HEALTH_OK_VALUES:-ok degraded}"
+  # Split ONCE, on a space and on nothing else, into the array the identity arm
+  # below iterates. The first version was `for v in $ok_values`, an UNQUOTED
+  # expansion, which does both things an unquoted expansion does: it word-splits
+  # on IFS and it PATHNAME-EXPANDS. Measured in this repo's own deploy/ dir,
+  # HEALTH_OK_VALUES='ok * *' came back as 28 tokens — every file in the working
+  # directory — so one extra character in a value made the gate accept a body
+  # whose status field was the NAME OF A FILE. That is verbatim the defect #1117
+  # fixed for UNIT_EXTRA_ENV ~300 lines below, and this was the last path where
+  # a typo WIDENS what counts as healthy instead of narrowing it.
+  #
+  # Splitting this way means a `*` that survives is compared as a LITERAL: it can
+  # only narrow the gate (no /health ever reports the status `*`), never widen
+  # it. Same shape and same reason as extra_pairs — one idiom for "a list of
+  # tokens this framework reads" — so a run of spaces separates instead of
+  # adding an empty value.
+  local -a ok_list=()
+  local ok_rest="$ok_values" ok_v
+  while [ -n "$ok_rest" ]; do
+    case "$ok_rest" in
+      *" "*) ok_v="${ok_rest%% *}"; ok_rest="${ok_rest#* }" ;;
+      *)      ok_v="$ok_rest"; ok_rest="" ;;
+    esac
+    [ -n "$ok_v" ] || continue
+    ok_list+=("$ok_v")
+  done
   # `${VAR-default}`, NOT `${VAR:-default}`: the latter substitutes on an EMPTY
   # value as well as on an unset one, and empty is this key's documented value —
   # `HEALTH_VERSION_FIELD=""` is how an app whose /health carries no version says
@@ -788,9 +1001,11 @@ wait_health() {
       # empty the identity is the status field alone — the one thing an app
       # whose /health is `{"ok":true}` can actually offer.
       local status_ok=false v
-      for v in $ok_values; do
-        if [ "$status" = "$v" ]; then status_ok=true; break; fi
-      done
+      if [ "${#ok_list[@]}" -gt 0 ]; then
+        for v in "${ok_list[@]}"; do
+          if [ "$status" = "$v" ]; then status_ok=true; break; fi
+        done
+      fi
       if [ -n "$status" ] && [ "$status_ok" = true ] \
         && { [ "$version_check" != true ] || [ -n "$version" ]; }; then
         foreign=false
@@ -1213,16 +1428,22 @@ render_systemd_unit() {
     '# The policy and that bound are both asserted in deploy/systemd-unit.test.ts.'
     'Restart=always'
     'RestartSec=5'
-    '# A BOUNDED stop, not the systemd default of 90 s, and not a plain SIGTERM'
-    '# wait. A process that never reaches its shutdown path (a wedged event loop,'
-    '# a build in the same tree, a request that never times out) leaves the unit'
-    '# in deactivating for the whole TimeoutStopSec, so every dependent deploy run'
-    '# and every operator watching "systemctl stop" waits 90 s for nothing. 15 s of'
-    '# grace for a clean exit, then SIGKILL: the service is already deactivating, so'
-    '# the kill cannot make the state worse, and the bounded stop is what makes'
+    '# A BOUNDED stop, not the systemd default of 90 s. A process that never'
+    '# reaches its shutdown path (a wedged event loop, a build in the same tree,'
+    '# a request that never times out) leaves the unit in deactivating for the'
+    '# whole TimeoutStopSec, so every dependent deploy run and every operator'
+    '# watching "systemctl stop" waits 90 s for nothing. 15 s is what makes'
     '# "systemctl restart" (install.sh, update.sh) a predictable step.'
+    '# KillSignal is deliberately NOT set. Its default SIGTERM is the FIRST step'
+    '# of a stop, and the app registers a SIGTERM handler (src/index.ts:123) that'
+    '# checkpoints the WAL and stops the embedder. Setting KillSignal to SIGKILL'
+    '# replaced that with an immediate unblockable kill, so every stop ended in'
+    '# status=9/KILL and the shutdown path never ran (journals of 2026-10-01,'
+    '# #1124/#1125). SIGKILL still arrives and is what BOUNDS the stop:'
+    '# SendSIGKILL=yes (the systemd default) sends it to whatever is left once'
+    '# TimeoutStopSec expires. The unit is already deactivating by then, so the'
+    '# kill cannot make the state worse.'
     'TimeoutStopSec=15'
-    'KillSignal=SIGKILL'
     ''
     '# --- hardening ---'
     'NoNewPrivileges=true'
