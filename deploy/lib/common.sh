@@ -43,6 +43,68 @@ cleanup_run() {
   return 0
 }
 
+# ── Temp-path ownership ─────────────────────────────────────────────────────
+# mktemp_owned VARNAME [MKTEM ARGS...] — the ONLY supported way to create a
+# temporary path in these scripts. It creates the path AND registers it for the
+# entry point's EXIT trap, in one step, so no site can create without owning.
+#
+# WHY A CREATION FUNCTION AND NOT A PER-SITE `cleanup_add`. The previous shape
+# was `tmp="$(mktemp)"; cleanup_add "$tmp"` at each site, and the second half is
+# exactly what the next edit forgets: run_hook() (update.sh) gained a `mktemp`
+# for its hook transcript and never gained the registration, so every install
+# and every update left a transcript on disk. The tests in this directory are
+# the same story on the TS side — see ../tmp-fixtures.ts, which fixed the
+# fixture-side twin of this defect the same way. A registration is a statement a
+# site can omit; a constructor cannot be omitted.
+#
+# WHY IT SETS A VARIABLE INSTEAD OF PRINTING THE PATH. `x="$(mktemp_owned x)"`
+# would run the whole function — including cleanup_add — inside a command
+# substitution, which is a SUBSHELL: the array append happens in the subshell's
+# copy and the parent's EXIT trap never sees the path, so the file survives
+# exactly as if it had never been registered. Measured, not assumed: with the
+# printing form the parent's registry stayed empty and the file was still
+# present after cleanup_run. This is the same trap binary_stage_payload()'s
+# STAGED_PAYLOAD and updater.sh's STAGE_ROOT/CHOSEN already sidestep, and the
+# guard below turns the mistake into a loud failure instead of a silent leak.
+# The caller's variable must be declared `local` (bash scopes these by
+# dynamic scope, so printf -v reaches it).
+mktemp_owned() {
+  local __var="${1:-}" __path=""
+  [ -n "$__var" ] || { echo "[${APP_NAME:-app}] ERROR: mktemp_owned needs a variable name" >&2; return 1; }
+  # A subshell cannot register anything in its parent's registry. Refuse loudly
+  # here rather than leaking a file the operator will only find as ENOSPC.
+  if [ "$$" != "$BASHPID" ]; then
+    error "mktemp_owned was called inside a subshell (\$(), a pipeline stage or ( )) — its cleanup registration would never reach this script's EXIT trap, so the path would leak. Set a variable instead of printing the path."
+  fi
+  shift
+  __path="$(mktemp "$@")" || return 1
+  cleanup_add "$__path"
+  printf -v "$__var" '%s' "$__path"
+}
+
+# cleanup_release PATH — drop PATH from the EXIT trap's registry, so the trap
+# leaves it alone. The ONE sanctioned exception to ownership-at-creation, for a
+# path that must OUTLIVE the run: refresh_unit's rendered unit when RUN_DIR is
+# unwritable, which the operator's remedy names (update.sh), and app.env
+# downloaded from APP_ENV_URL, which install.sh reads after load_app_env
+# returns. Both are deliberate hand-offs to a path outside the temp tree, and
+# both say so where they happen. Releasing is explicit; the alternative —
+# relying on the ABSENCE of a registration — is the defect this file exists to
+# remove, because an unstated non-registration is indistinguishable from an
+# oversight.
+cleanup_release() {
+  [ "${#_DEPLOY_TMP_FILES[@]}" -gt 0 ] || return 0
+  local keep=() f
+  # Length-guarded above, so the loop never expands an empty array into the
+  # single empty word `${arr[@]:-}` would produce — an empty registry entry
+  # would reach cleanup_run's `rm -rf -- ""` and fail the trap under set -e.
+  for f in "${_DEPLOY_TMP_FILES[@]}"; do
+    [ "$f" = "$1" ] || keep+=("$f")
+  done
+  if [ "${#keep[@]}" -gt 0 ]; then _DEPLOY_TMP_FILES=("${keep[@]}"); else _DEPLOY_TMP_FILES=(); fi
+  return 0
+}
+
 # ── Logging & input ────────────────────────────────────────────────────────
 info()  { echo "[${APP_NAME:-app}] $*"; }
 warn()  { echo "[${APP_NAME:-app}] WARNING: $*" >&2; }
@@ -1002,8 +1064,8 @@ binary_stage_payload() {
   mkdir -p "$INSTALL_DIR" || error "cannot create ${INSTALL_DIR}"
   archive="${INSTALL_DIR}/.${APP_NAME}.$$.tar.gz"
   cleanup_add "$archive"
-  staging="$(mktemp -d "${INSTALL_DIR}/.stage.XXXXXX")" || error "cannot create a staging directory in ${INSTALL_DIR}"
-  cleanup_add "$staging"
+  mktemp_owned staging -d "${INSTALL_DIR}/.stage.XXXXXX" \
+    || error "cannot create a staging directory in ${INSTALL_DIR}"
 
   info "Downloading ${asset} ${TAG}..."
   url_get "$url" "$archive" || error "download failed: ${url}"
@@ -1155,7 +1217,13 @@ load_app_env() {
   fi
 
   if [ -n "${APP_ENV_URL:-}" ]; then
-    tmp="$(mktemp)" || error "cannot create a temporary file"
+    # Owned, then explicitly released: APP_ENV_FILE is a HAND-OFF, not a temp
+    # file. install_files() copies this path into ${RUN_DIR}/scripts/app.env
+    # later in the same run, so the trap must not take it away at the end —
+    # but leaving the release unstated is what let two other sites here leak for
+    # a month, so the hand-off says so where it happens.
+    mktemp_owned tmp || error "cannot create a temporary file"
+    cleanup_release "$tmp"
     if url_get "$APP_ENV_URL" "$tmp"; then
       # shellcheck source=/dev/null
       . "$tmp"

@@ -28,6 +28,16 @@ STAGE_ROOT=""
 # The trap must always return 0: under `set -e` a failing last command would
 # override the pending status (e.g. `exit 0` from --help) and make the script
 # exit 1. Stage cleanup is best-effort and never changes the exit code.
+#
+# STAGE_ROOT keeps its own `rm -rf` here rather than joining the shared
+# cleanup_add registry (mktemp_owned, lib/common.sh), unlike every other temp
+# path in deploy/. That is deliberate: this file is the FROZEN bootstrap, and
+# its own fixture (updater.sh.test.ts MINIMAL_COMMON_SH) provides a cleanup_run
+# that removes FILES only — folding a directory in would make this script's
+# stage cleanup depend on an `rm -rf` the contract it is tested against does not
+# promise. This path never leaked (the trap removes it, success and failure
+# alike), so there is nothing here to fix; consolidating it would be a
+# refactor of a frozen contract for no leak removed.
 _on_exit() { cleanup_run; if [ -n "$STAGE_ROOT" ]; then rm -rf -- "$STAGE_ROOT"; fi; return 0; }
 trap _on_exit EXIT
 

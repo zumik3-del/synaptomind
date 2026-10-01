@@ -79,6 +79,13 @@ load_common() {
     done
   fi
   if [ -n "${LIB_RAW_URL:-}" ]; then
+    # NOT mktemp_owned, and the reason is load order: common.sh is the file this
+    # function has not downloaded yet, so cleanup_add does not exist at this
+    # point and neither does the EXIT trap — both arrive with the sourced file,
+    # and the trap is installed on the line after this function returns. The two
+    # explicit `rm -f` below are the only cleanup this path can have, which is
+    # why they are on BOTH branches: a failed download must not leave a
+    # half-written common.sh in TMPDIR either.
     tmp="$(mktemp)" || { echo "[app] ERROR: cannot create a temporary file" >&2; exit 1; }
     if curl -fsSL "$LIB_RAW_URL" -o "$tmp" 2>/dev/null; then
       # shellcheck source=/dev/null
@@ -448,8 +455,14 @@ install_service() {
   # need not write to /etc/systemd/system. Mirrors update.sh's refresh_unit.
   local unit="${UNIT_FILE:-/etc/systemd/system/${APP_NAME}.service}" tmpdir tmp
   # Render under a valid unit name: systemd-analyze verify rejects other suffixes.
-  tmpdir="$(mktemp -d)"; tmp="${tmpdir}/${APP_NAME}.service"
-  cleanup_add "$tmp"
+  # The DIRECTORY is what gets registered, not the file inside it: registering
+  # only "$tmp" left the mktemp -d itself behind on every path that returns
+  # before the render is written, and cleanup_run's `rm -rf` removes a directory
+  # and its contents in one entry, so owning the directory is both sufficient
+  # and simpler. (Measured: 3 empty tmp.XXXXXXXXXX dirs per deploy-suite run,
+  # from the write-failure and no-unit-on-disk paths below.)
+  mktemp_owned tmpdir -d
+  tmp="${tmpdir}/${APP_NAME}.service"
   # The renderer REFUSES a value that would not survive systemd's parser and
   # returns 1 instead of exiting, so the reason it printed reaches the operator
   # together with the decision to stop. Nothing has been written at this point,
@@ -479,7 +492,7 @@ install_service() {
   # FRESH install takes, i.e. the 0.9.0 cutover. The mode is preserved rather
   # than forced to 644, so a unit carrying Environment= secrets is not widened.
   if write_file_atomically "$unit" "$tmp"; then
-    rm -f "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
+    rm -f "$tmp"
   else
     warn "cannot write ${unit} — skipping service installation"
     return 0

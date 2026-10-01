@@ -67,11 +67,19 @@ current_version() {
 }
 
 # package.json version at origin/<branch> (source branch policy only).
+#
+# Sets REMOTE_PKG_VERSION instead of printing it. This function is called from a
+# command substitution, and a command substitution is a SUBSHELL: the
+# `cleanup_add` that used to sit here appended to the subshell's copy of the
+# registry, so the EXIT trap never saw the temp file and it survived every
+# source-mode update that resolved a branch. Same reason binary_stage_payload()
+# sets STAGED_PAYLOAD and updater.sh sets STAGE_ROOT rather than printing them.
+REMOTE_PKG_VERSION=""
 remote_pkg_version() {
-  local tmp
-  tmp="$(mktemp)"; cleanup_add "$tmp"
+  local tmp=""
+  mktemp_owned tmp || return 0
   if git -C "$INSTALL_DIR" show "origin/${1}:package.json" > "$tmp" 2>/dev/null; then
-    read_package_version "$tmp"
+    REMOTE_PKG_VERSION="$(read_package_version "$tmp")"
   fi
 }
 
@@ -117,7 +125,13 @@ run_hook() {
     # hook's stderr joins its stdout in that transcript, and `{ … || rc=$?; }`
     # carries the hook's own exit status through the pipe without tripping `set -e`
     # (the pipeline's own status is tee's, which is always 0).
-    if out="$(mktemp 2>/dev/null)"; then
+    #
+    # mktemp_owned, not `out="$(mktemp)"`: the bare mktemp was never registered
+    # with the EXIT trap, so every hook run left its transcript in TMPDIR — 91
+    # files per run of the deploy suite, on the same filesystem production's
+    # SQLite database lives on. The transcript is a temp file, not an artefact:
+    # nothing names it after the hook returns, so owning it is correct.
+    if mktemp_owned out 2>/dev/null; then
       { "$hook" 2>&1 || rc=$?; } | tee "$out"
       if [ "$1" = "pre-update" ]; then collect_db_backups "$out"; fi
     else
@@ -352,7 +366,7 @@ ensure_restart_policy() {
   # set is itself how the last-wins case got here. Every other byte — an
   # operator's hand edits, their Environment= lines, their comments — is carried
   # through untouched.
-  tmpdir="$(mktemp -d)" || { warn "Restart policy unchanged in ${unit}: no temp dir (TMPDIR unwritable?); it still says ${current}."; return 0; }
+  mktemp_owned tmpdir -d || { warn "Restart policy unchanged in ${unit}: no temp dir (TMPDIR unwritable?); it still says ${current}."; return 0; }
   tmp="${tmpdir}/${APP_NAME}.service"
   if ! awk '
     /^[[:space:]]*Restart=/ {
@@ -366,7 +380,6 @@ ensure_restart_policy() {
     END { if (held) print line }
   ' "$unit" > "$tmp" 2>/dev/null; then
     warn "Restart policy unchanged in ${unit}: cannot rewrite the unit (transform failed); it still says ${current}."
-    rm -rf "$tmpdir"
     return 0
   fi
 
@@ -412,7 +425,6 @@ ensure_restart_policy() {
     warn "  it still says ${current}; the unit was NOT touched."
     if [ -n "$backup" ]; then warn "  previous unit kept at ${backup}"; fi
   fi
-  rm -rf "$tmpdir"
   return 0
 }
 
@@ -466,9 +478,12 @@ refresh_unit() {
   # It used to `error` from inside the renderer, which is exit(1): the payload
   # was already swapped, and the operator got neither the rollback block nor the
   # warning that a re-run will not fix it — and then could not fix it.
-  tmpdir="$(mktemp -d)"; tmp="${tmpdir}/${APP_NAME}.service"
+  # The render dir is owned from creation (mktemp_owned), so every path below
+  # that returns or aborts releases it through the EXIT trap. The ONE exception
+  # is the hand-off below, which says so out loud with cleanup_release.
+  mktemp_owned tmpdir -d
+  tmp="${tmpdir}/${APP_NAME}.service"
   if ! render_systemd_unit "$EXEC_START" > "$tmp"; then
-    rm -f "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
     unit_not_rendered "$unit"
     return 1
   fi
@@ -480,14 +495,16 @@ refresh_unit() {
   # Keep a copy for the remedy. A plain re-run cannot fix a failed refresh —
   # main()'s "Already up to date" guard returns before refresh_unit is reached
   # again — so the operator needs the rendered unit as a file to install.
-  # cleanup_add is deferred to the branch that has a durable copy; when RUN_DIR
-  # is unwritable the render dir itself must survive the EXIT trap, or the
-  # remedy would name a path the trap just deleted.
+  # When RUN_DIR is unwritable the render dir itself must SURVIVE the EXIT trap,
+  # or the remedy would name a path the trap just deleted — so the ownership is
+  # released explicitly here rather than never taken, which is what made the
+  # difference between this path and a forgotten registration invisible.
   saved="${RUN_DIR}/unit-refresh/${APP_NAME}.service"
   if mkdir -p "${RUN_DIR}/unit-refresh" 2>/dev/null && cp -f "$tmp" "$saved" 2>/dev/null; then
-    cleanup_add "$tmpdir"
+    :   # the durable copy exists; the trap still owns the render dir
   else
     saved="$tmp"
+    cleanup_release "$tmpdir"
   fi
 
   local blocked=""
@@ -501,7 +518,7 @@ refresh_unit() {
   if [ -n "$blocked" ]; then
     if [ ! -e "$unit" ]; then
       info "No systemd unit at ${unit} — nothing to refresh; start ${EXEC_START} by hand."
-      rm -f "$saved" "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
+      rm -f "$saved" "$tmp"
       return 0
     fi
     unit_not_refreshed "$unit" "$blocked" "$saved"
@@ -529,7 +546,7 @@ refresh_unit() {
       unit_not_refreshed "$unit" "systemctl daemon-reload failed after the unit was written" ""
       return 1
     fi
-    rm -f "$saved" "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
+    rm -f "$saved" "$tmp"
     info "Refreshed ${unit}"
   else
     unit_not_refreshed "$unit" "the unit was NOT replaced — ${ATOMIC_WRITE_REASON}" "$saved"
@@ -759,8 +776,8 @@ main() {
       if [ "$TARGET_KIND" = "tag" ]; then
         TARGET_VERSION="${TARGET_REF#v}"
       else
-        TARGET_VERSION="$(remote_pkg_version "$TARGET_REF")"
-        TARGET_VERSION="${TARGET_VERSION:-unknown}"
+        remote_pkg_version "$TARGET_REF"
+        TARGET_VERSION="${REMOTE_PKG_VERSION:-unknown}"
       fi
     fi
   fi
