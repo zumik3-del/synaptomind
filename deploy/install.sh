@@ -23,6 +23,11 @@
 #      --no-service    Skip systemd unit installation and start
 #      --help, -h      Show this help
 #
+#  Seeded ports: a FRESH config.json gets server.port = PORT and
+#  mcp.httpPort = MCP_PORT (app.env, optional — defaults to PORT + 1). An
+#  existing config.json is preserved verbatim, so an installed host keeps its
+#  own MCP port. See resolve_mcp_port() in lib/common.sh.
+#
 #  Pipeline (see the phase banners in main):
 #      config -> platform + OS deps -> fetch code/binary -> seed state
 #      -> data symlink -> helper scripts -> systemd unit -> health check
@@ -74,6 +79,13 @@ load_common() {
     done
   fi
   if [ -n "${LIB_RAW_URL:-}" ]; then
+    # NOT mktemp_owned, and the reason is load order: common.sh is the file this
+    # function has not downloaded yet, so cleanup_add does not exist at this
+    # point and neither does the EXIT trap — both arrive with the sourced file,
+    # and the trap is installed on the line after this function returns. The two
+    # explicit `rm -f` below are the only cleanup this path can have, which is
+    # why they are on BOTH branches: a failed download must not leave a
+    # half-written common.sh in TMPDIR either.
     tmp="$(mktemp)" || { echo "[app] ERROR: cannot create a temporary file" >&2; exit 1; }
     if curl -fsSL "$LIB_RAW_URL" -o "$tmp" 2>/dev/null; then
       # shellcheck source=/dev/null
@@ -102,7 +114,7 @@ parse_args() {
       --force)      FORCE=true;       shift   ;;
       --no-service) NO_SERVICE=true;  shift   ;;
       --help|-h)
-        sed -n '3,28p' "$0" 2>/dev/null || echo "See the comment header of install.sh"
+        sed -n '3,33p' "$0" 2>/dev/null || echo "See the comment header of install.sh"
         exit 0 ;;
       *) error "unknown option: $1 (try --help)" ;;
     esac
@@ -167,6 +179,10 @@ require_binary_config() {
   [ -n "${ASSET_PATTERN:-}" ]  || error "ASSET_PATTERN is empty (required for DIST=binary)"
   [ -n "${APP_VERSION_CMD:-}" ] || error "APP_VERSION_CMD is empty (required for DIST=binary)"
   command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || error "need curl or wget"
+  # A host with no published asset must be told so by name, not by a 404 from
+  # url_get a few lines later (ADR 0001 §2.7).
+  require_binary_platform
+  need_cmd tar
 }
 
 # Install Bun (source mode) when the app declares REQUIRES_BUN=yes.
@@ -247,10 +263,8 @@ resolve_binary_version() {
   if [ -n "$ARG_VERSION" ]; then
     TAG="$ARG_VERSION"
   else
-    [ -n "${RELEASE_API:-}" ] || error "RELEASE_API is empty; set it or pass --version"
-    TAG="$(release_latest_tag || true)"
-    [ -n "$TAG" ] || error "could not resolve the latest version from ${RELEASE_API}"
-    TAG="$(normalize_v "$TAG")"
+    release_resolve_tag
+    TAG="$RESOLVED_TAG"
   fi
   info "Target version: ${TAG#v}"
 }
@@ -261,37 +275,36 @@ binary_up_to_date_check() {
   [ -f "$bin" ] || return 0
   [ "$FORCE" = true ] && return 0
   cur="$(app_version "$bin")"
-  case "$(ver_cmp "${cur:-0}" "${TAG#v}")" in
-    same)  up_to_date_exit "${cur}" ;;
+  # BOTH operands normalised: app_version keeps the leading "v" (common.sh
+  # strips only the app name) and the tag is v-prefixed too, while
+  # `ver_cmp "v0.8.0" "0.8.0"` answers "newer" — a correct, already-installed
+  # payload used to abort with "use --force" (ADR 0001 §2.6).
+  case "$(ver_cmp "$(normalize_v "$cur")" "$(normalize_v "$TAG")")" in
+    same)  up_to_date_exit "${cur#v}" ;;
     newer) error "newer version ${cur} is already installed; use --force to override" ;;
   esac
 }
 
-# Binary mode: download, verify, atomic swap.
+# Binary mode: download the release tarball, extract it, verify it, swap it in.
+# The whole sequence lives in lib/common.sh so update.sh takes the identical
+# path (ADR 0001 §2.9).
 install_binary() {
-  local asset url tmp got
-  asset="$(render_template "$ASSET_PATTERN")"
-  url="${RELEASES_BASE}/${TAG}/${asset}"
-  mkdir -p "$INSTALL_DIR"
-  tmp="${INSTALL_DIR}/.${APP_NAME}.$$.tmp"
-  cleanup_add "$tmp"
-
-  info "Downloading ${asset} ${TAG}..."
-  url_get "$url" "$tmp" || error "download failed: ${url}"
-  chmod +x "$tmp"
-
-  got="$(app_version "$tmp")"
-  if [ "$got" != "${TAG#v}" ]; then
-    error "downloaded binary failed version check (got '${got:-nothing}', expected '${TAG#v}')"
-  fi
-
-  # Atomic swap: replaces the directory entry without truncating a running binary.
-  mv -f "$tmp" "${INSTALL_DIR}/${APP_NAME}"
-  info "Installed ${INSTALL_DIR}/${APP_NAME} (${got})"
+  binary_install_payload
 }
 
 # ── Phase: seed state (config files, secret, data dir) ─────────────────────
 SEEDED_SECRET_FILE=false
+
+# align_config_port FILE KEY VALUE — rewrite `"KEY": <n>` in FILE to
+# `"KEY": VALUE`. KEY is matched literally INCLUDING its quotes, which is what
+# keeps '"port"' from touching '"httpPort"'. A missing key is a no-op, so a
+# payload that ships neither key seeds unchanged.
+align_config_port() {
+  local file="$1" key="$2" value="$3"
+  [ -f "$file" ] || return 0
+  sed -i "s/${key}[[:space:]]*:[[:space:]]*[0-9][0-9]*/${key}: ${value}/" "$file"
+}
+
 seed_files() {
   local pair src dest base
   SEEDED_SECRET_FILE=false
@@ -308,9 +321,14 @@ seed_files() {
     base="$(basename "$dest")"
     ( umask 077; cp "${INSTALL_DIR}/${src}" "${INSTALL_DIR}/${dest}" )
     case "$base" in .*) chmod 600 "${INSTALL_DIR}/${dest}" ;; esac
-    # A seeded config.json is the port source: align it with PORT.
-    if [ "$base" = "config.json" ] && grep -q '"port"' "${INSTALL_DIR}/${dest}" 2>/dev/null; then
-      sed -i "s/\"port\"[[:space:]]*:[[:space:]]*[0-9][0-9]*/\"port\": ${PORT}/" "${INSTALL_DIR}/${dest}"
+    # A seeded config.json is the port source: align BOTH listeners with the
+    # ports this install resolved. mcp.httpPort is rewritten for the same
+    # reason server.port is — the example ships 3006, and a host that already
+    # owns 3006 would otherwise install a service that can never start
+    # (resolve_mcp_port in lib/common.sh for the rule; task #1077).
+    if [ "$base" = "config.json" ]; then
+      align_config_port "${INSTALL_DIR}/${dest}" '"port"' "$PORT"
+      align_config_port "${INSTALL_DIR}/${dest}" '"httpPort"' "$MCP_PORT"
     fi
     if [ -n "${GENERATE_SECRET_IN:-}" ] && [ "$dest" = "$GENERATE_SECRET_IN" ]; then
       SEEDED_SECRET_FILE=true
@@ -433,19 +451,48 @@ install_service() {
     return 0
   fi
 
-  local unit="/etc/systemd/system/${APP_NAME}.service" tmpdir tmp
+  # UNIT_FILE is overridable so a non-standard unit path (and the deploy tests)
+  # need not write to /etc/systemd/system. Mirrors update.sh's refresh_unit.
+  local unit="${UNIT_FILE:-/etc/systemd/system/${APP_NAME}.service}" tmpdir tmp
   # Render under a valid unit name: systemd-analyze verify rejects other suffixes.
-  tmpdir="$(mktemp -d)"; tmp="${tmpdir}/${APP_NAME}.service"
-  cleanup_add "$tmp"
-  render_systemd_unit "$EXEC_START" > "$tmp"
+  # The DIRECTORY is what gets registered, not the file inside it: registering
+  # only "$tmp" left the mktemp -d itself behind on every path that returns
+  # before the render is written, and cleanup_run's `rm -rf` removes a directory
+  # and its contents in one entry, so owning the directory is both sufficient
+  # and simpler. (Measured: 3 empty tmp.XXXXXXXXXX dirs per deploy-suite run,
+  # from the write-failure and no-unit-on-disk paths below.)
+  mktemp_owned tmpdir -d
+  tmp="${tmpdir}/${APP_NAME}.service"
+  # The renderer REFUSES a value that would not survive systemd's parser and
+  # returns 1 instead of exiting, so the reason it printed reaches the operator
+  # together with the decision to stop. Nothing has been written at this point,
+  # so aborting the install is fail-closed: the alternative is shipping a unit
+  # whose hardening a value in app.env silently removed.
+  if ! render_systemd_unit "$EXEC_START" > "$tmp"; then
+    error "cannot render a unit for ${unit} — fix the value named above in app.env and re-run"
+  fi
 
   # Best-effort: systemd-analyze can complain about paths that only exist post-boot.
   if command -v systemd-analyze >/dev/null 2>&1; then
     if systemd-analyze verify "$tmp" >/dev/null 2>&1; then info "Unit verified"; else warn "systemd-analyze verify reported issues"; fi
   fi
 
-  if run_root cp -f "$tmp" "$unit" && run_root chmod 644 "$unit"; then
-    rm -f "$tmp"; rmdir "$tmpdir" 2>/dev/null || true
+  # Keep the body being replaced, so a re-install over a hand-edited unit is
+  # recoverable. A fresh install has no unit to lose, and then there is no .bak.
+  if [ -e "$unit" ] && ! write_file_atomically "${unit}.bak" "$unit"; then
+    warn "  proceeding WITHOUT a recovery copy of the unit this install replaces."
+  fi
+
+  # Atomic replacement, staged beside the unit and swapped with rename(2) — the
+  # same mechanism update.sh uses, and the same reason: `cp -f` opens the LIVE
+  # unit O_TRUNC, so a copy that dies partway (ENOSPC, EIO, killed) truncates an
+  # existing hand-edited production unit while this run reports "cannot write".
+  # / on this host reached 100% with zero bytes free during the 0.9.0 review, so
+  # the trigger is demonstrated rather than theoretical — and this is the path a
+  # FRESH install takes, i.e. the 0.9.0 cutover. The mode is preserved rather
+  # than forced to 644, so a unit carrying Environment= secrets is not widened.
+  if write_file_atomically "$unit" "$tmp"; then
+    rm -f "$tmp"
   else
     warn "cannot write ${unit} — skipping service installation"
     return 0
@@ -495,7 +542,7 @@ print_summary() {
   echo "  Config:     ${RUN_DIR}/scripts/app.env"
   echo ""
   if [ "$SERVICE_INSTALLED" = true ]; then
-    echo "  Service:    /etc/systemd/system/${APP_NAME}.service"
+    echo "  Service:    ${UNIT_FILE:-/etc/systemd/system/${APP_NAME}.service}"
     echo "  Stop:       sudo systemctl stop ${APP_NAME}"
     echo "  Logs:       journalctl -u ${APP_NAME} -f"
   else
@@ -522,6 +569,16 @@ main() {
 
   INSTALL_DIR="${INSTALL_DIR:-/opt/${APP_NAME}}"
   PORT="${PORT:-3000}"
+  # Seeding target for mcp.httpPort. Resolved before seed_files() and NOT from
+  # an existing config.json: that file is preserved verbatim (see
+  # resolve_mcp_port), so an already-installed host keeps its own MCP port.
+  MCP_PORT="$(resolve_mcp_port)"
+  # The one way the two listeners can collide is an explicit MCP_PORT equal to
+  # PORT. Reject it here — before the payload is fetched — rather than install a
+  # service whose only possible outcome is EADDRINUSE on the second listener.
+  if [ "$MCP_PORT" = "$PORT" ]; then
+    error "MCP_PORT (${MCP_PORT}) must differ from PORT (${PORT})"
+  fi
   HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-60}"
   HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:$(resolve_port)/health}"
   HOOKS_DIR="${HOOKS_DIR:-${RUN_DIR}/hooks}"

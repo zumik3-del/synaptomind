@@ -137,6 +137,15 @@ function assertStale(db: Database, id: string): void {
   expect(row!.state).toBe('stale')
 }
 
+/** The stored run envelope — the `rollback(run_id)` manifest key (F-28). */
+function storedRunId(db: Database, id: string): string | null {
+  const row = db.prepare('SELECT run_id FROM placement_proposals WHERE id = ?').get(id) as
+    | { run_id: string | null }
+    | undefined
+  if (!row) throw new Error(`proposal '${id}' not found`)
+  return row.run_id
+}
+
 // ── conflict matrix (§2.6) ─────────────────────────────────────────────────────
 
 describe('conflict matrix', () => {
@@ -377,6 +386,24 @@ describe('applyBatch: partial failure independence', () => {
     expect(statuses).toContain('stale')
     // Committed sibling remains accepted even though another item errored.
     assertAccepted(db, okRow.id)
+
+    // AC-F28-8: this batch supplied no `run_id`, so the service synthesizes one
+    // for the run. The committed sibling must report it — a committed graph
+    // mutation with no envelope is unreachable by `rollback(run_id)`, which is
+    // the exact hole F-28 closed. The errored and stale items join no run, so
+    // the manifest is the one accepted row, not a prefix of the input.
+    const shared = out.run_id ?? null
+    expect(typeof shared).toBe('string')
+    expect(shared!.startsWith('auto-')).toBe(true)
+    const accepted = out.results.find(r => r.proposal_id === okRow.id) as Extract<ApplyResult, { status: 'accepted' }>
+    expect(accepted.status).toBe('accepted')
+    expect(accepted.run_id).toBe(shared)
+    expect(storedRunId(db, okRow.id)).toBe(shared)
+    // The stale sibling was never enveloped, so it must not claim a run.
+    const stale = out.results.find(r => r.proposal_id === failRow.id)!
+    expect(stale.status).toBe('stale')
+    expect('run_id' in stale).toBe(false)
+    expect(storedRunId(db, failRow.id)).toBeNull()
   })
 
   test('empty ids array returns empty results/errors', () => {

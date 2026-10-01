@@ -2,6 +2,7 @@ import { type Subprocess, spawn } from 'bun'
 import { getEmbedderIdleTimeoutMs, getEmbedderPrecache } from '../db/settings'
 import { insertLog } from '../logging'
 import { EmbedderNotReadyError, EmbedderOverloadedError } from '../errors'
+import { isCompiled } from '../runtime-mode'
 
 type EmbeddingPayload = number[] | number[][]
 
@@ -34,9 +35,47 @@ let readyPromise: Promise<void> | null = null
 let readyResolve: (() => void) | null = null
 let readyReject: ((err: Error) => void) | null = null
 
-function getScriptPath(): string {
+/** Latched when the child dies before it ever became ready; cleared by 'ready'. */
+let startFailed = false
+
+/** Embedder lifecycle, as the /health probe has to see it. */
+export type EmbedderState = 'ok' | 'starting' | 'failed' | 'stopped'
+
+/**
+ * `isEmbedderReady()` alone cannot tell a first load from a dead child: a fresh
+ * binary install loads the model for minutes (ready=false, and correctly so),
+ * while a child that cannot dlopen its native runtime dies immediately —
+ * `ready === false` either way, and ensureReady() respawns it every second, so
+ * a poller watching the boolean sees a permanent "not ready".
+ *
+ *   ok       the child sent 'ready'
+ *   starting spawned, alive, still loading the model
+ *   failed   the child died before becoming ready (dlopen failure, OOM, ...)
+ *   stopped  never spawned (--no-embedder, embedder.enabled=false, stdio
+ *            delegation) or torn down on purpose (idle unload, shutdown)
+ *
+ * `failed` is LATCHED, not derived from the current child: the retry loop
+ * respawns once per second, so an unlatched read would flap back to `starting`
+ * between attempts. Only a real 'ready' clears it — which also covers a
+ * recovered embedder, since a respawn that succeeds re-enters `ok`.
+ */
+export function getEmbedderState(): EmbedderState {
+  if (ready) return 'ok'
+  if (startFailed) return 'failed'
+  return proc && !dead ? 'starting' : 'stopped'
+}
+
+/**
+ * Child argv (ADR 0001 §2.4). A compiled binary re-invokes *itself* with
+ * `--embedder`, so one artifact serves both roles; source mode keeps
+ * `bun run <script>`. The IPC contract is identical either way.
+ */
+function getSpawnArgv(): string[] {
   // Test hook: point the client at a stub subprocess (see __fixtures__/stub-embedder.ts).
-  return process.env.SYNAPTOMIND_EMBEDDER_SCRIPT ?? `${import.meta.dir}/embedder-process.ts`
+  const stub = process.env.SYNAPTOMIND_EMBEDDER_SCRIPT
+  if (stub) return [process.execPath, 'run', stub]
+  if (isCompiled()) return [process.execPath, '--embedder']
+  return [process.execPath, 'run', `${import.meta.dir}/embedder-process.ts`]
 }
 
 function rejectAllPending(err: Error) {
@@ -62,10 +101,11 @@ function spawnProcess(): void {
   // on Windows a launcher shim (Chocolatey/scoop) drops the fd table, so the
   // child never gets the IPC pipe — same limitation as Node.js. `process.execPath`
   // points at the running bun.exe even when the parent itself came from a shim.
-  const child = spawn([process.execPath, 'run', getScriptPath()], {
+  const child = spawn(getSpawnArgv(), {
     ipc: (message: IpcMessage) => {
       if (message.type === 'ready') {
         ready = true
+        startFailed = false
         readyResolve?.()
         readyResolve = null
         return
@@ -160,6 +200,11 @@ function spawnProcess(): void {
       if (proc === child) proc = null
       if (!dead && !shuttingDown) {
         console.error(`[embedder] process exited unexpectedly with code ${code}`)
+        // Same guard as the message above: an 'exiting' IPC (idle unload) or a
+        // deliberate teardown already set dead/shuttingDown, so this only
+        // latches a crash — including the ERR_DLOPEN_FAILED crash loop a unit
+        // rendered without LD_LIBRARY_PATH produces (ADR 0001 §2.2).
+        startFailed = true
       }
       if (!shuttingDown && !ready && readyReject) {
         readyReject(new Error(`Embedder process exited before becoming ready (code ${code})`))

@@ -1,22 +1,33 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
+import { describe, expect, test, beforeEach } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import {
+  cpSync,
   existsSync,
-  mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
   chmodSync,
   copyFileSync,
+  lstatSync,
+  statSync,
+  symlinkSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { installCleanup, mkTempTree } from './tmp-fixtures'
+
+// Temp-tree ownership: EVERY scratch tree below comes from mkTempTree, and the
+// sweep registered here removes it after each test — including after one that
+// throws. This file used to leak ~28 /tmp directories per run, on the same
+// filesystem as production's database (AGENTS.md §8); see tmp-fixtures.ts.
+installCleanup()
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
 
 function seedSingleTagRepo(tag: string, layout: Record<string, string>): string {
-  const dir = mkdtempSync(join(tmpdir(), 'synapto-single-'))
+  const dir = mkTempTree('synapto-single-')
   spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
   spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -32,7 +43,7 @@ function seedSingleTagRepo(tag: string, layout: Record<string, string>): string 
 }
 
 function seedNoDeployRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'synapto-nodeploy-'))
+  const dir = mkTempTree('synapto-nodeploy-')
   spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
   spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -44,7 +55,7 @@ function seedNoDeployRepo(): string {
 }
 
 function seedMixedTagsRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'synapto-mixed-'))
+  const dir = mkTempTree('synapto-mixed-')
   spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
   spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -69,7 +80,7 @@ function seedTwoStableTagsRepo(
   newerTag: string,
   layout: Record<string, string>,
 ): string {
-  const dir = mkdtempSync(join(tmpdir(), 'synapto-two-stable-'))
+  const dir = mkTempTree('synapto-two-stable-')
   spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
   spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -92,7 +103,7 @@ function seedTwoStableTagsRepo(
 }
 
 function seedNoStableTagsRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'synapto-nostable-'))
+  const dir = mkTempTree('synapto-nostable-')
   spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
   spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
   spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -302,8 +313,8 @@ let RUN_DIR = ''
 let BOOTSTRAP_DIR = '' // <tmp>/bootstrap/scripts/ — mirrors installed layout
 
 beforeEach(() => {
-  FIXTURE_DIR = mkdtempSync(join(tmpdir(), 'synapto-updater-fix-'))
-  INSTALL_DIR = mkdtempSync(join(tmpdir(), 'synapto-install-'))
+  FIXTURE_DIR = mkTempTree('synapto-updater-fix-')
+  INSTALL_DIR = mkTempTree('synapto-install-')
   RUN_DIR = join(FIXTURE_DIR, 'run')
   BOOTSTRAP_DIR = join(FIXTURE_DIR, 'bootstrap', 'scripts')
   mkdirSync(join(BOOTSTRAP_DIR, 'lib'), { recursive: true })
@@ -322,10 +333,11 @@ const MINIMAL_APP_ENV = [
   'PORT="3005"',
 ].join('\n')
 
-afterEach(() => {
-  rmSync(FIXTURE_DIR, { recursive: true, force: true })
-  rmSync(INSTALL_DIR, { recursive: true, force: true })
-})
+// FIXTURE_DIR, INSTALL_DIR and every seed*() tree are created through
+// mkTempTree, so the sweep in tmp-fixtures.ts removes them. The explicit
+// rmSync pair that used to live here is gone: it was the per-site cleanup the
+// next test would have had to remember, and the 28-dir leak was what happened
+// when it was forgotten.
 
 /**
  * Write a test-specific app.env into the bootstrap dir and return the
@@ -336,7 +348,7 @@ afterEach(() => {
 function setupBootstrap(opts: { repoUrl?: string; overrides?: Record<string, string> } = {}): void {
   const repoUrl = opts.repoUrl ?? 'file:///tmp/synapto-empty-no-tags'
   // Point RUN_DIR at a scratch dir so the bootstrap never touches the real install.
-  const testRunDir = mkdtempSync(join(tmpdir(), 'synapto-run-'))
+  const testRunDir = mkTempTree('synapto-run-')
   // Bootstrap's stage_release copies ${RUN_DIR}/scripts/app.env into the staging area;
   // the source must exist or cp aborts the run.
   mkdirSync(join(testRunDir, 'scripts'), { recursive: true })
@@ -426,7 +438,7 @@ describe('updater.sh — tag resolution', () => {
   test('excludes prerelease tags from stable selection', () => {
     const artifact = join(FIXTURE_DIR, 'chosen-tag.txt')
     // Repo where a prerelease is newer than the stable tag
-    const dir = mkdtempSync(join(tmpdir(), 'synapto-newer-prerelease-'))
+    const dir = mkTempTree('synapto-newer-prerelease-')
     spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
     spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
     spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -570,7 +582,7 @@ describe('updater.sh — non-interactive mode', () => {
   test('--version with a prerelease tag is rejected', () => {
     // Repo has both a stable tag and a prerelease tag; requesting the prerelease
     // should fail with "not a known stable release", not "no stable tags".
-    const dir = mkdtempSync(join(tmpdir(), 'synapto-prerelease-'))
+    const dir = mkTempTree('synapto-prerelease-')
     spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
     spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
     spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
@@ -643,3 +655,2435 @@ describe('updater.sh — exit-code contract', () => {
     expect(res.status, res.stderr + '\n' + res.stdout).toBe(0)
   })
 })
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DIST=binary — release tarball update (ADR 0001 §2.9) and the unit re-render
+//  the conformance audit found missing (audit finding 1: render_systemd_unit
+//  had exactly ONE call site, install.sh, so an install updating INTO binary
+//  mode never received Environment=LD_LIBRARY_PATH).
+//
+//  No real sudo and no real systemctl: both are PATH stubs whose sudo variant is
+//  a GUARDED passthrough — it refuses to execute unless every path-like argument
+//  lives under the fixture root, so the suite cannot touch the live service even
+//  by accident (AGENTS.md §8).
+// ════════════════════════════════════════════════════════════════════════════
+
+const U_APP = 'synaptomind'
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  F3 — release_resolve_tag must read the release list the API actually returns.
+//
+//  RELEASE_API is the LIST endpoint, and a JSON array of releases is served as
+//  ONE minified line: `[{"tag_name":…},{"tag_name":…},…]`. The extraction was a
+//  line-based `sed`, so it saw a single entry in that line — the LAST one — and
+//  treated it as the only release that exists. With the newest prerelease last
+//  (the shape GitHub's newest-first ordering produces whenever a beta follows a
+//  stable), `stable` hard-failed with "no stable release tag" and stable, latest
+//  and prerelease ALL resolved to that one prerelease.
+//
+//  No test used a multi-entry list: the fixture's api.json holds exactly one,
+//  which a line-based parse handles by accident.
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** The LIST endpoint shape, minified the way the API serves it: one line. */
+const RELEASE_LIST_MINIFIED = JSON.stringify([
+  { tag_name: 'v0.9.0', draft: false },
+  { tag_name: 'v0.8.2', draft: false },
+  { tag_name: 'v0.9.0-beta.1', prerelease: true },
+])
+
+/** The same list pretty-printed, which is what a hand-written fixture used to be. */
+const RELEASE_LIST_PRETTY = JSON.stringify(
+  [
+    { tag_name: 'v0.9.0', draft: false },
+    { tag_name: 'v0.8.2', draft: false },
+    { tag_name: 'v0.9.0-beta.1', prerelease: true },
+  ],
+  null,
+  2,
+)
+
+/** The single-object shape (/releases/latest), which must keep working. */
+const RELEASE_OBJECT_STABLE = JSON.stringify({
+  tag_name: 'v0.9.0',
+  draft: false,
+  prerelease: false,
+})
+const RELEASE_OBJECT_PRERELEASE = JSON.stringify({
+  tag_name: 'v0.9.0-beta.1',
+  draft: false,
+  prerelease: true,
+})
+
+/**
+ * Run the real release_resolve_tag against a payload, with url_get replaced so
+ * the LIST is the fixture's bytes. Prints the resolved tag, or the error.
+ */
+function resolveTag(body: string, policy: string): { status: number | null; out: string } {
+  const dir = mkTempTree('synapto-tag-')
+  try {
+    const api = join(dir, 'api.json')
+    writeFileSync(api, body)
+    const res = spawnSync(
+      'bash',
+      [
+        '-c',
+        [
+          `APP_NAME=${U_APP}`,
+          `CHECKOUT_POLICY=${policy}`,
+          `RELEASE_API=file://${api}`,
+          `. "${resolve(import.meta.dir, 'lib', 'common.sh')}"`,
+          'url_get() { cat "${1#file://}"; }',
+          'release_resolve_tag',
+          'printf "%s" "$RESOLVED_TAG"',
+        ].join('\n'),
+      ],
+      { encoding: 'utf8', timeout: 30_000 },
+    )
+    return { status: res.status, out: `${res.stdout}${res.stderr}` }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+describe('release_resolve_tag — both payload shapes, every channel', () => {
+  for (const [shape, body] of [
+    ['a minified list', RELEASE_LIST_MINIFIED],
+    ['a pretty-printed list', RELEASE_LIST_PRETTY],
+  ] as const) {
+    test(`stable resolves v0.9.0 from ${shape}`, () => {
+      const r = resolveTag(body, 'stable')
+      expect(r.status, r.out).toBe(0)
+      expect(r.out).toContain('v0.9.0')
+    })
+
+    test(`prerelease resolves v0.9.0-beta.1 from ${shape}`, () => {
+      // The direction that used to hard-fail outright: a minified list whose last
+      // entry is the prerelease hid every stable release from `stable` and made
+      // `prerelease` succeed by accident, on the wrong evidence.
+      const r = resolveTag(body, 'prerelease')
+      expect(r.status, r.out).toBe(0)
+      expect(r.out).toContain('v0.9.0-beta.1')
+    })
+
+    test(`stable does not fall through to the prerelease in ${shape}`, () => {
+      // The silent half of the same defect, asserted on its own: a policy must
+      // never resolve a tag of the WRONG channel, in either direction.
+      const r = resolveTag(body, 'stable')
+      expect(r.out).not.toContain('beta')
+    })
+  }
+
+  // The other shape the endpoint can answer with: a single release object. It has
+  // to keep working, and a channel it cannot satisfy must fail by name rather than
+  // hand back a tag of the wrong kind.
+  test('stable resolves the tag of a single release object', () => {
+    const r = resolveTag(RELEASE_OBJECT_STABLE, 'stable')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toContain('v0.9.0')
+  })
+
+  test('prerelease resolves the tag of a single prerelease object', () => {
+    const r = resolveTag(RELEASE_OBJECT_PRERELEASE, 'prerelease')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toContain('v0.9.0-beta.1')
+  })
+
+  test('stable on a prerelease-only object fails by name, and names no tag', () => {
+    const r = resolveTag(RELEASE_OBJECT_PRERELEASE, 'stable')
+    expect(r.status).toBe(1)
+    expect(r.out).toContain('no stable release tag')
+    expect(r.out).not.toMatch(/RESOLVED_TAG=v/)
+  })
+
+  test('latest takes the HIGHEST tag, not the last line and not the first entry', () => {
+    // Both wrong answers are pinned: a line-based parse took the last entry of a
+    // minified list, and trusting the endpoint's newest-first order would take the
+    // first. The channel is "newest", so it has to be a version comparison.
+    const r = resolveTag(RELEASE_LIST_MINIFIED, 'latest')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toContain('v0.9.0')
+    expect(r.out).not.toContain('beta.1')
+  })
+
+  test('a list with the OLDEST entry last is not mistaken for the newest', () => {
+    // The silent direction: newest-first, no prerelease, and the last entry is
+    // v0.8.2. A line-based parse resolved `latest` to v0.8.2, so an installed
+    // 0.8.2 host reported "already up to date" instead of upgrading.
+    const r = resolveTag(
+      JSON.stringify([{ tag_name: 'v0.9.0' }, { tag_name: 'v0.8.2' }]),
+      'latest',
+    )
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toContain('v0.9.0')
+  })
+
+  test('a payload with no release at all still fails by name', () => {
+    const r = resolveTag(JSON.stringify([{ message: 'Not Found' }]), 'stable')
+    expect(r.status).toBe(1)
+    expect(r.out).toContain('no stable release tag')
+  })
+
+  test('a branch policy is still refused (a branch has no release asset)', () => {
+    const r = resolveTag(RELEASE_LIST_MINIFIED, 'main')
+    expect(r.status).toBe(1)
+    expect(r.out).toContain('requires DIST=source')
+  })
+})
+
+/**
+ * Guarded sudo: logs argv, then executes only if every path is under ROOT.
+ * `refuse` names commands the stub pretends to be denied for (a sudo that needs
+ * a password it cannot get), so a test can fail ONE privileged call — the unit
+ * copy — while every other call still runs.
+ */
+function makeGuardedSudo(
+  privLog: string,
+  guard: string,
+  opts: { refuse?: string[]; refuseUnder?: string } = {},
+): string {
+  const lines = [
+    '#!/usr/bin/env bash',
+    'printf \'sudo\' >> "$STUB_PRIV_LOG"',
+    'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done',
+    'printf \'\\n\' >> "$STUB_PRIV_LOG"',
+  ]
+  for (const cmd of opts.refuse ?? []) {
+    lines.push(
+      `case " $* " in *" ${cmd} "*) echo "sudo: ${cmd}: a terminal is required to ask for a password" >&2; exit 1 ;; esac`,
+    )
+  }
+  // Refuse every privileged write AIMED AT one directory — a read-only or full
+  // unit directory, the way an operator meets it. Narrower than refusing a
+  // command by name: the payload's .prev copy is a privileged write too now
+  // (write_file_atomically, task #1079 F7), and refusing ALL of them aborts the
+  // run before the unit is ever reached, which would test something else.
+  if (opts.refuseUnder) {
+    lines.push(
+      `for a in "$@"; do case "$a" in ${opts.refuseUnder}/*) echo "sudo: $a: a terminal is required to ask for a password" >&2; exit 1 ;; esac; done`,
+    )
+  }
+  lines.push(
+    // Everything must be inside the fixture root, or refuse loudly.
+    'for a in "$@"; do',
+    '  case "$a" in /*) case "$a" in ' + guard + ') ;; *) echo "REFUSED: $a" >&2; exit 99 ;; esac ;; esac',
+    'done',
+    'exec "$@"',
+  )
+  return lines.join('\n')
+}
+
+const SYSTEMCTL_STUB = [
+  '#!/usr/bin/env bash',
+  'printf \'systemctl\' >> "$STUB_PRIV_LOG"',
+  'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done',
+  'printf \'\\n\' >> "$STUB_PRIV_LOG"',
+  'case "$1" in',
+  '  is-system-running) echo running ;;',
+  '  is-active) exit 0 ;;',
+  'esac',
+  'exit 0',
+].join('\n')
+
+/** The same stub on a host where systemd is not PID 1 (is-system-running -> offline). */
+const SYSTEMCTL_STUB_OFFLINE = SYSTEMCTL_STUB.replace('echo running', 'echo offline')
+
+/** A stub that reloads nothing: daemon-reload fails, everything else answers. */
+const SYSTEMCTL_STUB_RELOAD_FAILS = SYSTEMCTL_STUB.replace(
+  '  is-active) exit 0 ;;',
+  '  is-active) exit 0 ;;\n  daemon-reload) echo "Failed to reload daemon" >&2; exit 1 ;;',
+)
+
+/**
+ * A scratch install tree that already holds an OLD binary-mode payload, plus
+ * the deploy/ scripts and a RELEASE_API file listing the target tag.
+ */
+function seedBinaryUpdate(opts: {
+  currentVersion: string
+  targetVersion: string
+  includeDb?: boolean
+  /** Override the release-metadata payload; the default is a one-entry list. */
+  releasesBody?: string
+  /**
+   * Replace one installed hook with a stub that exits non-zero, to drive the
+   * caller-side decision a hook failure has to reach (task #1102).
+   *
+   * The stub is written over ${RUN_DIR}/hooks/<name> — the path update.sh
+   * resolves when app.env leaves HOOKS_DIR empty — so it is the hook the real
+   * run executes, not a lookalike. The pre-update stub also prints the one line
+   * collect_db_backups parses, so a test can see whether the tee kept both
+   * streaming (its stdout) and capturing (that line reaching the recovery block).
+   */
+  failingHook?: { hook: 'pre-update' | 'post-update'; code: number }
+}): ReturnType<typeof seedBinaryUpdateShape> {
+  return seedBinaryUpdateShape(opts)
+}
+
+function seedBinaryUpdateShape(opts: {
+  currentVersion: string
+  targetVersion: string
+  includeDb?: boolean
+  releasesBody?: string
+  failingHook?: { hook: 'pre-update' | 'post-update'; code: number }
+}) {
+  const root = mkTempTree('synapto-binu-')
+  const deployDir = join(root, 'deploy')
+  const stubsDir = join(root, 'stubs')
+  const installDir = join(root, 'opt', U_APP)
+  const runDir = join(root, 'run')
+  const privLog = join(root, 'privileged.log')
+  const unitFile = join(root, 'unit', `${U_APP}.service`)
+  // Copy only the scripts update.sh actually needs; the flat `common.sh` only
+  // exists inside an installed ${RUN_DIR}/scripts, never in the repo.
+  mkdirSync(deployDir, { recursive: true })
+  for (const f of ['update.sh', 'updater.sh', 'uninstall.sh']) {
+    cpSync(join(import.meta.dir, f), join(deployDir, f))
+  }
+  mkdirSync(join(deployDir, 'lib'), { recursive: true })
+  cpSync(join(import.meta.dir, 'lib', 'common.sh'), join(deployDir, 'lib', 'common.sh'))
+  mkdirSync(join(deployDir, 'hooks'), { recursive: true })
+  for (const f of ['pre-update', 'post-update']) {
+    cpSync(join(import.meta.dir, 'hooks', f), join(deployDir, 'hooks', f))
+  }
+  mkdirSync(stubsDir, { recursive: true })
+  mkdirSync(join(root, 'unit'), { recursive: true })
+  mkdirSync(join(runDir, 'scripts'), { recursive: true })
+  mkdirSync(join(runDir, 'hooks'), { recursive: true })
+  mkdirSync(installDir, { recursive: true })
+  mkdirSync(join(installDir, 'lib'), { recursive: true })
+  writeFileSync(privLog, '')
+
+  // An old, already-installed payload (as a previous release left it).
+  writeFileSync(join(installDir, U_APP), `#!/bin/sh\necho "${U_APP} ${opts.currentVersion}"\n`)
+  chmodSync(join(installDir, U_APP), 0o755)
+  writeFileSync(join(installDir, 'vec0.so'), 'old vec0\n')
+  writeFileSync(join(installDir, 'lib', 'libonnxruntime.so.1'), 'old onnxruntime\n')
+
+  // The NEW payload as a release directory.
+  const releases = join(root, 'releases')
+  const tag = `v${opts.targetVersion}`
+  const build = join(root, 'build', `${U_APP}-${opts.targetVersion}-linux-x86_64`)
+  const payload: Record<string, string> = {
+    [U_APP]: `#!/bin/sh\necho "${U_APP} v${opts.targetVersion}"\n`,
+    'vec0.so': 'new vec0\n',
+    'lib/libonnxruntime.so.1': 'new onnxruntime\n',
+    'config.json.example': '{ "server": { "port": 3999 }, "database": { "path": "./data/synaptomind.db" } }\n',
+    '.env.example': 'SYNAPTOMIND_SECRET=\n',
+  }
+  for (const [rel, content] of Object.entries(payload)) {
+    const full = join(build, rel)
+    mkdirSync(resolve(full, '..'), { recursive: true })
+    writeFileSync(full, content)
+  }
+  chmodSync(join(build, U_APP), 0o755)
+  mkdirSync(join(releases, tag), { recursive: true })
+  const tarRes = spawnSync(
+    'tar',
+    ['-czf', join(releases, tag, `${U_APP}-${tag}-linux-x86_64.tar.gz`), '-C', join(root, 'build'), `${U_APP}-${opts.targetVersion}-linux-x86_64`],
+    { encoding: 'utf8' },
+  )
+  expect(tarRes.status, tarRes.stderr).toBe(0)
+
+  // A file:// "RELEASE_API" — release_resolve_tag reads it with url_get, which
+  // handles file:// through curl, so no HTTP server is needed.
+  // A one-entry list by default, which is what every test before #1079 used: a
+  // line-based read of a minified list happens to be right for exactly one entry.
+  writeFileSync(
+    join(releases, 'api.json'),
+    opts.releasesBody ?? JSON.stringify([{ tag_name: tag, draft: false }]),
+  )
+
+  if (opts.includeDb) {
+    mkdirSync(join(installDir, 'data'), { recursive: true })
+    spawnSync('sqlite3', [join(installDir, 'data', 'synaptomind.db'), 'create table t(x int); insert into t values (1);'], {
+      encoding: 'utf8',
+    })
+  }
+
+  // Helpers, hooks and the installed app.env (the layout update.sh expects).
+  for (const f of ['update.sh', 'updater.sh', 'uninstall.sh']) {
+    cpSync(join(import.meta.dir, f), join(runDir, 'scripts', f))
+  }
+  for (const f of ['pre-update', 'post-update']) {
+    cpSync(join(import.meta.dir, 'hooks', f), join(runDir, 'hooks', f))
+    chmodSync(join(runDir, 'hooks', f), 0o755)
+  }
+  if (opts.failingHook) {
+    const { hook, code } = opts.failingHook
+    const stub = [
+      '#!/usr/bin/env bash',
+      // The line collect_db_backups parses, so a test can tell whether the tee
+      // still CAPTURED the transcript as well as streaming it.
+      `echo "Database backed up: ${join(installDir, 'data', 'synaptomind.db.backup', 'simulated.bak')}"`,
+      `echo "simulated ${hook} failure" >&2`,
+      `exit ${code}`,
+    ].join('\n')
+    writeFileSync(join(runDir, 'hooks', hook), stub)
+    chmodSync(join(runDir, 'hooks', hook), 0o755)
+  }
+  cpSync(join(import.meta.dir, 'lib', 'common.sh'), join(runDir, 'scripts', 'common.sh'))
+
+  // UNIT_FILE redirects refresh_unit away from the real /etc unit.
+  const env = {
+    APP_NAME: U_APP,
+    APP_DESC: 'Synaptomind — thought-graph engine',
+    DIST: 'binary',
+    INSTALL_DIR: installDir,
+    DATA_DIR: join(root, 'data'),
+    RUN_DIR: runDir,
+    PORT: '3999',
+    RELEASES_BASE: `file://${releases}`,
+    RELEASE_API: `file://${join(releases, 'api.json')}`,
+    // SINGLE-QUOTED, like the shipped app.env: the file is SOURCED, so a
+    // double-quoted ${TAG} would be expanded at load time to an empty string.
+    ASSET_PATTERN: "'${APP_NAME}-${TAG}-${OS}-${ARCH}.tar.gz'",
+    APP_VERSION_CMD: "'${BIN} --version'",
+    CHECKOUT_POLICY: 'stable',
+    REQUIRES_BUN: 'no',
+    SYSTEM_DEP_CMDS: '',
+    SERVICE_USER: '',
+    SEED_FILES: 'config.json.example:config.json .env.example:.env',
+    GENERATE_SECRET_IN: '.env',
+    HOOKS_DIR: '',
+    UNIT_FILE: unitFile,
+    // No service runs in these tests, so point the post-restart poll at a
+    // closed port. The poll is stubbed (see FAKE_HEALTH_STUB) to answer on the
+    // first attempt; without it wait_health sleeps for the full HEALTH_TIMEOUT.
+    HEALTH_URL: 'http://127.0.0.1:1/health',
+    HEALTH_TIMEOUT: '1',
+    // The shipped default is 30s; 2s here so a test that reaches the re-check
+    // window does not spend 30 seconds proving that nothing answered.
+    HEALTH_CONFIRM_TIMEOUT: '2',
+  }
+  writeFileSync(
+    join(runDir, 'scripts', 'app.env'),
+    Object.entries(env)
+      .map(([k, v]) => (k === 'ASSET_PATTERN' || k === 'APP_VERSION_CMD' ? `${k}=${v}` : `${k}="${v}"`))
+      .join('\n') + '\n',
+  )
+
+  // The sudo guard allows: everything under the fixture root, plus the $TMPDIR
+  // paths that render_systemd_unit's `mktemp -d` produces before the copy.
+  const guard = [
+    `"${root}"/*|"${root}"/*`,
+    `"${tmpdir()}"/*|"${tmpdir()}"/*`,
+  ].join('|')
+  writeFileSync(join(stubsDir, 'sudo'), makeGuardedSudo(privLog, guard))
+  writeFileSync(join(stubsDir, 'systemctl'), SYSTEMCTL_STUB)
+  for (const s of ['sudo', 'systemctl']) chmodSync(join(stubsDir, s), 0o755)
+
+  // The unit is rendered into $TMPDIR by render_systemd_unit before it is
+  // copied to UNIT_FILE, so the sudo guard must also allow mktemp -d paths.
+  // curl stub: the /health poll only. Everything else (the file:// release
+  // downloads) must reach the REAL curl, so the stub passes non-health URLs
+  // straight through.
+  const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
+  writeFileSync(
+    join(stubsDir, 'curl'),
+    [
+      '#!/usr/bin/env bash',
+      'for a in "$@"; do',
+      '  case "$a" in',
+      `    */health) printf '%s' "$FAKE_HEALTH_BODY"; exit 0 ;;`,
+      '  esac',
+      'done',
+      `exec ${realCurl} "$@"`,
+    ].join('\n'),
+  )
+  chmodSync(join(stubsDir, 'curl'), 0o755)
+
+  const healthBody = JSON.stringify({
+    status: 'ok',
+    version: opts.targetVersion,
+    checks: { database: 'ok', embedder: 'ok' },
+  })
+  return { root, deployDir, stubsDir, installDir, runDir, privLog, unitFile, healthBody, guard }
+}
+
+/** The four fields every update.sh fixture needs to be run. */
+type UpdateFixture = { runDir: string; stubsDir: string; privLog: string; healthBody: string }
+
+/**
+ * One /health sample. A bare string is a complete answer (curl exits 0).
+ *
+ * `{ body, rc }` is a sample that did NOT arrive whole: a server that closes
+ * mid-body leaves real curl rc=18 and whatever it had already written, so the
+ * partial body and the failed transfer are ONE event. Measured against a real
+ * loopback socket: rc=18, 25 bytes of a promised 4096.
+ */
+type HealthSample = string | { body: string; rc: number }
+
+/**
+ * Replace the fixture's /health curl stub with one that answers a SEQUENCE of
+ * payloads, one per poll, repeating the last one once exhausted. FAKE_HEALTH_BODY
+ * can only express a single static body, so a recovery case ("failed now,
+ * healthy on the next poll") needs a counter — kept in a file, because wait_health
+ * calls url_get inside a command substitution and a shell variable would be lost.
+ *
+ * Returns the counter file so a test can assert how many samples were consumed;
+ * the HEALTH_TIMEOUT in the seeded app.env is raised from 1s to match the number
+ * of samples, otherwise the gate times out after the first one.
+ */
+function sequenceHealth(fx: UpdateFixture, samples: HealthSample[], timeout = 6): string {
+  const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
+  const counter = join(fx.runDir, 'health-polls')
+  const seq = samples.map((s) => (typeof s === 'string' ? { body: s, rc: 0 } : s))
+  const script = [
+    `__bodies=(${seq.map(b => `'${b.body}'`).join(' ')})`,
+    `__rcs=(${seq.map(b => String(b.rc)).join(' ')})`,
+    `__poll='${counter}'`,
+    '__n=$(cat "$__poll" 2>/dev/null || printf 0)',
+    '__n=$((__n + 1))',
+    'printf "%s" "$__n" > "$__poll"',
+    '__max=${#__bodies[@]}',
+    '[ "$__n" -gt "$__max" ] && __n=$__max',
+    'printf "%s" "${__bodies[$((__n - 1))]}"',
+    // The rc this transfer reports, so a truncated sample is a FAILED transfer
+    // and not a short-but-complete answer. `exit` (not `return`): the stub is
+    // run as a program, not sourced.
+    'exit "${__rcs[$((__n - 1))]}" ;;',
+  ].join('\n')
+  writeFileSync(
+    join(fx.stubsDir, 'curl'),
+    [
+      '#!/usr/bin/env bash',
+      'for a in "$@"; do',
+      '  case "$a" in',
+      '    */health)',
+      script,
+      '  esac',
+      'done',
+      `exec ${realCurl} "$@"`,
+    ].join('\n'),
+  )
+  chmodSync(join(fx.stubsDir, 'curl'), 0o755)
+  const envFile = join(fx.runDir, 'scripts', 'app.env')
+  writeFileSync(envFile, readFileSync(envFile, 'utf8').replace('HEALTH_TIMEOUT="1"', `HEALTH_TIMEOUT="${timeout}"`))
+  return counter
+}
+
+function runUpdate(fx: UpdateFixture, args: string[]) {
+  return spawnSync('bash', [join(fx.runDir, 'scripts', 'update.sh'), ...args], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${fx.stubsDir}:${process.env.PATH}`,
+      STUB_PRIV_LOG: fx.privLog,
+      // The fake /health body must report the version update.sh is polling for,
+      // otherwise wait_health times out. Tests that want a FAILING health check
+      // override FAKE_HEALTH_BODY with something the version check rejects.
+      FAKE_HEALTH_BODY: fx.healthBody,
+    },
+    timeout: 60_000,
+  })
+}
+
+describe('update.sh — DIST=binary', () => {
+  // No per-describe cleanup is needed: seedBinaryUpdate's tree comes from
+  // mkTempTree and the file-level sweep removes it. The try/finally pairs below
+  // are kept as defence in depth — they release the tree a moment earlier, and
+  // the sweep is `force`, so the second removal is a no-op rather than an error.
+
+  test('swaps the payload, keeps .prev for all three files, and moves the executable last', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      // New payload in place.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+      expect(readFileSync(join(fx.installDir, 'lib', 'libonnxruntime.so.1'), 'utf8')).toBe(
+        'new onnxruntime\n',
+      )
+      // Previous copy kept for a no-git rollback.
+      expect(readFileSync(join(fx.installDir, 'vec0.so.prev'), 'utf8')).toBe('old vec0\n')
+      expect(readFileSync(join(fx.installDir, U_APP + '.prev'), 'utf8')).toContain('v0.7.1')
+      expect(readFileSync(join(fx.installDir, 'lib', 'libonnxruntime.so.1.prev'), 'utf8')).toBe(
+        'old onnxruntime\n',
+      )
+      // No staging or tarball left behind.
+      const leftovers = readdirSync(fx.installDir).filter(
+        (f) => f.startsWith('.stage.') || f.endsWith('.tar.gz'),
+      )
+      expect(leftovers).toEqual([])
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('the version guard sees an upgrade, not a downgrade (v-prefix normalisation)', () => {
+    // current_version() returns app_version's "v0.7.1"; TARGET_VERSION is bare
+    // "0.8.0". Unnormalised, ver_cmp "v0.7.1" "0.8.0" answers "newer" and a
+    // plain upgrade is misreported as a downgrade (ADR §2.6).
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stderr).not.toContain('Downgrade')
+      expect(res.stdout).toContain('Current:  v0.7.1')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('refreshes the systemd unit so LD_LIBRARY_PATH reaches an updated host', () => {
+    // Audit finding 1: without this, a host updating INTO binary mode keeps a
+    // unit without Environment=LD_LIBRARY_PATH and the embedder dies on
+    // ERR_DLOPEN_FAILED.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      expect(unit).toContain(`Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      expect(unit).toContain(`ExecStart=${fx.installDir}/${U_APP}`)
+      // The line must be immediately after NODE_ENV, per ADR §2.2.
+      const lines = unit.split('\n')
+      const i = lines.indexOf(`Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      expect(lines[i - 1]).toBe('Environment=NODE_ENV=production')
+      // daemon-reload must follow the write, before the restart.
+      const log = readFileSync(fx.privLog, 'utf8')
+      expect(log).toContain('daemon-reload')
+      expect(log).not.toContain('enable')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('the pre-update hook backs up the DB before the swap, and its backup is usable', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0', includeDb: true })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const db = join(fx.installDir, 'data', 'synaptomind.db')
+      const backups = readdirSync(`${db}.backup`)
+      expect(backups).toHaveLength(1)
+      const restored = spawnSync('sqlite3', [join(`${db}.backup`, backups[0]!), 'select count(*) from t'], {
+        encoding: 'utf8',
+      })
+      expect(restored.stdout.trim()).toBe('1')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('source mode does NOT rewrite the unit', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      // Flip the installed app.env to source mode and give it a checkout.
+      const envFile = join(fx.runDir, 'scripts', 'app.env')
+      writeFileSync(envFile, readFileSync(envFile, 'utf8').replace('DIST="binary"', 'DIST="source"'))
+      writeFileSync(fx.unitFile, '# hand-edited source unit\n')
+      // update_binary is unreachable in source mode, so run --help-free path:
+      // the guard rejects the missing .git before anything else.
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status).toBe(1)
+      expect(res.stderr).toContain('not installed at')
+      // The hand-edited unit is untouched.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe('# hand-edited source unit\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('the recovery block names the .prev set and the mandatory DB restore', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      // Make the poll report a version update.sh did not ask for: that is a
+      // health-check failure, which must exit non-zero with the recovery block.
+      fx.healthBody = JSON.stringify({ status: 'ok', version: '0.0.1' })
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status).toBe(1)
+      expect(res.stderr).toContain('update did not finish cleanly')
+      expect(res.stderr).toContain('.prev')
+      expect(res.stderr).toContain('synaptomind.db.backup')
+      // Migrations are forward-only: the DB restore is mandatory, not optional.
+      expect(res.stderr).toContain('Restoring the DB is mandatory')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a payload missing lib/libonnxruntime.so.1 aborts before the swap', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      // Rebuild the release tarball without the shared library.
+      const tag = 'v0.8.0'
+      const build = join(fx.root, 'build')
+      rmSync(join(build, `${U_APP}-0.8.0-linux-x86_64`, 'lib', 'libonnxruntime.so.1'))
+      const releases = join(fx.root, 'releases')
+      rmSync(join(releases, tag, `${U_APP}-${tag}-linux-x86_64.tar.gz`))
+      const tarRes = spawnSync(
+        'tar',
+        ['-czf', join(releases, tag, `${U_APP}-${tag}-linux-x86_64.tar.gz`), '-C', build, `${U_APP}-0.8.0-linux-x86_64`],
+        { encoding: 'utf8' },
+      )
+      expect(tarRes.status, tarRes.stderr).toBe(0)
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status).toBe(1)
+      expect(res.stderr).toContain('lib/libonnxruntime.so.1')
+      // The old payload must be intact — nothing was swapped.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('old vec0\n')
+      expect(existsSync(join(fx.installDir, 'vec0.so.prev'))).toBe(false)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  The health gate must see a DEAD embedder, not wave it through as "ok".
+  //
+  //  A unit rendered without Environment=LD_LIBRARY_PATH makes the embedder
+  //  child die on ERR_DLOPEN_FAILED in a loop. /health still answers status
+  //  "ok" (the payload's status is DB-only on purpose — the gate fetches it
+  //  with `curl -f`, so a 503 would discard the payload that explains the
+  //  failure), which is why a gate reading only `status` reports clean success
+  //  over permanently dead embeddings. The client latches the crashed state and
+  //  the payload carries it as checks.embedder="failed".
+  //
+  //  Both directions are asserted, and the loading direction matters just as
+  //  much: a first binary install legitimately answers "not ready" while the
+  //  model downloads, so a gate that rejected it would break every cold install.
+  //  (wait_health itself is covered in wait-health.test.ts.)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  test('a dead embedder (checks.embedder=failed) fails the update and names the remedy', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      // Everything the gate checks apart from the embedder is healthy: status
+      // ok and the exact version update.sh asked for.
+      fx.healthBody = JSON.stringify({
+        status: 'ok',
+        version: '0.8.0',
+        checks: { database: 'ok', embedder: 'failed' },
+      })
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status).not.toBe(0)
+      expect(res.stdout).not.toContain('Done.')
+      // The specific failure, and what to do about it.
+      expect(res.stderr).toContain('checks.embedder=failed')
+      expect(res.stderr).toContain(`LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      // A failed gate is a failed update: the recovery block must be printed.
+      expect(res.stderr).toContain('update did not finish cleanly')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  test('a still-loading embedder (checks.embedder="not ready") passes the update', () => {
+    // The first install of a binary: the model is still downloading. This must
+    // succeed, or every cold install is reported as broken.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      fx.healthBody = JSON.stringify({
+        status: 'ok',
+        version: '0.8.0',
+        checks: { database: 'ok', embedder: 'not ready' },
+      })
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done.')
+      expect(res.stderr).not.toContain('checks.embedder=failed')
+      // The payload really did swap.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('an embedder that recovers on the retry does not fail the update', () => {
+    // The check is re-derived per sample, not latched: a crash that clears
+    // itself must not fail the install it left healthy.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      const counter = sequenceHealth(
+        fx,
+        [
+          JSON.stringify({ status: 'ok', version: '0.8.0', checks: { database: 'ok', embedder: 'failed' } }),
+          JSON.stringify({ status: 'ok', version: '0.8.0', checks: { database: 'ok', embedder: 'ok' } }),
+        ],
+        // The gate sleeps 2s between polls; the slack keeps the second sample
+        // reachable on a loaded machine.
+        8,
+      )
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done.')
+      // The failing sample was really served first — otherwise this test would
+      // pass on a gate that never saw a failure.
+      expect(Number(readFileSync(counter, 'utf8').trim())).toBeGreaterThanOrEqual(2)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 30_000)
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+//  F4 — the health verdict must survive a slow start, and only a CONFIRMED
+//  failure may be answered with a destructive remedy.
+//
+//  The verdict used to be version-only and time-boxed, and the two properties
+//  compounded: with HEALTH_TIMEOUT=2 a HEALTHY 0.8.2 upgrade was declared "did
+//  not finish cleanly" — together with a remedy that stops the unit, moves the
+//  .prev payload back and RESTORES THE DATABASE over the new schema's — while
+//  the very same service went on answering /health 0.8.2 eight seconds later.
+//  A timeout is not evidence that an upgrade is bad, and a remedy that destroys
+//  state must never be printed for one.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — the health verdict is re-checked, and only a confirmed failure is destructive', () => {
+  const HEALTHY_082 = JSON.stringify({
+    status: 'ok',
+    version: '0.8.2',
+    checks: { database: 'ok', embedder: 'ok' },
+  })
+
+  test('a healthy upgrade is not failed when HEALTH_TIMEOUT buys only ONE poll (F4)', () => {
+    // The counterexample, verbatim: HEALTH_TIMEOUT=2 and a service that answers
+    // from the second poll on (a cold start). The gate sleeps 2s between polls,
+    // so a 2s window buys exactly one sample and the old code read that as a
+    // timeout — a failure verdict, plus a rollback that restores the database.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.8.1', targetVersion: '0.8.2' })
+    try {
+      const counter = sequenceHealth(fx, ['', HEALTHY_082], 2)
+
+      const res = runUpdate(fx, ['--yes'])
+
+      // The healthy sample was really consumed by a SECOND window: this is not a
+      // gate that passed without ever looking again.
+      expect(
+        Number(readFileSync(counter, 'utf8').trim()),
+        'the verdict must be re-checked, not decided on the first window',
+      ).toBeGreaterThanOrEqual(2)
+      expect(res.status, res.stdout + res.stderr).toBe(0)
+      expect(res.stdout).toContain('Done.')
+      // And the successful path prints no remedy of any kind.
+      expect(res.stderr).not.toContain('did not finish cleanly')
+      expect(res.stderr).not.toContain('sudo cp')
+      expect(res.stderr).not.toContain('sudo mv -f')
+      // A successful update, not a skipped one: the payload really swapped.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a service that never answers fails UNCONFIRMED, with no destructive remedy (F4)', () => {
+    // The other direction, and the one that destroys data: a payload swapped in
+    // and a service that is merely slow must not be answered with "stop the
+    // unit, move the .prev payload back and restore the database". Re-checking
+    // cannot manufacture an answer, so a second timed-out window is still
+    // unconfirmed — the re-check must not promote it to a failure.
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.8.1',
+      targetVersion: '0.8.2',
+      includeDb: true,
+    })
+    try {
+      const counter = sequenceHealth(fx, [''], 1)
+      const db = join(fx.installDir, 'data', 'synaptomind.db')
+
+      const res = runUpdate(fx, ['--yes'])
+
+      // The pre-update hook creates the backup directory DURING the run, so the
+      // rollback point is only readable after it.
+      const backups = readdirSync(`${db}.backup`)
+      expect(backups).toHaveLength(1)
+      expect(backups[0]).toMatch(/\.bak$/)
+      // Both windows were used, and the verdict stayed unconfirmed.
+      expect(Number(readFileSync(counter, 'utf8').trim())).toBeGreaterThanOrEqual(2)
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(res.stderr).toContain('UNVERIFIED')
+      // Nothing destructive is advised. Each of these is a line the old
+      // recovery block printed for a timeout it had not actually observed.
+      expect(res.stderr).not.toContain('did not finish cleanly')
+      expect(res.stderr).not.toContain('Restoring the DB is mandatory')
+      expect(res.stderr).not.toContain('sudo cp')
+      expect(res.stderr).not.toContain('sudo mv -f')
+      expect(res.stderr).not.toContain('git checkout --force')
+      // The rollback point is left exactly where it was: the backup is still on
+      // disk and the swapped payload is not reverted behind the operator's back.
+      expect(readdirSync(`${db}.backup`)).toEqual(backups)
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a service that answers with the WRONG version is confirmed, and keeps the remedy (F4)', () => {
+    // The re-check must not soften a failure that was actually OBSERVED: this
+    // answer came from the service (a stale 0.8.1 still holding the port, the
+    // shape the identity check in wait_health exists for), so the destructive
+    // remedy is earned and must still be printed.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.8.1', targetVersion: '0.8.2' })
+    try {
+      fx.healthBody = JSON.stringify({ status: 'ok', version: '0.8.1' })
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(res.stderr).toContain('did not finish cleanly')
+      expect(res.stderr).toContain('Restoring the DB is mandatory')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+//  A body that DIES MID-TRANSFER, then silence, is the transient F4 exists for.
+//
+//  The gate's identity verdict was re-derived only when a body arrived, so a
+//  poll that answered nothing inherited it. A server that closes mid-body
+//  leaves real curl rc=18 with a SHORT body (measured on this host: 25 bytes of
+//  a promised 4096), the next poll found nothing at all, and the verdict came
+//  out `contract` — an OBSERVED failure. update.sh then took the confirmed
+//  branch: health_recheck (the re-check that exists precisely to keep a
+//  destructive remedy off an unconfirmed failure) was SKIPPED, and the
+//  per-database restore was printed.
+//
+//  A partial body during a rolling restart is ordinary. The pair below is the
+//  whole contract of the fix: the transient is unverified and prints nothing
+//  destructive, and a REAL contradiction — even one arriving after the
+//  transient — is still confirmed and still prints the remedy.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — a truncated /health body, then silence, is UNVERIFIED', () => {
+  // rc 18 with a short body: a transfer closed mid-body. Measured, not invented
+  // (the wait-health cases carry the same sequence at the gate itself).
+  const CUT_OFF = { body: '<html><head><title>502 Ba', rc: 18 }
+  // Nothing on the port at all afterwards (curl rc 7, empty body).
+  const SILENCE = { body: '', rc: 7 }
+
+  test('it re-checks, reports UNVERIFIED, and prints no database restore', () => {
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.8.1',
+      targetVersion: '0.8.2',
+      includeDb: true,
+    })
+    try {
+      // 6s of polling buys the truncated sample and the silent polls after it;
+      // the seeded HEALTH_CONFIRM_TIMEOUT=2 then adds the second window.
+      const counter = sequenceHealth(fx, [CUT_OFF, SILENCE], 6)
+      const db = join(fx.installDir, 'data', 'synaptomind.db')
+
+      const res = runUpdate(fx, ['--yes'])
+
+      const backups = readdirSync(`${db}.backup`)
+      expect(backups).toHaveLength(1)
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      // The re-check was NOT skipped, and not merely "two windows were opened":
+      // this line is printed only when health_recheck actually ran and came back
+      // without a verdict (HEALTH_RECHECKED). With the verdict latched, the run
+      // consumed the truncated sample, called it a failure there and then, and
+      // never spent a second window.
+      expect(res.stderr).toContain('re-check that followed it')
+      // The first window was really polled.
+      expect(Number(readFileSync(counter, 'utf8').trim())).toBeGreaterThanOrEqual(2)
+      expect(res.stderr).toContain('UNVERIFIED')
+      // Nothing destructive is advised. Each of these is a line the confirmed
+      // block prints for a failure that was never observed.
+      expect(res.stderr).not.toContain('did not finish cleanly')
+      expect(res.stderr).not.toContain('Restoring the DB is mandatory')
+      expect(res.stderr).not.toContain('sudo cp')
+      expect(res.stderr).not.toContain('sudo mv -f')
+      expect(res.stderr).not.toContain('git checkout --force')
+      // And no stranger on the port is diagnosed out of a silent window.
+      expect(res.stderr).not.toContain('not with a')
+      // The rollback point is left exactly where it was.
+      expect(readdirSync(`${db}.backup`)).toEqual(backups)
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a truncated body followed by a REAL wrong version is still confirmed', () => {
+    // The direction the fix must not trade away. A stale 0.8.1 answering after
+    // the transient IS an observed contradiction: the verdict is `version`, the
+    // remedy is earned, and a "fix" that made the gate go quiet after one bad
+    // body would swallow it and call a bad upgrade a slow start.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.8.1', targetVersion: '0.8.2' })
+    try {
+      const stale = JSON.stringify({ status: 'ok', version: '0.8.1' })
+      sequenceHealth(fx, [CUT_OFF, stale], 6)
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(res.stderr).not.toContain('UNVERIFIED')
+      expect(res.stderr).toContain('did not finish cleanly')
+      expect(res.stderr).toContain('Restoring the DB is mandatory')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  F6 — the recovery block must name the backups the pre-update hook produced.
+//
+//  It used to print `sudo cp data/synaptomind.db.backup/synaptomind.db.
+//  <timestamp>.bak data/synaptomind.db` — a template, not a path. The only DB
+//  restore it offered was a command that cannot run, and the very next lines
+//  told the operator the hook "printed each backup path" instead of printing the
+//  paths it had. The hook's own output is the record, so it is read from there.
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — the recovery block names the real database backups (F6)', () => {
+  test('every backup the hook made is named, with a runnable cp/rm pair', () => {
+    // A CONFIRMED failure (the service answers with a version nobody asked for),
+    // so the destructive block is the right output here — and it has to be
+    // runnable. Two databases, because the block used to hand the operator one
+    // template and a note to "repeat for every database the hook backed up".
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.8.1',
+      targetVersion: '0.8.2',
+      includeDb: true,
+    })
+    try {
+      const db = join(fx.installDir, 'data', 'synaptomind.db')
+      const logDb = join(fx.installDir, 'data', 'logs.db')
+      writeFileSync(
+        join(fx.installDir, 'config.json'),
+        JSON.stringify({ server: { port: 3999 }, database: { path: './data/synaptomind.db' }, logDbPath: './data/logs.db' }),
+      )
+      spawnSync('sqlite3', [logDb, 'create table l(x int);'], { encoding: 'utf8' })
+      fx.healthBody = JSON.stringify({ status: 'ok', version: '0.0.1' })
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+
+      // Both databases were really backed up…
+      const mainBackups = readdirSync(`${db}.backup`)
+      const logBackups = readdirSync(`${logDb}.backup`)
+      expect(mainBackups).toHaveLength(1)
+      expect(logBackups).toHaveLength(1)
+
+      // …and the block names both, by their real file names, in a form that can
+      // be pasted: the backup path and the database it restores.
+      const restores = res.stderr.split('\n').filter((l) => l.includes('sudo cp -p'))
+      expect(restores).toHaveLength(2)
+      for (const name of [...mainBackups, ...logBackups]) {
+        const line = restores.find((l) => l.includes(name))
+        expect(line, `the recovery block must name the real backup ${name}`).toBeDefined()
+        // Single-quoted operands, so a path with a space survives being pasted.
+        expect(line).toMatch(/sudo cp -p '[^']+' '[^']+'/)
+      }
+      // And the placeholder is gone: no command here is unrunnable.
+      expect(res.stderr).not.toContain('<timestamp>')
+      // The WAL pair is named per database, next to its own cp.
+      const rms = res.stderr.split('\n').filter((l) => l.includes('sudo rm -f'))
+      expect(rms).toHaveLength(2)
+      expect(res.stderr).toContain('Restoring the DB is mandatory')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  Task #1102, end to end — a failing hook reaches the caller's decision.
+//
+//  run_hook could not carry a hook's exit status out of its tee pipeline (the
+//  assignment was in the pipeline's left STAGE, i.e. a subshell), so
+//  `if ! run_hook pre-update` never fired: a failed database backup was followed
+//  by a code swap, while update.sh:809 called the hook fatal. run-hook.test.ts
+//  pins the function; these pin the two CALLERS, which is where a status that
+//  never arrives turns into a wrong outcome on disk.
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — a failed pre-update hook aborts before the swap (task #1102)', () => {
+  test('exit 7 stops the run with the fatal message, and nothing on disk changed', () => {
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.7.1',
+      targetVersion: '0.8.0',
+      failingHook: { hook: 'pre-update', code: 7 },
+    })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+
+      // The guard fired, with the message the code has always claimed to print.
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(res.stderr).toContain('pre-update hook failed — aborting before switching code')
+      expect(res.stderr).toContain('pre-update hook failed (exit 7)')
+
+      // BEFORE the swap: the installed payload is still the old one. This is the
+      // whole point of the guard — a failed backup must not be followed by new
+      // code running against a database nobody backed up.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('old vec0\n')
+      expect(readFileSync(join(fx.installDir, 'lib', 'libonnxruntime.so.1'), 'utf8')).toBe(
+        'old onnxruntime\n',
+      )
+      // No .prev copies either: binary_install_payload never ran.
+      expect(existsSync(join(fx.installDir, 'vec0.so.prev'))).toBe(false)
+      expect(existsSync(join(fx.installDir, U_APP + '.prev'))).toBe(false)
+
+      // BEFORE the unit refresh and the restart: nothing privileged was asked to
+      // do anything except what reading the release needs. A `systemctl restart`
+      // here would mean the new code was already live.
+      const log = readFileSync(fx.privLog, 'utf8')
+      expect(log).not.toContain('restart')
+      expect(log).not.toContain('daemon-reload')
+
+      // Streaming survived the status fix: the failing hook's own output is still
+      // on the operator's terminal, which is how they see WHY it failed.
+      expect(res.stdout).toContain('simulated.bak')
+      // The hook's stderr is folded into the transcript by `2>&1`, so it lands
+      // on stdout too — that is the point of the fold: one stream for the
+      // operator, one file for the parser.
+      expect(res.stdout).toContain('simulated pre-update failure')
+
+      // The run never claimed to be done.
+      expect(res.stdout).not.toContain('Done. Now at')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('the abort still names nothing to restore, because nothing was touched', () => {
+    // The pre-update abort is the ONE hook failure with no recovery block to
+    // print: the payload, the unit and the service are all untouched, so naming
+    // restore commands would imply a damage that did not happen. Asserted so the
+    // asymmetry with post-update (which does swap) stays deliberate.
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.7.1',
+      targetVersion: '0.8.0',
+      failingHook: { hook: 'pre-update', code: 1 },
+    })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status).toBe(1)
+      expect(res.stderr).not.toContain('sudo cp -p')
+      expect(res.stderr).not.toContain('Restoring the DB is mandatory')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a pre-update hook that exits 0 proceeds exactly as it did', () => {
+    // The other direction, so the new `|| rc=${PIPESTATUS[0]}` cannot be "fixed"
+    // into aborting a good run: with PIPESTATUS[0] the success path is tee and
+    // nothing else.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stdout + res.stderr).toBe(0)
+      expect(res.stderr).not.toContain('hook failed')
+      expect(res.stdout).toContain('Done. Now at 0.8.0')
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+      expect(readFileSync(fx.privLog, 'utf8')).toContain('sudo systemctl restart synaptomind')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('the temp-root entry count is unchanged across a failing run', () => {
+    // Task #1101 closed the mktemp-ownership leak class; the status fix must not
+    // reopen it. The transcript is still created (mktemp_owned) and must still be
+    // removed by the EXIT trap on the ABORT path — which `error` takes, so the
+    // trap runs on a path the happy path never exercises.
+    const tmpRoot = mkTempTree('synapto-hookcount-')
+    const before = readdirSync(tmpRoot)
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.7.1',
+      targetVersion: '0.8.0',
+      failingHook: { hook: 'pre-update', code: 7 },
+    })
+    try {
+      const res = spawnSync('bash', [join(fx.runDir, 'scripts', 'update.sh'), '--yes'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${fx.stubsDir}:${process.env.PATH}`,
+          STUB_PRIV_LOG: fx.privLog,
+          FAKE_HEALTH_BODY: fx.healthBody,
+          // A temp root THIS test owns, so the count is exact and cannot be moved
+          // by another session's scratch in the host's shared /tmp.
+          TMPDIR: tmpRoot,
+        },
+        timeout: 60_000,
+      })
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(readdirSync(tmpRoot)).toEqual(before)
+      expect(before).toEqual([])
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+describe('update.sh — a failed post-update hook does not abort mid-flight (task #1102)', () => {
+  // The deliberate decision, pinned so it cannot be changed by accident. Aborting
+  // after the swap would leave the host worse off than continuing: the payload
+  // would be new, the unit unrefreshed and the service never restarted — swapped
+  // code nothing has ever executed, with no health verdict. So the run finishes
+  // and reports the failure with a non-zero exit AFTER the restart.
+
+  test('the swap, the unit refresh and the restart all happen, then it exits 1 naming the hook', () => {
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.7.1',
+      targetVersion: '0.8.0',
+      failingHook: { hook: 'post-update', code: 3 },
+    })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(res.stderr).toContain('post-update hook failed (exit 3)')
+      // Not reported as success: the message says the update landed AND what did
+      // not, and the exit status is non-zero so a wrapper sees it.
+      expect(res.stderr).toContain('update landed at 0.8.0')
+      expect(res.stderr).toContain('the service was restarted on the new code anyway')
+
+      // …and the run really did finish the work a mid-flight abort would have
+      // skipped: new payload in place, unit refreshed, service restarted.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+      const log = readFileSync(fx.privLog, 'utf8')
+      expect(log).toContain('daemon-reload')
+      expect(log).toContain('restart')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('the failing post-update hook still streams and captures, and a recovery block can name its backup', () => {
+    // The tee properties under the OTHER caller, and the reason a post-update
+    // failure is reported rather than silently ignored: post-update is where a
+    // future migration hook would live, and the recovery block below is built
+    // from the transcript the pre-update hook produced.
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.7.1',
+      targetVersion: '0.8.0',
+      includeDb: true,
+      failingHook: { hook: 'post-update', code: 3 },
+    })
+    try {
+      // Fail the health gate as well, so the recovery block prints.
+      fx.healthBody = JSON.stringify({ status: 'ok', version: '0.0.1' })
+      const res = runUpdate(fx, ['--yes'])
+
+      // The health verdict is what ends the run here (a confirmed wrong version),
+      // which is also the only path that prints a recovery block — so the
+      // post-update status is reported but is not the reason for the exit.
+      expect(res.status).toBe(1)
+      expect(res.stderr).toContain('post-update hook failed (exit 3)')
+      // The real pre-update backup is named: the capture half of the tee is
+      // intact, so collect_db_backups still parsed the transcript.
+      const db = join(fx.installDir, 'data', 'synaptomind.db')
+      const backups = readdirSync(`${db}.backup`)
+      expect(backups).toHaveLength(1)
+      // Matched on the file NAME, not on a rebuilt absolute path: the hook prints
+      // the path it derived from config.json (`./data/…`), so the block names that
+      // spelling. What matters here is that the name from the transcript reached
+      // the block at all — which is exactly what a dropped capture would lose.
+      expect(res.stderr).toContain(`sudo cp -p '`)
+      expect(res.stderr).toContain(backups[0]!)
+      expect(res.stderr).toContain('synaptomind.db\'')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  F3, end to end — the tag a real update resolves, through release_resolve_tag.
+//
+//  The direct shape tests above pin the parse; these two pin what the parse is
+//  FOR, on the path the 0.9.0 cutover takes: which payload an update installs.
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — the release list decides which payload is installed (F3)', () => {
+  test('stable upgrades to v0.9.0 from a minified list whose LAST entry is a prerelease', () => {
+    // The hard-fail direction, through the real code path: with the prerelease
+    // last, a line-based read saw one entry, `stable` found no stable tag and the
+    // update aborted with "no stable release tag" — on a host whose newest stable
+    // release was sitting in the very same list.
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.8.1',
+      targetVersion: '0.9.0',
+      releasesBody: JSON.stringify([
+        { tag_name: 'v0.9.0', draft: false },
+        { tag_name: 'v0.8.2', draft: false },
+        { tag_name: 'v0.9.0-beta.1', prerelease: true },
+      ]),
+    })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stdout + res.stderr).toBe(0)
+      expect(res.stdout).toContain('Target:   0.9.0')
+      expect(res.stdout).not.toContain('no stable release tag')
+      expect(readFileSync(join(fx.installDir, U_APP), 'utf8')).toContain('v0.9.0')
+      expect(readFileSync(join(fx.installDir, U_APP + '.prev'), 'utf8')).toContain('v0.8.1')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('latest upgrades to v0.9.0 from a newest-first list, not to the oldest entry', () => {
+    // The silent direction: newest-first with v0.8.2 last, `latest` is "newest
+    // tag of ANY kind". A line-based read resolved v0.8.2, which this host already
+    // runs — so the update reported "already up to date" and exited 0 without
+    // installing anything. An exit code of 0 for the wrong payload is the worst
+    // of the two failures, so it gets its own test.
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.8.2',
+      targetVersion: '0.9.0',
+      releasesBody: JSON.stringify([{ tag_name: 'v0.9.0' }, { tag_name: 'v0.8.2' }]),
+    })
+    try {
+      const envFile = join(fx.runDir, 'scripts', 'app.env')
+      writeFileSync(envFile, readFileSync(envFile, 'utf8').replace('CHECKOUT_POLICY="stable"', 'CHECKOUT_POLICY="latest"'))
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stdout + res.stderr).toBe(0)
+      expect(res.stdout).not.toContain('Already up to date')
+      expect(res.stdout).toContain('Target:   0.9.0')
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+//  A FAILED unit refresh must not report a successful binary update.
+//
+//  Epic-review finding (task #1039, the reviewer's own): refresh_unit
+//  warn-and-continued on every failure path, so update.sh returned 0, restarted
+//  the service and printed "Done." while the installed unit still lacked
+//  Environment=LD_LIBRARY_PATH. The payload just swapped in is a compiled
+//  binary whose embedder child cannot dlopen lib/libonnxruntime.so.1 without
+//  that line, so it dies on ERR_DLOPEN_FAILED — and /health still answers
+//  status "ok", which is all the health gate read (finding F1).
+//
+//  In binary mode a refresh that did not happen is FATAL. What must NOT become
+//  fatal: source mode (no LD_LIBRARY_PATH line exists there) and a host with no
+//  unit on disk to go stale (a --no-service / container install) — both
+//  asserted below, so the rule cannot widen by accident.
+//
+//  The rendered unit is kept on failure, because the remedy cannot be "re-run
+//  update.sh": the "Already up to date" guard in main() exits BEFORE
+//  refresh_unit is reached again, so a re-run is a no-op.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * A `cp` that fails only for the given destination and passes everything else
+ * to the real cp. It has to be narrow: the payload's .prev copy and the unit's
+ * .bak both go through write_file_atomically (task #1094 / #1079 F7), and
+ * refresh_unit saves the rendered unit as well, so a blanket failure would abort
+ * the swap itself and the run would exit 1 for an unrelated reason.
+ */
+/**
+ * A `cp` that fails for every destination inside `dir` — "cannot write the unit"
+ * as an operator experiences it (a read-only or full unit directory).
+ *
+ * Matched on the DIRECTORY, not on the exact path: the unit is no longer written
+ * by `cp` straight onto itself, so a stub that failed only for the unit's own
+ * path would now fail NOTHING and the test would pass for the wrong reason.
+ * Every cp aimed at the staging file and at the .bak is refused; every other cp
+ * in the run passes through, so the payload swap still happens for real.
+ */
+function makeCpFailingInDir(dir: string): string {
+  const realCp = spawnSync('bash', ['-c', 'command -v cp'], { encoding: 'utf8' }).stdout.trim()
+  return [
+    '#!/usr/bin/env bash',
+    'for a in "$@"; do',
+    `  case "$a" in ${dir}/*)`,
+    '    echo "cp: cannot create regular file $a: Permission denied" >&2; exit 1',
+    '  ;; esac',
+    'done',
+    `exec ${realCp} "$@"`,
+  ].join('\n')
+}
+
+/** Rewrite one PATH stub of an existing fixture. */
+function rewriteStub(fx: ReturnType<typeof seedBinaryUpdate>, name: string, body: string): void {
+  writeFileSync(join(fx.stubsDir, name), body)
+  chmodSync(join(fx.stubsDir, name), 0o755)
+}
+
+/**
+ * Override one key of the installed app.env, which is `.`-sourced, so the value
+ * is written single-quoted (a double-quoted one would be expanded at source
+ * time — the reason the shipped app.env quotes ASSET_PATTERN that way).
+ */
+function setAppEnv(fx: ReturnType<typeof seedBinaryUpdate>, key: string, value: string): void {
+  const envFile = join(fx.runDir, 'scripts', 'app.env')
+  const text = readFileSync(envFile, 'utf8')
+  const line = new RegExp(`^${key}=.*$`, 'm')
+  expect(text, `app.env must carry ${key}`).toMatch(line)
+  writeFileSync(envFile, text.replace(line, `${key}='${value.replace(/'/g, `'\\''`)}'`))
+}
+
+describe('update.sh — a failed unit refresh is fatal in binary mode', () => {
+  test('a unit that cannot be written aborts instead of reporting success', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      rewriteStub(fx, 'cp', makeCpFailingInDir(dirname(fx.unitFile)))
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+      // The service must not be restarted on a unit that was not refreshed.
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('restart')
+      // The stale unit is still the one on disk, and the payload is in place.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe('# stale pre-binary unit\n')
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a refused privileged write aborts, and the service keeps running the old payload', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      const stale = '# stale pre-binary unit\n'
+      writeFileSync(fx.unitFile, stale)
+      // sudo works for systemctl, but every write aimed at the UNIT DIRECTORY is
+      // refused (no tty to ask for a password) — a read-only or full unit
+      // directory as an operator meets it. Scoped to that directory on purpose:
+      // the payload's .prev copy is a privileged write too (write_file_atomically,
+      // task #1079 F7), so refusing every write primitive would abort the run at
+      // step 6 and never reach refresh_unit at all.
+      rewriteStub(fx, 'sudo', makeGuardedSudo(fx.privLog, fx.guard, { refuseUnder: dirname(fx.unitFile) }))
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+      const log = readFileSync(fx.privLog, 'utf8')
+      expect(log).toContain(dirname(fx.unitFile))
+      expect(log).not.toContain('restart')
+      // A refused write is a no-op: the operator's unit is byte for byte intact.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(stale)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('systemd down with a unit already on disk aborts (that unit governs the next boot)', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      rewriteStub(fx, 'systemctl', SYSTEMCTL_STUB_OFFLINE)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe('# stale pre-binary unit\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a failed daemon-reload aborts too — a restart would apply the old body', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      rewriteStub(fx, 'systemctl', SYSTEMCTL_STUB_RELOAD_FAILS)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+      expect(res.stderr).toContain('daemon-reload')
+      // The unit on disk IS the refreshed one here, so the remedy must not
+      // install the unit over itself.
+      expect(readFileSync(fx.unitFile, 'utf8')).toContain(
+        `Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`,
+      )
+      expect(res.stderr).not.toContain('sudo install')
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('restart')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('the failure names what failed, the line at stake, and a remedy that works', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      rewriteStub(fx, 'cp', makeCpFailingInDir(dirname(fx.unitFile)))
+      const res = runUpdate(fx, ['--yes'])
+      const err = res.stderr
+      // What failed, in words an operator can act on.
+      expect(err).toContain(fx.unitFile)
+      expect(err).toContain(`Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      expect(err).toContain('ERR_DLOPEN_FAILED')
+      // The remedy must point at a file that really exists and really carries
+      // the line, not just at words.
+      const saved = err.match(/rendered:\s*(\S+)/)?.[1]
+      expect(saved, `no rendered-unit path in:\n${err}`).toBeTruthy()
+      expect(readFileSync(saved!, 'utf8')).toContain(
+        `Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`,
+      )
+      expect(err).toContain('sudo install')
+      expect(err).toContain('daemon-reload')
+      // The rollback block still ships: the payload is already swapped, and
+      // migrations are forward-only.
+      expect(err).toContain('update did not finish cleanly')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('no unit on disk and no systemd is NOT fatal — there is nothing stale to refresh', () => {
+    // The counter-test that keeps the rule honest: a --no-service / container
+    // binary install has no unit to go stale, so the update must still succeed.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      rewriteStub(fx, 'systemctl', SYSTEMCTL_STUB_OFFLINE)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done.')
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  // ── a value the render REFUSES reports recovery like every other failure ──
+  // #1096 F3. render_systemd_unit() guards the substituted values (a trailing
+  // backslash folds the next directive away, a newline forges one), and until
+  // this task the guard ended in `error`, which is exit(1). It runs inside
+  // refresh_unit — AFTER the payload has been swapped — so main()'s
+  //   if ! refresh_unit; then print_recovery; error …
+  // never ran: the operator got no rollback block, no "a re-run will not fix
+  // this" warning, and a re-run reported the version as already up to date
+  // without touching the unit. The exit code was right; the report was missing.
+  test('a refused value aborts with the recovery block, not a bare exit', () => {
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      const stale = '# stale pre-binary unit\n'
+      writeFileSync(fx.unitFile, stale)
+      // A DATA_DIR ending in a backslash: `ReadWritePaths=/opt/x /var/lib/y\`
+      // CONTINUES onto the next line, so PrivateTmp=true is absorbed into it.
+      // Same refusal, same fail-closed exit, as a newline.
+      setAppEnv(fx, 'DATA_DIR', `${join(fx.root, 'data')}\\`)
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+
+      // THE FINDING. The recovery block, exactly as every other failure prints.
+      expect(res.stderr).toContain('update did not finish cleanly')
+      expect(res.stderr).toContain('rollback:')
+      // …and the warning that the unit on disk is not this update's unit.
+      expect(res.stderr).toContain('systemd unit NOT refreshed')
+      expect(res.stderr).toContain('DATA_DIR')
+      expect(res.stderr).toContain(`Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      expect(res.stderr).toContain('ERR_DLOPEN_FAILED')
+      // …and the trap a re-run walks into, which is why the remedy is not
+      // "just re-run".
+      expect(res.stderr).toContain('already up to date')
+
+      // The state this is about, asserted rather than assumed: the payload IS
+      // swapped (so the rollback block is the honest output), the unit is NOT
+      // touched, and the service is not restarted on a unit that cannot load it.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(stale)
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('restart')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('the refused-value remedy is actionable, because a re-run cannot fix it', () => {
+    // The two halves of the trap, pinned: the re-run really does refuse to fix
+    // the unit, and the message says what to do instead of sending the operator
+    // into that re-run.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, '# stale pre-binary unit\n')
+      setAppEnv(fx, 'DATA_DIR', `${join(fx.root, 'data')}\\`)
+
+      const first = runUpdate(fx, ['--yes'])
+      expect(first.status, first.stderr).toBe(1)
+      expect(first.stderr).toContain('fix the value named above')
+      // Nothing to install over the installed one: the refusal happens before
+      // any unit text is written, so the message must not name a rendered file.
+      expect(first.stderr).toContain('no file to install over the installed one')
+      expect(first.stderr).not.toMatch(/sudo install -m 644 \S+/)
+
+      const second = runUpdate(fx, ['--yes'])
+      expect(second.status, second.stderr).toBe(0)
+      expect(second.stdout).toContain('Already up to date')
+      // …and the unit is still the stale one: the trap the remedy must route
+      // around rather than tell the operator to walk into.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe('# stale pre-binary unit\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── Source mode ──────────────────────────────────────────────────────────────
+
+/**
+ * A DIST=source install: a real clone sitting at v0.7.1 whose origin carries a
+ * newer stable tag, plus the installed-layout state dir. REQUIRES_BUN=no keeps
+ * the fixture off `bun install` — the unit decision does not depend on it.
+ */
+function seedSourceUpdate() {
+  const origin = seedTwoStableTagsRepo('v0.7.1', 'v0.8.0', {
+    'package.json': '{"name":"synaptomind","version":"0.7.1"}',
+  })
+  const root = mkTempTree('synapto-src-')
+  const installDir = join(root, 'opt', U_APP)
+  const runDir = join(root, 'run')
+  const stubsDir = join(root, 'stubs')
+  const privLog = join(root, 'privileged.log')
+  const unitFile = join(root, 'unit', `${U_APP}.service`)
+  mkdirSync(join(root, 'unit'), { recursive: true })
+  mkdirSync(join(runDir, 'scripts'), { recursive: true })
+  mkdirSync(join(runDir, 'hooks'), { recursive: true })
+  mkdirSync(stubsDir, { recursive: true })
+  writeFileSync(privLog, '')
+
+  const clone = spawnSync('git', ['clone', '-q', origin, installDir], { encoding: 'utf8' })
+  expect(clone.status, clone.stderr).toBe(0)
+  // Park the installed checkout on the OLD tag, so the run is a real upgrade.
+  const co = spawnSync('git', ['-C', installDir, 'checkout', '-q', '--force', 'v0.7.1'], {
+    encoding: 'utf8',
+  })
+  expect(co.status, co.stderr).toBe(0)
+
+  for (const f of ['update.sh', 'updater.sh', 'uninstall.sh']) {
+    cpSync(join(import.meta.dir, f), join(runDir, 'scripts', f))
+  }
+  for (const f of ['pre-update', 'post-update']) {
+    cpSync(join(import.meta.dir, 'hooks', f), join(runDir, 'hooks', f))
+    chmodSync(join(runDir, 'hooks', f), 0o755)
+  }
+  cpSync(join(import.meta.dir, 'lib', 'common.sh'), join(runDir, 'scripts', 'common.sh'))
+
+  const guard = [`"${root}"/*|"${root}"/*`, `"${tmpdir()}"/*|"${tmpdir()}"/*`].join('|')
+  writeFileSync(join(stubsDir, 'sudo'), makeGuardedSudo(privLog, guard))
+  writeFileSync(join(stubsDir, 'systemctl'), SYSTEMCTL_STUB)
+  for (const s of ['sudo', 'systemctl']) chmodSync(join(stubsDir, s), 0o755)
+  const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
+  writeFileSync(
+    join(stubsDir, 'curl'),
+    [
+      '#!/usr/bin/env bash',
+      'for a in "$@"; do case "$a" in */health) printf \'%s\' "$FAKE_HEALTH_BODY"; exit 0 ;; esac; done',
+      `exec ${realCurl} "$@"`,
+    ].join('\n'),
+  )
+  chmodSync(join(stubsDir, 'curl'), 0o755)
+
+  const env = {
+    APP_NAME: U_APP,
+    APP_DESC: 'Synaptomind — thought-graph engine',
+    DIST: 'source',
+    INSTALL_DIR: installDir,
+    DATA_DIR: join(root, 'data'),
+    RUN_DIR: runDir,
+    PORT: '3999',
+    RELEASES_BASE: '',
+    RELEASE_API: '',
+    ASSET_PATTERN: "'${APP_NAME}-${TAG}-${OS}-${ARCH}.tar.gz'",
+    APP_VERSION_CMD: "'${BIN} --version'",
+    CHECKOUT_POLICY: 'stable',
+    REQUIRES_BUN: 'no',
+    SYSTEM_DEP_CMDS: '',
+    SERVICE_USER: '',
+    SEED_FILES: 'config.json.example:config.json .env.example:.env',
+    GENERATE_SECRET_IN: '.env',
+    HOOKS_DIR: '',
+    UNIT_FILE: unitFile,
+    HEALTH_URL: 'http://127.0.0.1:1/health',
+    HEALTH_TIMEOUT: '1',
+    HEALTH_CONFIRM_TIMEOUT: '2',
+  }
+  writeFileSync(
+    join(runDir, 'scripts', 'app.env'),
+    Object.entries(env)
+      .map(([k, v]) => (k === 'ASSET_PATTERN' || k === 'APP_VERSION_CMD' ? `${k}=${v}` : `${k}="${v}"`))
+      .join('\n') + '\n',
+  )
+
+  const healthBody = JSON.stringify({
+    status: 'ok',
+    version: '0.8.0',
+    checks: { database: 'ok', embedder: 'ok' },
+  })
+  return { root, origin, stubsDir, installDir, runDir, privLog, unitFile, healthBody, guard }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  updater.sh in DIST=binary — the two changes ADR 0001 §2.9 sanctions and
+//  nothing else: the DIST guard must accept `binary`, and the version read must
+//  prefer app_version. The frozen contract (path, flags, exit codes,
+//  stable-only) is untouched and still asserted by the suites above.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — source mode delivers the restart policy surgically', () => {
+  // Production is DIST=source (ExecStart=bun run start), so refresh_unit()'s
+  // source-mode early return — correct while the rendered body was identical for
+  // source mode — made the template's Restart= line undeliverable to exactly the
+  // hosts that had the outage. ensure_restart_policy() therefore rewrites ONE
+  // line in place instead of re-rendering, which is what keeps the hand-edit
+  // invariant of the block above intact.
+
+  const HAND_EDITED = [
+    '[Unit]',
+    'Description=Synaptomind — thought-graph engine (v0.7.1)',
+    'Group=opencode',
+    'StartLimitIntervalSec=60',
+    '',
+    '[Service]',
+    'Type=simple',
+    'Environment=HAND_EDITED=yes',
+    'ExecStart=/usr/local/bin/bun run start',
+    'Restart=on-failure',
+    'RestartSec=5',
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+    '',
+  ].join('\n')
+
+  test('a source update rewrites only the Restart= line and keeps every hand edit', () => {
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      expect(unit).toContain('\nRestart=always\n')
+      expect(unit).not.toContain('Restart=on-failure')
+      // The whole point of the surgical path: the operator's unit survives.
+      expect(unit).toContain('Description=Synaptomind — thought-graph engine (v0.7.1)')
+      expect(unit).toContain('Group=opencode')
+      expect(unit).toContain('Environment=HAND_EDITED=yes')
+      expect(unit).toContain('ExecStart=/usr/local/bin/bun run start')
+      // Exactly one Restart directive — a second one would win in systemd.
+      expect(unit.split('\n').filter((l) => /^Restart=/.test(l))).toHaveLength(1)
+      expect(res.stdout).toContain('now carries Restart=always (was: Restart=on-failure)')
+      // systemd must read it, and only then does the restart apply it.
+      expect(readFileSync(fx.privLog, 'utf8')).toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a unit already on Restart=always is not rewritten and does not daemon-reload', () => {
+    // Idempotency: an update that changed nothing must not spend a privileged
+    // write plus a daemon-reload on every run.
+    const fx = seedSourceUpdate()
+    try {
+      const already = HAND_EDITED.replace('Restart=on-failure', 'Restart=always')
+      writeFileSync(fx.unitFile, already)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(already)
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a unit with no Restart= line is left byte-identical and the remedy is named', () => {
+    // Nothing is ever INSERTED: where the directive belongs is not something to
+    // guess, and a comment-only unit must survive untouched. This is the same
+    // invariant the "source mode leaves the unit alone" block asserts, reached
+    // through a real update instead of an aborted one.
+    const fx = seedSourceUpdate()
+    try {
+      const unit = '# hand-edited source unit\n[Service]\nExecStart=/usr/local/bin/bun run start\n'
+      writeFileSync(fx.unitFile, unit)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(unit)
+      expect(res.stderr).toContain('it declares no Restart= line')
+      expect(res.stderr).toContain('Restart=always')
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a unit that cannot be rewritten warns and still lets the update succeed', () => {
+    // Never fatal, unlike refresh_unit() in binary mode: an undelivered restart
+    // policy leaves a running service, whereas failing here would block updates
+    // on an otherwise healthy host.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      writeFileSync(
+        join(fx.stubsDir, 'sudo'),
+        makeGuardedSudo(fx.privLog, fx.guard, { refuse: ['cp'] }),
+      )
+      chmodSync(join(fx.stubsDir, 'sudo'), 0o755)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done. Now at 0.8.0.')
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(HAND_EDITED)
+      expect(res.stderr).toContain('Restart policy unchanged')
+      expect(res.stderr).toContain('Restart=on-failure')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a unit with no Restart= line keeps the invariant its name claims', () => {
+    // The case the deleted "source mode leaves the unit alone" block used to
+    // stand for, but it asserted only that the update exits 0 — it passed
+    // because its fixture unit had no Restart= line, so it could not have
+    // detected a re-render. Here the unit is a REAL one that lacks the
+    // directive, so the bytes on disk after the run are the claim.
+    const fx = seedSourceUpdate()
+    try {
+      const unit = '# hand-edited source unit\n[Service]\nExecStart=/usr/local/bin/bun run start\n'
+      writeFileSync(fx.unitFile, unit)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done. Now at 0.8.0.')
+      // Nothing was ever inserted: where the directive belongs is not guessed.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(unit)
+      expect(res.stderr).toContain('it declares no Restart= line')
+      const log = readFileSync(fx.privLog, 'utf8')
+      expect(log).not.toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+//  The write to the LIVE unit: atomic, recoverable, and honest about the file
+//  on disk. Every test here reproduced a defect in the first version of
+//  ensure_restart_policy (d9ff4bb, review of #1082) — a truncated unit reported
+//  as unchanged, a widened mode, an unreadable unit misreported, and a
+//  last-wins duplicate that skipped the update silently.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — the restart-policy write is atomic and honest', () => {
+  const HAND_EDITED = [
+    '[Unit]',
+    'Description=Synaptomind — thought-graph engine (v0.7.1)',
+    'Group=opencode',
+    'StartLimitIntervalSec=60',
+    '',
+    '[Service]',
+    'Type=simple',
+    'Environment=HAND_EDITED=yes',
+    'ExecStart=/usr/local/bin/bun run start',
+    'Restart=on-failure',
+    'RestartSec=5',
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+    '',
+  ].join('\n')
+
+  /**
+   * A `cp` that dies after truncating its destination, the way cp(1) behaves
+   * when the write fails with ENOSPC/EIO or the process is killed mid-copy.
+   * Every other cp in the run passes through, so only the unit write fails.
+   * Installed INTO the fixture root (not the repo), never system-wide.
+   */
+  function breakCpForTheUnit(fx: ReturnType<typeof seedSourceUpdate>): void {
+    const real = spawnSync('bash', ['-c', 'command -v cp'], { encoding: 'utf8' }).stdout.trim()
+    const p = join(fx.stubsDir, 'cp')
+    writeFileSync(
+      p,
+      [
+        '#!/usr/bin/env bash',
+        // Every cp aimed at the unit's own directory dies after truncating:
+        // the staged body and the .bak copy. Every other cp passes through, so
+        // the rest of the update still runs for real.
+        `dst="\${@: -1}"; src="\${@: -2:1}"`,
+        `case "$dst" in ${dirname(fx.unitFile)}/*) ;; *) exec ${real} "$@" ;; esac`,
+        ': > "$dst"                     # cp(1) opens the destination O_TRUNC...',
+        'head -c 24 "$src" > "$dst"     # ...and only part of the payload lands',
+        'echo "cp: error writing $dst: No space left on device" >&2',
+        'exit 1',
+      ].join('\n'),
+    )
+    chmodSync(p, 0o755)
+  }
+
+  test('a copy that dies partway leaves the live unit intact and reports the real state', () => {
+    // The counterexample from the review: the unit went 711 -> 24 bytes while
+    // stderr said "Restart policy unchanged ... it still says
+    // Restart=on-failure" — both halves false, the file no longer contained
+    // Restart= at all, and the staged good copy was then deleted.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      breakCpForTheUnit(fx)
+      const res = runUpdate(fx, ['--yes'])
+      // Never fatal: a running service beats a blocked update.
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).toContain('Done. Now at 0.8.0.')
+      // The unit is BYTE-IDENTICAL: not truncated, not half-written.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(HAND_EDITED)
+      // And the message describes that file, not the one we meant to write.
+      expect(res.stderr).toContain('Restart policy unchanged')
+      expect(res.stderr).toContain('Restart=on-failure')
+      expect(res.stderr).toContain('was NOT touched')
+      // systemd must not be told to reload a unit that did not change.
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a successful rewrite keeps the previous unit as <unit>.bak', () => {
+    // The binary path keeps a `saved=` artifact for exactly this case
+    // (refresh_unit); a plain re-run cannot fix a bad refresh because main()'s
+    // "already up to date" guard returns first, so the operator needs the old
+    // file as a file.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(readFileSync(fx.unitFile, 'utf8')).toContain('\nRestart=always\n')
+      const backup = `${fx.unitFile}.bak`
+      expect(existsSync(backup), 'the pre-change unit must be recoverable').toBe(true)
+      expect(readFileSync(backup, 'utf8')).toBe(HAND_EDITED)
+      expect(res.stdout).toContain('previous unit kept at')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a hand-edited unit keeps its mode instead of being widened to 644', () => {
+    // cp -f over an EXISTING file does not change its mode, so the old chmod 644
+    // bought nothing and only ever widened a unit that may carry
+    // Environment= secrets — which is the case this function exists to serve.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      chmodSync(fx.unitFile, 0o600)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(readFileSync(fx.unitFile, 'utf8')).toContain('\nRestart=always\n')
+      expect(statSync(fx.unitFile).mode & 0o777).toBe(0o600)
+      // The recovery copy is a copy of the operator's file, mode and all.
+      expect(statSync(`${fx.unitFile}.bak`).mode & 0o777).toBe(0o600)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('an unreadable unit is reported as unreadable, not as declaring no Restart= line', () => {
+    // The greps used to swallow their errors (2>/dev/null, || true), so a
+    // mode-000 unit produced an empty result and was reported as declaring no
+    // Restart= line — with a remedy (edit the unit) the operator cannot apply
+    // for the very permission reason that made it unreadable.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      chmodSync(fx.unitFile, 0o000)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stderr).toContain('could not be READ')
+      // The distinction the fix exists for: a read FAILURE is not an ABSENCE.
+      expect(res.stderr).not.toContain('it declares no Restart= line')
+      expect(res.stderr).not.toContain('add \'Restart=always\' under [Service]')
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('daemon-reload')
+      chmodSync(fx.unitFile, 0o644)
+      // Nothing was written, so the file is still the operator's byte for byte.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(HAND_EDITED)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a duplicate Restart= line is judged on the EFFECTIVE one (last wins)', () => {
+    // The idempotency grep matched Restart=anywhere=always, so a unit with
+    // `Restart=always` followed by `Restart=no` exited 0 silently: no write, no
+    // warning, and the effective policy stayed `no` — the exact outage shape
+    // this change exists to prevent.
+    const fx = seedSourceUpdate()
+    try {
+      const dup = HAND_EDITED.replace('Restart=on-failure', 'Restart=always\nRestart=no')
+      writeFileSync(fx.unitFile, dup)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      // Collapsed onto the policy we want, so last-wins cannot pick `no`.
+      expect(unit.split('\n').filter((l) => /^Restart=/.test(l))).toEqual(['Restart=always'])
+      // The message names the effective directive it replaced.
+      expect(res.stdout).toContain('was: Restart=no')
+      expect(readFileSync(fx.privLog, 'utf8')).toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('an already-correct unit is left byte-identical with no .bak and no reload', () => {
+    const fx = seedSourceUpdate()
+    try {
+      const already = HAND_EDITED.replace('Restart=on-failure', 'Restart=always')
+      writeFileSync(fx.unitFile, already)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(already)
+      // Idempotent means no privileged write at all: no backup, no reload.
+      expect(existsSync(`${fx.unitFile}.bak`)).toBe(false)
+      expect(readFileSync(fx.privLog, 'utf8')).not.toContain('daemon-reload')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('every rewrite leaves exactly one Restart= line, hand edits intact', () => {
+    // The surgical invariant, on a unit whose edits must all survive: the
+    // rewrite is a rename onto a sed'd body, so nothing else can drift.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      expect(unit.split('\n').filter((l) => /^Restart=/.test(l))).toEqual(['Restart=always'])
+      for (const kept of [
+        'Description=Synaptomind — thought-graph engine (v0.7.1)',
+        'Group=opencode',
+        'Environment=HAND_EDITED=yes',
+        'ExecStart=/usr/local/bin/bun run start',
+        'StartLimitIntervalSec=60',
+      ]) {
+        expect(unit, kept).toContain(kept)
+      }
+      // Only the Restart= line changed, byte for byte.
+      expect(unit.replace('Restart=always', 'Restart=on-failure')).toBe(HAND_EDITED)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('no staging file is left in the unit directory', () => {
+    // The staged copy lives BESIDE the unit (a rename only stays atomic within
+    // one filesystem), so it must not survive the run: systemd scans that
+    // directory, and a leftover .synaptomind.service.new.* is litter that the
+    // next update would trip over.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const leftovers = readdirSync(dirname(fx.unitFile)).filter((f) => f.includes('.new.'))
+      expect(leftovers).toEqual([])
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  // ── task #1094: the same block, for the two paths #1092's diff never
+  // reached, plus the staging-file hazards its own fix left behind. Each test
+  // below reproduces a counterexample measured against cc15c74; the same
+  // fixture now serves as the direction control for the new code.
+  //
+  // The staging file is a dot-file whose name systemd never loads, and it now
+  // lives in THREE places: the unit swap, the unit's .bak recovery copy (which
+  // is itself written through the same atomic path, so a .bak is never a
+  // truncated file), and — via the shared mechanism — both binary-mode writes.
+  const SECRETED = [
+    '[Unit]',
+    'Description=Synaptomind — thought-graph engine (v0.7.1)',
+    '',
+    '[Service]',
+    'Type=simple',
+    'Environment=SYNAPTOMIND_API_TOKEN=super-secret-value',
+    'ExecStart=/usr/local/bin/bun run start',
+    'Restart=on-failure',
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+    '',
+  ].join('\n')
+
+  /** Every leftover staging file in the unit directory, with its mode. */
+  function stagedLeftovers(unit: string): { name: string; mode: number; body: string }[] {
+    return readdirSync(dirname(unit))
+      .filter((f) => f.includes('.new.'))
+      .map((name) => {
+        const p = join(dirname(unit), name)
+        return { name, mode: statSync(p).mode & 0o777, body: readFileSync(p, 'utf8') }
+      })
+  }
+
+  test('a FAILED stage leaves no partial staging file in the unit directory', () => {
+    // cc15c74's failure branch removed only $tmpdir, so a partial
+    // .synaptomind.service.new.$$ survived: the reviewer's run left 6 of them,
+    // one per update.sh process, and systemd logged "Failed to prepare filename
+    // ... Invalid argument" for each. The old test above covers only the success
+    // path — a green suite proved nothing about the branch that actually fails.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, HAND_EDITED)
+      breakCpForTheUnit(fx)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      // The stage FAILED (cp died), and the directory is still clean.
+      expect(stagedLeftovers(fx.unitFile), 'a failed stage must clean up after itself').toEqual([])
+      expect(readdirSync(dirname(fx.unitFile))).toEqual([`${U_APP}.service`])
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a partial stage of a 600 unit never exposes Environment= secrets', () => {
+    // The optional security finding from the #1093 re-review, reproduced with
+    // the shape it needs: a 600 unit carrying a secret, a write that dies
+    // partway. cc15c74 staged with `cp -p` from an awk redirect, so the staging
+    // file inherited 644 (umask 022) and `chmod "$mode"` ran only AFTER a
+    // successful stage — leaving the first bytes of a root-only unit readable by
+    // anyone, in /etc/systemd/system in production. The pre-fix code leaked it
+    // too; only this shape exposes it.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, SECRETED)
+      chmodSync(fx.unitFile, 0o600)
+      breakCpForTheUnit(fx)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      for (const leftover of stagedLeftovers(fx.unitFile)) {
+        // Nothing is left at all (the stronger property), and if a future
+        // change ever does leave a fragment it must not be group/other-readable.
+        expect(leftover.mode & 0o077, `${leftover.name} must not be world-readable`).toBe(0)
+        expect(leftover.body).not.toContain('super-secret-value')
+      }
+      // The live unit is byte-identical, and still 600.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(SECRETED)
+      expect(statSync(fx.unitFile).mode & 0o777).toBe(0o600)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a successful rewrite keeps a 600 unit at 600 and secrets out of the .bak', () => {
+    // The success path of the same property: the mode is the OPERATOR's, the
+    // .bak is a copy of their file (mode and all), and neither is widened.
+    const fx = seedSourceUpdate()
+    try {
+      writeFileSync(fx.unitFile, SECRETED)
+      chmodSync(fx.unitFile, 0o600)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      expect(unit).toContain('\nRestart=always\n')
+      expect(statSync(fx.unitFile).mode & 0o777).toBe(0o600)
+      const backup = `${fx.unitFile}.bak`
+      expect(readFileSync(backup, 'utf8')).toBe(SECRETED)
+      expect(statSync(backup).mode & 0o777).toBe(0o600)
+      expect(stagedLeftovers(fx.unitFile)).toEqual([])
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a symlinked unit is written THROUGH, not replaced by a regular file', () => {
+    // The third #1093 finding, and a deliberate decision rather than an
+    // accident: `systemctl link` puts a symlink in /etc/systemd/system, and the
+    // operator edits the real file elsewhere. cc15c74's `mv -f` replaced the
+    // LINK with a regular file — silently changing the unit's shape, orphaning
+    // the file systemd was NOT loading — and `stat -c %a` without -L reported
+    // the link's own mode (777, a symlink always is), so the resulting unit
+    // landed world-writable and systemd warned about it. DECIDED: follow the
+    // link and swap the file it points at; the link survives.
+    //
+    // Production's unit is a regular file (verified), so this is about not
+    // surprising an operator who linked one.
+    const fx = seedSourceUpdate()
+    const real = join(fx.root, 'linked', `${U_APP}.service`)
+    try {
+      mkdirSync(join(fx.root, 'linked'), { recursive: true })
+      writeFileSync(real, HAND_EDITED)
+      chmodSync(real, 0o600)
+      // seedSourceUpdate() does not pre-create the unit, so rmSync needs force.
+      rmSync(fx.unitFile, { force: true })
+      symlinkSync(real, fx.unitFile)
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      // The link is still a link...
+      expect(lstatSync(fx.unitFile).isSymbolicLink(), 'the link must survive the rewrite').toBe(true)
+      // ...and the update landed in the file it points at.
+      expect(readFileSync(real, 'utf8')).toContain('\nRestart=always\n')
+      // Mode is the TARGET's (600), not the link's own 777.
+      expect(statSync(real).mode & 0o777).toBe(0o600)
+      // And the operator is told their link was followed, not silently ignored.
+      expect(res.stdout).toContain('is a link; wrote through it to')
+      // A .bak beside the link is a plain file (nothing linked it), and its mode
+      // is the unit's own — not 777.
+      const backup = `${fx.unitFile}.bak`
+      expect(lstatSync(backup).isSymbolicLink()).toBe(false)
+      expect(statSync(backup).mode & 0o777).toBe(0o600)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+
+  test('a dangling link is not silently replaced by a regular file', () => {
+    // The corner the follow-the-link decision has to answer. write_file_atomically
+    // replaces a DANGLING link on purpose — there is no file to write through
+    // and nothing that could be reading it — and says so. This path never
+    // reaches it: ensure_restart_policy returns early on a unit it cannot READ,
+    // and a dangling link is exactly that. The link must still be there.
+    const fx = seedSourceUpdate()
+    try {
+      mkdirSync(join(fx.root, 'linked'), { recursive: true })
+      rmSync(fx.unitFile, { force: true })
+      symlinkSync(join(fx.root, 'linked', 'gone.service'), fx.unitFile)
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stderr + res.stdout).toBe(0)
+      expect(res.stdout).not.toContain('wrote through it to')
+      expect(lstatSync(fx.unitFile).isSymbolicLink(), 'a dangling link must be reported, not reshaped').toBe(true)
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+      rmSync(fx.origin, { recursive: true, force: true })
+    }
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+//  The binary-mode write: `cp -f "$tmp" "$unit" && run_root chmod 644 "$unit"`
+//  (update.sh refresh_unit) — the SAME O_TRUNC-over-the-live-unit pattern and
+//  the same forced 644 that was a blocker in #1092, at an entry point outside
+//  that diff. app.env ships DIST="binary", so a fresh 0.9.0 install lands here
+//  and so does every binary-mode update.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — the binary-mode unit refresh is atomic too', () => {
+  /** A pre-binary unit: hand-edited, with a secret, at mode 600. */
+  const STALE_SECRETED = [
+    '# stale pre-binary unit, hand-edited',
+    '[Unit]',
+    'Description=Synaptomind — thought-graph engine (v0.7.1)',
+    '',
+    '[Service]',
+    'Type=simple',
+    'Environment=SYNAPTOMIND_API_TOKEN=super-secret-value',
+    `ExecStart=/opt/synaptomind/synaptomind`,
+    'Restart=on-failure',
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+    '',
+  ].join('\n')
+
+  /**
+   * A `cp` that dies after truncating its destination, aimed at the unit
+   * directory only, so the payload swap and the rest of the update still run for
+   * real. Installed into the fixture's stubs, never system-wide.
+   */
+  function breakCpForTheUnitDir(fx: ReturnType<typeof seedBinaryUpdate>): void {
+    const real = spawnSync('bash', ['-c', 'command -v cp'], { encoding: 'utf8' }).stdout.trim()
+    writeFileSync(
+      join(fx.stubsDir, 'cp'),
+      [
+        '#!/usr/bin/env bash',
+        `dst="\${@: -1}"; src="\${@: -2:1}"`,
+        `case "$dst" in ${dirname(fx.unitFile)}/*) ;; *) exec ${real} "$@" ;; esac`,
+        ': > "$dst"                     # cp(1) opens the destination O_TRUNC...',
+        'head -c 24 "$src" > "$dst"     # ...and only part of the payload lands',
+        'echo "cp: error writing $dst: No space left on device" >&2',
+        'exit 1',
+      ].join('\n'),
+    )
+    chmodSync(join(fx.stubsDir, 'cp'), 0o755)
+  }
+
+  test('a copy that dies partway leaves the installed unit byte-identical', () => {
+    // The counterexample, measured: the 265 B unit became 24 B ("[Unit]" /
+    // "Description=Synap") while the message said the unit was "left unchanged"
+    // and pointed the operator at a remedy. The refresh is fatal in binary mode,
+    // so the run must still abort — but it must abort with the operator's unit
+    // intact and the message true.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, STALE_SECRETED)
+      chmodSync(fx.unitFile, 0o600)
+      breakCpForTheUnitDir(fx)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+      expect(res.stdout).not.toContain('Done.')
+      // The unit is NOT a 24-byte stub any more.
+      expect(readFileSync(fx.unitFile, 'utf8')).toBe(STALE_SECRETED)
+      expect(statSync(fx.unitFile).mode & 0o777).toBe(0o600)
+      // No staging litter in the unit directory either.
+      expect(readdirSync(dirname(fx.unitFile)).filter((f) => f.includes('.new.'))).toEqual([])
+      // The payload swap still happened; only the unit refresh failed.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a successful refresh keeps the replaced unit as <unit>.bak', () => {
+    // The rendered unit replaces a hand-edited one on a binary refresh, so the
+    // body it replaces is kept: main()'s "Already up to date" guard returns
+    // before refresh_unit is reached again, so a plain re-run cannot fix a bad
+    // refresh. The .bak is written through the same atomic path, so it is a
+    // complete copy rather than a fragment.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      writeFileSync(fx.unitFile, STALE_SECRETED)
+      chmodSync(fx.unitFile, 0o600)
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(0)
+      const unit = readFileSync(fx.unitFile, 'utf8')
+      expect(unit).toContain(`Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`)
+      // The old 644 is not imposed on a 600 unit, and the recovery copy keeps
+      // the operator's file, mode and all.
+      expect(statSync(fx.unitFile).mode & 0o777).toBe(0o600)
+      const backup = `${fx.unitFile}.bak`
+      expect(readFileSync(backup, 'utf8')).toBe(STALE_SECRETED)
+      expect(statSync(backup).mode & 0o777).toBe(0o600)
+      expect(readdirSync(dirname(fx.unitFile)).filter((f) => f.includes('.new.'))).toEqual([])
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+
+  test('a symlinked unit is written through, not replaced at mode 777', () => {
+    // Same decision as in the source-mode block, on the path a binary install
+    // takes. Measured against cc15c74: the link became a regular file and the
+    // unit landed mode 777 (stat -c '%a' without -L reports the link's own
+    // mode), which systemd warns about as world-writable.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    const real = join(fx.root, 'linked', `${U_APP}.service`)
+    try {
+      mkdirSync(join(fx.root, 'linked'), { recursive: true })
+      writeFileSync(real, STALE_SECRETED)
+      // seedSourceUpdate() does not pre-create the unit, so rmSync needs force.
+      rmSync(fx.unitFile, { force: true })
+      symlinkSync(real, fx.unitFile)
+
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(0)
+      expect(lstatSync(fx.unitFile).isSymbolicLink(), 'the link must survive the refresh').toBe(true)
+      expect(readFileSync(real, 'utf8')).toContain(
+        `Environment=LD_LIBRARY_PATH=${fx.installDir}/lib`,
+      )
+      // The target's own mode, never the link's 777.
+      expect(statSync(real).mode & 0o777).toBe(0o644)
+      expect(res.stdout).toContain('is a link; wrote through it to')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('updater.sh — DIST=binary bootstrap', () => {
+  test('the DIST guard accepts binary (it used to reject everything but source)', () => {
+    const repo = seedSingleTagRepo('v0.8.0', {
+      'deploy/update.sh': makeTrackingUpdateSh(),
+      'deploy/lib/common.sh': MINIMAL_COMMON_SH,
+      'package.json': '{"name":"synaptomind","version":"0.7.0"}',
+    })
+    setupBootstrap({ repoUrl: 'file://' + repo, overrides: { DIST: 'binary' } })
+    const artifact = join(FIXTURE_DIR, 'args.txt')
+    const res = runUpdater(['--yes'], undefined, { UPDATER_ARTIFACT: artifact })
+    expect(res.stderr).not.toContain('updater supports DIST=source only')
+    expect(res.status, res.stderr + '\n' + res.stdout).toBe(0)
+    expect(readFileSync(artifact, 'utf8')).toContain('v0.8.0')
+  })
+
+  test('an unknown DIST is still refused, naming both valid values', () => {
+    const repo = seedSingleTagRepo('v0.8.0', {
+      'deploy/update.sh': makeTrackingUpdateSh(),
+      'deploy/lib/common.sh': MINIMAL_COMMON_SH,
+      'package.json': '{"name":"synaptomind","version":"0.7.0"}',
+    })
+    setupBootstrap({ repoUrl: 'file://' + repo, overrides: { DIST: 'tarball' } })
+    const res = runUpdater(['--yes'])
+    expect(res.status).toBe(1)
+    expect(res.stderr).toContain('DIST=source or DIST=binary')
+  })
+
+  test('current_version prefers app_version for a binary install (offline, no HTTP)', () => {
+    // app_version returns a v-PREFIXED string; the mark and the printed messages
+    // must strip it, or the current version never matches in the menu.
+    const fakeInstall = mkTempTree('synapto-binver-')
+    writeFileSync(join(fakeInstall, 'synaptomind'), '#!/bin/sh\necho "synaptomind v0.7.4"\n')
+    chmodSync(join(fakeInstall, 'synaptomind'), 0o755)
+
+    // current_version() is updater.sh's own, so probe the REAL function instead of
+    // a copy: extract it from the real script by sourcing a prefix of it.
+    const realUpdater = readFileSync(join(import.meta.dir, 'updater.sh'), 'utf8')
+    const fnStart = realUpdater.indexOf('current_version() {')
+    const fnEnd = realUpdater.indexOf('\n}\n', fnStart) + 3
+    expect(fnStart, 'current_version() not found in updater.sh').toBeGreaterThan(-1)
+    const script = join(FIXTURE_DIR, 'probe.sh')
+    const helper = join(FIXTURE_DIR, 'common-with-app-version.sh')
+    writeFileSync(helper, MINIMAL_COMMON_SH_WITH_APP_VERSION)
+    // probe.sh: source the helpers, define the REAL current_version, run it.
+    writeFileSync(
+      script,
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        'APP_NAME="synaptomind"',
+        'DIST="binary"',
+        `APP_VERSION_CMD='\${BIN} --version'`,
+        'HEALTH_URL="http://127.0.0.1:1/health"',
+        '. "$1"',
+        'INSTALL_DIR="$2"',
+        realUpdater.slice(fnStart, fnEnd),
+        'CURRENT="$(current_version)"',
+        'printf \'CURRENT=%s\\n\' "$CURRENT"',
+        // The menu marker compares a v-stripped tag against the raw value.
+        'printf \'MENU=%s\\n\' "$([ "${CURRENT#v}" = "0.7.4" ] && echo yes || echo no)"',
+        // The old comparison, unnormalised, must NOT match — that is the bug.
+        'printf \'OLD_MARKER=%s\\n\' "$([ "0.7.4" = "$CURRENT" ] && echo yes || echo no)"',
+      ].join('\n'),
+    )
+    const res = spawnSync('bash', [script, helper, fakeInstall], {
+      encoding: 'utf8',
+    })
+    expect(res.status, res.stderr).toBe(0)
+    // No HTTP fallback needed: the binary answered, v-prefixed.
+    expect(res.stdout).toContain('CURRENT=v0.7.4')
+    // ${CURRENT#v} matches a v-stripped tag (the fixed marker)…
+    expect(res.stdout).toContain('MENU=yes')
+    // …while the old unnormalised comparison does not — that was the bug.
+    expect(res.stdout).toContain('OLD_MARKER=no')
+    rmSync(fakeInstall, { recursive: true, force: true })
+  })
+})
+
+/** MINIMAL_COMMON_SH plus app_version — what current_version() needs in binary mode. */
+const MINIMAL_COMMON_SH_WITH_APP_VERSION =
+  MINIMAL_COMMON_SH +
+  '\n' +
+  [
+    'app_version() {',
+    '  local bin="$1" out cmd',
+    '  cmd="${APP_VERSION_CMD:-\\${BIN} --version}"',
+    '  out="$(BIN="$bin" sh -c "$cmd" 2>/dev/null || true)"',
+    '  out="${out%%$\'\\n\'*}"',
+    '  printf \'%s\' "${out#"${APP_NAME}" }"',
+    '}',
+  ].join('\n')

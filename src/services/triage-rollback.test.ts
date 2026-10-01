@@ -251,7 +251,10 @@ describe('rollback: manifest order', () => {
     applyProposal(early.id, { confirm: true, now: '2026-03-01T00:00:00.000Z', runId: RUN_ID }, db)
 
     // `late` was applied most recently, so it must be reverted first.
-    const dry = rollback(RUN_ID, { confirm: false })
+    // `now` is injected: the F-14 window is measured against the rollback
+    // clock, so inheriting the wall clock would make this order test
+    // wall-clock dependent (and eventually out of window).
+    const dry = rollback(RUN_ID, { confirm: false, now: NOW_LATER })
     expect(dry.items.map(item => item.proposal_id)).toEqual([late.id, early.id])
 
     const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
@@ -270,7 +273,7 @@ describe('rollback: manifest order', () => {
     updateProposalState(db, stillPending.id, { state: 'pending', run_id: RUN_ID })
     applyProposal(applied.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
 
-    const report = rollback(RUN_ID, { confirm: false })
+    const report = rollback(RUN_ID, { confirm: false, now: NOW_LATER })
     expect(report.items.map(item => item.proposal_id)).toEqual([applied.id])
     assertStillPending(db, stillPending.id)
   })
