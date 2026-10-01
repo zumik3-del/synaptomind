@@ -299,7 +299,13 @@ function seedBinaryTree(
         '  esac',
         'done',
         'case "${1:-}" in',
-        '  touch|chmod|cp|mv|rm|install) ;;',
+        // systemctl is allowed so `sudo systemctl …` resolves to THIS fixture\'s
+        // stub rather than being refused. install_service/start_and_verify route
+        // daemon-reload, enable and start through run_root, so refusing it would
+        // make the privileged log indistinguishable from "the stub was never
+        // reached" — the very distinction a test that must prove no REAL
+        // systemctl ran depends on.
+        '  touch|chmod|cp|mv|rm|install|systemctl) ;;',
         '  *) echo "STUB: refused command ${1:-}" >&2; exit 99 ;;',
         'esac',
         'exec "$@"',
@@ -842,25 +848,50 @@ describe('install.sh — DIST=binary tarball install', () => {
    * every other invocation reach the real curl, so the file:// release
    * download still happens for real.
    */
-  function stubHealthy(stubsDir: string, version: string): void {
+  function stubHealth(stubsDir: string, body: string, log?: string): void {
     const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
     const p = join(stubsDir, 'curl')
-    writeFileSync(
-      p,
-      [
-        '#!/usr/bin/env bash',
-        'for a in "$@"; do',
-        '  case "$a" in',
-        '    */health)',
-        `      printf '%s' '{"status":"ok","version":"${version}","checks":{"database":"ok","embedder":"ok"}}'`,
-        '      exit 0 ;;',
-        '  esac',
-        'done',
-        `exec ${realCurl} "$@"`,
-      ].join('\n'),
-    )
+    const lines = ['#!/usr/bin/env bash', 'for a in "$@"; do', '  case "$a" in', '    */health)']
+    // Record what was served BEFORE answering. A stub that cannot record is
+    // worse than no stub: an assertion that "the health check was consulted"
+    // then holds vacuously, because a stub that was never reached and one that
+    // was reached but wrote nothing are indistinguishable (a harness that could
+    // not record was found doing exactly that in this directory the day before).
+    if (log) {
+      lines.push(`      printf '%s %s\\n' "$a" ${JSON.stringify(body)} >> ${JSON.stringify(log)}`)
+    }
+    // JSON.stringify because the file is a bash program: the body's own double
+    // quotes have to be escaped for bash, and its escaping undone on the way out.
+    lines.push(`      printf '%s' ${JSON.stringify(body)}`, '      exit 0 ;;', '  esac', 'done')
+    lines.push(`exec ${realCurl} "$@"`)
+    writeFileSync(p, lines.join('\n'))
     chmodSync(p, 0o755)
   }
+
+  function healthyBody(version: string): string {
+    return JSON.stringify({ status: 'ok', version, checks: { database: 'ok', embedder: 'ok' } })
+  }
+
+  function stubHealthy(stubsDir: string, version: string): void {
+    stubHealth(stubsDir, healthyBody(version))
+  }
+
+  /**
+   * Rewrite the lib/common.sh COPY inside a scratch tree. Same contract as
+   * mutateInstallScript, for the shared gate helper: the mutation exists only
+   * inside the fixture the current test already cleans up, and an absent target
+   * throws rather than turning the proof into a silent no-op.
+   */
+  function mutateCommonScript(deployDir: string, from: string, to: string): void {
+    const path = join(deployDir, 'lib', 'common.sh')
+    const src = readFileSync(path, 'utf8')
+    if (!src.includes(from)) {
+      throw new Error(`mutation target absent from common.sh: ${JSON.stringify(from)}`)
+    }
+    writeFileSync(path, src.replace(from, to))
+  }
+
+
 
   test('a copy that dies partway leaves the existing unit byte-identical', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
@@ -1255,6 +1286,299 @@ describe('install.sh — DIST=binary tarball install', () => {
     expect(existsSync(join(mutRoot, 'opt'))).toBe(true)
     const mutated = seededConfig(mutRoot)
     expect(mutated.mcp.httpPort).toBe(mutated.server.port)
+  }, 90_000)
+
+  //  install.sh's OWN health gate — start_and_verify (task #1087)
+  //
+  //  Task #1083 covered wait_health's failure path, but every install.sh test
+  //  that installs a service stubs a HEALTHY /health, and every test that
+  //  doesn't is `--no-service` — so start_and_verify returned at install.sh:495
+  //  (or :496, with no unit installed) and the block at 498-501, the variable it
+  //  sets and the `error` that reads it at 609-611, had no test at all. An
+  //  install whose service came up unhealthy was
+  //  untested end to end: nothing proved the run exits non-zero, and nothing
+  //  proved it stops short of the success marker.
+  //
+  //  Reaching it needs a fixture where a unit CAN be written and a start CAN be
+  //  issued, and neither may touch the host. This host is the reason that is not
+  //  a formality: /etc/systemd/system/synaptomind.service EXISTS here, owned by
+  //  root, and the production service runs as the same unprivileged user as this
+  //  suite (AGENTS.md §8 — a real `sudo systemctl` is one SIGTERM from taking the
+  //  live service down). So the boundary is enforced three ways, and the third
+  //  is asserted rather than assumed:
+  //    1. UNIT_FILE redirects the unit into the fixture's own root.
+  //    2. A sudo stub stands in for sudo on PATH and refuses every absolute path
+  //       outside the fixture root and $TMPDIR, so the REAL sudo never runs
+  //       (a PATH stub does not cover sudo's own secure PATH — it is not reached
+  //       at all, because the stub answers the call first).
+  //    3. `sudo systemctl …` execs into THIS fixture's systemctl stub, which
+  //       logs and exits 0. The priv log therefore carries two lines per call —
+  //       one from the sudo stub, one from the systemctl stub — and the second
+  //       is only there if the stub, not systemd, handled it.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /** The one privileged call every service install makes, as the log records it. */
+  const systemctlStartLine = 'systemctl start synaptomind'
+
+  /** The lines of the privileged log, one per run_root/systemctl invocation. */
+  function privCalls(sudoLog: string): string[] {
+    const raw = readFileSync(sudoLog, 'utf8').trim()
+    if (!raw) return []
+    // Each stub logs its own $0, so a line opens with the stub's PATH. Reduce it
+    // to the command name: what is under assertion is WHICH command ran, not
+    // where the stub that recorded it happens to live.
+    return raw.split('\n').map((l) => l.replace(/^\S*\/(sudo|systemctl)(?=\s|$)/, '$1'))
+  }
+
+  /**
+   * Every absolute path any privileged call named, as an ARGUMENT — the leading
+   * command name is dropped, because that is the stub's own path and asserting
+   * on it would say nothing about what the call touched.
+   */
+  function privPaths(sudoLog: string): string[] {
+    return privCalls(sudoLog)
+      .flatMap((line) => line.split(' ').slice(1))
+      .filter((arg) => arg.startsWith('/'))
+  }
+
+  /**
+   * wait_health's /health contract check, exactly as it reads in lib/common.sh.
+   *
+   * The gate the install's own start_and_verify depends on, quoted here so the
+   * non-vacuity test below can weaken it and prove the assertion went with it.
+   * Spelled one source line per entry, so it can be diffed against common.sh by
+   * eye; mutateCommonScript throws if the text is ever absent, so a reformat
+   * cannot quietly turn the proof into a no-op.
+   */
+  const CONTRACT_CHECK = [
+    '      if [ -n "$status" ] && [ -n "$version" ] \\',
+    '        && { [ "$status" = "ok" ] || [ "$status" = "degraded" ]; }; then',
+  ].join('\n')
+
+  /** The /health samples the stub actually served, in order. */
+  function healthSamples(log: string): string[] {
+    if (!existsSync(log)) return []
+    const raw = readFileSync(log, 'utf8').trim()
+    return raw ? raw.split('\n') : []
+  }
+
+  /**
+   * A binary install that installs a real (fixture-local) unit and polls a
+   * /health that answers `body`. The only thing a caller varies is the payload
+   * the endpoint reports.
+   */
+  function healthGateTree(root: string, releases: string, body: string, healthLog: string) {
+    seedRelease(releases, 'v0.8.0', stubPayload('v0.8.0'))
+    const unitFile = join(root, 'unit', `${APP}.service`)
+    mkdirSync(join(root, 'unit'), { recursive: true })
+    const tree = seedBinaryTree(root, {
+      releasesBase: `file://${releases}`,
+      appEnv: { UNIT_FILE: unitFile, APP_DESC: 'Synaptomind — thought-graph engine' },
+      // The unit write goes through write_file_atomically → run_root, so the
+      // sudo stub has to execute for the service path to be exercised at all.
+      execSudo: true,
+    })
+    stubHealth(tree.stubsDir, body, healthLog)
+    return { ...tree, unitFile }
+  }
+
+  test('a /health that passes lets the install finish and report Done', () => {
+    // The control, and it is not optional. Without it, "exits non-zero" in the
+    // test below could be produced by ANY earlier failure in the run — a
+    // refused unit write, an unseeded payload — and would still be green. This
+    // run is byte-identical in setup and passes, so the non-zero below is the
+    // gate and nothing else.
+    const tree = healthGateTree(
+      ROOT,
+      RELEASES,
+      healthyBody('0.8.0'),
+      join(ROOT, 'health.log'),
+    )
+
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0',
+    ])
+    expect(res.status, res.stdout + res.stderr).toBe(0)
+    // The gate really ran and really passed: the endpoint was polled, and the
+    // version it reported is the one install.sh was expecting.
+    expect(healthSamples(join(ROOT, 'health.log'))).toHaveLength(1)
+    expect(res.stdout).toContain('Done.')
+    expect(res.stderr).not.toContain('did not pass the health check')
+    // The service was installed, not skipped — otherwise the gate was skipped
+    // with it and this control would prove nothing.
+    expect(res.stdout).toContain(`Service:    ${tree.unitFile}`)
+    expect(existsSync(tree.unitFile)).toBe(true)
+  }, 60_000)
+
+  test('a /health that reports failed: the install exits non-zero and never says Done', () => {
+    // The gap. install.sh:498-501 records HEALTH_OK=false; :609-611 turns that
+    // into `error`, i.e. exit 1, before the success marker is reached.
+    //
+    // A body a STATUS-ONLY read would have accepted is used on purpose: it
+    // answers, it is well-formed JSON, it even carries the right version, and
+    // only the contract (status ∈ {ok,degraded} AND a version) rejects it. The
+    // companion non-vacuity test below reverts the gate to a status-only read
+    // and shows this same install reporting success.
+    const healthLog = join(ROOT, 'health.log')
+    const body = JSON.stringify({
+      status: 'failed',
+      version: '0.8.0',
+      checks: { database: 'ok', embedder: 'ok' },
+    })
+    const tree = healthGateTree(ROOT, RELEASES, body, healthLog)
+
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0',
+    ])
+
+    // Non-zero, and for the named reason — not some unrelated failure earlier in
+    // the run. The healthy control above runs the same tree shape and exits 0.
+    expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
+    expect(res.stderr).toContain('installed but the service did not pass the health check')
+    // The success marker is the thing the gate withholds.
+    expect(res.stdout).not.toContain('Done.')
+    // Characterising, because "prints no success summary" is narrower in fact
+    // than in the phrasing: print_summary runs at install.sh:608 BEFORE the gate
+    // is read at :609, so the "=== … installed ===" block is still emitted. What
+    // the gate withholds is the completion marker, not the operator's summary of
+    // what got installed. Pinned so the ordering is a stated fact about this
+    // script instead of something a reader has to infer — and so moving
+    // print_summary after the gate surfaces here as a deliberate diff.
+    expect(res.stdout).toContain(`=== ${APP} installed ===`)
+    // And the failure is attributed to the CONTRACT, with the reason in the
+    // message, rather than a bare timeout an operator cannot act on.
+    expect(res.stderr).toContain('not with a synaptomind /health payload')
+    // The endpoint was reached: a status-only read needs a non-empty status, so
+    // a run that never polled anything would satisfy the mutation too.
+    expect(healthSamples(healthLog)).toHaveLength(1)
+    expect(healthSamples(healthLog)[0]).toContain(body)
+    // The payload is still fully installed — the gate reports an install that did
+    // not come up healthy, it does not pretend the install itself was refused.
+    expect(existsSync(join(ROOT, 'opt', APP, APP))).toBe(true)
+  }, 60_000)
+
+  test('a /health reporting a different version fails the gate by naming both versions', () => {
+    // The other arm the contract check exists for, and the one a status-only read
+    // also waves through: status ok, a version present — just not the payload
+    // this run installed.
+    const tree = healthGateTree(
+      ROOT,
+      RELEASES,
+      healthyBody('0.7.9'),
+      join(ROOT, 'health.log'),
+    )
+
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0',
+    ])
+    expect(res.status, res.stdout + res.stderr).toBe(1)
+    expect(res.stderr).toContain('reports version 0.7.9, expected 0.8.0')
+    expect(res.stdout).not.toContain('Done.')
+  }, 60_000)
+
+  test('reaching the gate writes a unit and issues a start only inside the fixture', () => {
+    // The boundary, asserted rather than assumed — this host has a real
+    // /etc/systemd/system/synaptomind.service, so "the fixture does not touch
+    // it" is a claim that has to be checked, not a comment.
+    const tree = healthGateTree(
+      ROOT,
+      RELEASES,
+      healthyBody('0.8.0'),
+      join(ROOT, 'health.log'),
+    )
+
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0',
+    ])
+    expect(res.status, res.stdout + res.stderr).toBe(0)
+
+    const calls = privCalls(tree.sudoLog)
+    // `sudo systemctl start` was issued…
+    expect(calls).toContain(`sudo ${systemctlStartLine}`)
+    // …and the SECOND line is the systemctl stub's own. It is only reachable by
+    // exec'ing the stub, so its presence is the proof that no real systemctl
+    // handled the start. A refused call would have produced only the first line.
+    expect(calls).toContain(systemctlStartLine)
+    // The unit was written, and at the fixture's path: the write path is
+    // exercised for real, so this is a sandbox, not a bypass.
+    expect(existsSync(tree.unitFile)).toBe(true)
+    expect(readFileSync(tree.unitFile, 'utf8')).toContain(
+      `Environment=LD_LIBRARY_PATH=${join(ROOT, 'opt', APP)}/lib`,
+    )
+    // Every path any privileged call named is inside the fixture root, or the
+    // mktemp -d render directory install.sh stages the unit through. Nothing
+    // else: /etc/systemd/system is the path this assertion exists to exclude,
+    // and a stray absolute path is the way that would be reached.
+    // mktemp -d renders the unit to /tmp/tmp.XXXXXXXXXX/ before it is staged, so
+    // the render directory itself and the file inside it are both legitimate.
+    const renderDir = /^\/tmp\/tmp\.[A-Za-z0-9]+(\/|$)/
+    for (const p of privPaths(tree.sudoLog)) {
+      expect(
+        p.startsWith(`${ROOT}/`) || renderDir.test(p),
+        `privileged call touched a path outside the fixture: ${p}`,
+      ).toBe(true)
+    }
+    expect(readFileSync(tree.sudoLog, 'utf8')).not.toContain('/etc/systemd')
+  }, 60_000)
+
+  test('reverting the gate to a status-only read makes this install report success (non-vacuity)', () => {
+    // The proof that the assertions above are load-bearing. A green run of them
+    // is not that evidence; this is: with the contract check weakened to "any
+    // non-empty status", the SAME install — same payload, same fixture, same
+    // `status: failed` body — stops being a failure. So the exit code, the
+    // stderr message and the absent `Done.` in the test above are all decided by
+    // the gate, and each would be reported as a failure by a reviewer running
+    // this tree.
+    //
+    // Two independent scratch trees against one release, as the other
+    // non-vacuity tests here do: real vs mutated.
+    const realRoot = join(ROOT, 'real')
+    const mutRoot = join(ROOT, 'mut')
+    mkdirSync(realRoot, { recursive: true })
+    mkdirSync(mutRoot, { recursive: true })
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const body = JSON.stringify({
+      status: 'failed',
+      version: '0.8.0',
+      checks: { database: 'ok', embedder: 'ok' },
+    })
+    const real = healthGateTree(realRoot, RELEASES, body, join(realRoot, 'health.log'))
+    const mut = healthGateTree(mutRoot, RELEASES, body, join(mutRoot, 'health.log'))
+
+    // The mutation: wait_health's contract check, reduced to a status-only read —
+    // a body counts as this app's /health if it carries any `status` field at
+    // all, with no value constraint and no `version` requirement. This is the
+    // check the comment above the helper calls out as load-bearing ("Without the
+    // version arm … anything else on the port passed as 'Service is healthy'").
+    //
+    // The target is spelled as it reads in common.sh, one source line per array
+    // entry, because it is copied from that file: a template literal would have
+    // to escape every `$`, and the escapes are what make a mutation target
+    // unverifiable by eye against the file it claims to quote.
+    mutateCommonScript(mut.deployDir, CONTRACT_CHECK, '      if [ -n "$status" ]; then')
+
+    const args = ['--version', 'v0.8.0']
+    const realRes = runBinaryInstall(real.deployDir, real.stubsDir, real.sudoLog, args)
+    const mutRes = runBinaryInstall(mut.deployDir, mut.stubsDir, mut.sudoLog, args)
+
+    // Shipped: the gate refuses a `status: failed` payload.
+    expect(realRes.status, realRes.stdout + realRes.stderr).toBe(1)
+    expect(realRes.stdout).not.toContain('Done.')
+    // Mutated: the exact opposite of every assertion in the test above — exit 0,
+    // the success marker printed, and no gate error. The version arm is also
+    // gone, so the same tree would wave through a stranger on the port; that is
+    // the point of the mutation, not a second thing to fix here.
+    expect(mutRes.status, mutRes.stdout + mutRes.stderr).toBe(0)
+    expect(mutRes.stdout).toContain('Done.')
+    expect(mutRes.stderr).not.toContain('did not pass the health check')
+    // Both trees polled the same single sample, so the pair differs only in the
+    // gate and not in how much of the health window each run saw.
+    expect(healthSamples(join(realRoot, 'health.log'))).toHaveLength(1)
+    expect(healthSamples(join(mutRoot, 'health.log'))).toHaveLength(1)
   }, 90_000)
 })
 
