@@ -308,8 +308,11 @@ describe('F-14 AC-5: unmeasurable decided_at', () => {
   })
 
   test('an unparseable rollback clock fails closed instead of throwing', () => {
-    // Documented deviation from spec §3.4: a malformed caller `now` (POST
-    // /proposals) is refused, not turned into a RangeError/500.
+    // `now` is a test seam, not a public surface: RollbackOptions calls it a
+    // deterministic clock override (placement-apply.types.ts:118) and neither
+    // POST /proposals/rollback nor memory_review forwards one, so this suite is
+    // the only way in — and windowRefusal must still refuse a malformed clock
+    // (placement-rollback.service.ts:56) rather than raise a RangeError/500.
     const db = getDb()
     const source = seedThought({ id: 'f14-5-now-s', content: 'bad clock src', status: 'draft', created_at: NOW })
     const rowId = acceptedTriageRow(db, 'triage_activate', source)
