@@ -2,13 +2,17 @@ import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { installCleanup, mkTempTree } from './tmp-fixtures'
+import { guardRealStateDir, installCleanup, mkTempTree } from './tmp-fixtures'
 
 // Every scratch tree here comes from mkTempTree, so the sweep removes it even if
 // a test throws before its own finally. The per-test try/finally pairs are kept
 // (they release earlier; the sweep is `force`, so the second removal is a
 // no-op). See tmp-fixtures.ts for why ownership belongs to the creator.
 installCleanup()
+// Tripwire for #1101: this suite sources the real lib/common.sh, which carries
+// resolve_target_user()'s getent-first resolution — the mechanism that wrote
+// into the operator's real ~/.synaptomind. The tripwire fails the run if it moves.
+guardRealStateDir()
 
 // render_systemd_unit() (deploy/lib/common.sh) is the ONLY place a unit body is
 // produced — install.sh and update.sh's refresh_unit() both call it. So the

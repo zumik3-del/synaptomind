@@ -507,7 +507,39 @@ HEALTH_OK=true
 start_and_verify() {
   if [ "$NO_SERVICE" = true ]; then info "Skipping service start (--no-service)"; return 0; fi
   if [ "$SERVICE_INSTALLED" != true ]; then return 0; fi
-  run_root systemctl start "$APP_NAME" || true
+  # `restart`, NOT `start` (task #1103).
+  #
+  # `systemctl start` on an ALREADY ACTIVE unit is a documented no-op: the
+  # running process is left exactly as it is. So `install.sh --force` over a
+  # live service wrote the new payload and the new unit, then asked systemd to
+  # start a unit that was already running — and the OLD process went on serving.
+  # Measured on the real 0.9.0 cutover (2026-10-01): the install reported
+  # `Installed /opt/synaptomind/synaptomind (0.9.0)`, rendered the new unit, and
+  # then failed its own health gate with `/health reports version 0.8.0, expected
+  # 0.9.0` — MainPID unchanged, NRestarts=0. The gate was RIGHT; the start was the
+  # silent part, and the install only took effect once an operator ran
+  # `systemctl restart` by hand.
+  #
+  # Why `restart` and not the alternatives:
+  #   * `try-restart` is a no-op on an INACTIVE unit, so a FIRST install would
+  #     never come up and the gate would time out on a service that was never
+  #     asked to start. That is the wrong trade for a first install.
+  #   * `stop` + `start` reaches the same end state through two privileged calls
+  #     and leaves a window in which nothing is serving — during exactly the
+  #     window in which the health gate starts polling. `restart` is one call,
+  #     so systemd orders stop-then-start itself, and the unit comes up whether
+  #     or not it was active: that is what makes it correct for both paths.
+  if run_root systemctl restart "$APP_NAME"; then
+    # Wording is deliberate: this line reports the systemctl call's outcome, NOT
+    # that the service is healthy. The health gate below is the authority, and it
+    # prints AFTER print_summary — so on the failure path the operator sees this
+    # line, then the === … installed === block, then the gate error.
+    info "Restarted ${APP_NAME} onto the installed payload (the health check below decides whether it came up)"
+  else
+    # Not fatal here: the gate below is the authority on whether the service came
+    # up, and this message says which step to look at when it did not.
+    warn "systemctl restart ${APP_NAME} failed — the health check below decides whether this install took effect"
+  fi
   if ! wait_health "$HEALTH_URL" "$EXPECTED_VERSION" "$HEALTH_TIMEOUT"; then
     HEALTH_OK=false
     warn "check: journalctl -u ${APP_NAME} -n 100 --no-pager"

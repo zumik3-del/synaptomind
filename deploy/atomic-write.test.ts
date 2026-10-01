@@ -13,12 +13,16 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import { installCleanup, mkTempTree } from './tmp-fixtures'
+import { guardRealStateDir, installCleanup, mkTempTree } from './tmp-fixtures'
 
 // seed()'s scratch tree is owned by mkTempTree, so the sweep removes it even
 // when a test throws mid-run. The per-test try/finally pairs stay (they release
 // earlier; the sweep is `force`). See tmp-fixtures.ts.
 installCleanup()
+// Tripwire for #1101: this suite sources the real lib/common.sh, which carries
+// resolve_target_user()'s getent-first resolution — the mechanism that wrote
+// into the operator's real ~/.synaptomind. The tripwire fails the run if it moves.
+guardRealStateDir()
 
 // write_file_atomically() (deploy/lib/common.sh) is the ONE mechanism every unit
 // write goes through — install.sh's install_service, update.sh's refresh_unit and

@@ -16,13 +16,17 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { installCleanup, mkTempTree } from './tmp-fixtures'
+import { guardRealStateDir, installCleanup, isolatedEnv, mkTempTree } from './tmp-fixtures'
 
 // Temp-tree ownership: the sweep removes every tree mkTempTree hands out, after
 // each test including one that throws. This file's own afterEach hooks are kept
 // (they release earlier, and the sweep is `force`), but no tree depends on a
 // call site remembering them — see tmp-fixtures.ts.
 installCleanup()
+// Fingerprint the operator's real ~/.synaptomind for the whole file: this is
+// the check that would have caught #1101, which overwrote the production
+// app.env while every assertion in this file stayed green.
+guardRealStateDir()
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -73,18 +77,35 @@ afterEach(() => {
   rmSync(FIXTURE_DIR, { recursive: true, force: true })
 })
 
+/**
+ * The environment for a spawn of install.sh.
+ *
+ * Built by isolatedEnv(), so RUN_DIR and every other state-derived path are
+ * pinned inside FIXTURE_DIR. Before task #1104 this spread `...process.env` with
+ * NO RUN_DIR at all, which meant these spawns resolved RUN_DIR through
+ * resolve_target_user() → `getent passwd` → the operator's REAL
+ * ~/.synaptomind. The piped runs below happen to abort before
+ * install_helper_scripts() (the stub curl refuses app.env), and `--help` aborts
+ * in parse_args — so nothing was written on those paths by luck of ordering, not
+ * by construction. A fixture that survives one reordering of main() would have
+ * overwritten the production config.
+ */
 function testEnv(extra: Record<string, string> = {}): Record<string, string> {
-  const env = { ...process.env } as Record<string, string | undefined>
-  // The derivation only applies when these are absent — drop any inherited value.
-  delete env.LIB_RAW_URL
-  delete env.APP_ENV_URL
-  delete env.DEPLOY_RAW_URL
+  const env = isolatedEnv(FIXTURE_DIR, extra) as Record<string, string | undefined>
+  // The derivation only applies when these are INHERITED values, so the deletes
+  // run against the parent environment BEFORE `extra` is merged in — otherwise a
+  // test that deliberately sets APP_ENV_URL has its own override deleted and
+  // silently asserts on the derived default instead (which is how
+  // 'an explicit APP_ENV_URL wins over the derived default' broke when this
+  // helper moved to isolatedEnv).
+  for (const key of ['LIB_RAW_URL', 'APP_ENV_URL', 'DEPLOY_RAW_URL']) {
+    if (!(key in extra)) delete env[key]
+  }
   return {
     ...env,
     PATH: `${STUB_BIN}:${process.env.PATH}`,
     STUB_CURL_LOG: CURL_LOG,
     STUB_CURL_SERVE_COMMON: REAL_COMMON_SH,
-    ...extra,
   } as Record<string, string>
 }
 
@@ -222,6 +243,95 @@ function mutateInstallScript(deployDir: string, from: string, to: string): void 
 }
 
 /**
+ * A systemctl stub that MODELS a unit instead of just recording the argv.
+ *
+ * WHY THIS EXISTS. The 0.9.0 defect is invisible to a logging stub: `systemctl
+ * start` and `systemctl restart` both "succeed" against a stub that exits 0, so
+ * a test could only ever assert which WORD was used. The defect is not the word —
+ * it is that `start` on an ALREADY ACTIVE unit is a no-op, so the process that
+ * goes on serving is the OLD one. Modelling that needs state:
+ *
+ *   <stateDir>/running  the version the currently-serving process reports. It is
+ *                       read from the payload ON DISK at the moment of the
+ *                       (re)start, which is what ExecStart does — so replacing
+ *                       the binary without re-launching leaves the old string
+ *                       here, exactly as the old process kept answering on the
+ *                       real 0.9.0 cutover.
+ *   <stateDir>/active   the unit exists and is running.
+ *   <stateDir>/events   one line per verb, so a test can assert a no-op as an
+ *                       OBSERVED event rather than infer it.
+ *
+ * `is-active` answers the real exit code (3 = inactive), which is the part of
+ * the interface a `--no-service`-style caller branches on.
+ *
+ * The paths are baked in rather than passed through the environment: a stub that
+ * silently found no state directory would answer "not running" to everything and
+ * every assertion built on it would pass for the wrong reason — the failure mode
+ * that produced two vacuous tests in this directory in the two days before
+ * task #1103.
+ */
+function statefulSystemctlStub(opts: { stateDir: string; payload: string }): string {
+  const { stateDir, payload } = opts
+  const state = (f: string) => JSON.stringify(join(stateDir, f))
+  const bin = JSON.stringify(payload)
+  return [
+    '#!/usr/bin/env bash',
+    // The privileged log is still written: the boundary assertions in this file
+    // depend on every call being recorded, state or no state.
+    'printf \'%s\' "$0" >> "$STUB_PRIV_LOG"',
+    'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done',
+    'printf \'\\n\' >> "$STUB_PRIV_LOG"',
+    'mkdir -p ' + JSON.stringify(stateDir),
+    // What a fresh ExecStart of the on-disk payload would serve. Deliberately
+    // NOT the tag install.sh was asked for: this is the payload, which is the
+    // whole distinction the cutover turned on.
+    'launch() {',
+    `  v="$(${bin} --version 2>/dev/null | awk '{print $2}')"`,
+    `  printf '%s' "\${v#v}" > ${state('running')}`,
+    `  : > ${state('active')}`,
+    `  printf '%s launched %s\\n' "\${1}" "\${v#v}" >> ${state('events')}`,
+    '}',
+    'case "${1:-}" in',
+    '  is-system-running) echo running ;;',
+    '  is-active) if [ -f ' + state('active') + ' ]; then exit 0; else exit 3; fi ;;',
+    // The no-op under test. Real systemd leaves a running unit untouched.
+    '  start)',
+    '    if [ -f ' + state('active') + ' ]; then',
+    `      printf 'start NO-OP already active, still serving %s\\n' "$(cat ${state('running')})" >> ${state('events')}`,
+    '    else',
+    '      launch start',
+    '    fi ;;',
+    // The other rejected alternative: a no-op when the unit is NOT running, so a
+    // first install never comes up. Modelled so the choice is testable, not just
+    // asserted in a comment.
+    '  try-restart)',
+    '    if [ -f ' + state('active') + ' ]; then launch try-restart;',
+    `    else printf 'try-restart NO-OP unit inactive, nothing started\\n' >> ${state('events')}; fi ;;`,
+    '  restart) launch restart ;;',
+    '  stop)',
+    `    rm -f ${state('active')} ${state('running')}`,
+    `    printf 'stop\\n' >> ${state('events')}`,
+    '    ;;',
+    'esac',
+    'exit 0',
+  ].join('\n')
+}
+
+/** The version the process currently serving would report; '' when nothing is. */
+function servingVersion(stateDir: string): string {
+  const f = join(stateDir, 'running')
+  return existsSync(f) ? readFileSync(f, 'utf8') : ''
+}
+
+/** One line per systemctl verb the stub handled, in order. */
+function unitEvents(stateDir: string): string[] {
+  const f = join(stateDir, 'events')
+  if (!existsSync(f)) return []
+  const raw = readFileSync(f, 'utf8').trim()
+  return raw ? raw.split('\n') : []
+}
+
+/**
  * Lay out <root>/<tag>/<asset> as a release directory and tar it into a payload
  * with a single top-level directory, mirroring the published asset.
  */
@@ -258,13 +368,27 @@ function seedRelease(
  */
 function seedBinaryTree(
   root: string,
-  opts: { releasesBase: string; appEnv?: Record<string, string>; execSudo?: boolean },
-): { deployDir: string; stubsDir: string; sudoLog: string } {
+  opts: {
+    releasesBase: string
+    appEnv?: Record<string, string>
+    execSudo?: boolean
+    /**
+     * Make the systemctl stub STATEFUL: it models an installed unit's active
+     * state and the version of the payload a running process was started from.
+     * See stubUnitStateSystemctl — this is what lets a test say "the old
+     * process survived" as an OBSERVED fact rather than as a claim about the
+     * words on the command line.
+     */
+    unitState?: boolean
+  },
+): { deployDir: string; stubsDir: string; sudoLog: string; stateDir: string } {
   const deployDir = join(root, 'deploy')
   const stubsDir = join(root, 'stubs')
   const sudoLog = join(root, 'privileged.log')
+  const stateDir = join(root, 'unitstate')
   cpSync(join(import.meta.dir), deployDir, { recursive: true })
   mkdirSync(stubsDir, { recursive: true })
+  mkdirSync(stateDir, { recursive: true })
   writeFileSync(sudoLog, '')
 
   // sudo/systemctl stubs: log and exit 0. Nothing privileged is ever executed —
@@ -285,6 +409,17 @@ function seedBinaryTree(
       'printf \'\\n\' >> "$STUB_PRIV_LOG"',
     ]
     if (name === 'systemctl') {
+      if (opts.unitState) {
+        writeFileSync(
+          stub,
+          statefulSystemctlStub({
+            stateDir,
+            payload: join(root, 'opt', APP, APP),
+          }),
+        )
+        chmodSync(stub, 0o755)
+        continue
+      }
       lines.push('[ "$1" = "is-system-running" ] && echo running', 'exit 0')
     } else if (opts.execSudo) {
       lines.push(
@@ -363,21 +498,39 @@ function seedBinaryTree(
       .map(([k, v]) => `${k}=${SINGLE_QUOTED.has(k) ? `'${v}'` : `"${v}"`}`)
       .join('\n') + '\n',
   )
-  return { deployDir, stubsDir, sudoLog }
+  return { deployDir, stubsDir, sudoLog, stateDir }
 }
 
-/** Run install.sh from the scratch tree. Never passes --no-service implicitly. */
-function runBinaryInstall(deployDir: string, stubsDir: string, sudoLog: string, args: string[]) {
+/**
+ * Run install.sh from the scratch tree. Never passes --no-service implicitly.
+ *
+ * `fixtureRoot` is the fixture's own tree, taken from `deployDir`'s parent rather
+ * than from a describe-scoped `let ROOT`: two describes in this file each keep
+ * their own ROOT, and a module-level read of either one is a wiring bug that
+ * only shows up in the other describe. isolatedEnv pins RUN_DIR (and HOOKS_DIR /
+ * UNIT_FILE / DATA_DIR) inside it, so this spawn cannot reach the operator's real
+ * ~/.synaptomind even though resolve_target_user() would otherwise derive it from
+ * `getent passwd` (task #1104). PATH inheritance is kept — the PATH stub is what
+ * makes the sudo/systemctl stubs resolve.
+ */
+function runBinaryInstall(
+  deployDir: string,
+  stubsDir: string,
+  sudoLog: string,
+  args: string[],
+  extraEnv: Record<string, string> = {},
+) {
+  const fixtureRoot = dirname(deployDir)
   return spawnSync('bash', [join(deployDir, 'install.sh'), ...args], {
     encoding: 'utf8',
-    env: {
-      ...process.env,
+    env: isolatedEnv(fixtureRoot, {
       PATH: `${stubsDir}:${process.env.PATH}`,
       STUB_PRIV_LOG: sudoLog,
       // Keep a stray APP_ENV_URL/LIB_RAW_URL from the outer env out of the way.
       APP_ENV_URL: '',
       LIB_RAW_URL: '',
-    },
+      ...extraEnv,
+    }),
     timeout: 60_000,
   })
 }
@@ -711,13 +864,16 @@ describe('install.sh — DIST=binary tarball install', () => {
       appEnv: { CHECKOUT_POLICY: 'dev' },
     })
     // --version short-circuits resolution, so resolution must be exercised.
+    // isolatedEnv, not a bare `...process.env`: this is one of the two spawn
+    // sites in this file that never went through testEnv(), and it is exactly
+    // the shape that let #1101 write to the operator's real app.env. The root
+    // is derived from deployDir so this stays correct in whichever describe runs.
     const res = spawnSync('bash', [join(deployDir, 'install.sh'), '--no-service'], {
       encoding: 'utf8',
-      env: {
-        ...process.env,
+      env: isolatedEnv(dirname(deployDir), {
         PATH: `${stubsDir}:${process.env.PATH}`,
         STUB_PRIV_LOG: sudoLog,
-      },
+      }),
       timeout: 60_000,
     })
     expect(res.status).toBe(1)
@@ -880,6 +1036,49 @@ describe('install.sh — DIST=binary tarball install', () => {
 
   function stubHealthy(stubsDir: string, version: string): void {
     stubHealth(stubsDir, healthyBody(version))
+  }
+
+  /**
+   * A /health whose answer is whatever the stateful systemctl stub says is
+   * SERVING — so the endpoint and the unit model cannot drift apart, and a test
+   * observes the real consequence of a no-op (`/health` keeps answering with the
+   * old version) instead of asserting on the word "restart".
+   *
+   * When nothing is running there is no answer at all: curl exits 7 (couldn't
+   * connect), which is what a closed port gives, so `wait_health` sees a silence
+   * and reaches its timeout verdict rather than a fabricated body.
+   */
+  function stubServingHealth(stubsDir: string, stateDir: string, log?: string): void {
+    const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
+    const p = join(stubsDir, 'curl')
+    const running = JSON.stringify(join(stateDir, 'running'))
+    const lines = [
+      '#!/usr/bin/env bash',
+      'for a in "$@"; do',
+      '  case "$a" in',
+      '    */health)',
+      `    if [ ! -f ${running} ]; then`,
+      // rc 7 = CURLE_COULDNT_CONNECT, so an unserved port is unserved.
+      '      printf \'curl: (7) Failed to connect\\n\' >&2',
+      '      exit 7',
+      '    fi',
+      '    v="$(cat ' + running + ')"',
+    ]
+    if (log) {
+      // Recorded before answering, and it records the SERVED version, so a test
+      // can prove which payload the endpoint was asked about and not merely that
+      // something polled it.
+      lines.push(`    printf '%s %s\\n' "$a" "$v" >> ${JSON.stringify(log)}`)
+    }
+    lines.push(
+      `    printf '{"status":"ok","version":"%s","checks":{"database":"ok","embedder":"ok"}}' "$v"`,
+      '    exit 0 ;;',
+      '  esac',
+      'done',
+      `exec ${realCurl} "$@"`,
+    )
+    writeFileSync(p, lines.join('\n'))
+    chmodSync(p, 0o755)
   }
 
   /**
@@ -1323,8 +1522,14 @@ describe('install.sh — DIST=binary tarball install', () => {
   //       is only there if the stub, not systemd, handled it.
   // ══════════════════════════════════════════════════════════════════════════
 
-  /** The one privileged call every service install makes, as the log records it. */
-  const systemctlStartLine = 'systemctl start synaptomind'
+  /**
+   * The one privileged call every service install makes, as the log records it.
+   *
+   * `restart`, not `start` (task #1103): `start` on an already-active unit is a
+   * no-op, so an install over a live service left the old process serving. The
+   * boundary test below asserts this exact call, so it moves with the fix.
+   */
+  const systemctlStartLine = 'systemctl restart synaptomind'
 
   /** The lines of the privileged log, one per run_root/systemctl invocation. */
   function privCalls(sudoLog: string): string[] {
@@ -1586,6 +1791,231 @@ describe('install.sh — DIST=binary tarball install', () => {
     expect(healthSamples(join(realRoot, 'health.log'))).toHaveLength(1)
     expect(healthSamples(join(mutRoot, 'health.log'))).toHaveLength(1)
   }, 90_000)
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  task #1103 — install.sh --force over an ALREADY RUNNING service
+  //
+  //  The real 0.9.0 cutover on 2026-10-01: install.sh reported
+  //  `Installed /opt/synaptomind/synaptomind (0.9.0)`, rendered the new unit,
+  //  and then failed its own health gate with `/health reports version 0.8.0,
+  //  expected 0.9.0` — MainPID unchanged, NRestarts=0. start_and_verify issued
+  //  `systemctl start`, and `start` on an already-active unit is a no-op, so the
+  //  OLD process went on serving while the new payload and unit sat on disk
+  //  unused. The gate was RIGHT. The install only took effect once an operator
+  //  ran `systemctl restart` by hand.
+  //
+  //  Why this block needs a STATEFUL systemctl and not the logging stub: `start`
+  //  and `restart` both exit 0 against a logging stub, so the old code would
+  //  have been indistinguishable from the fix. statefulSystemctlStub models the
+  //  one property under test — a no-op `start` leaves the running payload in
+  //  place — and stubServingHealth answers /health with the version that payload
+  //  reports. So every assertion below is on OBSERVED behaviour: what the
+  //  endpoint served, whether the gate passed, and which verb ran.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const RESTART_CALL = '  if run_root systemctl restart "$APP_NAME"; then'
+
+  /**
+   * A two-install tree: 0.8.0 first (a fresh install, which brings the unit UP),
+   * then 0.9.0 with --force over the service that first install left running —
+   * the production sequence. The unit lives inside the fixture root and the
+   * systemctl stub stands in for systemd, so nothing privileged and nothing
+   * outside the fixture is touched.
+   */
+  function reinstallTree(root: string, releases: string, opts: { mutate?: (deployDir: string) => void } = {}) {
+    seedRelease(releases, 'v0.8.0', stubPayload('v0.8.0'))
+    seedRelease(releases, 'v0.9.0', stubPayload('v0.9.0'))
+    const unitFile = join(root, 'unit', `${APP}.service`)
+    mkdirSync(join(root, 'unit'), { recursive: true })
+    const healthLog = join(root, 'health.log')
+    const tree = seedBinaryTree(root, {
+      releasesBase: `file://${releases}`,
+      appEnv: { UNIT_FILE: unitFile, APP_DESC: 'Synaptomind — thought-graph engine' },
+      // The unit write goes through run_root, so the sudo stub must execute for
+      // the service path to be exercised at all.
+      execSudo: true,
+      unitState: true,
+    })
+    stubServingHealth(tree.stubsDir, tree.stateDir, healthLog)
+    opts.mutate?.(tree.deployDir)
+    return { ...tree, unitFile, healthLog }
+  }
+
+  test('a --force re-install over a RUNNING service brings the new payload up', () => {
+    const tree = reinstallTree(ROOT, RELEASES)
+    const healthLog = tree.healthLog
+
+    // Run 1: the fresh install. The unit is not active yet, so this is also the
+    // FIRST-INSTALL case: whatever verb the fix uses has to start it here.
+    const first = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, ['--version', 'v0.8.0'])
+    expect(first.status, first.stdout + first.stderr).toBe(0)
+    expect(servingVersion(tree.stateDir), 'the first install must have started the unit').toBe('0.8.0')
+    // Run 1's own polls saw 0.8.0 — so the samples asserted below can only be 0.9.0
+    // if run 2 really did put the new payload on the port.
+    const afterFirst = healthSamples(healthLog).length
+    expect(afterFirst).toBeGreaterThan(0)
+    for (const s of healthSamples(healthLog)) expect(s).toContain(' 0.8.0')
+
+    // Run 2: the payload and the unit are replaced under a unit that is already
+    // active. This is where `start` used to no-op.
+    const second = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.9.0',
+      '--force',
+    ])
+
+    // The observable the defect denied: the SERVING payload is the new one.
+    expect(servingVersion(tree.stateDir)).toBe('0.9.0')
+    // And the endpoint agreed — read from what it actually answered, not from
+    // what the payload on disk says. Only run 2's samples, sliced by the count
+    // taken above, and EVERY one of them: the first poll is the one that would
+    // have caught the old process.
+    const all = healthSamples(healthLog)
+    expect(all.length, 'run 2 must have polled /health').toBeGreaterThan(afterFirst)
+    for (const s of all.slice(afterFirst)) expect(s).toContain(' 0.9.0')
+    // Which is why the gate passed and the run reported success — the thing the
+    // 0.9.0 cutover could not do.
+    expect(second.status, second.stdout + second.stderr).toBe(0)
+    expect(second.stdout).toContain('Done.')
+    // The unit was replaced, not skipped: a `start`-only fix would pass the
+    // assertions above with a STALE unit on disk.
+    expect(existsSync(tree.unitFile)).toBe(true)
+    expect(privCalls(tree.sudoLog)).toContain(`sudo ${systemctlStartLine}`)
+  }, 90_000)
+
+  test('reverting restart to start leaves the OLD payload serving (non-vacuity)', () => {
+    // The proof the test above is load-bearing: with the shipped verb reverted to
+    // the `systemctl start` of the 0.9.0 cutover — the SAME two-install sequence,
+    // same payloads, same fixture — the second run no-ops and reproduces the
+    // production failure exactly, gate message included. A green run of the test
+    // above is not that evidence; this is.
+    const realRoot = join(ROOT, 'real')
+    const mutRoot = join(ROOT, 'mut')
+    mkdirSync(realRoot, { recursive: true })
+    mkdirSync(mutRoot, { recursive: true })
+    const real = reinstallTree(realRoot, RELEASES)
+    const mut = reinstallTree(mutRoot, RELEASES, {
+      // The mutation is the historical code, not a weakened gate: the health
+      // check is untouched, so the only variable is the verb that puts the
+      // service on the new payload.
+      mutate: (deployDir) => mutateInstallScript(deployDir, RESTART_CALL, '  if run_root systemctl start "$APP_NAME"; then'),
+    })
+
+    const first = ['--version', 'v0.8.0']
+    expect(runBinaryInstall(real.deployDir, real.stubsDir, real.sudoLog, first).status).toBe(0)
+    expect(runBinaryInstall(mut.deployDir, mut.stubsDir, mut.sudoLog, first).status).toBe(0)
+    // Both trees really did have a RUNNING service before the re-install. Without
+    // this the mutated run could "pass" for the wrong reason — by never having
+    // been in the state the defect needs.
+    expect(servingVersion(real.stateDir)).toBe('0.8.0')
+    expect(servingVersion(mut.stateDir)).toBe('0.8.0')
+
+    const second = ['--version', 'v0.9.0', '--force']
+    const realRes = runBinaryInstall(real.deployDir, real.stubsDir, real.sudoLog, second)
+    const mutRes = runBinaryInstall(mut.deployDir, mut.stubsDir, mut.sudoLog, second)
+
+    // Mutated: the old process survived, and the install failed its own gate with
+    // the message the real cutover produced. The payload on disk IS 0.9.0 — this
+    // is not a failed download being mistaken for a restart problem.
+    expect(servingVersion(mut.stateDir), 'the old process must still be serving').toBe('0.8.0')
+    expect(mutRes.status, mutRes.stdout + mutRes.stderr).toBe(1)
+    expect(mutRes.stderr).toContain('reports version 0.8.0, expected 0.9.0')
+    expect(mutRes.stdout).not.toContain('Done.')
+    // The no-op is observed in the stub's own event log, not inferred from the
+    // absence of a restart: a stub that recorded nothing would make this vacuous.
+    expect(unitEvents(mut.stateDir)).toContain('start NO-OP already active, still serving 0.8.0')
+    // And the mutated endpoint kept answering with the OLD version, which is the
+    // mechanism the gate caught: every sample of run 2 reports 0.8.0 while the
+    // run expected 0.9.0.
+    const mutSamples = healthSamples(mut.healthLog)
+    expect(mutSamples.length).toBeGreaterThan(0)
+    for (const s of mutSamples) expect(s).toContain(' 0.8.0')
+    expect(
+      readFileSync(join(mutRoot, 'opt', APP, APP), 'utf8'),
+      'the payload on disk was replaced anyway',
+    ).toContain('synaptomind v0.9.0')
+
+    // Shipped: the opposite on every one of those points.
+    expect(servingVersion(real.stateDir)).toBe('0.9.0')
+    expect(realRes.status, realRes.stdout + realRes.stderr).toBe(0)
+    expect(realRes.stdout).toContain('Done.')
+    expect(unitEvents(real.stateDir)).toContain('restart launched 0.9.0')
+  }, 120_000)
+
+  test('the FIRST install still comes up: the unit is not active yet', () => {
+    // The constraint that rules `try-restart` out. A first install has no running
+    // unit, so a verb that no-ops on an inactive unit leaves the service DOWN and
+    // the gate timing out on a service that was never asked to start. Asserted
+    // against the shipped code, with the state proving the unit came up from
+    // nothing.
+    const tree = reinstallTree(ROOT, RELEASES)
+    expect(existsSync(join(tree.stateDir, 'active')), 'precondition: nothing is active').toBe(false)
+
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, ['--version', 'v0.8.0'])
+
+    expect(res.status, res.stdout + res.stderr).toBe(0)
+    expect(res.stdout).toContain('Done.')
+    expect(servingVersion(tree.stateDir)).toBe('0.8.0')
+    expect(unitEvents(tree.stateDir)).toEqual(['restart launched 0.8.0'])
+  }, 60_000)
+
+  test('try-restart would leave a FIRST install down — and is not what ships (non-vacuity)', () => {
+    // Why the alternatives lose, demonstrated rather than asserted in a comment.
+    // `try-restart` replaces the payload on a running unit just as well as
+    // `restart` does, so a test that only covered the re-install could not tell
+    // them apart; on a FIRST install it is inert and the service never comes up.
+    const tree = reinstallTree(ROOT, RELEASES, {
+      mutate: (deployDir) => mutateInstallScript(deployDir, RESTART_CALL, '  if run_root systemctl try-restart "$APP_NAME"; then'),
+    })
+
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, ['--version', 'v0.8.0'])
+
+    // The payload and the unit are on disk and complete — the ONLY thing missing
+    // is a running process, which is the whole point.
+    expect(existsSync(join(ROOT, 'opt', APP, APP))).toBe(true)
+    expect(existsSync(tree.unitFile)).toBe(true)
+    // Nothing was ever launched, so nothing serves and the gate times out.
+    expect(servingVersion(tree.stateDir)).toBe('')
+    expect(unitEvents(tree.stateDir)).toContain('try-restart NO-OP unit inactive, nothing started')
+    expect(res.status, res.stdout + res.stderr).toBe(1)
+    expect(res.stderr).toContain('did not pass the health check')
+    expect(res.stdout).not.toContain('Done.')
+  }, 60_000)
+
+  test('a version mismatch still fails the run loudly after the fix', () => {
+    // The gate is not what changed, and this pins that. A /health that answers a
+    // version this install did NOT put there must still fail the run, even though
+    // the restart succeeded and the summary was printed.
+    const tree = healthGateTree(ROOT, RELEASES, healthyBody('0.7.9'), join(ROOT, 'health.log'))
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, ['--version', 'v0.8.0'])
+    expect(res.status, res.stdout + res.stderr).toBe(1)
+    expect(res.stderr).toContain('reports version 0.7.9, expected 0.8.0')
+    expect(res.stdout).not.toContain('Done.')
+    // Characterising, and unchanged by this task: print_summary still runs BEFORE
+    // the gate is read (task #1087 pinned it), so the operator sees the restart
+    // line, then the === … installed === block, then the failure. Nothing about
+    // that ordering moved — pinned here so a future reorder surfaces as a diff.
+    expect(res.stdout).toContain(`=== ${APP} installed ===`)
+    expect(res.stdout.indexOf(`=== ${APP} installed ===`)).toBeLessThan(
+      res.stdout.indexOf('Done.') === -1 ? res.stdout.length : res.stdout.indexOf('Done.'),
+    )
+  }, 60_000)
+
+  test('--no-service still reaches neither systemctl nor sudo', () => {
+    // Re-pinned because the fix added a verb to this path's neighbourhood: the
+    // early return has to stay above it, or a --no-service install would restart
+    // a service the operator told it not to touch.
+    const tree = reinstallTree(ROOT, RELEASES)
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0',
+      '--no-service',
+    ])
+    expect(res.status, res.stdout + res.stderr).toBe(0)
+    expect(readFileSync(tree.sudoLog, 'utf8')).toBe('')
+    expect(unitEvents(tree.stateDir)).toEqual([])
+    expect(servingVersion(tree.stateDir)).toBe('')
+  }, 60_000)
 })
 
 // ════════════════════════════════════════════════════════════════════════════

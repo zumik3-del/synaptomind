@@ -56,8 +56,8 @@ Options (append after `--` in the piped form, e.g. `bash -s -- --port 3005`):
 | `--dir DIR` | Install directory (default `INSTALL_DIR` in `deploy/app.env`) |
 | `--port PORT` | Port written to the seeded `config.json` and used by the health check |
 | `--version TAG` | Pin a version instead of resolving the latest |
-| `--force` | Reinstall even when the same version is already present |
-| `--no-service` | Skip systemd unit installation and start |
+| `--force` | Reinstall even when the same version is already present; also the reinstall-over-a-running-service path, which now restarts the unit |
+| `--no-service` | Skip systemd unit installation and start/restart |
 | `--help`, `-h` | Show usage |
 
 ### What the installer does
@@ -67,8 +67,17 @@ The installer installs Bun when missing, clones `REPO_URL` to
 seeds `config.json` + `.env` (generating `SYNAPTOMIND_SECRET`), links
 `/opt/synaptomind/data` → `/var/lib/synaptomind`, installs the helper scripts
 into `${HOME}/.synaptomind/scripts` and the update hooks into
-`${HOME}/.synaptomind/hooks`, then installs and starts the systemd unit and
-polls `/health`.
+`${HOME}/.synaptomind/hooks`, then installs the systemd unit, **restarts** it
+and polls `/health`.
+
+The service step is a `restart`, not a `start`, and that is load-bearing:
+`systemctl start` on an already-active unit is a no-op, so a re-install over a
+running service (`install.sh --force`) used to leave the **old** process
+serving while the new payload and unit sat on disk unused. The run then failed
+its own health gate with `/health reports version 0.8.0, expected 0.9.0` — the
+gate was right, the install had simply not taken effect. `restart` brings the
+replaced unit up whether or not it was already running, so the same verb is
+correct for a first install and a re-install.
 
 The secret is written to `/opt/synaptomind/.env`; read it with
 `sudo grep SYNAPTOMIND_SECRET /opt/synaptomind/.env`. See [CONFIG.md](CONFIG.md)

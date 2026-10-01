@@ -2,11 +2,15 @@ import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { installCleanup, mkTempTree } from './tmp-fixtures'
+import { guardRealStateDir, installCleanup, mkTempTree } from './tmp-fixtures'
 
 // The gate fixture's scratch tree is owned by mkTempTree, so the sweep removes
 // it even when a test throws mid-run. See tmp-fixtures.ts.
 installCleanup()
+// Tripwire for #1101: this suite sources the real lib/common.sh, which carries
+// resolve_target_user()'s getent-first resolution — the mechanism that wrote
+// into the operator's real ~/.synaptomind. The tripwire fails the run if it moves.
+guardRealStateDir()
 
 // wait_health() (deploy/lib/common.sh) is the gate an install/update passes
 // through. The task it guards: a unit rendered WITHOUT Environment=LD_LIBRARY_PATH

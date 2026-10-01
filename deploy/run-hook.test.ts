@@ -40,12 +40,16 @@ import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { installCleanup, mkTempTree } from './tmp-fixtures'
+import { guardRealStateDir, installCleanup, isolatedEnv, mkTempTree } from './tmp-fixtures'
 
 // Temp-tree ownership: the scratch tree and the temp ROOT run_hook writes into
 // both come from mkTempTree, so the sweep removes them even after a failing
 // test. /tmp is the same filesystem as production's database (AGENTS.md §8).
 installCleanup()
+// Tripwire for #1101: this suite sources the real lib/common.sh, which carries
+// resolve_target_user()'s getent-first resolution — the mechanism that wrote
+// into the operator's real ~/.synaptomind. The tripwire fails the run if it moves.
+guardRealStateDir()
 
 const UPDATE_SH = join(import.meta.dir, 'update.sh')
 const COMMON_SH = join(import.meta.dir, 'lib', 'common.sh')
@@ -130,11 +134,14 @@ function runHook(opts: {
 
   const res = spawnSync('bash', ['-c', script, 'run-hook-harness', opts.name ?? 'pre-update'], {
     encoding: 'utf8',
-    env: {
-      ...process.env,
+    // isolatedEnv rather than a bare `...process.env` (task #1104). This harness
+    // sources the REAL lib/common.sh, so it has resolve_target_user available and
+    // HOOKS_DIR is set by the script itself — but pinning RUN_DIR keeps the
+    // pin from depending on the script's own prologue staying as it is.
+    env: isolatedEnv(root, {
       PATH: process.env.PATH!,
       TMPDIR: opts.tempRoot === undefined ? ownedTmp : (opts.tempRoot ?? noTempRoot),
-    },
+    }),
     timeout: 30_000,
   })
   const rc = /^RC=(\d+)$/m.exec(res.stdout)?.[1] ?? ''

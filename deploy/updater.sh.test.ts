@@ -16,13 +16,16 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { installCleanup, mkTempTree } from './tmp-fixtures'
+import { guardRealStateDir, installCleanup, isolatedEnv, mkTempTree } from './tmp-fixtures'
 
 // Temp-tree ownership: EVERY scratch tree below comes from mkTempTree, and the
 // sweep registered here removes it after each test — including after one that
 // throws. This file used to leak ~28 /tmp directories per run, on the same
 // filesystem as production's database (AGENTS.md §8); see tmp-fixtures.ts.
 installCleanup()
+// Tripwire for #1101: updater.sh and update.sh both read and write the
+// operator's real ~/.synaptomind when RUN_DIR is inherited rather than pinned.
+guardRealStateDir()
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
 
@@ -376,14 +379,19 @@ function runUpdater(
   input?: string,
   envOverrides?: Record<string, string>,
 ): ReturnType<typeof spawnSync> {
+  // isolatedEnv, not a bare `...process.env` (task #1104): updater.sh:118 reads
+  // ${RUN_DIR}/scripts/app.env and updater.sh:158 exports RUN_DIR, so an
+  // inherited RUN_DIR is the only thing keeping this spawn off the operator's
+  // real ~/.synaptomind. Here the fixture's app.env also pins RUN_DIR, so both
+  // the environment and the sourced config agree — a defence that costs nothing
+  // and holds even if setupBootstrap's app.env is edited later.
   const res = spawnSync('bash', [join(BOOTSTRAP_DIR, 'updater.sh'), ...args], {
     encoding: 'utf8',
-    env: {
-      ...process.env,
+    env: isolatedEnv(FIXTURE_DIR, {
       // Ensure we use our test bootstrap dir's scripts
       PATH: join(BOOTSTRAP_DIR, 'lib') + ':' + process.env.PATH!,
       ...envOverrides,
-    },
+    }),
     input,
     timeout: 15_000,
     cwd: FIXTURE_DIR,
@@ -406,11 +414,14 @@ function runUpdaterPty(
   return spawnSync('script', ['-qec', cmd, '/dev/null'], {
     encoding: 'utf8',
     input,
-    env: {
-      ...process.env,
+    // isolatedEnv for the same reason as runUpdater: updater.sh resolves RUN_DIR
+    // from the environment, so an inherited one reaches the operator's real
+    // ~/.synaptomind (task #1104). The pty wrapper changes the TTY, not the
+    // isolation, so this path needs the same pin.
+    env: isolatedEnv(FIXTURE_DIR, {
       PATH: join(BOOTSTRAP_DIR, 'lib') + ':' + process.env.PATH!,
       ...envOverrides,
-    },
+    }),
     timeout: 15_000,
     cwd: FIXTURE_DIR,
   })
@@ -1163,17 +1174,22 @@ function sequenceHealth(fx: UpdateFixture, samples: HealthSample[], timeout = 6)
 }
 
 function runUpdate(fx: UpdateFixture, args: string[]) {
+  // fx.runDir is this fixture's OWN RUN_DIR (update.sh reads ${RUN_DIR}/scripts/
+  // app.env at :258 and refresh_unit writes ${RUN_DIR}/unit-refresh at :532), so
+  // it is passed explicitly through isolatedEnv rather than left to be derived.
+  // Without it this spawn reached the operator's real ~/.synaptomind through
+  // the same resolve_target_user fallback that destroyed app.env in #1101.
   return spawnSync('bash', [join(fx.runDir, 'scripts', 'update.sh'), ...args], {
     encoding: 'utf8',
-    env: {
-      ...process.env,
+    env: isolatedEnv(fx.runDir, {
+      RUN_DIR: fx.runDir,
       PATH: `${fx.stubsDir}:${process.env.PATH}`,
       STUB_PRIV_LOG: fx.privLog,
       // The fake /health body must report the version update.sh is polling for,
       // otherwise wait_health times out. Tests that want a FAILING health check
       // override FAKE_HEALTH_BODY with something the version check rejects.
       FAKE_HEALTH_BODY: fx.healthBody,
-    },
+    }),
     timeout: 60_000,
   })
 }
@@ -1800,15 +1816,15 @@ describe('update.sh — a failed pre-update hook aborts before the swap (task #1
     try {
       const res = spawnSync('bash', [join(fx.runDir, 'scripts', 'update.sh'), '--yes'], {
         encoding: 'utf8',
-        env: {
-          ...process.env,
+        env: isolatedEnv(fx.runDir, {
+          RUN_DIR: fx.runDir,
           PATH: `${fx.stubsDir}:${process.env.PATH}`,
           STUB_PRIV_LOG: fx.privLog,
           FAKE_HEALTH_BODY: fx.healthBody,
           // A temp root THIS test owns, so the count is exact and cannot be moved
           // by another session's scratch in the host's shared /tmp.
           TMPDIR: tmpRoot,
-        },
+        }),
         timeout: 60_000,
       })
       expect(res.status, res.stdout + res.stderr).toBe(1)
