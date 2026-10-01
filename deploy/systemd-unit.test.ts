@@ -87,9 +87,17 @@ function renderWithPath(opts: UnitOpts = {}, env: Record<string, string> = {}) {
     ...overrides,
     ...env,
   }
+  // `export` is load-bearing here, not decoration. PATH survives a plain
+  // assignment because the parent already exports it, but a variable introduced
+  // in this script (STUB_INVOCATION_LOG) would stay a shell variable of THIS
+  // shell — and the stub that must record is a separate PROCESS, so it saw
+  // nothing and recorded nothing. Measured: without export the stub's
+  // `>> "$STUB_INVOCATION_LOG"` errors on an empty path (rc=1, no file), with it
+  // the log gets the line. So the "not one stub ran" assertion below could not
+  // fail for the reason it claims, no matter what the renderer did.
   const script =
     Object.entries(base)
-      .map(([k, v]) => `${k}=${quote(v)}`)
+      .map(([k, v]) => `export ${k}=${quote(v)}`)
       .join('\n') +
     `\n. ${quote(LIB)}\nrender_systemd_unit "/usr/local/bin/bun run start"\n`
   return spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000 })
@@ -98,6 +106,15 @@ function renderWithPath(opts: UnitOpts = {}, env: Record<string, string> = {}) {
 /**
  * PATH stubs for systemctl / systemd-run / sudo that RECORD every invocation
  * and exit 0 without doing anything. Rendering must never reach them.
+ *
+ * Returns the invocation log's path, created EMPTY here. The stubs append to
+ * it, so a correct render — which invokes nothing — leaves an empty file rather
+ * than no file at all. That distinction was lost when the CodeQL autofix
+ * (PR #165, commits 805cdfe/acf1c7f) replaced a `spawnSync('cat', [log])` read
+ * with readFileSync: `cat` tolerated the missing file (its "No such file" went
+ * to stderr while stdout stayed empty) and readFileSync throws ENOENT — four
+ * tests failed on CI while passing locally. The helper owns the file, so the
+ * helper creates it: "nothing ran" must read as an empty log, not as a crash.
  */
 function makeRecordingStubs(dir: string): string {
   for (const name of ['systemctl', 'systemd-run', 'sudo']) {
@@ -114,7 +131,9 @@ function makeRecordingStubs(dir: string): string {
     )
     chmodSync(p, 0o755)
   }
-  return dir
+  const log = join(dir, 'invocations.log')
+  writeFileSync(log, '')
+  return log
 }
 
 /** Every line that sets a restart policy, in file order. */
@@ -179,8 +198,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
   function renderWithStubsOnPath(): { unit: string; invocations: string; stderr: string } {
     const dir = mkdtempSync(join(tmpdir(), 'synapto-render-stubs-'))
     try {
-      makeRecordingStubs(dir)
-      const log = join(dir, 'invocations.log')
+      const log = makeRecordingStubs(dir)
       const res = renderWithPath({}, { PATH: `${dir}:${process.env.PATH}`, STUB_INVOCATION_LOG: log })
       if (res.status !== 0) throw new Error(`render_systemd_unit failed: ${res.stderr}`)
       return { unit: res.stdout, invocations: readFileSync(log, { encoding: 'utf8' }), stderr: res.stderr }
@@ -520,8 +538,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
     // systemd-run or sudo on the way out.
     const dir = mkdtempSync(join(tmpdir(), 'synapto-render-refuse-'))
     try {
-      makeRecordingStubs(dir)
-      const log = join(dir, 'invocations.log')
+      const log = makeRecordingStubs(dir)
       const res = renderWithPath(
         {},
         {
