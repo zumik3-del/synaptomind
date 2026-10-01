@@ -2,8 +2,19 @@
 
 ## v0.9.0
 
-> September 30, 2026
+> October 1, 2026
 
+- [`b408e98`](https://github.com/zumik3-del/synaptomind/commit/b408e98ca4a5d33714a1108803e930f1f61cc922): fix(deploy): a failed pre-update hook now aborts the update
+- [`d7350a0`](https://github.com/zumik3-del/synaptomind/commit/d7350a0e5918c2ddc84395ab9f691eb92d3675c3): fix(deploy): own every temp file in the deploy shell
+- [`a943ec7`](https://github.com/zumik3-del/synaptomind/commit/a943ec7d9bfb6a02827df2db5bb784267ad26c6d): docs: correct a phantom caller and an inverted boundary in the rollback docs
+- [`f4c2bde`](https://github.com/zumik3-del/synaptomind/commit/f4c2bde395402a7a42e62b72e5aff97323fb2015): test: make the deploy suites own their temp trees
+- [`ae94f7c`](https://github.com/zumik3-del/synaptomind/commit/ae94f7c8932b08649ba2c71fb4e7046982a8fda5): test: cover install.sh's own health gate end to end
+- [`c352739`](https://github.com/zumik3-del/synaptomind/commit/c3527395c2882817a17d2a4e3fe7696eb49b3955): docs: remove the binary tarball deployment ADR
+- [`9fdbdfa`](https://github.com/zumik3-del/synaptomind/commit/9fdbdfa628a67e6356b2daf74dca4c2d48a5ee38): test: cover the seeded mcp.httpPort alignment and the MCP bind failure
+- [`0d9bfca`](https://github.com/zumik3-del/synaptomind/commit/0d9bfca47688f55ff1ce4386efdaede82b580f91): fix(deploy): create the stub invocation log, and export what the stubs read
+- [`e6e9148`](https://github.com/zumik3-del/synaptomind/commit/e6e91482f1862a74de568bafd177651946d613e2): fix(deploy): derive the health verdict per sample, not from the previous one
+- [`acf1c7f`](https://github.com/zumik3-del/synaptomind/commit/acf1c7f497a60c4eed9277c2f3947b4d85f902b1): Potential fix for pull request finding 'CodeQL / Unnecessary use of `cat` process'
+- [`805cdfe`](https://github.com/zumik3-del/synaptomind/commit/805cdfe95bfef844173fd562b4dcb42e9cd37ca8): Potential fix for pull request finding 'CodeQL / Unnecessary use of `cat` process'
 - [`53668b6`](https://github.com/zumik3-del/synaptomind/commit/53668b652ad51817d7695fc0fb2495835e2d193d): fix(deploy): truthful upgrade verdict, correct release channels, real backup paths
 - [`1dbb739`](https://github.com/zumik3-del/synaptomind/commit/1dbb739493d119abd18825c7b98a0ffafef56a1c): fix(deploy): guard unit syntax by measurement, and never unlink the unit
 - [`ebb26c8`](https://github.com/zumik3-del/synaptomind/commit/ebb26c8a3bad754d9ef10b1fe88a1f7015546878): fix(deploy): write unit files atomically at every entry point
