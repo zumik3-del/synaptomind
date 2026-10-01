@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -183,7 +183,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       const log = join(dir, 'invocations.log')
       const res = renderWithPath({}, { PATH: `${dir}:${process.env.PATH}`, STUB_INVOCATION_LOG: log })
       if (res.status !== 0) throw new Error(`render_systemd_unit failed: ${res.stderr}`)
-      return { unit: res.stdout, invocations: spawnSync('cat', [log], { encoding: 'utf8' }).stdout, stderr: res.stderr }
+      return { unit: res.stdout, invocations: readFileSync(log, { encoding: 'utf8' }), stderr: res.stderr }
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
