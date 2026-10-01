@@ -1072,6 +1072,16 @@ function seedBinaryUpdateShape(opts: {
 type UpdateFixture = { runDir: string; stubsDir: string; privLog: string; healthBody: string }
 
 /**
+ * One /health sample. A bare string is a complete answer (curl exits 0).
+ *
+ * `{ body, rc }` is a sample that did NOT arrive whole: a server that closes
+ * mid-body leaves real curl rc=18 and whatever it had already written, so the
+ * partial body and the failed transfer are ONE event. Measured against a real
+ * loopback socket: rc=18, 25 bytes of a promised 4096.
+ */
+type HealthSample = string | { body: string; rc: number }
+
+/**
  * Replace the fixture's /health curl stub with one that answers a SEQUENCE of
  * payloads, one per poll, repeating the last one once exhausted. FAKE_HEALTH_BODY
  * can only express a single static body, so a recovery case ("failed now,
@@ -1082,11 +1092,13 @@ type UpdateFixture = { runDir: string; stubsDir: string; privLog: string; health
  * the HEALTH_TIMEOUT in the seeded app.env is raised from 1s to match the number
  * of samples, otherwise the gate times out after the first one.
  */
-function sequenceHealth(fx: UpdateFixture, bodies: string[], timeout = 6): string {
+function sequenceHealth(fx: UpdateFixture, samples: HealthSample[], timeout = 6): string {
   const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
   const counter = join(fx.runDir, 'health-polls')
+  const seq = samples.map((s) => (typeof s === 'string' ? { body: s, rc: 0 } : s))
   const script = [
-    `__bodies=(${bodies.map(b => `'${b}'`).join(' ')})`,
+    `__bodies=(${seq.map(b => `'${b.body}'`).join(' ')})`,
+    `__rcs=(${seq.map(b => String(b.rc)).join(' ')})`,
     `__poll='${counter}'`,
     '__n=$(cat "$__poll" 2>/dev/null || printf 0)',
     '__n=$((__n + 1))',
@@ -1094,6 +1106,10 @@ function sequenceHealth(fx: UpdateFixture, bodies: string[], timeout = 6): strin
     '__max=${#__bodies[@]}',
     '[ "$__n" -gt "$__max" ] && __n=$__max',
     'printf "%s" "${__bodies[$((__n - 1))]}"',
+    // The rc this transfer reports, so a truncated sample is a FAILED transfer
+    // and not a short-but-complete answer. `exit` (not `return`): the stub is
+    // run as a program, not sourced.
+    'exit "${__rcs[$((__n - 1))]}" ;;',
   ].join('\n')
   writeFileSync(
     join(fx.stubsDir, 'curl'),
@@ -1103,7 +1119,6 @@ function sequenceHealth(fx: UpdateFixture, bodies: string[], timeout = 6): strin
       '  case "$a" in',
       '    */health)',
       script,
-      '      exit 0 ;;',
       '  esac',
       'done',
       `exec ${realCurl} "$@"`,
@@ -1481,6 +1496,96 @@ describe('update.sh — the health verdict is re-checked, and only a confirmed f
       const res = runUpdate(fx, ['--yes'])
 
       expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(res.stderr).toContain('did not finish cleanly')
+      expect(res.stderr).toContain('Restoring the DB is mandatory')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+//  A body that DIES MID-TRANSFER, then silence, is the transient F4 exists for.
+//
+//  The gate's identity verdict was re-derived only when a body arrived, so a
+//  poll that answered nothing inherited it. A server that closes mid-body
+//  leaves real curl rc=18 with a SHORT body (measured on this host: 25 bytes of
+//  a promised 4096), the next poll found nothing at all, and the verdict came
+//  out `contract` — an OBSERVED failure. update.sh then took the confirmed
+//  branch: health_recheck (the re-check that exists precisely to keep a
+//  destructive remedy off an unconfirmed failure) was SKIPPED, and the
+//  per-database restore was printed.
+//
+//  A partial body during a rolling restart is ordinary. The pair below is the
+//  whole contract of the fix: the transient is unverified and prints nothing
+//  destructive, and a REAL contradiction — even one arriving after the
+//  transient — is still confirmed and still prints the remedy.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — a truncated /health body, then silence, is UNVERIFIED', () => {
+  // rc 18 with a short body: a transfer closed mid-body. Measured, not invented
+  // (the wait-health cases carry the same sequence at the gate itself).
+  const CUT_OFF = { body: '<html><head><title>502 Ba', rc: 18 }
+  // Nothing on the port at all afterwards (curl rc 7, empty body).
+  const SILENCE = { body: '', rc: 7 }
+
+  test('it re-checks, reports UNVERIFIED, and prints no database restore', () => {
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.8.1',
+      targetVersion: '0.8.2',
+      includeDb: true,
+    })
+    try {
+      // 6s of polling buys the truncated sample and the silent polls after it;
+      // the seeded HEALTH_CONFIRM_TIMEOUT=2 then adds the second window.
+      const counter = sequenceHealth(fx, [CUT_OFF, SILENCE], 6)
+      const db = join(fx.installDir, 'data', 'synaptomind.db')
+
+      const res = runUpdate(fx, ['--yes'])
+
+      const backups = readdirSync(`${db}.backup`)
+      expect(backups).toHaveLength(1)
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      // The re-check was NOT skipped, and not merely "two windows were opened":
+      // this line is printed only when health_recheck actually ran and came back
+      // without a verdict (HEALTH_RECHECKED). With the verdict latched, the run
+      // consumed the truncated sample, called it a failure there and then, and
+      // never spent a second window.
+      expect(res.stderr).toContain('re-check that followed it')
+      // The first window was really polled.
+      expect(Number(readFileSync(counter, 'utf8').trim())).toBeGreaterThanOrEqual(2)
+      expect(res.stderr).toContain('UNVERIFIED')
+      // Nothing destructive is advised. Each of these is a line the confirmed
+      // block prints for a failure that was never observed.
+      expect(res.stderr).not.toContain('did not finish cleanly')
+      expect(res.stderr).not.toContain('Restoring the DB is mandatory')
+      expect(res.stderr).not.toContain('sudo cp')
+      expect(res.stderr).not.toContain('sudo mv -f')
+      expect(res.stderr).not.toContain('git checkout --force')
+      // And no stranger on the port is diagnosed out of a silent window.
+      expect(res.stderr).not.toContain('not with a')
+      // The rollback point is left exactly where it was.
+      expect(readdirSync(`${db}.backup`)).toEqual(backups)
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a truncated body followed by a REAL wrong version is still confirmed', () => {
+    // The direction the fix must not trade away. A stale 0.8.1 answering after
+    // the transient IS an observed contradiction: the verdict is `version`, the
+    // remedy is earned, and a "fix" that made the gate go quiet after one bad
+    // body would swallow it and call a bad upgrade a slow start.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.8.1', targetVersion: '0.8.2' })
+    try {
+      const stale = JSON.stringify({ status: 'ok', version: '0.8.1' })
+      sequenceHealth(fx, [CUT_OFF, stale], 6)
+
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(res.stderr).not.toContain('UNVERIFIED')
       expect(res.stderr).toContain('did not finish cleanly')
       expect(res.stderr).toContain('Restoring the DB is mandatory')
     } finally {

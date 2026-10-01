@@ -404,6 +404,11 @@ resolve_mcp_port() {
 # silence, and a remedy that stops a unit and restores a database must never be
 # printed for one (task #1079 F4: a healthy 0.8.2 upgrade was declared failed,
 # with that remedy, while it served fine eight seconds later).
+#
+# The verdict is read off the LAST sample, never latched across samples
+# (task #1099): a body that dies mid-transfer — curl rc=18 with a short body — is
+# an ordinary transient during a rolling restart, and the silence that follows it
+# asserts nothing, so it must not be able to decide the window on its own.
 HEALTH_FAILURE=""
 
 # wait_health URL [EXPECTED_VERSION] [TIMEOUT]
@@ -464,6 +469,24 @@ wait_health() {
 
   while [ "$SECONDS" -lt "$deadline" ]; do
     body="$(url_get "$url" 2>/dev/null || true)"
+    # Every signal is re-derived from THIS sample, and a poll that read NO body
+    # derives none of them (task #1099). They used to be latched across samples,
+    # which turned one partial answer into a verdict about the whole window: a
+    # server that closes mid-body leaves real curl rc=18 with a SHORT body — 25
+    # bytes of a promised 4096, measured on this host — so a rolling restart was
+    # enough to set `foreign`, and the silence that followed inherited it. The
+    # verdict came out `contract`, which update.sh treats as OBSERVED: it skipped
+    # health_recheck (the re-check that exists to keep a destructive remedy off
+    # an unconfirmed failure) and printed the per-database restore.
+    #
+    # Silence is not evidence. A poll that read no body asserts no contract
+    # violation, no dead embedder and no version at all, so a malformed sample
+    # decides the window only if a LATER sample confirms it.
+    status=""
+    version=""
+    embedder=""
+    embedder_dead=false
+    foreign=false
     if [ -n "$body" ]; then
       status="$(printf '%s' "$body" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
       version="$(printf '%s' "$body" | parse_json_version)"
@@ -473,7 +496,8 @@ wait_health() {
       # must not fail the install it actually left healthy.
       if [ "$embedder" = "failed" ]; then embedder_dead=true; else embedder_dead=false; fi
       # Is this our /health at all? Re-derived per sample like the latch: a
-      # foreign responder that goes away must not fail a run it did not break.
+      # foreign responder that goes away must not fail a run it did not break —
+      # and, since #1099, neither may one that never finished talking.
       if [ -n "$status" ] && [ -n "$version" ] \
         && { [ "$status" = "ok" ] || [ "$status" = "degraded" ]; }; then
         foreign=false

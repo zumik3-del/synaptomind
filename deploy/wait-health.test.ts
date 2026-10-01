@@ -24,30 +24,55 @@ function quote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-type Gate = { status: number | null; stdout: string; stderr: string; polls: number }
+type Gate = { status: number | null; stdout: string; stderr: string; polls: number; failure: string }
+
+/**
+ * One /health sample. A bare string is a complete answer (url_get exits 0).
+ *
+ * `{ body, rc }` is a sample that did NOT arrive whole — the shape a body that
+ * dies mid-transfer has, and the one the truncation case needs: real curl leaves
+ * rc=18 (transfer closed with N bytes remaining) and whatever it had already
+ * written, so a partial body and a non-zero rc are the SAME event, not two.
+ */
+type Sample = string | { body: string; rc: number }
 
 /**
  * Run wait_health with a scripted sequence of /health bodies.
  *
  * `bodies` are returned one per poll; once exhausted, url_get fails, which the
- * gate treats as "no sample yet". Every poll is counted into a file, so a test
- * can assert HOW MANY samples the gate consumed — without that, a test that
- * passes on the first healthy sample proves nothing about a recovery.
+ * gate treats as "no sample yet" — unless `repeatLast` is set, in which case the
+ * last sample keeps being served. Repeat it whenever that last sample IS the
+ * condition under test: the verdict is read off the last poll (#1099), so "the
+ * embedder is dead" and "the service serves the old version" have to be
+ * PERSISTENT answers, not a single observation that silence may follow.
+ *
+ * Every poll is counted into a file, so a test can assert HOW MANY samples the
+ * gate consumed — without that, a test that passes on the first healthy sample
+ * proves nothing about a recovery.
  */
 function runGate(
-  bodies: string[],
-  opts: { expected?: string | null; timeout?: number; installDir?: string } = {}
+  bodies: Sample[],
+  opts: {
+    expected?: string | null
+    timeout?: number
+    installDir?: string
+    /** Keep serving the last sample once the sequence is exhausted. */
+    repeatLast?: boolean
+  } = {}
 ): Gate {
   const expected = opts.expected === undefined ? '0.8.0' : opts.expected
   const timeout = opts.timeout ?? 1
   const installDir = opts.installDir ?? '/opt/synaptomind-gate-test'
+  const samples = bodies.map((b) => (typeof b === 'string' ? { body: b, rc: 0 } : b))
   const dir = mkdtempSync(join(tmpdir(), 'synaptomind-gate-'))
   const pollFile = join(dir, 'polls')
   const script = `
 APP_NAME=synaptomind
 INSTALL_DIR=${quote(installDir)}
 . ${quote(LIB)}
-__bodies=(${bodies.map(quote).join(' ')})
+__bodies=(${samples.map((s) => quote(s.body)).join(' ')})
+__rcs=(${samples.map((s) => String(s.rc)).join(' ')})
+__repeat=${quote(opts.repeatLast ? 'true' : 'false')}
 __poll=${quote(pollFile)}
 url_get() {
   # The counter lives in a FILE: wait_health calls url_get inside a command
@@ -55,16 +80,30 @@ url_get() {
   __n=$(cat "$__poll" 2>/dev/null || printf '0')
   __n=$((__n + 1))
   printf '%s' "$__n" > "$__poll"
-  if [ "$__n" -gt "\${#__bodies[@]}" ]; then return 1; fi
+  if [ "$__n" -gt "\${#__bodies[@]}" ]; then
+    if [ "$__repeat" != true ]; then return 1; fi
+    __n="\${#__bodies[@]}"
+  fi
   printf '%s' "\${__bodies[$((__n - 1))]}"
+  return "\${__rcs[$((__n - 1))]}"
 }
 wait_health "http://127.0.0.1:1/health" ${quote(expected ?? '')} ${quote(String(timeout))}
-exit $?
+__rc=$?
+# HEALTH_FAILURE is what update.sh branches on, so a test has to see it.
+printf 'HEALTH_FAILURE=%s\\n' "\${HEALTH_FAILURE:-<unset>}"
+exit $__rc
 `
   try {
     const res = spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 60_000 })
     const polls = readFileSync(pollFile, 'utf8').trim()
-    return { status: res.status, stdout: res.stdout, stderr: res.stderr, polls: Number(polls || 0) }
+    const failure = /HEALTH_FAILURE=(.*)/.exec(res.stdout)?.[1] ?? '<unset>'
+    return {
+      status: res.status,
+      stdout: res.stdout,
+      stderr: res.stderr,
+      polls: Number(polls || 0),
+      failure,
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -112,8 +151,11 @@ describe('wait_health — checks.embedder gate (both directions)', () => {
     // version: what the crashed child produces. The gate must not wave it through.
     // timeout 6 (not 2): the gate sleeps 2s between polls, and the poll-count
     // assertion below needs the second sample to be reached — the slack absorbs
-    // a loaded machine overshooting the sleep.
-    const gate = runGate([payload('failed'), payload('failed')], { timeout: 6 })
+    // a loaded machine overshooting the sleep. repeatLast: a dead embedder is a
+    // PERSISTENT answer, and the verdict is read off the last poll (#1099) — a
+    // "failed" sample the service then stopped reporting would be a timeout, not
+    // a dead embedder, and must be asserted as such in the truncation cases.
+    const gate = runGate([payload('failed'), payload('failed')], { timeout: 6, repeatLast: true })
 
     expect(gate.status).toBe(1)
     expect(gate.stdout).not.toContain('Service is healthy')
@@ -208,4 +250,90 @@ describe('wait_health — a foreign responder on the port is not the service', (
 
     expect(gate.status, gate.stdout + gate.stderr).toBe(1)
   })
+})
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  A body that dies MID-TRANSFER, then silence, is not an OBSERVED failure.
+//
+//  The identity verdict was the one signal re-derived only inside the
+//  non-empty-body branch, so a poll that answered NOTHING inherited it: a
+//  short body set `foreign`, the next silent poll left it set, and the verdict
+//  came out `contract` — an OBSERVED failure. update.sh treats that as
+//  confirmed: it skips health_recheck (the re-check exists exactly to stop a
+//  destructive remedy on an unconfirmed failure) and prints the per-database
+//  restore.
+//
+//  The sequence is a body that DIES mid-transfer, not merely a non-empty body.
+//  A server that closes mid-body leaves real curl rc=18 with a SHORT body —
+//  measured on this host at 25 bytes of a promised 4096 — and a partial body
+//  during a rolling restart is an ordinary transient, not a stranger on the
+//  port. Each sample is `{ body, rc }` for that reason: the partial body and
+//  the failed transfer are one event, not two.
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('wait_health — a body that dies mid-transfer, then silence, is unverified', () => {
+  // A 502 page cut off mid-word: a foreign responder that stopped talking.
+  const CUT_OFF = { body: '<html><head><title>502 Ba', rc: 18 }
+  // The service then refuses the connection: nothing on the port at all.
+  const SILENCE = { body: '', rc: 7 }
+
+  test('a truncated foreign body followed by silence is a TIMEOUT, not a contract failure', () => {
+    // The finding, verbatim. timeout 6 so the silent polls after the truncated
+    // one are really consumed — with the verdict latched, the very first silent
+    // poll is what carries the false `contract` to the end of the window.
+    const gate = runGate([CUT_OFF, SILENCE], { timeout: 6, repeatLast: true })
+
+    expect(gate.status, gate.stdout + gate.stderr).toBe(1)
+    // The verdict update.sh branches on, and the branch that is WRONG here.
+    expect(gate.failure, 'a silent poll must inherit no identity verdict').toBe('timeout')
+    // Silence is not a stranger on the port, so the contract diagnosis must not
+    // be offered: it sends the operator hunting for another process.
+    expect(gate.stderr).not.toContain('not with a')
+    expect(gate.polls).toBeGreaterThanOrEqual(2)
+  }, 30_000)
+
+  test('a truncated body carrying embedder=failed, then silence, is also a timeout', () => {
+    // The same latch in the second signal: embedder_dead was re-derived inside
+    // the same branch, so a poll that read no embedder at all inherited it —
+    // and the embedder verdict is checked FIRST, so it outranked timeout. A
+    // body cut off inside the `embedder` field is the same transient.
+    const gate = runGate(
+      [
+        {
+          body: '{"status":"ok","version":"0.8.0","checks":{"database":"ok","embedder":"failed"}',
+          rc: 18,
+        },
+        SILENCE,
+      ],
+      { timeout: 6, repeatLast: true },
+    )
+
+    expect(gate.status, gate.stdout + gate.stderr).toBe(1)
+    expect(gate.failure).toBe('timeout')
+    expect(gate.stderr).not.toContain('checks.embedder=failed')
+  }, 30_000)
+
+  test('a wrong version that KEEPS answering is still a confirmed failure', () => {
+    // The direction that must not move. A service observed serving the old
+    // payload has earned the remedy, so the verdict stays `version` and the
+    // message still names both versions. A fix that bought its quiet by
+    // swallowing contradicting samples fails here.
+    const stale = JSON.stringify({ status: 'ok', version: '0.7.9', checks: { database: 'ok' } })
+    const gate = runGate([stale, stale], { expected: '0.8.0', timeout: 6, repeatLast: true })
+
+    expect(gate.status, gate.stdout + gate.stderr).toBe(1)
+    expect(gate.failure).toBe('version')
+    expect(gate.stderr).toContain('reports version 0.7.9, expected 0.8.0')
+  }, 30_000)
+
+  test('a truncated body followed by a real wrong version is still confirmed', () => {
+    // The pair that rules out "silence the transient by going quiet after any
+    // bad body": a transient first, then a sample that CONTRADICTS the update.
+    // The last sample decides, and a contradiction is a verdict.
+    const stale = JSON.stringify({ status: 'ok', version: '0.7.9', checks: { database: 'ok' } })
+    const gate = runGate([CUT_OFF, stale], { expected: '0.8.0', timeout: 8, repeatLast: true })
+
+    expect(gate.status, gate.stdout + gate.stderr).toBe(1)
+    expect(gate.failure).toBe('version')
+  }, 30_000)
 })
