@@ -1562,8 +1562,8 @@ describe('install.sh — DIST=binary tarball install', () => {
    * cannot quietly turn the proof into a no-op.
    */
   const CONTRACT_CHECK = [
-    '      if [ -n "$status" ] && [ -n "$version" ] \\',
-    '        && { [ "$status" = "ok" ] || [ "$status" = "degraded" ]; }; then',
+    '      if [ -n "$status" ] && [ "$status_ok" = true ] \\',
+    '        && { [ "$version_check" != true ] || [ -n "$version" ]; }; then',
   ].join('\n')
 
   /** The /health samples the stub actually served, in order. */

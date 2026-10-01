@@ -37,7 +37,7 @@
  * somebody else's work.
  */
 
-import { afterEach } from 'bun:test'
+import { afterAll, afterEach } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
@@ -110,15 +110,31 @@ export function withTempTree<T>(prefix: string, build: (path: string) => T): T {
  * Register the per-test sweep. Call once at the top level of EVERY deploy test
  * file — see the note above on why this cannot be made idempotent.
  *
- * Two hooks, because they fail differently:
+ * Three hooks, because they fail differently:
  *   - `afterEach` is the normal path: it runs after every test, including one
  *     that threw, and so covers the per-test leak.
- *   - `process.on('exit')` is the backstop for the case `afterEach` cannot
- *     cover — the run is killed, or the process dies on an unhandled error
- *     between tests. It is `once` because one sweep at exit is enough.
+ *   - `afterAll` catches the case `afterEach` cannot — the file threw during
+ *     COLLECTION, before any test body ran, so no `afterEach` was ever reached
+ *     and every tree that file built stayed on disk.
+ *   - `process.on('exit')` is the backstop for a run that dies outside the test
+ *     lifecycle entirely (a kill, an unhandled error between files). It is `once`
+ *     because one sweep at exit is enough.
+ *
+ * WHY `afterAll` WAS ADDED, AND WHY IT MATTERS MORE THAN IT LOOKS. Measured on
+ * bun 1.4.2 while writing the app-env suites (task #1112): under `bun test`,
+ * `process.on('exit')` handlers DO NOT RUN — not at module scope, not from a test
+ * body. A probe that only sets `process.exitCode = 7` in an exit handler exits 0,
+ * while the identical handler registered through `afterAll` exits 7. So this
+ * function's exit-time sweep — and `guardRealStateDir`'s tripwire, which used the
+ * same mechanism — was unreachable in every `bun test` run that had ever
+ * reported them as installed. `afterAll` is the hook bun's runner actually calls;
+ * `process.on('exit')` is kept only for a plain `bun run <file>` invocation.
  */
 export function installCleanup(): void {
   afterEach(() => {
+    sweepTempTrees()
+  })
+  afterAll(() => {
     sweepTempTrees()
   })
   process.once('exit', () => {
@@ -263,11 +279,18 @@ function assertInsideRoot(value: string, root: string, key: string): void {
  *
  * Call ONCE at the top level of a deploy test file, beside installCleanup().
  * The fingerprint is taken at import time — before any fixture has run — and
- * compared in a `process.on('exit')` hook, because the damage a fixture does is
+ * compared when the FILE's tests are done, because the damage a fixture does is
  * not visible in any assertion the fixture itself makes: the fixture asserts on
  * its own scratch tree, and the operator's file is somewhere else entirely.
  * That asymmetry is precisely why #1101 produced a green suite over a
  * destroyed production config.
+ *
+ * The comparison runs in `afterAll`, NOT only in `process.on('exit')`. Measured on
+ * bun 1.4.2 (task #1112): `bun test` does not run `process.on('exit')` handlers,
+ * so the exit-only version of this tripwire could never fail a run — it was
+ * documentation of an intent rather than a check. Proven by a deliberate
+ * overwrite of a watched production path in a throwaway suite: with the exit hook
+ * alone the run reported `1 pass, 0 fail` and exited 0.
  *
  * Skipped (with the reason recorded) when the host has no state dir, so a fresh
  * container reports `skip` rather than a vacuous pass.
@@ -280,7 +303,7 @@ export function guardRealStateDir(): void {
   }
   const hash = fingerprint(dir)
   guarded = { dir, hash }
-  process.on('exit', () => {
+  const verify = () => {
     if (!guarded?.dir || !guarded.hash) return
     let after: string
     try {
@@ -290,7 +313,11 @@ export function guardRealStateDir(): void {
       return
     }
     if (after !== guarded.hash) report(`${guarded.dir} was MODIFIED by a deploy fixture`)
-  })
+  }
+  // afterAll is the hook bun's test runner actually calls; process.on('exit') is
+  // unreachable under `bun test` (measured) and is kept only for `bun run <file>`.
+  afterAll(verify)
+  process.on('exit', verify)
 }
 
 let guarded: { dir: string | null; hash: string | null } | null = null
