@@ -165,15 +165,54 @@ describe('install.sh — piped raw-base derivation', () => {
 const APP = 'synaptomind'
 const REAL_TARBALL = resolve(import.meta.dir, '..', 'dist', 'synaptomind-v0.8.0-linux-x86_64.tar.gz')
 
-/** A stub payload: `synaptomind --version` prints the expected line. */
+/**
+ * A stub payload: `synaptomind --version` prints the expected line.
+ *
+ * config.json.example mirrors the SHIPPED example (config.json.example:3-7):
+ * both listeners, and both at the values the example ships — `server.port` 3005
+ * and `mcp.httpPort` 3006. The mcp block is not decoration: without an
+ * `httpPort` key the seeded config has nothing for the aligner to rewrite, and
+ * any assertion about mcp.httpPort passes VACUOUSLY (the key is simply absent).
+ * Widening the fixture is what makes those assertions able to fail at all.
+ */
 function stubPayload(version: string): Record<string, string> {
   return {
     [`${APP}`]: `#!/bin/sh\necho "${APP} ${version}"\n`,
     'vec0.so': 'stub vec0\n',
     'lib/libonnxruntime.so.1': 'stub onnxruntime\n',
-    'config.json.example': '{ "server": { "port": 3005 } }\n',
+    'config.json.example':
+      '{ "server": { "port": 3005, "host": "127.0.0.1" }, "mcp": { "httpPort": 3006 } }\n',
     '.env.example': 'SYNAPTOMIND_SECRET=\n',
   }
+}
+
+/** The ports seed_binary_tree's app.env resolves to unless a test overrides them. */
+const FIXTURE_PORT = 3999
+/** The value the SHIPPED example carries — an unaligned seed leaves it behind. */
+const EXAMPLE_HTTP_PORT = 3006
+
+/** The seeded config.json of a binary install, parsed. */
+function seededConfig(root: string): { server: { port: number }; mcp: { httpPort: number } } {
+  const raw = readFileSync(join(root, 'opt', APP, 'config.json'), 'utf8')
+  return JSON.parse(raw)
+}
+
+/**
+ * Rewrite the install.sh COPY inside a scratch tree so a test can prove its own
+ * assertion is load-bearing. Never touches the repo's install.sh: the mutation
+ * exists only inside the fixture the current test already cleans up.
+ *
+ * Throwing when the target text is absent is deliberate. A reformat that moved
+ * the line would otherwise leave the mutation a silent no-op and the non-vacuity
+ * test would quietly stop testing anything.
+ */
+function mutateInstallScript(deployDir: string, from: string, to: string): void {
+  const path = join(deployDir, 'install.sh')
+  const src = readFileSync(path, 'utf8')
+  if (!src.includes(from)) {
+    throw new Error(`mutation target absent from install.sh: ${JSON.stringify(from)}`)
+  }
+  writeFileSync(path, src.replace(from, to))
 }
 
 /**
@@ -278,7 +317,7 @@ function seedBinaryTree(
     INSTALL_DIR: join(root, 'opt', APP),
     DATA_DIR: join(root, 'data'),
     RUN_DIR: join(root, 'run'),
-    PORT: '3999',
+    PORT: String(FIXTURE_PORT),
     // Nothing serves /health in these tests, and install.sh's start_and_verify
     // polls it for HEALTH_TIMEOUT. A test that gets as far as a SUCCESSFUL unit
     // install reaches that poll, so the budget is 1s instead of the shipped 60s
@@ -965,6 +1004,258 @@ describe('install.sh — DIST=binary tarball install', () => {
     expect(log).not.toContain('enable')
     expect(res.stdout).not.toContain('Service:    installed')
   })
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  mcp.httpPort alignment (2526a0b, task #1077)
+  //
+  //  A binary install seeds config.json from the shipped example, which carries
+  //  mcp.httpPort 3006 while the API port is aligned to this install's PORT. The
+  //  two listeners then have nothing to do with each other, so on a host that
+  //  already owns 3006 the service installs and dies on EADDRINUSE — and the
+  //  installer's remedy names the wrong port.
+  //
+  //  The rule: a FRESH config gets mcp.httpPort = MCP_PORT, and MCP_PORT defaults
+  //  to PORT + 1 (production's 3105/3106). An EXISTING config.json is preserved
+  //  verbatim, which is what keeps the migration path (config on 3106, API on
+  //  3105) safe.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /** The mcp.httpPort alignment line in seed_files(), as it reads in install.sh. */
+  const HTTPPORT_ALIGNMENT =
+    `      align_config_port "\${INSTALL_DIR}/\${dest}" '"httpPort"' "\$MCP_PORT"`
+
+  /** The MCP_PORT == PORT guard in main(), as it reads in install.sh. */
+  const COLLISION_GUARD = `  if [ "\$MCP_PORT" = "\$PORT" ]; then
+    error "MCP_PORT (\${MCP_PORT}) must differ from PORT (\${PORT})"
+  fi`
+
+  test('an empty MCP_PORT seeds mcp.httpPort = PORT + 1', () => {
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
+      releasesBase: `file://${RELEASES}`,
+    })
+    // The default, spelled the way app.env spells it: MCP_PORT is absent, so
+    // resolve_mcp_port() must derive the value from PORT alone.
+    const appEnv = join(deployDir, 'app.env')
+    expect(readFileSync(appEnv, 'utf8')).not.toMatch(/^MCP_PORT=.+$/m)
+
+    const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
+      '--version',
+      'v0.8.0',
+      '--no-service',
+    ])
+    expect(res.status, res.stderr + res.stdout).toBe(0)
+
+    const cfg = seededConfig(ROOT)
+    // server.port was already aligned before 2526a0b; mcp.httpPort is new.
+    expect(cfg.server.port).toBe(FIXTURE_PORT)
+    expect(cfg.mcp.httpPort).toBe(FIXTURE_PORT + 1)
+    // The bug this fixes, asserted negatively: the example's 3006 must not
+    // survive, or the seed binds whatever the host happens to own.
+    expect(cfg.mcp.httpPort).not.toBe(EXAMPLE_HTTP_PORT)
+    // And the two listeners differ by construction, so they cannot collide.
+    expect(cfg.mcp.httpPort).not.toBe(cfg.server.port)
+  }, 60_000)
+
+  test('an explicit MCP_PORT is used verbatim', () => {
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
+      releasesBase: `file://${RELEASES}`,
+      appEnv: { MCP_PORT: '4321' },
+    })
+
+    const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
+      '--version',
+      'v0.8.0',
+      '--no-service',
+    ])
+    expect(res.status, res.stderr + res.stdout).toBe(0)
+
+    const cfg = seededConfig(ROOT)
+    // Verbatim: not PORT+1, not the example's value, not clamped to PORT.
+    expect(cfg.mcp.httpPort).toBe(4321)
+    expect(cfg.mcp.httpPort).not.toBe(FIXTURE_PORT + 1)
+    expect(cfg.mcp.httpPort).not.toBe(EXAMPLE_HTTP_PORT)
+    // The API port is still this install's own — the override moves one listener.
+    expect(cfg.server.port).toBe(FIXTURE_PORT)
+  }, 60_000)
+
+  test('MCP_PORT == PORT aborts before the payload is fetched', () => {
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
+      releasesBase: `file://${RELEASES}`,
+      appEnv: { MCP_PORT: String(FIXTURE_PORT) },
+    })
+
+    const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
+      '--version',
+      'v0.8.0',
+      '--no-service',
+    ])
+    expect(res.status, res.stderr + res.stdout).toBe(1)
+    // Both ports are named, so the operator knows which value to change.
+    expect(res.stderr).toContain('MCP_PORT')
+    expect(res.stderr).toContain('must differ')
+    expect(res.stderr).toContain(String(FIXTURE_PORT))
+    // "Before the payload is fetched" is asserted by the absence of the fetch:
+    // binary_install_payload() is what creates INSTALL_DIR, so its not existing
+    // means the download never started. The release WAS available, so this is
+    // the guard's ordering and not an unrelated failure.
+    expect(existsSync(join(ROOT, 'opt'))).toBe(false)
+    expect(res.stdout).not.toContain('Installed')
+  }, 60_000)
+
+  test('an EXISTING config.json is never re-seeded: a hand-edited httpPort survives --force', () => {
+    // The case that must not regress. 2526a0b's alignment runs ONLY on the
+    // seeding path, and seed_files() skips a config.json that already exists —
+    // which is what keeps an installed host's own mcp.httpPort (production's
+    // deliberate 3106) and the config-on-3106/API-on-3105 migration path safe
+    // from a --force re-run that would otherwise stamp PORT+1 over it.
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
+      releasesBase: `file://${RELEASES}`,
+    })
+    const args = ['--version', 'v0.8.0', '--force', '--no-service']
+    const first = runBinaryInstall(deployDir, stubsDir, sudoLog, args)
+    expect(first.status, first.stderr + first.stdout).toBe(0)
+    // Run 1 did seed, and aligned — otherwise this test proves nothing.
+    expect(seededConfig(ROOT).mcp.httpPort).toBe(FIXTURE_PORT + 1)
+
+    // Hand-edit to the migration layout: API on 3105, MCP left on 3006.
+    const configPath = join(ROOT, 'opt', APP, 'config.json')
+    const edited = JSON.parse(readFileSync(configPath, 'utf8'))
+    edited.server.port = 3105
+    edited.mcp.httpPort = 3106
+    edited.handEdited = true
+    writeFileSync(configPath, `${JSON.stringify(edited, null, 2)}\n`)
+
+    const second = runBinaryInstall(deployDir, stubsDir, sudoLog, args)
+    expect(second.status, second.stderr + second.stdout).toBe(0)
+
+    const cfg = seededConfig(ROOT)
+    // Verbatim: every hand-edited value, including the ones alignment would touch.
+    // Asserted BEFORE the log line below, so a regression fails on the file's
+    // content rather than on a message that a future log edit could change.
+    expect(cfg.server.port).toBe(3105)
+    expect(cfg.mcp.httpPort).toBe(3106)
+    expect(cfg.handEdited).toBe(true)
+    // Explicitly NOT re-aligned to this install's ports.
+    expect(cfg.mcp.httpPort).not.toBe(FIXTURE_PORT + 1)
+    expect(cfg.server.port).not.toBe(FIXTURE_PORT)
+    // And the operator is told the file was kept, not left to infer it.
+    expect(second.stdout).toContain('Preserved existing config.json')
+  }, 60_000)
+
+  // ── non-vacuity: each guard above, with the guard removed ──────────────────
+  //
+  //  Each of these runs the SAME install twice in one test: once against
+  //  install.sh as shipped, once against a mutated COPY inside the fixture
+  //  (never the repo's file). The pair is the evidence that the assertion above
+  //  is load-bearing — that it fails when the behaviour it guards is gone,
+  //  rather than passing for an unrelated reason. A green run of the tests
+  //  above is not that evidence; this is.
+
+  test('removing the httpPort alignment is detected (non-vacuity)', () => {
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    // Two independent scratch trees, one release: real vs mutated.
+    const realRoot = join(ROOT, 'real')
+    const mutRoot = join(ROOT, 'mut')
+    mkdirSync(realRoot, { recursive: true })
+    mkdirSync(mutRoot, { recursive: true })
+    const real = seedBinaryTree(realRoot, { releasesBase: `file://${RELEASES}` })
+    const mut = seedBinaryTree(mutRoot, { releasesBase: `file://${RELEASES}` })
+    // The mutation: the mcp alignment line is dropped, keeping the server.port
+    // one. This is 2526a0b's predecessor — the state the change fixed.
+    mutateInstallScript(mut.deployDir, `${HTTPPORT_ALIGNMENT}\n`, '')
+
+    const args = ['--version', 'v0.8.0', '--no-service']
+    expect(runBinaryInstall(real.deployDir, real.stubsDir, real.sudoLog, args).status).toBe(0)
+    const mutRes = runBinaryInstall(mut.deployDir, mut.stubsDir, mut.sudoLog, args)
+    expect(mutRes.status, mutRes.stderr + mutRes.stdout).toBe(0)
+
+    // Shipped: aligned. Mutated: the example's 3006 survives — so the assertion
+    // `httpPort === PORT + 1` in the test above has something to fail on.
+    expect(seededConfig(realRoot).mcp.httpPort).toBe(FIXTURE_PORT + 1)
+    const mutated = seededConfig(mutRoot)
+    expect(mutated.mcp.httpPort).toBe(EXAMPLE_HTTP_PORT)
+    // The mutation removes ONE listener's alignment, not both: server.port is
+    // still aligned, so the pair isolates httpPort rather than the whole file.
+    expect(mutated.server.port).toBe(FIXTURE_PORT)
+  }, 90_000)
+
+  test('removing the existing-config guard is detected (non-vacuity)', () => {
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const realRoot = join(ROOT, 'real')
+    const mutRoot = join(ROOT, 'mut')
+    mkdirSync(realRoot, { recursive: true })
+    mkdirSync(mutRoot, { recursive: true })
+    const real = seedBinaryTree(realRoot, { releasesBase: `file://${RELEASES}` })
+    const mut = seedBinaryTree(mutRoot, { releasesBase: `file://${RELEASES}` })
+    // The mutation: seed_files()'s skip is removed (the guard that keeps an
+    // existing dest), so the copy+align path runs over an operator's hand-edited
+    // config on every re-run. `if false` is the shape of a deleted guard.
+    mutateInstallScript(
+      mut.deployDir,
+      `    if [ -e "\${INSTALL_DIR}/\${dest}" ]; then`,
+      `    if false; then`,
+    )
+
+    const args = ['--version', 'v0.8.0', '--force', '--no-service']
+    for (const [root, tree] of [
+      [realRoot, real],
+      [mutRoot, mut],
+    ] as const) {
+      expect(runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, args).status).toBe(0)
+      const configPath = join(root, 'opt', APP, 'config.json')
+      const edited = JSON.parse(readFileSync(configPath, 'utf8'))
+      edited.server.port = 3105
+      edited.mcp.httpPort = 3106
+      writeFileSync(configPath, `${JSON.stringify(edited, null, 2)}\n`)
+    }
+
+    // Re-run over the hand-edited config. Real: preserved. Mutated: overwritten.
+    expect(runBinaryInstall(real.deployDir, real.stubsDir, real.sudoLog, args).status).toBe(0)
+    expect(runBinaryInstall(mut.deployDir, mut.stubsDir, mut.sudoLog, args).status).toBe(0)
+
+    expect(seededConfig(realRoot).mcp.httpPort).toBe(3106)
+    // So `httpPort === 3106` in the test above fails on this tree — the
+    // assertion is guarded by the skip, not by the fixture being a fresh install.
+    const mutated = seededConfig(mutRoot)
+    expect(mutated.mcp.httpPort).toBe(FIXTURE_PORT + 1)
+    expect(mutated.server.port).toBe(FIXTURE_PORT)
+  }, 90_000)
+
+  test('removing the MCP_PORT == PORT guard is detected (non-vacuity)', () => {
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const realRoot = join(ROOT, 'real')
+    const mutRoot = join(ROOT, 'mut')
+    mkdirSync(realRoot, { recursive: true })
+    mkdirSync(mutRoot, { recursive: true })
+    const real = seedBinaryTree(realRoot, {
+      releasesBase: `file://${RELEASES}`,
+      appEnv: { MCP_PORT: String(FIXTURE_PORT) },
+    })
+    const mut = seedBinaryTree(mutRoot, {
+      releasesBase: `file://${RELEASES}`,
+      appEnv: { MCP_PORT: String(FIXTURE_PORT) },
+    })
+    // The mutation: the collision check is removed from main(), so both
+    // listeners are seeded with the SAME port and the install proceeds.
+    mutateInstallScript(mut.deployDir, `${COLLISION_GUARD}\n`, '')
+
+    const args = ['--version', 'v0.8.0', '--no-service']
+    const realRes = runBinaryInstall(real.deployDir, real.stubsDir, real.sudoLog, args)
+    const mutRes = runBinaryInstall(mut.deployDir, mut.stubsDir, mut.sudoLog, args)
+    // Shipped: aborted, nothing installed. Mutated: installed a config whose two
+    // listeners collide — the exact outcome the guard exists to prevent, and
+    // the state `status === 1` in the test above is asserted against.
+    expect(realRes.status).toBe(1)
+    expect(existsSync(join(realRoot, 'opt'))).toBe(false)
+    expect(mutRes.status, mutRes.stderr + mutRes.stdout).toBe(0)
+    expect(existsSync(join(mutRoot, 'opt'))).toBe(true)
+    const mutated = seededConfig(mutRoot)
+    expect(mutated.mcp.httpPort).toBe(mutated.server.port)
+  }, 90_000)
 })
 
 // ════════════════════════════════════════════════════════════════════════════
