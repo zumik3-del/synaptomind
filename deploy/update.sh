@@ -121,25 +121,55 @@ run_hook() {
     # backup files it produced, and the recovery block restores exactly those
     # (task #1079 F6 — it used to print a literal `synaptomind.db.<timestamp>.bak`,
     # a path that does not exist, so the only DB restore it offered could not
-    # run). Teed, so a long backup still streams instead of looking hung; the
-    # hook's stderr joins its stdout in that transcript, and `{ … || rc=$?; }`
-    # carries the hook's own exit status through the pipe without tripping `set -e`
-    # (the pipeline's own status is tee's, which is always 0).
+    # run). Teed, so a long backup still streams instead of looking hung, and the
+    # hook's stderr joins its stdout in that transcript. BOTH properties are
+    # load-bearing; neither may be traded for the exit status below.
     #
     # mktemp_owned, not `out="$(mktemp)"`: the bare mktemp was never registered
     # with the EXIT trap, so every hook run left its transcript in TMPDIR — 91
     # files per run of the deploy suite, on the same filesystem production's
     # SQLite database lives on. The transcript is a temp file, not an artefact:
     # nothing names it after the hook returns, so owning it is correct.
+    #
+    # WHY `${PIPESTATUS[0]}` (task #1102). The construct here used to be
+    # `{ "$hook" 2>&1 || rc=$?; } | tee "$out"`, and it could not report a failed
+    # hook: the `|| rc=$?` runs in the LEFT STAGE of a pipeline, and a pipeline
+    # stage is a SUBSHELL, so the assignment died there and the parent shell only
+    # ever saw tee's status (always 0). A pre-update hook exiting 7 therefore
+    # reached `if ! run_hook pre-update` as success, and the guard that a failed
+    # database backup must not be followed by a code swap was unreachable — while
+    # the comment above claimed the status "crossed the pipe" and update.sh:809
+    # called the hook fatal. Reproduced on this host; the fix is to read the
+    # stage's own status after the pipeline instead of trying to write it from
+    # inside one.
+    #
+    # Why not the alternatives:
+    #   * `${PIPESTATUS[0]}` — what this uses. The hook's real status, streaming
+    #     and capture untouched, and `|| rc=` keeps the non-zero pipeline from
+    #     tripping `set -e`. Index 0 specifically, so a tee failure (ENOSPC — this
+    #     host has filled / before) is NOT misreported as a hook failure.
+    #   * plain `|| rc=$?` on the pipeline — works only because `set -o pipefail`
+    #     is on, and then it attributes tee's failure to the hook, so a full disk
+    #     aborts the update as if the backup had failed.
+    #   * `set -e` on the pipeline — rejected by the AC and by the code: it would
+    #     abort the script from inside a function whose caller is written to
+    #     decide what a hook failure means.
+    #   * dropping the tee — not an option at all: the transcript is what
+    #     collect_db_backups parses, so the recovery block would name no backup.
     if mktemp_owned out 2>/dev/null; then
-      { "$hook" 2>&1 || rc=$?; } | tee "$out"
+      { "$hook" 2>&1; } | tee "$out" || rc=${PIPESTATUS[0]}
       if [ "$1" = "pre-update" ]; then collect_db_backups "$out"; fi
     else
       out=""
+      # No pipe here, so `$?` is the hook's own status already (it always was on
+      # this branch); kept explicit so the two branches cannot drift apart again.
       "$hook" || rc=$?
       warn "could not capture the ${1} hook's output (no temp file) — the recovery block will name no backup path"
     fi
-    if [ "$rc" -ne 0 ]; then warn "${1} hook failed (continuing)"; fi
+    # Not "(continuing)": whether a failed hook ends the run is the CALLER's
+    # decision (fatal for pre-update, a reported failure for post-update), so
+    # this function only reports the status and returns it.
+    if [ "$rc" -ne 0 ]; then warn "${1} hook failed (exit ${rc})"; fi
   fi
   return "$rc"
 }
@@ -809,11 +839,36 @@ main() {
   # SynaptoMind deviation: pre-update is treated as FATAL — a failed DB backup
   # must never be followed by an unchecked code swap.  The upstream template
   # treats all hooks as non-fatal (warn + continue).
+  #
+  # This guard was UNREACHABLE until task #1102: run_hook could not carry a hook
+  # status out of its tee pipeline, so the `if !` here always saw success. It is
+  # now live, and `error` (not a bare exit) so the operator gets the same
+  # "[app] ERROR:" line as every other fatal path. Aborting HERE is also the only
+  # safe point: nothing has been swapped, the unit has not been touched and the
+  # service is still running the code it was running a minute ago, so there is
+  # nothing to recover — print_recovery would only name backups of an install
+  # that is untouched.
   if ! run_hook pre-update; then
     error "pre-update hook failed — aborting before switching code"
   fi
   if [ "$DIST" = "binary" ]; then update_binary; else update_source; fi
-  run_hook post-update
+
+  # DELIBERATE DECISION (task #1102): a failed post-update hook does NOT abort
+  # mid-flight. By the time it runs the payload is already swapped, so aborting
+  # here would leave the host WORSE off than continuing: the unit would not be
+  # refreshed and the service would not be restarted, i.e. a swapped payload
+  # that nothing has ever executed, with no health verdict and no recovery block.
+  # The rest of the run (refresh_unit → restart_and_verify) is exactly the
+  # evidence an operator needs, so it still runs.
+  #
+  # It is also not reported as success. The status is remembered and turned into
+  # a non-zero exit AFTER the restart and the health gate, because by then the
+  # honest verdict is "the update landed, and a step after the swap did not":
+  # post-update is where future migrations would live (the shipped hook is a
+  # placeholder), and a silently-ignored failure there is how an operator ends up
+  # with code that reports healthy while a migration never ran.
+  POST_UPDATE_RC=0
+  run_hook post-update || POST_UPDATE_RC=$?
 
   # -- refresh unit, restart & health --
   # The unit is refreshed BEFORE the restart, so the service comes back with the
@@ -830,6 +885,15 @@ main() {
 
   echo ""
   info "Done. Now at ${TARGET_VERSION:-${TARGET_REF}}."
+
+  # The verdict the operator gets is "landed, but a post-swap step failed", and
+  # it is a non-zero exit so a script or an alerting wrapper sees it. AFTER the
+  # health gate, deliberately: the service really is up on the new code, and an
+  # exit status reported before the restart would say nothing about whether the
+  # swap was usable.
+  if [ "$POST_UPDATE_RC" -ne 0 ]; then
+    error "update landed at ${TARGET_VERSION:-${TARGET_REF}}, but the post-update hook failed (exit ${POST_UPDATE_RC}) — check its output above; the service was restarted on the new code anyway"
+  fi
 }
 
 main "$@"

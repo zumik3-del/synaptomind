@@ -904,6 +904,17 @@ function seedBinaryUpdate(opts: {
   includeDb?: boolean
   /** Override the release-metadata payload; the default is a one-entry list. */
   releasesBody?: string
+  /**
+   * Replace one installed hook with a stub that exits non-zero, to drive the
+   * caller-side decision a hook failure has to reach (task #1102).
+   *
+   * The stub is written over ${RUN_DIR}/hooks/<name> — the path update.sh
+   * resolves when app.env leaves HOOKS_DIR empty — so it is the hook the real
+   * run executes, not a lookalike. The pre-update stub also prints the one line
+   * collect_db_backups parses, so a test can see whether the tee kept both
+   * streaming (its stdout) and capturing (that line reaching the recovery block).
+   */
+  failingHook?: { hook: 'pre-update' | 'post-update'; code: number }
 }): ReturnType<typeof seedBinaryUpdateShape> {
   return seedBinaryUpdateShape(opts)
 }
@@ -913,6 +924,7 @@ function seedBinaryUpdateShape(opts: {
   targetVersion: string
   includeDb?: boolean
   releasesBody?: string
+  failingHook?: { hook: 'pre-update' | 'post-update'; code: number }
 }) {
   const root = mkTempTree('synapto-binu-')
   const deployDir = join(root, 'deploy')
@@ -995,6 +1007,19 @@ function seedBinaryUpdateShape(opts: {
   for (const f of ['pre-update', 'post-update']) {
     cpSync(join(import.meta.dir, 'hooks', f), join(runDir, 'hooks', f))
     chmodSync(join(runDir, 'hooks', f), 0o755)
+  }
+  if (opts.failingHook) {
+    const { hook, code } = opts.failingHook
+    const stub = [
+      '#!/usr/bin/env bash',
+      // The line collect_db_backups parses, so a test can tell whether the tee
+      // still CAPTURED the transcript as well as streaming it.
+      `echo "Database backed up: ${join(installDir, 'data', 'synaptomind.db.backup', 'simulated.bak')}"`,
+      `echo "simulated ${hook} failure" >&2`,
+      `exit ${code}`,
+    ].join('\n')
+    writeFileSync(join(runDir, 'hooks', hook), stub)
+    chmodSync(join(runDir, 'hooks', hook), 0o755)
   }
   cpSync(join(import.meta.dir, 'lib', 'common.sh'), join(runDir, 'scripts', 'common.sh'))
 
@@ -1658,6 +1683,210 @@ describe('update.sh — the recovery block names the real database backups (F6)'
       const rms = res.stderr.split('\n').filter((l) => l.includes('sudo rm -f'))
       expect(rms).toHaveLength(2)
       expect(res.stderr).toContain('Restoring the DB is mandatory')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  Task #1102, end to end — a failing hook reaches the caller's decision.
+//
+//  run_hook could not carry a hook's exit status out of its tee pipeline (the
+//  assignment was in the pipeline's left STAGE, i.e. a subshell), so
+//  `if ! run_hook pre-update` never fired: a failed database backup was followed
+//  by a code swap, while update.sh:809 called the hook fatal. run-hook.test.ts
+//  pins the function; these pin the two CALLERS, which is where a status that
+//  never arrives turns into a wrong outcome on disk.
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('update.sh — a failed pre-update hook aborts before the swap (task #1102)', () => {
+  test('exit 7 stops the run with the fatal message, and nothing on disk changed', () => {
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.7.1',
+      targetVersion: '0.8.0',
+      failingHook: { hook: 'pre-update', code: 7 },
+    })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+
+      // The guard fired, with the message the code has always claimed to print.
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(res.stderr).toContain('pre-update hook failed — aborting before switching code')
+      expect(res.stderr).toContain('pre-update hook failed (exit 7)')
+
+      // BEFORE the swap: the installed payload is still the old one. This is the
+      // whole point of the guard — a failed backup must not be followed by new
+      // code running against a database nobody backed up.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('old vec0\n')
+      expect(readFileSync(join(fx.installDir, 'lib', 'libonnxruntime.so.1'), 'utf8')).toBe(
+        'old onnxruntime\n',
+      )
+      // No .prev copies either: binary_install_payload never ran.
+      expect(existsSync(join(fx.installDir, 'vec0.so.prev'))).toBe(false)
+      expect(existsSync(join(fx.installDir, U_APP + '.prev'))).toBe(false)
+
+      // BEFORE the unit refresh and the restart: nothing privileged was asked to
+      // do anything except what reading the release needs. A `systemctl restart`
+      // here would mean the new code was already live.
+      const log = readFileSync(fx.privLog, 'utf8')
+      expect(log).not.toContain('restart')
+      expect(log).not.toContain('daemon-reload')
+
+      // Streaming survived the status fix: the failing hook's own output is still
+      // on the operator's terminal, which is how they see WHY it failed.
+      expect(res.stdout).toContain('simulated.bak')
+      // The hook's stderr is folded into the transcript by `2>&1`, so it lands
+      // on stdout too — that is the point of the fold: one stream for the
+      // operator, one file for the parser.
+      expect(res.stdout).toContain('simulated pre-update failure')
+
+      // The run never claimed to be done.
+      expect(res.stdout).not.toContain('Done. Now at')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('the abort still names nothing to restore, because nothing was touched', () => {
+    // The pre-update abort is the ONE hook failure with no recovery block to
+    // print: the payload, the unit and the service are all untouched, so naming
+    // restore commands would imply a damage that did not happen. Asserted so the
+    // asymmetry with post-update (which does swap) stays deliberate.
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.7.1',
+      targetVersion: '0.8.0',
+      failingHook: { hook: 'pre-update', code: 1 },
+    })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status).toBe(1)
+      expect(res.stderr).not.toContain('sudo cp -p')
+      expect(res.stderr).not.toContain('Restoring the DB is mandatory')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a pre-update hook that exits 0 proceeds exactly as it did', () => {
+    // The other direction, so the new `|| rc=${PIPESTATUS[0]}` cannot be "fixed"
+    // into aborting a good run: with PIPESTATUS[0] the success path is tee and
+    // nothing else.
+    const fx = seedBinaryUpdate({ currentVersion: 'v0.7.1', targetVersion: '0.8.0' })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+      expect(res.status, res.stdout + res.stderr).toBe(0)
+      expect(res.stderr).not.toContain('hook failed')
+      expect(res.stdout).toContain('Done. Now at 0.8.0')
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+      expect(readFileSync(fx.privLog, 'utf8')).toContain('sudo systemctl restart synaptomind')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('the temp-root entry count is unchanged across a failing run', () => {
+    // Task #1101 closed the mktemp-ownership leak class; the status fix must not
+    // reopen it. The transcript is still created (mktemp_owned) and must still be
+    // removed by the EXIT trap on the ABORT path — which `error` takes, so the
+    // trap runs on a path the happy path never exercises.
+    const tmpRoot = mkTempTree('synapto-hookcount-')
+    const before = readdirSync(tmpRoot)
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.7.1',
+      targetVersion: '0.8.0',
+      failingHook: { hook: 'pre-update', code: 7 },
+    })
+    try {
+      const res = spawnSync('bash', [join(fx.runDir, 'scripts', 'update.sh'), '--yes'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${fx.stubsDir}:${process.env.PATH}`,
+          STUB_PRIV_LOG: fx.privLog,
+          FAKE_HEALTH_BODY: fx.healthBody,
+          // A temp root THIS test owns, so the count is exact and cannot be moved
+          // by another session's scratch in the host's shared /tmp.
+          TMPDIR: tmpRoot,
+        },
+        timeout: 60_000,
+      })
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(readdirSync(tmpRoot)).toEqual(before)
+      expect(before).toEqual([])
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+describe('update.sh — a failed post-update hook does not abort mid-flight (task #1102)', () => {
+  // The deliberate decision, pinned so it cannot be changed by accident. Aborting
+  // after the swap would leave the host worse off than continuing: the payload
+  // would be new, the unit unrefreshed and the service never restarted — swapped
+  // code nothing has ever executed, with no health verdict. So the run finishes
+  // and reports the failure with a non-zero exit AFTER the restart.
+
+  test('the swap, the unit refresh and the restart all happen, then it exits 1 naming the hook', () => {
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.7.1',
+      targetVersion: '0.8.0',
+      failingHook: { hook: 'post-update', code: 3 },
+    })
+    try {
+      const res = runUpdate(fx, ['--yes'])
+
+      expect(res.status, res.stdout + res.stderr).toBe(1)
+      expect(res.stderr).toContain('post-update hook failed (exit 3)')
+      // Not reported as success: the message says the update landed AND what did
+      // not, and the exit status is non-zero so a wrapper sees it.
+      expect(res.stderr).toContain('update landed at 0.8.0')
+      expect(res.stderr).toContain('the service was restarted on the new code anyway')
+
+      // …and the run really did finish the work a mid-flight abort would have
+      // skipped: new payload in place, unit refreshed, service restarted.
+      expect(readFileSync(join(fx.installDir, 'vec0.so'), 'utf8')).toBe('new vec0\n')
+      const log = readFileSync(fx.privLog, 'utf8')
+      expect(log).toContain('daemon-reload')
+      expect(log).toContain('restart')
+    } finally {
+      rmSync(fx.root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('the failing post-update hook still streams and captures, and a recovery block can name its backup', () => {
+    // The tee properties under the OTHER caller, and the reason a post-update
+    // failure is reported rather than silently ignored: post-update is where a
+    // future migration hook would live, and the recovery block below is built
+    // from the transcript the pre-update hook produced.
+    const fx = seedBinaryUpdate({
+      currentVersion: 'v0.7.1',
+      targetVersion: '0.8.0',
+      includeDb: true,
+      failingHook: { hook: 'post-update', code: 3 },
+    })
+    try {
+      // Fail the health gate as well, so the recovery block prints.
+      fx.healthBody = JSON.stringify({ status: 'ok', version: '0.0.1' })
+      const res = runUpdate(fx, ['--yes'])
+
+      // The health verdict is what ends the run here (a confirmed wrong version),
+      // which is also the only path that prints a recovery block — so the
+      // post-update status is reported but is not the reason for the exit.
+      expect(res.status).toBe(1)
+      expect(res.stderr).toContain('post-update hook failed (exit 3)')
+      // The real pre-update backup is named: the capture half of the tee is
+      // intact, so collect_db_backups still parsed the transcript.
+      const db = join(fx.installDir, 'data', 'synaptomind.db')
+      const backups = readdirSync(`${db}.backup`)
+      expect(backups).toHaveLength(1)
+      // Matched on the file NAME, not on a rebuilt absolute path: the hook prints
+      // the path it derived from config.json (`./data/…`), so the block names that
+      // spelling. What matters here is that the name from the transcript reached
+      // the block at all — which is exactly what a dropped capture would lose.
+      expect(res.stderr).toContain(`sudo cp -p '`)
+      expect(res.stderr).toContain(backups[0]!)
+      expect(res.stderr).toContain('synaptomind.db\'')
     } finally {
       rmSync(fx.root, { recursive: true, force: true })
     }
