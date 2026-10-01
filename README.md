@@ -32,7 +32,10 @@ or `LIB_RAW_URL` still wins. Server starts on `http://127.0.0.1:3005`.
 MCP endpoint: `http://127.0.0.1:3006/mcp`.
 
 For the full install & update guide (flags, channels, rollback, uninstall), see
-[docs/DEPLOY.md](docs/DEPLOY.md).
+[docs/DEPLOY.md](docs/DEPLOY.md). For the deployment convention shared with
+ziptask and subagentix — canonical layout, unit policy, the two distribution
+modes and the per-app `app.env` — see
+[docs/DEPLOY-LAYOUT.md](docs/DEPLOY-LAYOUT.md).
 
 Connect your client — add to Claude Desktop config (`claude_desktop_config.json`):
 
