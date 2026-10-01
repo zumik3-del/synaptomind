@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 
-# Provenance: vendored from https://forgejo.home.lan/authelia/bun-templates commit 89be318daf8adab5ddca957162b3b7df8429e725
+# Provenance: vendored from https://forgejo.home.lan/authelia/bun-templates commit
+#            89be318daf8adab5ddca957162b3b7df8429e725.
+#
+# This file is the deploy/ framework's single maintained copy, shared BYTE-IDENTICALLY
+# by the fleet: synaptomind is the source of truth, and ziptask and subagentix carry a
+# mechanical copy of this exact text (sha256 equal across all three). Fixes land HERE
+# first and are then re-vendored; a hand-edit in a copy breaks that equality, so if the
+# digests differ, re-vendor from synaptomind rather than reconciling in place.
+#
 # Locally extended for DIST=binary per docs/adr/0001-self-contained-binary-tarball-deployment.md:
 #   * cleanup_run      — rm -rf, so a registered staging *directory* is removed too.
 #   * release_resolve_tag() — CHECKOUT_POLICY over the RELEASE_API list (§2.10).
@@ -8,6 +16,17 @@
 #   * render_systemd_unit() — Environment=LD_LIBRARY_PATH when DIST=binary (§2.2).
 #   * wait_health()         — also reads checks.embedder, so an embedder that can
 #                             never load fails the gate instead of passing as ok.
+#   * app.env-keyed defaults with the previous hardcoded values as defaults
+#     (ADR plans/2026-10-01-unify-deploy-framework-adr.md §3): the health
+#     contract (HEALTH_STATUS_FIELD/HEALTH_OK_VALUES/HEALTH_VERSION_FIELD), the
+#     binary file lists (BINARY_*), the source build step (INSTALL_FLAGS/
+#     BUILD_CMD/BUILD_TIMEOUT) and the unit extras (UNIT_STATE_DIRECTORY/
+#     UNIT_ENV_FILE/UNIT_EXTRA_ENV, plus Group= and a bounded stop).
+#
+# For a DIST=source app (subagentix) the DIST=binary branches above never execute and the
+# BINARY_* defaults — which name synaptomind's payload files — are never read. They are
+# carried verbatim and inert on purpose: a re-vendor is a mechanical copy, and this file
+# has to stay diffable against its source or drift becomes invisible.
 # ════════════════════════════════════════════════════════════════════════════
 #  lib/common.sh — shared helpers for the deploy/ framework
 #
@@ -138,7 +157,7 @@ run_root() {
 # Decide which user owns the install and where its state lives.
 # `curl | sudo bash` runs as root: the target is the invoking user, not root.
 # SERVICE_USER (app.env) wins when set, then SUDO_USER, then the caller.
-# Sets TARGET_USER, TARGET_HOME and the default RUN_DIR.
+# Sets TARGET_USER, TARGET_HOME, TARGET_GROUP and the default RUN_DIR.
 resolve_target_user() {
   if [ -n "${SERVICE_USER:-}" ]; then
     TARGET_USER="$SERVICE_USER"
@@ -147,6 +166,12 @@ resolve_target_user() {
   else
     TARGET_USER="$(id -un)"
   fi
+
+  # The group the unit runs as, resolved HERE and not at the point of use,
+  # because TARGET_USER is only known once the branch above has run. Defaults
+  # to the user: the framework never created a group, so the user's own primary
+  # group is the only value that cannot name a group that does not exist (ADR §3e).
+  : "${TARGET_GROUP:=$TARGET_USER}"
 
   TARGET_HOME=""
   if command -v getent >/dev/null 2>&1; then
@@ -161,6 +186,47 @@ resolve_target_user() {
   fi
 
   if [ -z "${RUN_DIR:-}" ]; then RUN_DIR="${TARGET_HOME}/.${APP_NAME}"; fi
+}
+
+# run_as_target_user CMD... — run CMD as the user the unit runs as.
+#
+# WHY THIS EXISTS. A root install (`sudo bash install.sh`) is the documented way
+# to install anything under /opt, so every command it runs — `bun install`, and
+# a build if one is configured — belongs to root, and everything it produces is
+# root-owned. The service, however, runs as TARGET_USER: a build that must write
+# `build/` and `.svelte-kit/` into a root-owned INSTALL_DIR cannot, and the
+# failure (EACCES, deep inside a bundler) names nothing that points here.
+#
+# WHY HOME IS FORCED. bun, vite and svelte-kit all cache under HOME. A build
+# running as TARGET_USER with root's HOME writes the cache into /root and fails
+# on the first write, or pollutes the operator's home; TARGET_HOME is the home
+# the service itself gets from the unit's Environment=HOME line, so the build
+# and the service agree.
+#
+# NEVER FATAL. With no runuser and no sudo the command runs as the caller and
+# says so: a warning plus a completed build beats a refusal, and the caller
+# still sees the build's own exit status. PATH is deliberately NOT reset — the
+# command must resolve the same bun the install just located.
+run_as_target_user() {
+  local me home
+  me="$(id -un)"
+  home="${TARGET_HOME:-$HOME}"
+  if [ "$me" = "${TARGET_USER:-$me}" ]; then
+    HOME="$home" "$@"
+    return $?
+  fi
+  # runuser first: it needs no password, no tty and no sudoers entry, and it
+  # keeps PATH, which `su -` would not.
+  if [ "$(id -u)" -eq 0 ] && command -v runuser >/dev/null 2>&1; then
+    runuser -u "$TARGET_USER" -- env HOME="$home" "$@"
+    return $?
+  fi
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -u "$TARGET_USER" env HOME="$home" "$@"
+    return $?
+  fi
+  warn "cannot run as ${TARGET_USER} (no runuser, no sudo) — running as ${me} instead"
+  "$@"
 }
 
 # Locate an existing Bun binary: PATH first, then the usual install dirs.
@@ -456,6 +522,125 @@ resolve_mcp_port() {
   printf '%s' "$((${PORT:-3000} + 1))"
 }
 
+# ── Health contract (app.env) ──────────────────────────────────────────────
+# wait_health() used to read two JSON keys as LITERALS — "status", compared
+# against the literal set ok|degraded, and "version". That is SynaptoMind's own
+# /health shape, so the gate declared a contract violation on a perfectly healthy
+# service of any other app: both live endpoints measured during the ADR analysis
+# answer `{"ok":true}` — no status, no version — and the first poll of their
+# cutover would have set HEALTH_FAILURE="contract" and aborted the install.
+#
+# Three keys, each defaulting to today's literal, so an app.env that sets none
+# of them is byte-for-byte the behaviour this file had before (ADR §3d):
+#
+#   HEALTH_STATUS_FIELD   the key carrying state       (default "status")
+#   HEALTH_OK_VALUES      values of it that are healthy (default "ok degraded")
+#   HEALTH_VERSION_FIELD  the key carrying the version  (default "version")
+#
+# HEALTH_VERSION_FIELD is the only one of the three whose EMPTY value means
+# something: the version check is DISABLED, and one explicit warning says so.
+# Skipping it by silence would turn a missing contract into a vacuous pass —
+# exactly the failure class the comments above this function keep warning about.
+# An empty HEALTH_STATUS_FIELD is NOT honoured (it falls back to "status"): a
+# health gate with no identity arm is the vacuous pass again, so the one key
+# that must not be blank is given the default instead.
+#
+# `:=` (and NOT a plain `=`) on purpose: common.sh is sourced BEFORE
+# load_app_env(), so a plain assignment is overridden by app.env only by
+# ORDERING — the implicit contract the ADR calls out. `:=` yields to a value
+# that is already set (app.env, the environment, an earlier source) whatever
+# the load order, and still defines one when the key is absent, so every caller
+# keeps working under `set -u`.
+: "${HEALTH_STATUS_FIELD:=status}"
+: "${HEALTH_OK_VALUES:=ok degraded}"
+# `:=` would be WRONG here: it assigns on an EMPTY value as well as on an unset
+# one, and empty is this key's documented value — `HEALTH_VERSION_FIELD=""` is
+# how an app whose /health carries no version says "the version check is
+# disabled". With `:=` that instruction was silently replaced by "version" and
+# the setting had no effect at all. The test is therefore "is it set", not "is it
+# non-empty". (Measured, not assumed: the first version of this used `:=` and a
+# run with the key exported empty came back with version_field=[version].)
+[ "${HEALTH_VERSION_FIELD+set}" = "set" ] || HEALTH_VERSION_FIELD="version"
+
+# require_health_contract — fail the run before anything is fetched when the
+# configured contract cannot be read. The two field names are interpolated into
+# a sed pattern below, so a name carrying `.`/`*`/`[`/`/` is not a field name
+# any more but a PATTERN that matches more than the field it names — and a gate
+# widened by a typo accepts a body the operator never described. Same reasoning
+# as assert_unit_value, one parser instead of two, and it names the key.
+require_health_contract() {
+  # The defaults are resolved HERE as well as at source time, so this function
+  # judges the contract the gate will actually use. A caller that sources
+  # common.sh and then unsets a key gets the documented default rather than a
+  # refusal for a value it never wrote — the guard must not fail a host over a
+  # key that is simply absent.
+  : "${HEALTH_STATUS_FIELD:=status}"
+  : "${HEALTH_OK_VALUES:=ok degraded}"
+  # NOT `:=` for the version field: empty is its documented value and means the
+  # version check is disabled, so a default would make that unreachable.
+  [ "${HEALTH_VERSION_FIELD+set}" = "set" ] || HEALTH_VERSION_FIELD="version"
+
+  # Only a field the operator actually wrote is validated, and the empty version
+  # field is the "disabled" value rather than a mistake.
+  local f v
+  for f in HEALTH_STATUS_FIELD HEALTH_VERSION_FIELD; do
+    v="${!f-}"
+    [ -n "$v" ] || continue
+    case "$v" in
+      [A-Za-z_]*) ;;
+      *) error "${f}='${v}' is not a JSON key (letters, digits and _; it may not start with a digit) — fix it in app.env" ;;
+    esac
+    case "$v" in
+      *[!A-Za-z0-9_]*) error "${f}='${v}' is not a JSON key (letters, digits and _ only) — fix it in app.env" ;;
+    esac
+  done
+  # At least one non-blank value. An all-blank list is a gate in which NOTHING is
+  # healthy, so every install and every update would fail at the health check
+  # with a message about the port rather than about this key.
+  case "$HEALTH_OK_VALUES" in
+    *[![:space:]]*) ;;
+    *) error "HEALTH_OK_VALUES='${HEALTH_OK_VALUES}' names no value of '${HEALTH_STATUS_FIELD}', so no body could ever count as healthy and every health check would fail; set e.g. \"ok degraded\" in app.env" ;;
+  esac
+  return 0
+}
+
+# json_field_value FIELD — the value of JSON key FIELD in a document on stdin;
+# empty when the document carries no such field, which callers treat as "no
+# signal" rather than as a failure (same contract as parse_json_version).
+# A FIELD that require_health_contract() would have refused yields empty rather
+# than a pattern: this is the second gate, and it fails the same way — closed.
+#
+# BOTH a quoted string and a BARE token are accepted, because the two shapes
+# this has to read are exactly the two shapes apps actually ship:
+# `{"status":"ok","version":"0.9.0"}` and `{"ok":true}`. A quoted-only reader
+# returns nothing for the second, so the gate called a healthy service a contract
+# violation — the very failure the configurable contract exists to fix, moved
+# from one key to the other. (Measured, not assumed: with the quoted form only,
+# `{"ok":true}` under HEALTH_STATUS_FIELD=ok / HEALTH_OK_VALUES=true came back
+# `HEALTH_FAILURE=contract`.)
+#
+# The bare-token class stops at the JSON delimiters, so `{"ok":true,"dbPath":…}`
+# reads `true` and not `true,"dbPath":"/x"}` — the greedy `.*` before the key
+# already picks the LAST `"field":` in the document, exactly as the string form
+# does, so a key that also appears as a VALUE elsewhere cannot be matched by
+# accident: the value `"ok"` is followed by `}` or `,`, never by `:`.
+json_field_value() {
+  case "$1" in
+    ''|[0-9]*|*[!A-Za-z0-9_]*) return 0 ;;
+  esac
+  # The document is read ONCE, into a variable, and both patterns run against
+  # that. Two `sed` calls on the same pipe would NOT work: the first consumes
+  # stdin to EOF, so the second reads nothing and every unquoted value came back
+  # empty — which is why `{"ok":true}` failed the identity arm until this was
+  # written down and measured. (It is also the reason this helper takes a
+  # document rather than a stream: a caller passing a pipe cannot use it twice.)
+  local doc v
+  doc="$(cat)"
+  v="$(printf '%s' "$doc" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p")"
+  [ -n "$v" ] || v="$(printf '%s' "$doc" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\([^,}[:space:]]\{1,\}\).*/\1/p")"
+  printf '%s' "$v"
+}
+
 # ── Health check ───────────────────────────────────────────────────────────
 # The verdict of the last wait_health call, for the caller's own reporting:
 #   timeout   nobody answered as this service inside the window
@@ -511,6 +696,12 @@ HEALTH_FAILURE=""
 # An EXPECTED_VERSION of "unknown" is treated as no expectation: install.sh
 # passes that when the payload carries no readable version, and a gate demanding
 # the literal string "unknown" could never pass on any payload.
+#
+# The IDENTITY arm below reads the three app.env keys above instead of the
+# literals they replace, so `version` is required only when
+# HEALTH_VERSION_FIELD is set: an app whose /health carries no version at all
+# ({"ok":true}) still has to pass its own gate, and saying so once is what
+# keeps the disabled check from reading as a contract that happens to hold.
 wait_health() {
   local url="$1" expected="${2:-}" timeout="${3:-60}" deadline
   # Every sample field is initialised: a window in which NOTHING ever answered
@@ -523,7 +714,37 @@ wait_health() {
   if [ "$expected" = "unknown" ]; then expected=""; fi
   case "$timeout" in ''|*[!0-9]*) timeout=60 ;; esac
   deadline=$((SECONDS + timeout))
-  if [ -n "$expected" ]; then
+
+  # The contract, resolved ONCE per window and read by every sample below. The
+  # keys are re-read here rather than captured once at source time so a caller
+  # that exports them (the test harnesses, an operator overriding one key for a
+  # single run) gets the same treatment as app.env.
+  local status_field="${HEALTH_STATUS_FIELD:-status}"
+  local ok_values="${HEALTH_OK_VALUES:-ok degraded}"
+  # `${VAR-default}`, NOT `${VAR:-default}`: the latter substitutes on an EMPTY
+  # value as well as on an unset one, and empty is this key's documented value —
+  # `HEALTH_VERSION_FIELD=""` is how an app whose /health carries no version says
+  # "the version check is disabled". With `:-` that instruction was overwritten
+  # with "version" here and the check could never be turned off, while the
+  # configuration looked correct. (Measured: with `:-`, a run with the key
+  # exported empty still printed "a body without … and a 'version'", i.e. the
+  # version arm was live.)
+  local version_field="${HEALTH_VERSION_FIELD-version}"
+  # An empty version field disables BOTH the identity requirement and the
+  # comparison. ONE warning per gate call, printed here rather than per poll: a
+  # poll loop would repeat it every two seconds for the whole window, and the
+  # point is that the operator is TOLD, not that they are told often.
+  local version_check=true
+  if [ -z "$version_field" ]; then
+    version_check=false
+    if [ -n "$expected" ]; then
+      warn "HEALTH_VERSION_FIELD is empty — the version check is DISABLED, so this gate cannot tell ${APP_NAME:-app} from any other process answering ${url}."
+    else
+      warn "HEALTH_VERSION_FIELD is empty — the version check is DISABLED; this gate only requires ${status_field} to be one of: ${ok_values}."
+    fi
+  fi
+
+  if [ -n "$expected" ] && [ "$version_check" = true ]; then
     info "Waiting for ${url} (version ${expected}, up to ${timeout}s)..."
   else
     info "Waiting for ${url} (up to ${timeout}s)..."
@@ -550,8 +771,8 @@ wait_health() {
     embedder_dead=false
     foreign=false
     if [ -n "$body" ]; then
-      status="$(printf '%s' "$body" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-      version="$(printf '%s' "$body" | parse_json_version)"
+      status="$(printf '%s' "$body" | json_field_value "$status_field")"
+      version="$(printf '%s' "$body" | json_field_value "$version_field")"
       embedder="$(printf '%s' "$body" | parse_json_embedder)"
       # Re-derived from every sample, NOT latched: the app clears its own latch
       # once the embedder becomes ready, and a crash that recovers on the retry
@@ -560,15 +781,38 @@ wait_health() {
       # Is this our /health at all? Re-derived per sample like the latch: a
       # foreign responder that goes away must not fail a run it did not break —
       # and, since #1099, neither may one that never finished talking.
-      if [ -n "$status" ] && [ -n "$version" ] \
-        && { [ "$status" = "ok" ] || [ "$status" = "degraded" ]; }; then
+      #
+      # The `version` arm is conditional on the contract: with
+      # HEALTH_VERSION_FIELD set it is required exactly as before (that is what
+      # keeps the version-less call from passing on a stranger), and with it
+      # empty the identity is the status field alone — the one thing an app
+      # whose /health is `{"ok":true}` can actually offer.
+      local status_ok=false v
+      for v in $ok_values; do
+        if [ "$status" = "$v" ]; then status_ok=true; break; fi
+      done
+      if [ -n "$status" ] && [ "$status_ok" = true ] \
+        && { [ "$version_check" != true ] || [ -n "$version" ]; }; then
         foreign=false
       else
         foreign=true
       fi
+      # The version COMPARISON is part of the same arm as the version
+      # REQUIREMENT: an empty HEALTH_VERSION_FIELD switches both off. It has to,
+      # because the alternative is a gate that can never pass. install.sh always
+      # passes an expectation for a source install (the package.json version) and
+      # update.sh derives one from the checked-out ref, so a version field that is
+      # merely not read from the body would leave `$version` empty, the comparison
+      # unsatisfiable, and EVERY install of such an app failing at its own health
+      # gate. What is given up is stated above, once, in a warning: identity rests
+      # on the status field alone.
       if [ "$embedder_dead" != true ] && [ "$foreign" != true ] \
-        && { [ -z "$expected" ] || [ "$version" = "$expected" ]; }; then
-        info "Service is healthy, reported version ${version}."
+        && { [ "$version_check" != true ] || [ -z "$expected" ] || [ "$version" = "$expected" ]; }; then
+        if [ "$version_check" = true ]; then
+          info "Service is healthy, reported version ${version}."
+        else
+          info "Service is healthy (${status_field}=${status}; no version field configured, so none was compared)."
+        fi
         return 0
       fi
     fi
@@ -588,19 +832,27 @@ wait_health() {
     HEALTH_FAILURE="contract"
     warn "health check failed after ${timeout}s: ${url} answered, but not with a ${APP_NAME:-app} /health payload."
     warn "  Something else is on that port, or the service is not the one this deploy manages:"
-    warn "  a body without a status of ok/degraded and a version is not this app's health check."
+    if [ "$version_check" = true ]; then
+      warn "  a body without a '${status_field}' of [${ok_values}] and a '${version_field}' is not this app's health check."
+    else
+      warn "  a body without a '${status_field}' of [${ok_values}] is not this app's health check."
+    fi
     warn "check: sudo ss -ltnp | grep ':$(health_url_port "$url")'   # who holds the port"
     return 1
   fi
   if [ -n "$expected" ] && [ -n "$version" ] && [ "$version" != "$expected" ]; then
     HEALTH_FAILURE="version"
-    warn "health check failed after ${timeout}s: /health reports version ${version}, expected ${expected}."
+    warn "health check failed after ${timeout}s: /health reports ${version_field} ${version}, expected ${expected}."
     warn "  The service answering is NOT the payload this update installed."
     return 1
   fi
 
   HEALTH_FAILURE="timeout"
-  warn "health check timed out after ${timeout}s (expected ${expected:-any version})"
+  if [ -n "$expected" ]; then
+    warn "health check timed out after ${timeout}s (expected ${expected})"
+  else
+    warn "health check timed out after ${timeout}s (no expected version)"
+  fi
   return 1
 }
 
@@ -723,6 +975,18 @@ unit_value_defect() {
       printf 'a control character' ;;
     *\\*)
       printf 'a backslash (to systemd, a line continuation or an escape)' ;;
+    # BOTH quotes are matched here, and the measurement agrees they belong: the
+    # sweep in deploy/systemd-unit.test.ts finds systemd mangling `"` (34) as well
+    # as `'` (39). This arm was written that way from the start; task #1112 filed
+    # finding #3 against it ("a double quote in a UNIT_EXTRA_ENV pair renders
+    # rc=0"), which does NOT reproduce — unit_value_defect '"' returns "a quote,
+    # which systemd reads as quoting" and a render of UNIT_EXTRA_ENV='FOO=ba"r'
+    # exits 1. The rc=0 came from the PROBE, not the guard: a value written raw as
+    # UNIT_EXTRA_ENV=FOO=ba"r is a bash syntax error, so the sourcing shell aborted
+    # on that line, the key stayed at its default empty and the render succeeded on
+    # nothing. The single quote survives the same probe only because it happens to
+    # be the delimiter the probe's own quoting used. The message below therefore
+    # keeps saying "a quote" — one arm covers both, as it always did.
     *'"'*|*"'"*)
       printf 'a quote, which systemd reads as quoting' ;;
     *%*)
@@ -753,9 +1017,31 @@ assert_unit_value() {
   return 1
 }
 
+# ── Unit extras (app.env) ──────────────────────────────────────────────────
+# The template below is a fixed body, and three of its needs are per-app: an app
+# whose state lives in a systemd-managed directory, an app that carries its
+# configuration in an EnvironmentFile, and an app that needs one more environment
+# variable. Before these keys the framework could express NONE of them
+# (`grep -n 'EnvironmentFile\|StateDirectory'` found no hits), so adopting it for
+# such an app meant hand-editing the unit after every update — and a source-mode
+# update rewrites only the Restart= line, so the hand edit survived only by luck.
+#
+# Each is rendered ONLY when non-empty, so an app.env that sets none produces the
+# body this template has always produced. Empty is the default, not "unset":
+#
+#   UNIT_STATE_DIRECTORY  e.g. "subagentix" -> StateDirectory= + StateDirectoryMode=0700
+#   UNIT_ENV_FILE         e.g. "/etc/subagentix/subagentix.env" -> EnvironmentFile=
+#   UNIT_EXTRA_ENV        "K=V" pairs, SPACE separated, one Environment= line each
+#                         (a TAB or newline separates nothing: it is refused —
+#                          see render_systemd_unit, task #1117)
+: "${UNIT_STATE_DIRECTORY:=}"
+: "${UNIT_ENV_FILE:=}"
+: "${UNIT_EXTRA_ENV:=}"
+
 # ── systemd unit rendering ─────────────────────────────────────────────────
 # render_systemd_unit EXEC_START — print a hardened unit for the current app.
-# Reads APP_DESC, TARGET_USER, TARGET_HOME, INSTALL_DIR, DATA_DIR, BUN_BIN, DIST.
+# Reads APP_DESC, TARGET_USER, TARGET_GROUP, TARGET_HOME, INSTALL_DIR, DATA_DIR,
+# BUN_BIN, DIST, UNIT_STATE_DIRECTORY, UNIT_ENV_FILE, UNIT_EXTRA_ENV.
 # Returns 1 (without printing a partial body) if any value would not survive
 # systemd's parser; it never exits, so the caller controls what the operator is
 # told. See assert_unit_value.
@@ -769,10 +1055,50 @@ render_systemd_unit() {
   # characters systemd's parser reads as syntax is guarded in one place
   # (unit_value_defect) rather than one character at a time here.
   local vname
-  for vname in APP_DESC TARGET_USER TARGET_HOME INSTALL_DIR DATA_DIR BUN_BIN; do
+  for vname in APP_DESC TARGET_USER TARGET_GROUP TARGET_HOME INSTALL_DIR DATA_DIR BUN_BIN \
+               UNIT_STATE_DIRECTORY UNIT_ENV_FILE; do
     assert_unit_value "$vname" "${!vname-}" || return 1
   done
   assert_unit_value "ExecStart" "$exec_start" || return 1
+  # The unit extras are guarded EXACTLY like every other substituted value
+  # (ADR §3f). UNIT_EXTRA_ENV is the sharpest case: it is free text that lands in
+  # a unit file, and a value systemd cannot read is dropped in silence — the app
+  # then runs with a variable the operator believes it has, and nothing says so.
+  #
+  # The pairs are guarded one PAIR at a time, never as a whole blob, because a
+  # blob of pairs is SPACE separated by construction and unit_value_defect
+  # refuses a space. That is also why the split below is parameter expansion and
+  # not `for pair in ${UNIT_EXTRA_ENV:-}` (task #1117). Unquoted, bash splits on
+  # IFS — space, TAB and newline — so the split ran FIRST and no pair could ever
+  # contain a line break: the newline arm of the guard was unreachable here, and
+  # this comment claimed otherwise until #1117. MEASURED before the change, with
+  # UNIT_EXTRA_ENV="GOOD=1<newline>ExecStartPre=/bin/rm -rf /":
+  #   rc=0, Environment=GOOD=1, Environment=ExecStartPre=/bin/rm,
+  #        Environment=-rf, Environment=/
+  # — SAFE, because an Environment= value is an assignment and never a
+  # directive, but UNREFUSED, which is the half of it that had to change. The same
+  # expansion also pathname-expanded, so "FOO=*" rendered as whichever files in
+  # the working directory matched it.
+  #
+  # So: split on a space and on nothing else. A TAB or a newline then stays
+  # INSIDE its pair and unit_value_defect refuses it (TAB and LF are two of the
+  # eight characters systemd mangles), so every refused class reaches the guard
+  # instead of being shredded before it. Splitting once, into extra_pairs, is
+  # what makes the guard and the renderer below read the SAME tokens: two copies
+  # of the expansion were one edit away from disagreeing about where a pair
+  # ended, and that gap is where a value could pass the guard and then render as
+  # something else.
+  local -a extra_pairs=()
+  local rest="${UNIT_EXTRA_ENV:-}" pair
+  while [ -n "$rest" ]; do
+    case "$rest" in
+      *" "*) pair="${rest%% *}"; rest="${rest#* }" ;;
+      *)      pair="$rest"; rest="" ;;
+    esac
+    [ -n "$pair" ] || continue   # a run of spaces separates; it adds no pair
+    assert_unit_value "UNIT_EXTRA_ENV entry" "$pair" || return 1
+    extra_pairs+=("$pair")
+  done
 
   env_lines=("Environment=NODE_ENV=production")
   # ADR 0001 §2.2: a compiled binary dlopens an embedded addon whose RUNPATH
@@ -786,6 +1112,11 @@ render_systemd_unit() {
   fi
   env_lines+=("Environment=HOME=${TARGET_HOME}"
               "Environment=PATH=${bun_path}/usr/local/bin:/usr/bin:/bin")
+  if [ "${#extra_pairs[@]}" -gt 0 ]; then
+    for pair in "${extra_pairs[@]}"; do
+      env_lines+=("Environment=${pair}")
+    done
+  fi
 
   # ── The unit body is DATA, never shell ────────────────────────────────────
   # Assembled into an array, then emitted with a single printf '%s\n'. Every
@@ -803,7 +1134,7 @@ render_systemd_unit() {
   # unit is a side-effect-free print; that is now structural, not a convention:
   # deploy/systemd-unit.test.ts renders with recording systemctl/systemd-run/
   # sudo stubs first on PATH and fails if any of them is invoked.
-  local desc_line user_line workdir_line exec_line rw_line env_block
+  local desc_line user_line group_line workdir_line exec_line rw_line env_block
   printf -v desc_line    'Description=%s'       "$APP_DESC"
   printf -v user_line    'User=%s'              "$TARGET_USER"
   printf -v workdir_line 'WorkingDirectory=%s'  "$INSTALL_DIR"
@@ -811,6 +1142,50 @@ render_systemd_unit() {
   printf -v rw_line      'ReadWritePaths=%s'    "$rw"
   printf -v env_block '%s\n' "${env_lines[@]}"
   env_block="${env_block%$'\n'}"   # a command substitution ate this newline; same here
+
+  # Group= is rendered from TARGET_GROUP, which resolve_target_user() defaults to
+  # TARGET_USER. That makes the unit and the install AGREE: the tree the service
+  # reads is chowned to TARGET_USER:TARGET_GROUP, and the unit then runs as
+  # exactly that pair, instead of leaving the group to systemd's own lookup of
+  # the user's primary group. The two are the same group on an ordinary account,
+  # so this changes no behaviour for an app that sets nothing — it states the
+  # group instead of leaving it implied (ADR §3e, closing the §1 caveat).
+  printf -v group_line 'Group=%s' "${TARGET_GROUP:-${TARGET_USER}}"
+  # StateDirectory= is systemd's own creation of /var/lib/<name>, OWNED
+  # User:Group, and it exports STATE_DIRECTORY into the process. The mode is set
+  # explicitly because the systemd default is 0755, and an app that resolves its
+  # state through that variable would otherwise write a settings file into a
+  # world-readable directory. Rendered from app.env rather than derived from
+  # DATA_DIR on purpose: the two are not interchangeable. DATA_DIR is a plain
+  # mkdir this framework performs; STATE_DIRECTORY is a NAME systemd exports, and
+  # an app that reads it needs systemd to have made the directory.
+  local -a state_lines=()
+  if [ -n "${UNIT_STATE_DIRECTORY:-}" ]; then
+    state_lines+=("StateDirectory=${UNIT_STATE_DIRECTORY}" "StateDirectoryMode=0700")
+  fi
+  # EnvironmentFile= is load-bearing for an app whose configuration lives outside
+  # the unit (a separate 640 root:opencode file an operator can edit without
+  # touching a unit this framework re-renders). It is placed in the process block
+  # rather than at the end, so an operator reading the unit sees where the values
+  # ExecStart runs with come from.
+  if [ -n "${UNIT_ENV_FILE:-}" ]; then
+    state_lines+=("EnvironmentFile=${UNIT_ENV_FILE}")
+  fi
+  local state_block=""
+  if [ "${#state_lines[@]}" -gt 0 ]; then
+    printf -v state_block '%s\n' "${state_lines[@]}"
+    state_block="${state_block%$'\n'}"
+  fi
+
+  # The process block is assembled on its own and spliced in, because the state
+  # lines are OPTIONAL. A conditional entry inside the literal below would render
+  # as an EMPTY line when the key is unset, so an app.env that configures nothing
+  # new would still get a unit that differs from the one this template has always
+  # produced — by blank lines. The array is expanded as one element per line, and
+  # a section separator is a deliberate '' below, so an optional entry must be
+  # absent rather than empty.
+  local -a proc_lines=("$user_line" "$group_line" "$workdir_line" "$env_block")
+  [ -z "$state_block" ] || proc_lines+=("$state_block")
 
   lines=(
     '[Unit]'
@@ -823,9 +1198,7 @@ render_systemd_unit() {
     '[Service]'
     '# --- process ---'
     'Type=simple'
-    "$user_line"
-    "$workdir_line"
-    "$env_block"
+    "${proc_lines[@]}"
     "$exec_line"
     '# Restart=always, not on-failure (2026-09-30 incident, 12 min outage). The app'
     '# registers SIGTERM/SIGINT handlers (src/index.ts:117-123), so an EXTERNAL signal'
@@ -840,6 +1213,16 @@ render_systemd_unit() {
     '# The policy and that bound are both asserted in deploy/systemd-unit.test.ts.'
     'Restart=always'
     'RestartSec=5'
+    '# A BOUNDED stop, not the systemd default of 90 s, and not a plain SIGTERM'
+    '# wait. A process that never reaches its shutdown path (a wedged event loop,'
+    '# a build in the same tree, a request that never times out) leaves the unit'
+    '# in deactivating for the whole TimeoutStopSec, so every dependent deploy run'
+    '# and every operator watching "systemctl stop" waits 90 s for nothing. 15 s of'
+    '# grace for a clean exit, then SIGKILL: the service is already deactivating, so'
+    '# the kill cannot make the state worse, and the bounded stop is what makes'
+    '# "systemctl restart" (install.sh, update.sh) a predictable step.'
+    'TimeoutStopSec=15'
+    'KillSignal=SIGKILL'
     ''
     '# --- hardening ---'
     'NoNewPrivileges=true'
@@ -1008,23 +1391,112 @@ write_file_atomically() {
   return 0
 }
 
+# ── Source mode: dependencies & build (app.env) ─────────────────────────────
+# Shared by install.sh and update.sh so both take the identical path — the same
+# reason binary_install_payload() lives here rather than in either entry point
+# (ADR §3a). Before this, `bun install --frozen-lockfile --production` appeared
+# as a literal in BOTH entry points and there was no build step anywhere, which
+# is only correct for an app whose production dependencies are everything it
+# runs:
+#
+#   * The flags cannot be implied. An app whose build needs a devDependency —
+#     every SvelteKit/Vite app does, and `bun run build` is the only thing that
+#     produces the file its start script runs — has those packages PRUNED by
+#     --production, so the build cannot run at all. The failure surfaces INSIDE
+#     a bundler as a missing module, naming neither the flag nor app.env.
+#   * The build cannot be implied either. `default_exec_start()` renders
+#     `${BUN_BIN} run start` for any package.json carrying a start script, and
+#     that script may point at a file which exists only after a build.
+#
+# So both are keys, and the defaults are exactly what the framework did before:
+# an app.env that sets neither behaves as it did on the last release. `:=` for
+# the same reason as the health keys above — app.env wins regardless of the load
+# order, and a missing key keeps today's value.
+: "${INSTALL_FLAGS:=--frozen-lockfile --production}"
+: "${BUILD_CMD:=}"
+: "${BUILD_TIMEOUT:=600}"
+
+# install_deps — `bun install` in INSTALL_DIR, as TARGET_USER. The user is the
+# point, not a nicety: a root install leaves node_modules root-owned, and the
+# service — which runs as TARGET_USER — then cannot read the tree it depends on.
+install_deps() {
+  if [ "${REQUIRES_BUN:-}" != "yes" ]; then
+    info "Not a Bun app — skipping dependency install"
+    return 0
+  fi
+  [ -f "${INSTALL_DIR}/package.json" ] || return 0
+  # BUN_BIN is set by install.sh's install_bun_if_needed; update.sh resolves its
+  # own. Falling back to locate_bun keeps this usable when neither ran.
+  local bun="${BUN_BIN:-}"
+  if [ -z "$bun" ]; then bun="$(locate_bun || true)"; fi
+  [ -n "$bun" ] || error "Bun not found; re-run install.sh"
+  # INSTALL_FLAGS is deliberately UNQUOTED: it is a list of arguments, and
+  # quoting it hands bun a single argument named "--frozen-lockfile --production",
+  # which it rejects. A flag whose own value contains a space is not expressible
+  # this way; none is needed, and an app that needs one is a one-line change here
+  # rather than a silent misparse.
+  # shellcheck disable=SC2086
+  info "Installing dependencies (bun install ${INSTALL_FLAGS})..."
+  ( cd "$INSTALL_DIR" && run_as_target_user "$bun" install ${INSTALL_FLAGS} )
+}
+
+# run_build — the app's build step, in INSTALL_DIR, as TARGET_USER, under
+# `timeout`, because a build that hangs must not hang the install: a deploy run
+# that never returns is indistinguishable from a slow download, and the operator's
+# options are Ctrl-C on a half-installed app or a reboot.
+#
+# Non-zero ABORTS. A build that fails leaves a payload with no build output in
+# it, and the health gate would then poll a service that cannot start and report
+# a plain timeout — naming neither the build nor its error. A non-empty BUILD_CMD
+# that the operator typed is an instruction to produce the artefact, so failing to
+# produce it is a failed install, not a warning.
+run_build() {
+  [ -n "$BUILD_CMD" ] || return 0
+  need_cmd timeout
+  case "$BUILD_TIMEOUT" in ''|*[!0-9]*) BUILD_TIMEOUT=600 ;; esac
+  info "Building (${BUILD_CMD}, up to ${BUILD_TIMEOUT}s)..."
+  if ! ( cd "$INSTALL_DIR" && run_as_target_user timeout "$BUILD_TIMEOUT" bash -c "$BUILD_CMD" ); then
+    error "build failed: ${BUILD_CMD} — the output above is the reason. Nothing was installed; fix it and re-run."
+  fi
+  info "Build finished"
+}
+
+# install_deps_and_build — the pair, as ONE step, so the update path cannot skip
+# half of what install does. A source update that installs production-only
+# dependencies and no build, while the install does the opposite, is a host that
+# updates itself into a payload it cannot run.
+install_deps_and_build() {
+  install_deps
+  run_build
+}
+
 # ── Binary payload: download, stage, verify, ordered swap ──────────────────
 # Shared by install.sh and update.sh so both take the identical path
 # (ADR 0001 §2.9). Reads $TAG, $INSTALL_DIR, $ASSET_PATTERN, $RELEASES_BASE.
+#
+# The four lists below are SynaptoMind's PAYLOAD SHAPE, not framework knowledge:
+# the executable name, the two native libraries and the two example files are
+# this app's release tarball. They used to be plain assignments here, which
+# worked only by ORDERING — common.sh is sourced before load_app_env(), so an
+# app.env assignment overwrote them by arriving later, and an app with a
+# different payload had no way to say so except by editing vendored framework
+# code. `:=` makes the override EXPLICIT and order-independent (see the same
+# note above HEALTH_STATUS_FIELD): app.env wins whatever the load order, and a
+# key that is absent keeps today's value, so synaptomind is unchanged.
 
 # Platforms with a published release asset (§2.7). v1 ships linux-x86_64 only:
 # onnxruntime-node has no darwin/x64 build, and shipping an asset no runner ever
 # executed is not allowed. A host outside this set must fail here with a named
 # message rather than with a 404 from url_get.
-BINARY_SUPPORTED_PLATFORMS="linux-x86_64"
+: "${BINARY_SUPPORTED_PLATFORMS:=linux-x86_64}"
 
 # Required in every payload (§2.1). A missing one aborts before anything is
 # touched, instead of leaving a unit that starts and dies on ERR_DLOPEN_FAILED.
-BINARY_REQUIRED_FILES="synaptomind vec0.so lib/libonnxruntime.so.1"
+: "${BINARY_REQUIRED_FILES:=synaptomind vec0.so lib/libonnxruntime.so.1}"
 
 # Kept as <file>.prev for a no-git rollback (§2.9 step 6). A fresh install has
 # none of them, so the existence guard skips this step without a special case.
-BINARY_ROLLBACK_FILES="vec0.so lib/libonnxruntime.so.1 synaptomind"
+: "${BINARY_ROLLBACK_FILES:=vec0.so lib/libonnxruntime.so.1 synaptomind}"
 
 # Swap order (§2.9 step 7). THE EXECUTABLE IS MOVED LAST ON PURPOSE: a multi-file
 # swap is not atomic, so the only question is which interrupted state is
@@ -1032,7 +1504,7 @@ BINARY_ROLLBACK_FILES="vec0.so lib/libonnxruntime.so.1 synaptomind"
 # which is the state a deliberate downgrade produces — app_version still reports
 # the old version. Executable-first would report the NEW version while running
 # the OLD library, which no existing check would catch.
-BINARY_SWAP_ORDER="vec0.so lib/libonnxruntime.so.1 config.json.example .env.example synaptomind"
+: "${BINARY_SWAP_ORDER:=vec0.so lib/libonnxruntime.so.1 config.json.example .env.example synaptomind}"
 
 # require_binary_platform — refuse a host that has no asset.
 require_binary_platform() {

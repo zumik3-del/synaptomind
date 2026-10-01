@@ -247,16 +247,12 @@ source_prepare() {
   info "Checked out ${TARGET_REF}"
 }
 
-# Source mode: install dependencies for Bun apps.
-install_deps() {
-  if [ "${REQUIRES_BUN:-}" != "yes" ]; then
-    info "Not a Bun app — skipping dependency install"
-    return 0
-  fi
-  [ -f "${INSTALL_DIR}/package.json" ] || return 0
-  info "Installing dependencies..."
-  ( cd "$INSTALL_DIR" && "$BUN_BIN" install --frozen-lockfile --production )
-}
+# install_deps / run_build live in lib/common.sh, so install.sh and update.sh
+# take the identical path: see the "Source mode: dependencies & build" section
+# there. Before this they were hardcoded on each side (`bun install
+# --frozen-lockfile --production` in install.sh and again in update.sh, and no
+# build step anywhere), and two copies of one command line is how an update ends
+# up reproducing the bug an install had already been fixed for.
 
 # Binary mode: resolve the tag to install.
 resolve_binary_version() {
@@ -372,6 +368,53 @@ setup_data() {
     ln -s "$DATA_DIR" "${INSTALL_DIR}/data"
     info "Linked ${INSTALL_DIR}/data -> ${DATA_DIR}"
   fi
+}
+
+# apply_ownership — chown INSTALL_DIR and DATA_DIR to the user the unit runs as.
+#
+# WHY IT EXISTS. Install runs as root (it must, for /opt and /etc/systemd/system),
+# so every directory it creates is root-owned — including DATA_DIR. The service
+# runs as TARGET_USER, and a root-owned data dir is not writable by it: the
+# failure is an EACCES at the app's first write, which is AFTER the health check
+# has already configured itself around a service it believed was fine. Before this
+# function, `grep -n chown deploy/*.sh deploy/lib/common.sh` returned exactly one
+# hit and it was a WARNING STRING — nothing in the framework ever applied
+# ownership. The host's /var/lib/synaptomind is owned by the service user only
+# because an operator chowned it by hand.
+#
+# WHY -R ON BOTH. INSTALL_DIR holds node_modules, the built artefacts and the
+# seeded config, all of which the service reads; DATA_DIR is where it writes. A
+# non-recursive chown of the two top directories fixes neither, because the
+# payload inside them is what the service touches.
+#
+# WHY IT IS NOT FATAL. A run without root and without sudo cannot chown anything
+# to another user, and that is a legitimate configuration (`--no-service` in a
+# container, a --dir install under your own home where you are already
+# TARGET_USER). A warning names the mismatch and the run continues; aborting
+# would turn a cosmetic-ownership difference into a failed install, and the
+# service would be no better off than before. run_root is what makes the
+# non-root case work at all: root runs chown directly, a user with sudo goes
+# through sudo, and a user without either gets the warning.
+apply_ownership() {
+  local p
+  for p in "$INSTALL_DIR" "$DATA_DIR"; do
+    [ -n "$p" ] || continue
+    [ -e "$p" ] || continue
+    # Already owned by the target: say nothing. A non-root install into the
+    # caller's own directory hits this on every run, and a chown that changes
+    # nothing is noise.
+    if [ -n "${TARGET_GROUP:-}" ]; then
+      [ "$(stat -c '%U:%G' "$p" 2>/dev/null || true)" = "${TARGET_USER}:${TARGET_GROUP}" ] && continue
+    fi
+    if run_root chown -R "${TARGET_USER}:${TARGET_GROUP:-${TARGET_USER}}" "$p" 2>/dev/null; then
+      info "Ownership: ${p} -> ${TARGET_USER}:${TARGET_GROUP:-${TARGET_USER}}"
+    else
+      warn "cannot chown ${p} to ${TARGET_USER}:${TARGET_GROUP:-${TARGET_USER}}."
+      warn "  The service runs as ${TARGET_USER}; if it cannot write there, its first"
+      warn "  database write will fail with EACCES — after the health check has passed."
+      warn "fix: sudo chown -R ${TARGET_USER}:${TARGET_GROUP:-${TARGET_USER}} ${p}"
+    fi
+  done
 }
 
 # ── Phase: helper scripts in RUN_DIR/scripts ───────────────────────────────
@@ -614,6 +657,9 @@ main() {
   HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-60}"
   HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:$(resolve_port)/health}"
   HOOKS_DIR="${HOOKS_DIR:-${RUN_DIR}/hooks}"
+  # Before the payload is fetched, so an unreadable contract is refused while
+  # the host is still untouched.
+  require_health_contract
 
   info "Installing ${APP_NAME} (dist=${DIST})..."
 
@@ -625,7 +671,7 @@ main() {
     require_source_config
     install_bun_if_needed
     source_prepare
-    install_deps
+    install_deps_and_build
     EXPECTED_VERSION="$(read_package_version "${INSTALL_DIR}/package.json")"
   elif [ "$DIST" = "binary" ]; then
     require_binary_config
@@ -642,6 +688,12 @@ main() {
   seed_files
   generate_secret_into
   setup_data
+  # AFTER the payload lands and the data dir exists, and BEFORE the service is
+  # started: the two orderings are both load-bearing. Chowning earlier would miss
+  # the seeded config and the generated secret (both are written after); starting
+  # earlier would let the service hold an open handle on files whose ownership
+  # then changes underneath it.
+  apply_ownership
   install_helper_scripts
   install_hook_scripts
 
