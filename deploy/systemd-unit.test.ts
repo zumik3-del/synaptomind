@@ -531,7 +531,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
         },
       )
       expect(res.status).not.toBe(0)
-      expect(spawnSync('cat', [log], { encoding: 'utf8' }).stdout).toBe('')
+      expect(readFileSync(log, { encoding: 'utf8' })).toBe('')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
