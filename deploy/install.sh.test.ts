@@ -5,6 +5,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readlinkSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -1492,6 +1493,281 @@ describe('install.sh — DIST=binary tarball install', () => {
     const mutated = seededConfig(mutRoot)
     expect(mutated.mcp.httpPort).toBe(mutated.server.port)
   }, 90_000)
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  CONFIG_LINK_NAME — the R1 config link (install.sh: setup_config_link)
+  //
+  //  ADR addendum #1122 R1 makes DATA_DIR the app's own config home, while the
+  //  unit's WorkingDirectory is fixed at INSTALL_DIR and synaptomind resolves
+  //  its config cwd-relative (src/config.ts:267 join(process.cwd(),
+  //  'config.json')). CONFIG_LINK_NAME bridges the two:
+  //  ${INSTALL_DIR}/<name> -> ${DATA_DIR}/<name>, created by the installer AFTER
+  //  the seeding passes.
+  //
+  //  The properties below are what make that link safe to create on EVERY run of
+  //  an installer that may be re-run by an operator at any time:
+  //
+  //   created     — the whole feature; without it the app reads its defaults.
+  //   seeded once — the config lands in DATA_DIR (not the payload tree, which an
+  //                 update swaps), and an operator's own DATA_DIR config is never
+  //                 re-seeded over.
+  //   refreshed   — a link naming some OTHER tree is re-pointed. A symlink is a
+  //                 pointer, not data, so re-pointing it loses nothing.
+  //   never       — a REAL FILE at the link path is left byte-for-byte alone and
+  //   replaced      reported with the move that finishes R1 by hand. Losing an
+  //                 operator's config is the one unrecoverable outcome here.
+  //   no-op       — an app.env that does not set the key behaves exactly as
+  //                 before, byte for byte (the empty default is the only app that
+  //                 must keep working unchanged).
+  //
+  //  The link is asserted through a REAL install, not by calling setup_config_link
+  //  in isolation: the ordering claim (the link is created after seeding, so no
+  //  `cp` is ever handed a symlink to write through) is a property of main()'s
+  //  sequence and is invisible from the function alone.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * The app.env shape synaptomind actually ships after #1131: the config is NOT
+   * seeded into the payload tree, it is seeded into DATA_DIR and reached through
+   * the link.
+   */
+  function configLinkTree(root: string, releases: string, appEnv: Record<string, string> = {}) {
+    seedRelease(releases, 'v0.8.0', stubPayload('v0.8.0'))
+    return seedBinaryTree(root, {
+      releasesBase: `file://${releases}`,
+      appEnv: {
+        CONFIG_LINK_NAME: 'config.json',
+        SEED_FILES: '.env.example:.env',
+        SEED_FILES_DATA: 'config.json.example:config.json',
+        ...appEnv,
+      },
+    })
+  }
+
+  /** 'missing' | 'symlink' | 'file' | 'dir' — lstat, so a link is never followed. */
+  function pathType(path: string): string {
+    try {
+      const st = lstatSync(path)
+      return st.isSymbolicLink() ? 'symlink' : st.isDirectory() ? 'dir' : 'file'
+    } catch {
+      return 'missing'
+    }
+  }
+
+  test('a fresh install seeds the config into DATA_DIR and links INSTALL_DIR at it', () => {
+    const tree = configLinkTree(ROOT, RELEASES)
+
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0',
+      '--no-service',
+    ])
+    expect(res.status, res.stdout + res.stderr).toBe(0)
+
+    const link = join(ROOT, 'opt', APP, 'config.json')
+    const target = join(ROOT, 'data', 'config.json')
+    // A LINK, and pointing at DATA_DIR — not a second copy in the payload tree,
+    // which is the tree an update swaps out from under the operator.
+    expect(pathType(link)).toBe('symlink')
+    expect(readlinkSync(link)).toBe(target)
+    expect(pathType(target)).toBe('file')
+    expect(res.stdout).toContain(`Linked ${link} -> ${target}`)
+
+    // The seeded copy is the file the app READS, so it carries this install's
+    // ports — an unaligned one leaves the app on the example's 3005/3006.
+    const cfg = JSON.parse(readFileSync(target, 'utf8'))
+    expect(cfg.server.port).toBe(FIXTURE_PORT)
+    expect(cfg.mcp.httpPort).toBe(FIXTURE_PORT + 1)
+  }, 60_000)
+
+  test('the config is seeded ONCE: a re-install preserves the operator\'s DATA_DIR config', () => {
+    const tree = configLinkTree(ROOT, RELEASES)
+    const target = join(ROOT, 'data', 'config.json')
+    const args = ['--version', 'v0.8.0', '--force', '--no-service']
+
+    const first = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, args)
+    expect(first.status, first.stdout + first.stderr).toBe(0)
+    // Run 1 really seeded — otherwise "preserved" below would also hold on a
+    // tree where nothing was ever written.
+    expect(pathType(target)).toBe('file')
+    expect(JSON.parse(readFileSync(target, 'utf8')).server.port).toBe(FIXTURE_PORT)
+
+    // The operator edits the config the app reads — the migration layout.
+    const edited = JSON.parse(readFileSync(target, 'utf8'))
+    edited.server.port = 3105
+    edited.mcp.httpPort = 3106
+    edited.handEdited = true
+    writeFileSync(target, `${JSON.stringify(edited, null, 2)}\n`)
+
+    const second = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, args)
+    expect(second.status, second.stdout + second.stderr).toBe(0)
+    expect(second.stdout).toContain('Preserved existing config.json')
+    const after = JSON.parse(readFileSync(target, 'utf8'))
+    expect(after.handEdited).toBe(true)
+    expect(after.server.port).toBe(3105)
+    expect(after.mcp.httpPort).toBe(3106)
+
+    // And the link is idempotent: re-pointing a link that already names DATA_DIR
+    // would be churn, so the run says "Preserved" and the link is untouched.
+    const link = join(ROOT, 'opt', APP, 'config.json')
+    expect(second.stdout).toContain(`Preserved ${link} -> ${target}`)
+    expect(readlinkSync(link)).toBe(target)
+  }, 90_000)
+
+  test('a link naming another tree is REFRESHED, and the tree it named keeps its contents', () => {
+    const tree = configLinkTree(ROOT, RELEASES)
+    const installDir = join(ROOT, 'opt', APP)
+    const link = join(installDir, 'config.json')
+    const stale = join(ROOT, 'stale', 'config.json')
+    mkdirSync(join(ROOT, 'stale'), { recursive: true })
+    mkdirSync(installDir, { recursive: true })
+    // The state a host is in when the data dir moved: a link left over from the
+    // previous layout, pointing at a tree that still exists.
+    writeFileSync(stale, '{ "where": "stale" }\n')
+    symlinkSync(stale, link)
+
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0',
+      '--no-service',
+    ])
+    expect(res.status, res.stdout + res.stderr).toBe(0)
+
+    const target = join(ROOT, 'data', 'config.json')
+    expect(readlinkSync(link)).toBe(target)
+    expect(res.stdout).toContain(`Linked ${link} -> ${target}`)
+    // A symlink is a POINTER: re-pointing it must not have consumed what it
+    // named, which is the whole difference between a link and a file.
+    expect(readFileSync(stale, 'utf8')).toBe('{ "where": "stale" }\n')
+    expect(pathType(target)).toBe('file')
+  }, 60_000)
+
+  test('a REAL FILE at the link path is never replaced — it is reported, with the move to make', () => {
+    const tree = configLinkTree(ROOT, RELEASES)
+    const installDir = join(ROOT, 'opt', APP)
+    const link = join(installDir, 'config.json')
+    const target = join(ROOT, 'data', 'config.json')
+    mkdirSync(installDir, { recursive: true })
+    // An operator's hand-edited config already in the payload tree: the exact
+    // state R1 exists to migrate away from, and the one a deploy script must not
+    // resolve by unlinking it.
+    const handEdited = '{ "operator": "hand-edited", "port": 3105 }\n'
+    writeFileSync(link, handEdited)
+
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0',
+      '--no-service',
+    ])
+    // The refusal is a WARNING, not an abort: everything else this install owes
+    // the operator — the DATA_DIR seed included — still happens.
+    expect(res.status, res.stdout + res.stderr).toBe(0)
+    expect(pathType(link), 'the hand-edited file was replaced by something else').toBe('file')
+    expect(readFileSync(link, 'utf8')).toBe(handEdited)
+    // Reported, and the report names the move that finishes R1 — a warning that
+    // only says "left alone" leaves the operator with nothing to do.
+    expect(res.stderr).toContain(`${link} is a real file, not a link`)
+    expect(res.stderr).toContain(target)
+    expect(res.stderr).toMatch(/move it there/)
+    // And the link was not created behind the operator's back either.
+    expect(res.stdout).not.toContain(`Linked ${link}`)
+    expect(pathType(target)).toBe('file')
+  }, 60_000)
+
+  test('an app.env that does not set CONFIG_LINK_NAME is a true no-op', () => {
+    // The default is empty, so this is the shape of every app that has not opted
+    // in — including the vendored copies in ziptask and subagentix. Nothing may
+    // be created, and nothing may be said about a link.
+    const tree = configLinkTree(ROOT, RELEASES, { CONFIG_LINK_NAME: '' })
+    const installDir = join(ROOT, 'opt', APP)
+
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0',
+      '--no-service',
+    ])
+    expect(res.status, res.stdout + res.stderr).toBe(0)
+    const link = join(installDir, 'config.json')
+    expect(pathType(link)).toBe('missing')
+    // Not one word about a link. SEED_FILES_DATA legitimately names
+    // config.json on stdout, so the claim under test is scoped to the LINK.
+    expect(res.stdout).not.toContain(`Linked ${link}`)
+    expect(res.stdout).not.toContain(`Preserved ${link}`)
+    expect(res.stderr).not.toContain('is a real file, not a link')
+    // SEED_FILES_DATA still seeds into DATA_DIR: the two keys are independent,
+    // and a framework that tied them would make the no-op unobservable.
+    expect(pathType(join(ROOT, 'data', 'config.json'))).toBe('file')
+  }, 60_000)
+
+  test('removing the empty-value early return is detected (non-vacuity)', () => {
+    // The pair for the no-op test above: the shipped tree is silent, and the
+    // mutant — the same run with `[ -n "${CONFIG_LINK_NAME:-}" ] || return 0`
+    // deleted — is not. Without this the "no-op" assertion could be passing
+    // because the function never runs on this path at all, which is a different
+    // claim from "the empty default changes nothing".
+    seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
+    const realRoot = join(ROOT, 'real')
+    const mutRoot = join(ROOT, 'mut')
+    mkdirSync(realRoot, { recursive: true })
+    mkdirSync(mutRoot, { recursive: true })
+    const appEnv = { CONFIG_LINK_NAME: '', SEED_FILES: '.env.example:.env', SEED_FILES_DATA: 'config.json.example:config.json' }
+    const real = seedBinaryTree(realRoot, { releasesBase: `file://${RELEASES}`, appEnv })
+    const mut = seedBinaryTree(mutRoot, { releasesBase: `file://${RELEASES}`, appEnv })
+    mutateInstallScript(
+      mut.deployDir,
+      `  [ -n "\${CONFIG_LINK_NAME:-}" ] || return 0\n`,
+      '',
+    )
+
+    const args = ['--version', 'v0.8.0', '--no-service']
+    const realRes = runBinaryInstall(real.deployDir, real.stubsDir, real.sudoLog, args)
+    const mutRes = runBinaryInstall(mut.deployDir, mut.stubsDir, mut.sudoLog, args)
+    expect(realRes.status, realRes.stdout + realRes.stderr).toBe(0)
+    expect(mutRes.status, mutRes.stdout + mutRes.stderr).toBe(0)
+
+    // Shipped: silent about the LINK, and INSTALL_DIR has no config.json entry
+    // at all. SEED_FILES_DATA legitimately names config.json on stdout, so the
+    // claim is scoped to the link and to the warning the mutant produces.
+    const realLink = join(realRoot, 'opt', APP, 'config.json')
+    expect(pathType(realLink)).toBe('missing')
+    expect(realRes.stdout).not.toContain(`Linked ${realLink}`)
+    expect(`${realRes.stdout}${realRes.stderr}`).not.toContain('is a real file, not a link')
+    // Mutated: with the guard gone the empty name resolves to the DIRECTORIES, so
+    // `${INSTALL_DIR}/` itself is reported as "a real file" — which is exactly the
+    // noise the no-op assertion above would have caught.
+    expect(mutRes.stderr).toContain('is a real file, not a link')
+  }, 90_000)
+
+  test('CONFIG_LINK_NAME set with an empty DATA_DIR, or naming a path, is refused', () => {
+    // Both refusals are loud and named, because the alternative is a link that
+    // points back into the tree the link exists to leave (empty DATA_DIR), or a
+    // name like "../../etc/x" that writes outside INSTALL_DIR.
+    //
+    // The empty-DATA_DIR case drops SEED_FILES_DATA on purpose: with it set,
+    // seed_files_data() refuses first (install.sh runs the seeding passes before
+    // setup_config_link), which is the same verdict from an EARLIER guard. The
+    // claim under test is that setup_config_link refuses on its own account, so
+    // the fixture must not give an earlier function the reason to abort.
+    const cases: [string, Record<string, string>][] = [
+      ['empty DATA_DIR', { DATA_DIR: '', CONFIG_LINK_NAME: 'config.json', SEED_FILES_DATA: '' }],
+      ['a name with a separator', { CONFIG_LINK_NAME: 'etc/config.json' }],
+      ['a relative traversal', { CONFIG_LINK_NAME: '../../config.json' }],
+      ['a bare dot', { CONFIG_LINK_NAME: '.' }],
+    ]
+    cases.forEach(([label, appEnv], i) => {
+      const root = join(ROOT, `refuse-${i}`)
+      mkdirSync(root, { recursive: true })
+      const tree = configLinkTree(root, RELEASES, appEnv)
+      const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+        '--version',
+        'v0.8.0',
+        '--no-service',
+      ])
+      expect(res.status, `${label} must abort the install:\n${res.stdout}${res.stderr}`).toBe(1)
+      expect(res.stderr).toContain('CONFIG_LINK_NAME')
+      expect(res.stdout).not.toContain('Done.')
+    })
+  }, 120_000)
 
   //  install.sh's OWN health gate — start_and_verify (task #1087)
   //

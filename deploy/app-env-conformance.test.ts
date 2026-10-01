@@ -192,7 +192,7 @@ function assertOverridesInside(overrides: Record<string, string>, root: string):
  * a file to actually appear turns it on, and the stub then refuses any path
  * outside the fixture root rather than trusting its caller.
  */
-function seedPrivStubs(root: string, opts: { execSudo?: boolean } = {}) {
+function seedPrivStubs(root: string, opts: { execSudo?: boolean; chownSnapshot?: boolean } = {}) {
   const stubsDir = join(root, 'stubs')
   const log = join(root, 'privileged.log')
   mkdirSync(stubsDir, { recursive: true })
@@ -225,8 +225,31 @@ function seedPrivStubs(root: string, opts: { execSudo?: boolean } = {}) {
         '  touch|chmod|cp|mv|rm|install|systemctl|mkdir|ln|chown) ;;',
         '  *) echo "STUB: refused command ${1:-}" >&2; exit 99 ;;',
         'esac',
-        'exec "$@"',
       )
+      if (opts.chownSnapshot) {
+        // What was in each chowned directory AT THE MOMENT the chown ran, as one
+        // `LS <dir>:a,b,c` line per absolute argument. The ordering claim of
+        // apply_run_dir_ownership — "it runs after the helper installers, or it
+        // chowns an empty directory" — is only observable from inside the run: a
+        // log of calls cannot tell a chown of a not-yet-created directory from a
+        // chown of an empty one, and both are the defect.
+        lines.push(
+          'case "${1:-}" in',
+          '  chown)',
+          '    for d in "$@"; do',
+          '      case "$d" in',
+          '        /*)',
+          '          printf \'LS %s:\' "$d" >> "$STUB_PRIV_LOG"',
+          '          ls -1 "$d" 2>/dev/null | tr \'\\n\' \',\' >> "$STUB_PRIV_LOG"',
+          '          printf \'\\n\' >> "$STUB_PRIV_LOG"',
+          '          ;;',
+          '      esac',
+          '    done',
+          '    ;;',
+          'esac',
+        )
+      }
+      lines.push('exec "$@"')
     } else {
       lines.push(':', 'exit 0')
     }
@@ -623,7 +646,7 @@ describe('deploy/apply_ownership — both trees, before the service starts', () 
      * `--no-service` run that stopped at the clone would report no chown and the
      * assertion would be measuring the fixture rather than the framework.
      */
-    function fullInstall(opts: { execSudo?: boolean; refuseChown?: boolean } = {}) {
+    function fullInstall(opts: { execSudo?: boolean; refuseChown?: boolean; chownSnapshot?: boolean } = {}) {
       const values = readAppEnvValues(target.appEnvPath)
       const binary = values.DIST === 'binary'
       const origin = binary ? null : seedGitOrigin(target.label)
@@ -632,7 +655,7 @@ describe('deploy/apply_ownership — both trees, before the service starts', () 
         ? { RELEASES_BASE: `file://${release!.dir}`, RELEASE_API: '' }
         : { REPO_URL: origin!.url, CHECKOUT_POLICY: 'stable' }
       const fx = seedTarget(target, { env })
-      const { stubsDir, log } = seedPrivStubs(ensureRoot(), { execSudo: opts.execSudo })
+      const { stubsDir, log } = seedPrivStubs(ensureRoot(), { execSudo: opts.execSudo, chownSnapshot: opts.chownSnapshot })
       // A root-owned-looking tree, so apply_ownership takes the branch it added
       // instead of correctly skipping a no-op chown.
       seedForeignOwnerStat(stubsDir)
@@ -685,6 +708,44 @@ describe('deploy/apply_ownership — both trees, before the service starts', () 
       expect(res.stderr).toContain('cannot chown')
       expect(res.stderr).toMatch(/EACCES/)
       expect(res.stderr).toMatch(/fix: sudo chown/)
+    })
+
+    test(`${target.label}: chowns RUN_DIR, scripts/ and hooks/ AFTER the helper installers wrote them`, () => {
+      // The RUN_DIR half of the gap (#1113): the pre-update hook runs as
+      // TARGET_USER and reads ${RUN_DIR}/scripts/app.env, which is installed
+      // mode 600 — so a root-owned one is unreadable to exactly the process that
+      // takes the pre-update database backup, and the backup fails silently.
+      //
+      // The ORDERING is the part that cannot be asserted from a call log: a chown
+      // of a directory that does not exist yet and a chown of an empty one look
+      // identical there. So the sudo stub records what was in each chowned
+      // directory at the moment it was chowned (chownSnapshot), and the helpers
+      // must already be in place — otherwise apply_run_dir_ownership is
+      // chowning an empty tree and the fix is decoration.
+      const { res, log, fx } = fullInstall({ execSudo: true, chownSnapshot: true })
+      expect(res.status, res.stdout + res.stderr).toBe(0)
+      const calls = privCalls(log)
+      const chowns = calls.filter((c) => c.includes('chown') && c.includes('-R'))
+      for (const dir of [fx.runDir, join(fx.runDir, 'scripts'), join(fx.runDir, 'hooks')]) {
+        expect(chowns.some((c) => c.includes(` ${dir}`)), `no chown for ${dir} in:\n${calls.join('\n')}`).toBe(true)
+      }
+      // Scoped: RUN_DIR may also hold app state the framework does not own, so a
+      // blind `chown -R ${RUN_DIR}` would silently take that too.
+      const owned = chowns.map((c) => c.trim().split(/\s+/).pop())
+      expect(owned.filter((p) => p?.startsWith(fx.runDir)).sort()).toEqual(
+        [fx.runDir, join(fx.runDir, 'hooks'), join(fx.runDir, 'scripts')].sort(),
+      )
+      // And the files were already there when the chown ran.
+      const snapshot = (dir: string) => calls.find((c) => c.startsWith(`LS ${dir}:`))
+      const scripts = snapshot(join(fx.runDir, 'scripts'))
+      expect(scripts, `no snapshot of ${join(fx.runDir, 'scripts')} in:\n${calls.join('\n')}`).toBeDefined()
+      for (const helper of ['app.env', 'common.sh', 'update.sh', 'updater.sh', 'uninstall.sh']) {
+        expect(scripts, `${helper} was not installed yet when scripts/ was chowned`).toContain(helper)
+      }
+      const hooks = snapshot(join(fx.runDir, 'hooks'))
+      expect(hooks, `no snapshot of ${join(fx.runDir, 'hooks')} in:\n${calls.join('\n')}`).toContain('pre-update')
+      // The mode-600 app.env is the whole reason this pass exists.
+      expect(statSync(join(fx.runDir, 'scripts', 'app.env')).mode & 0o777).toBe(0o600)
     })
   }
 })
@@ -862,8 +923,16 @@ exit 0
       // app.env side, so a new app cannot reintroduce it through its own keys.
       const { rc, body } = renderUnit(target)
       expect(rc).toBe('0')
+      // TimeoutStopSec is the BOUND; the SIGKILL that enforces it is systemd's
+      // own default (SendSIGKILL=yes), which arrives only once the bound expires.
+      // KillSignal must therefore NOT be set: it used to be SIGKILL, which
+      // replaced the app's SIGTERM handler (src/index.ts:123 — the WAL
+      // checkpoint) with an immediate unblockable kill, so every stop ended in
+      // status=9 and the shutdown path never ran (#1124/#1125). Asserting the
+      // ABSENCE is the contract now: a future edit that re-adds the line fails
+      // here instead of re-breaking every graceful stop on the host.
       expect(body).toContain('TimeoutStopSec=15')
-      expect(body).toContain('KillSignal=SIGKILL')
+      expect(body).not.toContain('KillSignal=')
       expect(body).toContain('Restart=always')
       expect(body).not.toContain('`')
       expect(body).not.toContain('$(systemctl')

@@ -310,33 +310,46 @@ function spawnBash(script: string, args: string[]): { status: number | null; std
  * WHY THIS LIST AND NOT `guardRealStateDir()`. That helper guards `~/.synaptomind`,
  * which is this repo's app — correct for the framework suite and useless for
  * ziptask and subagentix, whose installs would land in `~/.ziptask` and
- * `~/.subagentix`. The paths below are exactly the ones RUN_DIR, INSTALL_DIR,
- * DATA_DIR and HOOKS_DIR resolve to on this host for every resolved target, plus
- * the host service tree.
+ * `~/.subagentix`. The list itself is built by productionWatchPaths() below, and
+ * it is exactly the paths RUN_DIR, INSTALL_DIR, DATA_DIR and HOOKS_DIR resolve to
+ * on this host for every resolved target, plus the host service tree.
  *
- * WHAT IS DELIBERATELY EXCLUDED: `~/.ziptask/data`. The tracker these suites are
- * reporting through is the live ziptask service, and its SQLite WAL changes on
- * every task update — fingerprinting it would make the tripwire fire on the
- * agent's own bookkeeping. The write paths under test are `scripts/` and `hooks/`
- * (install_helper_scripts / install_hook_scripts); a database the running service
- * owns is not one of them.
+ * WHAT IS DELIBERATELY EXCLUDED, AND WHY IT IS NOT A CONSTANT. A path that a
+ * LIVE, out-of-sandbox service legitimately writes cannot be fingerprinted: it
+ * moves under the suite for reasons that have nothing to do with any fixture.
+ * The first version of this file already knew that and excluded one such path
+ * (`~/.ziptask/data`) by name, because the tracker these suites report through IS
+ * the live ziptask service and its WAL changes on every task update. That
+ * exclusion became wrong rather than useless when #1123/#1124 moved ziptask's
+ * config home to DATA_DIR (ADR addendum R1): the database and settings.json now
+ * live in /var/lib/ziptask, so the path that moves on every task update is
+ * /var/lib/ziptask itself — the very entry this list watches. Measured, not
+ * argued: a run with `DEPLOY_APP_ENVS=…ziptask…` reported
+ *   `DEPLOY SANDBOX VIOLATION: /var/lib/ziptask was MODIFIED by a deploy fixture`
+ * over 52 passing tests, with the only writer the live service persisting the
+ * agent's own tracker bookkeeping.
+ *
+ * So the exclusion is DERIVED (`liveServiceDataDirs`) rather than hardcoded: a
+ * target's DATA_DIR is dropped from the watch list when that app's unit is
+ * actually running on this host. Hardcoding a path would have been a second
+ * #1124 waiting to happen — the next ADR that moves a config home would leave
+ * the exclusion pointing at an empty directory and the false positive would come
+ * back under a new name.
+ *
+ * WHAT THE GUARD KEEPS WATCHING, which is the half that matters: /opt/<app>, the
+ * state dir and its scripts/ and hooks/ (the paths install_helper_scripts and
+ * install_hook_scripts write), the unit file, and the host's own deploy/app.env —
+ * the file #1101 overwrote. Those are the paths a fixture could escape to, and
+ * none of them is written by a running service.
+ *
+ * THE FAILURE DIRECTION. When a target's unit cannot be found (no systemctl, a
+ * CI container) or its app.env cannot be sourced, the path stays WATCHED. The
+ * blind case is a stopped unit and a false alarm; the loud case is a #1101. That
+ * asymmetry is the whole design, so it is worth stating rather than leaving to a
+ * reader who assumes the exclusion is unconditional.
  */
 export function guardProductionPaths(targets: readonly AppTarget[]): void {
-  const watched: string[] = []
-  for (const target of targets) {
-    const label = target.label
-    watched.push(
-      join('/opt', label),
-      join('/var/lib', label),
-      join(homeDir(), `.${label}`),
-      join(homeDir(), `.${label}`, 'scripts'),
-      join(homeDir(), `.${label}`, 'hooks'),
-      join('/etc/systemd/system', `${label}.service`),
-      // The host app.env itself, which is the file the whole delivery mechanism
-      // reads and the one #1101 overwrote.
-      join(target.deployDir, 'app.env'),
-    )
-  }
+  const watched = productionWatchPaths(targets)
   const before = new Map<string, string | null>()
   for (const path of watched) before.set(path, fingerprintOrNull(path))
   const verify = () => {
@@ -363,6 +376,86 @@ export function guardProductionPaths(targets: readonly AppTarget[]): void {
 function homeDir(): string {
   const passwd = spawnBash(`getent passwd "$(id -un)" | cut -d: -f6`, [])
   return passwd.stdout.trim() || process.env.HOME || '/root'
+}
+
+/**
+ * Is this app's unit actually running on this host?
+ *
+ * `systemctl is-active --quiet` answers through its exit status (0 active), which
+ * is the interface a `--no-service`-style caller branches on. A missing systemctl
+ * answers false, and false means "nothing is writing there", so the watch list
+ * stays armed — the loud direction, deliberately (see the header).
+ */
+function unitIsLive(unit: string): boolean {
+  const res = spawnSync('systemctl', ['is-active', '--quiet', unit], { encoding: 'utf8', timeout: 10_000 })
+  if (res.error) return false
+  return res.status === 0
+}
+
+/**
+ * The DATA_DIR of every target whose service is live here — the directories a
+ * running process owns and writes, which therefore cannot be tripwires.
+ *
+ * Read from the target's REAL app.env rather than assumed to be `/var/lib/<label>`:
+ * a fixture only has to be prevented from writing where the app's own app.env says
+ * the app writes. An app.env that cannot be sourced contributes nothing, and its
+ * `/var/lib/<label>` therefore stays watched — same asymmetry as unitIsLive.
+ */
+export function liveServiceDataDirs(
+  targets: readonly AppTarget[],
+  isLive: (unit: string) => boolean = unitIsLive,
+): string[] {
+  const dirs: string[] = []
+  for (const target of targets) {
+    if (!isLive(`${target.label}.service`)) continue
+    let dataDir: string | undefined
+    try {
+      dataDir = readAppEnvValues(target.appEnvPath).DATA_DIR
+    } catch {
+      continue
+    }
+    const trimmed = dataDir?.replace(/\/+$/, '')
+    if (trimmed && !dirs.includes(trimmed)) dirs.push(trimmed)
+  }
+  return dirs
+}
+
+/**
+ * The paths guardProductionPaths fingerprints, in order.
+ *
+ * Exported (and pure) so the composition can be asserted directly: the tripwire
+ * itself can only report by writing to stderr and setting process.exitCode, which
+ * is a poor thing to test and an easy thing to get wrong. What the tests need to
+ * know is which paths are in the list, and a list is checkable.
+ *
+ * `isLive` is injectable so the composition is testable on a host that is not
+ * running the app under test — see ./app-targets.test.ts.
+ */
+export function productionWatchPaths(
+  targets: readonly AppTarget[],
+  isLive: (unit: string) => boolean = unitIsLive,
+): string[] {
+  const live = liveServiceDataDirs(targets, isLive)
+  const watched: string[] = []
+  for (const target of targets) {
+    const label = target.label
+    for (const path of [
+      join('/opt', label),
+      join('/var/lib', label),
+      join(homeDir(), `.${label}`),
+      join(homeDir(), `.${label}`, 'scripts'),
+      join(homeDir(), `.${label}`, 'hooks'),
+      join('/etc/systemd/system', `${label}.service`),
+      // The host app.env itself, which is the file the whole delivery mechanism
+      // reads and the one #1101 overwrote.
+      join(target.deployDir, 'app.env'),
+    ]) {
+      // A live service's own data dir, and anything under it, is not a tripwire.
+      if (live.some((dir) => path === dir || path.startsWith(`${dir}/`))) continue
+      watched.push(path)
+    }
+  }
+  return watched
 }
 
 /**
