@@ -838,6 +838,12 @@ Two checks fire by design on a dense, hub-centric graph and are accepted as trad
 - `clusterless_dense_thoughts` (cluster health, warning) — transient. The finder is age-gated to the same `autoCluster.minAgeDays` window auto-cluster uses (task #935), so it reports only thoughts old enough for the clusterer to act on (see `src/db/health-check/clusters.ts`).
 - `health_score` penalises the presence of a flagged *category*, not occurrence counts: `100 − criticalCategories×40 − warningCategories×15 − infoOccurrences×0.25`, clamped to `[0,100]`. Because the `info` term is per-occurrence, a large `island_thoughts` count dominates the score, while clearing a single `overlinked_thoughts` hub does not move it (`src/services/health-check.service.ts`).
 
+Findings about *live* claims deliberately ignore `archived` endpoints. Archiving only flips the `status` column — the edges stay attached (`src/db/thoughts.ts`) — and the documented supersession flow (link `replaces`, then archive the target) does not transfer them, so a retired endpoint would otherwise be flagged forever after a correct procedure:
+
+- `contradiction_in_cluster` reports only when both contradicting cluster members are non-archived. Both-archived pairs remain visible as the `contradicts_to_archived` info finding (a cleanup candidate).
+- `duplicate_content` likewise excludes archived on both sides (merge archives its source, so the pair would stay flagged).
+- `broken_parent_chains` ignores edges whose *source* is archived, and reports live-source edges pointing at an `archived`/`draft` target — its autofix deletes the archived-target ones.
+
 ### GET /health
 
 Public liveness/readiness probe (no auth). Returns 200 when healthy, 503 when degraded. Degradation is DB-only by design: embedder readiness is reported but not counted, so long model downloads during startup do not fail the Docker healthcheck.

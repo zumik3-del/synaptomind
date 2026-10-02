@@ -57,6 +57,12 @@ export function findContradictsRedundantWithReplaces(db: Database): ContradictsR
 /**
  * Two members of the same cluster contradict each other: the consolidated
  * claim is ambiguous until the conflict is resolved.
+ *
+ * Archived members are excluded: `contradicts` means two live, mutually
+ * exclusive claims, archiving is a plain status flip that keeps the edges, and
+ * the documented `replaces`-then-archive flow does not transfer them, so a
+ * live<->archived pair would warn forever after a correct procedure. Both
+ * archived pairs stay reported by `findContradictsToArchived`.
  */
 export function findContradictionInCluster(db: Database): ContradictionInCluster[] {
   return db.prepare(`
@@ -70,6 +76,8 @@ export function findContradictionInCluster(db: Database): ContradictionInCluster
       ON ce2.source_id = ce1.source_id
       AND ce2.type = 'cluster'
       AND ce2.target_id > ce1.target_id
+    JOIN thoughts ma ON ma.id = ce1.target_id AND ma.status != 'archived'
+    JOIN thoughts mb ON mb.id = ce2.target_id AND mb.status != 'archived'
     JOIN edges c
       ON c.type = 'contradicts'
       AND (

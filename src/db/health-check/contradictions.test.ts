@@ -104,6 +104,119 @@ describe("findContradictionInCluster", () => {
 		seedEdge(m1, m2, "contradicts");
 		expect(findContradictionInCluster(db)).toEqual([]);
 	});
+
+	// The finder orders the pair by `ce2.target_id > ce1.target_id`, so member_a is
+	// always the lower id. These cases pin explicit ids instead of relying on
+	// uuid order, otherwise the archived member's orientation is a coin flip and
+	// only one of the two join arms is ever exercised.
+	test("ignores a contradicting pair when the lower-id member (member_a) is archived", () => {
+		const db = getDb();
+		const cluster = seedThought({ content: "cluster", is_cluster: 1 });
+		const archived = seedThought({
+			id: "m-a-archived-lower",
+			content: "archived member",
+			status: "archived",
+		});
+		const live = seedThought({
+			id: "m-z-live-upper",
+			content: "live member",
+		});
+		seedEdge(cluster, archived, "cluster");
+		seedEdge(cluster, live, "cluster");
+		seedEdge(live, archived, "contradicts");
+
+		expect(findContradictionInCluster(db)).toEqual([]);
+	});
+
+	test("ignores a contradicting pair when the higher-id member (member_b) is archived", () => {
+		const db = getDb();
+		const cluster = seedThought({ content: "cluster", is_cluster: 1 });
+		const live = seedThought({
+			id: "m-a-live-lower",
+			content: "live member",
+		});
+		const archived = seedThought({
+			id: "m-z-archived-upper",
+			content: "archived member",
+			status: "archived",
+		});
+		seedEdge(cluster, live, "cluster");
+		seedEdge(cluster, archived, "cluster");
+		seedEdge(archived, live, "contradicts"); // opposite contradicts direction
+
+		expect(findContradictionInCluster(db)).toEqual([]);
+	});
+
+	test("ignores a contradicting pair when both members are archived, keeping it reported as contradicts_to_archived", () => {
+		const db = getDb();
+		const cluster = seedThought({ content: "cluster", is_cluster: 1 });
+		const a = seedThought({
+			id: "m-a-archived-lower",
+			content: "archived member one",
+			status: "archived",
+		});
+		const b = seedThought({
+			id: "m-z-archived-upper",
+			content: "archived member two",
+			status: "archived",
+		});
+		seedEdge(cluster, a, "cluster");
+		seedEdge(cluster, b, "cluster");
+		seedEdge(a, b, "contradicts");
+
+		// No signal is lost: the info-severity `contradicts_to_archived` check owns
+		// this pair, so the fix suppresses only the warning.
+		expect(findContradictionInCluster(db)).toEqual([]);
+		const stale = findContradictsToArchived(db);
+		expect(stale).toHaveLength(1);
+		expect(new Set([stale[0]!.source_id, stale[0]!.target_id])).toEqual(
+			new Set([a, b]),
+		);
+	});
+
+	test("still flags two live members, ordered lower id as member_a (over-filtering guard)", () => {
+		const db = getDb();
+		const cluster = seedThought({ content: "cluster", is_cluster: 1 });
+		const lower = seedThought({
+			id: "m-a-live-lower",
+			content: "live member one",
+		});
+		const upper = seedThought({
+			id: "m-z-live-upper",
+			content: "live member two",
+		});
+		seedEdge(cluster, lower, "cluster");
+		seedEdge(cluster, upper, "cluster");
+		seedEdge(lower, upper, "contradicts");
+
+		const found = findContradictionInCluster(db);
+		expect(found).toHaveLength(1);
+		expect(found[0]!.cluster_id).toBe(cluster);
+		expect(found[0]!.member_a).toBe(lower);
+		expect(found[0]!.member_b).toBe(upper);
+	});
+
+	test("does not filter draft members (documented non-goal)", () => {
+		const db = getDb();
+		const cluster = seedThought({ content: "cluster", is_cluster: 1 });
+		const draft = seedThought({
+			id: "m-a-draft-lower",
+			content: "draft member",
+			status: "draft",
+		});
+		const live = seedThought({
+			id: "m-z-live-upper",
+			content: "live member",
+		});
+		seedEdge(cluster, draft, "cluster");
+		seedEdge(cluster, live, "cluster");
+		seedEdge(draft, live, "contradicts");
+
+		const found = findContradictionInCluster(db);
+		expect(found).toHaveLength(1);
+		expect(found[0]!.member_a).toBe(draft);
+		expect(found[0]!.member_b).toBe(live);
+	});
 });
 
 describe("findContradictsToArchived", () => {
@@ -186,5 +299,104 @@ describe("runHealthCheck semantic_consistency integration", () => {
 		expect(counts.get("contradicts_with_hierarchy")).toBe(1);
 		expect(counts.get("supports_self_conflict")).toBe(1);
 		expect(report.summary.issues.critical).toBeGreaterThanOrEqual(1);
+	});
+
+	test("reports contradiction_in_cluster count 0 for an archived cluster member", () => {
+		const cluster = seedThought({
+			content: "cluster of contradicting members",
+			is_cluster: 1,
+		});
+		const live = seedThought({ content: "live claim in the cluster" });
+		const archived = seedThought({
+			content: "archived claim in the cluster",
+			status: "archived",
+		});
+		seedEdge(cluster, live, "cluster");
+		seedEdge(cluster, archived, "cluster");
+		seedEdge(live, archived, "contradicts");
+
+		// Neighbouring checks must still register: the archived fix must not
+		// disable a sibling finder or its severity registration.
+		const parent = seedThought({ content: "parent claim in the hierarchy" });
+		const child = seedThought({ content: "child claim in the hierarchy" });
+		seedEdge(parent, child, "parent");
+		seedEdge(child, parent, "contradicts");
+		const junk1 = seedThought({ content: "junk supports endpoint one" });
+		const junk2 = seedThought({ content: "junk supports endpoint two" });
+		seedEdge(junk1, junk2, "supports");
+		seedEdge(junk2, junk1, "contradicts");
+
+		const report = runHealthCheck();
+		const semantic = report.categories.find(
+			(c) => c.name === "semantic_consistency",
+		)!;
+		const counts = new Map(semantic.checks.map((c) => [c.name, c.count]));
+		expect(counts.get("contradiction_in_cluster")).toBe(0);
+		expect(counts.get("contradicts_to_archived")).toBe(0); // only one endpoint archived
+		expect(counts.get("contradicts_with_hierarchy")).toBe(1);
+		expect(counts.get("supports_self_conflict")).toBe(1);
+		expect(report.summary.issues.critical).toBe(1);
+		expect(report.summary.issues.warning).toBe(1);
+	});
+
+	// The two tests below are a pair: identical fixtures whose only difference is
+	// the archived member's status, and both are tagged so no incidental
+	// info-severity finding (untagged thoughts) moves the score. The 15-point
+	// delta is the semantic_consistency warning-category penalty, so together they
+	// pin the category-penalty path in src/services/health-check.service.ts.
+	test("an archived contradicting member costs no warning-category penalty", () => {
+		const cluster = seedThought({
+			content: "cluster of contradicting members",
+			is_cluster: 1,
+		});
+		const live = seedThought({
+			content: "live claim in the cluster",
+			tags: '["health"]',
+		});
+		const archived = seedThought({
+			content: "archived claim in the cluster",
+			status: "archived",
+			tags: '["health"]',
+		});
+		seedEdge(cluster, live, "cluster");
+		seedEdge(cluster, archived, "cluster");
+		seedEdge(live, archived, "contradicts");
+
+		const report = runHealthCheck();
+		const semantic = report.categories.find(
+			(c) => c.name === "semantic_consistency",
+		)!;
+		const counts = new Map(semantic.checks.map((c) => [c.name, c.count]));
+		expect(counts.get("contradiction_in_cluster")).toBe(0);
+		expect(report.summary.issues).toEqual({ critical: 0, warning: 0, info: 0 });
+		expect(report.summary.health_score).toBe(100);
+	});
+
+	test("two live contradicting members still cost the warning-category penalty", () => {
+		const cluster = seedThought({
+			content: "cluster of contradicting members",
+			is_cluster: 1,
+		});
+		const lower = seedThought({
+			content: "live claim in the cluster",
+			tags: '["health"]',
+		});
+		const upper = seedThought({
+			content: "second live claim in the cluster",
+			tags: '["health"]',
+		});
+		seedEdge(cluster, lower, "cluster");
+		seedEdge(cluster, upper, "cluster");
+		seedEdge(lower, upper, "contradicts");
+
+		const report = runHealthCheck();
+		const semantic = report.categories.find(
+			(c) => c.name === "semantic_consistency",
+		)!;
+		const counts = new Map(semantic.checks.map((c) => [c.name, c.count]));
+		expect(counts.get("contradiction_in_cluster")).toBe(1);
+		expect(report.summary.issues).toEqual({ critical: 0, warning: 1, info: 0 });
+		// 100 - 15: exactly one warning-bearing category (ADR score formula).
+		expect(report.summary.health_score).toBe(85);
 	});
 });
