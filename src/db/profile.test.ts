@@ -82,8 +82,8 @@ test("getProfileSummaryThoughtIds returns ids of source='profile-summary' though
 test("getProfileSummaryContents returns contents of non-archived profile summaries oldest first", () => {
 	const db = getDb();
 	const now = new Date().toISOString();
-	const id1 = seedThought({ content: "oldest", source: "profile-summary", created_at: new Date(Date.now() - 2000).toISOString() });
-	const id2 = seedThought({ content: "newest", source: "profile-summary", created_at: now });
+	seedThought({ content: "oldest", source: "profile-summary", created_at: new Date(Date.now() - 2000).toISOString() });
+	seedThought({ content: "newest", source: "profile-summary", created_at: now });
 	// Archived summary should be excluded
 	seedThought({ content: "archived summary", source: "profile-summary", status: "archived" });
 	const contents = getProfileSummaryContents(db);
