@@ -82,6 +82,118 @@ const REAL_COMMON_SH = join(DEPLOY_DIR, 'lib', 'common.sh')
  */
 const REAL_STATE = realStateDir()
 
+// ─── THE USER-NAMESPACE CAPABILITY PROBE (#1356) ────────────────────────────
+// The two tests in the block below are the RED REPRODUCTION of the #1104 trap,
+// and reproducing it for real requires a private user+mount namespace. On a host
+// that cannot create one, `unshare` dies before the fixture's install.sh is even
+// reached: runInNamespace() then reports status null, INSTALL_EXIT is never
+// printed, and the first assertion fails in ~10ms on a machine that never ran a
+// line of the code under test. That is what CI showed — run 37318719080 on
+// ubuntu-latest (24.04), where AppArmor's `unprivileged_userns` profile denies
+// the uid_map write:
+//
+//   unshare: write failed /proc/self/uid_map: Operation not permitted
+//
+// So the block is SKIPPED there, loudly, with that reason. Two rules govern how:
+//
+//  1. THE PROBE ATTEMPTS THE REAL CAPABILITY. It spawns the same
+//     `unshare --user --map-root-user --mount` the reproduction needs, with a
+//     trivial body, and decides from the spawn result. It deliberately does NOT
+//     read kernel.unprivileged_userns_clone, /proc/sys/user/*, or any AppArmor
+//     status: none of them predicts this EPERM, and a sysctl that reads "enabled"
+//     on a host where the write is still denied would make this guard silently
+//     vacuous — a permanent skip nobody notices, or a permanent failure nobody
+//     understands. The same lesson as the vec0 gate: probe the thing you depend
+//     on, not a proxy for it.
+//
+//  2. THE SKIP IS PROVEN, NOT ASSERTED. This host CAN create the namespace, so
+//     the branch it guards is never taken here and a local run cannot tell a
+//     working skip from a broken one. `the user-namespace probe is what decides
+//     the #1104 skip` below therefore feeds userNamespaceAvailable() the two
+//     RECORDED REAL outputs — the CI denial above and a real local success —
+//     with no root, no namespace and no unshare involved. That hermetic test is
+//     the actual evidence, and unlike the reproduction it runs everywhere,
+//     including on a runner without userns.
+
+/**
+ * A `spawnSync` result, narrowed to what the decision reads.
+ *
+ * The records used by the hermetic test below are shaped like this too, because
+ * they ARE spawnSync results — recorded, not invented.
+ */
+interface SpawnProbe {
+  status: number | null
+  stdout?: string | null
+  stderr?: string | null
+  error?: unknown
+}
+
+/** The trivial body: print the uid, so a namespace that merely exited 0 without
+ *  doing anything is not mistaken for one that works. */
+const USERNS_PROBE_BODY = 'printf "USERNS_PROBE_OK uid=%s\\n" "$(id -u)"'
+/** Exactly what that body prints once the namespace exists and the root mapping
+ *  is in effect. `uid=0` is the proof: it can only be 0 inside the namespace. */
+const USERNS_PROBE_OK = 'USERNS_PROBE_OK uid=0'
+/**
+ * util-linux's own failure text, as a shape rather than one string.
+ *
+ * Two real denials, both reproduced and both exiting EXIT_FAILURE:
+ *   - `unshare: write failed /proc/self/uid_map: Operation not permitted`
+ *     (AppArmor `unprivileged_userns`, ubuntu-latest 24.04, CI run 37318719080)
+ *   - `unshare: unshare failed: Operation not permitted`
+ *     (local: nesting unshare inside an existing user namespace)
+ * Keying on the TEXT as well as the exit status is deliberate: a denial must not
+ * be able to slip through as a success, however it is wrapped.
+ */
+const USERNS_DENIAL_RE = /^unshare: .*(?:failed|not permitted)/m
+
+/**
+ * Whether a probe result proves this host can create the namespace the #1104
+ * reproduction needs. A pure function of the spawn result — no I/O, no clock, no
+ * environment — so the skip branch can be tested directly.
+ */
+function userNamespaceAvailable(res: SpawnProbe): boolean {
+  // 1. It ran at all: a host with no `unshare` on PATH gets error=ENOENT.
+  if (res.error) return false
+  // 2. util-linux exits EXIT_FAILURE (1) on every denial path, and a signal
+  //    death arrives here as status null.
+  if (res.status !== 0) return false
+  const output = `${res.stdout ?? ''}${res.stderr ?? ''}`
+  // 3. Deny on the failure text too, so a denial that somehow exits 0 cannot be
+  //    read as a working namespace.
+  if (USERNS_DENIAL_RE.test(output)) return false
+  // 4. And require the body to have PROVED it ran as uid 0. Without this, an
+  //    `unshare` that exits 0 having done nothing at all — a PATH stub, an
+  //    alias, a stripped binary — would report the capability as present and the
+  //    guard would rot into a permanent pass that measures nothing.
+  return output.split('\n').some((line) => line.trim() === USERNS_PROBE_OK)
+}
+
+const USERNS_PROBE_ARGS = [
+  '--user',
+  '--map-root-user',
+  '--mount',
+  '--propagation',
+  'private',
+  'sh',
+  '-c',
+  USERNS_PROBE_BODY,
+]
+
+/** The real spawn, kept so a test can assert on what was actually measured. */
+const USERNS_PROBE = spawnSync('unshare', USERNS_PROBE_ARGS, { encoding: 'utf8', timeout: 10_000 })
+const HAS_USERNS = userNamespaceAvailable(USERNS_PROBE)
+
+const USERNS_SKIP_NOTE = HAS_USERNS
+  ? ''
+  : ' — SKIPPED, NOT RUN: this host cannot create an unprivileged user namespace ' +
+    '(unshare fails with "Operation not permitted" writing /proc/self/uid_map, AppArmor ' +
+    '`unprivileged_userns` on ubuntu-latest 24.04), and the reproduction below needs that ' +
+    'namespace to redirect the write away from the operator\'s real state dir. THESE TWO ' +
+    'TESTS DID NOT RUN: they are the characterization tests for the #1104 trap and nothing ' +
+    'here measured it. Re-run them on a host where `unshare --user --map-root-user --mount` ' +
+    'works — the probe below, not this note, is what decides.'
+
 interface Repro {
   /** stdout+stderr of the install.sh run. */
   output: string
@@ -274,7 +386,7 @@ afterEach(() => {
   sweepTempTrees()
 })
 
-describe('deploy state-dir containment (#1104)', () => {
+describe.skipIf(!HAS_USERNS)(`deploy state-dir containment (#1104)${USERNS_SKIP_NOTE}`, () => {
   test('unmodified install.sh with no RUN_DIR writes into the REAL state dir even when HOME is a scratch root', () => {
     const root = mkTempTree('synapto-red-repro-')
     const shadow = join(root, 'shadow')
@@ -372,6 +484,115 @@ describe('deploy state-dir containment (#1104)', () => {
     // The helpers it would have written went to the fixture's own RUN_DIR.
     expect(repro.inside).toContain('run/scripts/app.env')
   }, 180_000)
+})
+
+// ─── THE PROOF THAT THE SKIP ABOVE WORKS (#1356) ────────────────────────────
+/**
+ * `userNamespaceAvailable` decides the #1104 skip, and the branch it guards is
+ * unreachable on this host: locally `unshare` works, so the two tests always
+ * RUN, and no local result can distinguish a correct skip from a guard that
+ * silently never fires. A skip nobody can prove is a skip nobody can trust —
+ * it reads exactly like a pass in a green CI log, which is precisely the
+ * failure mode of the run that motivated it (#1096, #1097).
+ *
+ * So the decision function is tested directly, against the two RECORDED REAL
+ * spawnSync results — no root, no namespace, no unshare, no network. This block
+ * runs on a runner without userns too, which is where it earns its keep: it is
+ * the evidence that the block above was skipped on purpose.
+ */
+describe('the user-namespace probe is what decides the #1104 skip (#1356)', () => {
+  /** Recorded 2026-10-05 from CI run 37318719080, ubuntu-latest (24.04):
+   *  AppArmor's `unprivileged_userns` profile denies the uid_map write. util-linux
+   *  2.39 prints this and exits EXIT_FAILURE. Verbatim. */
+  const RECORDED_DENIAL: SpawnProbe = {
+    status: 1,
+    stdout: '',
+    stderr: 'unshare: write failed /proc/self/uid_map: Operation not permitted\n',
+  }
+
+  /** Recorded 2026-10-05 on this host (`util-linux 2.39.3`, uid 1000): the same
+   *  command exits 0 and the body proves it by printing uid 0. Verbatim. */
+  const RECORDED_SUCCESS: SpawnProbe = {
+    status: 0,
+    stdout: `${USERNS_PROBE_OK}\n`,
+    stderr: '',
+  }
+
+  test('the recorded ubuntu-latest denial is decided unavailable — the #1104 block skips', () => {
+    expect(userNamespaceAvailable(RECORDED_DENIAL)).toBe(false)
+    // The decision is also about the failure TEXT, so assert the record still is
+    // what CI actually printed — a paraphrase here would quietly stop matching.
+    expect(RECORDED_DENIAL.stderr).toContain('Operation not permitted')
+    expect(RECORDED_DENIAL.stderr).toContain('/proc/self/uid_map')
+  })
+
+  test('the recorded local success is decided available — the #1104 block runs', () => {
+    // Host-independent on purpose: this must hold on a runner with userns AND on
+    // one without. What the live probe answers is asserted separately below.
+    expect(userNamespaceAvailable(RECORDED_SUCCESS)).toBe(true)
+  })
+
+  test('a denial is refused on its text even if it exits 0', () => {
+    // The case that makes the text check load-bearing rather than decorative:
+    // a `unshare` (or a PATH entry masquerading as one) that reports failure and
+    // still exits 0 would, on exit status alone, be read as a working namespace
+    // and the guard would rot into a permanent pass measuring nothing.
+    expect(userNamespaceAvailable({ status: 0, stdout: '', stderr: RECORDED_DENIAL.stderr })).toBe(false)
+    // The other real denial shape, recorded locally by nesting unshare inside an
+    // existing user namespace — it denies at clone(), not at the uid_map write, so
+    // a predicate keyed on `/proc/self/uid_map` alone would miss it.
+    expect(
+      userNamespaceAvailable({ status: 1, stdout: '', stderr: 'unshare: unshare failed: Operation not permitted\n' }),
+    ).toBe(false)
+  })
+
+  test('an exit 0 that never printed the marker is not a namespace', () => {
+    // `true`-for-everything unshare. Exit status alone would call this a working
+    // namespace and the guard would silently stop guarding.
+    expect(userNamespaceAvailable({ status: 0, stdout: '', stderr: '' })).toBe(false)
+    expect(userNamespaceAvailable({ status: 0, stdout: 'something else\n', stderr: '' })).toBe(false)
+    // And the marker must prove uid 0 specifically — `id -u` outside the namespace
+    // prints this host's uid, which is not a mapped root.
+    expect(userNamespaceAvailable({ status: 0, stdout: 'USERNS_PROBE_OK uid=1000\n', stderr: '' })).toBe(false)
+    // No unshare on PATH at all: spawnSync reports ENOENT here rather than a status.
+    expect(userNamespaceAvailable({ status: null, error: Object.assign(new Error('spawn unshare ENOENT'), { code: 'ENOENT' }) })).toBe(false)
+    // Killed by a signal: status arrives null.
+    expect(userNamespaceAvailable({ status: null, stdout: '', stderr: '' })).toBe(false)
+  })
+
+  test('the note is attached exactly when the block is skipped, and says the tests did not run', () => {
+    // The note is the only thing a CI log reader sees, so the properties that
+    // matter are that it is present exactly when the block is skipped, that it
+    // says the tests did not run, and that it names the mechanism rather than
+    // shrugging at "unsupported environment". The first assertion is the one that
+    // makes the note impossible to mistake for a pass: a note attached while the
+    // tests ran (or missing while they were skipped) fails here.
+    expect(USERNS_SKIP_NOTE !== '').toBe(!HAS_USERNS)
+    if (HAS_USERNS) {
+      expect(USERNS_SKIP_NOTE).toBe('')
+      return
+    }
+    expect(USERNS_SKIP_NOTE).toContain('SKIPPED, NOT RUN')
+    expect(USERNS_SKIP_NOTE).toContain('Operation not permitted')
+    expect(USERNS_SKIP_NOTE).toContain('/proc/self/uid_map')
+    expect(USERNS_SKIP_NOTE).toContain('#1104')
+  })
+
+  test('when the block RUNS, the probe really measured a namespace on this host', () => {
+    // The other half, for the host that can measure: the constant is derived from
+    // the recorded spawn, not asserted. Conditional, so it is still correct on a
+    // runner without userns — there the block skips and this has nothing to check.
+    // Without it, a probe that quietly started refusing working hosts would turn
+    // the #1104 characterization tests into a permanent silent skip that no green
+    // CI log would ever reveal.
+    if (!HAS_USERNS) {
+      expect(USERNS_PROBE.status === 0 && `${USERNS_PROBE.stdout ?? ''}`.includes(USERNS_PROBE_OK)).toBe(false)
+      return
+    }
+    expect(USERNS_PROBE.error).toBeUndefined()
+    expect(USERNS_PROBE.status).toBe(0)
+    expect(`${USERNS_PROBE.stdout ?? ''}`.split('\n').map((l) => l.trim())).toContain(USERNS_PROBE_OK)
+  })
 })
 
 describe('isolatedEnv refuses the operator\'s real state dir', () => {
