@@ -290,8 +290,18 @@ print_recovery() {
     print_db_restore
     warn "    sudo systemctl start ${APP_NAME}"
   else
+    # The remedy runs the SAME pair the update ran, from the same keys. It used
+    # to print a hardcoded `bun install --frozen-lockfile --production`, which
+    # reproduces the very defect gap (a) closes: an app whose build needs its
+    # devDependencies gets them pruned by --production, so the operator follows
+    # the printed remedy, gets a payload that cannot start, and has no way to
+    # tell that the remedy — not the update — is what broke it. `bun` and the
+    # flags are the operator's to type; the values are not.
+    # shellcheck disable=SC2086
+    local remedy="git -C ${INSTALL_DIR} checkout --force ${PREV_REF} && (cd ${INSTALL_DIR} && bun install ${INSTALL_FLAGS}"
+    [ -n "${BUILD_CMD:-}" ] && remedy="${remedy} && ${BUILD_CMD}"
     warn "  previous commit: ${PREV_REF}"
-    warn "  rollback:        git -C ${INSTALL_DIR} checkout --force ${PREV_REF} && (cd ${INSTALL_DIR} && bun install --frozen-lockfile --production)"
+    warn "  rollback:        ${remedy})"
   fi
   return 0
 }
@@ -471,11 +481,20 @@ unit_restart_state() {
 }
 
 # ── systemd unit ────────────────────────────────────────────────────────────
-# render_systemd_unit() has exactly ONE call site in the framework
-# (install.sh). A unit written before the LD_LIBRARY_PATH line existed therefore
-# kept its old body through every update, so a host that updates INTO binary mode
-# would run a binary whose embedder cannot dlopen libonnxruntime.so.1
-# (ADR 0001 §2.2). Binary mode re-renders and reinstalls the unit here.
+# render_systemd_unit() has exactly TWO call sites in the framework: install.sh's
+# install_service() and this refresh_unit(). (The note here used to say ONE and
+# named install.sh alone. The invariant it argues for — one renderer, so a fix
+# cannot reach one entry point and miss the other — was always intact; the COUNT
+# was wrong, and it was wrong in the direction that hides work: an audit reading
+# "one call site" concludes the update path cannot change the body, and stops
+# looking. This function is the second site, and it is the only one that runs on
+# every update.)
+#
+# A unit written before a line existed — the LD_LIBRARY_PATH line, and now the
+# Group=/StateDirectory=/EnvironmentFile=/bounded-stop lines — therefore kept its
+# old body through every update, so a host that updates INTO binary mode would
+# run a binary whose embedder cannot dlopen libonnxruntime.so.1 (ADR 0001 §2.2).
+# Binary mode re-renders and reinstalls the unit here.
 #
 # Scope is deliberately narrow: source mode returns immediately, because a full
 # re-render would clobber an operator's hand edits to the unit. (The other half of
@@ -655,6 +674,18 @@ unit_not_rendered() {
 # ── Fetch & swap ───────────────────────────────────────────────────────────
 update_source() {
   local bun=""
+  # FIRST, before `git fetch` touches .git at all. The three ownership calls in
+  # this function are each load-bearing at a different point, and this one is
+  # about a residue the LATER two cannot reach: a tree left root-owned by an
+  # earlier run (#1114 left /opt/subagentix/.git/index root:root, which is the
+  # exact mismatch ownership_mismatch exists to catch). update.sh is run by the
+  # OPERATOR, not as root, so on such a tree `git fetch` below fails with an
+  # EACCES on an index it cannot write — and a failure there aborts before the
+  # post-checkout and post-build calls below ever run. Applying ownership first
+  # is what lets this run heal the residue it is otherwise killed by; on a clean
+  # tree ownership_mismatch walks it read-only and finds nothing to do.
+  apply_ownership
+
   git -C "$INSTALL_DIR" fetch --tags --force origin
   if [ -n "$ARG_VERSION" ]; then
     TARGET_REF="$ARG_VERSION"; TARGET_KIND="tag"
@@ -679,12 +710,35 @@ update_source() {
   fi
   info "Checked out ${TARGET_REF}"
 
-  if [ "${REQUIRES_BUN:-}" = "yes" ]; then
-    bun="$(locate_bun || true)"
-    [ -n "$bun" ] || error "Bun not found; re-run install.sh"
-    info "Installing dependencies..."
-    ( cd "$INSTALL_DIR" && "$bun" install --frozen-lockfile --production )
-  fi
+  # AFTER the checkout, and this is the call that covers .git itself. The
+  # checkout above rewrote the working tree AND .git/index, so a run as root
+  # leaves the service user unable to run `git status` in its own install dir
+  # even though every tracked file is chowned. install.sh gets this for free
+  # (its clone is immediately followed by apply_ownership); update.sh had no
+  # equivalent, which is how the residue survived an update. It is also still
+  # required BEFORE the build: the build runs as TARGET_USER and writes into this
+  # tree, and a tree chowned only at the top directory fails with an EACCES
+  # from inside a bundler that names neither this nor the directory.
+  apply_ownership
+
+  # The SAME pair install.sh runs, through the same two functions: the same
+  # INSTALL_FLAGS, the same BUILD_CMD, the same BUILD_TIMEOUT, the same user. A
+  # source update that skipped the build (or installed production-only
+  # dependencies for an app whose build needs its devDependencies) would check
+  # out new code and then restart into a payload it cannot run — and the health
+  # gate would report a timeout, naming neither the build nor the flags.
+  install_deps_and_build
+
+  # AFTER the build, for the outputs rather than the checkout. install.sh applies
+  # ownership twice on the source path for exactly this reason: once before the
+  # build so the build can write, once after so what the build WROTE is covered.
+  # update.sh had only the first, so anything install_deps and the build created
+  # (node_modules, build/, .svelte-kit) kept the ownership of whoever created it,
+  # and apply_ownership at the call site (update_binary/update_source dispatch)
+  # runs before the post-update hook — the hook is documented as free to write
+  # into INSTALL_DIR or DATA_DIR — so this call also gives the hook a tree that
+  # is already consistent with what the service will see.
+  apply_ownership
 }
 
 update_binary() {
@@ -764,6 +818,10 @@ main() {
    HEALTH_CONFIRM_TIMEOUT="${HEALTH_CONFIRM_TIMEOUT:-30}"
    HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:$(resolve_port)/health}"
    HOOKS_DIR="${HOOKS_DIR:-${RUN_DIR}/hooks}"
+   # Before the fetch, and before the pre-update hook: an unreadable health
+   # contract is a configuration error, and refusing it here means the operator
+   # has no database backup to reason about afterwards.
+   require_health_contract
    # Export RUN_DIR so hook scripts (pre-update / post-update) can locate
    # ${RUN_DIR}/scripts/app.env even when update.sh does not pass it explicitly.
    export RUN_DIR
@@ -797,6 +855,17 @@ main() {
   else
     TARGET_VERSION=""
     TARGET_REF=""
+    # BEFORE the fetch below, which is this run's FIRST write into INSTALL_DIR and
+    # so the first one a tree the caller cannot write refuses (#1139 — the residual
+    # #1137 flagged from #1136). update.sh is run by the OPERATOR, not as root, and
+    # the tree it is updating is one it may have had no hand in: a root-owned
+    # residue like #1114's (/opt/subagentix/.git/index root:root) makes this fetch
+    # die with an EACCES on an index it cannot write — and it dies BEFORE
+    # update_source()'s own pre-fetch call is reached, so the run is killed by the
+    # very residue it exists to heal. Placing it here also puts it ahead of the
+    # pre-update hook, whose database backup writes into DATA_DIR. On a clean tree
+    # ownership_mismatch walks the tree read-only, finds nothing and says nothing.
+    apply_ownership
     git -C "$INSTALL_DIR" fetch --tags --force origin
     if [ -n "$ARG_VERSION" ]; then
       ARG_VERSION="$(normalize_v "$ARG_VERSION")"
@@ -852,6 +921,21 @@ main() {
     error "pre-update hook failed — aborting before switching code"
   fi
   if [ "$DIST" = "binary" ]; then update_binary; else update_source; fi
+
+  # AFTER the swap, and this is the #1113 fix. update_binary() →
+  # binary_swap_payload() moves the payload in with `mv` as root, and
+  # update_source()'s `git checkout --force` rewrites files as root, so both
+  # modes leave root-owned files in INSTALL_DIR. update.sh is run by the
+  # operator (bash ${RUN_DIR}/scripts/updater.sh) — not necessarily as root —
+  # and only one implementation of ownership existed, in install.sh, so an update
+  # could not fix what it had just created: the swapped 0.1.9 binary stayed
+  # root-owned until an operator re-applied it by hand.
+  #
+  # Placed before the post-update hook so a hook that writes into INSTALL_DIR or
+  # DATA_DIR (where migrations will live) sees the same ownership the service
+  # will, and before refresh_unit/restart so the running service never touches a
+  # file whose ownership changes under it.
+  apply_ownership
 
   # DELIBERATE DECISION (task #1102): a failed post-update hook does NOT abort
   # mid-flight. By the time it runs the payload is already swapped, so aborting

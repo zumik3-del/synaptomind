@@ -1,14 +1,18 @@
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { installCleanup, mkTempTree } from './tmp-fixtures'
+import { guardRealStateDir, installCleanup, mkTempTree } from './tmp-fixtures'
 
 // Every scratch tree here comes from mkTempTree, so the sweep removes it even if
 // a test throws before its own finally. The per-test try/finally pairs are kept
 // (they release earlier; the sweep is `force`, so the second removal is a
 // no-op). See tmp-fixtures.ts for why ownership belongs to the creator.
 installCleanup()
+// Tripwire for #1101: this suite sources the real lib/common.sh, which carries
+// resolve_target_user()'s getent-first resolution — the mechanism that wrote
+// into the operator's real ~/.synaptomind. The tripwire fails the run if it moves.
+guardRealStateDir()
 
 // render_systemd_unit() (deploy/lib/common.sh) is the ONLY place a unit body is
 // produced — install.sh and update.sh's refresh_unit() both call it. So the
@@ -190,6 +194,166 @@ describe('render_systemd_unit — restart policy', () => {
     expect(restartAt).toBeGreaterThan(unit.indexOf('[Service]'))
     expect(unit.indexOf('\nStartLimitBurst=5\n')).toBeLessThan(unit.indexOf('[Service]'))
   })
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+//  The stop: SIGTERM first, SIGKILL only at the bound (task #1132)
+// ══════════════════════════════════════════════════════════════════════════
+//
+//  THE DEFECT. The template carried `KillSignal=SIGKILL`, which replaced the
+//  signal systemd sends FIRST on a stop with an unblockable one. The app
+//  registers a SIGTERM handler (src/index.ts:117-123) that checkpoints the WAL
+//  and stops the embedder, so every stop ended in status=9/KILL with the
+//  shutdown path never running — journals of 2026-10-01, #1124/#1125. The
+//  obvious "fix" (drop the directive, keep TimeoutStopSec=15) is right, and it is
+//  also easy to half-apply: remove the line and lose the 15 s bound, or keep the
+//  line and believe the stop is graceful. So both halves are asserted here.
+//
+//  WHY THE ABSENCE IS THE LOAD-BEARING ASSERTION. systemd's defaults are
+//  KillSignal=SIGTERM and SendSIGKILL=yes, which together are exactly the wanted
+//  behaviour: SIGTERM on stop, SIGKILL only once TimeoutStopSec has expired. The
+//  unit therefore has to say NEITHER — anything it says replaces a correct
+//  default with a value a future edit chose.
+//
+//  The claim is about the DIRECTIVE LINES, never a substring: the comment block
+//  above TimeoutStopSec explains the SIGKILL that arrives at the bound and names
+//  KillSignal, so `unit.includes('KillSignal')` is satisfied by the prose and a
+//  reverted directive would stay green — the reviewer's mutation M1, the same
+//  trap the Restart= assertions above are written against.
+
+/** Every line that sets `key`, comments excluded. */
+function directives(unit: string, key: string): string[] {
+  return unit
+    .split('\n')
+    .filter((l) => !l.trimStart().startsWith('#'))
+    .filter((l) => new RegExp(`^\\s*${key}=`).test(l))
+    .map((l) => l.trim())
+}
+
+describe('render_systemd_unit — the stop is SIGTERM, bounded', () => {
+  test('TimeoutStopSec is set to the bound, and it is not the systemd default of 90s', () => {
+    const unit = renderUnit()
+
+    expect(directives(unit, 'TimeoutStopSec')).toEqual(['TimeoutStopSec=15'])
+    // The bound is the reason the directive is here at all. systemd's default is
+    // 90s, so a template that dropped the line would leave every dependent deploy
+    // run and every operator watching `systemctl stop` waiting 90s for nothing —
+    // and the absence of the directive would not be visible as a changed unit.
+    expect(unit).not.toContain('TimeoutStopSec=90')
+    // Exactly one, in [Service] (where the stop is configured), not [Unit].
+    expect(unit.indexOf('\nTimeoutStopSec=15\n')).toBeGreaterThan(unit.indexOf('[Service]'))
+    expect(unit.indexOf('\nTimeoutStopSec=15\n')).toBeLessThan(unit.indexOf('# --- hardening ---'))
+  })
+
+  test('KillSignal is NOT set, so the first signal of a stop is the app\'s SIGTERM handler', () => {
+    for (const dist of ['source', 'binary']) {
+      const unit = renderUnit({ dist })
+      // The regression, on the directive lines. `# KillSignal is deliberately NOT
+      // set` in the comment must not be able to satisfy this.
+      expect(directives(unit, 'KillSignal'), `DIST=${dist} re-set KillSignal`).toEqual([])
+      expect(unit).not.toMatch(/^\s*KillSignal=/m)
+    }
+  })
+
+  test('SendSIGKILL is NOT disabled, so the bound is still enforced by a SIGKILL', () => {
+    // The other half of the pair. Dropping KillSignal alone would make the stop
+    // graceful but UNBOUNDED if anything also turned off the escalation: the app
+    // registers a handler that exits 0, and a handler is not obliged to ever
+    // return, so without SendSIGKILL=yes a wedged event loop leaves the unit in
+    // deactivating forever. systemd's default is yes, so saying nothing is the
+    // contract.
+    expect(directives(renderUnit(), 'SendSIGKILL')).toEqual([])
+  })
+
+  test('the shipped comment explains SIGTERM-then-SIGKILL, not just the bound', () => {
+    // The comment is what an operator reads in `systemctl cat`, so it must state
+    // the two-step stop — a comment that only justified TimeoutStopSec would read
+    // as an unrelated concern and invite the KillSignal line back.
+    const unit = renderUnit()
+    for (const phrase of [
+      'KillSignal is deliberately NOT set',
+      'SendSIGKILL=yes',
+      'TimeoutStopSec expires',
+      'shutdown path never ran',
+    ]) {
+      expect(unit, phrase).toContain(phrase)
+    }
+  })
+
+  test('no-90s-hang: an explicit 90s bound, or none at all, both fail the assertion above', () => {
+    // Non-vacuity for the bound, at the source. Two mutated copies of the real
+    // common.sh — the default (directive deleted) and the regression (90s) — each
+    // rendered through the same helper, because a test that only asserts on the
+    // shipped template cannot tell "15s" from "the only value anyone tried".
+    const dir = mkTempTree('synapto-stop-mut-')
+    try {
+      const src = readFileSync(LIB, 'utf8')
+      const line = "    'TimeoutStopSec=15'\n"
+      if (!src.includes(line)) throw new Error('the TimeoutStopSec line moved; the mutations below are stale')
+      for (const [label, mutation] of [
+        ['the systemd default (directive deleted)', line.replace('15', '90')],
+        ['no bound at all', ''],
+      ] as const) {
+        const copy = join(dir, `common-${label.replace(/\W+/g, '-')}.sh`)
+        writeFileSync(copy, src.replace(line, mutation))
+        const res = spawnSync('bash', ['-c', `. ${quote(copy)}\nrender_systemd_unit "bin"\n`], {
+          encoding: 'utf8',
+          timeout: 30_000,
+        })
+        expect(res.status, res.stderr).toBe(0)
+        // Whatever the mutation did, the shipped assertion must reject it.
+        expect(directives(res.stdout, 'TimeoutStopSec'), label).not.toEqual(['TimeoutStopSec=15'])
+      }
+      // And the shipped file renders exactly the one value both mutations miss.
+      expect(directives(renderUnit(), 'TimeoutStopSec')).toEqual(['TimeoutStopSec=15'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('KillSignal=SIGKILL is detected (non-vacuity)', () => {
+    // The paired mutation for the absence assertions: re-adding the line the
+    // #1132 fix removed must make them fail, or `toEqual([])` is only measuring
+    // that this renderer never emits the key.
+    const dir = mkTempTree('synapto-stop-killsignal-')
+    try {
+      const copy = join(dir, 'common.sh')
+      const src = readFileSync(LIB, 'utf8')
+      const line = "    'TimeoutStopSec=15'\n"
+      if (!src.includes(line)) throw new Error('the TimeoutStopSec line moved; the mutation below is stale')
+      writeFileSync(copy, src.replace(line, `    'KillSignal=SIGKILL'\n${line}`))
+      const res = spawnSync('bash', ['-c', `. ${quote(copy)}\nrender_systemd_unit "bin"\n`], {
+        encoding: 'utf8',
+        timeout: 30_000,
+      })
+      expect(res.status, res.stderr).toBe(0)
+      expect(directives(res.stdout, 'KillSignal')).toEqual(['KillSignal=SIGKILL'])
+      // The rest of the unit is unchanged, so the mutation isolates the stop's
+      // signalling and nothing else.
+      expect(directives(res.stdout, 'TimeoutStopSec')).toEqual(['TimeoutStopSec=15'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test.skipIf(!HAS_SYSTEMD_ANALYZE)(
+    `the stop settings are ones systemd accepts as a pair${SWEEP_SKIP_NOTE}`,
+    () => {
+      // A parser, not a runtime: systemd-analyze verify cannot observe a stop, but
+      // it rejects a KillSignal value systemd does not know and it is what keeps
+      // the two directives above honest as a PAIR (both are names systemd resolves,
+      // so a typo would render clean and do nothing).
+      const dir = mkTempTree('synapto-stop-verify-')
+      try {
+        const p = join(dir, 'synaptomind.service')
+        writeFileSync(p, renderUnit())
+        const res = spawnSync('systemd-analyze', ['verify', p], { encoding: 'utf8', timeout: 30_000 })
+        expect(`${res.stdout}${res.stderr}`).not.toContain('Refusing')
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    },
+  )
 })
 
 describe('render_systemd_unit — rendering executes nothing', () => {
@@ -618,4 +782,219 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       }
     },
   )
+})
+// ══════════════════════════════════════════════════════════════════════════════
+//  SERVICE_GROUP is load-bearing, and a group that does not exist is refused
+//  BY NAME (task #1136)
+//
+//  THE DEFECT. app.env.example documented `SERVICE_GROUP=""  # systemd Group=`,
+//  and nothing read it: resolve_target_user() defaulted TARGET_GROUP straight to
+//  TARGET_USER. So an app.env that set the key got a unit carrying the USER's
+//  group, and — worse — a unit that disagreed with the configuration the
+//  operator had edited, because ownership_target() chowns to TARGET_USER:
+//  TARGET_GROUP while the unit's Group= said something else.
+//
+//  WHY THE REFUSAL IS THE OTHER HALF. Wiring the key is only safe if a typo is
+//  caught while there is still nothing installed: a `Group=` naming a group that
+//  does not exist fails at systemd START time, by which point the payload is in
+//  place and the message is systemd's, naming neither app.env nor this function.
+//  So resolve_target_user() refuses up front, and the message has to name the key
+//  an operator would edit.
+//
+//  Rendered through the real lib, in the order install.sh uses them
+//  (resolve_target_user, then render_systemd_unit) so the assertion is on the
+//  resolved TARGET_GROUP and not on a value the test set itself.
+// ══════════════════════════════════════════════════════════════════════════════
+
+type ResolveOpts = {
+  /** SERVICE_GROUP as app.env would set it; undefined leaves the key unset. */
+  serviceGroup?: string
+  /** TARGET_GROUP set by something else, to pin the precedence chain. */
+  targetGroup?: string
+  /** SERVICE_USER, so the resolution does not depend on who runs the tests. */
+  serviceUser?: string
+  /** A lib to source instead of the shipped one (mutations only). */
+  lib?: string
+}
+
+type Resolved = { status: number | null; stdout: string; stderr: string; unit: string; group: string }
+
+/**
+ * resolve_target_user() + render_systemd_unit() against the real lib, in the
+ * order install.sh calls them, and report both what was resolved and what was
+ * rendered.
+ *
+ * TARGET_GROUP/TARGET_HOME are NOT preset: resolve_target_user() is what sets
+ * them, and a test that exported them first would be asserting its own
+ * assignment. The only inputs are the app.env keys under test.
+ */
+function resolveThenRender(opts: ResolveOpts = {}): Resolved {
+  const dir = mkTempTree('synapto-group-')
+  const exports: string[] = [
+    'APP_NAME=synaptomind',
+    'APP_DESC=Synaptomind — thought-graph engine',
+    'INSTALL_DIR=/opt/synaptomind',
+    'DATA_DIR=/var/lib/synaptomind',
+    'BUN_BIN=/usr/local/bin/bun',
+    'DIST=source',
+    // Pinned inside the fixture: resolve_target_user() derives RUN_DIR from the
+    // operator's home when app.env leaves it empty, which is the #1101 path
+    // guardRealStateDir() fingerprints.
+    `RUN_DIR=${quote(join(dir, 'run'))}`,
+    `SERVICE_USER=${quote(opts.serviceUser ?? 'synaptomind')}`,
+  ]
+  if (opts.serviceGroup !== undefined) exports.push(`SERVICE_GROUP=${quote(opts.serviceGroup)}`)
+  if (opts.targetGroup !== undefined) exports.push(`TARGET_GROUP=${quote(opts.targetGroup)}`)
+  const script = `${exports.join('\n')}
+. ${quote(opts.lib ?? LIB)}
+resolve_target_user
+__group="$TARGET_GROUP"
+render_systemd_unit "/usr/local/bin/bun run start"
+printf 'RESOLVED_GROUP=%s\\n' "$__group"`
+  try {
+    const res = spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000 })
+    const stdout = res.stdout ?? ''
+    const group = /RESOLVED_GROUP=(.*)/.exec(stdout)?.[1] ?? '<unresolved>'
+    return {
+      status: res.status,
+      stdout,
+      stderr: res.stderr ?? '',
+      group,
+      unit: stdout.replace(/RESOLVED_GROUP=.*\n?/, ''),
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * A copy of lib/common.sh whose group resolution is the pre-#1136 one: TARGET_GROUP
+ * straight to TARGET_USER, with no getent refusal.
+ *
+ * NEVER the repo's file. Throwing when the target text is absent is deliberate
+ * (see ownership.test.ts): a reformat must not leave the mutation a silent
+ * no-op that makes the non-vacuity proof vacuous.
+ */
+function seedUserGroupOnlyOwnership(root: string): string {
+  const copy = join(root, 'common.sh')
+  copyFileSync(LIB, copy)
+  const src = readFileSync(copy, 'utf8')
+  const from = `  : "\${TARGET_GROUP:=\${SERVICE_GROUP:-$TARGET_USER}}"
+
+  # A group that does not exist is refused HERE, named, rather than rendered into
+  # Group= and left for systemd to fail on at start time: by then the payload is
+  # in place and the message is systemd's, which names neither app.env nor this
+  # function. Only checked when the operator named a group explicitly — the
+  # default is the user's own primary group, which exists by construction — and
+  # skipped entirely when getent is absent, so a host without it is not refused
+  # over a check it cannot run.
+  if [ -n "\${SERVICE_GROUP:-}" ] && command -v getent >/dev/null 2>&1; then
+    if ! getent group "$TARGET_GROUP" >/dev/null 2>&1; then
+      error "SERVICE_GROUP='\${SERVICE_GROUP}' is not a group on this host — the unit's Group= would fail to start. Fix it in app.env, or leave it empty to use \${TARGET_USER}'s primary group."
+    fi
+  fi`
+  const to = `  : "\${TARGET_GROUP:=$TARGET_USER}"`
+  if (!src.includes(from)) {
+    throw new Error('mutation target absent from common.sh: the TARGET_GROUP resolution moved')
+  }
+  writeFileSync(copy, src.replace(from, to))
+  return copy
+}
+
+const HAS_GETENT = spawnSync('bash', ['-c', 'command -v getent'], { encoding: 'utf8' }).status === 0
+const GETENT_SKIP_NOTE = HAS_GETENT ? '' : ' — SKIPPED: getent is not on PATH on this host'
+
+describe('resolve_target_user — SERVICE_GROUP decides the Group= the unit runs as', () => {
+  test('a named group is rendered into Group=', () => {
+    // `users` exists on every host this suite has run on, and it is NOT the
+    // fixture's SERVICE_USER, so the assertion cannot be satisfied by the
+    // user-group default.
+    const r = resolveThenRender({ serviceGroup: 'users' })
+
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.group).toBe('users')
+    expect(directives(r.unit, 'Group')).toEqual(['Group=users'])
+  })
+
+  test('an empty SERVICE_GROUP falls back to the user, as before', () => {
+    // The empty string is the value every shipped app.env carries today, so this
+    // is the regression that matters most: wiring the key must not change what an
+    // unconfigured install renders.
+    const r = resolveThenRender({ serviceGroup: '' })
+
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.group).toBe('synaptomind')
+    expect(directives(r.unit, 'Group')).toEqual(['Group=synaptomind'])
+  })
+
+  test('an already-resolved TARGET_GROUP still wins over SERVICE_GROUP', () => {
+    // The precedence chain resolve_target_user() documents, asserted rather than
+    // assumed: `:=` yields to a value that is already set, so a caller that
+    // resolved TARGET_GROUP itself is not overruled by the app.env key.
+    const r = resolveThenRender({ serviceGroup: 'users', targetGroup: 'daemon' })
+
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.group).toBe('daemon')
+    expect(directives(r.unit, 'Group')).toEqual(['Group=daemon'])
+  })
+
+  test.skipIf(!HAS_GETENT)(`a group this host does not have is refused BY NAME${GETENT_SKIP_NOTE}`, () => {
+    // The other half of the wiring. Before this the run installed the payload
+    // and then systemd refused to start the unit, naming neither app.env nor the
+    // key to fix. The refusal must arrive BEFORE any unit text is written, and it
+    // must name SERVICE_GROUP so the operator knows which file to edit.
+    const r = resolveThenRender({ serviceGroup: 'synaptomind-no-such-group' })
+
+    expect(r.status, r.stdout + r.stderr).not.toBe(0)
+    expect(r.stderr).toContain("SERVICE_GROUP='synaptomind-no-such-group'")
+    expect(r.stderr, 'the message must name app.env, the file the operator edits').toContain(
+      'app.env',
+    )
+    // Nothing was rendered: the refusal precedes the render, so an operator is
+    // never handed a unit they have to overwrite by hand.
+    expect(r.unit, 'a unit was rendered despite the refusal').not.toContain('Group=')
+  })
+
+  test('the refusal is scoped to a NAMED group — the default is never checked', () => {
+    // The user-group default is the user's own primary group, which exists by
+    // construction, so checking it could only ever produce a false refusal. This
+    // test is the boundary: it passes on every host, including one whose passwd
+    // database resolve_target_user() could not answer at all.
+    for (const opts of [{}, { serviceGroup: '' }] as ResolveOpts[]) {
+      const r = resolveThenRender(opts)
+      expect(r.status, `SERVICE_GROUP=${opts.serviceGroup}: ${r.stderr}`).toBe(0)
+      expect(r.group).toBe('synaptomind')
+    }
+  })
+
+  test('non-vacuity: the pre-#1136 resolution ignores SERVICE_GROUP and refuses nothing', () => {
+    // THE PROOF. Two mutated copies of the same shipped body, run through the
+    // same helper as the assertions above. If either of these fails, the mutation
+    // stopped matching the real function and the tests above are no longer
+    // proving anything.
+    const dir = mkTempTree('synapto-group-mut-')
+    try {
+      const lib = seedUserGroupOnlyOwnership(dir)
+
+      const named = resolveThenRender({ serviceGroup: 'users', lib })
+      // The key was read by nothing, so the unit got the user's group.
+      expect(named.group, 'the mutated lib still honoured SERVICE_GROUP').toBe('synaptomind')
+      expect(directives(named.unit, 'Group')).toEqual(['Group=synaptomind'])
+
+      if (HAS_GETENT) {
+        const bogus = resolveThenRender({ serviceGroup: 'synaptomind-no-such-group', lib })
+        // And the typo installed a payload with a Group= that cannot start.
+        expect(bogus.status, 'the mutated lib refused the nonexistent group anyway').toBe(0)
+        expect(directives(bogus.unit, 'Group')).toEqual([
+          'Group=synaptomind',
+        ])
+      }
+
+      // And the shipped file still does both.
+      const shipped = resolveThenRender({ serviceGroup: 'users' })
+      expect(shipped.group).toBe('users')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

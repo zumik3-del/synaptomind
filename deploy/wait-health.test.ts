@@ -1,12 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { installCleanup, mkTempTree } from './tmp-fixtures'
+import { guardRealStateDir, installCleanup, mkTempTree } from './tmp-fixtures'
 
 // The gate fixture's scratch tree is owned by mkTempTree, so the sweep removes
 // it even when a test throws mid-run. See tmp-fixtures.ts.
 installCleanup()
+// Tripwire for #1101: this suite sources the real lib/common.sh, which carries
+// resolve_target_user()'s getent-first resolution — the mechanism that wrote
+// into the operator's real ~/.synaptomind. The tripwire fails the run if it moves.
+guardRealStateDir()
 
 // wait_health() (deploy/lib/common.sh) is the gate an install/update passes
 // through. The task it guards: a unit rendered WITHOUT Environment=LD_LIBRARY_PATH
@@ -62,7 +66,21 @@ function runGate(
     installDir?: string
     /** Keep serving the last sample once the sequence is exhausted. */
     repeatLast?: boolean
-  } = {}
+    /**
+     * app.env-style health keys, EXPORTED for the gate call — the same route a
+     * real one takes (wait_health re-reads them at call time, so a caller that
+     * exports them gets the app's contract and not the framework default).
+     */
+    keys?: Record<string, string>
+    /**
+     * Working directory of the gate process, which is the root an UNQUOTED
+     * expansion would pathname-expand against. Left unset, the gate runs in
+     * whatever directory the test runner happened to start in.
+     */
+    cwd?: string
+    /** A lib to source instead of the shipped one (mutations only). */
+    lib?: string
+  } = {},
 ): Gate {
   const expected = opts.expected === undefined ? '0.8.0' : opts.expected
   const timeout = opts.timeout ?? 1
@@ -70,10 +88,14 @@ function runGate(
   const samples = bodies.map((b) => (typeof b === 'string' ? { body: b, rc: 0 } : b))
   const dir = mkTempTree('synaptomind-gate-')
   const pollFile = join(dir, 'polls')
+  const keyExports = Object.entries(opts.keys ?? {})
+    .map(([k, v]) => `export ${k}=${quote(v)}`)
+    .join('\n')
   const script = `
 APP_NAME=synaptomind
 INSTALL_DIR=${quote(installDir)}
-. ${quote(LIB)}
+${keyExports}
+. ${quote(opts.lib ?? LIB)}
 __bodies=(${samples.map((s) => quote(s.body)).join(' ')})
 __rcs=(${samples.map((s) => String(s.rc)).join(' ')})
 __repeat=${quote(opts.repeatLast ? 'true' : 'false')}
@@ -98,7 +120,11 @@ printf 'HEALTH_FAILURE=%s\\n' "\${HEALTH_FAILURE:-<unset>}"
 exit $__rc
 `
   try {
-    const res = spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 60_000 })
+    const res = spawnSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+    })
     const polls = readFileSync(pollFile, 'utf8').trim()
     const failure = /HEALTH_FAILURE=(.*)/.exec(res.stdout)?.[1] ?? '<unset>'
     return {
@@ -340,4 +366,173 @@ describe('wait_health — a body that dies mid-transfer, then silence, is unveri
     expect(gate.status, gate.stdout + gate.stderr).toBe(1)
     expect(gate.failure).toBe('version')
   }, 30_000)
+})
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  HEALTH_OK_VALUES is a LIST OF LITERALS, never a pattern (task #1136)
+//
+//  The defect. The identity arm compared the body's status field against
+//  `for v in $ok_values` — an UNQUOTED expansion, which does both things an
+//  unquoted expansion does: it word-splits on IFS and it PATHNAME-EXPANDS. One
+//  extra character in a contract value therefore made the gate accept a body
+//  whose `status` was the NAME OF A FILE IN THE WORKING DIRECTORY. Measured in
+//  this repo's own deploy/ dir: 'ok * *' came back as 28 tokens, one per file
+//  checked out, and the gate said "Service is healthy" over
+//  `{"status":"install.sh"}`.
+//
+//  WHY THIS IS NOT A COSMETIC FIX. The direction matters: an unquoted expansion
+//  WIDENS what counts as healthy, so a typo in app.env turned a fail-closed gate
+//  into a fail-open one — silently, because the value looked correct in the file.
+//  A `*` that survives as a LITERAL can only narrow (no /health reports the
+//  status `*`), which is the safe direction to be wrong in.
+//
+//  Non-vacuity is proved against a mutated copy of the real lib, in the same
+//  style as ownership.test.ts's pre-#1121 mutation: the shipped assertions must
+//  FAIL there, or the tests above only measure that a body happened not to match.
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * A copy of lib/common.sh whose ok-value iteration is the pre-#1136
+ * UNQUOTED expansion.
+ *
+ * NEVER the repo's file — the mutation exists only to prove a neighbouring
+ * assertion can fail. Throwing when the target text is absent is deliberate: a
+ * reformat would otherwise leave the mutation a silent no-op and the
+ * non-vacuity proof would quietly stop proving anything (the technique
+ * install.sh.test.ts's mutateInstallScript and ownership.test.ts's
+ * seedTopDirOnlyOwnership use).
+ */
+function seedUnquotedOkValues(root: string): string {
+  const copy = join(root, 'common.sh')
+  copyFileSync(LIB, copy)
+  const src = readFileSync(copy, 'utf8')
+  const from = `      if [ "\${#ok_list[@]}" -gt 0 ]; then
+        for v in "\${ok_list[@]}"; do
+          if [ "$status" = "$v" ]; then status_ok=true; break; fi
+        done
+      fi`
+  const to = `      for v in $ok_values; do
+        if [ "$status" = "$v" ]; then status_ok=true; break; fi
+      done`
+  if (!src.includes(from)) {
+    throw new Error('mutation target absent from common.sh: the ok_list iteration moved')
+  }
+  writeFileSync(copy, src.replace(from, to))
+  return copy
+}
+
+/**
+ * A directory holding files whose NAMES are the candidate ok values.
+ *
+ * This is the fixture that makes the defect observable: an unquoted `*`
+ * pathname-expands against the gate's CWD, so the tokens it produces are
+ * exactly these filenames. A gate that wrongly accepts `{"status":"alpha"}`
+ * therefore accepts it only because alpha.txt is sitting right here.
+ */
+function seedCwdWithFiles(files: string[]): string {
+  const dir = mkTempTree('synaptomind-ok-cwd-')
+  for (const f of files) writeFileSync(join(dir, f), 'x\n')
+  return dir
+}
+
+describe('wait_health — HEALTH_OK_VALUES is a list of literals, not a pattern', () => {
+  const CWD_FILES = ['alpha', 'beta', 'gamma', 'README.md', 'app.env', 'common.sh']
+
+  test('a `*` in the contract cannot widen the gate: a status naming a CWD file fails', () => {
+    // The counterexample itself. Under the unquoted expansion `*` expands to
+    // every entry of the working directory, so "alpha" — the status field of a
+    // body that is not this app's health check at all — is a member of the
+    // contract and the gate waves it through.
+    const cwd = seedCwdWithFiles(CWD_FILES)
+    const gate = runGate([JSON.stringify({ status: 'alpha', version: '0.8.0' })], {
+      keys: { HEALTH_OK_VALUES: 'ok * *' },
+      cwd,
+      expected: '0.8.0',
+    })
+
+    expect(gate.status, gate.stdout + gate.stderr).toBe(1)
+    expect(gate.stdout, 'a body whose status is a filename in CWD passed the gate').not.toContain(
+      'Service is healthy',
+    )
+    // The diagnosis must be the CONTRACT, not a timeout: the body did answer,
+    // it simply is not this app's /health payload.
+    expect(gate.failure).toBe('contract')
+  }, 30_000)
+
+  test('a real `ok` still passes under the same value — the `*` only narrows', () => {
+    // The direction check on the fix. A quoted `*` is compared as a literal, so
+    // it can only NARROW the accepted set; the declared values must still work,
+    // or the fix would have turned a typo into a broken gate instead.
+    const cwd = seedCwdWithFiles(CWD_FILES)
+    const gate = runGate([payload('ok')], {
+      keys: { HEALTH_OK_VALUES: 'ok * *' },
+      cwd,
+      expected: '0.8.0',
+    })
+
+    expect(gate.status, gate.stdout + gate.stderr).toBe(0)
+    expect(gate.stdout).toContain('Service is healthy')
+  }, 30_000)
+
+  test('a `?` and a bracket pattern are literals too', () => {
+    // The same class, one character over: an unquoted expansion also globs `?`
+    // (any single-character filename) and `[...]` (a character class). A gate
+    // that honoured any of them would accept whatever short name the working
+    // directory happens to contain.
+    const cwd = seedCwdWithFiles(['a', 'x'])
+    const status = { version: '0.8.0' }
+    for (const okValues of ['ok ?', 'ok [ab]']) {
+      const gate = runGate([JSON.stringify({ ...status, status: 'a' })], {
+        keys: { HEALTH_OK_VALUES: okValues },
+        cwd,
+        expected: '0.8.0',
+      })
+      expect(gate.status, `${okValues}: ${gate.stdout}${gate.stderr}`).toBe(1)
+      expect(gate.stdout, `${okValues} widened the gate`).not.toContain('Service is healthy')
+    }
+  }, 60_000)
+
+  test('non-vacuity: the pre-#1136 unquoted expansion DOES accept the filename', () => {
+    // Without this the test above could pass for the wrong reason — a gate that
+    // rejected every body, or a fixture whose CWD held no matching file. Here
+    // the SAME body, the SAME CWD and the SAME keys run against a mutated copy
+    // whose iteration is `for v in $ok_values`, and it must PASS. If this ever
+    // fails, the mutation stopped matching the shipped body and the assertions
+    // above are no longer proving anything.
+    const cwd = seedCwdWithFiles(CWD_FILES)
+    const lib = seedUnquotedOkValues(mkTempTree('synaptomind-ok-mut-'))
+    const gate = runGate([JSON.stringify({ status: 'alpha', version: '0.8.0' })], {
+      keys: { HEALTH_OK_VALUES: 'ok * *' },
+      cwd,
+      expected: '0.8.0',
+      lib,
+    })
+
+    expect(gate.status, gate.stdout + gate.stderr).toBe(0)
+    expect(gate.stdout).toContain('Service is healthy')
+  }, 30_000)
+
+  test('the split is on a space and on nothing else', () => {
+    // Regression guard for the split itself, since the same loop now decides
+    // every ok-value for every app. Two adjacent spaces separate values rather
+    // than adding an empty one, and a declared value containing other
+    // characters is preserved verbatim.
+    const cwd = seedCwdWithFiles(CWD_FILES)
+    const body = JSON.stringify({ status: 'degraded', version: '0.8.0' })
+    const runsOfSpaces = runGate([body], {
+      keys: { HEALTH_OK_VALUES: 'ok   degraded' },
+      cwd,
+      expected: '0.8.0',
+    })
+    expect(runsOfSpaces.status, runsOfSpaces.stdout + runsOfSpaces.stderr).toBe(0)
+
+    // A value with a glob character inside a multi-word contract is one value,
+    // not two: 'we*rd' must not match a filename and must still match itself.
+    const literal = runGate([JSON.stringify({ status: 'we*rd', version: '0.8.0' })], {
+      keys: { HEALTH_OK_VALUES: 'ok we*rd' },
+      cwd,
+      expected: '0.8.0',
+    })
+    expect(literal.status, literal.stdout + literal.stderr).toBe(0)
+  }, 60_000)
 })

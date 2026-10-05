@@ -49,6 +49,104 @@ jobs:
       - name: "Type-check: tsc"
         run: bun run tsc --noEmit
 
+      # The #1104 containment tests (deploy/state-isolation.test.ts) reproduce the
+      # state-dir escape inside an unprivileged user namespace, and skip when the
+      # runner cannot create one — silent coverage loss, which is the exact trap
+      # they document. So: enable the capability, then PROVE it with the same flags
+      # and marker the tests use, and fail the job if it is still unavailable.
+      - name: "Setup: enable unprivileged user namespaces (gating for #1104 containment tests)"
+        run: |
+          set -euo pipefail
+
+          # Mirrors USERNS_PROBE_ARGS / USERNS_PROBE_BODY / USERNS_PROBE_OK in
+          # deploy/state-isolation.test.ts. A bare exit-status check is not enough:
+          # an `unshare` that exits 0 having done nothing would pass while the tests
+          # kept skipping. Only the uid=0 marker proves the namespace exists.
+          USERNS_PROBE_OK='USERNS_PROBE_OK uid=0'
+          # USERNS_DENIAL_RE in deploy/state-isolation.test.ts — util-linux's own failure
+          # text, as a shape rather than one string, and the third of the in-test guard's
+          # four conditions. grep matches line by line, so `^` anchors every line exactly
+          # as the `m` flag anchors the JS regex; the non-capturing group becomes a plain
+          # one. Keying on the TEXT as well as the exit status is deliberate: a denial
+          # that somehow exits 0 must not read as a success. The marker above cannot
+          # match it — that line does not begin with `unshare: `.
+          USERNS_DENIAL_RE='^unshare: .*(failed|not permitted)'
+          USERNS_PROBE_ARGS=(
+            --user
+            --map-root-user
+            --mount
+            --propagation private
+            sh -c 'printf "USERNS_PROBE_OK uid=%s\n" "$(id -u)"'
+          )
+
+          show_sysctls() {
+            local key
+            for key in kernel.unprivileged_userns_clone kernel.apparmor_restrict_unprivileged_userns; do
+              if sysctl -n "$key" 2>/dev/null; then
+                :
+              else
+                echo "$key: not present on this kernel"
+              fi
+            done
+          }
+
+          echo "::group::runner namespace configuration (before)"
+          echo "uname -r: $(uname -r)"
+          echo "probe: unshare ${USERNS_PROBE_ARGS[*]}"
+          echo "probe marker: $USERNS_PROBE_OK"
+          show_sysctls
+          echo "::endgroup::"
+
+          # A key the kernel does not have (kernel.unprivileged_userns_clone is a
+          # RHEL patch, absent on Ubuntu) is reported, not fatal; the probe below is
+          # the actual gate. ubuntu-latest 24.04 denies the uid_map write through
+          # the AppArmor `unprivileged_userns` profile, so both are attempted.
+          set_sysctl() {
+            local key="$1" value="$2"
+            if ! sysctl -n "$key" >/dev/null 2>&1; then
+              echo "sysctl $key is not present on this kernel; nothing to set"
+              return 0
+            fi
+            if sudo sysctl -w "$key=$value"; then
+              echo "set $key=$value"
+            else
+              echo "::warning::could not set $key=$value; the probe decides whether the capability exists"
+            fi
+          }
+
+          set_sysctl kernel.unprivileged_userns_clone 1
+          set_sysctl kernel.apparmor_restrict_unprivileged_userns 0
+
+          echo "::group::runner namespace configuration (after)"
+          show_sysctls
+          echo "::endgroup::"
+
+          if probe_out="$(unshare "${USERNS_PROBE_ARGS[@]}" 2>&1)"; then
+            probe_status=0
+          else
+            probe_status=$?
+          fi
+
+          echo "::group::user namespace probe"
+          echo "exit status: $probe_status"
+          echo "output:"
+          printf '%s\n' "$probe_out"
+          echo "::endgroup::"
+
+          # Same three conditions as userNamespaceAvailable() in the test file, in the
+          # same order: non-zero status denied, denial text denied, whole-line marker
+          # required. All three sit inside this one `if` condition, so a false result is
+          # a condition evaluation, not a `set -e` abort — `||` chains hold under
+          # `set -euo pipefail` for exactly this reason.
+          if [ "$probe_status" -ne 0 ] \
+            || printf '%s\n' "$probe_out" | grep -Eq "$USERNS_DENIAL_RE" \
+            || ! printf '%s\n' "$probe_out" | grep -qxF "$USERNS_PROBE_OK"; then
+            echo "::error::RUNNER ENVIRONMENT REGRESSION — unprivileged user namespaces are still unavailable on this runner. NOT a product failure and NOT a test failure. The two 'deploy state-dir containment (#1104)' tests in deploy/state-isolation.test.ts would silently SKIP (their describe name gains a 'SKIPPED, NOT RUN' suffix), so the #1104 state-dir escape would go unmeasured. See CI run 37318719080 for the original denial: unshare: write failed /proc/self/uid_map: Operation not permitted. A denial is rejected on its text alone (USERNS_DENIAL_RE) even if unshare were to exit 0, so an empty-looking log does not clear it. Tried: sudo sysctl -w kernel.unprivileged_userns_clone=1 and sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0. If a runner image change caused this, fix the runner or the AppArmor/userns policy — do NOT relax the guard in the test file."
+            exit 1
+          fi
+
+          echo "unprivileged user namespaces available: marker '$USERNS_PROBE_OK' observed with exit status 0"
+
       - name: "Test: bun test"
         run: bun test --coverage --coverage-reporter text --coverage-reporter lcov
 

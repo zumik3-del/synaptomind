@@ -16,13 +16,16 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { installCleanup, mkTempTree } from './tmp-fixtures'
+import { guardRealStateDir, installCleanup, isolatedEnv, mkTempTree } from './tmp-fixtures'
 
 // Temp-tree ownership: EVERY scratch tree below comes from mkTempTree, and the
 // sweep registered here removes it after each test — including after one that
 // throws. This file used to leak ~28 /tmp directories per run, on the same
 // filesystem as production's database (AGENTS.md §8); see tmp-fixtures.ts.
 installCleanup()
+// Tripwire for #1101: updater.sh and update.sh both read and write the
+// operator's real ~/.synaptomind when RUN_DIR is inherited rather than pinned.
+guardRealStateDir()
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
 
@@ -229,7 +232,48 @@ function makeTrackingUpdateSh(): string {
   ].join('\n')
 }
 
-/** Minimal common.sh providing only what the bootstrap needs. */
+/**
+ * One function's DEFINITION, lifted verbatim from deploy/lib/common.sh.
+ *
+ * WHY EXTRACTED RATHER THAN COPIED (#1120). This fixture used to hand-write its
+ * own url_get, and the copy drifted the moment the shipped helper changed — the
+ * resume/retry/wget-fallback rewrite landed with nothing comparing the two, so
+ * every bootstrap case went on exercising a helper the framework no longer has.
+ * Extraction makes that drift unrepresentable: the fixture carries whatever the
+ * shipped file says, on every run.
+ *
+ * `declare -f` is bash's own parser, so this cannot mis-slice a nested brace, a
+ * line continuation or a `}` inside a string the way a brace counter would, and
+ * its output is valid bash source to splice back in. Both guards throw instead of
+ * returning something empty: an empty definition would fail later, in a test
+ * about tag resolution, with nothing pointing at the fixture.
+ */
+function realCommonShFunction(name: string): string[] {
+  const res = spawnSync('bash', ['-c', `. "${resolve(import.meta.dir, 'lib', 'common.sh')}"\ndeclare -f ${name}`], {
+    encoding: 'utf8',
+    timeout: 10_000,
+  })
+  const out = (res.stdout ?? '').trim()
+  // bash prints `name ()` — a space before the parens.
+  if (res.status !== 0 || !out.startsWith(`${name} ()`)) {
+    throw new Error(
+      `cannot extract ${name}() from deploy/lib/common.sh (status ${res.status}): ${(res.stderr ?? '').trim()}`,
+    )
+  }
+  return out.split('\n')
+}
+
+/**
+ * Minimal common.sh providing only what the bootstrap needs.
+ *
+ * Most of it is still hand-written, and deliberately so: cleanup_run removes
+ * FILES only, which is the contract updater.sh's own stage cleanup is tested
+ * against (updater.sh's STAGE_ROOT comment), and load_app_env carries no
+ * APP_ENV_URL branch, so the fixture needs neither mktemp_owned nor
+ * cleanup_release. Those divergences are pinned by the tests below.
+ *
+ * url_get is NOT one of them — see realCommonShFunction.
+ */
 const MINIMAL_COMMON_SH = [
   '#!/usr/bin/env bash',
   '',
@@ -278,13 +322,9 @@ const MINIMAL_COMMON_SH = [
   'normalize_v() {',
   '  case "$1" in v*) printf \'%s\' "$1" ;; *) printf \'v%s\' "$1" ;; esac',
   '}',
-  'url_get() {',
-  '  local url="$1" out="${2:-}"',
-  '  if command -v curl >/dev/null 2>&1; then',
-  '    if [ -n "$out" ]; then curl -fLsS -o "$out" "$url"',
-  '    else curl -fLsS --max-time 30 "$url"; fi',
-  '  else error "need curl or wget"; fi',
-  '}',
+  // The shipped url_get, not a copy of it (#1120) — spliced in ahead of the
+  // hand-written remainder so the real definition is the one that survives.
+  ...realCommonShFunction('url_get'),
   'resolve_port() {',
   '  local cfg p',
   '  cfg="${INSTALL_DIR:-}/config.json"',
@@ -306,6 +346,61 @@ const MINIMAL_COMMON_SH = [
 ].join('\n')
 
 // ── Test globals ─────────────────────────────────────────────────────────────
+
+/**
+ * The fixture's helper, as bash parsed it. Sourcing the written-out fixture and
+ * asking bash is what makes this comparable to the shipped file: hand-formatting
+ * differences (line breaks, spacing) vanish, so only a real behavioural
+ * divergence is left to fail on.
+ */
+function declaredFn(fixtureSource: string, name: string): string {
+  const dir = mkTempTree('synapto-drift-')
+  try {
+    const file = join(dir, 'common.sh')
+    writeFileSync(file, fixtureSource)
+    const res = spawnSync('bash', ['-c', `. "${file}" >/dev/null 2>&1; declare -f ${name}`], {
+      encoding: 'utf8',
+      timeout: 10_000,
+    })
+    return (res.stdout ?? '').trim()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+describe('MINIMAL_COMMON_SH — the fixture ships helpers, not copies of them', () => {
+  // #1120, the whole defect in two assertions: the fixture's url_get is the
+  // shipped one, byte for byte after bash has parsed both, and it is defined
+  // exactly once so a hand-written copy cannot shadow the extracted one and drift
+  // again in silence.
+  test('url_get is the real common.sh definition, defined once', () => {
+    // Both spellings count as a definition: the extracted one (`url_get () `,
+    // bash's own `declare -f` rendering) and the hand-written one (`url_get() {`).
+    const defs = MINIMAL_COMMON_SH.match(/^url_get\s*\(\s*\)/gm) ?? []
+    expect(defs, 'url_get must be defined exactly once — a second copy is what drifted').toHaveLength(1)
+    expect(declaredFn(MINIMAL_COMMON_SH, 'url_get')).toBe(
+      declaredFn(readFileSync(resolve(import.meta.dir, 'lib', 'common.sh'), 'utf8'), 'url_get'),
+    )
+  })
+
+  // The divergence that is DELIBERATE, pinned so that "sync everything" cannot
+  // quietly void it: updater.sh keeps STAGE_ROOT's own `rm -rf` precisely because
+  // the contract it is tested against promises a FILES-only cleanup (see the
+  // STAGE_ROOT comment in updater.sh). Handing the fixture the shipped
+  // rm -rf cleanup_run would make a frozen script's behaviour depend on an
+  // `rm -rf` the fixture never promised.
+  test('cleanup_run stays FILES-only — the contract updater.sh stage cleanup is tested against', () => {
+    const run = declaredFn(MINIMAL_COMMON_SH, 'cleanup_run')
+    expect(run).toContain('rm -f ')
+    expect(run, 'a directory-capable cleanup_run changes what updater.sh is proving').not.toContain('rm -rf')
+  })
+
+  // The extractor itself, so a silent regression to an empty definition fails
+  // HERE rather than in a tag-resolution test that mentions neither common.sh.
+  test('the extractor throws on a function common.sh does not define', () => {
+    expect(() => realCommonShFunction('definitely_not_a_common_sh_function')).toThrow(/cannot extract/)
+  })
+})
 
 let FIXTURE_DIR = ''
 let INSTALL_DIR = ''
@@ -376,14 +471,19 @@ function runUpdater(
   input?: string,
   envOverrides?: Record<string, string>,
 ): ReturnType<typeof spawnSync> {
+  // isolatedEnv, not a bare `...process.env` (task #1104): updater.sh:118 reads
+  // ${RUN_DIR}/scripts/app.env and updater.sh:158 exports RUN_DIR, so an
+  // inherited RUN_DIR is the only thing keeping this spawn off the operator's
+  // real ~/.synaptomind. Here the fixture's app.env also pins RUN_DIR, so both
+  // the environment and the sourced config agree — a defence that costs nothing
+  // and holds even if setupBootstrap's app.env is edited later.
   const res = spawnSync('bash', [join(BOOTSTRAP_DIR, 'updater.sh'), ...args], {
     encoding: 'utf8',
-    env: {
-      ...process.env,
+    env: isolatedEnv(FIXTURE_DIR, {
       // Ensure we use our test bootstrap dir's scripts
       PATH: join(BOOTSTRAP_DIR, 'lib') + ':' + process.env.PATH!,
       ...envOverrides,
-    },
+    }),
     input,
     timeout: 15_000,
     cwd: FIXTURE_DIR,
@@ -406,11 +506,14 @@ function runUpdaterPty(
   return spawnSync('script', ['-qec', cmd, '/dev/null'], {
     encoding: 'utf8',
     input,
-    env: {
-      ...process.env,
+    // isolatedEnv for the same reason as runUpdater: updater.sh resolves RUN_DIR
+    // from the environment, so an inherited one reaches the operator's real
+    // ~/.synaptomind (task #1104). The pty wrapper changes the TTY, not the
+    // isolation, so this path needs the same pin.
+    env: isolatedEnv(FIXTURE_DIR, {
       PATH: join(BOOTSTRAP_DIR, 'lib') + ':' + process.env.PATH!,
       ...envOverrides,
-    },
+    }),
     timeout: 15_000,
     cwd: FIXTURE_DIR,
   })
@@ -1163,17 +1266,22 @@ function sequenceHealth(fx: UpdateFixture, samples: HealthSample[], timeout = 6)
 }
 
 function runUpdate(fx: UpdateFixture, args: string[]) {
+  // fx.runDir is this fixture's OWN RUN_DIR (update.sh reads ${RUN_DIR}/scripts/
+  // app.env at :258 and refresh_unit writes ${RUN_DIR}/unit-refresh at :532), so
+  // it is passed explicitly through isolatedEnv rather than left to be derived.
+  // Without it this spawn reached the operator's real ~/.synaptomind through
+  // the same resolve_target_user fallback that destroyed app.env in #1101.
   return spawnSync('bash', [join(fx.runDir, 'scripts', 'update.sh'), ...args], {
     encoding: 'utf8',
-    env: {
-      ...process.env,
+    env: isolatedEnv(fx.runDir, {
+      RUN_DIR: fx.runDir,
       PATH: `${fx.stubsDir}:${process.env.PATH}`,
       STUB_PRIV_LOG: fx.privLog,
       // The fake /health body must report the version update.sh is polling for,
       // otherwise wait_health times out. Tests that want a FAILING health check
       // override FAKE_HEALTH_BODY with something the version check rejects.
       FAKE_HEALTH_BODY: fx.healthBody,
-    },
+    }),
     timeout: 60_000,
   })
 }
@@ -1800,15 +1908,15 @@ describe('update.sh — a failed pre-update hook aborts before the swap (task #1
     try {
       const res = spawnSync('bash', [join(fx.runDir, 'scripts', 'update.sh'), '--yes'], {
         encoding: 'utf8',
-        env: {
-          ...process.env,
+        env: isolatedEnv(fx.runDir, {
+          RUN_DIR: fx.runDir,
           PATH: `${fx.stubsDir}:${process.env.PATH}`,
           STUB_PRIV_LOG: fx.privLog,
           FAKE_HEALTH_BODY: fx.healthBody,
           // A temp root THIS test owns, so the count is exact and cannot be moved
           // by another session's scratch in the host's shared /tmp.
           TMPDIR: tmpRoot,
-        },
+        }),
         timeout: 60_000,
       })
       expect(res.status, res.stdout + res.stderr).toBe(1)
@@ -3087,3 +3195,514 @@ const MINIMAL_COMMON_SH_WITH_APP_VERSION =
     '  printf \'%s\' "${out#"${APP_NAME}" }"',
     '}',
   ].join('\n')
+
+// ════════════════════════════════════════════════════════════════════════════
+//  update.sh: FOUR ownership calls around the source-mode fetch, in the order
+//  the residue needs — three inside update_source() and one in main()
+//
+//  THE RESIDUE. #1114 left /opt/subagentix with 387 root-owned entries under a
+//  top directory that read opencode:opencode — .git/index among them. update.sh
+//  is run by the OPERATOR, not as root, so on such a tree `git fetch` fails with
+//  an EACCES on an index it cannot write. update.sh runs under `set -euo
+//  pipefail`, so that failure ABORTS the run — which means the ownership calls
+//  that come after the fetch are never reached. Without a call BEFORE the fetch,
+//  the run is killed by the very residue it exists to heal, and the operator
+//  cannot recover by re-running.
+//
+//  So the ordering IS the fix, and it is asserted here as an ORDER over a real
+//  run rather than as a count of calls: a test that only counted `apply_ownership`
+//  invocations would be satisfied by all four in the wrong place, or by one.
+//
+//  HOW THE ORDER IS OBSERVED. Each phase writes a line to ONE shared log, from
+//  a stub on PATH, so the sequence is read off the file the run produced:
+//    - the `git` stub logs `git <args>` and FORWARDS to the real binary;
+//    - apply_ownership reaches `find` on every call (ownership_mismatch walks
+//      the tree whenever the top directory matches), so a `find` stub logs
+//      `apply_ownership`;
+//    - the build is a real BUILD_CMD the fixture installs, which logs itself.
+//
+//  The mutations at the end remove each pre-fetch call IN TURN from a COPY of
+//  update.sh (never the repo's file) and re-run the identical fixture: the
+//  residue must then reach the fetch and the run must die there. Two of them,
+//  because there are two pre-fetch calls — main()'s before the run's first write
+//  (#1139, update.sh:868) and update_source()'s before its own (#1136, :687) —
+//  and a proof aimed at only one of them says nothing about the other. Without
+//  both, the shipped ordering could be replaced by calls in the wrong order (or
+//  with one of the two deleted) and this block would stay green.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * A group the runner belongs to that is NOT its own primary group, or null.
+ *
+ * The same mechanism ownership.test.ts uses, and for the same reason: an
+ * unprivileged process cannot make a file belong to another USER, but it CAN
+ * chgrp one of its own files to a group it is a member of, and a setgid
+ * directory propagates that group to the files created inside it. That is
+ * enough to build the #1114 shape — a subtree whose GROUP disagrees with the
+ * target's while the top directory agrees — which is what
+ * ownership_mismatch's `find` walk looks for.
+ */
+function sourceSecondaryGroup(): { name: string; gid: number } | null {
+  const out = (argv: string[]) =>
+    (spawnSync(argv[0], argv.slice(1), { encoding: 'utf8', timeout: 10_000 }).stdout ?? '').trim()
+  const mine = out(['id', '-g'])
+  for (const gid of out(['id', '-G']).split(/\s+/).filter(Boolean)) {
+    if (gid === mine) continue
+    const name = out(['getent', 'group', gid]).split(':')[0]
+    if (name) return { name, gid: Number(gid) }
+  }
+  return null
+}
+
+const SOURCE_FOREIGN = sourceSecondaryGroup()
+
+/**
+ * The runner's PRIMARY group — the group apply_ownership repairs TO, since
+ * TARGET_GROUP defaults to TARGET_USER. Probed rather than read from $GROUP,
+ * which a test runner need not export.
+ */
+const RUNNER_GROUP = (
+  spawnSync('bash', ['-c', 'id -gn'], { encoding: 'utf8', timeout: 10_000 }).stdout ?? ''
+).trim()
+
+/**
+ * plant-residue.sh DIR — make DIR/.git carry a group that is not the target's.
+ *
+ * `.git` is where the #1114 residue lived (`git fetch` writes there first), and
+ * the subtree is a setgid directory chgrp'd to a secondary group, so the file
+ * created inside it lands in that group too — a genuine `find ! -group` hit,
+ * built with no privilege.
+ */
+function seedPlantResidue(root: string, group: { name: string; gid: number }): string {
+  const script = join(root, 'plant-residue.sh')
+  writeFileSync(
+    script,
+    [
+      '#!/usr/bin/env bash',
+      'set -eu',
+      'd="$1/.git/residue"',
+      'mkdir -p "$d"',
+      `chgrp ${group.gid} "$d"`,
+      'chmod 2775 "$d"',
+      ': > "$d/index"',
+    ].join('\n') + '\n',
+  )
+  chmodSync(script, 0o755)
+  return script
+}
+
+/**
+ * The fixture for the ordering tests: seedSourceUpdate() plus stubs that log
+ * every phase into one file.
+ *
+ * `git` forwards to the real binary and MODELLS what a foreign-owned .git does
+ * to it: a real git cannot write an index it does not own, and that is an EACCES
+ * that aborts the run under `set -e`. The model fires on EVERY fetch, because
+ * #1139 gave main() its own apply_ownership immediately before its fetch
+ * (update.sh:868) — before it, a residue planted up front killed the run at the
+ * FIRST fetch and nothing inside update_source() was ever reached, so gating the
+ * model to the second fetch was asserting about a path that had no fix at all.
+ * Both pre-fetch calls are covered now, by two separate non-vacuity tests, each
+ * removing a different one.
+ *
+ * Two observations make the claims falsifiable rather than narrated:
+ *   * every fetch records the residue's group AT THAT MOMENT (`residue <group>`),
+ *     so a test can assert a tree was already repaired before the fetch that
+ *     would have died on it — the difference between main()'s call and
+ *     update_source()'s, which the end-of-run gid check cannot see;
+ *   * PLANT_AFTER_FETCH=1 makes a successful fetch leave residue of its own (a
+ *     root-run fetch writes .git as root), which is the only way to reach
+ *     update_source()'s fetch with a mismatched tree when main()'s call has
+ *     already healed the one planted up front.
+ */
+function seedOrderedSourceUpdate(group: { name: string; gid: number }) {
+  const fx = seedSourceUpdate()
+  const order = join(fx.root, 'order.log')
+  writeFileSync(order, '')
+  const plant = seedPlantResidue(fx.root, group)
+
+  const realGit = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim()
+  const realFind = spawnSync('bash', ['-c', 'command -v find'], { encoding: 'utf8' }).stdout.trim()
+
+  writeFileSync(
+    join(fx.stubsDir, 'find'),
+    [
+      '#!/usr/bin/env bash',
+      // ownership_mismatch walks the tree on EVERY call once the top directory
+      // matches, so this is the observable for "apply_ownership ran here".
+      'case " $* " in *" ! -user "*) printf \'apply_ownership %s\\n\' "$1" >> "$ORDER_LOG" ;; esac',
+      `exec ${JSON.stringify(realFind)} "$@"`,
+    ].join('\n'),
+  )
+  writeFileSync(
+    join(fx.stubsDir, 'git'),
+    [
+      '#!/usr/bin/env bash',
+      'printf \'git %s\\n\' "$*" >> "$ORDER_LOG"',
+      '__verb=""',
+      'for a in "$@"; do case "$a" in fetch|checkout) __verb="$a" ;; esac; done',
+      '__n=$(cat "$FETCH_COUNT" 2>/dev/null || printf 0)',
+      'if [ "$__verb" = fetch ]; then __n=$((__n + 1)); printf \'%s\' "$__n" > "$FETCH_COUNT"; fi',
+      // The model, on EVERY fetch (see the note above) — fetches only: a checkout
+      // is what the post-checkout call exists to precede, and modelling it here
+      // would kill the very phase that reproduces the residue. The residue's group
+      // is logged FIRST, so the order file also records what each fetch saw: a walk
+      // that repaired the tree shows up as EXPECT_GROUP on the following fetch,
+      // which is how the two pre-fetch calls are told apart.
+      'if [ "$__verb" = fetch ] && [ -d "$INSTALL_DIR/.git/residue" ]; then',
+      '  g=$(stat -c %G "$INSTALL_DIR/.git/residue" 2>/dev/null || echo "?")',
+      '  printf \'residue %s\\n\' "$g" >> "$ORDER_LOG"',
+      '  if [ "$g" != "$EXPECT_GROUP" ]; then',
+      '    printf "fatal: could not write index: %s/.git/residue is %s, not %s (EACCES)\\n" "$INSTALL_DIR" "$g" "$EXPECT_GROUP" >&2',
+      '    exit 128',
+      '  fi',
+      'fi',
+      `rc=0; ${JSON.stringify(realGit)} "$@" || rc=$?`,
+      'if [ "$__verb" = fetch ] && [ "$rc" -eq 0 ] && [ "${PLANT_AFTER_FETCH:-0}" = 1 ]; then',
+      // A fetch that ran as root leaves .git root-owned, so the NEXT fetch is the
+      // first one that meets a residue main()'s own call could not have healed.
+      `  ${JSON.stringify('bash')} ${JSON.stringify(plant)} "$INSTALL_DIR" >/dev/null 2>&1 || true`,
+      'fi',
+      'if [ "$__verb" = checkout ] && [ "$rc" -eq 0 ]; then',
+      // A checkout rewrites the working tree AND .git, so a root-owned tree is
+      // reproduced right here: the post-checkout apply_ownership has something to
+      // repair, which is what makes it observable at all.
+      `  ${JSON.stringify('bash')} ${JSON.stringify(plant)} "$INSTALL_DIR" >/dev/null 2>&1 || true`,
+      'fi',
+      'exit $rc',
+    ].join('\n'),
+  )
+  chmodSync(join(fx.stubsDir, 'find'), 0o755)
+  chmodSync(join(fx.stubsDir, 'git'), 0o755)
+
+  // The build the fixture installs. It logs itself, and it plants residue of its
+  // own — a build that ran as root writes root-owned output, which is the third
+  // thing the post-build apply_ownership exists to cover.
+  setSourceAppEnv(fx, 'BUILD_CMD', 'printf "build\\n" >> "$ORDER_LOG"; bash "$PLANT_RESIDUE" "$INSTALL_DIR"')
+  return { ...fx, order, plant }
+}
+
+/**
+ * Override one key of the fixture's installed app.env. It is `.`-sourced, so the
+ * value is written single-quoted — a double-quoted one would be expanded at
+ * source time, which is why the shipped app.env quotes ASSET_PATTERN that way.
+ */
+function setSourceAppEnv(fx: ReturnType<typeof seedSourceUpdate>, key: string, value: string): void {
+  const envFile = join(fx.runDir, 'scripts', 'app.env')
+  const text = readFileSync(envFile, 'utf8')
+  const line = new RegExp(`^${key}=.*$`, 'm')
+  if (line.test(text)) {
+    writeFileSync(envFile, text.replace(line, `${key}='${value.replace(/'/g, `'\\''`)}'`))
+    return
+  }
+  writeFileSync(envFile, `${text}${key}='${value.replace(/'/g, `'\\''`)}'\n`)
+}
+
+/** Run the fixture's update.sh with the extra env the stubs read. */
+function runOrderedUpdate(
+  fx: ReturnType<typeof seedOrderedSourceUpdate>,
+  opts: { plantAfterFetch?: boolean } = {},
+): { status: number | null; stdout: string; stderr: string } {
+  const res = spawnSync('bash', [join(fx.runDir, 'scripts', 'update.sh'), '--yes'], {
+    encoding: 'utf8',
+    env: isolatedEnv(fx.runDir, {
+      RUN_DIR: fx.runDir,
+      PATH: `${fx.stubsDir}:${process.env.PATH}`,
+      STUB_PRIV_LOG: fx.privLog,
+      FAKE_HEALTH_BODY: fx.healthBody,
+      ORDER_LOG: fx.order,
+      FETCH_COUNT: join(fx.root, 'fetches'),
+      PLANT_RESIDUE: fx.plant,
+      // A successful fetch leaves residue behind when asked, so update_source()'s
+      // own pre-fetch call can be exercised on a residue main()'s call could not
+      // have reached (see seedOrderedSourceUpdate).
+      PLANT_AFTER_FETCH: opts.plantAfterFetch ? '1' : '0',
+      // Exported because update.sh derives INSTALL_DIR from its OWN app.env and
+      // does not export it, so a stub that read the variable would resolve it as
+      // empty — and `mkdir /.git` fails as Permission denied, which reads like a
+      // fixture bug rather than a missing export.
+      INSTALL_DIR: fx.installDir,
+      // The group the tree is OWNED BY, i.e. the one apply_ownership repairs TO —
+      // which is the runner's PRIMARY group (TARGET_GROUP defaults to
+      // TARGET_USER), NOT the foreign group the residue was planted in. Naming
+      // the foreign one here would make the model fire on a healthy tree and pass
+      // on a mismatched one, which is the inverse of the defect.
+      EXPECT_GROUP: RUNNER_GROUP,
+    }),
+    timeout: 90_000,
+  })
+  return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' }
+}
+
+/**
+ * The significant phases of a run, in the order the log recorded them.
+ *
+ * Reduced to the four events the ordering is about — an ownership walk of
+ * INSTALL_DIR, a fetch, a checkout, the build — and nothing else. `git tag`,
+ * `git rev-parse` and friends are noise here: they are the ref RESOLUTION that
+ * sits between the fetch and the checkout, they write nothing, and keeping them
+ * would make the assertion about git's internals rather than about the order of
+ * the ownership calls.
+ */
+function orderEvents(log: string, installDir: string): string[] {
+  const out: string[] = []
+  for (const raw of log.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    if (line.startsWith('apply_ownership ')) {
+      // Only walks of INSTALL_DIR: apply_ownership also walks DATA_DIR, and a
+      // walk of either is the same call.
+      if (line.endsWith(installDir)) out.push('apply_ownership')
+      continue
+    }
+    if (line.startsWith('build')) {
+      out.push('build')
+      continue
+    }
+    if (!line.startsWith('git ')) continue
+    const verb = /\b(fetch|checkout)\b/.exec(line)?.[1]
+    if (verb) out.push(`git ${verb}`)
+  }
+  return out
+}
+
+/**
+ * The residue group each fetch MET, in fetch order — or null where there was no
+ * residue to meet.
+ *
+ * The git stub logs `residue <group>` immediately after the `git …` line of the
+ * fetch it is modelling, so a residue record belongs to the fetch line above it.
+ * This is the observation the end-of-run gid check cannot make: it says what the
+ * tree looked like AT each fetch, which is the only thing that distinguishes
+ * main()'s pre-fetch call from update_source()'s.
+ */
+function fetchResidueGroups(log: string): (string | null)[] {
+  const out: (string | null)[] = []
+  let lastWasFetch = false
+  for (const raw of log.split('\n')) {
+    const line = raw.trim()
+    if (line.startsWith('git ')) {
+      lastWasFetch = /\bfetch\b/.test(line)
+      if (lastWasFetch) out.push(null)
+      continue
+    }
+    if (line.startsWith('residue ') && lastWasFetch && out.length > 0) {
+      out[out.length - 1] = line.slice('residue '.length)
+    }
+  }
+  return out
+}
+
+/**
+ * Remove ONE of update.sh's two pre-fetch apply_ownership calls from the
+ * FIXTURE'S copy of the script.
+ *
+ * NEVER the repo's file — the mutation exists only to prove the ordering
+ * assertion can fail. Throwing when the target text is absent is deliberate
+ * (install.sh.test.ts's mutateInstallScript, ownership.test.ts's
+ * seedTopDirOnlyOwnership): a reformat must not leave the mutation a silent
+ * no-op, which would make the proof vacuous.
+ *
+ * The two calls are told apart by their indentation and the blank line between
+ * the call and its fetch: update_source()'s sits at two spaces inside the
+ * function (#1136, update.sh:687), main()'s at four inside the source branch of
+ * main() (#1139, update.sh:868). Matching on the surrounding text rather than on
+ * the bare call is what keeps each mutation aimed at its own call — the old
+ * single-target helper silently became a no-op for the wrong one when #1139
+ * landed, which is exactly how a non-vacuity test stops proving anything.
+ */
+function removePrefetchOwnership(
+  fx: ReturnType<typeof seedOrderedSourceUpdate>,
+  where: 'main' | 'update_source',
+): void {
+  const path = join(fx.runDir, 'scripts', 'update.sh')
+  const src = readFileSync(path, 'utf8')
+  const fetch = 'git -C "$INSTALL_DIR" fetch --tags --force origin'
+  const from = where === 'update_source' ? `  apply_ownership\n\n  ${fetch}\n` : `    apply_ownership\n    ${fetch}\n`
+  if (!src.includes(from)) {
+    throw new Error(`mutation target absent from update.sh: ${where}'s pre-fetch apply_ownership moved`)
+  }
+  writeFileSync(path, src.replace(from, `${where === 'update_source' ? '  ' : '    '}${fetch}\n`))
+}
+
+describe.skipIf(SOURCE_FOREIGN === null)(
+  'update.sh — apply_ownership is ordered around the fetch, the checkout and the build',
+  () => {
+    const group = SOURCE_FOREIGN!
+
+    test('the ownership calls land before the fetch, after the checkout and after the build', () => {
+      // The whole claim, as one sequence. Every element is load-bearing: an
+      // apply_ownership after the build but before the fetch would satisfy a
+      // count, and it is exactly the arrangement the residue cannot survive.
+      const fx = seedOrderedSourceUpdate(group)
+      try {
+        // The residue #1114 left: a clean checkout whose .git carries a group the
+        // service user does not own. Planted through the same helper the git stub
+        // uses, so the shape is identical to the one produced mid-run.
+        spawnSync('bash', [fx.plant, fx.installDir], { encoding: 'utf8' })
+        const before = statSync(join(fx.installDir, '.git', 'residue'), { throwIfNoEntry: false })
+        expect(before, 'the fixture must start out mismatched').not.toBeUndefined()
+
+        const res = runOrderedUpdate(fx)
+
+        expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(0)
+        expect(res.stdout).toContain('Done. Now at 0.8.0.')
+
+        // The whole sequence, including the phases that are NOT part of the claim,
+        // so that a fifth ownership call cannot slip in unnoticed: one in main()
+        // before its own fetch (#1139, update.sh:868), three inside update_source()
+        // (#1136, :687/:722/:741) and the one the call site makes after the
+        // function returns (update.sh:938), which is a different function's
+        // business.
+        const log = readFileSync(fx.order, 'utf8')
+        const events = orderEvents(log, fx.installDir)
+        expect(events, 'the phase sequence the run produced').toEqual([
+          'apply_ownership',
+          'git fetch',
+          'apply_ownership',
+          'git fetch',
+          'git checkout',
+          'apply_ownership',
+          'build',
+          'apply_ownership',
+          'apply_ownership',
+        ])
+        // AND the effect at the moment that matters, which the end-of-run gid check
+        // below can no longer distinguish: the FIRST fetch is the one a residue
+        // planted up front would kill, so a repaired group there is main()'s call
+        // doing its job (#1139), not one of update_source()'s — none of which has
+        // run yet at that point.
+        expect(fetchResidueGroups(log)[0], 'the first fetch met a mismatched .git').toBe(RUNNER_GROUP)
+        // And the residue the fetches would have died on is repaired by the end.
+        expect(statSync(join(fx.installDir, '.git', 'residue')).gid, 'the residue was never repaired').toBe(
+          statSync(fx.installDir).gid,
+        )
+      } finally {
+        rmSync(fx.root, { recursive: true, force: true })
+        rmSync(fx.origin, { recursive: true, force: true })
+      }
+    }, 120_000)
+
+    test('a tree with no residue still walks the tree on every phase — the calls are unconditional', () => {
+      // The other half, and the one that keeps "the pre-fetch calls exist" honest.
+      // On a clean tree ownership_mismatch finds nothing and says nothing, so the
+      // only observable is the WALK itself; a version that guarded a pre-fetch
+      // call behind a mismatch would pass the test above on a residue but silently
+      // skip the fetch on a clean tree.
+      const fx = seedOrderedSourceUpdate(group)
+      try {
+        const res = runOrderedUpdate(fx)
+
+        expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(0)
+        const events = orderEvents(readFileSync(fx.order, 'utf8'), fx.installDir)
+        // FIVE walks of INSTALL_DIR: one in main() before its own fetch (#1139),
+        // three inside update_source() and one more at the call site after the
+        // function returns (update.sh:938, before the post-update hook). The count
+        // is asserted as the exact sequence in the test above rather than as a
+        // number there, so the extra call is accounted for rather than absorbed.
+        const walks = events.filter((e) => e === 'apply_ownership')
+        expect(walks).toHaveLength(5)
+        // And BOTH pre-fetch walks are genuinely before their own fetch — the first
+        // against the FIRST fetch, which is the claim #1139 added. Asserting against
+        // the last fetch instead (as this did before #1139) is satisfied by a walk
+        // anywhere earlier in the run and would pass with main()'s call deleted.
+        expect(events.indexOf('apply_ownership'), 'no walk before the first fetch').toBeLessThan(
+          events.indexOf('git fetch'),
+        )
+        const secondFetch = events.indexOf('git fetch', events.indexOf('git fetch') + 1)
+        expect(events.lastIndexOf('apply_ownership', secondFetch), 'no walk before the second fetch').toBeLessThan(
+          secondFetch,
+        )
+      } finally {
+        rmSync(fx.root, { recursive: true, force: true })
+        rmSync(fx.origin, { recursive: true, force: true })
+      }
+    }, 120_000)
+
+    test('non-vacuity: without main()\'s pre-fetch call the FIRST fetch dies on the residue', () => {
+      // THE PROOF for #1139. The SAME fixture, the SAME planted residue, the SAME
+      // git model — run against a copy of update.sh whose main() pre-fetch
+      // apply_ownership is gone. That call is the run's first write into
+      // INSTALL_DIR, so the FIRST fetch must now fail the way a real git fails on
+      // an index it cannot write, and the run must abort there — before the
+      // pre-update hook and before update_source() is ever entered, which is
+      // exactly the defect #1139 was opened for. If this ever passes, the
+      // mutation stopped matching the shipped call and the assertions above prove
+      // nothing.
+      const fx = seedOrderedSourceUpdate(group)
+      try {
+        spawnSync('bash', [fx.plant, fx.installDir], { encoding: 'utf8' })
+        removePrefetchOwnership(fx, 'main')
+
+        const res = runOrderedUpdate(fx)
+
+        expect(res.status, 'the run reached the end despite an unwritable .git').not.toBe(0)
+        expect(res.stdout, 'the checkout ran on a tree the fetch could not write').not.toContain(
+          'Checked out',
+        )
+        expect(res.stderr).toContain('EACCES')
+        // It died on the FIRST fetch — no second one was attempted — and the
+        // post-checkout and post-build calls were never reached, which is the other
+        // half of what an abort costs.
+        expect(fetchResidueGroups(readFileSync(fx.order, 'utf8'))).toHaveLength(1)
+        expect(orderEvents(readFileSync(fx.order, 'utf8'), fx.installDir)).not.toContain('build')
+      } finally {
+        rmSync(fx.root, { recursive: true, force: true })
+        rmSync(fx.origin, { recursive: true, force: true })
+      }
+    }, 120_000)
+
+    test('non-vacuity: without update_source()\'s own pre-fetch call its fetch dies on a mid-run residue', () => {
+      // THE PROOF for #1136, and the one that main()'s call would otherwise have
+      // made unfalsifiable: with a residue planted up front, main() heals it, so
+      // deleting update_source()'s call changed nothing. Here the residue appears
+      // AFTER main()'s call — a fetch that ran as root writes .git as root, which
+      // the stub reproduces (PLANT_AFTER_FETCH) — so only update_source()'s own
+      // pre-fetch walk stands between that tree and the EACCES.
+      //
+      // The control run gets its OWN fixture, not a second run over this one: an
+      // update consumes the upgrade it performs, so a control run first would leave
+      // the mutated run with nothing to do ("Already up to date") and the proof
+      // would pass for the wrong reason.
+      const control = seedOrderedSourceUpdate(group)
+      try {
+        const res = runOrderedUpdate(control, { plantAfterFetch: true })
+        expect(
+          res.status,
+          `the planting fixture alone must succeed\nstdout:\n${res.stdout}\nstderr:\n${res.stderr}\norder:\n${readFileSync(control.order, 'utf8')}`,
+        ).toBe(0)
+        expect(res.stdout).toContain('Done. Now at 0.8.0.')
+        // Which is only meaningful because update_source()'s call is what healed the
+        // residue its own fetch left behind.
+        expect(fetchResidueGroups(readFileSync(control.order, 'utf8'))[1]).toBe(RUNNER_GROUP)
+      } finally {
+        rmSync(control.root, { recursive: true, force: true })
+        rmSync(control.origin, { recursive: true, force: true })
+      }
+
+      const fx = seedOrderedSourceUpdate(group)
+      try {
+        removePrefetchOwnership(fx, 'update_source')
+        const res = runOrderedUpdate(fx, { plantAfterFetch: true })
+
+        expect(
+          res.status,
+          `the run reached the end despite an unwritable .git\nstdout:\n${res.stdout}\nstderr:\n${res.stderr}\norder:\n${readFileSync(fx.order, 'utf8')}`,
+        ).not.toBe(0)
+        expect(res.stdout, 'the checkout ran on a tree the fetch could not write').not.toContain(
+          'Checked out',
+        )
+        expect(res.stderr).toContain('EACCES')
+        // Died on the SECOND fetch — the first one succeeded and left the residue.
+        const seen = fetchResidueGroups(readFileSync(fx.order, 'utf8'))
+        expect(seen).toHaveLength(2)
+        expect(seen[0], 'the first fetch must have found no residue to die on').toBeNull()
+        expect(seen[1], 'the second fetch met a residue nothing had repaired').not.toBe(RUNNER_GROUP)
+        expect(orderEvents(readFileSync(fx.order, 'utf8'), fx.installDir)).not.toContain('build')
+      } finally {
+        rmSync(fx.root, { recursive: true, force: true })
+        rmSync(fx.origin, { recursive: true, force: true })
+      }
+    }, 120_000)
+  },
+)
