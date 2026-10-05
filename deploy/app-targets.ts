@@ -374,8 +374,8 @@ export function guardProductionPaths(targets: readonly AppTarget[]): void {
 }
 
 function homeDir(): string {
-  const passwd = spawnBash(`getent passwd "$(id -un)" | cut -d: -f6`, [])
-  return passwd.stdout.trim() || process.env.HOME || '/root'
+  const home = spawnBash(`getent passwd "$(id -un)" | cut -d: -f6`, [])
+  return home.stdout.trim() || process.env.HOME || '/root'
 }
 
 /**
