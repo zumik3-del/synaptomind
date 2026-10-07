@@ -25,7 +25,6 @@ import { getDb } from '../../db'
 import { getEdgePairKeys } from '../../db/edges'
 import { annotateGraphStanding } from '../../db/graph-annotations'
 import { resolveDefaultProjectId } from '../../db/projects'
-import { searchThoughts } from '../../db/search'
 import { getThoughtRow, type Thought } from '../../db/thoughts'
 import { pairKey } from '../../db/utils'
 import { generateEmbeddings } from '../../embedder/client'
@@ -34,6 +33,7 @@ import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from '../edge-cand
 import { classifyEdgeType } from './edge-type-rules'
 import { decideLifecycle, findMergeTarget, keepLifecycle } from './lifecycle'
 import { buildCandidatePool, proposePlacement } from './placement'
+import { defaultSearchNeighbors } from './search-neighbors'
 import { extractPairSignals } from './signals'
 import type { EdgeProposal, PlacementPlan, PlacementProposal } from './types'
 
@@ -105,24 +105,6 @@ function resolveThought(input: PlacementPlanInput, options: PlacementPlanOptions
     }
   }
   throw new ValidationError('provide either thoughtId (existing thought) or content (draft)')
-}
-
-/** Default neighbour lookup: active, same-project, vector-only (`searchThoughts`). */
-function defaultSearchNeighbors(d: Database, projectId: string): SearchNeighborsFn {
-  return (_id, embedding, k) => {
-    try {
-      return searchThoughts(d, {
-        embedding,
-        topK: k,
-        statusFilter: 'active',
-        projectFilter: projectId,
-        hybrid: false
-      }).map(r => ({ id: r.thought.id, similarity: r.similarity }))
-    } catch (err) {
-      console.debug('[placement] neighbour search failed:', err)
-      return []
-    }
-  }
 }
 
 /**

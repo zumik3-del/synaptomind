@@ -30,9 +30,7 @@
 
 import type { Database } from 'bun:sqlite'
 import { getDb } from '../db'
-import { getEdgePairBetween } from '../db/edges'
 import { getProposal, updateProposalState, type PlacementProposalRow } from '../db/placement-proposals'
-import { getThoughtRow } from '../db/thoughts'
 import {
   ClusterEdgeValidationError,
   EdgeAlreadyExistsError,
@@ -44,37 +42,24 @@ import {
 } from '../errors'
 import { insertLog } from '../logging/log'
 import { evaluateGates, plannedEdge } from './apply-gates'
-import { createEdgeService } from './edges.service'
-import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriterCall } from './placement-apply.types'
 import { resolveApplyRunId, resolveBatchRunId, triageEnvelope } from './apply-run-envelope'
 import { checkBatchGuards, isTriageKind } from './apply-run-guards'
-import { computeFingerprint } from './placement-proposals.service'
+import { createEdgeService } from './edges.service'
+import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriterCall } from './placement-apply.types'
+import { pairFingerprint } from './placement-proposals.service'
 import { archiveThoughtById, mergeThoughtsService, updateThoughtById } from './thoughts.service'
+import { type ApplyWriterCall, planWriterCalls, type WriterCall } from './writer-calls'
 
 export type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriter, PlannedWriterCall, RefusedApplyResult, RunRefusal } from './placement-apply.types'
 
+/** The apply direction never plans the rollback-only `deleteEdgeService`. */
+function isApplyWriterCall(call: WriterCall): call is ApplyWriterCall {
+  return call.writer !== 'deleteEdgeService'
+}
+
 /** The existing-writer call(s) `confirm:true` would execute (never mutates). */
-function plannedCalls(row: PlacementProposalRow, options: ApplyOptions): PlannedWriterCall[] {
-  if (row.item_kind === 'triage_activate') return [{ writer: 'updateThoughtById', args: { id: row.source_thought_id, status: 'active' } }]
-  if (row.item_kind === 'triage_archive') return [{ writer: 'archiveThoughtById', args: { id: row.source_thought_id } }]
-  const edge = plannedEdge(row, options)
-  if (edge) {
-    const calls: PlannedWriterCall[] = [
-      { writer: 'createEdgeService', args: { sourceId: edge.sourceId, targetId: edge.targetId, type: edge.type } }
-    ]
-    if (row.item_kind === 'lifecycle') calls.push({ writer: 'archiveThoughtById', args: { id: edge.targetId } })
-    return calls
-  }
-  if (row.item_kind === 'lifecycle' && row.lifecycle_action === 'merge' && row.target_id) {
-    const args = {
-      sourceId: row.source_thought_id,
-      targetId: row.target_id,
-      mergedContent: options.mergedContent,
-      mergedTags: options.mergedTags
-    }
-    return [{ writer: 'mergeThoughtsService', args }]
-  }
-  return []
+function plannedCalls(row: PlacementProposalRow, options: ApplyOptions): ApplyWriterCall[] {
+  return (planWriterCalls(row, 'apply', options, plannedEdge(row, options)) ?? []).filter(isApplyWriterCall)
 }
 
 interface WriterRun {
@@ -82,50 +67,39 @@ interface WriterRun {
   result: Record<string, unknown>
 }
 
-/** Execute one existing writer for a validated `ok` row (ADR §2.5). */
-function executeWriter(row: PlacementProposalRow, options: ApplyOptions, d: Database): WriterRun {
-  if (row.item_kind === 'triage_activate') {
-    updateThoughtById(row.source_thought_id, { status: 'active' }, d)
-    return { calls: plannedCalls(row, options), result: triageEnvelope(row, 'active') }
-  }
-  if (row.item_kind === 'triage_archive') {
-    archiveThoughtById(row.source_thought_id, d)
-    return { calls: plannedCalls(row, options), result: triageEnvelope(row, 'archived') }
-  }
-  const edge = plannedEdge(row, options)
-  if (edge) {
-    const created = createEdgeService(edge.sourceId, edge.targetId, edge.type, d)
-    if (row.item_kind === 'lifecycle') archiveThoughtById(edge.targetId, d)
-    return { calls: plannedCalls(row, options), result: { edge_id: created.id } }
-  }
-  if (row.item_kind === 'lifecycle' && row.lifecycle_action === 'merge' && row.target_id) {
-    const merged = mergeThoughtsService(
-      { sourceId: row.source_thought_id, targetId: row.target_id, mergedContent: options.mergedContent, mergedTags: options.mergedTags },
-      d
-    )
-    return { calls: plannedCalls(row, options), result: { transferred_edges: merged.transferredEdges } }
-  }
-  throw new ValidationError('proposal has no supported apply action')
-}
-
 /**
- * Fingerprint of the post-writer snapshot. Apply stores it so `rollback` can
- * distinguish "unchanged since apply" from "drifted" via the existing
- * `isProposalStale` recipe (ADR 2026-09-29 §2.8).
+ * Plan and execute the existing-writer call(s) for a validated `ok` row
+ * (ADR §2.5): one dispatch produces both the plan reported back to the caller
+ * and the execution result stored on the row.
  */
-function postWriterFingerprint(d: Database, row: PlacementProposalRow): string {
-  const source = getThoughtRow(d, row.source_thought_id)
-  const target = row.target_id ? getThoughtRow(d, row.target_id) : undefined
-  const existingEdgeType = row.target_id ? (getEdgePairBetween(d, row.source_thought_id, row.target_id)?.type ?? null) : null
-  return computeFingerprint({
-    sourceId: source?.id ?? row.source_thought_id,
-    sourceUpdatedAt: source?.updated_at ?? '',
-    sourceStatus: source?.status ?? '',
-    targetId: target?.id ?? (row.target_id ?? ''),
-    targetUpdatedAt: target?.updated_at ?? '',
-    targetStatus: target?.status ?? '',
-    existingEdgeType
-  })
+function executeWriter(row: PlacementProposalRow, options: ApplyOptions, d: Database): WriterRun {
+  const calls = plannedCalls(row, options)
+  if (calls.length === 0) throw new ValidationError('proposal has no supported apply action')
+
+  const result: Record<string, unknown> = {}
+  for (const call of calls) {
+    switch (call.writer) {
+      case 'updateThoughtById':
+        updateThoughtById(call.args.id, { status: call.args.status }, d)
+        break
+      case 'archiveThoughtById':
+        archiveThoughtById(call.args.id, d)
+        break
+      case 'createEdgeService': {
+        const created = createEdgeService(call.args.sourceId, call.args.targetId, call.args.type, d)
+        result.edge_id = created.id
+        break
+      }
+      case 'mergeThoughtsService':
+        result.transferred_edges = mergeThoughtsService(call.args, d).transferredEdges
+        break
+    }
+  }
+  // A triage accept records its before/after provenance envelope (ADR §2.3.4).
+  if (row.item_kind === 'triage_activate' || row.item_kind === 'triage_archive') {
+    Object.assign(result, triageEnvelope(row, row.item_kind === 'triage_archive' ? 'archived' : 'active'))
+  }
+  return { calls, result }
 }
 
 type WriterErrorOutcome = { kind: 'stale' | 'failed' | 'already_applied'; reason: string }
@@ -269,7 +243,9 @@ export function applyProposal(proposalId: string, options: ApplyOptions = {}, d:
         applied_at: now,
         result,
         run_id: runId,
-        fingerprint: postWriterFingerprint(d, row)
+        // Post-writer snapshot, stored so `rollback` can distinguish
+        // "unchanged since apply" from "drifted" (ADR 2026-09-29 §2.8).
+        fingerprint: pairFingerprint(d, row.source_thought_id, row.target_id)
       })
       return { executed, updated }
     })

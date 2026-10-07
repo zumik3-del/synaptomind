@@ -23,11 +23,11 @@ import type { Database } from 'bun:sqlite'
 import { config } from '../../config'
 import { getDb } from '../../db'
 import { getClusterForThoughtBatch, getClusterMembers, getThoughtEdges } from '../../db/edges'
-import { searchThoughts } from '../../db/search'
 import { listThoughts, type Thought } from '../../db/thoughts'
 import { generateEmbeddings } from '../../embedder/client'
 import { clamp01 } from '../../utils'
 import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from '../edge-candidates.service'
+import { defaultSearchNeighbors } from './search-neighbors'
 import type { PlacementProposal } from './types'
 
 /** Directed hierarchy edge types that make a thought a chain node. */
@@ -238,22 +238,7 @@ export async function proposePlacement(
       return noPlacement('embedder returned a mismatched number of vectors')
     }
 
-    const searchNeighbors: SearchNeighborsFn =
-      deps.searchNeighbors ??
-      ((_id, embedding, k) => {
-        try {
-          return searchThoughts(d, {
-            embedding,
-            topK: k,
-            statusFilter: 'active',
-            projectFilter: projectId,
-            hybrid: false
-          }).map(r => ({ id: r.thought.id, similarity: r.similarity }))
-        } catch (err) {
-          console.debug('[placement] neighbour search failed:', err)
-          return []
-        }
-      })
+    const searchNeighbors: SearchNeighborsFn = deps.searchNeighbors ?? defaultSearchNeighbors(d, projectId)
 
     pairs = findEmbeddingNeighborPairs(pool, embeddings, minSimilarity, searchNeighbors, topK)
   }

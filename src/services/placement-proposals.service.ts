@@ -23,7 +23,6 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { getDb } from '../db'
-import { getEdgePairBetween } from '../db/edges'
 import {
   getProposal,
   insertProposal,
@@ -34,19 +33,19 @@ import {
   type ProposalItemKind,
   type ProposalState
 } from '../db/placement-proposals'
-import { getThoughtRow, type Thought } from '../db/thoughts'
+import { getThoughtRow } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
 import { DRAFT_THOUGHT_ID, proposePlacementPlan } from './placement/engine'
 import type { PlacementPlan } from './placement/types'
 import {
-  computeFingerprint,
   itemKey,
   mapPlan,
+  pairFingerprint,
   proposalExpiry,
   toItemKey
 } from './placement-proposals.mapping'
 
-export { computeFingerprint } from './placement-proposals.mapping'
+export { computeFingerprint, pairFingerprint } from './placement-proposals.mapping'
 export type { FingerprintInput } from './placement-proposals.mapping'
 
 export interface EnqueuePlanOptions {
@@ -235,29 +234,9 @@ export function reject(proposalId: string, options: RejectOptions = {}, d: Datab
  * Read-time staleness check (ADR §2.3): recompute the fingerprint from the
  * current graph snapshot and compare it to the one stored at enqueue. A
  * missing source/target, a changed `updated_at`/`status`, or a newly appeared
- * edge on the pair all make the proposal stale.
+ * edge on the pair all make the proposal stale — a vanished row fingerprints
+ * with empty fields, which never matches the stored snapshot.
  */
 export function isProposalStale(row: PlacementProposalRow, d: Database = getDb()): boolean {
-  const source = getThoughtRow(d, row.source_thought_id)
-  if (!source) return true
-
-  let target: Thought | undefined
-  if (row.target_id !== null) {
-    target = getThoughtRow(d, row.target_id)
-    if (!target) return true
-  }
-
-  const existingEdgeType =
-    row.target_id !== null ? (getEdgePairBetween(d, row.source_thought_id, row.target_id)?.type ?? null) : null
-
-  const current = computeFingerprint({
-    sourceId: source.id,
-    sourceUpdatedAt: source.updated_at,
-    sourceStatus: source.status,
-    targetId: target?.id ?? '',
-    targetUpdatedAt: target?.updated_at ?? '',
-    targetStatus: target?.status ?? '',
-    existingEdgeType
-  })
-  return current !== row.fingerprint
+  return pairFingerprint(d, row.source_thought_id, row.target_id) !== row.fingerprint
 }

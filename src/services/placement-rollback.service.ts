@@ -22,27 +22,11 @@ import { deleteEdgeService } from './edges.service'
 import type { RollbackItemReport, RollbackOptions, RollbackReport } from './placement-apply.types'
 import { isProposalStale } from './placement-proposals.service'
 import { updateThoughtById } from './thoughts.service'
+import { parseResult, planWriterCalls } from './writer-calls'
 
 type Decision = { action: 'revert' } | { action: 'skipped' | 'refused'; reason: string }
 
 const MS_PER_DAY = 86400000
-
-/** Parse a stored JSON `result` without throwing on legacy/null values. */
-function parseResult(raw: string | null): Record<string, unknown> {
-  if (!raw) return {}
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
-  } catch {
-    return {}
-  }
-}
-
-/** The id of an edge this row created, when its `result` recorded one. */
-function createdEdgeId(row: PlacementProposalRow): string | undefined {
-  const value = parseResult(row.result).edge_id
-  return typeof value === 'string' ? value : undefined
-}
 
 /**
  * Refuse a row decided outside the rollback window (ADR 2026-09-29 §2.8, OQ-3:
@@ -100,25 +84,23 @@ function decideRollback(row: PlacementProposalRow, now: string, d: Database): De
 
 /** Apply the inverse of one accepted row through existing writers only. */
 function applyInverse(row: PlacementProposalRow, d: Database): void {
-  if (row.item_kind === 'triage_activate' || row.item_kind === 'triage_archive') {
-    updateThoughtById(row.source_thought_id, { status: 'draft' }, d)
-    return
+  const calls = planWriterCalls(row, 'rollback')
+  if (!calls) throw new ValidationError(`proposal '${row.id}' has no reversible apply action`)
+
+  for (const call of calls) {
+    switch (call.writer) {
+      case 'updateThoughtById':
+        // A triage source returns to `draft`; a `replaces+archive` target returns
+        // to `active` — the apply-time gate only admits an `active` target
+        // (`apply-gates.ts`), so restoring `draft` would silently drop it out of
+        // active recall.
+        updateThoughtById(call.args.id, { status: call.args.status }, d)
+        break
+      case 'deleteEdgeService':
+        deleteEdgeService(call.args.id, d)
+        break
+    }
   }
-  const edgeId = createdEdgeId(row)
-  if (row.item_kind === 'edge' || row.item_kind === 'placement') {
-    if (edgeId) deleteEdgeService(edgeId, d)
-    return
-  }
-  if (row.item_kind === 'lifecycle' && row.lifecycle_action === 'replaces+archive') {
-    if (edgeId) deleteEdgeService(edgeId, d)
-    // The apply-time gate only admits this item when the target is `active`
-    // (`apply-gates.ts`), and the writer archived it — so the inverse restores
-    // `active`. Restoring `draft` here would silently drop the thought out of
-    // active recall.
-    if (row.target_id) updateThoughtById(row.target_id, { status: 'active' }, d)
-    return
-  }
-  throw new ValidationError(`proposal '${row.id}' has no reversible apply action`)
 }
 
 function summarize(items: RollbackItemReport[]): RollbackReport['summary'] {

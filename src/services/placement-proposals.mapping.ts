@@ -94,20 +94,48 @@ export function proposalExpiry(now: string): string | null {
   return new Date(Date.parse(now) + ttlDays * 86400000).toISOString()
 }
 
-/** Fingerprint of a (source, target) pair from the current DB snapshot. */
+/**
+ * The single snapshot → sha1 assembly (ADR §2.3). A missing row contributes
+ * empty fields, which can never equal a stored fingerprint — every enqueued row
+ * was fingerprinted while its source and target existed.
+ */
+function assembleFingerprint(
+  source: Thought | undefined,
+  target: Thought | undefined,
+  sourceId: string,
+  targetId: string,
+  existingEdgeType: string | null
+): string {
+  return computeFingerprint({
+    sourceId: source?.id ?? sourceId,
+    sourceUpdatedAt: source?.updated_at ?? '',
+    sourceStatus: source?.status ?? '',
+    targetId: target?.id ?? targetId,
+    targetUpdatedAt: target?.updated_at ?? '',
+    targetStatus: target?.status ?? '',
+    existingEdgeType
+  })
+}
+
+/**
+ * Fingerprint of a (source, target) pair from the current DB snapshot (ADR
+ * §2.3) — the one read-time derivation, shared by the queue's staleness check
+ * (`isProposalStale`), the apply path's post-writer snapshot, and triage
+ * enqueue. `targetId: null` fingerprints the source alone.
+ */
+export function pairFingerprint(d: Database, sourceId: string, targetId: string | null): string {
+  const source = getThoughtRow(d, sourceId)
+  const target = targetId !== null ? getThoughtRow(d, targetId) : undefined
+  const existingEdgeType = targetId !== null ? (getEdgePairBetween(d, sourceId, targetId)?.type ?? null) : null
+  return assembleFingerprint(source, target, sourceId, targetId ?? '', existingEdgeType)
+}
+
+/** Fingerprint of a (source, target) pair, or `undefined` when the target is gone. */
 function fingerprintPair(d: Database, source: Thought, targetId: string): string | undefined {
   const target = getThoughtRow(d, targetId)
   if (!target) return undefined
   const existing = getEdgePairBetween(d, source.id, targetId)?.type ?? null
-  return computeFingerprint({
-    sourceId: source.id,
-    sourceUpdatedAt: source.updated_at,
-    sourceStatus: source.status,
-    targetId: target.id,
-    targetUpdatedAt: target.updated_at,
-    targetStatus: target.status,
-    existingEdgeType: existing
-  })
+  return assembleFingerprint(source, target, source.id, targetId, existing)
 }
 
 function edgeItem(d: Database, source: Thought, edge: EdgeProposal): MappedItem | undefined {
