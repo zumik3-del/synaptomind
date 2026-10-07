@@ -122,6 +122,7 @@ time this integration was written, it consists of:
 - `memory_crystallize`
 - `memory_reflect`
 - `memory_telemetry`
+- `memory_review`
 - `memory_guide`
 
 Web ChatGPT does not have a reliable local filesystem working directory. It

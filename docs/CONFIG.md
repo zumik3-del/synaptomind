@@ -36,6 +36,11 @@ cp .env.example .env
 | `mcp.httpPort` | `SYNAPTOMIND_MCP_HTTP_PORT` | `3006` | MCP HTTP transport port |
 | `mcp.instructionsFile` | `SYNAPTOMIND_MCP_INSTRUCTIONS_FILE` | `""` | Path to custom MCP instructions file (markdown). Falls back to built-in instructions |
 | `mcp.stdioStandalone` | `SYNAPTOMIND_MCP_STDIO_STANDALONE` | `false` | When `true`, a `--stdio` process also starts the embedder and background jobs. Default `false` keeps them single-owner: the shared HTTP server runs them and stdio clients only hold an MCP session. See [Stdio ownership](#stdio-ownership) |
+| `mcp.corsOrigins` | `SYNAPTOMIND_MCP_CORS_ORIGINS` | `[]` | Comma-separated allowed CORS origins for the MCP HTTP transport. Empty = no CORS headers |
+| `mcp.maxSessions` | `SYNAPTOMIND_MCP_MAX_SESSIONS` | `100` | Max concurrent MCP sessions |
+| `mcp.sessionTtlMs` | `SYNAPTOMIND_MCP_SESSION_TTL_MS` | `3600000` | Session idle timeout in ms (1h) |
+| `mcp.keepAliveMs` | `SYNAPTOMIND_MCP_KEEPALIVE_MS` | `10000` | Keep-alive interval in ms |
+| `mcp.maxEventsPerSession` | `SYNAPTOMIND_MCP_MAX_EVENTS_PER_SESSION` | `1000` | Max events buffered per session |
 
 ### Stdio ownership
 
@@ -283,6 +288,11 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
 |---------|---------|---------|-------------|
 | `contentLanguage` | `SYNAPTOMIND_CONTENT_LANGUAGE` | `en` | Language for MCP instructions and content normalization |
 
+### Debug logging
+
+`SYNAPTOMIND_DEBUG=true` enables verbose debug logging (read directly from the
+environment by the logging module, `src/logging/log.ts:112`). Off by default.
+
 ---
 
 ## Docker-Specific
@@ -301,7 +311,11 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
 {
   "contentLanguage": "en",
   "server": { "port": 3005, "host": "127.0.0.1" },
-  "mcp": { "httpPort": 3006, "instructionsFile": "", "stdioStandalone": false },
+  "mcp": {
+    "httpPort": 3006, "instructionsFile": "", "stdioStandalone": false,
+    "corsOrigins": [], "maxSessions": 100, "sessionTtlMs": 3600000,
+    "keepAliveMs": 10000, "maxEventsPerSession": 1000
+  },
   "db": { "path": "./data/synaptomind.db", "busyTimeout": 5000 },
   "logDbPath": "",
   "embedder": {

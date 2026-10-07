@@ -28,8 +28,12 @@ curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/
 A piped script has no sibling files, so the shared helpers and config are fetched
 from the published base by default — no environment variables are needed.
 `DEPLOY_RAW_URL` overrides that base (forks/mirrors); an explicit `APP_ENV_URL`
-or `LIB_RAW_URL` still wins. Server starts on `http://127.0.0.1:3005`.
-MCP endpoint: `http://127.0.0.1:3006/mcp`.
+or `LIB_RAW_URL` still wins. The installer downloads and extracts the release
+tarball (`DIST=binary`); the server starts on `http://127.0.0.1:3105` (API) and
+`http://127.0.0.1:3106/mcp` (MCP). Config lives in `/var/lib/synaptomind/config.json`,
+reached via the `/opt/synaptomind/config.json` symlink. The installer seeds
+ports 3105/3106; the client-config and API examples in this README use the
+built-in defaults (3005 API / 3006 MCP).
 
 For the full install & update guide (flags, channels, rollback, uninstall), see
 [docs/DEPLOY.md](docs/DEPLOY.md). For the deployment convention shared with
@@ -281,7 +285,8 @@ All settings in `config.json`. Priority: env vars > config.json > defaults.
 
 The HTTP API port resolves in that order too: `SYNAPTOMIND_PORT` overrides
 `config.json` `server.port`, which overrides the built-in `3005`
-(`src/config.ts:245-265`).
+(default `src/config.ts:58`, env mapping `src/config.ts:138`, applied in
+`applyEnvOverrides()` `src/config.ts:283-301`).
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -372,7 +377,7 @@ curl -X POST http://127.0.0.1:3005/api/thoughts \
 ### Search thoughts
 
 ```bash
-curl "http://127.0.0.1:3005/api/thoughts/search?q=session+retrospective&limit=5" \
+curl "http://127.0.0.1:3005/api/thoughts/search?q=session+retrospective&k=5" \
   -H "Authorization: Bearer $SYNAPTOMIND_SECRET"
 ```
 
@@ -392,11 +397,12 @@ curl http://127.0.0.1:3005/health
 | Recall | `memory_recall` (search, get, context, chain, clusters) |
 | Store | `memory_store` (create, update, link, unlink, retype) |
 | Supersede | `memory_supersede` (archive, merge) |
-| Status | `memory_status` (slots, frontier, profile, config, health, edge_suggestions, cleanup) |
+| Status | `memory_status` (slots, frontier, profile, config, health, edge_suggestions, propose, cleanup) |
 | Projects | `memory_manage` (list, create, update, delete, resolve) |
 | Consolidate | `memory_crystallize` (crystallize, graph, cluster, auto_cluster, cluster_remove, cluster_dissolve) |
 | Reflect | `memory_reflect` (reflect, timeline) |
 | Telemetry | `memory_telemetry` (query, analyze, primers) |
+| Review | `memory_review` (enqueue, list, apply, apply_batch, rollback, reject) |
 | Guide | `memory_guide` |
 
 For action-level detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
