@@ -390,14 +390,16 @@ curl http://127.0.0.1:3005/health
 | Category | Tools |
 |----------|-------|
 | Recall | `memory_recall` (search, get, context, chain, clusters) |
-| Store | `memory_store` (create, update, link) |
+| Store | `memory_store` (create, update, link, unlink, retype) |
 | Supersede | `memory_supersede` (archive, merge) |
 | Status | `memory_status` (slots, frontier, profile, config, health, edge_suggestions, cleanup) |
 | Projects | `memory_manage` (list, create, update, delete, resolve) |
-| Consolidate | `memory_crystallize` (crystallize, graph, cluster, auto_cluster) |
+| Consolidate | `memory_crystallize` (crystallize, graph, cluster, auto_cluster, cluster_remove, cluster_dissolve) |
 | Reflect | `memory_reflect` (reflect, timeline) |
 | Telemetry | `memory_telemetry` (query, analyze, primers) |
 | Guide | `memory_guide` |
+
+For action-level detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
 
 </details>
 

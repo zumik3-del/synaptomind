@@ -4,10 +4,12 @@ import {
 	createEdge,
 	deleteEdge,
 	getAllActiveEdges,
+	getClusterMembers,
 	getClusterThought,
 	getEdgesForThought,
 	getValidEdgeTypes,
 	isValidEdgeType,
+	retypeEdge,
 } from "./edges";
 import { getDb } from "./container";
 import { closeDb } from "./init";
@@ -443,4 +445,84 @@ test("getClusterThought returns null for a non-cluster thought", () => {
 
 test("getClusterThought returns null for missing id", () => {
 	expect(getClusterThought(getDb(), "nonexistent")).toBeNull();
+});
+
+// ── retypeEdge ───────────────────────────────────────────────────────────────
+
+test("retypeEdge changes related to supports", () => {
+	const db = getDb();
+	const a = seedThought();
+	const b = seedThought();
+	const edge = createEdge(db, a, b, "related");
+	const retyped = retypeEdge(db, edge.id, "supports");
+	expect(retyped.type).toBe("supports");
+	expect(retyped.source_id).toBe(a);
+	expect(retyped.target_id).toBe(b);
+	expect(retyped.id).not.toBe(edge.id);
+});
+
+test("retypeEdge changes contradicts to supports", () => {
+	const db = getDb();
+	const a = seedThought();
+	const b = seedThought();
+	const edge = createEdge(db, a, b, "contradicts");
+	const retyped = retypeEdge(db, edge.id, "supports");
+	expect(retyped.type).toBe("supports");
+	expect(retyped.source_id).toBe(a);
+	expect(retyped.target_id).toBe(b);
+});
+
+test("retypeEdge throws for invalid new type", () => {
+	const db = getDb();
+	const a = seedThought();
+	const b = seedThought();
+	const edge = createEdge(db, a, b, "related");
+	expect(() => retypeEdge(db, edge.id, "frobnicates")).toThrow(
+		"Invalid edge type 'frobnicates'",
+	);
+});
+
+test("retypeEdge throws for same-type retype", () => {
+	const db = getDb();
+	const a = seedThought();
+	const b = seedThought();
+	const edge = createEdge(db, a, b, "supports");
+	expect(() => retypeEdge(db, edge.id, "supports")).toThrow(
+		"already of type 'supports'",
+	);
+});
+
+test("retypeEdge throws when cluster constraint is violated", () => {
+	const db = getDb();
+	const cluster = seedThought({ is_cluster: 1 });
+	const normal = seedThought();
+	const edge = createEdge(db, cluster, normal, "cluster");
+	expect(() => retypeEdge(db, edge.id, "related")).toThrow(
+		"Cluster thoughts cannot have 'related' edges",
+	);
+});
+
+test("retypeEdge preserves the original created_at", () => {
+	const db = getDb();
+	const a = seedThought();
+	const b = seedThought();
+	const edge = createEdge(db, a, b, "related");
+	const knownDate = "2025-01-15T10:30:00.000Z";
+	db.prepare("UPDATE edges SET created_at = ? WHERE id = ?").run(knownDate, edge.id);
+	const retyped = retypeEdge(db, edge.id, "supports");
+	expect(retyped.created_at).toBe(knownDate);
+});
+
+// ── getClusterMembers ────────────────────────────────────────────────────────
+
+test("getClusterMembers excludes archived members", () => {
+	const db = getDb();
+	const cluster = seedThought({ is_cluster: 1 });
+	const activeMember = seedThought({ status: "active" });
+	const archivedMember = seedThought({ status: "archived" });
+	createEdge(db, cluster, activeMember, "cluster");
+	createEdge(db, cluster, archivedMember, "cluster");
+	const members = getClusterMembers(db, cluster);
+	expect(members).toHaveLength(1);
+	expect(members[0].id).toBe(activeMember);
 });
