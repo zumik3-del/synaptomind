@@ -3,10 +3,11 @@ import { getDb } from '../db'
 import { annotateGraphStanding, type GraphStanding } from '../db/graph-annotations'
 import { isStrongMatch, type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
 import { getThoughtTagsBatch } from '../db/tags'
-import { getThought, parseTags } from '../db/thoughts'
+import { getThought } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { generateEmbedding } from '../embedder/client'
+import { parseTags } from '../utils'
 
 const EMBEDDING_TIMEOUT_MS = 5_000
 const SEARCH_MAX_TOP_K = 1000
@@ -130,13 +131,24 @@ export interface SearchServiceOptions {
   confidenceFloor?: number
 }
 
-export interface GroupedResult {
-  thought?: SearchResult['thought']
-  cluster?: { id: string; content: string }
-  items?: SearchResult[]
+/**
+ * Normalized view of {@link SearchServiceOptions}: every numeric knob is
+ * clamped to its valid range, defaults are resolved, and the DB candidate-pool
+ * width (`candidateK`) is derived so post-fetch filters (suppression, relevance
+ * gate) can backfill up to `topK`.
+ */
+interface NormalizedSearchOptions {
+  topK: number
+  minImportance: number | undefined
+  supersessionMode: SupersessionMode
+  minRelevance: number
+  confidenceFloor: number
+  candidateK: number
+  recencyWeight: number
+  recencyHalfLifeDays: number
 }
 
-export async function searchThoughts(options: SearchServiceOptions, d: Database = getDb()): Promise<SearchResult[]> {
+function normalizeSearchOptions(options: SearchServiceOptions): NormalizedSearchOptions {
   const topK = clampTopK(options.topK)
   const minImportance = clampMinImportance(options.minImportance)
   const supersessionMode = options.supersessionMode ?? 'flag'
@@ -152,6 +164,34 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
     supersessionMode === 'suppress' || minRelevance > 0
       ? Math.min(SEARCH_MAX_TOP_K, topK * SUPPRESSION_OVERFETCH_FACTOR)
       : topK
+  return {
+    topK,
+    minImportance,
+    supersessionMode,
+    minRelevance,
+    confidenceFloor,
+    candidateK,
+    recencyWeight: clampRecencyWeight(options.recencyWeight),
+    recencyHalfLifeDays: clampRecencyHalfLifeDays(options.recencyHalfLifeDays)
+  }
+}
+
+export interface GroupedResult {
+  thought?: SearchResult['thought']
+  cluster?: { id: string; content: string }
+  items?: SearchResult[]
+}
+
+export async function searchThoughts(options: SearchServiceOptions, d: Database = getDb()): Promise<SearchResult[]> {
+  const {
+    topK,
+    minImportance,
+    minRelevance,
+    confidenceFloor,
+    candidateK,
+    recencyWeight,
+    recencyHalfLifeDays
+  } = normalizeSearchOptions(options)
   const embedding = options.embedding ?? (await generateEmbeddingWithFallback(options.query))
   const results = dbSearchThoughts(d, {
     embedding,
@@ -163,8 +203,8 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
     minImportance,
     excludeFlagged: options.excludeFlagged,
     hybrid: options.hybrid,
-    recencyWeight: clampRecencyWeight(options.recencyWeight),
-    recencyHalfLifeDays: clampRecencyHalfLifeDays(options.recencyHalfLifeDays),
+    recencyWeight,
+    recencyHalfLifeDays,
     confidenceFloor
   })
 

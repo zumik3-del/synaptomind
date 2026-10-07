@@ -8,6 +8,11 @@ interface ToolRoute {
   toolName: string
 }
 
+interface ToolRouteTable {
+  default?: ToolRoute
+  actions?: Record<string, ToolRoute>
+}
+
 /**
  * Canonical HTTP-equivalent telemetry routes for each MCP tool action.
  *
@@ -16,96 +21,112 @@ interface ToolRoute {
  * names (create_thought, search_thoughts, …). Mapping MCP dispatches onto those
  * names keeps MCP activity visible to `thought_telemetry` queries instead of
  * being a blind spot.
+ *
+ * Routes self-register via `registerToolRoute`; adding a tool or action means
+ * adding a registration call, not editing a central record.
  */
-const TOOL_ROUTES: Record<string, { default?: ToolRoute; actions?: Record<string, ToolRoute> }> = {
-  memory_recall: {
-    default: { action: 'read', toolName: 'search_thoughts' },
-    actions: {
-      search: { action: 'read', toolName: 'search_thoughts' },
-      get: { action: 'read', toolName: 'get_thought' },
-      context: { action: 'explore', toolName: 'get_context' },
-      chain: { action: 'explore', toolName: 'get_chain' },
-      clusters: { action: 'read', toolName: 'recall_clusters' }
-    }
-  },
-  memory_store: {
-    actions: {
-      create: { action: 'write', toolName: 'create_thought' },
-      update: { action: 'write', toolName: 'update_thought' },
-      link: { action: 'link', toolName: 'link_thoughts' }
-    }
-  },
-  memory_supersede: {
-    actions: {
-      archive: { action: 'write', toolName: 'archive_thought' },
-      merge: { action: 'link', toolName: 'merge_thoughts' }
-    }
-  },
-  memory_status: {
-    default: { action: 'read', toolName: 'get_slots' },
-    actions: {
-      slots: { action: 'read', toolName: 'get_slots' },
-      frontier: { action: 'read', toolName: 'get_frontier' },
-      profile: { action: 'read', toolName: 'get_profile' },
-      config: { action: 'read', toolName: 'get_config' },
-      health: { action: 'read', toolName: 'health_check' },
-      edge_suggestions: { action: 'read', toolName: 'edge_suggestions' },
-      propose: { action: 'read', toolName: 'propose_placement' },
-      cleanup: { action: 'write', toolName: 'cleanup_archived' }
-    }
-  },
-  memory_manage: {
-    actions: {
-      list: { action: 'read', toolName: 'list_projects' },
-      create: { action: 'write', toolName: 'create_project' },
-      update: { action: 'write', toolName: 'update_project' },
-      delete: { action: 'write', toolName: 'delete_project' },
-      resolve: { action: 'read', toolName: 'resolve_project' }
-    }
-  },
-  memory_crystallize: {
-    actions: {
-      crystallize: { action: 'write', toolName: 'crystallize' },
-      graph: { action: 'read', toolName: 'get_thought_graph' },
-      cluster: { action: 'write', toolName: 'cluster' },
-      auto_cluster: { action: 'write', toolName: 'auto_cluster' }
-    }
-  },
-  memory_reflect: {
-    actions: {
-      reflect: { action: 'write', toolName: 'reflect_session' },
-      timeline: { action: 'read', toolName: 'get_thought_timeline' }
-    }
-  },
-  memory_telemetry: {
-    actions: {
-      query: { action: 'read', toolName: 'query_telemetry' },
-      analyze: { action: 'write', toolName: 'analyze_telemetry' },
-      primers: { action: 'read', toolName: 'list_primers' }
-    }
-  },
-  memory_review: {
-    default: { action: 'read', toolName: 'list_placement_proposals' },
-    actions: {
-      enqueue: { action: 'write', toolName: 'enqueue_placement_proposals' },
-      list: { action: 'read', toolName: 'list_placement_proposals' },
-      apply: { action: 'write', toolName: 'apply_placement_proposal' },
-      apply_batch: { action: 'write', toolName: 'apply_placement_proposals' },
-      rollback: { action: 'write', toolName: 'rollback_placement_proposals' },
-      reject: { action: 'write', toolName: 'reject_placement_proposal' }
-    }
-  },
-  memory_guide: {
-    default: { action: 'read', toolName: 'guide' }
-  }
+const toolRoutes = new Map<string, ToolRouteTable>()
+
+function registerToolRoute(name: string, entry: ToolRouteTable): void {
+  toolRoutes.set(name, entry)
 }
+
+registerToolRoute('memory_recall', {
+  default: { action: 'read', toolName: 'search_thoughts' },
+  actions: {
+    search: { action: 'read', toolName: 'search_thoughts' },
+    get: { action: 'read', toolName: 'get_thought' },
+    context: { action: 'explore', toolName: 'get_context' },
+    chain: { action: 'explore', toolName: 'get_chain' },
+    clusters: { action: 'read', toolName: 'recall_clusters' }
+  }
+})
+
+registerToolRoute('memory_store', {
+  actions: {
+    create: { action: 'write', toolName: 'create_thought' },
+    update: { action: 'write', toolName: 'update_thought' },
+    link: { action: 'link', toolName: 'link_thoughts' }
+  }
+})
+
+registerToolRoute('memory_supersede', {
+  actions: {
+    archive: { action: 'write', toolName: 'archive_thought' },
+    merge: { action: 'link', toolName: 'merge_thoughts' }
+  }
+})
+
+registerToolRoute('memory_status', {
+  default: { action: 'read', toolName: 'get_slots' },
+  actions: {
+    slots: { action: 'read', toolName: 'get_slots' },
+    frontier: { action: 'read', toolName: 'get_frontier' },
+    profile: { action: 'read', toolName: 'get_profile' },
+    config: { action: 'read', toolName: 'get_config' },
+    health: { action: 'read', toolName: 'health_check' },
+    edge_suggestions: { action: 'read', toolName: 'edge_suggestions' },
+    propose: { action: 'read', toolName: 'propose_placement' },
+    cleanup: { action: 'write', toolName: 'cleanup_archived' }
+  }
+})
+
+registerToolRoute('memory_manage', {
+  actions: {
+    list: { action: 'read', toolName: 'list_projects' },
+    create: { action: 'write', toolName: 'create_project' },
+    update: { action: 'write', toolName: 'update_project' },
+    delete: { action: 'write', toolName: 'delete_project' },
+    resolve: { action: 'read', toolName: 'resolve_project' }
+  }
+})
+
+registerToolRoute('memory_crystallize', {
+  actions: {
+    crystallize: { action: 'write', toolName: 'crystallize' },
+    graph: { action: 'read', toolName: 'get_thought_graph' },
+    cluster: { action: 'write', toolName: 'cluster' },
+    auto_cluster: { action: 'write', toolName: 'auto_cluster' }
+  }
+})
+
+registerToolRoute('memory_reflect', {
+  actions: {
+    reflect: { action: 'write', toolName: 'reflect_session' },
+    timeline: { action: 'read', toolName: 'get_thought_timeline' }
+  }
+})
+
+registerToolRoute('memory_telemetry', {
+  actions: {
+    query: { action: 'read', toolName: 'query_telemetry' },
+    analyze: { action: 'write', toolName: 'analyze_telemetry' },
+    primers: { action: 'read', toolName: 'list_primers' }
+  }
+})
+
+registerToolRoute('memory_review', {
+  default: { action: 'read', toolName: 'list_placement_proposals' },
+  actions: {
+    enqueue: { action: 'write', toolName: 'enqueue_placement_proposals' },
+    list: { action: 'read', toolName: 'list_placement_proposals' },
+    apply: { action: 'write', toolName: 'apply_placement_proposal' },
+    apply_batch: { action: 'write', toolName: 'apply_placement_proposals' },
+    rollback: { action: 'write', toolName: 'rollback_placement_proposals' },
+    reject: { action: 'write', toolName: 'reject_placement_proposal' }
+  }
+})
+
+registerToolRoute('memory_guide', {
+  default: { action: 'read', toolName: 'guide' }
+})
 
 // Tools without an inputSchema receive `undefined` args from the SDK.
 type LooseArgs = Record<string, unknown> | undefined
 type LooseHandler = (args: LooseArgs, extra: { sessionId?: string }) => unknown
 
 function resolveRoute(name: string, args: Record<string, unknown>): ToolRoute | undefined {
-  const entry = TOOL_ROUTES[name]
+  const entry = toolRoutes.get(name)
   if (!entry) return undefined
   const action = typeof args.action === 'string' ? args.action : undefined
   return (action ? entry.actions?.[action] : undefined) ?? entry.default ?? { action: 'read', toolName: name }

@@ -1,6 +1,6 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
-import { createHash } from 'node:crypto'
 import type { ThoughtStatus } from '../types/thought'
+import { computeContentHash, parseTags } from '../utils'
 import { resolveDefaultProjectId } from './projects'
 import { getThoughtTags, getThoughtTagsBatch, pruneOrphanTags, setThoughtTags, type Tag } from './tags'
 import { sqlIn, toBit } from './utils'
@@ -86,24 +86,10 @@ export function rowToThought(row: Record<string, unknown>): Thought {
 const THOUGHT_BASE_SELECT = 'SELECT t.*, p.name as project_name FROM thoughts t LEFT JOIN projects p ON t.project_id = p.id'
 const THOUGHT_ROW_SQL = `${THOUGHT_BASE_SELECT} WHERE t.id = ?`
 
-function computeContentHash(content: string, projectId: string): string {
-  return createHash('sha256').update(content + projectId).digest('hex')
-}
-
 export function getThoughtRow(db: Database, id: string): Thought | undefined {
   const row = db.prepare(THOUGHT_ROW_SQL).get(id) as Record<string, unknown> | undefined
   if (!row) return undefined
   return { ...rowToThought(row), tags: getThoughtTags(db, id) }
-}
-
-export function parseTags(raw: string | string[] | undefined): string[] | undefined {
-  if (raw === undefined) return undefined
-  if (Array.isArray(raw)) return raw.map(t => t.trim()).filter(Boolean)
-  const parsed = raw
-    .split(',')
-    .map(t => t.trim())
-    .filter(Boolean)
-  return parsed.length > 0 ? parsed : undefined
 }
 
 export function createThought(db: Database, data: CreateThoughtInput): Thought {

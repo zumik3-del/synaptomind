@@ -7,7 +7,7 @@ import { getLogDb } from '../logging'
 import { insertLog } from '../logging/log'
 import { runAutoClusterJob } from './auto-cluster.service'
 import { createIntervalJob } from './jobs'
-import type { DetectedIssue } from './self-improve-detect'
+import type { DetectedIssue, IssueId } from './self-improve-detect'
 import { detectIssues } from './self-improve-detect'
 import type { TelemetrySignals } from './self-improve-telemetry'
 import { queryTelemetrySignals } from './self-improve-telemetry'
@@ -27,70 +27,74 @@ interface SelfImproveResult {
 
 type IssueHandler = (ctx: { db: Database; dryRun: boolean; actions: string[]; issue: DetectedIssue }) => void
 
-const issueHandlers: Record<string, IssueHandler> = {
-  orphan_writes_high: ({ db, dryRun, actions }) => {
-    const draftThoughts = listThoughts(db, { status: 'draft', limit: 20 })
-    if (draftThoughts.length >= 2) {
-      const msg = `orphan_writes_high: ${draftThoughts.length} draft thoughts found — manual review recommended`
-      actions.push(msg)
-      if (!dryRun) insertLog('warning', 'self_improve', msg)
-    }
-  },
+const issueHandlers = new Map<IssueId, IssueHandler>()
 
-  low_activation_rate: ({ db, dryRun, actions }) => {
-    const { selfImprove: cfg } = config
-    const drafts = listThoughts(db, { status: 'draft', limit: cfg.maxPromotesPerRun * 2 })
-    let promoted = 0
-    for (const d of drafts) {
-      if (promoted >= cfg.maxPromotesPerRun) break
-      if (d.is_cluster || d.is_profile) continue
-      const ageDays = (Date.now() - new Date(d.created_at).getTime()) / 86400000
-      if (ageDays < 3) continue
-      if (!dryRun) updateThoughtById(d.id, { status: 'active' })
-      promoted++
-      actions.push(`promote: ${d.id} (${d.content.slice(0, 50)}...)`)
-    }
-    if (promoted > 0) {
-      insertLog('info', 'self_improve', `Promoted ${promoted} drafts to active`, { count: promoted.toString() })
-    }
-  },
-
-  zero_clusters: ({ dryRun, actions }) => {
-    actions.push('trigger: auto_cluster job')
-    if (!dryRun) {
-      runAutoClusterJob({ dryRun: false }).catch(err => {
-        insertLog('warning', 'self_improve', 'auto_cluster trigger failed', { error: String(err) })
-      })
-    }
-  },
-
-  high_archive_rate: ({ actions, issue }) => {
-    actions.push(`warn: ${issue.description}`)
-  },
-
-  frequent_unpromoted: ({ db, dryRun, actions }) => {
-    const { selfImprove: cfg } = config
-    const highHit = findHighHitThoughts(db, cfg.hitsThreshold, cfg.maxPrimerPromotesPerRun)
-    const primerIds = new Set(getPrimerIds(db))
-    let primerPromotes = 0
-    for (const h of highHit) {
-      if (primerPromotes >= cfg.maxPrimerPromotesPerRun) break
-      if (primerIds.has(h.id)) continue
-      if (!dryRun) attemptPromote(db, h.id, h.hit_count, config.primer.promoteThreshold)
-      primerPromotes++
-      actions.push(`primer_promote: ${h.id} (hits=${h.hit_count})`)
-    }
-    if (primerPromotes > 0) {
-      insertLog('info', 'self_improve', `Promoted ${primerPromotes} thoughts to primers`, { count: primerPromotes.toString() })
-    }
-  }
+function registerIssueHandler(id: IssueId, handler: IssueHandler): void {
+  issueHandlers.set(id, handler)
 }
+
+registerIssueHandler('orphan_writes_high', ({ db, dryRun, actions }) => {
+  const draftThoughts = listThoughts(db, { status: 'draft', limit: 20 })
+  if (draftThoughts.length >= 2) {
+    const msg = `orphan_writes_high: ${draftThoughts.length} draft thoughts found — manual review recommended`
+    actions.push(msg)
+    if (!dryRun) insertLog('warning', 'self_improve', msg)
+  }
+})
+
+registerIssueHandler('low_activation_rate', ({ db, dryRun, actions }) => {
+  const { selfImprove: cfg } = config
+  const drafts = listThoughts(db, { status: 'draft', limit: cfg.maxPromotesPerRun * 2 })
+  let promoted = 0
+  for (const d of drafts) {
+    if (promoted >= cfg.maxPromotesPerRun) break
+    if (d.is_cluster || d.is_profile) continue
+    const ageDays = (Date.now() - new Date(d.created_at).getTime()) / 86400000
+    if (ageDays < 3) continue
+    if (!dryRun) updateThoughtById(d.id, { status: 'active' })
+    promoted++
+    actions.push(`promote: ${d.id} (${d.content.slice(0, 50)}...)`)
+  }
+  if (promoted > 0) {
+    insertLog('info', 'self_improve', `Promoted ${promoted} drafts to active`, { count: promoted.toString() })
+  }
+})
+
+registerIssueHandler('zero_clusters', ({ dryRun, actions }) => {
+  actions.push('trigger: auto_cluster job')
+  if (!dryRun) {
+    runAutoClusterJob({ dryRun: false }).catch(err => {
+      insertLog('warning', 'self_improve', 'auto_cluster trigger failed', { error: String(err) })
+    })
+  }
+})
+
+registerIssueHandler('high_archive_rate', ({ actions, issue }) => {
+  actions.push(`warn: ${issue.description}`)
+})
+
+registerIssueHandler('frequent_unpromoted', ({ db, dryRun, actions }) => {
+  const { selfImprove: cfg } = config
+  const highHit = findHighHitThoughts(db, cfg.hitsThreshold, cfg.maxPrimerPromotesPerRun)
+  const primerIds = new Set(getPrimerIds(db))
+  let primerPromotes = 0
+  for (const h of highHit) {
+    if (primerPromotes >= cfg.maxPrimerPromotesPerRun) break
+    if (primerIds.has(h.id)) continue
+    if (!dryRun) attemptPromote(db, h.id, h.hit_count, config.primer.promoteThreshold)
+    primerPromotes++
+    actions.push(`primer_promote: ${h.id} (hits=${h.hit_count})`)
+  }
+  if (primerPromotes > 0) {
+    insertLog('info', 'self_improve', `Promoted ${primerPromotes} thoughts to primers`, { count: primerPromotes.toString() })
+  }
+})
 
 function executeActions(issues: DetectedIssue[], dryRun: boolean, db: Database): string[] {
   const actions: string[] = []
 
   for (const issue of issues) {
-    const handler = issueHandlers[issue.id]
+    const handler = issueHandlers.get(issue.id)
     if (handler) handler({ db, dryRun, actions, issue })
   }
 
