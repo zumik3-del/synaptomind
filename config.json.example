@@ -7,6 +7,7 @@
   "mcp": {
     "httpPort": 3006,
     "instructionsFile": "",
+    "stdioStandalone": false,
     "corsOrigins": [],
     "maxSessions": 100,
     "sessionTtlMs": 3600000,
@@ -26,7 +27,8 @@
     "cacheDir": "./data/huggingface",
     "idleTimeoutMs": 600000,
     "precache": false,
-    "batchSize": 8
+    "batchSize": 8,
+    "resetDeadLetters": false
   },
   "thoughts": {
     "softLimit": 600,
@@ -85,8 +87,27 @@
   "graph": {
     "maxDegree": 50
   },
+  "placement": {
+    "maxClusterSize": 50,
+    "proposalTtlDays": 30,
+    "maxPendingProposals": 500
+  },
+  "triage": {
+    "enabled": true,
+    "maxItemsPerRun": 25,
+    "maxArchivesPerRun": 25,
+    "maxLinksPerRun": 20,
+    "requireDryRunFirst": true,
+    "backfillEnabled": true
+  },
+  "search": {
+    "confidence": {
+      "vectorFloor": 0.9
+    }
+  },
   "rateLimit": {
     "max": 200,
-    "windowMs": 60000
+    "windowMs": 60000,
+    "trustProxy": false
   }
 }

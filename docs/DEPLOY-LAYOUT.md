@@ -92,11 +92,11 @@ a fourth rule beyond code/data/state. From the ADR addendum:
 The **home** is uniform; the **filename** is not, deliberately:
 `config.json` for synaptomind, `settings.json` for ziptask and subagentix.
 Renaming synaptomind's file means changing a hardcoded literal in
-`src/config.ts:267` and gains nothing operationally.
+`src/config.ts:268-281` and gains nothing operationally.
 
 synaptomind's app resolves its config relative to its working directory
 (`loadFileConfig()` → `join(process.cwd(), 'config.json')`,
-`src/config.ts:266-267`) and has no path flag, so R1 is bridged by a symlink:
+`src/config.ts:269`) and has no path flag, so R1 is bridged by a symlink:
 `CONFIG_LINK_NAME="config.json"` (`app.env:56`) makes `setup_config_link()`
 (`install.sh:495-536`) create `/opt/synaptomind/config.json ->
 /var/lib/synaptomind/config.json` after seeding. It never replaces a real file
@@ -447,7 +447,7 @@ fixed by this document; each needs a code/config change in the owning repo.
 | # | Finding | Where |
 |---|---|---|
 | 1 | `docs/DEPLOY.md` still describes the **git-checkout** install (`clones REPO_URL`, secret in `/opt/synaptomind/.env`, rollback by `git checkout`) and ports 3005/3006, while the app is `DIST=binary` on 3105/3106 with a `.env` in the payload tree. Being rewritten for the tarball path under task **#1045**; this file is the map, DEPLOY.md the procedure. | `docs/DEPLOY.md:63-84,183-201` |
-| 2 | `AGENTS.md` §6 still says `DIST="source"`, `PORT="3005"`, no `/var/lib` config home and no R1–R4. `AGENTS.md` is orchestrator-owned — proposed wording goes in a tracker comment, not the file. | `AGENTS.md:86-103` |
+| 2 | `AGENTS.md` §6 defers deploy values to `deploy/app.env` (source of truth) rather than restating them, so it no longer carries stale `DIST`/`PORT` literals. `AGENTS.md` is orchestrator-owned — proposed wording goes in a tracker comment, not the file. | `AGENTS.md` §6 |
 | 3 | `deploy/app.env.example:73` documents `SERVICE_GROUP=""`, which **no script reads** — the rendered group comes from `TARGET_GROUP`, which `resolve_target_user()` defaults to the service user. Setting `TARGET_GROUP` in `app.env` works (app.env is sourced first); the documented key does not. | `common.sh:174,1319` |
 | 4 | subagentix's `app.env` does not declare `CONFIG_FILE`, though the addendum's open item 4 asks for it in all three. `CONFIG_FILE` is documentation-only, so nothing breaks — the rule is just not checkable for that app. | `subagentix/deploy/app.env` |
 | 5 | `print_summary()` prints `Config: ${RUN_DIR}/scripts/app.env`, which after R1 names one of two different files (the deploy config, not the app's). Open item 5 of the addendum; `CONFIG_FILE` is not printed. | `install.sh:740` |
