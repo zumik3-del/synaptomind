@@ -1,86 +1,24 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { getSlots } from '../../services/slots.service'
-import { getFrontier } from '../../services/frontier.service'
-import { getProfileService } from '../../services/profile.service'
-import { buildConfigDisplay } from '../../services/config-display.service'
-import { runHealthCheck } from '../../services/health-check.service'
-import { detectEdgeProposals } from '../../services/edge-detect.service'
-import { proposePlacementPlan } from '../../services/placement/engine'
-import { cleanupArchivedThoughts } from '../../services/ttl-cleanup.service'
-import { resolveProjectId } from './utils'
-import { registerActionTool, type ActionArgs } from './action-tool'
+import { registerActionTool } from './action-tool'
+import { slotsHandler } from './status/slots'
+import { frontierHandler } from './status/frontier'
+import { profileHandler } from './status/profile'
+import { configHandler } from './status/config'
+import { healthHandler } from './status/health'
+import { edgeSuggestionsHandler } from './status/edge-suggestions'
+import { proposeHandler } from './status/propose'
+import { cleanupHandler } from './status/cleanup'
 
 const handlers = {
-  slots: {
-    run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      return getSlots({ names: args.names as string[] | undefined, projectId: projectFilter })
-    }
-  },
-
-  frontier: {
-    run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      return getFrontier({ project_id: projectFilter, k: args.k as number | undefined })
-    }
-  },
-
-  profile: {
-    run() {
-      const { stats, thoughts } = getProfileService()
-      return { stats, thoughts }
-    }
-  },
-
-  config: {
-    run() {
-      const text = buildConfigDisplay()
-      return { content: [{ type: 'text' as const, text }], structuredContent: { result: text } }
-    }
-  },
-
-  health: {
-    run(args: ActionArgs) {
-      return runHealthCheck({ severity: args.severity as 'critical' | 'warning' | 'info' | undefined, fix: args.fix as boolean | undefined })
-    }
-  },
-
-  edge_suggestions: {
-    async run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      return detectEdgeProposals({ projectId: projectFilter })
-    }
-  },
-
-  propose: {
-    input: z
-      .object({
-        thought_id: z.string().optional(),
-        content: z.string().optional()
-      })
-      .refine(v => v.thought_id !== undefined || v.content !== undefined, {
-        message: 'provide thought_id (existing thought) or content (draft)',
-        path: ['thought_id']
-      }),
-    async run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      return proposePlacementPlan(
-        {
-          thoughtId: args.thought_id as string | undefined,
-          content: args.content as string | undefined,
-          projectId: projectFilter
-        },
-        { projectId: projectFilter }
-      )
-    }
-  },
-
-  cleanup: {
-    run(args: ActionArgs) {
-      return cleanupArchivedThoughts((args.dry_run as boolean | undefined) ?? true)
-    }
-  }
+  slots: slotsHandler,
+  frontier: frontierHandler,
+  profile: profileHandler,
+  config: configHandler,
+  health: healthHandler,
+  edge_suggestions: edgeSuggestionsHandler,
+  propose: proposeHandler,
+  cleanup: cleanupHandler
 }
 
 export function registerMemoryStatus(server: McpServer) {
