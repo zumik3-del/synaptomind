@@ -12,7 +12,9 @@ function buildGuideText(softLimit: number): string {
 | Capture | \`memory_store\` | action=create |
 | Find | \`memory_recall\` | action=search/get/context/chain/clusters |
 | Connect | \`memory_store\` | action=link |
+| Edit edges | \`memory_store\` | action=unlink/retype |
 | Group | \`memory_crystallize\` | action=cluster/auto_cluster |
+| Maintain clusters | \`memory_crystallize\` | action=cluster_remove/cluster_dissolve |
 | Plan | \`memory_status\` | action=propose |
 | Review | \`memory_review\` | action=enqueue/list/apply/apply_batch/rollback/reject |
 | Prioritize | \`memory_status\` | action=frontier |
@@ -27,12 +29,12 @@ function buildGuideText(softLimit: number): string {
 | Tool | Actions | Purpose |
 |---|---|---|
 | \`memory_recall\` | search, get, context, chain, clusters | Find and retrieve thoughts |
-| \`memory_store\` | create, update, link | Write and connect thoughts |
+| \`memory_store\` | create, update, link, unlink, retype | Write, connect and edit thoughts |
 | \`memory_supersede\` | archive, merge | Version and supersede thoughts |
 | \`memory_status\` | slots, frontier, profile, config, health, edge_suggestions, propose, cleanup | Query system state |
 | \`memory_manage\` | list, create, update, delete, resolve | Project management |
 | \`memory_review\` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
-| \`memory_crystallize\` | crystallize, graph, cluster, auto_cluster | Consolidate and visualize |
+| \`memory_crystallize\` | crystallize, graph, cluster, auto_cluster, cluster_remove, cluster_dissolve | Consolidate, visualize and reorganize clusters |
 | \`memory_reflect\` | reflect, timeline | Session management |
 | \`memory_telemetry\` | query, analyze, primers | Analytics and self-improvement |
 | \`memory_guide\` | (no action) | This reference text |
@@ -71,6 +73,8 @@ Rules: default status is draft. Profile thoughts (\`is_profile=1\`) cannot be ar
 | \`depends_on\` | Source blocked until target done. Affects frontier ranking |
 
 Constraints: no self-loops. One edge type per (source, target) pair. Cluster edges enforced strictly. Symmetric \`related\`/\`contradicts\` are idempotent in both directions; linking a pair that already has a \`related\` edge with a specific type upgrades the placeholder.
+
+**Editing edges:** \`memory_store\` action=unlink deletes one edge (idempotent — a missing edge comes back \`not_found\`, not an error), and action=retype changes an edge's type in one transaction, preserving its \`created_at\` (the row is replaced, so the edge gets a new id). Both are dry-run first: preview, then repeat with \`confirm=true\`. Neither cascades to thoughts or other edges.
 
 ## Search
 
@@ -124,6 +128,12 @@ Categories: structural integrity (orphan/self-loop edges), cluster health (empty
 Score: 100 - (criticalCategories×40) - (warningCategories×15) - (infoOccurrences×0.25), clamped [0,100]. The score penalises the PRESENCE of a flagged category, not its counts — a large island count dominates via the per-occurrence info term.
 
 Accepted trade-offs on a dense, hub-centric graph (do not "fix" by mutating the graph): \`overlinked_thoughts\` flags curated cross-domain hubs; \`clusterless_dense_thoughts\` is age-gated to the auto-cluster window (task #935). ADR: \`ai-workdir/synaptomind/plans/2026-09-28-928-health-overlinked-clusterless-adr.md\`; recalibration #934.
+
+**Remediating \`contradiction_in_cluster\`:** this semantic-consistency warning flags two non-archived members of the same cluster joined by a \`contradicts\` edge. There is no autofix — the check detects, the agent decides. Each finding's \`details\` carries \`cluster_id\`, \`member_a\`, \`member_b\` and \`contradicts_edge_id\`; resolve it with the edge/cluster writers, then re-run the check:
+- \`memory_store\` action=unlink on \`contradicts_edge_id\` — drop the contradiction.
+- \`memory_store\` action=retype, \`new_type=supports\` (or \`related\`) on \`contradicts_edge_id\` — if the contradiction was a mistake.
+- \`memory_crystallize\` action=cluster_remove on \`cluster_id\` + \`member_a\`/\`member_b\` — extract a member so the pair is no longer co-clustered (the thought stays standalone).
+All are dry-run first: preview, then repeat with \`confirm=true\`.
 
 ## Edge Suggestions
 

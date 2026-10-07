@@ -7,6 +7,7 @@ import {
   EdgeConflictError,
   InvalidEdgeTypeError
 } from './errors'
+import { NotFoundError, ValidationError } from '../errors'
 import { boostImportance, getThoughtRow, getThoughtsBatchWithTags, type Thought } from './thoughts'
 import { sqlIn, pairKey } from './utils'
 
@@ -20,10 +21,19 @@ export interface Edge {
   created_at: string
 }
 
-const VALID_EDGE_TYPES = new Set([
+/**
+ * Canonical list of edge types — the single source of truth. The validity Set
+ * below, the MCP zod enums (re-exported via services/edges.service.ts) and the
+ * docs all derive from it, so the list can never drift again.
+ */
+export const EDGE_TYPES = [
   'related', 'parent', 'replaces', 'develops', 'cluster', 'references', 'depends_on',
   'contradicts', 'supports',
-])
+] as const
+
+export type EdgeType = (typeof EDGE_TYPES)[number]
+
+const VALID_EDGE_TYPES = new Set<string>(EDGE_TYPES)
 
 /**
  * Symmetric types carry no direction: `A contradicts B` <=> `B contradicts A`.
@@ -109,6 +119,32 @@ function insertEdgeRow(
   }
 }
 
+/**
+ * Transactionally replace an existing edge row with a fresh one of `type`,
+ * preserving `createdAt`. Shared by the placeholder-upgrade path (a `related`
+ * auto-link edge promoted to a specific type) and `retypeEdge` — both delete
+ * the old row and insert a new id.
+ */
+function replaceEdge(
+  db: Database,
+  oldEdgeId: string,
+  sourceId: string,
+  targetId: string,
+  type: string,
+  createdAt: string
+): Edge {
+  const id = Bun.randomUUIDv7()
+
+  const replaceInTx = db.transaction(() => {
+    db.prepare('DELETE FROM edges WHERE id = ?').run(oldEdgeId)
+    insertEdgeRow(db, id, sourceId, targetId, type, createdAt)
+    boostImportance(db, sourceId, 0.1)
+  })
+  replaceInTx()
+
+  return findEdge(db, id)
+}
+
 function upgradePlaceholderEdge(
   db: Database,
   placeholder: Edge,
@@ -116,17 +152,37 @@ function upgradePlaceholderEdge(
   targetId: string,
   type: string
 ): Edge {
-  const id = Bun.randomUUIDv7()
-  const now = new Date().toISOString()
+  return replaceEdge(db, placeholder.id, sourceId, targetId, type, new Date().toISOString())
+}
 
-  const upgradeInTx = db.transaction(() => {
-    db.prepare('DELETE FROM edges WHERE id = ?').run(placeholder.id)
-    insertEdgeRow(db, id, sourceId, targetId, type, now)
-    boostImportance(db, sourceId, 0.1)
-  })
-  upgradeInTx()
+/**
+ * Shared retype validation: valid type, not same-type, cluster constraints.
+ * Called by retypeEdge (confirm) and the MCP dry-run so both paths reject
+ * identically (ADR §2) — a preview must never promise a confirm would reject.
+ */
+export function validateRetype(db: Database, edge: Edge, newType: string): void {
+  if (!isValidEdgeType(newType)) {
+    throw new InvalidEdgeTypeError(newType, getValidEdgeTypes())
+  }
+  if (edge.type === newType) {
+    throw new ValidationError(`Edge ${edge.id} is already of type '${newType}'`)
+  }
+  validateClusterConstraint(db, edge.source_id, edge.target_id, newType)
+}
 
-  return findEdge(db, id)
+/**
+ * Transactionally change an edge's type, preserving the original `created_at`.
+ * Validates the new type and cluster constraints before committing.
+ */
+export function retypeEdge(db: Database, edgeId: string, newType: string): Edge {
+  const edge = findEdge(db, edgeId)
+  if (!edge) {
+    throw new NotFoundError(`Edge not found: ${edgeId}`)
+  }
+
+  validateRetype(db, edge, newType)
+
+  return replaceEdge(db, edge.id, edge.source_id, edge.target_id, newType, edge.created_at)
 }
 
 export function deleteEdge(db: Database, id: string): boolean {
@@ -196,7 +252,7 @@ export function getAllActiveEdges(db: Database): Edge[] {
     .all() as Edge[]
 }
 
-function findEdge(db: Database, id: string): Edge {
+export function findEdge(db: Database, id: string): Edge {
   return db.prepare('SELECT * FROM edges WHERE id = ?').get(id) as Edge
 }
 
@@ -322,9 +378,35 @@ export function getClusterThought(db: Database, id: string): { id: string; conte
 }
 
 export function getClusterMembers(db: Database, clusterId: string): Thought[] {
-  const edges = db.prepare(`SELECT target_id FROM edges WHERE source_id = ? AND type = 'cluster'`).all(clusterId) as {
+  const edges = db.prepare(`
+    SELECT e.target_id
+    FROM edges e
+    INNER JOIN thoughts t ON e.target_id = t.id
+    WHERE e.source_id = ? AND e.type = 'cluster' AND t.status != 'archived'
+  `).all(clusterId) as {
     target_id: string
   }[]
   const members = getThoughtsBatchWithTags(db, edges.map(e => e.target_id))
   return edges.map(e => members.get(e.target_id)).filter(Boolean) as Thought[]
+}
+
+/**
+ * The outgoing `cluster` edge from `clusterId` to `thoughtId`, or `undefined`
+ * when the thought is not a member. Read-only counterpart of the membership
+ * write paths in cluster.service.ts.
+ */
+export function findClusterMemberEdge(db: Database, clusterId: string, thoughtId: string): Edge | undefined {
+  return db
+    .prepare('SELECT * FROM edges WHERE source_id = ? AND target_id = ? AND type = ?')
+    .get(clusterId, thoughtId, 'cluster') as Edge | undefined
+}
+
+/**
+ * Bulk-delete every outgoing `cluster` edge of a cluster thought. Returns the
+ * number of deleted rows — the single-query counterpart of the former per-edge
+ * delete loop in dissolveClusterService.
+ */
+export function deleteClusterEdges(db: Database, clusterId: string): number {
+  const result = db.prepare('DELETE FROM edges WHERE source_id = ? AND type = ?').run(clusterId, 'cluster')
+  return result.changes
 }
