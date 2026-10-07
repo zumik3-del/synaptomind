@@ -1,11 +1,11 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { searchThoughts, searchThoughtsGrouped } from '../../services/search.service'
 import {
-  type ContradictionMode,
-  searchThoughts,
-  searchThoughtsGrouped,
-  type SupersessionMode
-} from '../../services/search.service'
+  buildSearchOptions,
+  parseContradictionMode,
+  parseSupersessionMode
+} from '../../services/search-options'
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getChainService, getContextService } from '../../services/graph.service'
 import { getThoughtById } from '../../services/thoughts.service'
@@ -27,19 +27,18 @@ const handlers = {
     async run(args: ActionArgs) {
       const topK = (args.top_k as number) ?? 10
       const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
-      const statusFilter = (args.status as string) || 'active'
-      // Agent-facing defaults: drop superseded rows, flag contradicted ones.
-      const supersessionMode = (args.supersession_mode as SupersessionMode | undefined) ?? 'suppress'
-      const contradictionMode = (args.contradiction_mode as ContradictionMode | undefined) ?? 'flag'
-      const baseOptions = {
-        query: args.query as string, topK, statusFilter,
+      const baseOptions = buildSearchOptions({
+        query: args.query as string, topK, status: args.status as string | undefined,
         projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: args.cluster as 'only' | 'exclude' | undefined,
         minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
-        hybrid: args.hybrid as boolean | undefined, supersessionMode, contradictionMode,
+        hybrid: args.hybrid as boolean | undefined,
+        // Agent-facing defaults: drop superseded rows, flag contradicted ones.
+        supersessionMode: parseSupersessionMode(args.supersession_mode as string | undefined),
+        contradictionMode: parseContradictionMode(args.contradiction_mode as string | undefined),
         recencyWeight: args.recency_weight as number | undefined,
         recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
         minRelevance: args.min_relevance as number | undefined
-      }
+      })
       const results = args.group_by_cluster
         ? await searchThoughtsGrouped(baseOptions)
         : await searchThoughts(baseOptions)
@@ -71,16 +70,15 @@ const handlers = {
     async run(args: ActionArgs) {
       const topK = (args.top_k as number) ?? 10
       const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
-      const statusFilter = (args.status as string) || 'active'
-      const results = await searchThoughts({
-        query: args.query as string, topK, statusFilter,
+      const results = await searchThoughts(buildSearchOptions({
+        query: args.query as string, topK, status: args.status as string | undefined,
         projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: 'only',
         minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
         hybrid: args.hybrid as boolean | undefined,
         recencyWeight: args.recency_weight as number | undefined,
         recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
         minRelevance: args.min_relevance as number | undefined
-      })
+      }))
       return postProcessSearchResults(results, { query: args.query as string, topK, showPrimers: true })
     }
   }
