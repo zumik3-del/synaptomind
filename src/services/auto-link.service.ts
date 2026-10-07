@@ -7,7 +7,7 @@ import { searchThoughts } from '../db/search'
 import { pairKey } from '../db/utils'
 import { generateEmbeddings } from '../embedder/client'
 import { insertLog } from '../logging/log'
-import { findEmbeddingNeighborPairs } from './edge-candidates.service'
+import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from './edge-candidates.service'
 import type { Database } from 'bun:sqlite'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -51,46 +51,6 @@ export interface AutoLinkDeps {
  */
 export function findLinkCandidates(d: Database = getDb()): LinkCandidate[] {
   return dbFindLinkCandidates(d)
-}
-
-// ── Embedding proximity pairs ────────────────────────────────────────────────
-
-/**
- * Find candidate pairs from embedding proximity. For each candidate, search
- * for neighbors using vector search and collect pairs within minSimilarity.
- * Delegates the generic neighbour-pair step to `edge-candidates.service`.
- */
-function findEmbeddingPairs(
-  candidates: Array<{ id: string; content: string }>,
-  embeddings: Float32Array[],
-  minSimilarity: number,
-  d: Database
-): CandidatePair[] {
-  const pairs = findEmbeddingNeighborPairs(
-    candidates,
-    embeddings,
-    minSimilarity,
-    (_id, embedding) => {
-      try {
-        return searchThoughts(d, {
-          embedding,
-          topK: 20,
-          statusFilter: 'active',
-          hybrid: false
-        }).map(r => ({ id: r.thought.id, similarity: r.similarity }))
-      } catch {
-        // vec_thoughts may not exist in :memory: tests — skip this candidate
-        return []
-      }
-    }
-  )
-
-  return pairs.map(p => ({
-    source_id: p.source_id,
-    target_id: p.target_id,
-    embeddingSimilarity: p.embeddingSimilarity,
-    score: p.embeddingSimilarity
-  }))
 }
 
 // ── Merge & score ────────────────────────────────────────────────────────────
@@ -171,11 +131,33 @@ export async function runAutoLinkJob(
     return empty
   }
 
-  // 2. Embedding pairs (requires embedding generation)
+  // 2. Embedding pairs (requires embedding generation). Pair discovery is
+  // delegated to the shared `edge-candidates.service`; only the vector-search
+  // adapter and the score mapping are local to this caller.
   let embeddingPairs: CandidatePair[] = []
   try {
     const embeddings = await embed(candidates.map(c => c.content))
-    embeddingPairs = findEmbeddingPairs(candidates, embeddings, minSimilarity, d)
+    const searchNeighbors: SearchNeighborsFn = (_id, embedding) => {
+      try {
+        return searchThoughts(d, {
+          embedding,
+          topK: 20,
+          statusFilter: 'active',
+          hybrid: false
+        }).map(r => ({ id: r.thought.id, similarity: r.similarity }))
+      } catch {
+        // vec_thoughts may not exist in :memory: tests — skip this candidate
+        return []
+      }
+    }
+    embeddingPairs = findEmbeddingNeighborPairs(candidates, embeddings, minSimilarity, searchNeighbors).map(
+      p => ({
+        source_id: p.source_id,
+        target_id: p.target_id,
+        embeddingSimilarity: p.embeddingSimilarity,
+        score: p.embeddingSimilarity
+      })
+    )
   } catch (err) {
     console.error('[auto-link] embedding search failed:', err)
   }

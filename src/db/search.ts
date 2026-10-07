@@ -70,7 +70,8 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
       db,
       vecIds.map(v => v.id),
       options,
-      { vecSimById, bm25ScoreById: new Map(), rrfScoreById: new Map(), rrfMax: 0, ...recency, confidenceFloor }
+      { vecSimById, bm25ScoreById: new Map(), rrfScoreById: new Map(), confidenceFloor },
+      { rrfMax: 0, ...recency }
     )
   }
 
@@ -88,6 +89,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     db,
     merged.map(m => m.id),
     options,
-    { vecSimById, bm25ScoreById, rrfScoreById, rrfMax, ...recency, confidenceFloor }
+    { vecSimById, bm25ScoreById, rrfScoreById, confidenceFloor },
+    { rrfMax, ...recency }
   )
 }

@@ -1,126 +1,20 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { crystallize } from '../../services/crystals.service'
-import { getGraphDataService } from '../../services/graph.service'
-import { createClusterService, removeClusterMemberService, dissolveClusterService, getClusterThoughtService, listClusterMembersService, findClusterMemberEdgeService } from '../../services/cluster.service'
-import { runAutoClusterJob } from '../../services/auto-cluster.service'
-import { resolveProjectId } from './utils'
-import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
-
-/**
- * Normalize an optional numeric argument that may arrive as a number or as a
- * numeric string (MCP clients differ in how they serialize numbers). Returns
- * `undefined` for absent/blank/non-finite values so the service falls back to
- * `config.autoCluster.*` defaults.
- */
-function optionalNumber(value: unknown): number | undefined {
-  if (value === undefined || value === null || value === '') return undefined
-  const n = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(n) ? n : undefined
-}
-
-/** Normalize an optional boolean argument, tolerating `'true'`/`'false'` strings. */
-function optionalBoolean(value: unknown): boolean | undefined {
-  if (value === undefined || value === null) return undefined
-  if (typeof value === 'boolean') return value
-  if (value === 'true') return true
-  if (value === 'false') return false
-  return undefined
-}
+import { registerActionTool } from './action-tool'
+import { crystallizeHandler } from './crystallize/crystallize'
+import { graphHandler } from './crystallize/graph'
+import { clusterHandler } from './crystallize/cluster'
+import { autoClusterHandler } from './crystallize/auto-cluster'
+import { clusterRemoveHandler } from './crystallize/cluster-remove'
+import { clusterDissolveHandler } from './crystallize/cluster-dissolve'
 
 const handlers = {
-  crystallize: {
-    run(args: ActionArgs) {
-      const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      return crystallize({ thought_ids: args.thought_ids as string[] | undefined, cluster_id: args.cluster_id as string | undefined, style: args.style as 'runbook' | 'decision-log' | 'overview' | undefined, project_id: projectId })
-    }
-  },
-
-  graph: {
-    run(args: ActionArgs) {
-      const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      return getGraphDataService(projectId, args.status as string | undefined, args.limit as number | undefined)
-    }
-  },
-
-  cluster: {
-    input: z.object({
-      thought_ids: z
-        .array(z.string(), { error: 'thought_ids is required for cluster action' })
-        .min(1, 'thought_ids is required for cluster action')
-    }),
-    run(args: ActionArgs) {
-      const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      return createClusterService({ thoughtIds: args.thought_ids as string[], title: args.title as string | undefined, tags: args.tags as string[] | undefined, projectId })
-    }
-  },
-
-  auto_cluster: {
-    // auto_cluster is a global operation and must not resolve or warn about a project.
-    async run(args: ActionArgs) {
-      return runAutoClusterJob({
-        minAgeDays: optionalNumber(args.min_age_days),
-        minSimilarity: optionalNumber(args.min_similarity),
-        minMembers: optionalNumber(args.min_members),
-        dryRun: optionalBoolean(args.dry_run)
-      })
-    }
-  },
-
-  cluster_remove: {
-    input: z.object({
-      cluster_id: requiredString('cluster_id is required for cluster_remove action'),
-      thought_id: requiredString('thought_id is required for cluster_remove action')
-    }),
-    run(args: ActionArgs) {
-      const clusterId = args.cluster_id as string
-      const thoughtId = args.thought_id as string
-      const confirm = args.confirm === true
-
-      if (!confirm) {
-        const cluster = getClusterThoughtService(clusterId)
-        if (!cluster) throw new Error(`Cluster not found: ${clusterId}`)
-        const edgeId = findClusterMemberEdgeService(clusterId, thoughtId)
-        if (!edgeId) throw new Error(`Thought ${thoughtId} is not a member of cluster ${clusterId}`)
-        return {
-          status: 'preview',
-          cluster_id: clusterId,
-          thought_id: thoughtId,
-          edge_id: edgeId,
-          consequence: `Removes '${thoughtId}' from cluster '${clusterId}'. The thought becomes standalone.`
-        }
-      }
-
-      const result = removeClusterMemberService({ clusterId, thoughtId })
-      return { status: 'removed', cluster_id: result.clusterId, thought_id: result.thoughtId, edge_id: result.edgeId }
-    }
-  },
-
-  cluster_dissolve: {
-    input: z.object({
-      cluster_id: requiredString('cluster_id is required for cluster_dissolve action')
-    }),
-    run(args: ActionArgs) {
-      const clusterId = args.cluster_id as string
-      const confirm = args.confirm === true
-
-      if (!confirm) {
-        const cluster = getClusterThoughtService(clusterId)
-        if (!cluster) throw new Error(`Cluster not found: ${clusterId}`)
-        const members = listClusterMembersService(clusterId)
-        return {
-          status: 'preview',
-          cluster_id: clusterId,
-          member_count: members.length,
-          member_ids: members.map(m => m.id),
-          consequence: `Deletes the cluster thought and ${members.length} member edges. Member thoughts become standalone.`
-        }
-      }
-
-      const result = dissolveClusterService({ clusterId })
-      return { status: 'dissolved', cluster_id: result.clusterId, deleted_edge_count: result.deletedEdgeCount, deleted_member_count: 0 }
-    }
-  }
+  crystallize: crystallizeHandler,
+  graph: graphHandler,
+  cluster: clusterHandler,
+  auto_cluster: autoClusterHandler,
+  cluster_remove: clusterRemoveHandler,
+  cluster_dissolve: clusterDissolveHandler
 }
 
 export function registerMemoryCrystallize(server: McpServer) {

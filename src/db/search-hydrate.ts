@@ -34,10 +34,27 @@ function recencyDecay(createdAt: string, nowMs: number, halfLifeDays: number): n
   return 0.5 ** (ageDays / halfLifeDays)
 }
 
-export interface SearchScoreContext {
+/**
+ * Score signals needed to hydrate ordered ids into `SearchResult`s: the
+ * per-leg score maps and the confidence floor for the `low_confidence`
+ * verdict.
+ */
+export interface SearchHydrationContext {
   vecSimById: Map<string, number>
   bm25ScoreById: Map<string, number>
   rrfScoreById: Map<string, number>
+  /**
+   * Cosine-similarity floor for the `low_confidence` verdict (config
+   * `search.confidence.vectorFloor`, supplied by the caller as a plain number).
+   */
+  confidenceFloor: number
+}
+
+/**
+ * Recency-boost configuration and the RRF normalisation divisor needed to
+ * compute `recency_score`/`final_score` and re-rank.
+ */
+export interface SearchRecencyContext {
   /**
    * RRF normalisation divisor for the combined score: `nNonEmptyLegs / (RRF_K +
    * 1)`, where `nNonEmptyLegs` is the number of non-empty fusion lists. `0` on
@@ -52,11 +69,6 @@ export interface SearchScoreContext {
   recencyHalfLifeDays: number
   /** Clock used for the age computation. */
   nowMs: number
-  /**
-   * Cosine-similarity floor for the `low_confidence` verdict (config
-   * `search.confidence.vectorFloor`, supplied by the caller as a plain number).
-   */
-  confidenceFloor: number
 }
 
 /**
@@ -79,7 +91,7 @@ export function isStrongMatch(
  * `rrfMax` on the fused path, or `similarity` on the vector-only path. The sort
  * is stable: equal `final_score` keeps the incoming relevance order.
  */
-function applyRecencyScoring(results: SearchResult[], scores: SearchScoreContext): void {
+function applyRecencyScoring(results: SearchResult[], scores: SearchRecencyContext): void {
   if (!scores.recencyActive) return
   for (const result of results) {
     const relevant = result.rrf_score !== undefined ? result.rrf_score / scores.rrfMax : result.similarity
@@ -100,7 +112,8 @@ export function fetchThoughtsByIds(
   db: Database,
   orderedIds: string[],
   options: SearchOptions,
-  scores: SearchScoreContext
+  hydration: SearchHydrationContext,
+  recency: SearchRecencyContext
 ): SearchResult[] {
   if (orderedIds.length === 0) return []
   const ph = sqlIn(orderedIds)
@@ -121,9 +134,9 @@ export function fetchThoughtsByIds(
   for (const id of orderedIds) {
     const r = byId.get(id)
     if (!r) continue
-    const sim = scores.vecSimById.get(id)
-    const bm25 = scores.bm25ScoreById.get(id)
-    const rrf = scores.rrfScoreById.get(id)
+    const sim = hydration.vecSimById.get(id)
+    const bm25 = hydration.bm25ScoreById.get(id)
+    const rrf = hydration.rrfScoreById.get(id)
     const thought = rowToThought(r as unknown as Record<string, unknown>)
     thought.tags = tagMap.get(r.id) ?? []
 
@@ -139,13 +152,13 @@ export function fetchThoughtsByIds(
       match_source: matchSource,
       low_confidence: !isStrongMatch(
         { match_source: matchSource, similarity: sim !== undefined ? sim : 0 },
-        scores.confidenceFloor
+        hydration.confidenceFloor
       )
     }
     if (rrf !== undefined) result.rrf_score = rrf
     if (bm25 !== undefined) result.bm25_score = bm25
     out.push(result)
   }
-  applyRecencyScoring(out, scores)
+  applyRecencyScoring(out, recency)
   return out
 }

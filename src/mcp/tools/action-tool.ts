@@ -17,7 +17,7 @@ export type ActionArgs = Record<string, unknown>
  * args, so any coercion or transform declared by the action schema reaches the
  * handler without dropping the arguments the schema does not mention.
  */
-interface ActionHandler {
+export interface ActionHandler {
   input?: z.ZodType
   run(args: ActionArgs): unknown | Promise<unknown>
 }

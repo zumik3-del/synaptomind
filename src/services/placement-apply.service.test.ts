@@ -463,10 +463,11 @@ describe('no-new-writer static assertion', () => {
     // Explicit writers the orchestrator may call.
     expect(imports).toContain('./edges.service')
     expect(imports).toContain('./thoughts.service')
-    // Helpers from db layers (read-only shape checks) — these are fine.
-    expect(imports).toContain('../db/edges')
+    // Read-only db helper the orchestrator still needs (queue row lookup). The
+    // fingerprint snapshot reads (source/target row + pair edge) now live in
+    // `placement-proposals.mapping.ts` (`pairFingerprint`), so `../db/edges` and
+    // `../db/thoughts` are no longer imported here.
     expect(imports).toContain('../db/placement-proposals')
-    expect(imports).toContain('../db/thoughts')
     // Disallowed: no lower-level writer functions (createEdge, mergeThoughts, archiveThought)
     // and no placement/* modules other than placement-proposals.service.
     expect(imports.every(i => !/createEdge\b/.test(i))).toBe(true)

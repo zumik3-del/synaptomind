@@ -8,22 +8,21 @@ import type {
   OverlinkedThought,
   SingletonCluster
 } from './types'
+import { THOUGHTS, joinIncidentEdges, noIncidentEdges, regularThoughtsWhere } from './query-builder'
 
 export function findEmptyClusters(db: Database): EmptyCluster[] {
   return db.prepare(`
-    SELECT t.id, t.content FROM thoughts t
+    SELECT t.id, t.content FROM ${THOUGHTS}
     WHERE t.is_cluster = 1
-      AND NOT EXISTS (
-        SELECT 1 FROM edges e WHERE e.source_id = t.id AND e.type = 'cluster'
-      )
+      AND ${noIncidentEdges({ sourceOnly: true, type: 'cluster' })}
   `).all() as EmptyCluster[]
 }
 
 export function findSingletonClusters(db: Database): SingletonCluster[] {
   return db.prepare(`
     SELECT t.id, t.content, COUNT(e.id) AS member_count
-    FROM thoughts t
-    LEFT JOIN edges e ON e.source_id = t.id AND e.type = 'cluster'
+    FROM ${THOUGHTS}
+    ${joinIncidentEdges({ left: true, sourceOnly: true, type: 'cluster' })}
     WHERE t.is_cluster = 1
     GROUP BY t.id
     HAVING member_count <= 1
@@ -59,17 +58,11 @@ export function findClusterlessDense(
   const cutoff = new Date(Date.now() - minAgeDays * 86400000).toISOString()
   return db.prepare(`
     SELECT t.id, t.content, COUNT(e.id) AS edge_count
-    FROM thoughts t
-    JOIN edges e ON (e.source_id = t.id OR e.target_id = t.id)
-      AND e.type = 'related'
-    WHERE t.is_cluster = 0
-      AND t.status = 'active'
+    FROM ${THOUGHTS}
+    ${joinIncidentEdges({ type: 'related' })}
+    WHERE ${regularThoughtsWhere('active')}
       AND t.created_at <= ?
-      AND NOT EXISTS (
-        SELECT 1 FROM edges ce
-        WHERE (ce.source_id = t.id OR ce.target_id = t.id)
-          AND ce.type = 'cluster'
-      )
+      AND ${noIncidentEdges({ type: 'cluster' })}
     GROUP BY t.id
     HAVING edge_count >= ?
   `).all(cutoff, minEdges) as ClusterlessDense[]
@@ -77,22 +70,19 @@ export function findClusterlessDense(
 
 export function findIslandThoughts(db: Database): IslandThought[] {
   return db.prepare(`
-    SELECT t.id, t.content, t.status FROM thoughts t
-    WHERE t.status = 'active'
-      AND t.is_cluster = 0
+    SELECT t.id, t.content, t.status FROM ${THOUGHTS}
+    WHERE ${regularThoughtsWhere('active')}
       AND t.is_profile = 0
-      AND NOT EXISTS (
-        SELECT 1 FROM edges e WHERE e.source_id = t.id OR e.target_id = t.id
-      )
+      AND ${noIncidentEdges()}
   `).all() as IslandThought[]
 }
 
 export function findOverlinkedThoughts(db: Database, maxEdges: number = 10): OverlinkedThought[] {
   return db.prepare(`
     SELECT t.id, t.content, COUNT(e.id) AS edge_count
-    FROM thoughts t
-    JOIN edges e ON (e.source_id = t.id OR e.target_id = t.id)
-    WHERE t.is_cluster = 0
+    FROM ${THOUGHTS}
+    ${joinIncidentEdges()}
+    WHERE ${regularThoughtsWhere()}
     GROUP BY t.id
     HAVING edge_count > ?
   `).all(maxEdges) as OverlinkedThought[]

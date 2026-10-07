@@ -1,7 +1,9 @@
 import type { Database } from 'bun:sqlite'
 import { getDb } from '../db'
+import type { CreateThoughtInput, Thought } from '../db/thoughts'
 import { type ThoughtUrlLink, deleteThoughtUrlLink, getThoughtUrlLinks, getThoughtUrlLinksForThoughts, upsertThoughtUrlLink } from '../db/thought_url_links'
 import { NotFoundError, ValidationError } from '../errors'
+import { createThoughtWithParent } from './thoughts.service'
 
 export function listThoughtUrlLinksService(thoughtId: string, d: Database = getDb()): ThoughtUrlLink[] {
   return getThoughtUrlLinks(d, thoughtId)
@@ -38,4 +40,26 @@ export function upsertThoughtUrlLinkService(thoughtId: string, input: UpsertUrlL
 export function deleteThoughtUrlLinkService(thoughtId: string, key: string, d: Database = getDb()): void {
   const ok = deleteThoughtUrlLink(d, thoughtId, key)
   if (!ok) throw new NotFoundError()
+}
+
+export interface UrlLink {
+  text: string
+  url: string
+}
+
+export function createThoughtWithUrlLinks(
+  data: CreateThoughtInput,
+  options?: { parentId?: string; relation?: string; urlLinks?: UrlLink[] },
+  d: Database = getDb()
+): Thought {
+  const run = d.transaction(() => {
+    const thought = createThoughtWithParent(data, options?.parentId, options?.relation, d)
+    if (options?.urlLinks && options.urlLinks.length > 0) {
+      for (const link of options.urlLinks) {
+        upsertThoughtUrlLink(d, thought.id, link.text, link.url, link.text, 0)
+      }
+    }
+    return thought
+  })
+  return run()
 }

@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { ClusterViolation, DuplicateEdge, OrphanEdge, SelfLoopEdge } from './types'
+import { joinEdgeEndpoint } from './query-builder'
 
 export function findOrphanEdges(db: Database): OrphanEdge[] {
   return db.prepare(`
@@ -10,8 +11,8 @@ export function findOrphanEdges(db: Database): OrphanEdge[] {
         ELSE 'target'
       END AS missing_side
     FROM edges e
-    LEFT JOIN thoughts t1 ON e.source_id = t1.id
-    LEFT JOIN thoughts t2 ON e.target_id = t2.id
+    ${joinEdgeEndpoint('source', 't1', true)}
+    ${joinEdgeEndpoint('target', 't2', true)}
     WHERE t1.id IS NULL OR t2.id IS NULL
   `).all() as OrphanEdge[]
 }
@@ -35,8 +36,8 @@ export function findClusterViolations(db: Database): ClusterViolation[] {
       source.id AS thought_id, source.content, e.type AS edge_type,
       target.id AS other_id
     FROM edges e
-    JOIN thoughts source ON source.id = e.source_id
-    JOIN thoughts target ON target.id = e.target_id
+    ${joinEdgeEndpoint('source', 'source')}
+    ${joinEdgeEndpoint('target', 'target')}
     WHERE
       (e.type = 'cluster' AND (
         COALESCE(source.is_cluster, 0) != 1

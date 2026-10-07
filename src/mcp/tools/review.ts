@@ -6,14 +6,12 @@ import {
   reject,
   type ListOptions
 } from '../../services/placement-proposals.service'
-import { applyBatch, applyProposal } from '../../services/placement-apply.service'
-import { rollback as rollbackRun } from '../../services/placement-rollback.service'
-import { checkDryRunFirst, checkItemGuards, noteDryRun } from '../../services/apply-run-guards'
+import { applyBatch } from '../../services/placement-apply.service'
+import { checkDryRunFirst, noteDryRun } from '../../services/apply-run-guards'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
-
-/** Audit label recorded on apply/reject/rollback decisions (ADR §2.8). */
-const AGENT = 'memory_review'
+import { applyHandler, AGENT } from './review/apply'
+import { rollbackHandler } from './review/rollback'
 
 const ITEM_KINDS = ['edge', 'placement', 'lifecycle', 'triage_activate', 'triage_archive'] as const
 
@@ -38,24 +36,7 @@ const handlers = {
     }
   },
 
-  apply: {
-    input: z.object({ proposal_id: requiredString('proposal_id is required for apply action') }),
-    run(args: ActionArgs) {
-      const proposalId = args.proposal_id as string
-      const confirm = args.confirm === true
-      const runId = args.run_id as string | undefined
-      // A confirm of a triage run must follow a dry-run preview of the same run
-      // (config.triage.requireDryRunFirst, ADR 2026-09-29 §2.7 §2.8), and must
-      // fit the run's per-item caps — one item at a time is still one run.
-      const refusal = confirm
-        ? checkDryRunFirst([proposalId], runId) ?? checkItemGuards(proposalId, { confirm, runId })
-        : undefined
-      if (refusal) return { proposal_id: proposalId, status: 'refused', refusal }
-      const result = applyProposal(proposalId, { confirm, runId, decidedBy: AGENT })
-      if (!confirm) noteDryRun([proposalId], runId)
-      return result
-    }
-  },
+  apply: applyHandler,
 
   apply_batch: {
     input: z.object({ proposal_ids: z.array(z.string()).min(1, 'proposal_ids must be a non-empty array') }),
@@ -76,12 +57,7 @@ const handlers = {
     }
   },
 
-  rollback: {
-    input: z.object({ run_id: requiredString('run_id is required for rollback action') }),
-    run(args: ActionArgs) {
-      return rollbackRun(args.run_id as string, { confirm: args.confirm === true, decidedBy: AGENT })
-    }
-  },
+  rollback: rollbackHandler,
 
   reject: {
     input: z.object({ proposal_id: requiredString('proposal_id is required for reject action') }),

@@ -414,9 +414,11 @@ describe('memory_review telemetry', () => {
 
 // ── static assertion: no read handler reaches apply ───────────────────────────
 
-describe('static: no read handler in review.ts calls apply* functions', () => {
+describe('static: no read handler in the review modules calls apply* functions', () => {
   const REVIEW_PATH = join(import.meta.dir, 'review.ts')
+  const APPLY_PATH = join(import.meta.dir, 'review/apply.ts')
   const SOURCE = readFileSync(REVIEW_PATH, 'utf8')
+  const APPLY_SOURCE = readFileSync(APPLY_PATH, 'utf8')
 
   test('list handler does not reference applyProposal or applyBatch', () => {
     // Extract the list handler block.
@@ -433,14 +435,20 @@ describe('static: no read handler in review.ts calls apply* functions', () => {
     expect(enqueueBlock).not.toMatch(/applyProposal|applyBatch/)
   })
 
-  test('only apply and apply_batch handlers call apply* functions', () => {
-    const applyFnPattern = /applyProposal|applyBatch/
-    const handlerKeys = ['enqueue', 'list', 'apply', 'apply_batch', 'reject']
-    const handlersWithApply = handlerKeys.filter(key => {
-      const re = new RegExp(`${key}:\\s*\\{([\\s\\S]*?\\n\\s*\\})`)
-      const m = re.exec(SOURCE)
-      return m !== null && applyFnPattern.test(m[1])
-    })
-    expect(handlersWithApply.sort()).toEqual(['apply', 'apply_batch'])
+  test('reject handler does not reference applyProposal or applyBatch', () => {
+    const rejectMatch = SOURCE.match(/reject:\s*\{[\s\S]*?\n\s*\}/)
+    expect(rejectMatch).not.toBeNull()
+    const rejectBlock = rejectMatch![0]
+    expect(rejectBlock).not.toMatch(/applyProposal|applyBatch/)
+  })
+
+  test('apply handler was extracted to review/apply.ts and calls applyProposal', () => {
+    expect(APPLY_SOURCE).toMatch(/applyProposal/)
+  })
+
+  test('apply_batch handler stays inline in review.ts and calls applyBatch', () => {
+    const applyBatchMatch = SOURCE.match(/apply_batch:\s*\{([\s\S]*?\n\s*\})/)
+    expect(applyBatchMatch).not.toBeNull()
+    expect(applyBatchMatch![1]).toMatch(/applyBatch/)
   })
 })

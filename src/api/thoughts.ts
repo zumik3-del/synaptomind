@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
-import { parseTags } from '../db/thoughts'
 import { withTelemetry } from '../logging'
 import type { ThoughtStatus } from '../types/thought'
+import { parseTags } from '../utils'
 import { jsonBodyOrDefault } from './utils'
 import { runAutoLinkJob } from '../services/auto-link.service'
 import { detectEdgeProposals } from '../services/edge-detect.service'
