@@ -23,16 +23,16 @@ Open an issue with the `enhancement` label. Describe the problem you want to sol
 
 ### Submitting Changes
 
-1. Fork the repo and create a feature branch from `main`.
+1. Fork the repo and create a feature branch from `dev`.
 2. Make your changes following the code conventions below.
 3. Run `bun test` to make sure tests pass.
 4. Run `bunx biome check src/` for lint (advisory, not blocking).
-5. Open a pull request against `main` with a **Conventional Commit title** (see below).
-6. PRs are squash-merged — the PR title becomes the commit message on `main`.
+5. Open a pull request `dev` → `main` with a **Conventional Commit title** (see below).
+6. PRs are merged with a **merge commit** (never squash) — the PR title becomes the merge-commit subject on `main`.
 
 ## Commit Convention
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/). The PR title (used as the squash-merge commit message) must follow this format:
+This project uses [Conventional Commits](https://www.conventionalcommits.org/). The PR title (used as the merge-commit subject) must follow this format:
 
 ```
 <type>(<optional scope>): <description>

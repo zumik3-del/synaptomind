@@ -1,9 +1,9 @@
 # Server Installation & Updates
 
-Install SynaptoMind as a systemd service from source using the `deploy/`
-framework, and update it in place. This is the supported install path; for
-containers see [DOCKER.md](DOCKER.md), and for an overview of the project see
-the [README](../README.md).
+Install SynaptoMind as a systemd service from a published release tarball
+(`DIST=binary`) using the `deploy/` framework, and update it in place. This is
+the supported install path; for containers see [DOCKER.md](DOCKER.md), and for
+an overview of the project see the [README](../README.md).
 
 ---
 
@@ -15,8 +15,14 @@ curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/
 
 A piped script has no sibling files, so the shared helpers and config are fetched
 from the published base by default — no environment variables are needed.
-`DEPLOY_RAW_URL` overrides that base (forks/mirrors). Server starts on
-`http://127.0.0.1:3005`. MCP endpoint: `http://127.0.0.1:3006/mcp`.
+`DEPLOY_RAW_URL` overrides that base (forks/mirrors); an explicit `APP_ENV_URL`
+or `LIB_RAW_URL` still wins.
+
+The installer downloads the release tarball, extracts it into a staging
+directory, verifies the payload, and swaps it into `/opt/synaptomind`. The
+server starts on `http://127.0.0.1:3105` (API) and `http://127.0.0.1:3106/mcp`
+(MCP). Config lives in `/var/lib/synaptomind/config.json`, reached via the
+`/opt/synaptomind/config.json` symlink.
 
 ---
 
@@ -35,7 +41,7 @@ and config (`deploy/app.env`) are fetched from the published base by default.
 the piped form, append them after `bash -s --`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh | bash -s -- --port 3005
+curl -fsSL https://raw.githubusercontent.com/zumik3-del/synaptomind/main/deploy/install.sh | bash -s -- --port 3105
 ```
 
 ### From a checkout
@@ -49,7 +55,7 @@ sudo bash deploy/install.sh
 
 ### Install flags
 
-Options (append after `--` in the piped form, e.g. `bash -s -- --port 3005`):
+Options (append after `--` in the piped form, e.g. `bash -s -- --port 3105`):
 
 | Flag | Effect |
 |------|--------|
@@ -62,13 +68,26 @@ Options (append after `--` in the piped form, e.g. `bash -s -- --port 3005`):
 
 ### What the installer does
 
-The installer installs Bun when missing, clones `REPO_URL` to
-`/opt/synaptomind`, checks out the resolved channel, installs dependencies,
-seeds `config.json` + `.env` (generating `SYNAPTOMIND_SECRET`), links
-`/opt/synaptomind/data` → `/var/lib/synaptomind`, installs the helper scripts
-into `${HOME}/.synaptomind/scripts` and the update hooks into
-`${HOME}/.synaptomind/hooks`, then installs the systemd unit, **restarts** it
-and polls `/health`.
+The installer resolves the release tag, downloads the release tarball
+(`synaptomind-<tag>-linux-x86_64.tar.gz`), extracts it into a staging directory,
+and verifies that the payload contains the required files (`synaptomind`,
+`vec0.so`, `lib/libonnxruntime.so.1`). It then:
+
+1. Copies each rollback-critical file to `<file>.prev` (skipped when the bytes
+   are identical, so a `.prev` is never a false rollback point).
+2. Swaps the payload into `/opt/synaptomind` in a fixed order — data files first,
+   the executable last — so an interrupted swap leaves old-executable +
+   new-data, which is detectable as "old version" rather than "new binary, old
+   library".
+3. Seeds `config.json` into `/var/lib/synaptomind/` (not the payload tree,
+   which is swapped on every update) and `.env` (generating
+   `SYNAPTOMIND_SECRET`) into `/opt/synaptomind/`.
+4. Creates the `/opt/synaptomind/config.json` → `/var/lib/synaptomind/config.json`
+   symlink so the app's cwd-relative config resolver finds it.
+5. Links `/opt/synaptomind/data` → `/var/lib/synaptomind`.
+6. Installs the helper scripts into `${HOME}/.synaptomind/scripts` and the
+   update hooks into `${HOME}/.synaptomind/hooks`.
+7. Installs the systemd unit, **restarts** it, and polls `/health`.
 
 The service step is a `restart`, not a `start`, and that is load-bearing:
 `systemctl start` on an already-active unit is a no-op, so a re-install over a
@@ -96,7 +115,7 @@ releases and ignores `CHECKOUT_POLICY`.
 | `stable` (default) | Newest tag without `-` |
 | `latest` | Newest tag of any kind |
 | `prerelease` | Newest `-alpha.` / `-beta.` / `-rc.` tag |
-| `<branch>` | That branch (the default branch when no tag exists) |
+| `<branch>` | **Rejected in binary mode** — a branch has no release asset |
 
 ---
 
@@ -109,7 +128,7 @@ needs no root itself.
 ```bash
 bash ${HOME}/.synaptomind/scripts/updater.sh                    # interactive: pick from stable releases
 bash ${HOME}/.synaptomind/scripts/updater.sh --yes              # non-interactive: newest stable
-bash ${HOME}/.synaptomind/scripts/updater.sh --version v0.8.0   # pin a stable tag
+bash ${HOME}/.synaptomind/scripts/updater.sh --version v0.9.0   # pin a stable tag
 bash ${HOME}/.synaptomind/scripts/updater.sh --help
 ```
 
@@ -153,11 +172,12 @@ not already root.
 ### Advanced: direct `update.sh`
 
 The installed `update.sh` stays available and is required on hosts that track a
-prerelease or a branch (the updater is stable-only):
+prerelease (the updater is stable-only; a branch is rejected in binary mode —
+see Channels):
 
 ```bash
 bash ${HOME}/.synaptomind/scripts/update.sh                  # target from CHECKOUT_POLICY
-bash ${HOME}/.synaptomind/scripts/update.sh --version v0.6.1
+bash ${HOME}/.synaptomind/scripts/update.sh --version v0.9.0
 bash ${HOME}/.synaptomind/scripts/update.sh --yes            # non-interactive (required for downgrades)
 ```
 
@@ -169,39 +189,80 @@ bash ${HOME}/.synaptomind/scripts/update.sh --yes            # non-interactive (
    database to `<db>.backup/<name>.<timestamp>.bak` (skipped when no database
    exists; aborts before switching code if an existing database cannot be backed
    up).
-2. Checks out the target version, reinstalls production dependencies, and
-   restarts the systemd service if it is running.
-3. Polls `/health` until it reports the target version; on timeout or version
-   mismatch it exits non-zero and prints recovery instructions (previous
-   revision + rollback command) without reverting. If no systemd service is
-   running, health verification is skipped with a notice.
+2. Downloads the release tarball, extracts it, verifies the payload, copies
+   `.prev` rollback points, and swaps the new payload into `/opt/synaptomind`.
+3. Refreshes the systemd unit (full re-render in binary mode) and restarts it.
+4. Polls `/health` until it reports the target version; on timeout or version
+   mismatch it exits non-zero and prints recovery instructions (the `.prev`
+   rollback points + the DB restore command) without reverting. If no systemd
+   service is running, health verification is skipped with a notice.
 
 The health URL resolves from `config.json` `server.port` / `PORT` (default
-`http://127.0.0.1:3005/health`); override it with `HEALTH_URL` in
+`http://127.0.0.1:3105/health`); override it with `HEALTH_URL` in
 `deploy/app.env`.
 
 ### Rollback
 
 Schema migrations are **forward-only** (`src/db/init.ts:127`): the server applies
-every migration it has not seen and never reverses one. Checking out an older
-tag against a database that a newer version has already migrated is therefore
+every migration it has not seen and never reverses one. Running an older binary
+against a database that a newer version has already migrated is therefore
 **unsafe**. The pre-update hook has already copied the database, so the
-supported rollback restores that backup and returns to the previous revision
-that `update.sh` printed:
+supported rollback restores that backup and restores the `.prev` payload files:
 
 ```bash
 sudo systemctl stop synaptomind
-sudo cp /opt/synaptomind/data/synaptomind.db.backup/synaptomind.db.<timestamp>.bak \
-        /opt/synaptomind/data/synaptomind.db
+# Restore the database backup (path printed by the pre-update hook)
+sudo cp -p /opt/synaptomind/data/synaptomind.db.backup/synaptomind.db.<timestamp>.bak \
+          /opt/synaptomind/data/synaptomind.db
 sudo rm -f /opt/synaptomind/data/synaptomind.db-wal /opt/synaptomind/data/synaptomind.db-shm
-cd /opt/synaptomind
-git checkout --force <previous-revision>   # hash printed by update.sh
-bun install --frozen-lockfile --production
+# Restore the previous payload from .prev
+sudo mv -f /opt/synaptomind/vec0.so.prev /opt/synaptomind/vec0.so
+sudo mv -f /opt/synaptomind/lib/libonnxruntime.so.1.prev /opt/synaptomind/lib/libonnxruntime.so.1
+sudo mv -f /opt/synaptomind/synaptomind.prev /opt/synaptomind/synaptomind
 sudo systemctl start synaptomind
 ```
 
 The hook prints the exact backup path (`Database backed up: …`), and
-`update.sh` repeats the previous revision in its recovery block.
+`update.sh` repeats the `.prev` restore loop and the DB restore commands in its
+recovery block.
+
+`/opt/synaptomind/data` is a symlink to `/var/lib/synaptomind`, so the real
+database file is `/var/lib/synaptomind/synaptomind.db` — there is no `data/`
+under `/var/lib/synaptomind`.
+
+---
+
+## Troubleshooting
+
+### ERR_DLOPEN_FAILED / libonnxruntime.so.1
+
+The compiled binary dlopens an embedded addon (`libonnxruntime.so.1`) whose
+RUNPATH resolves inside `/$bunfs`. The systemd unit sets
+`Environment=LD_LIBRARY_PATH=/opt/synaptomind/lib` so the loader finds it. If the
+unit is hand-edited or the `lib/` directory is missing, the embedder child dies
+on `ERR_DLOPEN_FAILED` in a loop. Verify:
+
+```bash
+ls -l /opt/synaptomind/lib/libonnxruntime.so.1
+systemctl cat synaptomind.service | grep LD_LIBRARY_PATH
+```
+
+If the file is missing, re-run the installer (`sudo bash deploy/install.sh
+--force`) to restore the payload. If the unit lacks the `LD_LIBRARY_PATH`
+line, re-render it by re-running `install.sh` or `update.sh`.
+
+### Health check fails after update
+
+If `/health` does not report the expected version after an update, the unit
+may not have been refreshed. Check:
+
+```bash
+systemctl cat synaptomind.service   # should match a fresh render
+curl http://127.0.0.1:3105/health   # should report the target version
+```
+
+Re-run `bash ${HOME}/.synaptomind/scripts/update.sh --yes` to re-refresh and
+restart.
 
 ---
 
