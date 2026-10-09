@@ -667,3 +667,100 @@ describe("low_confidence + min_relevance — service layer", () => {
     expect(ids).not.toContain(weakId);
   });
 });
+
+// ── is_global project scoping (epic #1489) ───────────────────────────────────
+
+describe("searchThoughts includeGlobal — project scoping", () => {
+  const P1 = "proj-global-1";
+  const P2 = "proj-global-2";
+  const QUERY = "GLOBAL_SEARCH marker";
+
+  // BM25-only path (empty embedding) so no vec0 extension is required.
+  function bm25Options(extra: Record<string, unknown>) {
+    return {
+      query: QUERY,
+      topK: 10,
+      hybrid: true,
+      embedding: new Float32Array(0),
+      ...extra,
+    };
+  }
+
+  function seedWorld() {
+    const local = seedThought({
+      content: `${QUERY} local`,
+      project_id: P1,
+      status: "active",
+    });
+    const foreign = seedThought({
+      content: `${QUERY} foreign`,
+      project_id: P2,
+      status: "active",
+    });
+    // A global thought owned by P2 — it must still surface in a P1 search.
+    const global = seedThought({
+      content: `${QUERY} global`,
+      project_id: P2,
+      is_global: 1,
+      status: "active",
+    });
+    return { local, foreign, global };
+  }
+
+  test("includeGlobal=true + projectFilter returns project + global, excludes foreign", async () => {
+    const { local, foreign, global } = seedWorld();
+
+    const results = await searchThoughts(
+      bm25Options({ projectFilter: P1, includeGlobal: true }),
+    );
+    const ids = results.map((r) => r.thought.id);
+    expect(ids).toContain(local);
+    expect(ids).toContain(global);
+    expect(ids).not.toContain(foreign);
+  });
+
+  test("includeGlobal omitted excludes global thoughts (backward compatible)", async () => {
+    const { local, foreign, global } = seedWorld();
+
+    const results = await searchThoughts(bm25Options({ projectFilter: P1 }));
+    const ids = results.map((r) => r.thought.id);
+    expect(ids).toContain(local);
+    expect(ids).not.toContain(global);
+    expect(ids).not.toContain(foreign);
+  });
+
+  test("includeGlobal=false excludes global thoughts (explicit backward compatible)", async () => {
+    const { local, global } = seedWorld();
+
+    const results = await searchThoughts(
+      bm25Options({ projectFilter: P1, includeGlobal: false }),
+    );
+    const ids = results.map((r) => r.thought.id);
+    expect(ids).toContain(local);
+    expect(ids).not.toContain(global);
+  });
+
+  test("includeGlobal=true without projectFilter returns every project's thoughts", async () => {
+    const { local, foreign, global } = seedWorld();
+
+    const results = await searchThoughts(bm25Options({ includeGlobal: true }));
+    const ids = results.map((r) => r.thought.id);
+    expect(ids).toContain(local);
+    expect(ids).toContain(foreign);
+    expect(ids).toContain(global);
+  });
+
+  test("a global thought is visible from a project other than its own", async () => {
+    const global = seedThought({
+      content: `${QUERY} cross project global`,
+      project_id: P2,
+      is_global: 1,
+      status: "active",
+    });
+
+    const results = await searchThoughts(
+      bm25Options({ projectFilter: P1, includeGlobal: true }),
+    );
+    expect(results.map((r) => r.thought.id)).toContain(global);
+  });
+});

@@ -6,6 +6,7 @@ export interface FilterOptions {
   clusterFilter?: 'only' | 'exclude'
   minImportance?: number
   excludeFlagged?: boolean
+  includeGlobal?: boolean
 }
 
 function getClusterFilterSQL(filter: 'only' | 'exclude'): { sql: string; params: SQLQueryBindings[] } {
@@ -26,7 +27,11 @@ export function buildFilterSQL(options: FilterOptions): { sql: string; params: S
     params.push(options.statusFilter)
   }
   if (options.projectFilter) {
-    sql += 'AND t.project_id = ? '
+    if (options.includeGlobal) {
+      sql += 'AND (t.project_id = ? OR t.is_global = 1) '
+    } else {
+      sql += 'AND t.project_id = ? '
+    }
     params.push(options.projectFilter)
   }
   if (options.clusterFilter) {

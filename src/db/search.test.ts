@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import {
 	createTestDb,
@@ -11,6 +11,7 @@ import { getDb } from "./container";
 import { closeDb } from "./init";
 import { bm25SearchIds, isStrongMatch, rrfMerge, searchThoughts } from "./search";
 import { bm25ScoredIds } from "./search-bm25";
+import { buildFilterSQL } from "./search-filters";
 
 const VEC_AVAILABLE = isVecExtensionAvailable();
 
@@ -1083,4 +1084,66 @@ itVec("low_confidence: floor=0 makes all vector hits confident", (db) => {
   const hit = results.find((r) => r.thought.id === "lc-zero-floor");
   expect(hit).toBeDefined();
   expect(hit!.low_confidence).toBe(false);
+});
+
+// ── is_global filter SQL (epic #1489) ────────────────────────────────────────
+
+describe("buildFilterSQL includeGlobal", () => {
+  const P = "project-a";
+
+  test("projectFilter alone emits the project-only clause", () => {
+    const { sql, params } = buildFilterSQL({ projectFilter: P });
+    expect(sql).toBe("AND t.project_id = ? ");
+    expect(params).toEqual([P]);
+  });
+
+  test("includeGlobal=false emits the project-only clause (backward compatible)", () => {
+    const { sql, params } = buildFilterSQL({ projectFilter: P, includeGlobal: false });
+    expect(sql).toBe("AND t.project_id = ? ");
+    expect(params).toEqual([P]);
+  });
+
+  test("includeGlobal=true with projectFilter emits the project-OR-global clause", () => {
+    const { sql, params } = buildFilterSQL({ projectFilter: P, includeGlobal: true });
+    expect(sql).toBe("AND (t.project_id = ? OR t.is_global = 1) ");
+    expect(params).toEqual([P]);
+  });
+
+  test("includeGlobal=true without projectFilter is a no-op (no global clause)", () => {
+    const { sql, params } = buildFilterSQL({ includeGlobal: true });
+    expect(sql).toBe("");
+    expect(params).toEqual([]);
+  });
+
+  test("includeGlobal composes with statusFilter and keeps parameter order", () => {
+    const { sql, params } = buildFilterSQL({
+      statusFilter: "active",
+      projectFilter: P,
+      includeGlobal: true,
+    });
+    expect(sql).toBe("AND t.status = ? AND (t.project_id = ? OR t.is_global = 1) ");
+    expect(params).toEqual(["active", P]);
+  });
+
+  test("includeGlobal composes with clusterFilter=exclude", () => {
+    const { sql, params } = buildFilterSQL({
+      projectFilter: P,
+      includeGlobal: true,
+      clusterFilter: "exclude",
+    });
+    expect(sql).toBe(
+      "AND (t.project_id = ? OR t.is_global = 1) AND (t.is_cluster IS NULL OR t.is_cluster = 0) ",
+    );
+    expect(params).toEqual([P]);
+  });
+
+  test("includeGlobal composes with minImportance", () => {
+    const { sql, params } = buildFilterSQL({
+      projectFilter: P,
+      includeGlobal: true,
+      minImportance: 0.5,
+    });
+    expect(sql).toBe("AND (t.project_id = ? OR t.is_global = 1) AND ti.importance >= ? ");
+    expect(params).toEqual([P, 0.5]);
+  });
 });

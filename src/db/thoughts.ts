@@ -16,6 +16,7 @@ export interface Thought {
   is_cluster: number
   is_profile: number
   is_protected: number
+  is_global: number
   created_at: string
   updated_at: string
   archived_at: string | null
@@ -32,6 +33,7 @@ export interface CreateThoughtInput {
   is_cluster?: boolean
   is_profile?: boolean
   is_protected?: boolean
+  is_global?: boolean
   surface_after?: string
 }
 
@@ -43,6 +45,7 @@ export interface UpdateThoughtInput {
   is_cluster?: boolean
   is_profile?: boolean
   is_protected?: boolean
+  is_global?: boolean
   archived_at?: string | null
 }
 
@@ -76,6 +79,7 @@ export function rowToThought(row: Record<string, unknown>): Thought {
     is_cluster: row.is_cluster as number,
     is_profile: (row.is_profile as number) ?? 0,
     is_protected: (row.is_protected as number) ?? 1,
+    is_global: (row.is_global as number) ?? 0,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
     archived_at: (row.archived_at as string) ?? null,
@@ -116,11 +120,12 @@ export function createThought(db: Database, data: CreateThoughtInput): Thought {
     const isCluster = toBit(data.is_cluster)
     const isProfile = toBit(data.is_profile)
     const isProtected = toBit(data.is_protected ?? true)
+    const isGlobal = toBit(data.is_global)
 
     db.prepare(`
-      INSERT INTO thoughts (id, content, status, source, project_id, content_hash, is_cluster, is_profile, is_protected, created_at, updated_at, surface_after)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, data.content, data.status ?? 'draft', data.source ?? null, projectId, contentHash, isCluster, isProfile, isProtected, now, now, data.surface_after ?? null)
+      INSERT INTO thoughts (id, content, status, source, project_id, content_hash, is_cluster, is_profile, is_protected, is_global, created_at, updated_at, surface_after)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, data.content, data.status ?? 'draft', data.source ?? null, projectId, contentHash, isCluster, isProfile, isProtected, isGlobal, now, now, data.surface_after ?? null)
 
     if (data.tags && data.tags.length > 0) {
       setThoughtTags(db, id, data.tags)
@@ -190,6 +195,10 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
     if (data.is_protected !== undefined) {
       sets.push('is_protected = ?')
       values.push(toBit(data.is_protected))
+    }
+    if (data.is_global !== undefined) {
+      sets.push('is_global = ?')
+      values.push(toBit(data.is_global))
     }
     if (data.archived_at !== undefined) {
       sets.push('archived_at = ?')

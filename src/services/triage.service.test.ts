@@ -354,6 +354,7 @@ describe('isScheduledReminder', () => {
       is_cluster: 0,
       is_profile: 0,
       is_protected: 1,
+      is_global: 0,
       created_at: NOW,
       updated_at: NOW,
       archived_at: null,

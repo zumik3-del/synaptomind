@@ -64,6 +64,7 @@ export function seedThought(overrides?: {
 	is_cluster?: number | null;
 	is_profile?: number | null;
 	is_protected?: number | null;
+	is_global?: number | null;
 	importance?: number;
 	/** Fixed ISO-8601 `created_at` for deterministic recency tests. */
 	created_at?: string;
@@ -84,8 +85,8 @@ export function seedThought(overrides?: {
 		new Date().toISOString(),
 	);
 	db.prepare(`
-    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, created_at, updated_at, surface_after)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, is_global, created_at, updated_at, surface_after)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
 		id,
 		overrides?.content ?? "test thought",
@@ -95,6 +96,7 @@ export function seedThought(overrides?: {
 		isCluster,
 		overrides?.is_profile ?? 0,
 		overrides?.is_protected ?? 1,
+		overrides?.is_global ?? 0,
 		now,
 		now,
 		overrides?.surface_after ?? null,
