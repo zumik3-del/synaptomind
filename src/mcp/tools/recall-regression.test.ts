@@ -326,3 +326,116 @@ describe('memory_recall advertised schema retains numeric bounds with z.coerce',
     expect(isError).toBe(false)
   })
 })
+
+// ── is_global project scoping through memory_recall (epic #1489) ─────────────
+
+describe('memory_recall include_global — project scoping', () => {
+  const P1 = 'recall-global-p1'
+  const P2 = 'recall-global-p2'
+  const QUERY = 'RECALL_GLOBAL_MARKER'
+
+  async function recallSearch(extra: Record<string, unknown>) {
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query: QUERY, top_k: 10, ...extra }
+    })
+    return parseResult(result)
+  }
+
+  function idsOf(data: unknown): string[] {
+    return (data as Array<{ thought: { id: string } }>).map(r => r.thought.id)
+  }
+
+  function seedWorld() {
+    const local = seedThought({ content: `${QUERY} local`, project_id: P1, status: 'active' })
+    const foreign = seedThought({ content: `${QUERY} foreign`, project_id: P2, status: 'active' })
+    // Global thought owned by P2 — must surface in a P1-scoped recall.
+    const global = seedThought({ content: `${QUERY} global`, project_id: P2, is_global: 1, status: 'active' })
+    return { local, foreign, global }
+  }
+
+  test('include_global=true + project_id includes global thoughts, excludes foreign project', async () => {
+    const { local, foreign, global } = seedWorld()
+
+    const { data, isError } = await recallSearch({ project_id: P1, include_global: true })
+    expect(isError).toBe(false)
+    const ids = idsOf(data)
+    expect(ids).toContain(local)
+    expect(ids).toContain(global)
+    expect(ids).not.toContain(foreign)
+  })
+
+  test('include_global omitted excludes global thoughts (backward compatible)', async () => {
+    const { local, global } = seedWorld()
+
+    const { data, isError } = await recallSearch({ project_id: P1 })
+    expect(isError).toBe(false)
+    const ids = idsOf(data)
+    expect(ids).toContain(local)
+    expect(ids).not.toContain(global)
+  })
+
+  test('include_global=false excludes global thoughts', async () => {
+    const { local, global } = seedWorld()
+
+    const { data, isError } = await recallSearch({ project_id: P1, include_global: false })
+    expect(isError).toBe(false)
+    const ids = idsOf(data)
+    expect(ids).toContain(local)
+    expect(ids).not.toContain(global)
+  })
+
+  test('include_global=true without project_id returns every project\'s thoughts', async () => {
+    const { local, foreign, global } = seedWorld()
+
+    const { data, isError } = await recallSearch({ include_global: true })
+    expect(isError).toBe(false)
+    const ids = idsOf(data)
+    expect(ids).toContain(local)
+    expect(ids).toContain(foreign)
+    expect(ids).toContain(global)
+  })
+
+  test('include_global also widens the clusters action', async () => {
+    const localCluster = seedThought({
+      content: `${QUERY} local cluster`,
+      project_id: P1,
+      is_cluster: 1,
+      status: 'active'
+    })
+    const globalCluster = seedThought({
+      content: `${QUERY} global cluster`,
+      project_id: P2,
+      is_cluster: 1,
+      is_global: 1,
+      status: 'active'
+    })
+
+    const scoped = parseResult(
+      await client.callTool({
+        name: 'memory_recall',
+        arguments: { action: 'clusters', query: QUERY, top_k: 10, project_id: P1 }
+      })
+    )
+    expect(idsOf(scoped.data)).toContain(localCluster)
+    expect(idsOf(scoped.data)).not.toContain(globalCluster)
+
+    const widened = parseResult(
+      await client.callTool({
+        name: 'memory_recall',
+        arguments: { action: 'clusters', query: QUERY, top_k: 10, project_id: P1, include_global: true }
+      })
+    )
+    expect(idsOf(widened.data)).toContain(localCluster)
+    expect(idsOf(widened.data)).toContain(globalCluster)
+  })
+
+  test('advertised schema exposes include_global as an optional boolean', async () => {
+    const { tools } = await client.listTools()
+    const recallTool = tools.find(t => t.name === 'memory_recall')
+    const props = (recallTool?.inputSchema as { properties?: Record<string, unknown> })?.properties
+    const g = props?.include_global as Record<string, unknown> | undefined
+    expect(g).toBeDefined()
+    expect(g?.type).toBe('boolean')
+  })
+})

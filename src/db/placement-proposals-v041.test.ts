@@ -60,7 +60,7 @@ test('v041: schema_version is 41 after fresh init', () => {
   const row = db
     .prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`)
     .get() as { value: string } | undefined
-  expect(row?.value).toBe('41')
+  expect(row?.value).toBe('42')
 })
 
 // ── v041 migration: idempotent re-run ────────────────────────────────────────
@@ -71,7 +71,7 @@ test('v041: re-running init on same in-memory DB is idempotent', () => {
   const before = db
     .prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`)
     .get() as { value: string } | undefined
-  expect(before?.value).toBe('41')
+  expect(before?.value).toBe('42')
 
   // Re-initialize with the same :memory: path — this should not throw
   // and should leave schema intact.
@@ -80,7 +80,7 @@ test('v041: re-running init on same in-memory DB is idempotent', () => {
   const after = db2
     .prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`)
     .get() as { value: string } | undefined
-  expect(after?.value).toBe('41')
+  expect(after?.value).toBe('42')
 
   // run_id column still present
   const cols = db2

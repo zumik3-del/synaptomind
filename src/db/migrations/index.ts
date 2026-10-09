@@ -35,6 +35,7 @@ import v038 from './v038-drop-thought-entities'
 import v039 from './v039-drop-smart-notes'
 import v040 from './v040-placement-proposals'
 import v041 from './v041-placement-run-id'
+import v042 from './v042-is-global'
 
 export interface Migration {
   version: number
@@ -76,5 +77,6 @@ export const MIGRATIONS: Migration[] = [
   v038,
   v039,
   v040,
-  v041
+  v041,
+  v042
 ].sort((a, b) => a.version - b.version)

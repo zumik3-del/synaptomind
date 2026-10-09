@@ -31,6 +31,7 @@ const handlers = {
         query: args.query as string, topK, status: args.status as string | undefined,
         projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: args.cluster as 'only' | 'exclude' | undefined,
         minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
+        includeGlobal: args.include_global as boolean | undefined,
         hybrid: args.hybrid as boolean | undefined,
         // Agent-facing defaults: drop superseded rows, flag contradicted ones.
         supersessionMode: parseSupersessionMode(args.supersession_mode as string | undefined),
@@ -74,6 +75,7 @@ const handlers = {
         query: args.query as string, topK, status: args.status as string | undefined,
         projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: 'only',
         minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
+        includeGlobal: args.include_global as boolean | undefined,
         hybrid: args.hybrid as boolean | undefined,
         recencyWeight: args.recency_weight as number | undefined,
         recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
@@ -105,6 +107,7 @@ export function registerMemoryRecall(server: McpServer) {
       group_by_cluster: z.boolean().optional().describe('Group results by cluster'),
       min_importance: z.coerce.number().min(0).max(1).optional().describe('Minimum importance (0-1)'),
       exclude_flagged: z.boolean().optional().describe('Exclude flagged thoughts'),
+      include_global: z.boolean().optional().describe('When true and project_id is set, include global thoughts in results'),
       hybrid: z.boolean().optional().describe('Use hybrid search'),
       recency_weight: z
         .coerce.number()
