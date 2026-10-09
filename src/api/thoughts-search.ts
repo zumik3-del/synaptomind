@@ -42,6 +42,7 @@ searchRouter.get('/search', async c => {
   const searchOpts = buildSearchOptions({
     query: q, topK: k, status, projectFilter: project_id,
     tagFilter: tag, clusterFilter, minImportance, excludeFlagged, hybrid,
+    includeGlobal: c.req.query('include_global') === 'true',
     supersessionMode: parseSupersessionMode(c.req.query('supersession_mode')),
     contradictionMode: parseContradictionMode(c.req.query('contradiction_mode')),
     recencyWeight: parseOptionalNumber(c.req.query('recency_weight'), 'recency_weight'),

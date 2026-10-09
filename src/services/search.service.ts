@@ -93,6 +93,11 @@ export interface SearchServiceOptions {
   clusterFilter?: 'only' | 'exclude'
   minImportance?: number
   excludeFlagged?: boolean
+  /**
+   * When true AND projectFilter is set, include global thoughts (is_global = 1)
+   * in results alongside project-scoped thoughts. No-op without projectFilter.
+   */
+  includeGlobal?: boolean
   hybrid?: boolean
   /** Superseded thoughts: `off` (no annotation), `flag` (default), `suppress`. */
   supersessionMode?: SupersessionMode
@@ -202,6 +207,7 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
     clusterFilter: options.clusterFilter,
     minImportance,
     excludeFlagged: options.excludeFlagged,
+    includeGlobal: options.includeGlobal,
     hybrid: options.hybrid,
     recencyWeight,
     recencyHalfLifeDays,

@@ -104,7 +104,7 @@ describe('decideLifecycle — replaces+archive endpoint matrix', () => {
       const replaceEdge = makeReplaceEdge(sourceId, targetId, targetStatus)
 
       const result = decideLifecycle(
-        { id: sourceId, content: 'now postgres for storage persists data', created_at: T1, status: sourceStatus, project_id: 'default', tags: [], source: null, is_cluster: 0, is_profile: 0, is_protected: 1, updated_at: T1, archived_at: null, surface_after: null },
+        { id: sourceId, content: 'now postgres for storage persists data', created_at: T1, status: sourceStatus, project_id: 'default', tags: [], source: null, is_cluster: 0, is_profile: 0, is_protected: 1, is_global: 0, updated_at: T1, archived_at: null, surface_after: null },
         replaceEdge,
         [],
         undefined,

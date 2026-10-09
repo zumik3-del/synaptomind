@@ -10,6 +10,7 @@ export interface SearchOptions {
   clusterFilter?: 'only' | 'exclude'
   minImportance?: number
   excludeFlagged?: boolean
+  includeGlobal?: boolean
   hybrid?: boolean
   /**
    * Opt-in recency boost weight in `[0, 1]`. `<= 0` or non-finite disables the
