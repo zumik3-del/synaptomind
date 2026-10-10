@@ -1,5 +1,6 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { NotFoundError } from '../../errors'
 import { searchThoughts, searchThoughtsGrouped } from '../../services/search.service'
 import {
   buildSearchOptions,
@@ -17,7 +18,7 @@ const handlers = {
     input: z.object({ thought_id: requiredString('thought_id is required for get action') }),
     run(args: ActionArgs) {
       const thought = getThoughtById(args.thought_id as string)
-      if (!thought) throw new Error(`Thought '${args.thought_id}' not found`)
+      if (!thought) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
       return thought
     }
   },
@@ -52,7 +53,7 @@ const handlers = {
     run(args: ActionArgs) {
       const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
       const context = getContextService(args.query as string, args.max_degree as number | undefined, projectFilter)
-      if (!context) throw new Error(`No context found for query '${args.query}'`)
+      if (!context) throw new NotFoundError(`No context found for query '${args.query}'`)
       return context
     }
   },
@@ -61,7 +62,7 @@ const handlers = {
     input: z.object({ thought_id: requiredString('thought_id is required for chain action') }),
     run(args: ActionArgs) {
       const chain = getChainService(args.thought_id as string, args.direction as 'upstream' | 'downstream' | 'both' | undefined, args.max_degree as number | undefined)
-      if (!chain) throw new Error(`Thought '${args.thought_id}' not found`)
+      if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
       return chain
     }
   },

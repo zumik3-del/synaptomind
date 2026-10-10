@@ -1,4 +1,5 @@
 import { z } from 'zod/v4'
+import { NotFoundError } from '../../../errors'
 import { removeClusterMemberService, getClusterThoughtService, findClusterMemberEdgeService } from '../../../services/cluster.service'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
@@ -14,9 +15,9 @@ export const clusterRemoveHandler: ActionHandler = {
 
     if (!confirm) {
       const cluster = getClusterThoughtService(clusterId)
-      if (!cluster) throw new Error(`Cluster not found: ${clusterId}`)
+      if (!cluster) throw new NotFoundError(`Cluster not found: ${clusterId}`)
       const edgeId = findClusterMemberEdgeService(clusterId, thoughtId)
-      if (!edgeId) throw new Error(`Thought ${thoughtId} is not a member of cluster ${clusterId}`)
+      if (!edgeId) throw new NotFoundError(`Thought ${thoughtId} is not a member of cluster ${clusterId}`)
       return {
         status: 'preview',
         cluster_id: clusterId,

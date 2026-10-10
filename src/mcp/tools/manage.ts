@@ -1,12 +1,15 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { NotFoundError, ValidationError } from '../../errors'
 import {
   listProjectsService,
   createProjectService,
   updateProjectService,
   deleteProjectService,
   getProjectService,
-  resolveProjectService
+  resolveProjectService,
+  isDefaultProjectService,
+  DEFAULT_PROJECT_DELETE_MESSAGE
 } from '../../services/projects.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
@@ -40,8 +43,8 @@ const handlers = {
     input: z.object({ project_id: requiredString('project_id is required for delete action') }),
     run(args: ActionArgs) {
       const project = getProjectService(args.project_id as string)
-      if (!project) throw new Error(`Project not found: ${args.project_id}`)
-      if (project.name === 'Default') throw new Error('Cannot delete the Default project.')
+      if (!project) throw new NotFoundError(`Project not found: ${args.project_id}`)
+      if (isDefaultProjectService(args.project_id as string)) throw new ValidationError(DEFAULT_PROJECT_DELETE_MESSAGE)
 
       if (!args.confirm) {
         return {
@@ -56,7 +59,7 @@ const handlers = {
       }
 
       const deleted = deleteProjectService(args.project_id as string)
-      if (!deleted) throw new Error(`Failed to delete project: ${args.project_id}`)
+      if (!deleted) throw new NotFoundError(`Project not found: ${args.project_id}`)
       return {
         action: 'deleted',
         project: { id: project.id, name: project.name },
@@ -70,7 +73,7 @@ const handlers = {
     input: z.object({ cwd: requiredString('cwd is required for resolve action') }),
     run(args: ActionArgs) {
       const project = resolveProjectService(args.cwd as string)
-      if (!project) throw new Error(`No project found for path: ${args.cwd}`)
+      if (!project) throw new NotFoundError(`No project found for path: ${args.cwd}`)
       return { id: project.id, name: project.name, local_path: project.local_path }
     }
   }
