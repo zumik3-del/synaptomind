@@ -4,10 +4,7 @@ import {
 	createEdge,
 	deleteEdge,
 	getAllActiveEdges,
-	getClusterMembers,
-	getClusterThought,
 	getEdgesForThought,
-	getValidEdgeTypes,
 	isValidEdgeType,
 	retypeEdge,
 } from "./edges";
@@ -425,26 +422,6 @@ test("isValidEdgeType recognises the new semantic types", () => {
 	expect(isValidEdgeType("contradicts")).toBeTrue();
 	expect(isValidEdgeType("supports")).toBeTrue();
 	expect(isValidEdgeType("nope")).toBeFalse();
-	expect(getValidEdgeTypes()).toContain("contradicts");
-	expect(getValidEdgeTypes()).toContain("supports");
-});
-
-test("getClusterThought returns the cluster row for a cluster thought", () => {
-	const db = getDb();
-	const clusterId = seedThought({ content: "my cluster", is_cluster: 1 });
-	const row = getClusterThought(db, clusterId);
-	expect(row).toBeDefined();
-	expect(row?.id).toBe(clusterId);
-	expect(row?.content).toBe("my cluster");
-});
-
-test("getClusterThought returns null for a non-cluster thought", () => {
-	const regularId = seedThought({ content: "regular" });
-	expect(getClusterThought(getDb(), regularId)).toBeNull();
-});
-
-test("getClusterThought returns null for missing id", () => {
-	expect(getClusterThought(getDb(), "nonexistent")).toBeNull();
 });
 
 // ── retypeEdge ───────────────────────────────────────────────────────────────
@@ -511,18 +488,4 @@ test("retypeEdge preserves the original created_at", () => {
 	db.prepare("UPDATE edges SET created_at = ? WHERE id = ?").run(knownDate, edge.id);
 	const retyped = retypeEdge(db, edge.id, "supports");
 	expect(retyped.created_at).toBe(knownDate);
-});
-
-// ── getClusterMembers ────────────────────────────────────────────────────────
-
-test("getClusterMembers excludes archived members", () => {
-	const db = getDb();
-	const cluster = seedThought({ is_cluster: 1 });
-	const activeMember = seedThought({ status: "active" });
-	const archivedMember = seedThought({ status: "archived" });
-	createEdge(db, cluster, activeMember, "cluster");
-	createEdge(db, cluster, archivedMember, "cluster");
-	const members = getClusterMembers(db, cluster);
-	expect(members).toHaveLength(1);
-	expect(members[0].id).toBe(activeMember);
 });

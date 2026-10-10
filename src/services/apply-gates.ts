@@ -12,11 +12,10 @@ import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import {
   SYMMETRIC_EDGE_TYPES,
-  getClusterMembers,
-  getClusterThought,
   getEdgePairBetween,
   isValidEdgeType
 } from '../db/edges'
+import { getClusterMembers, getClusterThought } from '../db/cluster-edges'
 import type { PlacementProposalRow } from '../db/placement-proposals'
 import { getThoughtRow } from '../db/thoughts'
 import type { ApplyOptions } from './placement-apply.types'

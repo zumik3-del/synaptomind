@@ -1,4 +1,4 @@
-import { getClusterForThoughtBatch } from '../db/edges'
+import { getClusterForThoughtBatch } from '../db/cluster-edges'
 import { getDb } from '../db'
 import { annotateGraphStanding, type GraphStanding } from '../db/graph-annotations'
 import { isStrongMatch, type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'

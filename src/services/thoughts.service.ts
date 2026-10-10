@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
-import { createEdge, getClusterMembers } from '../db/edges'
+import { createEdge } from '../db/edges'
+import { getClusterMembers } from '../db/cluster-edges'
 import { getDb } from '../db'
 import { getThoughtLimitsDB } from '../db/settings'
 import { pruneThoughtUrlLinks } from '../db/thought_url_links'

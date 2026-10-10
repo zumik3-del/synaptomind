@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
-import { createEdge, deleteEdge, deleteClusterEdges, findClusterMemberEdge, getClusterMembers, getClusterThought } from '../db/edges'
+import { createEdge, deleteEdge } from '../db/edges'
+import { deleteClusterEdges, findClusterMemberEdge, getClusterMembers, getClusterThought } from '../db/cluster-edges'
 import { getDb } from '../db'
 import { getThoughtLimitsDB } from '../db/settings'
 import { createThought, deleteThought, getThoughtRow, getThoughtsBatchWithTags, type Thought } from '../db/thoughts'
