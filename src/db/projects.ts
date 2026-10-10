@@ -1,4 +1,6 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
+import { getDb } from './container'
+import { ValidationError } from '../errors'
 
 export interface Project {
   id: string
@@ -15,6 +17,8 @@ const PROJECT_WITH_COUNT_SELECT = `
   FROM projects p
   LEFT JOIN thoughts t ON t.project_id = p.id
 `
+
+export const DEFAULT_PROJECT_DELETE_MESSAGE = 'Cannot delete the Default project'
 
 export function listProjects(db: Database): Project[] {
   return db
@@ -46,7 +50,7 @@ export function deleteProject(db: Database, id: string): boolean {
   )?.value
 
   if (defaultProjectId && defaultProjectId === id) {
-    throw new Error('Cannot delete the Default project')
+    throw new ValidationError(DEFAULT_PROJECT_DELETE_MESSAGE)
   }
 
   const run = db.transaction(() => {
@@ -57,6 +61,17 @@ export function deleteProject(db: Database, id: string): boolean {
     return result.changes > 0
   })
   return run()
+}
+
+export function isDefaultProject(db: Database, id: string): boolean {
+  const defaultProjectId = (
+    db.prepare(`SELECT value FROM _meta WHERE key = 'default_project_id'`).get() as { value: string } | undefined
+  )?.value
+  return defaultProjectId === id
+}
+
+export function isDefaultProjectService(id: string, d: Database = getDb()): boolean {
+  return isDefaultProject(d, id)
 }
 
 export function createProject(db: Database, data: {
