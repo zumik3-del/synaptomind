@@ -36,6 +36,20 @@ export function isVecExtensionAvailable(): boolean {
 }
 
 /**
+ * Drop the queued `pending_embeddings` rows of `ids` — the state a thought
+ * reaches once the embedder worker has refreshed its `vec_thoughts` row.
+ *
+ * Seeding a thought queues a row (v035 trigger), so a fixture that inserts a
+ * vector by hand must drain it to model "already embedded": a candidate with a
+ * pending row is deliberately re-embedded live from its current content
+ * (task #1569, R1 freshness), which is what the R1 regression test pins.
+ */
+export function drainPendingEmbeddings(ids: string[]): void {
+	const stmt = getDb().prepare("DELETE FROM pending_embeddings WHERE thought_id = ?");
+	for (const id of ids) stmt.run(id);
+}
+
+/**
  * Run `fn` against a fresh file-backed DB with vec0 loaded, then tear it down.
  * `:memory:` cannot load vec0 (see `src/db/init.ts`), so any test that exercises
  * the vector leg must use this helper. Cleans up even when `fn` throws.

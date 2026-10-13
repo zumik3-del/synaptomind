@@ -6,10 +6,14 @@ import {
   type DetectionCandidate
 } from '../db/edge-detect'
 import { getEdgePairKeys } from '../db/edges'
-import { searchThoughts } from '../db/search'
 import { pairKey } from '../db/utils'
 import { generateEmbeddings } from '../embedder/client'
-import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from './edge-candidates.service'
+import { resolveCandidateEmbeddings } from './candidate-embeddings.service'
+import {
+  buildInMemoryNeighborLookup,
+  findEmbeddingNeighborPairs,
+  type SearchNeighborsFn
+} from './edge-candidates.service'
 
 /**
  * Edge candidate detection (ADR #142, D3).
@@ -132,33 +136,20 @@ export async function detectEdgeProposals(
   const candidates = findDetectionCandidates(d, options.projectId, maxCandidates)
   if (candidates.length < 2) return empty(candidates.length, false)
 
+  // `resolveCandidateEmbeddings` throws on a count mismatch and the catch above
+  // degrades the run, so the returned matrix is always candidate-aligned here.
   let embeddings: Float32Array[]
   try {
-    embeddings = await embed(candidates.map(c => c.content))
+    embeddings = await resolveCandidateEmbeddings(candidates, embed, d)
   } catch (err) {
     console.error('[edge-detect] embedding failed, degrading to no proposals:', err)
     return empty(candidates.length, true)
   }
-  if (embeddings.length !== candidates.length) {
-    console.error(
-      `[edge-detect] embedder returned ${embeddings.length} vectors for ${candidates.length} candidates, degrading`
-    )
-    return empty(candidates.length, true)
-  }
 
-  const searchNeighbors: SearchNeighborsFn =
-    deps.searchNeighbors ??
-    ((_id, embedding, k) => {
-      try {
-        return searchThoughts(d, { embedding, topK: k, statusFilter: 'active', hybrid: false }).map(r => ({
-          id: r.thought.id,
-          similarity: r.similarity
-        }))
-      } catch (err) {
-        console.debug('[edge-detect] neighbour search failed:', err)
-        return []
-      }
-    })
+  // Default: neighbours are ranked in memory from the candidate embedding
+  // matrix (SIMILARITY semantics — `similarity >= minSimilarity`), so a run
+  // issues no vec0 query per candidate. An injected lookup still wins.
+  const searchNeighbors: SearchNeighborsFn = deps.searchNeighbors ?? buildInMemoryNeighborLookup(candidates, embeddings)
 
   const pairs = findEmbeddingNeighborPairs(candidates, embeddings, minSimilarity, searchNeighbors, topK)
     .sort((a, b) => b.embeddingSimilarity - a.embeddingSimilarity)

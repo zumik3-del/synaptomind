@@ -44,6 +44,17 @@ const EMBEDDER_START_TIMEOUT_MS = 300_000
 const EMBEDDER_REQUEST_TIMEOUT_MS = 60_000
 const MAX_PENDING = 256
 
+/**
+ * Texts per `embed_batch` IPC request. The 60 s request timeout is per request,
+ * so an unbounded batch (a job embedding thousands of thoughts at once) used to
+ * die on one slow request with no way to see progress. At the model's ~5-20 ms
+ * per text this chunk is a few seconds at worst — far below the timeout — while
+ * still amortising IPC overhead, and it bounds what a single lost request costs.
+ *
+ * Exported so tests assert against the real value instead of a copy (task #1569).
+ */
+export const EMBEDDER_BATCH_CHUNK = 64
+
 export class EmbedderClient {
   private proc: Subprocess | null = null
   private ready = false
@@ -353,8 +364,21 @@ export class EmbedderClient {
     return this.sendRequest('embed', { text }) as Promise<Float32Array>
   }
 
+  /**
+   * One vector per input text, in input order. The list is sent as
+   * `ceil(N / EMBEDDER_BATCH_CHUNK)` sequential `embed_batch` requests so a
+   * single request can no longer blow the per-request timeout; the requests run
+   * in order, so results stay positionally aligned with `texts`.
+   */
   async generateEmbeddings(texts: string[]): Promise<Float32Array[]> {
+    if (texts.length === 0) return []
     await this.ensureReady()
-    return this.sendRequest('embed_batch', { texts }) as Promise<Float32Array[]>
+    const embeddings: Float32Array[] = []
+    for (let i = 0; i < texts.length; i += EMBEDDER_BATCH_CHUNK) {
+      const chunk = texts.slice(i, i + EMBEDDER_BATCH_CHUNK)
+      const batch = (await this.sendRequest('embed_batch', { texts: chunk })) as Float32Array[]
+      embeddings.push(...batch)
+    }
+    return embeddings
   }
 }
