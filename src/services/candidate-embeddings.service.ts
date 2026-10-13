@@ -19,6 +19,11 @@ interface EmbeddableCandidate {
  * Throws when the embedder returns the wrong number of vectors: `edge-detect`
  * and `auto-link` catch it and degrade to a no-op run, while `auto-cluster`
  * propagates it to its caller.
+ *
+ * A failure of the freshness read itself is NOT an error here: it resolves to
+ * "every candidate is pending", i.e. all of them are embedded live (see
+ * `getPendingEmbeddingIds`). The read therefore cannot turn a transient DB fault
+ * into a failed job, and it still can never serve a stale vector.
  */
 export async function resolveCandidateEmbeddings(
   candidates: EmbeddableCandidate[],

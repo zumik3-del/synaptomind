@@ -4,8 +4,16 @@ import { initDb } from '../db/init'
 import { insertLog } from '../logging'
 import { generateEmbeddings, resetExtractor } from './model'
 import { ensureModelFiles } from './model-validator'
-import { deleteFromQueue, findPendingEmbeddings, handleFailedItem, insertEmbedding, sweepOrphanedThoughts } from './queue'
+import {
+  CONTENT_CHANGED_REASON,
+  deleteFromQueue,
+  findPendingEmbeddings,
+  handleFailedItem,
+  insertEmbedding,
+  sweepOrphanedThoughts
+} from './queue'
 import { handleEmbedderRequest } from './handle-request'
+import { type EmbeddingRow, type FailedRow, type RowOutcome, classifyBatch } from './batch'
 
 const BATCH_SIZE = config.embedder.batchSize
 const MAX_CONSECUTIVE_FAILURES = 5
@@ -46,6 +54,15 @@ function reschedule() {
   pollTimer = setInterval(processBatch, interval)
 }
 
+/** Store one row through `insertEmbedding` and map its outcome for `classifyBatch`. */
+function storeRow(row: EmbeddingRow, embedding: Float32Array): RowOutcome | FailedRow {
+  try {
+    return insertEmbedding(row.id, embedding, row.contentHash) ? 'stored' : 'skipped'
+  } catch (err) {
+    return { id: row.id, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 async function processBatch(): Promise<void> {
   if (batchInFlight) return
   batchInFlight = true
@@ -61,22 +78,15 @@ async function processBatch(): Promise<void> {
     }
 
     const embeddings = await generateEmbeddings(rows.map(r => r.content))
-    const succeeded: string[] = []
-    const failed: { id: string; error: string }[] = []
+    const { succeeded, failed, contentChanged } = classifyBatch(rows, (row, i) => storeRow(row, embeddings[i]))
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]
-      try {
-        insertEmbedding(row.id, embeddings[i], row.contentHash)
-        succeeded.push(row.id)
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        failed.push({ id: row.id, error: msg })
-      }
-    }
-
-    if (succeeded.length > 0) deleteFromQueue(succeeded)
     for (const f of failed) handleFailedItem(f.id, f.error)
+    // A skipped row keeps its queue row (`deleteFromQueue` below only ever sees
+    // `succeeded`), so the worker retries it on the next poll against whatever
+    // the content is by then. The attempt is still recorded, so a row that keeps
+    // changing stays distinguishable from one that was never tried.
+    for (const id of contentChanged) handleFailedItem(id, CONTENT_CHANGED_REASON)
+    if (succeeded.length > 0) deleteFromQueue(succeeded)
 
     if (failed.length > 0 && succeeded.length > 0) {
       insertLog('warning', 'embedding', `${failed.length} of ${rows.length} thought(s) failed, requeued`, {
@@ -89,6 +99,27 @@ async function processBatch(): Promise<void> {
         count: rows.length,
         errors: failed.map(f => ({ id: f.id, error: f.error }))
       })
+    } else if (contentChanged.length === rows.length) {
+      insertLog('warning', 'embedding', `Batch skipped: all ${rows.length} thought(s) changed content mid-batch, requeued`, {
+        skippedCount: contentChanged.length,
+        total: rows.length,
+        reason: CONTENT_CHANGED_REASON,
+        ids: contentChanged
+      })
+    } else if (contentChanged.length > 0) {
+      insertLog(
+        'warning',
+        'embedding',
+        `${contentChanged.length} of ${rows.length} thought(s) changed content mid-batch, requeued`,
+        {
+          skippedCount: contentChanged.length,
+          storedCount: succeeded.length,
+          failedCount: failed.length,
+          total: rows.length,
+          reason: CONTENT_CHANGED_REASON,
+          ids: contentChanged
+        }
+      )
     } else {
       insertLog('info', 'embedding', `Embedded ${rows.length} thought(s)`, {
         count: rows.length,
@@ -96,6 +127,10 @@ async function processBatch(): Promise<void> {
       })
     }
 
+    // Backoff tracks EMBEDDER health, so a content change is not counted: a
+    // read-modify-write burst that touches every row in each batch would
+    // otherwise look like a mass embedder failure and multiply the poll
+    // interval, delaying the very retries that resolve it.
     consecutiveFailures = failed.length === rows.length ? consecutiveFailures + 1 : 0
     const newBackoff = consecutiveFailures >= MAX_CONSECUTIVE_FAILURES ? Math.min(currentBackoff * 2, 64) : 1
     if (newBackoff !== currentBackoff) {

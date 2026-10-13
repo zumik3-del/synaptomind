@@ -210,14 +210,14 @@ describe('R1 freshness — a pending candidate is embedded live, never scored fr
   })
 })
 
-describe('AC5 getPendingEmbeddingIds degradation (fail-closed by design)', () => {
+describe('AC5 getPendingEmbeddingIds degradation (fail-closed AND available)', () => {
   test('an empty id list yields an empty set', async () => {
     await withVecDb(db => {
       expect(getPendingEmbeddingIds(db, [])).toEqual(new Set())
     })
   })
 
-  test('a failed pending read propagates out of the resolver (does NOT degrade to "nothing pending")', async () => {
+  test('a failed pending read degrades to "every candidate is pending" and still serves no stale vector', async () => {
     await withVecDb(async db => {
       const id = seedThought({ content: 'NEW content' })
       storeVec(id, vec(1))
@@ -226,10 +226,11 @@ describe('AC5 getPendingEmbeddingIds degradation (fail-closed by design)', () =>
         id,
         new Date().toISOString()
       )
+      // Break the freshness read only.
       db.exec('ALTER TABLE pending_embeddings RENAME TO pending_embeddings_hidden')
 
       let embedCalls = 0
-      const run = resolveCandidateEmbeddings(
+      const result = await resolveCandidateEmbeddings(
         [{ id, content: 'NEW content' }],
         async texts => {
           embedCalls++
@@ -238,25 +239,28 @@ describe('AC5 getPendingEmbeddingIds degradation (fail-closed by design)', () =>
         db
       )
 
-      // Fail-CLOSED, not fail-open: an empty pending set would silently score the
-      // candidate from its stored vector — exactly the R1 defect. Accepted as
-      // deliberate (orchestrator deviation note on task #1570), so the throw is
-      // asserted as the contract, and "no stale vector served" is the invariant.
-      await expect(run).rejects.toThrow(/pending_embeddings/)
-      expect(embedCalls).toBe(0)
+      // Fail CLOSED but AVAILABLE (task #1572 AC4): a read error must not
+      // degrade to "nothing pending" — that would silently score the candidate
+      // from its stored stale vector (marker 1), the exact R1 defect — and it
+      // must not abort the job either. Every candidate is reported pending, so
+      // the resolver embeds it live (marker 2) and the run survives. The
+      // failure is logged inside `getPendingEmbeddingIds`.
+      expect(markers(result)).toEqual([2])
+      expect(embedCalls).toBe(1)
 
       db.exec('ALTER TABLE pending_embeddings_hidden RENAME TO pending_embeddings')
     })
   })
 
-  test('migrations v009/v035 guarantee `pending_embeddings` exists, so the throwing path is unreachable in production', async () => {
+  test('migrations v009/v035 guarantee `pending_embeddings` exists, so the read-error fallback stays an edge path', async () => {
     await withVecDb(db => {
       const names = db
         .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
         .all() as { name: string }[]
       const present = names.map(n => n.name)
       expect(present).toContain('pending_embeddings')
-      // The read the resolver makes, on a fresh migrated DB: no table-missing error.
+      // The read the resolver makes, on a fresh migrated DB: no read error, so the
+      // "all pending" fallback is not silently masking a missing signal.
       expect(getPendingEmbeddingIds(db, ['missing-id'])).toEqual(new Set())
       expect(getPendingEmbeddingIds(db, [])).toEqual(new Set())
     })

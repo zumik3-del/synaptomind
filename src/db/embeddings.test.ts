@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { createTestDb, withVecDb } from '../test/helpers'
+import { createTestDb, seedThought, withVecDb } from '../test/helpers'
 import { getDb } from './container'
 import { closeDb } from './init'
-import { getThoughtEmbeddingsBatch } from './embeddings'
+import { getPendingEmbeddingIds, getThoughtEmbeddingsBatch } from './embeddings'
 
 afterEach(closeDb)
 
@@ -103,5 +103,59 @@ describe('getThoughtEmbeddingsBatch', () => {
     expect(() => getThoughtEmbeddingsBatch(db, ['a', 'b'])).not.toThrow()
     expect(getThoughtEmbeddingsBatch(db, ['a', 'b']).size).toBe(0)
     expect(getThoughtEmbeddingsBatch(db, []).size).toBe(0)
+  })
+})
+
+/**
+ * Task #1573 (AC7 of the parent #1572) — the freshness signal and its degraded
+ * shape. `pending_embeddings` is the ONLY signal `resolveCandidateEmbeddings`
+ * has for "this stored vector no longer matches the content" (R1, #1569), so the
+ * read must never come back empty on a fault: an empty set would let the
+ * resolver score a candidate from its stale vector. It must not abort the run
+ * either (task #1572 AC4), hence "all pending": every candidate is embedded
+ * live.
+ */
+describe('getPendingEmbeddingIds (freshness signal + read-error fallback)', () => {
+  test('reports exactly the queued ids per candidate set', () => {
+    createTestDb()
+    const db = getDb()
+    const queued = seedThought({ content: 'queued' })
+    const other = seedThought({ content: 'also queued' })
+    // Seeding queues both (v035 trigger); drain one to model "already embedded".
+    db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(other)
+
+    expect(getPendingEmbeddingIds(db, [queued, other])).toEqual(new Set([queued]))
+    expect(getPendingEmbeddingIds(db, [other])).toEqual(new Set())
+    expect(getPendingEmbeddingIds(db, [])).toEqual(new Set())
+  })
+
+  test('a failed pending read reports EVERY requested id as pending instead of throwing', () => {
+    createTestDb()
+    const db = getDb()
+    const first = seedThought({ content: 'first' })
+    const second = seedThought({ content: 'second' })
+    // Precondition: the read works and sees the queued rows.
+    expect(getPendingEmbeddingIds(db, [first, second])).toEqual(new Set([first, second]))
+
+    // Break ONLY the freshness read, exactly as the resolver's own read fails.
+    db.exec('ALTER TABLE pending_embeddings RENAME TO pending_embeddings_hidden')
+
+    // NON-VACUITY: the fixture really does break the read — the pre-#1572 shape
+    // of this read (unguarded SELECT, no try/catch) throws on it, which is the
+    // contract the parent task replaced. Without this check the fallback
+    // assertion below could pass because the rename never took effect.
+    const preFixRead = (id: string): unknown[] =>
+      db.prepare('SELECT thought_id FROM pending_embeddings WHERE thought_id = ?').all(id)
+    expect(() => preFixRead(first)).toThrow(/pending_embeddings/)
+
+    // Shipped contract: fail CLOSED (never "nothing pending") and AVAILABLE.
+    expect(() => getPendingEmbeddingIds(db, [first, second])).not.toThrow()
+    expect(getPendingEmbeddingIds(db, [first, second])).toEqual(new Set([first, second]))
+    // Ids with no queue row at all are reported pending too — the safe direction
+    // is a live re-embed, never a stored vector.
+    expect(getPendingEmbeddingIds(db, ['no-such-thought'])).toEqual(new Set(['no-such-thought']))
+    expect(getPendingEmbeddingIds(db, [])).toEqual(new Set())
+
+    db.exec('ALTER TABLE pending_embeddings_hidden RENAME TO pending_embeddings')
   })
 })

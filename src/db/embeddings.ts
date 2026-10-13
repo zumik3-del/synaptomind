@@ -47,14 +47,28 @@ export function getThoughtEmbeddingsBatch(db: Database, ids: string[]): Map<stri
  * Deliberately unfiltered: `is_error = 1` rows are dead-lettered and NEVER
  * retried, so they keep a vector that no longer matches their content — exactly
  * the permanent case the caller must catch, not skip.
+ *
+ * A FAILED READ fails CLOSED but AVAILABLE: every requested id is reported
+ * pending. The caller (`resolveCandidateEmbeddings`) resolves a pending id by
+ * embedding it live, so "all pending" is safe — it can never score a candidate
+ * from a stale vector — and stays available, whereas throwing degraded the
+ * whole `edge_suggestions` run and failed the auto-cluster job on one transient
+ * fault. The failure is logged, so the missing freshness set leaves a trace
+ * (sibling: `getThoughtEmbeddingsBatch` above, which degrades to "no stored
+ * vectors" and lets the caller embed).
  */
 export function getPendingEmbeddingIds(db: Database, ids: string[]): Set<string> {
   const out = new Set<string>()
   if (ids.length === 0) return out
 
-  const rows = db
-    .prepare(`SELECT thought_id FROM pending_embeddings WHERE thought_id IN (${sqlIn(ids)})`)
-    .all(...(ids as SQLQueryBindings[])) as { thought_id: string }[]
-  for (const row of rows) out.add(row.thought_id)
+  try {
+    const rows = db
+      .prepare(`SELECT thought_id FROM pending_embeddings WHERE thought_id IN (${sqlIn(ids)})`)
+      .all(...(ids as SQLQueryBindings[])) as { thought_id: string }[]
+    for (const row of rows) out.add(row.thought_id)
+  } catch (err) {
+    console.debug('[embeddings] pending_embeddings read failed, treating every candidate as pending:', err)
+    return new Set(ids)
+  }
   return out
 }
