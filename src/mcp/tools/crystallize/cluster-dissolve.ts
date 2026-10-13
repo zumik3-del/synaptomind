@@ -1,4 +1,5 @@
 import { z } from 'zod/v4'
+import { NotFoundError } from '../../../errors'
 import { dissolveClusterService, getClusterThoughtService, listClusterMembersService } from '../../../services/cluster.service'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
@@ -12,7 +13,7 @@ export const clusterDissolveHandler: ActionHandler = {
 
     if (!confirm) {
       const cluster = getClusterThoughtService(clusterId)
-      if (!cluster) throw new Error(`Cluster not found: ${clusterId}`)
+      if (!cluster) throw new NotFoundError(`Cluster not found: ${clusterId}`)
       const members = listClusterMembersService(clusterId)
       return {
         status: 'preview',

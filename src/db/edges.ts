@@ -47,13 +47,9 @@ export function isValidEdgeType(type: string): boolean {
   return VALID_EDGE_TYPES.has(type)
 }
 
-export function getValidEdgeTypes(): string[] {
-  return [...VALID_EDGE_TYPES]
-}
-
 export function createEdge(db: Database, sourceId: string, targetId: string, type: string = 'related'): Edge {
   if (!isValidEdgeType(type)) {
-    throw new InvalidEdgeTypeError(type, getValidEdgeTypes())
+    throw new InvalidEdgeTypeError(type, [...EDGE_TYPES])
   }
   if (type === 'child') {
     throw new ClusterEdgeValidationError(
@@ -162,7 +158,7 @@ function upgradePlaceholderEdge(
  */
 export function validateRetype(db: Database, edge: Edge, newType: string): void {
   if (!isValidEdgeType(newType)) {
-    throw new InvalidEdgeTypeError(newType, getValidEdgeTypes())
+    throw new InvalidEdgeTypeError(newType, [...EDGE_TYPES])
   }
   if (edge.type === newType) {
     throw new ValidationError(`Edge ${edge.id} is already of type '${newType}'`)
@@ -349,64 +345,4 @@ export function getThoughtEdges(
   if (direction === 'upstream') return { thought, upstream, downstream: [] }
   if (direction === 'downstream') return { thought, upstream: [], downstream }
   return { thought, upstream, downstream }
-}
-
-// --- Cluster helpers ---
-
-export function getClusterForThoughtBatch(db: Database, thoughtIds: string[]): Map<string, Thought> {
-  const result = new Map<string, Thought>()
-  if (thoughtIds.length === 0) return result
-  const ph = sqlIn(thoughtIds)
-  const edges = db
-    .prepare(`SELECT target_id, source_id FROM edges WHERE target_id IN (${ph}) AND type = 'cluster'`)
-    .all(...thoughtIds) as Array<{ target_id: string; source_id: string }>
-  if (edges.length === 0) return result
-  const clusterIds = [...new Set(edges.map(e => e.source_id))]
-  const clusterMap = getThoughtsBatchWithTags(db, clusterIds)
-  for (const e of edges) {
-    const cluster = clusterMap.get(e.source_id)
-    if (cluster) result.set(e.target_id, cluster)
-  }
-  return result
-}
-
-/** Cluster thought row by id; undefined when the id is not a cluster. */
-export function getClusterThought(db: Database, id: string): { id: string; content: string } | undefined {
-  return db.prepare(`SELECT * FROM thoughts WHERE id = ? AND is_cluster = 1`).get(id) as
-    | { id: string; content: string }
-    | undefined
-}
-
-export function getClusterMembers(db: Database, clusterId: string): Thought[] {
-  const edges = db.prepare(`
-    SELECT e.target_id
-    FROM edges e
-    INNER JOIN thoughts t ON e.target_id = t.id
-    WHERE e.source_id = ? AND e.type = 'cluster' AND t.status != 'archived'
-  `).all(clusterId) as {
-    target_id: string
-  }[]
-  const members = getThoughtsBatchWithTags(db, edges.map(e => e.target_id))
-  return edges.map(e => members.get(e.target_id)).filter(Boolean) as Thought[]
-}
-
-/**
- * The outgoing `cluster` edge from `clusterId` to `thoughtId`, or `undefined`
- * when the thought is not a member. Read-only counterpart of the membership
- * write paths in cluster.service.ts.
- */
-export function findClusterMemberEdge(db: Database, clusterId: string, thoughtId: string): Edge | undefined {
-  return db
-    .prepare('SELECT * FROM edges WHERE source_id = ? AND target_id = ? AND type = ?')
-    .get(clusterId, thoughtId, 'cluster') as Edge | undefined
-}
-
-/**
- * Bulk-delete every outgoing `cluster` edge of a cluster thought. Returns the
- * number of deleted rows — the single-query counterpart of the former per-edge
- * delete loop in dissolveClusterService.
- */
-export function deleteClusterEdges(db: Database, clusterId: string): number {
-  const result = db.prepare('DELETE FROM edges WHERE source_id = ? AND type = ?').run(clusterId, 'cluster')
-  return result.changes
 }

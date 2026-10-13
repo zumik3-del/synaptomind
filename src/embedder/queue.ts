@@ -66,6 +66,29 @@ export function handleFailedItem(id: string, error: string) {
   }
 }
 
+/**
+ * Why `insertEmbedding` skipped a row, as recorded on the queue row and in the
+ * worker's log. Single-sourced here: the producer (`insertEmbedding` below) and
+ * the batch classifier (`embedder-process.ts`) must not drift apart, since a
+ * mismatch would silently change how a mass content change is reported.
+ *
+ * Deliberately NOT a failure of the embedder: the batch was embedded from
+ * content that is already obsolete, and the next poll re-reads the row, so this
+ * skip is retryable work rather than a fault (see `embedder-process.ts`).
+ */
+export const CONTENT_CHANGED_REASON = 'content changed during batch — embedding skipped, re-queued for retry'
+
+/**
+ * Write the vector for `id`, but only while its content still matches
+ * `expectedHash`.
+ *
+ * Returns `true` when the vector was written, `false` when the row was SKIPPED
+ * because its content changed after the batch was built — in that case NOTHING
+ * is written and the caller must treat the row as unembedded: it may not be
+ * dropped from `pending_embeddings`, because that queue row is the only signal
+ * that the (still stale) `vec_thoughts` vector no longer matches the content
+ * (task #1572). The caller retries it on the next poll.
+ */
 export function insertEmbedding(id: string, embedding: Float32Array, expectedHash: string) {
   const db = getDb()
   const current = db.prepare('SELECT content_hash FROM thoughts WHERE id = ?').get(id) as { content_hash: string } | undefined

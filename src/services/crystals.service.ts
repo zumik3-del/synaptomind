@@ -1,4 +1,5 @@
-import { getAllActiveEdges, getClusterMembers, getClusterThought } from '../db/edges'
+import { getAllActiveEdges } from '../db/edges'
+import { getClusterMembers, getClusterThought } from '../db/cluster-edges'
 import { getDb } from '../db'
 import { createThought, getThought, type Thought } from '../db/thoughts'
 import { ValidationError } from '../errors'

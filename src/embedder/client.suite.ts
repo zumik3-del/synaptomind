@@ -184,3 +184,21 @@ test('a deliberate teardown leaves the state stopped instead of latching failed'
   expect(getEmbedderState()).toBe('stopped')
   expect(getHealthService().checks.embedder).toBe('not ready')
 })
+
+test('generateEmbeddings chunks the batch and returns N vectors in input order', async () => {
+  await startEmbedderProcess()
+
+  // More texts than a single chunk (EMBEDDER_BATCH_CHUNK = 64), and one chunk
+  // boundary crossed exactly: several sequential `embed_batch` requests must be
+  // concatenated back into input order instead of one oversized request.
+  const texts = Array.from({ length: 200 }, (_, i) => 'x'.repeat(i + 1))
+
+  const embeddings = await generateEmbeddings(texts)
+
+  expect(embeddings).toHaveLength(texts.length)
+  // The stub echoes `[text.length, 1, 2]`, so the position of each vector proves
+  // the chunk results stayed aligned with the input.
+  embeddings.forEach((vector, i) => {
+    expect(Array.from(vector)).toEqual([texts[i]!.length, 1, 2])
+  })
+})

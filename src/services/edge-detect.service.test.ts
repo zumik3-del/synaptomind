@@ -1,9 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createEdge } from "../db/edges";
 import { getDb } from "../db/container";
 import { closeDb } from "../db/init";
 import { pairKey } from "../db/utils";
-import { createTestDb, seedEdge, seedThought } from "../test/helpers";
+import { createTestDb, drainPendingEmbeddings, seedEdge, seedThought, withVecDb } from "../test/helpers";
+import * as searchDb from "../db/search";
+import * as vectorSearchDb from "../db/search-vector";
 import {
 	detectEdgeProposals,
 	findDetectionCandidates,
@@ -222,4 +224,236 @@ describe("findDetectionCandidates", () => {
 // Keep the pairKey import meaningful: detection dedupes by canonical pair.
 test("pairKey canonicalises direction for exclusion checks", () => {
 	expect(pairKey("b", "a")).toBe(pairKey("a", "b"));
+});
+
+// ── Stored-vector path: no re-embedding, in-memory neighbours (task #1566) ────
+
+/** Store one 384-dim vector (vec_thoughts is `FLOAT[384]`). */
+function vec384(angle: number): Float32Array {
+	const v = new Float32Array(384);
+	v[0] = Math.cos(angle);
+	v[1] = Math.sin(angle);
+	return v;
+}
+
+/**
+ * Store one vector and drain the candidate's queued re-embed — the state after
+ * the worker refreshed it. A row left in `pending_embeddings` is embedded live
+ * instead (task #1569, R1).
+ */
+function storeVec(id: string, vector: Float32Array): void {
+	getDb()
+		.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`)
+		.run(id, Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength));
+	drainPendingEmbeddings([id]);
+}
+
+describe("stored embeddings", () => {
+	test("makes 0 embedder calls when every candidate already has a vector", async () => {
+		await withVecDb(async () => {
+			const a = seedThought({ content: "alpha" });
+			const b = seedThought({ content: "beta" });
+			storeVec(a, vec384(0));
+			storeVec(b, vec384(Math.acos(0.9)));
+			let embedCalls = 0;
+
+			const result = await detectEdgeProposals(
+				{ minSimilarity: 0.5, maxProposals: 10 },
+				{
+					embed: async texts => {
+						embedCalls++;
+						return texts.map(() => vec384(0));
+					},
+				},
+			);
+
+			expect(embedCalls).toBe(0);
+			expect(result.degraded).toBe(false);
+			expect(result.candidates).toBe(2);
+			expect(result.proposals).toHaveLength(1);
+			expect(result.proposals[0]!.confidence).toBeCloseTo(0.9, 4);
+		});
+	});
+
+	test("embeds only the candidates missing a vector, in candidate order", async () => {
+		await withVecDb(async () => {
+			const a = seedThought({ content: "alpha" });
+			const b = seedThought({ content: "beta" });
+			seedThought({ content: "gamma" });
+			storeVec(a, vec384(0));
+			storeVec(b, vec384(Math.acos(0.9)));
+			const seen: string[][] = [];
+
+			const result = await detectEdgeProposals(
+				{ minSimilarity: 0.5, maxProposals: 10 },
+				{
+					embed: async texts => {
+						seen.push(texts);
+						return texts.map(() => vec384(0));
+					},
+				},
+			);
+
+			expect(seen).toEqual([["gamma"]]);
+			expect(result.degraded).toBe(false);
+			expect(result.candidates).toBe(3);
+		});
+	});
+
+	test("still degrades when the embedder returns the wrong number of vectors", async () => {
+		await withVecDb(async () => {
+			const a = seedThought({ content: "alpha" });
+			seedThought({ content: "beta" });
+			storeVec(a, vec384(0));
+
+			const result = await detectEdgeProposals(
+				{ minSimilarity: 0.5 },
+				{ embed: async () => [] },
+			);
+
+			expect(result.degraded).toBe(true);
+			expect(result.proposals).toEqual([]);
+		});
+	});
+
+	test("default path issues no per-candidate vec0 search", async () => {
+		await withVecDb(async () => {
+			const a = seedThought({ content: "alpha" });
+			const b = seedThought({ content: "beta" });
+			storeVec(a, vec384(0));
+			storeVec(b, vec384(Math.acos(0.9)));
+
+			const searchSpy = spyOn(searchDb, "searchThoughts");
+			const result = await detectEdgeProposals({ minSimilarity: 0.5, maxProposals: 10 });
+
+			expect(searchSpy.mock.calls.length).toBe(0);
+			expect(result.proposals).toHaveLength(1);
+			searchSpy.mockRestore();
+		});
+	});
+});
+
+// ── Coverage, threshold convention, DI seam (task #1567) ─────────────────────
+
+describe("stored-vector regression pins (task #1567)", () => {
+	test("the generated vector joins the stored ones so every candidate is covered", async () => {
+		await withVecDb(async () => {
+			const a = seedThought({ content: "alpha" });
+			const b = seedThought({ content: "beta" });
+			const c = seedThought({ content: "gamma" });
+			storeVec(a, vec384(0));
+			storeVec(b, vec384(Math.acos(0.92)));
+			const seen: string[][] = [];
+
+			const result = await detectEdgeProposals(
+				{ minSimilarity: 0.5, maxProposals: 10 },
+				{
+					embed: async (texts) => {
+						seen.push(texts);
+						// `gamma` is embedded at beta's angle: it pairs with both
+						// stored candidates, so all three must appear in the output.
+						return texts.map(() => vec384(Math.acos(0.92)));
+					},
+				},
+			);
+
+			expect(seen).toEqual([["gamma"]]);
+			expect(result.candidates).toBe(3);
+			expect(
+				new Set(result.proposals.map((p) => pairKey(p.source_id, p.target_id))),
+			).toEqual(new Set([pairKey(a, b), pairKey(a, c), pairKey(b, c)]));
+		});
+	});
+
+	test("minSimilarity is a SIMILARITY threshold, not a distance one", async () => {
+		await withVecDb(async () => {
+			const x = seedThought({ content: "xray" });
+			const y = seedThought({ content: "yankee" });
+			const z = seedThought({ content: "zulu" });
+			// cos(X,Y) = 0.10 (distance 0.90) and cos(X,Z) = 0.92 (distance 0.08):
+			// the pairs straddle the 0.09 threshold symmetrically, so reading a
+			// distance as a similarity drops the 0.92-similarity pair.
+			storeVec(x, vec384(0));
+			storeVec(y, vec384(Math.acos(0.1)));
+			storeVec(z, vec384(-Math.acos(0.92)));
+
+			const result = await detectEdgeProposals({ minSimilarity: 0.09, maxProposals: 10 });
+
+			expect(
+				new Set(result.proposals.map((p) => pairKey(p.source_id, p.target_id))),
+			).toEqual(new Set([pairKey(x, y), pairKey(x, z)]));
+			// Y-Z is at cosine -0.30: below the threshold on both conventions.
+			expect(result.proposals).toHaveLength(2);
+		});
+	});
+
+	test("an injected searchNeighbors overrides the in-memory default", async () => {
+		await withVecDb(async () => {
+			const a = seedThought({ content: "alpha" });
+			const b = seedThought({ content: "beta" });
+			// Orthogonal vectors: the in-memory lookup reports ~0 similarity and
+			// emits nothing, so a proposal can only come from the injected lookup.
+			storeVec(a, vec384(0));
+			storeVec(b, vec384(Math.PI / 2));
+
+			const plain = await detectEdgeProposals({ minSimilarity: 0.09, maxProposals: 10 });
+			expect(plain.proposals).toEqual([]);
+
+			let calls = 0;
+			const injected = (id: string): EmbeddingNeighbor[] => {
+				calls++;
+				return [{ id: id === a ? b : a, similarity: 0.99 }];
+			};
+			const overridden = await detectEdgeProposals(
+				{ minSimilarity: 0.09, maxProposals: 10 },
+				{ searchNeighbors: injected },
+			);
+
+			expect(calls).toBe(2);
+			expect(overridden.proposals).toHaveLength(1);
+			expect(overridden.proposals[0]!.confidence).toBeCloseTo(0.99, 5);
+		});
+	});
+
+	test("the default path runs no vec0 neighbour query (spy + positive control)", async () => {
+		await withVecDb(async () => {
+			const a = seedThought({ content: "alpha" });
+			const b = seedThought({ content: "beta" });
+			storeVec(a, vec384(0));
+			storeVec(b, vec384(Math.acos(0.9)));
+
+			const vectorSpy = spyOn(vectorSearchDb, "vecSearchIds");
+			try {
+				const result = await detectEdgeProposals({ minSimilarity: 0.5, maxProposals: 10 });
+				expect(result.proposals).toHaveLength(1);
+				const afterRun = vectorSpy.mock.calls.length;
+
+				// Positive control: the spy does observe this query path, so a
+				// count of 0 during the service run is evidence, not a dead spy.
+				searchDb.searchThoughts(getDb(), { embedding: vec384(0), topK: 1 });
+				expect(vectorSpy.mock.calls.length).toBeGreaterThan(afterRun);
+				expect(afterRun).toBe(0);
+			} finally {
+				vectorSpy.mockRestore();
+			}
+		});
+	});
+
+	test("without vec_thoughts the in-memory path still proposes pairs (:memory:)", async () => {
+		createTestDb();
+		seedThought({ content: "alpha" });
+		seedThought({ content: "beta" });
+
+		// Pre-change this run produced no proposals: every neighbour query threw
+		// (no vec_thoughts) and the per-candidate catch returned []. The batch
+		// read now degrades to "no stored vectors" and compares in memory.
+		const result = await detectEdgeProposals(
+			{ minSimilarity: 0.09, maxProposals: 10 },
+			{ embed: async (texts) => texts.map(() => vec384(0)) },
+		);
+
+		expect(result.degraded).toBe(false);
+		expect(result.candidates).toBe(2);
+		expect(result.proposals).toHaveLength(1);
+	});
 });

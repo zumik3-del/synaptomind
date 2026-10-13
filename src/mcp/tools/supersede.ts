@@ -1,5 +1,6 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { NotFoundError } from '../../errors'
 import {
   getThoughtById,
   archiveThoughtById,
@@ -13,7 +14,7 @@ const handlers = {
     input: z.object({ thought_id: requiredString('thought_id is required for archive action') }),
     run(args: ActionArgs) {
       const existing = getThoughtById(args.thought_id as string)
-      if (!existing) throw new Error(`Thought '${args.thought_id}' not found`)
+      if (!existing) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
       if (existing.status === 'archived') {
         return existing
       }

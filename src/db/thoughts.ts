@@ -294,6 +294,14 @@ export function listThoughts(db: Database, options: ListThoughtsOptions = {}): T
   return rows.map(r => ({ ...rowToThought(r), tags: tagMap.get(r.id as string) ?? [] }))
 }
 
+/**
+ * Every thought eligible for auto-clustering, newest first.
+ *
+ * shortcut: the pool is unbounded (no LIMIT), while the in-memory neighbour
+ * lookup scores it as an O(N^2) matrix (~36 MB at N=3000); upgrade to a bounded
+ * pool or a streaming lookup when a deployment reaches a few thousand eligible
+ * thoughts (task #1569, O5).
+ */
 export function listClusterCandidates(db: Database, minAgeDays: number): ClusterCandidate[] {
   const cutoff = new Date(Date.now() - minAgeDays * 86400000).toISOString()
   const rows = db

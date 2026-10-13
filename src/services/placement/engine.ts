@@ -29,11 +29,15 @@ import { getThoughtRow, type Thought } from '../../db/thoughts'
 import { pairKey } from '../../db/utils'
 import { generateEmbeddings } from '../../embedder/client'
 import { NotFoundError, ValidationError } from '../../errors'
-import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from '../edge-candidates.service'
+import { resolveCandidateEmbeddings } from '../candidate-embeddings.service'
+import {
+  buildInMemoryNeighborLookup,
+  findEmbeddingNeighborPairs,
+  type SearchNeighborsFn
+} from '../edge-candidates.service'
 import { classifyEdgeType } from './edge-type-rules'
 import { decideLifecycle, findMergeTarget, keepLifecycle } from './lifecycle'
 import { buildCandidatePool, proposePlacement } from './placement'
-import { defaultSearchNeighbors } from './search-neighbors'
 import { extractPairSignals } from './signals'
 import type { EdgeProposal, PlacementPlan, PlacementProposal } from './types'
 
@@ -73,8 +77,6 @@ export interface PlacementPlanDeps {
   searchNeighbors?: SearchNeighborsFn
 }
 
-type EmbedFn = (texts: string[]) => Promise<Float32Array[]>
-
 /**
  * Resolve the analysed thought: an existing row by id, or a synthetic draft row
  * built from `content`. Throws only on invalid *input* (missing thought, bad
@@ -106,23 +108,6 @@ function resolveThought(input: PlacementPlanInput, options: PlacementPlanOptions
     }
   }
   throw new ValidationError('provide either thoughtId (existing thought) or content (draft)')
-}
-
-/**
- * Single-pass embedding cache. The engine and the placement proposer share the
- * exact same candidate pool, so memoizing by the joined candidate texts keeps
- * one embedder round-trip and one coherent snapshot for both.
- */
-function memoizeEmbed(embed: EmbedFn): EmbedFn {
-  const cache = new Map<string, Float32Array[]>()
-  return async texts => {
-    const key = texts.join('\u0000')
-    const cached = cache.get(key)
-    if (cached) return cached
-    const result = await embed(texts)
-    cache.set(key, result)
-    return result
-  }
 }
 
 /**
@@ -165,7 +150,7 @@ export async function proposePlacementPlan(
   const topK = options.topK ?? config.edgeDetect.topK
   const maxCandidates = options.maxCandidates ?? config.edgeDetect.maxCandidates
   const maxProposals = options.maxProposals ?? config.edgeDetect.maxProposals
-  const embed = memoizeEmbed(deps.embed ?? generateEmbeddings)
+  const embed = deps.embed ?? generateEmbeddings
 
   const pool = buildCandidatePool(d, thought, projectId, maxCandidates)
   const byId = new Map(pool.map(t => [t.id, t]))
@@ -174,14 +159,15 @@ export async function proposePlacementPlan(
   let degraded = false
   let pairs: ReturnType<typeof findEmbeddingNeighborPairs> = []
   try {
-    const embeddings = await embed(pool.map(t => t.content))
-    if (embeddings.length !== pool.length) {
-      console.error(`[placement] embedder returned ${embeddings.length} vectors for ${pool.length} candidates, degrading`)
-      degraded = true
-    } else {
-      const searchNeighbors = deps.searchNeighbors ?? defaultSearchNeighbors(d, projectId)
-      pairs = findEmbeddingNeighborPairs(pool, embeddings, minSimilarity, searchNeighbors, topK)
-    }
+    // Stored `vec_thoughts` vectors cover the pool: only a candidate without a
+    // current one (no row at all, or queued in `pending_embeddings`) reaches the
+    // embedder, so an already-embedded pool costs zero embedder calls.
+    const embeddings = await resolveCandidateEmbeddings(pool, embed, d)
+    // Default: neighbours are ranked in memory from that matrix (SIMILARITY
+    // semantics — `similarity >= minSimilarity`), so a run issues no vec0 query
+    // per candidate. An injected lookup still wins.
+    const searchNeighbors = deps.searchNeighbors ?? buildInMemoryNeighborLookup(pool, embeddings)
+    pairs = findEmbeddingNeighborPairs(pool, embeddings, minSimilarity, searchNeighbors, topK)
   } catch (err) {
     console.error('[placement] embedding failed, degrading to lexical-only signals:', err)
     degraded = true

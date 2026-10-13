@@ -3,11 +3,15 @@ import { findLinkCandidates as dbFindLinkCandidates, type LinkCandidate } from '
 import { createEdge, type Edge } from '../db/edges'
 import { getDb } from '../db'
 import { recordJobRun } from '../db/meta'
-import { searchThoughts } from '../db/search'
 import { pairKey } from '../db/utils'
 import { generateEmbeddings } from '../embedder/client'
 import { insertLog } from '../logging/log'
-import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from './edge-candidates.service'
+import { resolveCandidateEmbeddings } from './candidate-embeddings.service'
+import {
+  buildInMemoryNeighborLookup,
+  findEmbeddingNeighborPairs,
+  type SearchNeighborsFn
+} from './edge-candidates.service'
 import type { Database } from 'bun:sqlite'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -33,14 +37,16 @@ interface AutoLinkResult {
   pairs: CandidatePair[]
 }
 
-/** Injected dependencies for testing. */
+/**
+ * Injected dependencies for testing. `searchNeighbors` carries the shared
+ * SIMILARITY-shaped lookup type (`edge-detect` already declared this shape, and
+ * every neighbour score here is compared against `autoLink.minSimilarity`, a
+ * similarity threshold); the old `{ id, distance }` declaration was never
+ * callable with the shared pair generator.
+ */
 export interface AutoLinkDeps {
   embed?: (texts: string[]) => Promise<Float32Array[]>
-  searchNeighbors?: (
-    thoughtId: string,
-    embedding: Float32Array,
-    topK: number
-  ) => Array<{ id: string; distance: number }>
+  searchNeighbors?: SearchNeighborsFn
 }
 
 // ── Candidate selection ──────────────────────────────────────────────────────
@@ -132,24 +138,14 @@ export async function runAutoLinkJob(
   }
 
   // 2. Embedding pairs (requires embedding generation). Pair discovery is
-  // delegated to the shared `edge-candidates.service`; only the vector-search
-  // adapter and the score mapping are local to this caller.
+  // delegated to the shared `edge-candidates.service`; the default neighbour
+  // lookup ranks the candidate embeddings in memory (SIMILARITY semantics —
+  // `similarity >= minSimilarity`), so no vec0 query runs per candidate.
   let embeddingPairs: CandidatePair[] = []
   try {
-    const embeddings = await embed(candidates.map(c => c.content))
-    const searchNeighbors: SearchNeighborsFn = (_id, embedding) => {
-      try {
-        return searchThoughts(d, {
-          embedding,
-          topK: 20,
-          statusFilter: 'active',
-          hybrid: false
-        }).map(r => ({ id: r.thought.id, similarity: r.similarity }))
-      } catch {
-        // vec_thoughts may not exist in :memory: tests — skip this candidate
-        return []
-      }
-    }
+    const embeddings = await resolveCandidateEmbeddings(candidates, embed, d)
+    const searchNeighbors: SearchNeighborsFn =
+      deps.searchNeighbors ?? buildInMemoryNeighborLookup(candidates, embeddings)
     embeddingPairs = findEmbeddingNeighborPairs(candidates, embeddings, minSimilarity, searchNeighbors).map(
       p => ({
         source_id: p.source_id,

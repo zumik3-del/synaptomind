@@ -1,4 +1,4 @@
-import { pipeline } from '@huggingface/transformers'
+import { env, pipeline } from '@huggingface/transformers'
 import { config } from '../config'
 import { insertLog } from '../logging'
 
@@ -8,6 +8,14 @@ let extractor: Awaited<ReturnType<typeof loadExtractor>> | null = null
 let loading: Promise<void> | null = null
 
 async function loadExtractor() {
+  // Work around transformers.js v4.2.0 bug: pipeline() drops cache_dir when
+  // resolving internal file lists, causing a stray config.json fetch that
+  // tries to write to Bun's read-only /$bunfs VFS (EROFS). Setting env here
+  // ensures all internal cache lookups use the correct cache directory.
+  env.cacheDir = config.embedder.cacheDir
+  env.localModelPath = config.embedder.cacheDir
+  env.useBrowserCache = false
+  env.useFSCache = true
   return await pipeline('feature-extraction', config.embedder.model, {
     cache_dir: config.embedder.cacheDir,
     dtype: 'fp32',

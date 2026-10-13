@@ -1,11 +1,12 @@
 import { config } from '../config'
 import { getDb } from '../db'
 import { getLastJobRun, recordJobRun } from '../db/meta'
-import { searchThoughts } from '../db/search'
 import { type ClusterCandidate, listClusterCandidates } from '../db/thoughts'
 import { generateEmbeddings } from '../embedder/client'
 import { insertLog } from '../logging/log'
+import { resolveCandidateEmbeddings } from './candidate-embeddings.service'
 import { createClusterService } from './cluster.service'
+import { buildInMemoryDistanceLookup } from './edge-candidates.service'
 import type { Database } from 'bun:sqlite'
 
 export interface AutoClusterOptions {
@@ -98,11 +99,15 @@ export function groupCandidates(
   ).filter(g => g.length >= minMembers)
 }
 
-const defaultSearchNeighbors = (db: Database): NonNullable<AutoClusterDeps['searchNeighbors']> => {
-  return (_candidateId, embedding, topK) => {
-    const results = searchThoughts(db, { embedding, topK, clusterFilter: 'exclude' })
-    return results.map(r => ({ id: r.thought.id, distance: r.distance }))
-  }
+const defaultSearchNeighbors = (
+  candidates: ClusterCandidate[],
+  embeddings: Float32Array[]
+): NonNullable<AutoClusterDeps['searchNeighbors']> => {
+  // Default: rank the candidates in memory (`distance = 1 - cosineSimilarity`).
+  // Asking the lookup for every neighbour (`topK`) keeps the single distance
+  // filter in `neighborFn` the only threshold the run applies.
+  const lookup = buildInMemoryDistanceLookup(candidates, embeddings)
+  return (_candidateId, _embedding, topK) => lookup(_candidateId, topK)
 }
 
 function recordRun(result: AutoClusterResult, db: Database): void {
@@ -131,7 +136,6 @@ export async function runAutoClusterJob(
   const dryRun = options.dryRun ?? config.autoCluster.dryRun
 
   const embed = deps.embed ?? generateEmbeddings
-  const searchNeighbors = deps.searchNeighbors ?? defaultSearchNeighbors(d)
 
   const candidates = listClusterCandidates(d, minAgeDays)
   if (candidates.length === 0) {
@@ -140,7 +144,8 @@ export async function runAutoClusterJob(
     return empty
   }
 
-  const embeddings = await embed(candidates.map(c => c.content))
+  const embeddings = await resolveCandidateEmbeddings(candidates, embed, d)
+  const searchNeighbors = deps.searchNeighbors ?? defaultSearchNeighbors(candidates, embeddings)
 
   const neighborFn = (thoughtId: string): string[] => {
     const idx = candidates.findIndex(c => c.id === thoughtId)
