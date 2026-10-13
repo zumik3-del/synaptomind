@@ -1,11 +1,15 @@
 # Changelog
 
+## v0.11.0
+
+> October 13, 2026
+
+- [`524c872`](https://github.com/zumik3-del/synaptomind/commit/524c872d2659db02b9e42150174dcec1865d7422): chore(repo): ignore agent scratch and worktree dirs
+
 ## v0.10.0
 
-> October 9, 2026
+> October 7, 2026
 
-- [`d14a4c9`](https://github.com/zumik3-del/synaptomind/commit/d14a4c96b7a986642b50e16bd4b216981903dfc7): feat(search): add is_global thought flag for global search inclusion
-- [`f2d48aa`](https://github.com/zumik3-del/synaptomind/commit/f2d48aadbc13c888371a7b876d198997e35229eb): refactor: apply SOLID/KISS/DRY audit fixes (tasks #1473-#1483)
 - [`672ba53`](https://github.com/zumik3-del/synaptomind/commit/672ba53c8f9cb286829daac684434b06a0f96367): fix(deps): add proxy-addr override to pin transitive express dependency (#176)
 - [`ac01e20`](https://github.com/zumik3-del/synaptomind/commit/ac01e20d9d0423ada28c3891b90b2e6757075760): fix(deps): update MCP SDK, proxy-addr, and sharp to address new CVEs (#175)
 - [`ccf7da5`](https://github.com/zumik3-del/synaptomind/commit/ccf7da588655c833db0cf7a939d3be6121bd91b8): fix(deps): pin fast-uri to 3.1.7 to address CVE-2026-84292 and CVE-2026-84394 (#174)
