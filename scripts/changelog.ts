@@ -38,23 +38,23 @@ function formatDate(dateStr: string): string {
 }
 
 /**
- * Walk commits in range using --first-parent --no-merges so that squash-merged
- * duplicates (the original dev commit + its PR squash on main) collapse into a
- * single entry. This is the right choice because the new release flow lands on
- * main via squash-merge: the first-parent chain follows the merge commit's
- * parent on the target branch (main), skipping the side-branch squashes.
+ * Build the section for `tag` out of the commits in `range`.
+ *
+ * No `--first-parent` here on purpose: releases land on the target branch via
+ * MERGE COMMITS, so the dev-side commits sit on the merge's SECOND parent and a
+ * first-parent walk would silently drop them. `--no-merges` still keeps merge
+ * commits themselves out of the listing.
  */
 function buildSection(tag: string, range: string): string {
   const output = git(
-    `log ${range} --first-parent --no-merges --pretty=format:'%h|%H|%ad|%s' --date=short`,
+    `log ${range} --no-merges --pretty=format:'%h|%H|%ad|%s' --date=short`,
   );
   if (!output) return "";
 
   let section = `\n## ${tag}\n\n`;
-  const lines = output.split("\n");
   let first = true;
 
-  for (const line of lines) {
+  for (const line of output.split("\n")) {
     const parts = line.split("|");
     if (parts.length < 4) continue;
 
@@ -76,49 +76,155 @@ function buildSection(tag: string, range: string): string {
   return section;
 }
 
-let md = "# Changelog\n";
+// ── Read the existing changelog as released history ──────────────────────────
+// Released sections are a historical record: they were produced by the subject
+// heuristic of their time and cannot be reproduced from today's git state, so
+// they are copied over verbatim and never rebuilt. Only the pending (leading)
+// section is generated.
+const HEADING_RE = /^##[ \t]+/;
 
-// Pending (unreleased) section — emitted whenever the working tree has a
-// package.json version that differs from the latest tag (i.e. the version
-// has been bumped but not yet tagged). After the tag is pushed, HEAD == tag
-// and the versions match again, so the pending section disappears naturally.
+/** Split `content` into its preamble and its `## ` sections, in file order. */
+function splitSections(content: string): { preamble: string; sections: string[] } {
+  const fallback = { preamble: "# Changelog\n", sections: [] as string[] };
+  if (!content.length) return fallback;
+
+  const lines = content.split("\n");
+  const firstHeading = lines.findIndex((line) => HEADING_RE.test(line));
+  if (firstHeading === -1) return fallback;
+
+  const preamble = lines.slice(0, firstHeading).join("\n");
+  const sections: string[] = [];
+  let current: string[] = [];
+  for (const line of lines.slice(firstHeading)) {
+    if (HEADING_RE.test(line) && current.length) {
+      sections.push(current.join("\n"));
+      current = [];
+    }
+    current.push(line);
+  }
+  if (current.length) sections.push(current.join("\n"));
+
+  return { preamble, sections };
+}
+
+/** Section heading of `section` (its first line), used to identify sections. */
+function headingOf(section: string): string {
+  return section.split("\n")[0].trim();
+}
+
+/**
+ * Compare two semver-ish versions (numeric parts first, then the prerelease
+ * part, where a version without a prerelease outranks one with it). Enough to
+ * tell whether `a` is older than `b`; build metadata is ignored.
+ */
+function compareVersions(a: string, b: string): number {
+  const parse = (v: string) => {
+    const [core, ...pre] = v.replace(/^v/, "").split("-");
+    return {
+      nums: core.split(".").map((part) => Number.parseInt(part, 10) || 0),
+      pre: pre.join("-"),
+    };
+  };
+  const left = parse(a);
+  const right = parse(b);
+  for (let i = 0; i < Math.max(left.nums.length, right.nums.length); i++) {
+    const diff = (left.nums[i] ?? 0) - (right.nums[i] ?? 0);
+    if (diff !== 0) return diff < 0 ? -1 : 1;
+  }
+  if (left.pre === right.pre) return 0;
+  if (!left.pre) return 1;
+  if (!right.pre) return -1;
+  return left.pre < right.pre ? -1 : 1;
+}
+
+const existing = (() => {
+  try {
+    return readFileSync("CHANGELOG.md", "utf8");
+  } catch {
+    return "";
+  }
+})();
+
 const latestTag = tags[tags.length - 1];
 const taggedVersion = latestTag.replace(/^v/, "");
-const isPending = version !== taggedVersion;
+const currentVersionHeading = `## v${version}`;
+const compare = compareVersions(version, taggedVersion);
+// Only a version AHEAD of the latest tag is pending. A version at or behind it
+// is already released: regenerating it would rebuild a published section from a
+// range that contains newer commits.
+const isPending = compare > 0;
+
+// Refuse to run behind the latest tag: that is the state in which the old
+// implementation silently rewrote published history.
+if (compare < 0) {
+  console.error(
+    `ERROR: package.json version ${version} is older than the latest tag ${latestTag}.`,
+  );
+  console.error(
+    "       Release versions only move forward; refusing to regenerate CHANGELOG.md.",
+  );
+  process.exit(1);
+}
+
+// Released sections, newest-first and verbatim.
+const { preamble, sections } = splitSections(existing);
+const hasCurrentVersionSection = sections.some(
+  (section) => headingOf(section) === currentVersionHeading,
+);
+
+let md = "# Changelog\n";
+
 if (isPending) {
-  const pending = buildSection(`v${version}`, `${latestTag}..HEAD`);
-  if (pending) {
-    md += pending;
-  } else {
-    // No new commits yet — still show the section header so the pending
-    // version appears at the top of the file (release.sh prints next steps).
-    md += `\n## v${version}\n\n> (no unreleased commits)\n`;
+  // Pending (unreleased) section: the version was bumped but not yet tagged, so
+  // the range starts at the latest tag. Any stale section of the same version
+  // is dropped — it is about to be regenerated below. With no new commits yet,
+  // still show the header so the version appears at the top of the file
+  // (release.sh prints it).
+  md +=
+    buildSection(`v${version}`, `${latestTag}..HEAD`) ||
+    `\n${currentVersionHeading}\n\n> (no unreleased commits)\n`;
+  md += sections
+    .filter((section) => headingOf(section) !== currentVersionHeading)
+    .map((section) => `\n${section}`)
+    .join("");
+} else {
+  // The version is already tagged: its section in the file is the released
+  // record, copied over untouched (never rebuilt, never duplicated).
+  if (!hasCurrentVersionSection) {
+    // Released section missing from the file (e.g. a fresh tag): emit the
+    // header so the version is not silently absent, but never invent entries.
+    md += `\n${currentVersionHeading}\n`;
+  }
+  md += sections.map((section) => `\n${section}`).join("");
+}
+
+// Oldest-tag fallback: with a single tag there is no tag pair to build a range
+// from, so emit the initial-release stub unless the file already carries it.
+if (tags.length === 1) {
+  const oldestTag = tags[0];
+  const alreadyPresent = sections.some(
+    (section) => section.split("\n")[0].trim() === `## ${oldestTag}`,
+  );
+  if (!alreadyPresent) {
+    const oldestDate = git(`log -1 --format='%ad' --date=short ${oldestTag}`);
+    md += `\n## ${oldestTag}\n\n> ${formatDate(oldestDate)}\n\n- Initial release\n`;
   }
 }
 
-// Released sections: walk backwards through consecutive tag pairs.
-// Start at tags.length - 1 so the latest tag always gets its own section.
-for (let i = tags.length - 1; i >= 0; i--) {
-  const tag = tags[i];
-  const prevTag = tags[i - 1];
-  if (!prevTag) continue; // oldest tag has no predecessor — handled by fallback
-  const section = buildSection(tag, `${prevTag}..${tag}`);
-  if (section) md += section;
+if (!preamble.includes("# Changelog")) {
+  console.warn("WARN: existing CHANGELOG.md has no top-level \"# Changelog\" heading.");
+}
+/** Report the outcome; `!isPending` means no section was regenerated. */
+function report(outcome: string): void {
+  console.log(outcome);
+  if (!isPending) {
+    console.log(`v${version} is already released (tag ${latestTag}); preserved verbatim.`);
+  }
 }
 
-// Oldest-tag fallback (only when there is exactly 1 tag).
-if (tags.length === 1) {
-  const oldestTag = tags[0];
-  const oldestDate = git(`log -1 --format='%ad' --date=short ${oldestTag}`);
-  md += `\n## ${oldestTag}\n\n> ${formatDate(oldestDate)}\n\n- Initial release\n`;
+if (md === existing) {
+  report("Changelog unchanged, skipping commit.");
+} else {
+  writeFileSync("CHANGELOG.md", md);
+  report("CHANGELOG.md updated.");
 }
-
-writeFileSync("CHANGELOG.md", md);
-
-const afterPorcelain = git("status --porcelain");
-if (!afterPorcelain.length) {
-  console.log("Changelog unchanged, skipping commit.");
-  process.exit(0);
-}
-
-console.log("CHANGELOG.md updated.");
