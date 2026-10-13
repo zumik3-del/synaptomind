@@ -197,8 +197,11 @@ describe('#1574 pin probes', () => {
 				edges: p.edges.map(e => `${e.target_id}@${e.confidence.toFixed(6)}`).sort(),
 				lifecycle: p.lifecycle.action
 			})
-			// The developer's reported fixture output, verbatim.
-			const expected = {
+			// The developer's reported fixture output, verbatim. Annotated (not
+			// inferred) so `kind`/`lifecycle` keep their literal-union types: a bare
+			// object literal widens them to `string`, which `toEqual<T>(expected: T)`
+			// rejects against the received union type.
+			const expected: ReturnType<typeof project> = {
 				kind: 'cluster',
 				target: cluster,
 				edges: [`${member}@0.900000`, `${other}@0.800000`, `${root}@0.700000`].sort(),
