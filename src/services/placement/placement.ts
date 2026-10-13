@@ -10,7 +10,10 @@
  *
  * Reuse (ADR §2.2, "must not duplicate"):
  *   - pair generation → `edge-candidates.service.ts`
- *   - embedding ranking → `searchThoughts`
+ *   - candidate vectors → `resolveCandidateEmbeddings` (stored `vec_thoughts`
+ *     rows; the embedder runs only for candidates without a current one)
+ *   - embedding ranking → the in-memory candidate matrix
+ *     (`buildInMemoryNeighborLookup`, no vec0 query per candidate)
  *   - cluster membership → `getClusterForThoughtBatch` / `getClusterMembers`
  *   - hierarchy lookup  → `getThoughtEdges`
  *
@@ -27,8 +30,12 @@ import { getThoughtEdges } from '../../db/edges'
 import { listThoughts, type Thought } from '../../db/thoughts'
 import { generateEmbeddings } from '../../embedder/client'
 import { clamp01 } from '../../utils'
-import { findEmbeddingNeighborPairs, type SearchNeighborsFn } from '../edge-candidates.service'
-import { defaultSearchNeighbors } from './search-neighbors'
+import { resolveCandidateEmbeddings } from '../candidate-embeddings.service'
+import {
+  buildInMemoryNeighborLookup,
+  findEmbeddingNeighborPairs,
+  type SearchNeighborsFn
+} from '../edge-candidates.service'
 import type { PlacementProposal } from './types'
 
 /** Directed hierarchy edge types that make a thought a chain node. */
@@ -198,6 +205,33 @@ function proposeParent(d: Database, neighbors: ScoredNeighbor[], reasons: string
 }
 
 /**
+ * Observe the single live embedder call {@link resolveCandidateEmbeddings} makes.
+ *
+ * The shared resolver reports a failing embedder and a vector-count mismatch
+ * with the same thrown error, while this proposer keeps two distinct
+ * degradation reasons for its caller — so the one live call is measured here
+ * instead of re-deriving which candidates were missing.
+ */
+function observeEmbed(embed: (texts: string[]) => Promise<Float32Array[]>): {
+  embed: (texts: string[]) => Promise<Float32Array[]>
+  countMismatch: () => boolean
+} {
+  let expected = 0
+  let produced = 0
+  let returned = false
+  return {
+    embed: async texts => {
+      expected = texts.length
+      const vectors = await embed(texts)
+      produced = vectors.length
+      returned = true
+      return vectors
+    },
+    countMismatch: () => returned && produced !== expected
+  }
+}
+
+/**
  * Propose where one thought belongs, or `null` with a reason. Read-only: the
  * result is an advisory {@link PlacementProposal} (cluster then parent
  * precedence) and no edge/cluster/lifecycle mutation is performed. Never
@@ -225,21 +259,26 @@ export async function proposePlacement(
     pairs = options.precomputedPairs
   } else {
     const pool = buildCandidatePool(d, thought, projectId, maxCandidates)
-    const embed = deps.embed ?? generateEmbeddings
+    const observed = observeEmbed(deps.embed ?? generateEmbeddings)
 
     let embeddings: Float32Array[]
     try {
-      embeddings = await embed(pool.map(t => t.content))
+      // Stored `vec_thoughts` vectors cover the pool: only a candidate without a
+      // current one (no row at all, or queued in `pending_embeddings`) reaches
+      // the embedder, so an already-embedded pool costs zero embedder calls.
+      embeddings = await resolveCandidateEmbeddings(pool, observed.embed, d)
     } catch (err) {
       console.error('[placement] embedding failed, no placement proposed:', err)
-      return noPlacement('embedder unavailable')
-    }
-    if (embeddings.length !== pool.length) {
-      console.error(`[placement] embedder returned ${embeddings.length} vectors for ${pool.length} candidates`)
-      return noPlacement('embedder returned a mismatched number of vectors')
+      return noPlacement(
+        observed.countMismatch() ? 'embedder returned a mismatched number of vectors' : 'embedder unavailable'
+      )
     }
 
-    const searchNeighbors: SearchNeighborsFn = deps.searchNeighbors ?? defaultSearchNeighbors(d, projectId)
+    // Default: neighbours are ranked in memory from that matrix (SIMILARITY
+    // semantics — `similarity >= minSimilarity`), so a run issues no vec0 query
+    // per candidate. An injected lookup still wins.
+    const searchNeighbors: SearchNeighborsFn =
+      deps.searchNeighbors ?? buildInMemoryNeighborLookup(pool, embeddings)
 
     pairs = findEmbeddingNeighborPairs(pool, embeddings, minSimilarity, searchNeighbors, topK)
   }
