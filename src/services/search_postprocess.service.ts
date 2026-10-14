@@ -1,7 +1,7 @@
 import { attemptPromote, getPrimerByThoughtId, getPrimerIds, promoteThoughtToPrimer } from '../db/primers'
 import { getDb } from '../db'
 import type { SearchResult } from '../db/search'
-import { getThoughtImportance, incrementHitCount } from '../db/thoughts'
+import { getThoughtImportance, incrementHitCount } from '../db/importance'
 import type { GroupedResult } from './search.service'
 import type { Database } from 'bun:sqlite'
 

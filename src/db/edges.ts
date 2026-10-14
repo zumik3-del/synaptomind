@@ -8,7 +8,8 @@ import {
   InvalidEdgeTypeError
 } from './errors'
 import { NotFoundError, ValidationError } from '../errors'
-import { boostImportance, getThoughtRow, getThoughtsBatchWithTags, type Thought } from './thoughts'
+import { boostImportance } from './importance'
+import { getThoughtRow, getThoughtsBatchWithTags, type Thought } from './thoughts'
 import { sqlIn, pairKey } from './utils'
 
 export { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError, InvalidEdgeTypeError }

@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { boostImportance } from './thoughts'
+import { boostImportance } from './importance'
 
 export interface Primer {
   id: string
