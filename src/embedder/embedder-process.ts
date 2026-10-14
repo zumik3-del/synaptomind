@@ -1,3 +1,4 @@
+import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { getDb } from '../db/container'
 import { initDb } from '../db/init'
@@ -10,8 +11,9 @@ import {
   findPendingEmbeddings,
   handleFailedItem,
   insertEmbedding,
+  requeueEmbeddings,
   sweepOrphanedThoughts
-} from './queue'
+} from '../db/pending-embeddings'
 import { handleEmbedderRequest } from './handle-request'
 import { type EmbeddingRow, type FailedRow, type RowOutcome, classifyBatch } from './batch'
 
@@ -55,9 +57,9 @@ function reschedule() {
 }
 
 /** Store one row through `insertEmbedding` and map its outcome for `classifyBatch`. */
-function storeRow(row: EmbeddingRow, embedding: Float32Array): RowOutcome | FailedRow {
+function storeRow(db: Database, row: EmbeddingRow, embedding: Float32Array): RowOutcome | FailedRow {
   try {
-    return insertEmbedding(row.id, embedding, row.contentHash) ? 'stored' : 'skipped'
+    return insertEmbedding(db, row.id, embedding, row.contentHash) ? 'stored' : 'skipped'
   } catch (err) {
     return { id: row.id, error: err instanceof Error ? err.message : String(err) }
   }
@@ -67,7 +69,8 @@ async function processBatch(): Promise<void> {
   if (batchInFlight) return
   batchInFlight = true
   try {
-    const rows = findPendingEmbeddings(BATCH_SIZE)
+    const db = getDb()
+    const rows = findPendingEmbeddings(db, BATCH_SIZE)
     if (rows.length === 0) {
       consecutiveFailures = 0
       if (currentBackoff !== 1) {
@@ -78,15 +81,15 @@ async function processBatch(): Promise<void> {
     }
 
     const embeddings = await generateEmbeddings(rows.map(r => r.content))
-    const { succeeded, failed, contentChanged } = classifyBatch(rows, (row, i) => storeRow(row, embeddings[i]))
+    const { succeeded, failed, contentChanged } = classifyBatch(rows, (row, i) => storeRow(db, row, embeddings[i]))
 
-    for (const f of failed) handleFailedItem(f.id, f.error)
+    for (const f of failed) handleFailedItem(db, f.id, f.error)
     // A skipped row keeps its queue row (`deleteFromQueue` below only ever sees
     // `succeeded`), so the worker retries it on the next poll against whatever
     // the content is by then. The attempt is still recorded, so a row that keeps
     // changing stays distinguishable from one that was never tried.
-    for (const id of contentChanged) handleFailedItem(id, CONTENT_CHANGED_REASON)
-    if (succeeded.length > 0) deleteFromQueue(succeeded)
+    for (const id of contentChanged) handleFailedItem(db, id, CONTENT_CHANGED_REASON)
+    if (succeeded.length > 0) deleteFromQueue(db, succeeded)
 
     if (failed.length > 0 && succeeded.length > 0) {
       insertLog('warning', 'embedding', `${failed.length} of ${rows.length} thought(s) failed, requeued`, {
@@ -174,15 +177,14 @@ async function processBatch(): Promise<void> {
 
 async function processSweep(): Promise<void> {
   try {
-    const orphans = sweepOrphanedThoughts(BATCH_SIZE)
+    const db = getDb()
+    const orphans = sweepOrphanedThoughts(db, BATCH_SIZE)
     if (orphans.length > 0) {
       // Re-queue orphans and let the next regular batch pick them up
-      const db = getDb()
-      const insert = db.prepare('INSERT OR IGNORE INTO pending_embeddings (thought_id, created_at) VALUES (?, ?)')
-      const tx = db.transaction(() => {
-        for (const row of orphans) insert.run(row.id, new Date().toISOString())
-      })
-      tx()
+      requeueEmbeddings(
+        db,
+        orphans.map(o => o.id)
+      )
       console.log(`[embedder] sweep: re-queued ${orphans.length} orphaned thought(s)`)
       insertLog('info', 'embedding', `Sweep requeued ${orphans.length} thought(s)`, {
         count: orphans.length,

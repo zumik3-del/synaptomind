@@ -4,7 +4,13 @@ import { closeDb } from '../db/init'
 import { resolveCandidateEmbeddings } from '../services/candidate-embeddings.service'
 import { createTestDb, seedThought } from '../test/helpers'
 import { type BatchOutcome, type EmbeddingRow, type FailedRow, type RowOutcome, classifyBatch } from './batch'
-import { CONTENT_CHANGED_REASON, deleteFromQueue, findPendingEmbeddings, handleFailedItem, insertEmbedding } from './queue'
+import {
+  CONTENT_CHANGED_REASON,
+  deleteFromQueue,
+  findPendingEmbeddings,
+  handleFailedItem,
+  insertEmbedding
+} from '../db/pending-embeddings'
 
 /**
  * Task #1573 — regression pins for #1572: `insertEmbedding` returning `false`
@@ -179,7 +185,7 @@ function midBatchFixture(): { id: string; rows: EmbeddingRow[] } {
   // the vector a previous pass wrote for OLD content — now stale, still on disk
   storeVec(id, vec(1))
 
-  const rows = findPendingEmbeddings(10).filter(r => r.id === id)
+  const rows = findPendingEmbeddings(db, 10).filter(r => r.id === id)
   expect(rows.map(r => r.id)).toEqual([id])
   expect(rows[0]).toMatchObject({ content: 'OLD content', contentHash: 'hash-old' })
 
@@ -199,30 +205,32 @@ function midBatchFixture(): { id: string; rows: EmbeddingRow[] } {
  * the composition's DB effects without spawning the embedder child.
  */
 function runBatchComposition(rows: EmbeddingRow[], embeddings: Float32Array[]): BatchOutcome {
+  const db = getDb()
   const { succeeded, failed, contentChanged } = classifyBatch(rows, (r, i) =>
-    storeRowMirror(() => (insertEmbedding(r.id, embeddings[i]!, r.contentHash) ? 'stored' : 'skipped'), r.id)
+    storeRowMirror(() => (insertEmbedding(db, r.id, embeddings[i]!, r.contentHash) ? 'stored' : 'skipped'), r.id)
   )
 
-  for (const f of failed) handleFailedItem(f.id, f.error)
-  for (const id of contentChanged) handleFailedItem(id, CONTENT_CHANGED_REASON)
-  if (succeeded.length > 0) deleteFromQueue(succeeded)
+  for (const f of failed) handleFailedItem(db, f.id, f.error)
+  for (const id of contentChanged) handleFailedItem(db, id, CONTENT_CHANGED_REASON)
+  if (succeeded.length > 0) deleteFromQueue(db, succeeded)
 
   return { succeeded, failed, contentChanged }
 }
 
 /** The PRE-FIX loop body: the store result is ignored, every row counts as succeeded. */
 function runPreFixLoop(rows: EmbeddingRow[], embeddings: Float32Array[]): string[] {
+  const db = getDb()
   const succeeded: string[] = []
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]!
     try {
-      insertEmbedding(r.id, embeddings[i]!, r.contentHash)
+      insertEmbedding(db, r.id, embeddings[i]!, r.contentHash)
       succeeded.push(r.id)
     } catch {
       // the pre-fix body swallowed the fault for `succeeded` accounting
     }
   }
-  if (succeeded.length > 0) deleteFromQueue(succeeded)
+  if (succeeded.length > 0) deleteFromQueue(db, succeeded)
   return succeeded
 }
 
@@ -316,7 +324,7 @@ describe('delete-only-succeeded invariant (#1572)', () => {
     }
     storeVec(skippedId, vec(7))
 
-    const rows = findPendingEmbeddings(10).filter(r => r.id === storedId || r.id === skippedId)
+    const rows = findPendingEmbeddings(db, 10).filter(r => r.id === storedId || r.id === skippedId)
     expect(rows.map(r => r.id).sort()).toEqual([storedId, skippedId].sort())
 
     // Only `skippedId` is edited mid-batch; `storedId` keeps the hash the batch read.
