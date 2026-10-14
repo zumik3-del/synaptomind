@@ -1,19 +1,9 @@
 import { type Subprocess, spawn } from 'bun'
 import { getEmbedderIdleTimeoutMs as defaultGetEmbedderIdleTimeoutMs, getEmbedderPrecache as defaultGetEmbedderPrecache } from '../db/settings'
 import { insertLog as defaultInsertLog } from '../logging'
-import { EmbedderNotReadyError, EmbedderOverloadedError } from '../errors'
+import { EmbedderNotReadyError } from '../errors'
 import { isCompiled as defaultIsCompiled } from '../runtime-mode'
-
-type EmbeddingPayload = number[] | number[][]
-
-interface IpcMessage {
-  type: 'ready' | 'exiting' | 'result' | 'error' | 'request' | 'shutdown'
-  id?: string
-  error?: string
-  embedding?: EmbeddingPayload
-  method?: string
-  params?: unknown
-}
+import { IpcClient, type IpcMessage } from './ipc-client'
 
 type InsertLogFn = (
   level: 'debug' | 'info' | 'warning' | 'error',
@@ -41,8 +31,6 @@ const DEFAULT_DEPS: EmbedderClientDeps = {
 export type EmbedderState = 'ok' | 'starting' | 'failed' | 'stopped'
 
 const EMBEDDER_START_TIMEOUT_MS = 300_000
-const EMBEDDER_REQUEST_TIMEOUT_MS = 60_000
-const MAX_PENDING = 256
 
 /**
  * Texts per `embed_batch` IPC request. The 60 s request timeout is per request,
@@ -60,15 +48,14 @@ export class EmbedderClient {
   private ready = false
   private dead = false
   private shuttingDown = false
-  private nextId = 1
-  private pending = new Map<
-    string,
-    {
-      resolve: (value: unknown) => void
-      reject: (err: Error) => void
-      timer: ReturnType<typeof setTimeout>
+  private ipc = new IpcClient({
+    getProc: () => this.proc,
+    isAlive: () => !this.dead,
+    onSendFailure: () => {
+      this.dead = true
+      this.ready = false
     }
-  >()
+  })
   private readyPromise: Promise<void> | null = null
   private readyResolve: (() => void) | null = null
   private readyReject: ((err: Error) => void) | null = null
@@ -119,14 +106,6 @@ export class EmbedderClient {
     return [process.execPath, 'run', `${import.meta.dir}/embedder-process.ts`]
   }
 
-  private rejectAllPending(err: Error) {
-    for (const [id, req] of this.pending) {
-      clearTimeout(req.timer)
-      req.reject(err)
-      this.pending.delete(id)
-    }
-  }
-
   private spawnProcess(): void {
     this.dead = false
     this.shuttingDown = false
@@ -161,31 +140,12 @@ export class EmbedderClient {
           this.ready = false
           this.proc = null
           if (!this.shuttingDown) {
-            this.rejectAllPending(new Error('Embedder process went idle'))
+            this.ipc.rejectAllPending(new Error('Embedder process went idle'))
           }
           return
         }
 
-        if (message.type === 'result' || message.type === 'error') {
-          if (!message.id) return
-          const req = this.pending.get(message.id)
-          if (!req) return
-          this.pending.delete(message.id)
-          clearTimeout(req.timer)
-          if (message.type === 'error') {
-            req.reject(new Error(message.error ?? 'Unknown embedder error'))
-            return
-          }
-          const emb = message.embedding
-          if (Array.isArray(emb?.[0])) {
-            req.resolve((emb as number[][]).map(a => new Float32Array(a)))
-          } else if (emb !== undefined) {
-            req.resolve(new Float32Array(emb as number[]))
-          } else {
-            req.reject(new Error('Malformed embedder response'))
-          }
-          return
-        }
+        this.ipc.dispatch(message)
       },
       env: {
         ...process.env,
@@ -254,7 +214,7 @@ export class EmbedderClient {
         this.dead = true
         this.ready = false
         if (!this.shuttingDown) {
-          this.rejectAllPending(new Error('Embedder process crashed'))
+          this.ipc.rejectAllPending(new Error('Embedder process crashed'))
         }
       })
       .catch(() => {})
@@ -286,36 +246,7 @@ export class EmbedderClient {
   }
 
   private sendRequest(method: string, params: unknown): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      if (this.pending.size >= MAX_PENDING) {
-        reject(new EmbedderOverloadedError(`Embedder queue full (${this.pending.size}/${MAX_PENDING}); try again later`))
-        return
-      }
-      const id = String(this.nextId++)
-      const timer = setTimeout(() => {
-        const req = this.pending.get(id)
-        if (req) {
-          this.pending.delete(id)
-          req.reject(new Error('Embedder request timed out after 60s'))
-        }
-      }, EMBEDDER_REQUEST_TIMEOUT_MS)
-      this.pending.set(id, { resolve, reject, timer })
-      if (!this.proc || this.dead) {
-        clearTimeout(timer)
-        this.pending.delete(id)
-        reject(new EmbedderNotReadyError('Embedder process not available'))
-        return
-      }
-      try {
-        this.proc.send({ type: 'request', id, method, params })
-      } catch {
-        clearTimeout(timer)
-        this.pending.delete(id)
-        this.dead = true
-        this.ready = false
-        reject(new Error('Failed to send request to embedder process'))
-      }
-    })
+    return this.ipc.sendRequest(method, params)
   }
 
   async startEmbedderProcess(): Promise<void> {
@@ -349,7 +280,7 @@ export class EmbedderClient {
     this.proc = null
     this.ready = false
     this.dead = true
-    this.rejectAllPending(new Error(reason))
+    this.ipc.rejectAllPending(new Error(reason))
     this.shuttingDown = false
   }
 
