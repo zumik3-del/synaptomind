@@ -16,9 +16,9 @@ import { afterAll, expect, mock, test } from 'bun:test'
  *  · `../db/init` → `:memory:` database (the worker's own `initDb()` call),
  *  · `./model` + `./model-validator` → no model download, and the embed step is
  *    the deterministic mid-batch edit window,
- *  · `./queue` → real queue functions with `insertEmbedding` able to throw (the
- *    all-failed leg) and a spy on `deleteFromQueue` that records the ids the
- *    SHIPPED loop passes, then performs the real delete.
+ *  · `../db/pending-embeddings` → real queue functions with `insertEmbedding`
+ *    able to throw (the all-failed leg) and a spy on `deleteFromQueue` that
+ *    records the ids the SHIPPED loop passes, then performs the real delete.
  *
  * It runs in a child bun process (see `embedder-batch-loop.test.ts`): bun's
  * `mock.module` leaks through `export *`, and this file mocks four modules.
@@ -46,7 +46,7 @@ process.env.SYNAPTOMIND_DB_PATH = join(scratch, 'never-used.db')
 // a mocked specifier already handed out, so reading through `realInit.initDb` /
 // `realQueue.insertEmbedding` after mocking would call the mock again.
 const realInitFns = { ...(await import('../db/init')) }
-const realQueueFns = { ...(await import('./queue')) }
+const realQueueFns = { ...(await import('../db/pending-embeddings')) }
 const { getDb } = await import('../db/container')
 const { seedThought } = await import('../test/helpers')
 
@@ -96,16 +96,20 @@ mock.module('./model-validator', () => ({ ensureModelFiles: async () => {} }))
 
 /** Ids the SHIPPED loop handed to `deleteFromQueue`, per call. */
 const deleteCalls: string[][] = []
-mock.module('./queue', () => ({
+// The queue module moved to the db layer (task #1581): the mock specifier follows
+// it, and every mock mirrors the db-first signature so the worker's `db` argument
+// reaches the real function instead of being read as the first parameter.
+mock.module('../db/pending-embeddings', () => ({
   ...realQueueFns,
-  insertEmbedding: (id: string, embedding: Float32Array, expectedHash: string) => {
+  insertEmbedding: (db: Database, id: string, embedding: Float32Array, expectedHash: string) => {
     if (control.storeThrows) throw new Error('boom')
-    return realQueueFns.insertEmbedding(id, embedding, expectedHash)
+    return realQueueFns.insertEmbedding(db, id, embedding, expectedHash)
   },
-  findPendingEmbeddings: (limit: number) => (control.drainQueue ? [] : realQueueFns.findPendingEmbeddings(limit)),
-  deleteFromQueue: (ids: string[]) => {
+  findPendingEmbeddings: (db: Database, limit: number) =>
+    control.drainQueue ? [] : realQueueFns.findPendingEmbeddings(db, limit),
+  deleteFromQueue: (db: Database, ids: string[]) => {
     deleteCalls.push([...ids])
-    realQueueFns.deleteFromQueue(ids)
+    realQueueFns.deleteFromQueue(db, ids)
   }
 }))
 

@@ -9,7 +9,7 @@ import {
   handleFailedItem,
   insertEmbedding,
   sweepOrphanedThoughts
-} from './queue'
+} from '../db/pending-embeddings'
 
 beforeEach(() => {
   createTestDb()
@@ -35,6 +35,7 @@ function pendingRow(id: string): { attempts: number; is_error: number; last_erro
 }
 
 test('findPendingEmbeddings returns non-error rows ordered by created_at', () => {
+  const db = getDb()
   const third = seedThought({ content: 'queued third' })
   const first = seedThought({ content: 'queued first' })
   const second = seedThought({ content: 'queued second' })
@@ -42,13 +43,14 @@ test('findPendingEmbeddings returns non-error rows ordered by created_at', () =>
   enqueue(first, '2026-01-01T00:00:00.000Z')
   enqueue(second, '2026-01-02T00:00:00.000Z')
 
-  const pending = findPendingEmbeddings(10)
+  const pending = findPendingEmbeddings(db, 10)
 
   expect(pending.map(p => p.id)).toEqual([first, second, third])
   expect(pending[0]).toMatchObject({ id: first, content: 'queued first' })
 })
 
 test('findPendingEmbeddings skips dead-lettered rows and respects the limit', () => {
+  const db = getDb()
   const a = seedThought({ content: 'a' })
   const dead = seedThought({ content: 'dead' })
   const b = seedThought({ content: 'b' })
@@ -57,8 +59,8 @@ test('findPendingEmbeddings skips dead-lettered rows and respects the limit', ()
   enqueue(b, '2026-01-03T00:00:00.000Z')
   getDb().prepare('UPDATE pending_embeddings SET is_error = 1 WHERE thought_id = ?').run(dead)
 
-  expect(findPendingEmbeddings(10).map(p => p.id)).toEqual([a, b])
-  expect(findPendingEmbeddings(1).map(p => p.id)).toEqual([a])
+  expect(findPendingEmbeddings(db, 10).map(p => p.id)).toEqual([a, b])
+  expect(findPendingEmbeddings(db, 1).map(p => p.id)).toEqual([a])
 })
 
 test('sweepOrphanedThoughts returns only thoughts with no vec row and no pending row', () => {
@@ -74,7 +76,7 @@ test('sweepOrphanedThoughts returns only thoughts with no vec row and no pending
   }
   db.prepare('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)').run(embedded, Buffer.alloc(0))
 
-  const swept = sweepOrphanedThoughts(10)
+  const swept = sweepOrphanedThoughts(db, 10)
 
   expect(swept.map(s => s.id)).toEqual([orphan])
   expect(swept[0]?.content).toBe('orphan')
@@ -85,7 +87,7 @@ test('sweepOrphanedThoughts excludes archived thoughts (#113)', () => {
   const archived = seedThought({ content: 'archived orphan', status: 'archived' })
   db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(archived)
 
-  expect(sweepOrphanedThoughts(10)).toEqual([])
+  expect(sweepOrphanedThoughts(db, 10)).toEqual([])
 })
 
 test('sweepOrphanedThoughts respects the limit', () => {
@@ -96,15 +98,16 @@ test('sweepOrphanedThoughts respects the limit', () => {
     db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(id)
   }
 
-  expect(sweepOrphanedThoughts(1).map(s => s.id)).toEqual([one])
-  expect(sweepOrphanedThoughts(10).map(s => s.id)).toEqual([one, two])
+  expect(sweepOrphanedThoughts(db, 1).map(s => s.id)).toEqual([one])
+  expect(sweepOrphanedThoughts(db, 10).map(s => s.id)).toEqual([one, two])
 })
 
 test('handleFailedItem increments attempts and stays queued below MAX_ATTEMPTS', () => {
+  const db = getDb()
   const id = seedThought({ content: 'flaky' })
 
   for (let i = 0; i < MAX_ATTEMPTS - 1; i++) {
-    handleFailedItem(id, `boom ${i}`)
+    handleFailedItem(db, id, `boom ${i}`)
   }
 
   const row = pendingRow(id)
@@ -115,10 +118,11 @@ test('handleFailedItem increments attempts and stays queued below MAX_ATTEMPTS',
 })
 
 test(`handleFailedItem dead-letters on attempt ${MAX_ATTEMPTS}`, () => {
+  const db = getDb()
   const id = seedThought({ content: 'poison' })
 
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    handleFailedItem(id, 'boom')
+    handleFailedItem(db, id, 'boom')
   }
 
   const row = pendingRow(id)
@@ -128,7 +132,7 @@ test(`handleFailedItem dead-letters on attempt ${MAX_ATTEMPTS}`, () => {
   expect(row.last_error).toBe('boom')
 
   // dead-lettered rows leave the work queue
-  expect(findPendingEmbeddings(10).map(p => p.id)).not.toContain(id)
+  expect(findPendingEmbeddings(db, 10).map(p => p.id)).not.toContain(id)
 })
 
 test('insertEmbedding rejects a stale hash and writes nothing', () => {
@@ -136,7 +140,7 @@ test('insertEmbedding rejects a stale hash and writes nothing', () => {
   const id = seedThought({ content: 'changed mid-batch' })
   db.prepare('UPDATE thoughts SET content_hash = ? WHERE id = ?').run('hash-a', id)
 
-  const ok = insertEmbedding(id, new Float32Array([1, 2, 3]), 'hash-b')
+  const ok = insertEmbedding(db, id, new Float32Array([1, 2, 3]), 'hash-b')
 
   expect(ok).toBeFalse()
   expect(db.prepare('SELECT 1 FROM vec_thoughts WHERE id = ?').get(id)).toBeNull()
@@ -148,7 +152,7 @@ test('insertEmbedding stores the payload bytes on hash match', () => {
   db.prepare('UPDATE thoughts SET content_hash = ? WHERE id = ?').run('hash-a', id)
   const payload = new Float32Array([1.5, -2.5, 3.25])
 
-  const ok = insertEmbedding(id, payload, 'hash-a')
+  const ok = insertEmbedding(db, id, payload, 'hash-a')
 
   expect(ok).toBeTrue()
   const row = db.prepare('SELECT embedding FROM vec_thoughts WHERE id = ?').get(id) as {
@@ -163,8 +167,8 @@ test('insertEmbedding replaces an existing vec row instead of duplicating it', (
   const id = seedThought({ content: 're-embedded' })
   db.prepare('UPDATE thoughts SET content_hash = ? WHERE id = ?').run('hash-a', id)
 
-  insertEmbedding(id, new Float32Array([1, 1, 1]), 'hash-a')
-  insertEmbedding(id, new Float32Array([2, 2, 2]), 'hash-a')
+  insertEmbedding(db, id, new Float32Array([1, 1, 1]), 'hash-a')
+  insertEmbedding(db, id, new Float32Array([2, 2, 2]), 'hash-a')
 
   const rows = db.prepare('SELECT embedding FROM vec_thoughts WHERE id = ?').all(id) as {
     embedding: Uint8Array
@@ -175,12 +179,13 @@ test('insertEmbedding replaces an existing vec row instead of duplicating it', (
 })
 
 test('deleteFromQueue removes only the given rows', () => {
+  const db = getDb()
   const keep = seedThought({ content: 'keep' })
   const drop = seedThought({ content: 'drop' })
 
-  deleteFromQueue([drop])
+  deleteFromQueue(db, [drop])
 
-  const remaining = getDb().prepare('SELECT thought_id FROM pending_embeddings').all() as {
+  const remaining = db.prepare('SELECT thought_id FROM pending_embeddings').all() as {
     thought_id: string
   }[]
   expect(remaining.map(r => r.thought_id)).toContain(keep)
@@ -188,5 +193,5 @@ test('deleteFromQueue removes only the given rows', () => {
 })
 
 test('deleteFromQueue tolerates an empty id list', () => {
-  expect(() => deleteFromQueue([])).not.toThrow()
+  expect(() => deleteFromQueue(getDb(), [])).not.toThrow()
 })
