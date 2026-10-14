@@ -15,7 +15,8 @@ delete process.env.SYNAPTOMIND_SERVICE_TOKEN
 delete process.env.SYNAPTOMIND_ALLOW_INSECURE
 
 const { config } = await import('../config')
-const { startMcpHttpServer, InMemoryEventStore, MAX_EVENTS_PER_SESSION } = await import('./http-transport')
+const { startMcpHttpServer } = await import('./http-transport')
+const { InMemoryEventStore, MAX_EVENTS_PER_SESSION } = await import('./in-memory-event-store')
 const { resetValidTokens } = await import('../auth')
 
 resetValidTokens()
@@ -69,12 +70,13 @@ test('mcp transport limit env overrides parse as ints', () => {
 })
 
 test('transport constants are assigned from config.mcp', () => {
-  const source = readFileSync(join(import.meta.dir, 'http-transport.ts'), 'utf8')
+  const transportSource = readFileSync(join(import.meta.dir, 'http-transport.ts'), 'utf8')
+  const storeSource = readFileSync(join(import.meta.dir, 'in-memory-event-store.ts'), 'utf8')
 
-  expect(source).toContain('const MAX_SESSIONS = config.mcp.maxSessions')
-  expect(source).toContain('const SESSION_TTL_MS = config.mcp.sessionTtlMs')
-  expect(source).toContain('const KEEPALIVE_MS = config.mcp.keepAliveMs')
-  expect(source).toContain('export const MAX_EVENTS_PER_SESSION = config.mcp.maxEventsPerSession')
+  expect(transportSource).toContain('const MAX_SESSIONS = config.mcp.maxSessions')
+  expect(transportSource).toContain('const SESSION_TTL_MS = config.mcp.sessionTtlMs')
+  expect(transportSource).toContain('const KEEPALIVE_MS = config.mcp.keepAliveMs')
+  expect(storeSource).toContain('export const MAX_EVENTS_PER_SESSION = config.mcp.maxEventsPerSession')
   expect(MAX_EVENTS_PER_SESSION).toBe(config.mcp.maxEventsPerSession)
 })
 

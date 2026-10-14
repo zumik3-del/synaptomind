@@ -4,13 +4,12 @@ import { Hono } from 'hono'
 import { resetValidTokens } from '../auth'
 import { config } from '../config'
 import {
-  InMemoryEventStore,
-  MAX_EVENTS_PER_SESSION,
   MAX_REQUEST_BODY_BYTES,
   mcpErrorHandler,
   startMcpHttpServer,
   type McpHttpHandle
 } from './http-transport'
+import { InMemoryEventStore, MAX_EVENTS_PER_SESSION } from './in-memory-event-store'
 
 const SECRET = 'mcp-http-test-secret'
 const PROTOCOL_VERSION = '2025-06-18'
