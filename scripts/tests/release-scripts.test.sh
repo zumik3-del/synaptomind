@@ -4,7 +4,24 @@
 #
 # Run: bash scripts/tests/release-scripts.test.sh
 #
-# These tests operate on a scratch clone and NEVER touch real git refs or push.
+# Safety invariants (task #1577):
+#   1. EVERY invocation of scripts/release.sh runs with its CWD inside a
+#      throwaway scratch clone. release.sh resolves both its dirty-tree guard
+#      (`git status --porcelain`) and its `sed -i` bump against the CWD — never
+#      against its own directory — so a call issued from the repo under test
+#      rewrites the REAL package.json (and only then fails on the changelog
+#      guard, which made the old version of this harness "pass" while mutating
+#      the checkout). $SCRIPT_DIR is therefore read/copy only.
+#   2. $SCRIPT_DIR (the repo under test) is only ever READ: it is cloned and its
+#      scripts are copied. Section 8 fingerprints its package.json and
+#      CHANGELOG.md before the first test and asserts they are byte-identical at
+#      the end, failing loudly (non-zero exit) otherwise.
+#   3. The versions under test are DERIVED from the tags of the repo under test
+#      (never hardcoded): scripts/changelog.ts refuses to run when package.json
+#      is behind the newest tag, so a hardcoded version silently rots as soon as
+#      a newer tag is cut.
+#   4. The harness never pushes and never touches real refs — `origin` is removed
+#      from every scratch clone.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
@@ -12,6 +29,15 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 PASS=0; FAIL=0
 pass() { echo "  PASS: $*"; ((PASS++)) || true; }
 fail() { echo "  FAIL: $*"; ((FAIL++)) || true; }
+
+# ── Safety net: fingerprint the repo under test before anything runs ──────────
+
+md5_of() { md5sum "$1" | awk '{print $1}'; }
+
+REAL_PKG="$SCRIPT_DIR/package.json"
+REAL_CHANGELOG="$SCRIPT_DIR/CHANGELOG.md"
+REAL_PKG_MD5_BEFORE="$(md5_of "$REAL_PKG")"
+REAL_CHANGELOG_MD5_BEFORE="$(md5_of "$REAL_CHANGELOG")"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -21,7 +47,16 @@ fail() { echo "  FAIL: $*"; ((FAIL++)) || true; }
 setup_scratch() {
   local scratch
   scratch="$(mktemp -d)"
-  git clone --no-local "$SCRIPT_DIR" "$scratch" 2>/dev/null
+  if ! git clone --no-local "$SCRIPT_DIR" "$scratch" >/dev/null 2>&1; then
+    echo "ERROR: setup_scratch: 'git clone --no-local $SCRIPT_DIR' failed" >&2
+    exit 1
+  fi
+  # A clone copies neither the source repo's LOCAL identity nor, on a host without
+  # one, any global identity — and a missing identity makes `git commit` fail with
+  # exit 128 ("Author identity unknown"). Give the scratch its own identity so the
+  # harness runs in a fresh shell without GIT_AUTHOR_*/GIT_COMMITTER_* env vars.
+  git -C "$scratch" config user.name "Release Script Test"
+  git -C "$scratch" config user.email "release-script-test@example.invalid"
   # Drop the origin remote so no accidental pushes are possible.
   git -C "$scratch" remote remove origin 2>/dev/null || true
   # Ensure clean working tree at HEAD.
@@ -31,9 +66,20 @@ setup_scratch() {
   cp "$SCRIPT_DIR/scripts/release.sh" "$scratch/scripts/release.sh"
   cp "$SCRIPT_DIR/scripts/changelog.ts"  "$scratch/scripts/changelog.ts"
   chmod +x "$scratch/scripts/release.sh" "$scratch/scripts/changelog.ts"
-  # Commit them so release.sh's dirty-tree guard sees a clean tree.
+  # Stage them, then commit, so release.sh's dirty-tree guard sees a clean tree.
+  # Staging is what brings the working-tree versions into the scratch at all: when
+  # they differ from HEAD (the case this harness exists to cover) an unstaged copy
+  # leaves the scratch dirty and every release.sh call is refused. With the two
+  # files identical to HEAD the add is a no-op and nothing is committed.
+  # A failing commit must be loud (silently swallowing it made the old harness fail
+  # with a misleading message).
   git -C "$scratch" add scripts/release.sh scripts/changelog.ts
-  git -C "$scratch" commit -m "test: install working-tree script versions" --no-verify >/dev/null 2>&1 || true
+  if ! git -C "$scratch" diff --cached --quiet; then
+    if ! git -C "$scratch" commit -m "test: install working-tree script versions" --no-verify >/dev/null 2>&1; then
+      echo "ERROR: setup_scratch: could not commit the script baseline in $scratch" >&2
+      exit 1
+    fi
+  fi
   printf '%s\n' "$scratch"
 }
 
@@ -56,6 +102,90 @@ in_scratch() {
   (cd "$s" && "$@")
 }
 
+# Strict semver-ish "is $1 strictly greater than $2?" mirroring compareVersions()
+# in scripts/changelog.ts (numeric core first, a release outranks a prerelease).
+semver_gt() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+
+def key(v):
+    core, _, pre = v.lstrip("v").partition("-")
+    nums = [int(p) if p.isdigit() else 0 for p in core.split("+")[0].split(".")]
+    return nums, pre
+
+a_nums, a_pre = key(sys.argv[1])
+b_nums, b_pre = key(sys.argv[2])
+for i in range(max(len(a_nums), len(b_nums))):
+    diff = (a_nums[i] if i < len(a_nums) else 0) - (b_nums[i] if i < len(b_nums) else 0)
+    if diff:
+        sys.exit(0 if diff > 0 else 1)
+if a_pre == b_pre:
+    sys.exit(1)
+if not a_pre:
+    sys.exit(0)
+if not b_pre:
+    sys.exit(1)
+sys.exit(0 if a_pre > b_pre else 1)
+PY
+}
+
+# Print a test version derived from the newest tag of the repo under test: same
+# core with the minor bumped, so it compares strictly ahead of that tag (which is
+# the one scripts/changelog.ts treats as released). $1: 0 = main, 1 = dirty-tree.
+derive_version() {
+  python3 - "$LATEST_TAG" "$1" <<'PY'
+import sys
+
+core = sys.argv[1].lstrip("v").split("+")[0].split("-")[0]
+parts = core.split(".")
+major = int(parts[0]) if parts[0].isdigit() else 0
+minor = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+print(f"{major}.{minor + 1}.{'0-test.0' if sys.argv[2] == '0' else '1-dirty-test'}")
+PY
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 0. Derive the versions under test from the repo's tags
+# ═════════════════════════════════════════════════════════════════════════════
+
+echo ""
+echo "=== 0. derived test versions (from the tags of the repo under test) ==="
+
+# Exactly the tag scripts/changelog.ts picks as "latest".
+LATEST_TAG="$(git -C "$SCRIPT_DIR" tag --list --sort=creatordate | tail -1)"
+if [ -z "$LATEST_TAG" ]; then
+  fail "no tags in $SCRIPT_DIR — cannot derive test versions (changelog.ts requires ≥1 tag)"
+  echo ""
+  echo "Results: $PASS passed, $FAIL failed"
+  exit 1
+fi
+
+TEST_VER="$(derive_version 0)"
+TEST_VER2="$(derive_version 1)"
+TEST_TAG="v${TEST_VER}"
+
+SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9._-]+)?$'
+if [[ "$TEST_VER" =~ $SEMVER_RE ]] && [[ "$TEST_VER2" =~ $SEMVER_RE ]]; then
+  pass "derived TEST_VER=$TEST_VER TEST_VER2=$TEST_VER2 (latest tag $LATEST_TAG)"
+else
+  fail "derived versions are not valid semver: TEST_VER='$TEST_VER' TEST_VER2='$TEST_VER2'"
+  echo ""
+  echo "Results: $PASS passed, $FAIL failed"
+  exit 1
+fi
+
+if semver_gt "$TEST_VER" "$LATEST_TAG"; then
+  pass "TEST_VER=$TEST_VER is strictly ahead of the latest tag $LATEST_TAG"
+else
+  fail "TEST_VER=$TEST_VER is NOT ahead of the latest tag $LATEST_TAG (changelog.ts would refuse to run)"
+fi
+
+if semver_gt "$TEST_VER2" "$LATEST_TAG"; then
+  pass "TEST_VER2=$TEST_VER2 is strictly ahead of the latest tag $LATEST_TAG"
+else
+  fail "TEST_VER2=$TEST_VER2 is NOT ahead of the latest tag $LATEST_TAG (changelog.ts would refuse to run)"
+fi
+
 # ═════════════════════════════════════════════════════════════════════════════
 # 1. release.sh: version bump produces package.json + CHANGELOG changes, NO tag
 # ═════════════════════════════════════════════════════════════════════════════
@@ -65,14 +195,11 @@ echo "=== 1. release.sh: bump + changelog, no git mutation ==="
 SCRATCH=$(setup_scratch)
 SCRATCHES+=("$SCRATCH")
 
-TEST_VER="0.9.0-test.0"
-TEST_TAG="v${TEST_VER}"
-
 BEFORE_TAG_COUNT=$(git -C "$SCRATCH" tag --list | wc -l)
 BEFORE_COMMIT_COUNT=$(git -C "$SCRATCH" rev-list --count HEAD)
 
-in_scratch "$SCRATCH" bash scripts/release.sh "$TEST_VER" > /tmp/release-out.log 2>&1
-RC=$?
+RC=0
+in_scratch "$SCRATCH" bash scripts/release.sh "$TEST_VER" > /tmp/release-out.log 2>&1 || RC=$?
 
 [ "$RC" -eq 0 ] && pass "release.sh exits 0 for $TEST_VER" || fail "release.sh exited $RC (log: $(head -3 /tmp/release-out.log))"
 
@@ -116,8 +243,8 @@ git -C "$SCRATCH" commit -m "chore: bump version to $TEST_VER" --no-verify >/dev
 
 BEFORE_COMMIT_COUNT2=$(git -C "$SCRATCH" rev-list --count HEAD)
 
-in_scratch "$SCRATCH" bash scripts/release.sh "$TEST_VER" > /tmp/release-idem.log 2>&1
-RC2=$?
+RC2=0
+in_scratch "$SCRATCH" bash scripts/release.sh "$TEST_VER" > /tmp/release-idem.log 2>&1 || RC2=$?
 
 [ "$RC2" -eq 0 ] && pass "release.sh exits 0 on re-run ($TEST_VER)" || fail "release.sh re-run exited $RC2 (log: $(head -3 /tmp/release-idem.log))"
 
@@ -139,8 +266,8 @@ echo "=== 3. changelog.ts: no-op when unchanged ==="
 BEFORE_COMMIT_COUNT3=$(git -C "$SCRATCH" rev-list --count HEAD)
 CHG_HASH_BEFORE=$(md5sum "$SCRATCH/CHANGELOG.md" | awk '{print $1}')
 
-in_scratch "$SCRATCH" bun run scripts/changelog.ts > /tmp/changelog-out.log 2>&1
-RC3=$?
+RC3=0
+in_scratch "$SCRATCH" bun run scripts/changelog.ts > /tmp/changelog-out.log 2>&1 || RC3=$?
 
 [ "$RC3" -eq 0 ] && pass "changelog.ts exits 0 when no change" || fail "changelog.ts exited $RC3 (log: $(head -3 /tmp/changelog-out.log))"
 
@@ -268,24 +395,35 @@ run_detect_case "missing package.json" "$BAD_SHA" "$V2_SHA" "false" "false"
 # ═════════════════════════════════════════════════════════════════════════════
 # 5. release.sh: rejects invalid semver
 # ═════════════════════════════════════════════════════════════════════════════
+# CWD inside a scratch: release.sh must never be invoked from the repo under test.
 
 echo ""
 echo "=== 5. release.sh: invalid semver rejection ==="
 
-bash "$SCRIPT_DIR/scripts/release.sh" "not-a-version" > /tmp/release-bad.log 2>&1 && \
-  fail "release.sh accepted invalid version" || \
-  pass "release.sh rejected invalid version"
+SCRATCH5=$(setup_scratch)
+SCRATCHES+=("$SCRATCH5")
 
-bash "$SCRIPT_DIR/scripts/release.sh" "0.8" > /tmp/release-bad2.log 2>&1 && \
-  fail "release.sh accepted incomplete semver" || \
-  pass "release.sh rejected incomplete semver"
+RC5_A=0
+in_scratch "$SCRATCH5" bash scripts/release.sh "not-a-version" > /tmp/release-bad.log 2>&1 || RC5_A=$?
+[ "$RC5_A" -ne 0 ] && pass "release.sh rejected invalid version" || fail "release.sh accepted invalid version"
 
-bash "$SCRIPT_DIR/scripts/release.sh" "" > /tmp/release-bad3.log 2>&1 && \
-  fail "release.sh accepted empty version" || \
-  pass "release.sh rejected empty version"
+RC5_B=0
+in_scratch "$SCRATCH5" bash scripts/release.sh "0.8" > /tmp/release-bad2.log 2>&1 || RC5_B=$?
+[ "$RC5_B" -ne 0 ] && pass "release.sh rejected incomplete semver" || fail "release.sh accepted incomplete semver"
+
+RC5_C=0
+in_scratch "$SCRATCH5" bash scripts/release.sh "" > /tmp/release-bad3.log 2>&1 || RC5_C=$?
+[ "$RC5_C" -ne 0 ] && pass "release.sh rejected empty version" || fail "release.sh accepted empty version"
+
+# A rejection must happen before any write into the CWD tree.
+SCRATCH5_DIRT=$(git -C "$SCRATCH5" status --porcelain | wc -l)
+[ "$SCRATCH5_DIRT" -eq 0 ] && \
+  pass "invalid-semver rejections left the scratch tree untouched" || \
+  fail "invalid-semver rejections wrote $SCRATCH5_DIRT path(s) into the scratch tree"
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 6. release.sh: refuses to run on dirty tree
+# 6. release.sh: dirty-tree guard — clean tree accepted, dirty tree refused
+#    Both halves run with CWD inside the same scratch (never the repo under test).
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
@@ -293,16 +431,46 @@ echo "=== 6. release.sh: dirty-tree guard ==="
 
 SCRATCH2=$(setup_scratch)
 SCRATCHES+=("$SCRATCH2")
-TEST_VER2="0.9.0-dirty-test"
 
-# Make sure it works on a clean tree first.
-in_scratch "$SCRATCH2" bash scripts/release.sh "$TEST_VER2" > /dev/null 2>&1 || true
+# 6a. Clean tree → accepted (exit 0).
+RC6_CLEAN=0
+in_scratch "$SCRATCH2" bash scripts/release.sh "$TEST_VER2" > /tmp/release-clean.log 2>&1 || RC6_CLEAN=$?
+[ "$RC6_CLEAN" -eq 0 ] && \
+  pass "release.sh accepted the clean scratch tree (exit 0)" || \
+  fail "release.sh exited $RC6_CLEAN on a clean scratch tree (log: $(head -3 /tmp/release-clean.log))"
 
-# Now dirty the tree.
+CUR_VER_DIRTY=$(read_version "$SCRATCH2")
+[ "$CUR_VER_DIRTY" = "$TEST_VER2" ] && \
+  pass "clean-tree run bumped package.json to $CUR_VER_DIRTY" || \
+  fail "clean-tree run left package.json at $CUR_VER_DIRTY (expected $TEST_VER2)"
+
+# Restore a clean tree so the refusal below can only come from the injected dirt.
+git -C "$SCRATCH2" add package.json CHANGELOG.md
+git -C "$SCRATCH2" commit -m "chore: bump version to $TEST_VER2" --no-verify >/dev/null 2>&1
+CLEAN_AFTER_COMMIT=$(git -C "$SCRATCH2" status --porcelain | wc -l)
+[ "$CLEAN_AFTER_COMMIT" -eq 0 ] && \
+  pass "scratch is clean again before the dirty-tree case" || \
+  fail "scratch still has $CLEAN_AFTER_COMMIT dirty path(s) before the dirty-tree case"
+
+# 6b. Dirty that same scratch → refused (non-zero) and nothing written.
 echo "random" >> "$SCRATCH2/package.json"
-bash "$SCRIPT_DIR/scripts/release.sh" "$TEST_VER2" > /tmp/release-dirty.log 2>&1 && \
-  fail "release.sh ran on dirty tree" || \
-  pass "release.sh refused dirty tree"
+PKG_HASH_PRE_REFUSAL=$(md5_of "$SCRATCH2/package.json")
+RC6_DIRTY=0
+in_scratch "$SCRATCH2" bash scripts/release.sh "$TEST_VER2" > /tmp/release-dirty.log 2>&1 || RC6_DIRTY=$?
+[ "$RC6_DIRTY" -ne 0 ] && \
+  pass "release.sh refused the dirty scratch tree (exit $RC6_DIRTY)" || \
+  fail "release.sh ran on a dirty tree (exit 0)"
+
+if grep -q 'uncommitted changes' /tmp/release-dirty.log; then
+  pass "refusal comes from the dirty-tree guard (not the changelog guard)"
+else
+  fail "refusal does not cite uncommitted changes (output: $(head -3 /tmp/release-dirty.log))"
+fi
+
+PKG_HASH_POST_REFUSAL=$(md5_of "$SCRATCH2/package.json")
+[ "$PKG_HASH_PRE_REFUSAL" = "$PKG_HASH_POST_REFUSAL" ] && \
+  pass "refused run did not rewrite package.json" || \
+  fail "refused run rewrote package.json ($PKG_HASH_PRE_REFUSAL -> $PKG_HASH_POST_REFUSAL)"
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 7. release.yml structural guard: structural assertions on .github/workflows/release.yml
@@ -399,9 +567,45 @@ if [ -n "$YML" ]; then
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
+# 8. Safety net: the repo under test must be byte-identical
+# ═════════════════════════════════════════════════════════════════════════════
+
+echo ""
+echo "=== 8. safety net: repo under test untouched ==="
+
+REAL_PKG_MD5_AFTER="$(md5_of "$REAL_PKG")"
+REAL_CHANGELOG_MD5_AFTER="$(md5_of "$REAL_CHANGELOG")"
+
+if [ "$REAL_PKG_MD5_BEFORE" = "$REAL_PKG_MD5_AFTER" ]; then
+  pass "repo-under-test package.json unchanged (md5 $REAL_PKG_MD5_AFTER)"
+else
+  fail "DESTRUCTIVE: $REAL_PKG changed ($REAL_PKG_MD5_BEFORE -> $REAL_PKG_MD5_AFTER)"
+fi
+
+if [ "$REAL_CHANGELOG_MD5_BEFORE" = "$REAL_CHANGELOG_MD5_AFTER" ]; then
+  pass "repo-under-test CHANGELOG.md unchanged (md5 $REAL_CHANGELOG_MD5_AFTER)"
+else
+  fail "DESTRUCTIVE: $REAL_CHANGELOG changed ($REAL_CHANGELOG_MD5_BEFORE -> $REAL_CHANGELOG_MD5_AFTER)"
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Summary
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
-exit ${FAIL:-0}
+
+if [ "$FAIL" -gt 0 ]; then
+  echo ""
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  echo "!! $FAIL assertion(s) FAILED — see the FAIL lines above."
+  if [ "$REAL_PKG_MD5_BEFORE" != "$REAL_PKG_MD5_AFTER" ] || \
+     [ "$REAL_CHANGELOG_MD5_BEFORE" != "$REAL_CHANGELOG_MD5_AFTER" ]; then
+    echo "!! DESTRUCTIVE RUN: the repo under test ($SCRIPT_DIR) was MODIFIED."
+    echo "!! Restore package.json / CHANGELOG.md from git before continuing."
+  fi
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  exit 1
+fi
+
+exit 0

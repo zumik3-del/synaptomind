@@ -11,3 +11,5 @@ vec0.so
 .env
 benchmark/
 eval/report.json
+.agents/
+ai-workdir/

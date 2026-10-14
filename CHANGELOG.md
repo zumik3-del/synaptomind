@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.11.0
+
+> October 13, 2026
+
+- [`524c872`](https://github.com/zumik3-del/synaptomind/commit/524c872d2659db02b9e42150174dcec1865d7422): chore(repo): ignore agent scratch and worktree dirs
+- [`1032c5e`](https://github.com/zumik3-del/synaptomind/commit/1032c5e8ce387d79792ce432ebdfba3e95e6b127): test(placement): type the pin-probe fixture expectation
+- [`cdcdd66`](https://github.com/zumik3-del/synaptomind/commit/cdcdd66e7d8b330a634b39eacfc3d5ee831210ab): perf(placement): reuse stored embeddings and drop per-candidate vec0 queries
+- [`42392cb`](https://github.com/zumik3-del/synaptomind/commit/42392cbe92d834779b4391e8685338b05644a1d9): fix(embedder): keep the freshness signal when insertEmbedding skips a row
+- [`99cbf0e`](https://github.com/zumik3-del/synaptomind/commit/99cbf0e36dada38b9f990b131a11395428342cf1): perf(embeddings): reuse stored vectors and drop per-candidate vec0 scans in cluster/edge jobs
+- [`4d8008d`](https://github.com/zumik3-del/synaptomind/commit/4d8008db0ce09a3cef2300760bf5d8d8b4c32ea4): fix(embedder): pin transformers.js cache env before pipeline load
+- [`0205802`](https://github.com/zumik3-del/synaptomind/commit/0205802f89897ed39c23482c30950a869c0dc528): refactor(mcp): typed errors + single-source Default-project rule
+- [`259d62f`](https://github.com/zumik3-del/synaptomind/commit/259d62fda6d28b8ff87c967e25f57167c10d67b9): refactor(embedder): split EmbedderClient from client-core facade
+- [`2656e33`](https://github.com/zumik3-del/synaptomind/commit/2656e3367df4795f841505b7dab1f945c29481d7): refactor(db): extract cluster-edges module and remove dead edge helpers
+
 ## v0.10.0
 
 > October 9, 2026
