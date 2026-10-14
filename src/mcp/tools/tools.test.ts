@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from '
 import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { setThoughtLimits } from '../../db/settings'
 import { createTestDb } from '../../test/helpers'
@@ -63,7 +64,7 @@ describe('tool registration', () => {
   })
 
   test('memory_store advertises the effective soft limit at registration', async () => {
-    setThoughtLimits(321, 20)
+    setThoughtLimits(getDb(), 321, 20)
 
     const fresh = await setupClient()
     const { tools: freshTools } = await fresh.listTools()
@@ -484,7 +485,7 @@ describe('memory_guide', () => {
   })
 
   test('advertises the effective soft limit resolved at call time', async () => {
-    setThoughtLimits(123, 20)
+    setThoughtLimits(getDb(), 123, 20)
 
     const result = await client.callTool({ name: 'memory_guide', arguments: {} })
     const r = result as { content: Array<{ type: string; text: string }> }

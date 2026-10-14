@@ -1,5 +1,6 @@
 import { type Subprocess, spawn } from 'bun'
-import { getEmbedderIdleTimeoutMs as defaultGetEmbedderIdleTimeoutMs, getEmbedderPrecache as defaultGetEmbedderPrecache } from '../db/settings'
+import { getDb } from '../db/container'
+import { getEmbedderIdleTimeoutMs, getEmbedderPrecache } from '../db/settings'
 import { insertLog as defaultInsertLog } from '../logging'
 import { EmbedderNotReadyError } from '../errors'
 import { isCompiled as defaultIsCompiled } from '../runtime-mode'
@@ -20,9 +21,11 @@ export interface EmbedderClientDeps {
   isCompiled: () => boolean
 }
 
+// The db accessors are db-first, so the deps keep their zero-arg shape and the
+// default implementations resolve the singleton lazily at spawn time.
 const DEFAULT_DEPS: EmbedderClientDeps = {
-  getEmbedderIdleTimeoutMs: defaultGetEmbedderIdleTimeoutMs,
-  getEmbedderPrecache: defaultGetEmbedderPrecache,
+  getEmbedderIdleTimeoutMs: () => getEmbedderIdleTimeoutMs(getDb()),
+  getEmbedderPrecache: () => getEmbedderPrecache(getDb()),
   insertLog: defaultInsertLog,
   isCompiled: defaultIsCompiled
 }
