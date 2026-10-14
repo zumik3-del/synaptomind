@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { config } from '../config'
+import { getDb } from '../db/container'
 import { closeDb } from '../db/init'
 import { setThoughtLimits } from '../db/settings'
 import { createTestDb } from '../test/helpers'
@@ -18,14 +19,14 @@ afterEach(() => {
 
 describe('getAdvertisedSoftLimitService', () => {
   test('returns the DB-backed soft limit', () => {
-    setThoughtLimits(432, 20)
+    setThoughtLimits(getDb(), 432, 20)
     expect(getAdvertisedSoftLimitService()).toBe(432)
   })
 
   test('reflects the latest persisted value on every call (no caching)', () => {
-    setThoughtLimits(100, 20)
+    setThoughtLimits(getDb(), 100, 20)
     expect(getAdvertisedSoftLimitService()).toBe(100)
-    setThoughtLimits(250, 20)
+    setThoughtLimits(getDb(), 250, 20)
     expect(getAdvertisedSoftLimitService()).toBe(250)
   })
 

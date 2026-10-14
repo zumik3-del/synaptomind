@@ -24,7 +24,7 @@ test("getThoughtLimitsDB returns config defaults with derived hard limit", () =>
 
 test("getThoughtLimits uses the configured soft limit and buffer", () => {
 	const { softLimit, hardLimitBufferPercent } = config.thoughts;
-	expect(getThoughtLimits()).toEqual({
+	expect(getThoughtLimits(getDb())).toEqual({
 		softLimit,
 		hardLimit: Math.round(softLimit * (1 + hardLimitBufferPercent / 100)),
 		hardLimitBufferPercent,
@@ -32,7 +32,7 @@ test("getThoughtLimits uses the configured soft limit and buffer", () => {
 });
 
 test("setThoughtLimits persists a custom percent and derives the hard limit", () => {
-	expect(setThoughtLimits(100, 50)).toEqual({
+	expect(setThoughtLimits(getDb(), 100, 50)).toEqual({
 		softLimit: 100,
 		hardLimit: 150,
 		hardLimitBufferPercent: 50,
@@ -47,9 +47,9 @@ test("setThoughtLimits persists a custom percent and derives the hard limit", ()
 
 test("derived hard limit rounds to the nearest integer", () => {
 	// 33 * 1.1 = 36.3 -> 36 (round down)
-	expect(setThoughtLimits(33, 10).hardLimit).toBe(36);
+	expect(setThoughtLimits(getDb(), 33, 10).hardLimit).toBe(36);
 	// 10 * 1.05 = 10.5 -> 11 (half rounds up)
-	expect(setThoughtLimits(10, 5).hardLimit).toBe(11);
+	expect(setThoughtLimits(getDb(), 10, 5).hardLimit).toBe(11);
 });
 
 test("falls back to config default for malformed or non-positive soft limit meta", () => {

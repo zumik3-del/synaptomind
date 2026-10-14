@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { setThoughtLimits } from '../../db/settings'
 import { createTestDb } from '../../test/helpers'
@@ -77,7 +78,7 @@ describe('tool-layer layering guard', () => {
 
 describe('soft-limit single resolution path', () => {
   test('registration description and guide call resolve the same DB-backed value', async () => {
-    setThoughtLimits(432, 20)
+    setThoughtLimits(getDb(), 432, 20)
     const client = await setupClient()
 
     const { tools } = await client.listTools()

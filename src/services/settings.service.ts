@@ -1,11 +1,65 @@
-import { getAdvertisedSoftLimit as resolveAdvertisedSoftLimit } from '../db/settings'
+import type { Database } from 'bun:sqlite'
+import { getDb } from '../db/container'
+import {
+  configuredSoftLimit,
+  getAdvertisedSoftLimit as resolveAdvertisedSoftLimit,
+  getEmbedderIdleTimeoutMs as resolveEmbedderIdleTimeoutMs,
+  getEmbedderPrecache as resolveEmbedderPrecache,
+  getThoughtLimits as resolveThoughtLimits,
+  setEmbedderIdleTimeoutMs as resolveSetEmbedderIdleTimeoutMs,
+  setEmbedderPrecache as resolveSetEmbedderPrecache,
+  setThoughtLimits as resolveSetThoughtLimits,
+  type ThoughtLimits
+} from '../db/settings'
 
 /**
- * Thin service wrapper for the advertised thought soft limit. Keeps the MCP
- * tool layer free of direct db access (finding F2) and gives every consumer a
- * single resolution path (finding F13): the store tool reads it at
- * registration and the guide reads it at call time through this function.
+ * Thin service wrappers over the runtime-settings meta accessors. They keep the
+ * API/tool layers free of direct db access (findings F2/#1) and give every
+ * consumer one resolution path (finding F13): the store tool reads the limit at
+ * registration and the guide reads it at call time through this module.
+ *
+ * Each wrapper takes the connection as a trailing defaulted param per the DI
+ * convention, so a caller with a specific connection can pass it through.
  */
-export function getAdvertisedSoftLimitService(): number {
-  return resolveAdvertisedSoftLimit()
+export function getThoughtLimitsService(d: Database = getDb()): ThoughtLimits {
+  return resolveThoughtLimits(d)
+}
+
+export function setThoughtLimitsService(
+  softLimit: number,
+  hardLimitBufferPercent: number,
+  d: Database = getDb()
+): ThoughtLimits {
+  return resolveSetThoughtLimits(d, softLimit, hardLimitBufferPercent)
+}
+
+export function getEmbedderPrecacheService(d: Database = getDb()): boolean {
+  return resolveEmbedderPrecache(d)
+}
+
+export function setEmbedderPrecacheService(value: boolean, d: Database = getDb()): void {
+  resolveSetEmbedderPrecache(d, value)
+}
+
+export function getEmbedderIdleTimeoutMsService(d: Database = getDb()): number {
+  return resolveEmbedderIdleTimeoutMs(d)
+}
+
+export function setEmbedderIdleTimeoutMsService(value: number, d: Database = getDb()): void {
+  resolveSetEmbedderIdleTimeoutMs(d, value)
+}
+
+/**
+ * The advertised thought soft limit. Unlike the wrappers above this one cannot
+ * default its connection to `getDb()`: registration may run before `initDb()`
+ * in some harnesses, and the default expression would throw outside the guard.
+ * So the connection is resolved lazily inside the guard, which keeps the
+ * pre-init degradation to config that the db layer used to own.
+ */
+export function getAdvertisedSoftLimitService(d?: Database): number {
+  try {
+    return resolveAdvertisedSoftLimit(d ?? getDb())
+  } catch {
+    return configuredSoftLimit()
+  }
 }
