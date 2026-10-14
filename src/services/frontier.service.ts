@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { getAllActiveEdges, getReplacedTargetIds } from '../db/edges'
 import { findFrontierCandidates, type FrontierCandidateRow } from '../db/frontier'
 import { getDb } from '../db'
-import { getThoughtImportance } from '../db/thoughts'
+import { getThoughtImportance } from '../db/importance'
 
 interface FrontierInput {
   project_id?: string

@@ -3,6 +3,14 @@ import { createTestDb } from "../test/helpers";
 import { getDb } from "./container";
 import { closeDb } from "./init";
 import {
+	archiveStaleLowImportance,
+	batchGetImportance,
+	boostImportance,
+	decayImportance,
+	getThoughtImportance,
+	incrementHitCount,
+} from "./importance";
+import {
 	createProject,
 	deleteProject,
 	getProject,
@@ -10,15 +18,9 @@ import {
 	updateProject,
 } from "./projects";
 import {
-	archiveStaleLowImportance,
 	archiveThought,
-	batchGetImportance,
-	boostImportance,
 	createThought,
-	decayImportance,
 	getThought,
-	getThoughtImportance,
-	incrementHitCount,
 	listThoughts,
 	updateThought,
 } from "./thoughts";

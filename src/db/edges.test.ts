@@ -10,7 +10,7 @@ import {
 } from "./edges";
 import { getDb } from "./container";
 import { closeDb } from "./init";
-import { getThoughtImportance } from "./thoughts";
+import { getThoughtImportance } from "./importance";
 
 beforeEach(createTestDb);
 afterEach(closeDb);

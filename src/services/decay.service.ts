@@ -1,6 +1,6 @@
 import { config } from '../config'
 import { getDb } from '../db'
-import { archiveStaleLowImportance, decayImportance } from '../db/thoughts'
+import { archiveStaleLowImportance, decayImportance } from '../db/importance'
 import { createIntervalJob } from './jobs'
 import type { Database } from 'bun:sqlite'
 
