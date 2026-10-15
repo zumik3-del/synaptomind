@@ -22,6 +22,7 @@
   "embedder": {
     "enabled": true,
     "model": "Xenova/multilingual-e5-small",
+    "dtype": "q8",
     "dimensions": 384,
     "pollIntervalMs": 7000,
     "cacheDir": "./data/huggingface",

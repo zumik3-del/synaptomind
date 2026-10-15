@@ -18,7 +18,7 @@ async function loadExtractor() {
   env.useFSCache = true
   return await pipeline('feature-extraction', config.embedder.model, {
     cache_dir: config.embedder.cacheDir,
-    dtype: 'fp32',
+    dtype: config.embedder.dtype,
     // Single intra-op thread: ORT's thread pool calls pthread_setaffinity_np,
     // which fails with EINVAL inside LXC cgroups ("Specify the number of
     // threads explicitly"). One thread is plenty for this 384-dim model.

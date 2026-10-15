@@ -38,7 +38,7 @@ async function writeAllModelFiles(onnxFill = 0x61): Promise<void> {
 test('all files present with sufficient sizes → everything ok', async () => {
   await writeAllModelFiles()
 
-  const result = await validateModelFiles(cacheDir, MODEL)
+  const result = await validateModelFiles(cacheDir, MODEL, 'fp32')
 
   expect(result.ok).toEqual(['config.json', 'tokenizer.json', 'tokenizer_config.json', 'onnx/model.onnx'])
   expect(result.missing).toEqual([])
@@ -46,7 +46,7 @@ test('all files present with sufficient sizes → everything ok', async () => {
 })
 
 test('empty cache dir → every file missing', async () => {
-  const result = await validateModelFiles(cacheDir, MODEL)
+  const result = await validateModelFiles(cacheDir, MODEL, 'fp32')
 
   expect(result.missing).toEqual(['config.json', 'tokenizer.json', 'tokenizer_config.json', 'onnx/model.onnx'])
   expect(result.corrupt).toEqual([])
@@ -58,7 +58,7 @@ test('a missing file lands in the missing list, the rest stay ok', async () => {
   await writeModelFile('tokenizer_config.json', CONFIG_BYTES)
   await writeModelFile('onnx/model.onnx', ONNX_BYTES)
 
-  const result = await validateModelFiles(cacheDir, MODEL)
+  const result = await validateModelFiles(cacheDir, MODEL, 'fp32')
 
   expect(result.missing).toEqual(['tokenizer.json'])
   expect(result.corrupt).toEqual([])
@@ -69,7 +69,7 @@ test('a file below its minimum size lands in the corrupt list', async () => {
   await writeAllModelFiles()
   await writeModelFile('config.json', 10) // 10 < 50
 
-  const result = await validateModelFiles(cacheDir, MODEL)
+  const result = await validateModelFiles(cacheDir, MODEL, 'fp32')
 
   expect(result.corrupt).toEqual(['config.json'])
   expect(result.missing).toEqual([])
@@ -79,7 +79,7 @@ test('a file below its minimum size lands in the corrupt list', async () => {
 test('an all-zero ONNX header is corrupt even at sufficient size', async () => {
   await writeAllModelFiles(0x00)
 
-  const result = await validateModelFiles(cacheDir, MODEL)
+  const result = await validateModelFiles(cacheDir, MODEL, 'fp32')
 
   expect(result.corrupt).toEqual(['onnx/model.onnx'])
   expect(result.ok).toEqual(['config.json', 'tokenizer.json', 'tokenizer_config.json'])
@@ -91,7 +91,7 @@ test('mixed: one missing, one corrupt, two ok', async () => {
   await writeModelFile('tokenizer_config.json', CONFIG_BYTES)
   await writeModelFile('onnx/model.onnx', ONNX_BYTES)
 
-  const result = await validateModelFiles(cacheDir, MODEL)
+  const result = await validateModelFiles(cacheDir, MODEL, 'fp32')
 
   expect(result.missing).toEqual(['tokenizer.json'])
   expect(result.corrupt).toEqual(['config.json'])

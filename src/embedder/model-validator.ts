@@ -1,4 +1,5 @@
 import { mkdir, rm } from 'node:fs/promises'
+import type { EmbedderDtype } from '../config'
 import { insertLog } from '../logging'
 
 interface FileSpec {
@@ -6,12 +7,22 @@ interface FileSpec {
   minSizeBytes: number
 }
 
-const EXPECTED_FILES: FileSpec[] = [
-  { path: 'config.json', minSizeBytes: 50 },
-  { path: 'tokenizer.json', minSizeBytes: 1_000 },
-  { path: 'tokenizer_config.json', minSizeBytes: 50 },
-  { path: 'onnx/model.onnx', minSizeBytes: 1_000_000 }
-]
+// transformers.js resolves the ONNX filename by appending a per-dtype suffix
+// (DEFAULT_DTYPE_SUFFIX_MAPPING: fp32 -> '', q8 -> '_quantized') to `onnx/model`.
+// Keep this in sync with `config.embedder.dtype` — the loader passes the same dtype.
+const ONNX_FILE_BY_DTYPE: Record<EmbedderDtype, string> = {
+  fp32: 'onnx/model.onnx',
+  q8: 'onnx/model_quantized.onnx'
+}
+
+function expectedFiles(dtype: EmbedderDtype): FileSpec[] {
+  return [
+    { path: 'config.json', minSizeBytes: 50 },
+    { path: 'tokenizer.json', minSizeBytes: 1_000 },
+    { path: 'tokenizer_config.json', minSizeBytes: 50 },
+    { path: ONNX_FILE_BY_DTYPE[dtype], minSizeBytes: 1_000_000 }
+  ]
+}
 
 function modelDir(cacheDir: string, modelName: string): string {
   return `${cacheDir}/${modelName}`
@@ -27,14 +38,18 @@ interface ValidationResult {
   ok: string[]
 }
 
-export async function validateModelFiles(cacheDir: string, modelName: string): Promise<ValidationResult> {
+export async function validateModelFiles(
+  cacheDir: string,
+  modelName: string,
+  dtype: EmbedderDtype
+): Promise<ValidationResult> {
   const missing: string[] = []
   const corrupt: string[] = []
   const ok: string[] = []
 
   const baseDir = modelDir(cacheDir, modelName)
 
-  for (const file of EXPECTED_FILES) {
+  for (const file of expectedFiles(dtype)) {
     const fp = `${baseDir}/${file.path}`
     const f = Bun.file(fp)
     const exists = await f.exists()
@@ -86,8 +101,9 @@ async function downloadFile(modelName: string, relativePath: string, destPath: s
   console.log(`[embedder] downloaded ${relativePath} (${sizeMB} MB)`)
 }
 
-export async function ensureModelFiles(cacheDir: string, modelName: string): Promise<void> {
-  const result = await validateModelFiles(cacheDir, modelName)
+export async function ensureModelFiles(cacheDir: string, modelName: string, dtype: EmbedderDtype): Promise<void> {
+  const expectedCount = expectedFiles(dtype).length
+  const result = await validateModelFiles(cacheDir, modelName, dtype)
 
   const baseDir = modelDir(cacheDir, modelName)
   for (const path of result.corrupt) {
@@ -104,7 +120,7 @@ export async function ensureModelFiles(cacheDir: string, modelName: string): Pro
       await downloadFile(modelName, path, destPath)
     }
 
-    const finalResult = await validateModelFiles(cacheDir, modelName)
+    const finalResult = await validateModelFiles(cacheDir, modelName, dtype)
     if (finalResult.missing.length > 0 || finalResult.corrupt.length > 0) {
       throw new Error(
         `Model files still missing/corrupt after download: ${`missing=[${finalResult.missing.join(',')}] corrupt=[${finalResult.corrupt.join(',')}]`}`
@@ -115,12 +131,12 @@ export async function ensureModelFiles(cacheDir: string, modelName: string): Pro
       model: modelName,
       files: toDownload
     })
-    console.log(`[embedder] model files ready (${result.ok.length + toDownload.length}/${EXPECTED_FILES.length})`)
+    console.log(`[embedder] model files ready (${result.ok.length + toDownload.length}/${expectedCount}, dtype=${dtype})`)
   } else {
     insertLog('info', 'embedding', 'Model files validated (cached, not loaded)', {
       model: modelName,
       filesOk: result.ok
     })
-    console.log(`[embedder] model files validated (${result.ok.length}/${EXPECTED_FILES.length})`)
+    console.log(`[embedder] model files validated (${result.ok.length}/${expectedCount}, dtype=${dtype})`)
   }
 }
