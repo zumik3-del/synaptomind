@@ -40,6 +40,10 @@ process.env.SYNAPTOMIND_EMBEDDER_BATCH_SIZE = '8'
 // Safety net: if the `../db/init` mock below ever fails to apply, the worker
 // opens THIS throwaway file instead of a real database path.
 process.env.SYNAPTOMIND_DB_PATH = join(scratch, 'never-used.db')
+// Pinned rather than inherited: the dtype the shipped process forwards to
+// `ensureModelFiles` is asserted below, and an ambient override would make that
+// assertion depend on the caller's shell.
+process.env.SYNAPTOMIND_EMBEDDER_DTYPE = 'q8'
 
 // ── real modules, snapshotted before the mocks replace them ──────────────────
 // Plain-object snapshots, not namespaces: `mock.module` rewrites the namespace
@@ -48,6 +52,7 @@ process.env.SYNAPTOMIND_DB_PATH = join(scratch, 'never-used.db')
 const realInitFns = { ...(await import('../db/init')) }
 const realQueueFns = { ...(await import('../db/pending-embeddings')) }
 const { getDb } = await import('../db/container')
+const { config } = await import('../config')
 const { seedThought } = await import('../test/helpers')
 
 // ── mocks ────────────────────────────────────────────────────────────────────
@@ -92,7 +97,19 @@ mock.module('./model', () => ({
   generateEmbedding: async () => markerVector(),
   resetExtractor: () => {}
 }))
-mock.module('./model-validator', () => ({ ensureModelFiles: async () => {} }))
+/** The model call the SHIPPED process booted with (`embedder.dtype` wiring). */
+interface EnsureModelCall {
+  cacheDir: string
+  model: string
+  dtype: string
+}
+
+const ensureModelCalls: EnsureModelCall[] = []
+mock.module('./model-validator', () => ({
+  ensureModelFiles: async (cacheDir: string, model: string, dtype: string) => {
+    ensureModelCalls.push({ cacheDir, model, dtype })
+  }
+}))
 
 /** Ids the SHIPPED loop handed to `deleteFromQueue`, per call. */
 const deleteCalls: string[][] = []
@@ -196,6 +213,20 @@ afterAll(() => {
   logReader?.close()
   realInitFns.closeDb()
   rmSync(scratch, { recursive: true, force: true })
+})
+
+test('the shipped process validates the model with the configured dtype', () => {
+  // `ensureModelFiles` runs during boot, before the worker's first batch, so at
+  // least one call has already happened by the time this runs.
+  expect(ensureModelCalls.length).toBeGreaterThanOrEqual(1)
+
+  const call = ensureModelCalls[0]
+  // The file the validator then demands (onnx/model_quantized.onnx for q8) is
+  // only the file the LOADER opens if this argument really is the config dtype.
+  expect(call.dtype).toBe(config.embedder.dtype)
+  expect(call.dtype).toBe('q8')
+  expect(call.model).toBe(config.embedder.model)
+  expect(call.cacheDir).toBe(config.embedder.cacheDir)
 })
 
 test(
