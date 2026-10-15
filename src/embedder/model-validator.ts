@@ -116,16 +116,21 @@ async function downloadFile(modelName: string, relativePath: string, destPath: s
  * file beside the new one: transformers.js resolves the file from the dtype
  * string alone and never scans `onnx/`, so the sibling is inert — but it can be
  * hundreds of MB on hosts the deploy guide calls disk-tight, so say so once.
- * Log-only by design: the file is never deleted (a switch back reuses it, and it
- * is not ours to remove). Written to stderr, which `embedder-client` records at
- * level 'warning' instead of the 'info' it gives the child's stdout.
+ * The warning names the price of reclaiming that space too: the sibling is the
+ * offline way back to its dtype, so an operator who deletes it needs the network
+ * to switch again. Log-only by design: the file is never deleted here (a switch
+ * back reuses it, and it is not ours to remove). Written to stderr, which
+ * `embedder-client` records at level 'warning' instead of the 'info' it gives
+ * the child's stdout.
  */
 async function warnStaleSiblingOnnx(baseDir: string, dtype: EmbedderDtype): Promise<void> {
   for (const path of siblingOnnxFiles(dtype)) {
     const f = Bun.file(`${baseDir}/${path}`)
     if (!(await f.exists())) continue
 
-    console.warn(`[embedder] ${path} (${formatMB(f.size)}) is not used by dtype=${dtype} and can be deleted`)
+    console.warn(
+      `[embedder] ${path} (${formatMB(f.size)}) is not used by dtype=${dtype}; deleting it frees that space but removes the offline way back, since switching dtype again would re-download it`
+    )
   }
 }
 
