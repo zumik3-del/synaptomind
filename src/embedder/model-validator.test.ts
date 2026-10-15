@@ -285,9 +285,45 @@ describe('ensureModelFiles — a q8 fetch never asks for onnx/model.onnx', () =>
 
 const MIB = 1024 * 1024
 
-/** The stale-sibling line for `path` at `bytes`, as the warning must render it. */
-function staleSiblingLine(path: string, bytes: number, dtype: EmbedderDtype): string {
-  return `[embedder] ${path} (${(bytes / MIB).toFixed(1)} MB) is not used by dtype=${dtype} and can be deleted`
+// Pinning policy: these tests assert the facts the operator needs plus the one
+// piece of advice the line must never give — not the sentence that carries them.
+// A verbatim golden line reddens five tests on any copy edit while proving
+// nothing extra: task 1592 reworded the warning exactly because "and can be
+// deleted" told the operator to reclaim the space for free, and the guards below
+// catch that regression by intent, not by quoting. So `staleSiblingCore` pins the
+// stable half (tag, path, MiB size) plus the dtype the file is unused by, and
+// `expectStaleSiblingWarning` adds the advice guards.
+
+/** The stable half of the line: the `[embedder]` tag, the sibling's path, its size. */
+function staleSiblingCore(path: string, bytes: number): string {
+  return `[embedder] ${path} (${(bytes / MIB).toFixed(1)} MB)`
+}
+
+/**
+ * Deletion advice that presents the sibling as free — the shapes task 1592
+ * removed. Deliberately a heuristic over the advice, not a parser: it flags
+ * permissive phrasing ("can be deleted", "safe to remove"), never a plain
+ * statement of the fact ("is not used by dtype=q8").
+ */
+const UNCONDITIONAL_DELETE_RE =
+  /\b(can|may|could|might)\s+be\s+delet|\byou\s+(can|may|should)\s+delete\b|\bis\s+deletable\b|\b(safe|free)\s+to\s+(delete|remove)\b/i
+
+/** A named price for deleting the sibling: without one, `delet…` reads as an invitation. */
+const DELETION_COST_RE = /\boffline\b|re-?download|\bnetwork\b/i
+
+/** One stale-sibling line: stable core intact, and no free-lunch deletion advice. */
+function expectStaleSiblingWarning(
+  line: string | undefined,
+  path: string,
+  bytes: number,
+  dtype: EmbedderDtype
+): void {
+  const text = line ?? '<no warning line emitted>'
+  expect(text).toContain(staleSiblingCore(path, bytes))
+  expect(text).toContain(`dtype=${dtype}`)
+  expect(text).not.toMatch(UNCONDITIONAL_DELETE_RE)
+  // If the line mentions deleting the file at all, it owes the operator the cost.
+  if (/delet/i.test(text)) expect(text).toMatch(DELETION_COST_RE)
 }
 
 describe('ensureModelFiles — stale sibling ONNX warning', () => {
@@ -340,9 +376,11 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
 
     await ensureModelFiles(cacheDir, MODEL, 'q8')
 
-    expect(warnings()).toEqual([staleSiblingLine('onnx/model.onnx', staleBytes, 'q8')])
+    const lines = warnings()
+    expect(lines).toHaveLength(1)
+    expectStaleSiblingWarning(lines[0], 'onnx/model.onnx', staleBytes, 'q8')
     // The size is one-decimal MiB, the unit the download line already uses.
-    expect(warnings()[0]).toContain('(2.0 MB)')
+    expect(lines[0]).toContain('(2.0 MB)')
     expect(fetches()).toEqual([])
 
     // Log-only by design: a switch back reuses the file, so it is never deleted.
@@ -359,8 +397,10 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
 
     await ensureModelFiles(cacheDir, MODEL, 'fp32')
 
-    expect(warnings()).toEqual([staleSiblingLine('onnx/model_quantized.onnx', staleBytes, 'fp32')])
-    expect(warnings()[0]).toContain('(1.3 MB)')
+    const lines = warnings()
+    expect(lines).toHaveLength(1)
+    expectStaleSiblingWarning(lines[0], 'onnx/model_quantized.onnx', staleBytes, 'fp32')
+    expect(lines[0]).toContain('(1.3 MB)')
     expect(fetches()).toEqual([])
   })
 
@@ -376,7 +416,9 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
     // The repair happened, so validateModelFiles ran on both sides of the
     // download; the warning sits outside that path and must not be repeated.
     expect(fetches()).toHaveLength(1)
-    expect(warnings()).toEqual([staleSiblingLine('onnx/model.onnx', staleBytes, 'q8')])
+    const lines = warnings()
+    expect(lines).toHaveLength(1)
+    expectStaleSiblingWarning(lines[0], 'onnx/model.onnx', staleBytes, 'q8')
   })
 
   test('a clean cache logs nothing on the warn channel', async () => {
@@ -397,7 +439,9 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
 
     // The hint must not depend on a successful download: it is emitted before
     // the fetch that fails on an offline host.
-    expect(events[0]).toBe(`warn:${staleSiblingLine('onnx/model_quantized.onnx', staleBytes, 'fp32')}`)
+    const [first] = events
+    expect(first?.startsWith('warn:')).toBe(true)
+    expectStaleSiblingWarning(first?.slice('warn:'.length), 'onnx/model_quantized.onnx', staleBytes, 'fp32')
     expect(fetches()).toHaveLength(1)
   })
 
@@ -423,8 +467,11 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
 
     expect(code).toBe(0)
     expect(stdout).toContain('DONE')
-    expect(stderr).toContain(staleSiblingLine('onnx/model.onnx', staleBytes, 'q8'))
+    // The warning line reached stderr, once, with its stable core intact.
+    const warned = stderr.split('\n').filter(l => l.startsWith('[embedder]'))
+    expect(warned).toHaveLength(1)
+    expectStaleSiblingWarning(warned[0], 'onnx/model.onnx', staleBytes, 'q8')
     // stdout is recorded at level `info`, so the warning must not travel there.
-    expect(stdout).not.toContain('is not used by dtype=')
+    expect(stdout).not.toContain(staleSiblingCore('onnx/model.onnx', staleBytes))
   })
 })
