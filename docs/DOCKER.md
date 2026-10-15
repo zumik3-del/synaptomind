@@ -189,7 +189,7 @@ curl -s http://127.0.0.1:3005/health | jq -r .version
 
 - `data/synaptomind.db` — main database (thoughts, edges, projects)
 - `data/logs.db` — session logs
-- `data/huggingface/` — cached embedding models (~150MB after first run)
+- `data/huggingface/` — cached embedding models (~113 MB with the default `q8` dtype, ~449 MB with `fp32`, after first run)
 
 ---
 
@@ -268,7 +268,7 @@ Common issues:
 
 ### Embedder not loading
 
-First run downloads the model (~150MB). Check progress:
+First run downloads the model (~113 MB with the default `q8` dtype, ~449 MB with `fp32`). Check progress:
 
 ```bash
 docker compose logs -f | grep -i embedder

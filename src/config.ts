@@ -301,6 +301,16 @@ function loadFileConfig(): Partial<Config> {
   return JSON.parse(readFileSync(configPath, 'utf-8')) as Partial<Config>
 }
 
+/**
+ * Name the layer that actually carried `embedder.dtype`: the env override is
+ * applied after the file merge, so it wins, and a bad env value must not be
+ * blamed on config.json (nor the reverse).
+ */
+function embedderDtypeSource(): string {
+  const env = ENV_MAPPINGS.find(m => m.path === 'embedder.dtype')?.env
+  return env !== undefined && process.env[env] !== undefined ? env : 'config.json'
+}
+
 function applyEnvOverrides(fileConfig: Partial<Config>): Config {
   const merged = deepMerge(
     DEFAULTS as unknown as Record<string, unknown>,
@@ -319,7 +329,7 @@ function applyEnvOverrides(fileConfig: Partial<Config>): Config {
   }
 
   const embedder = merged.embedder as { dtype?: unknown } | undefined
-  assertEmbedderDtype(embedder?.dtype, 'config.json or SYNAPTOMIND_EMBEDDER_DTYPE')
+  assertEmbedderDtype(embedder?.dtype, embedderDtypeSource())
 
   return merged as unknown as Config
 }

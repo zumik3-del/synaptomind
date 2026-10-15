@@ -77,14 +77,27 @@ Local embedding model for semantic search. No API keys required.
 |---------|---------|---------|-------------|
 | `embedder.enabled` | `SYNAPTOMIND_EMBEDDER_ENABLED` | `true` | Enable/disable local embeddings. Disabled = vector search unavailable |
 | `embedder.model` | `SYNAPTOMIND_EMBEDDER_MODEL` | `Xenova/multilingual-e5-small` | HuggingFace model name |
-| `embedder.dtype` | `SYNAPTOMIND_EMBEDDER_DTYPE` | `q8` | ONNX precision of the local model. `q8` downloads `onnx/model_quantized.onnx` (~118 MB), `fp32` downloads `onnx/model.onnx` (~449 MB). An unknown value fails at startup. Changing it shifts embedding values, so re-embed after switching |
+| `embedder.dtype` | `SYNAPTOMIND_EMBEDDER_DTYPE` | `q8` | ONNX precision of the local model. `q8` downloads `onnx/model_quantized.onnx` (~113 MB), `fp32` downloads `onnx/model.onnx` (~449 MB). An unknown value fails at startup. Switching needs **no** corpus re-embed (measured drift ≤0.0061 vs `verify.driftThreshold` 0.25); an offline host holding only an fp32 cache recovers with `SYNAPTOMIND_EMBEDDER_DTYPE=fp32` — see the note below |
 | `embedder.dimensions` | `SYNAPTOMIND_EMBEDDER_DIMENSIONS` | `384` | Embedding vector dimensions |
 | `embedder.pollIntervalMs` | `SYNAPTOMIND_EMBEDDER_POLL_INTERVAL` | `7000` | How often to check for pending embeddings (ms) |
-| `embedder.cacheDir` | `SYNAPTOMIND_EMBEDDER_CACHE_DIR` | `./data/huggingface` | Model cache directory (~150MB after first load) |
+| `embedder.cacheDir` | `SYNAPTOMIND_EMBEDDER_CACHE_DIR` | `./data/huggingface` | Model cache directory (~449 MB with `fp32`, ~113 MB with `q8`, after first load) |
 | `embedder.idleTimeoutMs` | `SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT` | `600000` | Unload model after this idle time (ms). 0 = never unload |
 | `embedder.precache` | `SYNAPTOMIND_EMBEDDER_PRECACHE` | `false` | Download model on startup instead of on first use |
 | `embedder.resetDeadLetters` | `SYNAPTOMIND_RESET_DEAD_LETTER` | `false` | Re-queue dead-lettered embeddings on startup. Off by default: a poisonous thought would otherwise get fresh attempts on every restart. Enable after fixing an embedding bug to retry failed items |
 | `embedder.batchSize` | `SYNAPTOMIND_EMBEDDER_BATCH_SIZE` | `8` | Embeddings per batch. Higher = faster but more RAM |
+
+**Note:** Switching `embedder.dtype` shifts embedding values only slightly — measured on the default
+model with transformers.js 4.2.0, the fp32↔q8 cosine drift is ≤0.0061 against a `verify.driftThreshold`
+of 0.25: about 40× below the threshold, and far under the ~0.19 median distance between two different
+thoughts. An existing corpus therefore does **not** need re-embedding after a switch.
+
+An **offline host with an fp32-only cache** cannot become ready after the `q8` default: the quantized
+file is not on disk and cannot be fetched, so the embedder process exits before it reports ready. Recover
+by using the file already on disk (`SYNAPTOMIND_EMBEDDER_DTYPE=fp32`) or by pre-placing
+`onnx/model_quantized.onnx` in the cache.
+
+A switch leaves the previous dtype's ONNX file in the cache directory. Startup logs one warning naming
+that file and its size — it is never deleted, because a switch back reuses it.
 
 ---
 
@@ -322,6 +335,7 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
   "embedder": {
     "enabled": true,
     "model": "Xenova/multilingual-e5-small",
+    "dtype": "q8",
     "dimensions": 384,
     "pollIntervalMs": 7000,
     "cacheDir": "./data/huggingface",

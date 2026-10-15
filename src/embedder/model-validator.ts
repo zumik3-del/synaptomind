@@ -24,12 +24,23 @@ function expectedFiles(dtype: EmbedderDtype): FileSpec[] {
   ]
 }
 
+/** The other dtypes' ONNX files — on disk only after a dtype switch. */
+function siblingOnnxFiles(dtype: EmbedderDtype): string[] {
+  return Object.entries(ONNX_FILE_BY_DTYPE)
+    .filter(([other]) => other !== dtype)
+    .map(([, path]) => path)
+}
+
 function modelDir(cacheDir: string, modelName: string): string {
   return `${cacheDir}/${modelName}`
 }
 
 function downloadUrl(modelName: string, relativePath: string): string {
   return `https://huggingface.co/${modelName}/resolve/main/${relativePath}`
+}
+
+function formatMB(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 interface ValidationResult {
@@ -97,8 +108,25 @@ async function downloadFile(modelName: string, relativePath: string, destPath: s
   const buffer = await resp.arrayBuffer()
   await Bun.write(destPath, new Uint8Array(buffer))
 
-  const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1)
-  console.log(`[embedder] downloaded ${relativePath} (${sizeMB} MB)`)
+  console.log(`[embedder] downloaded ${relativePath} (${formatMB(buffer.byteLength)})`)
+}
+
+/**
+ * A dtype switch (e.g. the `q8` default flip) leaves the previous dtype's ONNX
+ * file beside the new one: transformers.js resolves the file from the dtype
+ * string alone and never scans `onnx/`, so the sibling is inert — but it can be
+ * hundreds of MB on hosts the deploy guide calls disk-tight, so say so once.
+ * Log-only by design: the file is never deleted (a switch back reuses it, and it
+ * is not ours to remove). Written to stderr, which `embedder-client` records at
+ * level 'warning' instead of the 'info' it gives the child's stdout.
+ */
+async function warnStaleSiblingOnnx(baseDir: string, dtype: EmbedderDtype): Promise<void> {
+  for (const path of siblingOnnxFiles(dtype)) {
+    const f = Bun.file(`${baseDir}/${path}`)
+    if (!(await f.exists())) continue
+
+    console.warn(`[embedder] ${path} (${formatMB(f.size)}) is not used by dtype=${dtype} and can be deleted`)
+  }
 }
 
 export async function ensureModelFiles(cacheDir: string, modelName: string, dtype: EmbedderDtype): Promise<void> {
@@ -106,6 +134,11 @@ export async function ensureModelFiles(cacheDir: string, modelName: string, dtyp
   const result = await validateModelFiles(cacheDir, modelName, dtype)
 
   const baseDir = modelDir(cacheDir, modelName)
+  // Before any download: on an offline host the fetch below is exactly what
+  // fails, and this line is the operator's hint that the file at hand (or
+  // `SYNAPTOMIND_EMBEDDER_DTYPE=fp32`) is the way out.
+  await warnStaleSiblingOnnx(baseDir, dtype)
+
   for (const path of result.corrupt) {
     const fp = `${baseDir}/${path}`
     console.log(`[embedder] removing corrupt file: ${path}`)
