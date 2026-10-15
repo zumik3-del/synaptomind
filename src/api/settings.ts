@@ -1,20 +1,20 @@
 import { Hono } from 'hono'
-import {
-  getEmbedderIdleTimeoutMs,
-  getEmbedderPrecache,
-  getThoughtLimits,
-  setEmbedderIdleTimeoutMs,
-  setEmbedderPrecache,
-  setThoughtLimits
-} from '../db/settings'
 import { restartEmbedder } from '../embedder/client'
+import {
+  getEmbedderIdleTimeoutMsService,
+  getEmbedderPrecacheService,
+  getThoughtLimitsService,
+  setEmbedderIdleTimeoutMsService,
+  setEmbedderPrecacheService,
+  setThoughtLimitsService
+} from '../services/settings.service'
 
 // Intentionally NOT wrapped in withTelemetry: runtime configuration endpoints
 // (thought limits, embedder tuning) are infrastructure, not memory operations.
 const settingsRouter = new Hono()
 
 settingsRouter.get('/thought-settings', c => {
-  return c.json(getThoughtLimits())
+  return c.json(getThoughtLimitsService())
 })
 
 settingsRouter.patch('/thought-settings', async c => {
@@ -31,9 +31,9 @@ settingsRouter.patch('/thought-settings', async c => {
     return c.json({ error: 'hardLimitBufferPercent must be an integer >= 1' }, 400)
   }
 
-  const current = getThoughtLimits()
+  const current = getThoughtLimitsService()
   return c.json(
-    setThoughtLimits(
+    setThoughtLimitsService(
       softLimit ?? current.softLimit,
       hardLimitBufferPercent ?? current.hardLimitBufferPercent
     )
@@ -41,7 +41,7 @@ settingsRouter.patch('/thought-settings', async c => {
 })
 
 settingsRouter.get('/embedder-settings', c => {
-  return c.json({ precache: getEmbedderPrecache(), idleTimeoutMs: getEmbedderIdleTimeoutMs() })
+  return c.json({ precache: getEmbedderPrecacheService(), idleTimeoutMs: getEmbedderIdleTimeoutMsService() })
 })
 
 settingsRouter.patch('/embedder-settings', async c => {
@@ -60,10 +60,10 @@ settingsRouter.patch('/embedder-settings', async c => {
     return c.json({ error: 'at least one of precache or idleTimeoutMs is required' }, 400)
   }
 
-  const previousPrecache = getEmbedderPrecache()
-  const previousIdle = getEmbedderIdleTimeoutMs()
-  if (precache !== undefined) setEmbedderPrecache(precache)
-  if (idleTimeoutMs !== undefined) setEmbedderIdleTimeoutMs(idleTimeoutMs)
+  const previousPrecache = getEmbedderPrecacheService()
+  const previousIdle = getEmbedderIdleTimeoutMsService()
+  if (precache !== undefined) setEmbedderPrecacheService(precache)
+  if (idleTimeoutMs !== undefined) setEmbedderIdleTimeoutMsService(idleTimeoutMs)
 
   const changed =
     (precache !== undefined && precache !== previousPrecache) ||
@@ -79,7 +79,7 @@ settingsRouter.patch('/embedder-settings', async c => {
       )
     }
   }
-  return c.json({ precache: getEmbedderPrecache(), idleTimeoutMs: getEmbedderIdleTimeoutMs() })
+  return c.json({ precache: getEmbedderPrecacheService(), idleTimeoutMs: getEmbedderIdleTimeoutMsService() })
 })
 
 export { settingsRouter }

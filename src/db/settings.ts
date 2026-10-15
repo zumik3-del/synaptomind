@@ -1,6 +1,5 @@
 import type { Database } from 'bun:sqlite'
 import { config, DEFAULTS } from '../config'
-import { getDb } from './container'
 
 const SOFT_LIMIT_KEY = 'thought_soft_limit'
 const HARD_LIMIT_BUFFER_PERCENT_KEY = 'thought_hard_limit_buffer_percent'
@@ -60,50 +59,57 @@ function resolveHardLimitBufferPercent(db: Database, softLimit: number): number 
   return positiveIntOr(config.thoughts.hardLimitBufferPercent, DEFAULTS.thoughts.hardLimitBufferPercent)
 }
 
+/**
+ * Config-only soft limit: the value to advertise when no database is available.
+ * Exported so the service layer can degrade to config when tool registration
+ * runs before `initDb()` in some harnesses.
+ */
+export function configuredSoftLimit(): number {
+  return positiveIntOr(config.thoughts.softLimit, DEFAULTS.thoughts.softLimit)
+}
+
 export function getThoughtLimitsDB(db: Database): ThoughtLimits {
   const softLimit = resolveSoftLimit(db)
   const hardLimitBufferPercent = resolveHardLimitBufferPercent(db, softLimit)
   return { softLimit, hardLimitBufferPercent, hardLimit: deriveHardLimit(softLimit, hardLimitBufferPercent) }
 }
 
-export function getThoughtLimits(): ThoughtLimits {
-  return getThoughtLimitsDB(getDb())
+// `getThoughtLimitsDB` is the implementation shared with the thought/cluster
+// services; this entry point keeps the unsuffixed name for the settings service.
+export function getThoughtLimits(db: Database): ThoughtLimits {
+  return getThoughtLimitsDB(db)
 }
 
-// The limit advertised to agents in tool descriptions. Registration may run
-// before the DB is initialized in some harnesses; fall back to config then.
-export function getAdvertisedSoftLimit(): number {
-  try {
-    return getThoughtLimits().softLimit
-  } catch {
-    return positiveIntOr(config.thoughts.softLimit, DEFAULTS.thoughts.softLimit)
-  }
+// The limit advertised to agents in tool descriptions. The pre-init fallback
+// lives in the service layer (getAdvertisedSoftLimitService): a db-first
+// function has no database to fall back from.
+export function getAdvertisedSoftLimit(db: Database): number {
+  return getThoughtLimits(db).softLimit
 }
 
-export function setThoughtLimits(softLimit: number, hardLimitBufferPercent: number): ThoughtLimits {
-  const db = getDb()
+export function setThoughtLimits(db: Database, softLimit: number, hardLimitBufferPercent: number): ThoughtLimits {
   writeMeta(db, SOFT_LIMIT_KEY, String(softLimit))
   writeMeta(db, HARD_LIMIT_BUFFER_PERCENT_KEY, String(hardLimitBufferPercent))
   return getThoughtLimitsDB(db)
 }
 
-export function getEmbedderPrecache(): boolean {
-  const val = readMeta(getDb(), EMBEDDER_PRECACHE_KEY)
+export function getEmbedderPrecache(db: Database): boolean {
+  const val = readMeta(db, EMBEDDER_PRECACHE_KEY)
   if (!val) return config.embedder.precache
   return val === 'true'
 }
 
-export function setEmbedderPrecache(value: boolean): void {
-  writeMeta(getDb(), EMBEDDER_PRECACHE_KEY, value ? 'true' : 'false')
+export function setEmbedderPrecache(db: Database, value: boolean): void {
+  writeMeta(db, EMBEDDER_PRECACHE_KEY, value ? 'true' : 'false')
 }
 
-export function getEmbedderIdleTimeoutMs(): number {
-  const val = readMeta(getDb(), EMBEDDER_IDLE_TIMEOUT_KEY)
+export function getEmbedderIdleTimeoutMs(db: Database): number {
+  const val = readMeta(db, EMBEDDER_IDLE_TIMEOUT_KEY)
   if (!val) return config.embedder.idleTimeoutMs
   const parsed = parseInt(val, 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : config.embedder.idleTimeoutMs
 }
 
-export function setEmbedderIdleTimeoutMs(value: number): void {
-  writeMeta(getDb(), EMBEDDER_IDLE_TIMEOUT_KEY, String(value))
+export function setEmbedderIdleTimeoutMs(db: Database, value: number): void {
+  writeMeta(db, EMBEDDER_IDLE_TIMEOUT_KEY, String(value))
 }

@@ -180,14 +180,14 @@ test('createThoughtWithUrlLinks creates thought with links', () => {
 })
 
 test('validateContentLength does not throw under soft limit', () => {
-  expect(() => validateContentLength('short', getThoughtLimits())).not.toThrow()
+  expect(() => validateContentLength('short', getThoughtLimits(getDb()))).not.toThrow()
 })
 
 // ── Padded hard-limit boundary (issue #123) ─────────────────────────────────
 
 test('createThoughtWithParent accepts content exactly at the derived hard limit', () => {
-  setThoughtLimits(10, 50) // soft 10 -> hard 15
-  const { hardLimit } = getThoughtLimits()
+  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  const { hardLimit } = getThoughtLimits(getDb())
   expect(hardLimit).toBe(15)
 
   const thought = createThoughtWithParent({ content: 'x'.repeat(hardLimit) })
@@ -195,15 +195,15 @@ test('createThoughtWithParent accepts content exactly at the derived hard limit'
 })
 
 test('createThoughtWithParent rejects content one char over the derived hard limit', () => {
-  setThoughtLimits(10, 50) // soft 10 -> hard 15
-  const { hardLimit } = getThoughtLimits()
+  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  const { hardLimit } = getThoughtLimits(getDb())
 
   expect(() => createThoughtWithParent({ content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
 })
 
 test('content between soft and hard limit is accepted (soft limit is advisory)', () => {
-  setThoughtLimits(10, 50) // soft 10 -> hard 15
-  const { softLimit, hardLimit } = getThoughtLimits()
+  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  const { softLimit, hardLimit } = getThoughtLimits(getDb())
   const middle = softLimit + 1
   expect(middle).toBeGreaterThan(softLimit)
   expect(middle).toBeLessThan(hardLimit)
@@ -213,8 +213,8 @@ test('content between soft and hard limit is accepted (soft limit is advisory)',
 
 test('updateThoughtById enforces the derived hard limit and accepts the exact ceiling', () => {
   const id = seedThought({ content: 'short' })
-  setThoughtLimits(10, 50) // soft 10 -> hard 15
-  const { hardLimit } = getThoughtLimits()
+  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  const { hardLimit } = getThoughtLimits(getDb())
 
   expect(() => updateThoughtById(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
   expect(updateThoughtById(id, { content: 'x'.repeat(hardLimit) })?.content).toHaveLength(hardLimit)

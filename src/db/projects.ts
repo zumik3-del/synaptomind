@@ -1,5 +1,4 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
-import { getDb } from './container'
 import { ValidationError } from '../errors'
 
 export interface Project {
@@ -68,10 +67,6 @@ export function isDefaultProject(db: Database, id: string): boolean {
     db.prepare(`SELECT value FROM _meta WHERE key = 'default_project_id'`).get() as { value: string } | undefined
   )?.value
   return defaultProjectId === id
-}
-
-export function isDefaultProjectService(id: string, d: Database = getDb()): boolean {
-  return isDefaultProject(d, id)
 }
 
 export function createProject(db: Database, data: {

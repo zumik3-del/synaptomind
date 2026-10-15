@@ -336,15 +336,3 @@ export function listClusterCandidates(db: Database, minAgeDays: number): Cluster
     created_at: r.created_at
   }))
 }
-
-export {
-  getThoughtImportance,
-  findHighHitThoughts,
-  batchGetImportance,
-  ensureImportanceRow,
-  boostImportance,
-  incrementHitCount,
-  boostImportanceBatch,
-  decayImportance,
-  archiveStaleLowImportance
-} from './importance'

@@ -1,6 +1,25 @@
 import { existsSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
 
+// ONNX precision of the local embedder model. `q8` downloads the quantized
+// ONNX (~118 MB) instead of the fp32 one (~449 MB); transformers.js picks the
+// file by suffix (fp32 -> model.onnx, q8 -> model_quantized.onnx).
+export type EmbedderDtype = 'fp32' | 'q8'
+
+export const EMBEDDER_DTYPES: readonly EmbedderDtype[] = ['fp32', 'q8']
+
+/**
+ * Reject an unknown `embedder.dtype` instead of silently falling back: on an
+ * offline host the fp32 fallback would download a 449 MB file. Exported so the
+ * invalid branch stays directly testable (the load-time call throws at import).
+ */
+export function assertEmbedderDtype(dtype: unknown, source: string): void {
+  if (typeof dtype === 'string' && (EMBEDDER_DTYPES as readonly string[]).includes(dtype)) return
+  throw new Error(
+    `[config] invalid embedder.dtype from ${source}: "${String(dtype)}" (allowed values: ${EMBEDDER_DTYPES.join(', ')})`
+  )
+}
+
 interface Config {
   contentLanguage: string
   server: { port: number; host: string }
@@ -11,7 +30,7 @@ interface Config {
   db: { path: string; busyTimeout: number }
   logDbPath: string
   embedder: {
-    enabled: boolean; model: string; dimensions: number; pollIntervalMs: number;
+    enabled: boolean; model: string; dtype: EmbedderDtype; dimensions: number; pollIntervalMs: number;
     cacheDir: string; idleTimeoutMs: number; precache: boolean; batchSize: number;
     resetDeadLetters: boolean
   }
@@ -63,7 +82,7 @@ export const DEFAULTS: Config = {
   db: { path: './data/synaptomind.db', busyTimeout: 5000 },
   logDbPath: '',
   embedder: {
-    enabled: true, model: 'Xenova/multilingual-e5-small', dimensions: 384,
+    enabled: true, model: 'Xenova/multilingual-e5-small', dtype: 'q8', dimensions: 384,
     pollIntervalMs: 7000, cacheDir: './data/huggingface',
     idleTimeoutMs: 600000, precache: false, batchSize: 8,
     resetDeadLetters: false
@@ -153,6 +172,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_LOG_DB_PATH', 'logDbPath', 'string'),
 
   M('SYNAPTOMIND_EMBEDDER_MODEL', 'embedder.model', 'string'),
+  M('SYNAPTOMIND_EMBEDDER_DTYPE', 'embedder.dtype', 'string'),
   M('SYNAPTOMIND_EMBEDDER_ENABLED', 'embedder.enabled', 'bool'),
   M('SYNAPTOMIND_EMBEDDER_DIMENSIONS', 'embedder.dimensions', 'int'),
   M('SYNAPTOMIND_EMBEDDER_POLL_INTERVAL', 'embedder.pollIntervalMs', 'int'),
@@ -281,6 +301,16 @@ function loadFileConfig(): Partial<Config> {
   return JSON.parse(readFileSync(configPath, 'utf-8')) as Partial<Config>
 }
 
+/**
+ * Name the layer that actually carried `embedder.dtype`: the env override is
+ * applied after the file merge, so it wins, and a bad env value must not be
+ * blamed on config.json (nor the reverse).
+ */
+function embedderDtypeSource(): string {
+  const env = ENV_MAPPINGS.find(m => m.path === 'embedder.dtype')?.env
+  return env !== undefined && process.env[env] !== undefined ? env : 'config.json'
+}
+
 function applyEnvOverrides(fileConfig: Partial<Config>): Config {
   const merged = deepMerge(
     DEFAULTS as unknown as Record<string, unknown>,
@@ -297,6 +327,9 @@ function applyEnvOverrides(fileConfig: Partial<Config>): Config {
     }
     setNested(merged, path, value)
   }
+
+  const embedder = merged.embedder as { dtype?: unknown } | undefined
+  assertEmbedderDtype(embedder?.dtype, embedderDtypeSource())
 
   return merged as unknown as Config
 }

@@ -16,9 +16,9 @@ import { afterAll, expect, mock, test } from 'bun:test'
  *  · `../db/init` → `:memory:` database (the worker's own `initDb()` call),
  *  · `./model` + `./model-validator` → no model download, and the embed step is
  *    the deterministic mid-batch edit window,
- *  · `./queue` → real queue functions with `insertEmbedding` able to throw (the
- *    all-failed leg) and a spy on `deleteFromQueue` that records the ids the
- *    SHIPPED loop passes, then performs the real delete.
+ *  · `../db/pending-embeddings` → real queue functions with `insertEmbedding`
+ *    able to throw (the all-failed leg) and a spy on `deleteFromQueue` that
+ *    records the ids the SHIPPED loop passes, then performs the real delete.
  *
  * It runs in a child bun process (see `embedder-batch-loop.test.ts`): bun's
  * `mock.module` leaks through `export *`, and this file mocks four modules.
@@ -40,14 +40,25 @@ process.env.SYNAPTOMIND_EMBEDDER_BATCH_SIZE = '8'
 // Safety net: if the `../db/init` mock below ever fails to apply, the worker
 // opens THIS throwaway file instead of a real database path.
 process.env.SYNAPTOMIND_DB_PATH = join(scratch, 'never-used.db')
+// Pinned rather than inherited: the dtype the shipped process forwards to
+// `ensureModelFiles` is asserted below, and an ambient override would make that
+// assertion depend on the caller's shell.
+//
+// Deliberately NOT the default (`q8`): a dtype equal to the default cannot tell
+// `config.embedder.dtype` apart from a hardcoded literal `'q8'` at
+// `embedder-process.ts:234`, so the assertion below stayed green against that
+// mutation (review #1588 finding 3). Driving `fp32` makes the literal and the
+// config value differ, so a literal at the call site fails the suite.
+process.env.SYNAPTOMIND_EMBEDDER_DTYPE = 'fp32'
 
 // ── real modules, snapshotted before the mocks replace them ──────────────────
 // Plain-object snapshots, not namespaces: `mock.module` rewrites the namespace
 // a mocked specifier already handed out, so reading through `realInit.initDb` /
 // `realQueue.insertEmbedding` after mocking would call the mock again.
 const realInitFns = { ...(await import('../db/init')) }
-const realQueueFns = { ...(await import('./queue')) }
+const realQueueFns = { ...(await import('../db/pending-embeddings')) }
 const { getDb } = await import('../db/container')
+const { config } = await import('../config')
 const { seedThought } = await import('../test/helpers')
 
 // ── mocks ────────────────────────────────────────────────────────────────────
@@ -92,20 +103,36 @@ mock.module('./model', () => ({
   generateEmbedding: async () => markerVector(),
   resetExtractor: () => {}
 }))
-mock.module('./model-validator', () => ({ ensureModelFiles: async () => {} }))
+/** The model call the SHIPPED process booted with (`embedder.dtype` wiring). */
+interface EnsureModelCall {
+  cacheDir: string
+  model: string
+  dtype: string
+}
+
+const ensureModelCalls: EnsureModelCall[] = []
+mock.module('./model-validator', () => ({
+  ensureModelFiles: async (cacheDir: string, model: string, dtype: string) => {
+    ensureModelCalls.push({ cacheDir, model, dtype })
+  }
+}))
 
 /** Ids the SHIPPED loop handed to `deleteFromQueue`, per call. */
 const deleteCalls: string[][] = []
-mock.module('./queue', () => ({
+// The queue module moved to the db layer (task #1581): the mock specifier follows
+// it, and every mock mirrors the db-first signature so the worker's `db` argument
+// reaches the real function instead of being read as the first parameter.
+mock.module('../db/pending-embeddings', () => ({
   ...realQueueFns,
-  insertEmbedding: (id: string, embedding: Float32Array, expectedHash: string) => {
+  insertEmbedding: (db: Database, id: string, embedding: Float32Array, expectedHash: string) => {
     if (control.storeThrows) throw new Error('boom')
-    return realQueueFns.insertEmbedding(id, embedding, expectedHash)
+    return realQueueFns.insertEmbedding(db, id, embedding, expectedHash)
   },
-  findPendingEmbeddings: (limit: number) => (control.drainQueue ? [] : realQueueFns.findPendingEmbeddings(limit)),
-  deleteFromQueue: (ids: string[]) => {
+  findPendingEmbeddings: (db: Database, limit: number) =>
+    control.drainQueue ? [] : realQueueFns.findPendingEmbeddings(db, limit),
+  deleteFromQueue: (db: Database, ids: string[]) => {
     deleteCalls.push([...ids])
-    realQueueFns.deleteFromQueue(ids)
+    realQueueFns.deleteFromQueue(db, ids)
   }
 }))
 
@@ -192,6 +219,25 @@ afterAll(() => {
   logReader?.close()
   realInitFns.closeDb()
   rmSync(scratch, { recursive: true, force: true })
+})
+
+test('the shipped process validates the model with the configured dtype', () => {
+  // `ensureModelFiles` runs during boot, before the worker's first batch, so at
+  // least one call has already happened by the time this runs.
+  expect(ensureModelCalls.length).toBeGreaterThanOrEqual(1)
+
+  const call = ensureModelCalls[0]
+  // The file the validator then demands (onnx/model.onnx for fp32, versus
+  // onnx/model_quantized.onnx for the q8 default) is only the file the LOADER
+  // opens if this argument really is the config dtype — so a literal here is a
+  // wrong-file bug, not a cosmetic one.
+  expect(call.dtype).toBe(config.embedder.dtype)
+  // Pinned to the non-default value this suite set: `toBe(config.embedder.dtype)`
+  // alone would also pass for a literal that happened to equal the default, and
+  // this literal is the assertion a hardcoded `'q8'` at the call site fails.
+  expect(call.dtype).toBe('fp32')
+  expect(call.model).toBe(config.embedder.model)
+  expect(call.cacheDir).toBe(config.embedder.cacheDir)
 })
 
 test(

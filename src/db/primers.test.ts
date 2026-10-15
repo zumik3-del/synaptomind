@@ -9,7 +9,7 @@ import {
 	getPrimers,
 	promoteThoughtToPrimer,
 } from "./primers";
-import { getThoughtImportance, incrementHitCount } from "./thoughts";
+import { getThoughtImportance, incrementHitCount } from "./importance";
 
 beforeEach(createTestDb);
 afterEach(closeDb);

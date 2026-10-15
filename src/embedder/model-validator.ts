@@ -1,4 +1,5 @@
 import { mkdir, rm } from 'node:fs/promises'
+import type { EmbedderDtype } from '../config'
 import { insertLog } from '../logging'
 
 interface FileSpec {
@@ -6,12 +7,29 @@ interface FileSpec {
   minSizeBytes: number
 }
 
-const EXPECTED_FILES: FileSpec[] = [
-  { path: 'config.json', minSizeBytes: 50 },
-  { path: 'tokenizer.json', minSizeBytes: 1_000 },
-  { path: 'tokenizer_config.json', minSizeBytes: 50 },
-  { path: 'onnx/model.onnx', minSizeBytes: 1_000_000 }
-]
+// transformers.js resolves the ONNX filename by appending a per-dtype suffix
+// (DEFAULT_DTYPE_SUFFIX_MAPPING: fp32 -> '', q8 -> '_quantized') to `onnx/model`.
+// Keep this in sync with `config.embedder.dtype` — the loader passes the same dtype.
+const ONNX_FILE_BY_DTYPE: Record<EmbedderDtype, string> = {
+  fp32: 'onnx/model.onnx',
+  q8: 'onnx/model_quantized.onnx'
+}
+
+function expectedFiles(dtype: EmbedderDtype): FileSpec[] {
+  return [
+    { path: 'config.json', minSizeBytes: 50 },
+    { path: 'tokenizer.json', minSizeBytes: 1_000 },
+    { path: 'tokenizer_config.json', minSizeBytes: 50 },
+    { path: ONNX_FILE_BY_DTYPE[dtype], minSizeBytes: 1_000_000 }
+  ]
+}
+
+/** The other dtypes' ONNX files — on disk only after a dtype switch. */
+function siblingOnnxFiles(dtype: EmbedderDtype): string[] {
+  return Object.entries(ONNX_FILE_BY_DTYPE)
+    .filter(([other]) => other !== dtype)
+    .map(([, path]) => path)
+}
 
 function modelDir(cacheDir: string, modelName: string): string {
   return `${cacheDir}/${modelName}`
@@ -21,20 +39,28 @@ function downloadUrl(modelName: string, relativePath: string): string {
   return `https://huggingface.co/${modelName}/resolve/main/${relativePath}`
 }
 
+function formatMB(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 interface ValidationResult {
   missing: string[]
   corrupt: string[]
   ok: string[]
 }
 
-export async function validateModelFiles(cacheDir: string, modelName: string): Promise<ValidationResult> {
+export async function validateModelFiles(
+  cacheDir: string,
+  modelName: string,
+  dtype: EmbedderDtype
+): Promise<ValidationResult> {
   const missing: string[] = []
   const corrupt: string[] = []
   const ok: string[] = []
 
   const baseDir = modelDir(cacheDir, modelName)
 
-  for (const file of EXPECTED_FILES) {
+  for (const file of expectedFiles(dtype)) {
     const fp = `${baseDir}/${file.path}`
     const f = Bun.file(fp)
     const exists = await f.exists()
@@ -82,14 +108,42 @@ async function downloadFile(modelName: string, relativePath: string, destPath: s
   const buffer = await resp.arrayBuffer()
   await Bun.write(destPath, new Uint8Array(buffer))
 
-  const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1)
-  console.log(`[embedder] downloaded ${relativePath} (${sizeMB} MB)`)
+  console.log(`[embedder] downloaded ${relativePath} (${formatMB(buffer.byteLength)})`)
 }
 
-export async function ensureModelFiles(cacheDir: string, modelName: string): Promise<void> {
-  const result = await validateModelFiles(cacheDir, modelName)
+/**
+ * A dtype switch (e.g. the `q8` default flip) leaves the previous dtype's ONNX
+ * file beside the new one: transformers.js resolves the file from the dtype
+ * string alone and never scans `onnx/`, so the sibling is inert — but it can be
+ * hundreds of MB on hosts the deploy guide calls disk-tight, so say so once.
+ * The warning names the price of reclaiming that space too: the sibling is the
+ * offline way back to its dtype, so an operator who deletes it needs the network
+ * to switch again. Log-only by design: the file is never deleted here (a switch
+ * back reuses it, and it is not ours to remove). Written to stderr, which
+ * `embedder-client` records at level 'warning' instead of the 'info' it gives
+ * the child's stdout.
+ */
+async function warnStaleSiblingOnnx(baseDir: string, dtype: EmbedderDtype): Promise<void> {
+  for (const path of siblingOnnxFiles(dtype)) {
+    const f = Bun.file(`${baseDir}/${path}`)
+    if (!(await f.exists())) continue
+
+    console.warn(
+      `[embedder] ${path} (${formatMB(f.size)}) is not used by dtype=${dtype}; deleting it frees that space but removes the offline way back, since switching dtype again would re-download it`
+    )
+  }
+}
+
+export async function ensureModelFiles(cacheDir: string, modelName: string, dtype: EmbedderDtype): Promise<void> {
+  const expectedCount = expectedFiles(dtype).length
+  const result = await validateModelFiles(cacheDir, modelName, dtype)
 
   const baseDir = modelDir(cacheDir, modelName)
+  // Before any download: on an offline host the fetch below is exactly what
+  // fails, and this line is the operator's hint that the file at hand (or
+  // `SYNAPTOMIND_EMBEDDER_DTYPE=fp32`) is the way out.
+  await warnStaleSiblingOnnx(baseDir, dtype)
+
   for (const path of result.corrupt) {
     const fp = `${baseDir}/${path}`
     console.log(`[embedder] removing corrupt file: ${path}`)
@@ -104,7 +158,7 @@ export async function ensureModelFiles(cacheDir: string, modelName: string): Pro
       await downloadFile(modelName, path, destPath)
     }
 
-    const finalResult = await validateModelFiles(cacheDir, modelName)
+    const finalResult = await validateModelFiles(cacheDir, modelName, dtype)
     if (finalResult.missing.length > 0 || finalResult.corrupt.length > 0) {
       throw new Error(
         `Model files still missing/corrupt after download: ${`missing=[${finalResult.missing.join(',')}] corrupt=[${finalResult.corrupt.join(',')}]`}`
@@ -115,12 +169,12 @@ export async function ensureModelFiles(cacheDir: string, modelName: string): Pro
       model: modelName,
       files: toDownload
     })
-    console.log(`[embedder] model files ready (${result.ok.length + toDownload.length}/${EXPECTED_FILES.length})`)
+    console.log(`[embedder] model files ready (${result.ok.length + toDownload.length}/${expectedCount}, dtype=${dtype})`)
   } else {
     insertLog('info', 'embedding', 'Model files validated (cached, not loaded)', {
       model: modelName,
       filesOk: result.ok
     })
-    console.log(`[embedder] model files validated (${result.ok.length}/${EXPECTED_FILES.length})`)
+    console.log(`[embedder] model files validated (${result.ok.length}/${expectedCount}, dtype=${dtype})`)
   }
 }

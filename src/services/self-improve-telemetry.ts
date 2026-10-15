@@ -1,6 +1,6 @@
 import { config } from '../config'
 import { getDb } from '../db'
-import { findHighHitThoughts } from '../db/thoughts'
+import { findHighHitThoughts } from '../db/importance'
 import {
   countClusterOpEvents,
   countOrphanWriteEvents,
