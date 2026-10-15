@@ -43,7 +43,13 @@ process.env.SYNAPTOMIND_DB_PATH = join(scratch, 'never-used.db')
 // Pinned rather than inherited: the dtype the shipped process forwards to
 // `ensureModelFiles` is asserted below, and an ambient override would make that
 // assertion depend on the caller's shell.
-process.env.SYNAPTOMIND_EMBEDDER_DTYPE = 'q8'
+//
+// Deliberately NOT the default (`q8`): a dtype equal to the default cannot tell
+// `config.embedder.dtype` apart from a hardcoded literal `'q8'` at
+// `embedder-process.ts:234`, so the assertion below stayed green against that
+// mutation (review #1588 finding 3). Driving `fp32` makes the literal and the
+// config value differ, so a literal at the call site fails the suite.
+process.env.SYNAPTOMIND_EMBEDDER_DTYPE = 'fp32'
 
 // ── real modules, snapshotted before the mocks replace them ──────────────────
 // Plain-object snapshots, not namespaces: `mock.module` rewrites the namespace
@@ -221,10 +227,15 @@ test('the shipped process validates the model with the configured dtype', () => 
   expect(ensureModelCalls.length).toBeGreaterThanOrEqual(1)
 
   const call = ensureModelCalls[0]
-  // The file the validator then demands (onnx/model_quantized.onnx for q8) is
-  // only the file the LOADER opens if this argument really is the config dtype.
+  // The file the validator then demands (onnx/model.onnx for fp32, versus
+  // onnx/model_quantized.onnx for the q8 default) is only the file the LOADER
+  // opens if this argument really is the config dtype — so a literal here is a
+  // wrong-file bug, not a cosmetic one.
   expect(call.dtype).toBe(config.embedder.dtype)
-  expect(call.dtype).toBe('q8')
+  // Pinned to the non-default value this suite set: `toBe(config.embedder.dtype)`
+  // alone would also pass for a literal that happened to equal the default, and
+  // this literal is the assertion a hardcoded `'q8'` at the call site fails.
+  expect(call.dtype).toBe('fp32')
   expect(call.model).toBe(config.embedder.model)
   expect(call.cacheDir).toBe(config.embedder.cacheDir)
 })
