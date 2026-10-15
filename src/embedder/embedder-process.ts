@@ -228,9 +228,10 @@ initDb()
 console.log('[embedder] checking model files...')
 insertLog('debug', 'embedding', 'Embedder process started, validating model', {
   model: config.embedder.model,
+  dtype: config.embedder.dtype,
   cacheDir: config.embedder.cacheDir
 })
-await ensureModelFiles(config.embedder.cacheDir, config.embedder.model)
+await ensureModelFiles(config.embedder.cacheDir, config.embedder.model, config.embedder.dtype)
 console.log('[embedder] model validated, starting worker')
 startWorker()
 resetIdleTimer()
