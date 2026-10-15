@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.12.0
+
+> October 15, 2026
+
+- [`c7863a1`](https://github.com/zumik3-del/synaptomind/commit/c7863a13111305b7026aadfbdb466c03348abecd): test(embedder): assert the warning's intent instead of pinning its sentence
+- [`e357f31`](https://github.com/zumik3-del/synaptomind/commit/e357f31e4c48cc8139b1b9e9893e3fcf6f1f72e7): fix(embedder): make the stale-sibling warning name the price of deleting it
+- [`3bc5e7f`](https://github.com/zumik3-del/synaptomind/commit/3bc5e7f4a9ecf9ea86e4f2b11b8f937538e6fca4): test(embedder): pin the stale-sibling ONNX warning and the dtype error source label
+- [`17f6fe4`](https://github.com/zumik3-del/synaptomind/commit/17f6fe45e85e452d3bb6539fa78ddbb36a58da2b): test(embedder): drive the batch-loop dtype assertion with fp32 so it catches a hardcoded literal
+- [`84952c6`](https://github.com/zumik3-del/synaptomind/commit/84952c6a7797d54b18aaeea60e04da167bd1c100): fix(embedder): warn on stale sibling ONNX and name the dtype error source
+- [`11de684`](https://github.com/zumik3-del/synaptomind/commit/11de6841b50c584d8082e1362ad0440222474cf5): test(embedder): pin the dtype contract and measure fp32-to-q8 embedding drift
+- [`0b53091`](https://github.com/zumik3-del/synaptomind/commit/0b5309152136215e82325dd3d7d5f0d5c7b166a8): feat(embedder): make embedder.dtype configurable with q8 default
+- [`c0f41d5`](https://github.com/zumik3-del/synaptomind/commit/c0f41d5fe32b11eaff891e7c41923caa7b098bd4): refactor(mcp): extract InMemoryEventStore into its own module
+- [`810b60a`](https://github.com/zumik3-del/synaptomind/commit/810b60a26a330a3506eb64f3c32b1281d773f721): refactor(db): drop importance barrel re-export from thoughts
+- [`b571249`](https://github.com/zumik3-del/synaptomind/commit/b57124952d936720c628743ac3f155883c1e7a6b): refactor(projects): move isDefaultProjectService to services layer
+- [`5c3358e`](https://github.com/zumik3-del/synaptomind/commit/5c3358ef64945158ea6ce206a0383606e1962062): refactor(embedder): move queue module to db/pending-embeddings
+- [`9bbbe8c`](https://github.com/zumik3-del/synaptomind/commit/9bbbe8c607a03f78782482c4b4a2508a1ddaedf6): refactor(settings): db-first accessors and service wrappers
+- [`4b51194`](https://github.com/zumik3-del/synaptomind/commit/4b511944b18a3b33077421008b15de05ebdc1de6): refactor(embedder): extract IPC pending-request bookkeeping into ipc-client.ts
+
 ## v0.11.0
 
 > October 13, 2026
