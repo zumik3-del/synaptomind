@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import type { EmbedderDtype } from '../config'
 import { ensureModelFiles, validateModelFiles } from './model-validator'
 
@@ -263,5 +263,168 @@ describe('ensureModelFiles — a q8 fetch never asks for onnx/model.onnx', () =>
     expect((await readFile(join(cacheDir, MODEL, 'onnx/model_quantized.onnx'))).subarray(0, 4)).toEqual(
       Buffer.from([0x61, 0x61, 0x61, 0x61])
     )
+  })
+})
+
+// ── the stale sibling ONNX warning ───────────────────────────────────────────
+// A dtype switch leaves the OTHER dtype's ONNX file in the cache. transformers.js
+// resolves the file from the dtype string alone and never scans `onnx/`, so the
+// sibling is inert — but it can be hundreds of MB on the disk-tight hosts the
+// deploy guide names, so `ensureModelFiles` reports it. Four properties of that
+// report are silent by nature and therefore easy to break without noticing:
+// it goes to stderr (`console.warn`; `embedder-client` records a child's stderr
+// at logs.db level `warning` while stdout only reaches `info`), it is emitted
+// exactly once per call, it comes BEFORE any download (on an offline host the
+// fetch is what fails, and this line is the operator's only hint), and it never
+// touches the file.
+//
+// The sibling fixtures are synthetic (>= 1 MB) rather than the real 448.5 MB fp32
+// file; the expected size text is derived from the fixture through the repo's
+// existing MiB + toFixed(1) convention, with two literal cases pinning that
+// convention (2 MiB → "2.0 MB", 1.25 MiB → "1.3 MB") instead of a real-file size.
+
+const MIB = 1024 * 1024
+
+/** The stale-sibling line for `path` at `bytes`, as the warning must render it. */
+function staleSiblingLine(path: string, bytes: number, dtype: EmbedderDtype): string {
+  return `[embedder] ${path} (${(bytes / MIB).toFixed(1)} MB) is not used by dtype=${dtype} and can be deleted`
+}
+
+describe('ensureModelFiles — stale sibling ONNX warning', () => {
+  // Both channels are recorded in one log so a test can assert their ORDER. The
+  // warning is swallowed here; the real stderr stream is asserted in the
+  // child-process case at the end of this block.
+  let events: string[] = []
+  let serveDownloads = false
+  let restoreWarn: () => void = () => {}
+  let restoreFetch: () => void = () => {}
+
+  const warnings = (): string[] => events.filter(e => e.startsWith('warn:')).map(e => e.slice('warn:'.length))
+  const fetches = (): string[] => events.filter(e => e.startsWith('fetch:')).map(e => e.slice('fetch:'.length))
+
+  beforeEach(() => {
+    events = []
+    // Offline by default: an unexpected download fails loudly here instead of
+    // reaching huggingface.co. Only the repair-path case opts into a served body.
+    serveDownloads = false
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      events.push(`warn:${args.map(String).join(' ')}`)
+    })
+    restoreWarn = () => warnSpy.mockRestore()
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      events.push(`fetch:${url}`)
+      if (!serveDownloads) throw new Error('offline: this suite must not download')
+      return new Response(new Uint8Array(ONNX_BYTES).fill(0x61), { status: 200 })
+    }) as typeof fetch
+    restoreFetch = () => {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  afterEach(() => {
+    restoreWarn()
+    restoreFetch()
+  })
+
+  test('q8 with a stale fp32 file present → one warning naming the file and its size, file untouched', async () => {
+    await writeTokenizerFiles()
+    await writeModelFile('onnx/model_quantized.onnx', ONNX_BYTES)
+    const staleBytes = 2 * MIB
+    await writeModelFile('onnx/model.onnx', staleBytes, 0x42)
+    const stalePath = join(cacheDir, MODEL, 'onnx/model.onnx')
+    const before = await readFile(stalePath)
+
+    await ensureModelFiles(cacheDir, MODEL, 'q8')
+
+    expect(warnings()).toEqual([staleSiblingLine('onnx/model.onnx', staleBytes, 'q8')])
+    // The size is one-decimal MiB, the unit the download line already uses.
+    expect(warnings()[0]).toContain('(2.0 MB)')
+    expect(fetches()).toEqual([])
+
+    // Log-only by design: a switch back reuses the file, so it is never deleted.
+    const after = await readFile(stalePath)
+    expect(after.byteLength).toBe(staleBytes)
+    expect(after.equals(before)).toBe(true)
+  })
+
+  test('fp32 with a stale q8 file present → one warning (mirror image), same size convention', async () => {
+    await writeTokenizerFiles()
+    await writeModelFile('onnx/model.onnx', ONNX_BYTES)
+    const staleBytes = 1_310_720 // 1.25 MiB → toFixed(1) → "1.3 MB"
+    await writeModelFile('onnx/model_quantized.onnx', staleBytes, 0x42)
+
+    await ensureModelFiles(cacheDir, MODEL, 'fp32')
+
+    expect(warnings()).toEqual([staleSiblingLine('onnx/model_quantized.onnx', staleBytes, 'fp32')])
+    expect(warnings()[0]).toContain('(1.3 MB)')
+    expect(fetches()).toEqual([])
+  })
+
+  test('emitted exactly once even when a corrupt dtype file makes the repair validate twice', async () => {
+    await writeTokenizerFiles()
+    await writeModelFile('onnx/model_quantized.onnx', ONNX_BYTES, 0x00) // all-zero header → repair path
+    const staleBytes = 2 * MIB
+    await writeModelFile('onnx/model.onnx', staleBytes, 0x42)
+    serveDownloads = true // let the repair complete, so the post-download validation runs
+
+    await ensureModelFiles(cacheDir, MODEL, 'q8')
+
+    // The repair happened, so validateModelFiles ran on both sides of the
+    // download; the warning sits outside that path and must not be repeated.
+    expect(fetches()).toHaveLength(1)
+    expect(warnings()).toEqual([staleSiblingLine('onnx/model.onnx', staleBytes, 'q8')])
+  })
+
+  test('a clean cache logs nothing on the warn channel', async () => {
+    await writeTokenizerFiles()
+    await writeModelFile('onnx/model_quantized.onnx', ONNX_BYTES)
+
+    await ensureModelFiles(cacheDir, MODEL, 'q8')
+
+    expect(warnings()).toEqual([])
+    expect(fetches()).toEqual([])
+  })
+
+  test('fp32 with only the q8 file on disk → the warning precedes the download that fails', async () => {
+    const staleBytes = 2 * MIB
+    await writeModelFile('onnx/model_quantized.onnx', staleBytes, 0x42)
+
+    await expect(ensureModelFiles(cacheDir, MODEL, 'fp32')).rejects.toThrow('offline: this suite must not download')
+
+    // The hint must not depend on a successful download: it is emitted before
+    // the fetch that fails on an offline host.
+    expect(events[0]).toBe(`warn:${staleSiblingLine('onnx/model_quantized.onnx', staleBytes, 'fp32')}`)
+    expect(fetches()).toHaveLength(1)
+  })
+
+  test('the line reaches the real stderr stream (the one logs.db records as `warning`), never stdout', async () => {
+    await writeTokenizerFiles()
+    await writeModelFile('onnx/model_quantized.onnx', ONNX_BYTES)
+    const staleBytes = 2 * MIB
+    await writeModelFile('onnx/model.onnx', staleBytes, 0x42)
+
+    // `spyOn` above only proves console.warn was called; this case proves which
+    // stream the line lands on, which is what makes the warning durable.
+    const monitor = resolve(import.meta.dir, 'model-validator.ts')
+    const script =
+      `const m = await import(${JSON.stringify(monitor)});` +
+      `await m.ensureModelFiles(${JSON.stringify(cacheDir)}, ${JSON.stringify(MODEL)}, 'q8');` +
+      `console.log('DONE')`
+    const proc = Bun.spawn(['bun', '-e', script], { cwd: cacheDir, stdout: 'pipe', stderr: 'pipe' })
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited
+    ])
+
+    expect(code).toBe(0)
+    expect(stdout).toContain('DONE')
+    expect(stderr).toContain(staleSiblingLine('onnx/model.onnx', staleBytes, 'q8'))
+    // stdout is recorded at level `info`, so the warning must not travel there.
+    expect(stdout).not.toContain('is not used by dtype=')
   })
 })

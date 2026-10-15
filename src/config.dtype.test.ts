@@ -187,3 +187,47 @@ describe('embedder.dtype — as resolved at config load', () => {
     expect(res.out).not.toContain('DTYPE=')
   })
 })
+
+// The label is part of the error's value: the env override is applied after the
+// file merge, so it wins, and blaming config.json for a bad env value (or the
+// reverse) sends the operator to the wrong place. `assertEmbedderDtype`'s own
+// `source` argument is covered above — these cases exercise the CALL SITE that
+// picks the label, at module load, through the same child process (config.json
+// is read from cwd).
+
+describe('embedder.dtype — the error names the layer that actually carried the value', () => {
+  test('a bad value from the environment is blamed on the env var, not config.json', async () => {
+    const cwd = scratchDir()
+    writeFileSync(join(cwd, 'config.json'), JSON.stringify({ embedder: { dtype: 'q8' } }))
+
+    const res = await loadConfig(cwd, 'int8')
+
+    expect(res.code).not.toBe(0)
+    expect(res.out).toContain('from SYNAPTOMIND_EMBEDDER_DTYPE: "int8"')
+    expect(res.out).not.toContain('from config.json')
+  })
+
+  test('a bad value from config.json is blamed on config.json, not the env var', async () => {
+    const cwd = scratchDir()
+    writeFileSync(join(cwd, 'config.json'), JSON.stringify({ embedder: { dtype: 'fp16' } }))
+
+    const res = await loadConfig(cwd, undefined)
+
+    expect(res.code).not.toBe(0)
+    expect(res.out).toContain('from config.json: "fp16"')
+    // The env var is unset here: naming it would be a lie about the source.
+    expect(res.out).not.toContain('SYNAPTOMIND_EMBEDDER_DTYPE')
+  })
+
+  test('both layers carry a bad value → the label names the layer that won', async () => {
+    const cwd = scratchDir()
+    writeFileSync(join(cwd, 'config.json'), JSON.stringify({ embedder: { dtype: 'fp16' } }))
+
+    const res = await loadConfig(cwd, 'int8')
+
+    expect(res.code).not.toBe(0)
+    expect(res.out).toContain('from SYNAPTOMIND_EMBEDDER_DTYPE: "int8"')
+    // The overridden file value is not what aborted the load.
+    expect(res.out).not.toContain('fp16')
+  })
+})
