@@ -28,76 +28,33 @@ import {
 } from '../db/placement-proposals'
 import { getThoughtRow, type Thought } from '../db/thoughts'
 import { insertLog } from '../logging/log'
-import { clamp01 } from '../utils'
 import { createIntervalJob } from './jobs'
 import { findMergeTarget } from './placement/lifecycle'
 import { buildCandidatePool } from './placement/placement'
 import { computeFingerprint, proposalExpiry } from './placement-proposals.mapping'
+import {
+  DEFAULT_ACTIVATE_RULE_ID,
+  TRIAGE_RULES,
+  type TriageAction,
+  type TriageContext,
+  type TriageRuleId,
+  type TriageVerdict
+} from './triage-rules'
 
-/** The two v1 verdicts; every other action needs a new ADR (ADR §2.11). */
-export type TriageAction = 'activate' | 'archive'
-
-/** Stable provenance id of a fired rule. */
-export type TriageRuleId = 'duplicate.active_near_duplicate' | 'default.activate'
-
-/** Best lexical near-duplicate shape returned by {@link findMergeTarget}. */
-type MergeTarget = NonNullable<ReturnType<typeof findMergeTarget>>
-
-/** Everything a rule may inspect; `mergeTarget` comes from the reused pool rule. */
-export interface TriageContext {
-  draft: Thought
-  mergeTarget: MergeTarget | undefined
-}
-
-/**
- * One ordered triage rule, mirroring `EdgeTypeRule[]`
- * (`src/services/placement/edge-type-rules.ts`). First match wins; a rule that
- * returns an `archive` verdict is expected to carry the duplicate target in the
- * surrounding {@link TriageContext}.
- */
-export interface TriageRule {
-  id: TriageRuleId
-  action: TriageAction
-  predicate(ctx: TriageContext): boolean
-  confidence(ctx: TriageContext): number
-  rationale(ctx: TriageContext): string
-}
-
-/**
- * Ordered rule table, highest precedence first. v1 ships one rule; the
- * `activate` default is applied by {@link classifyDraft} when none match.
- */
-export const TRIAGE_RULES: TriageRule[] = [
-  {
-    id: 'duplicate.active_near_duplicate',
-    action: 'archive',
-    predicate: ctx => ctx.mergeTarget !== undefined,
-    confidence: ctx => (ctx.mergeTarget ? clamp01(ctx.mergeTarget.overlap) : 0),
-    rationale: ctx =>
-      ctx.mergeTarget
-        ? `near-duplicate of active thought ${ctx.mergeTarget.id} (lexical overlap ${ctx.mergeTarget.overlap.toFixed(2)}); propose archive`
-        : 'no active near-duplicate'
-  }
-]
-
-/** Rule id of the `activate` fallback when no rule matches. */
-export const DEFAULT_ACTIVATE_RULE_ID: TriageRuleId = 'default.activate'
+// The rule table and its types live in the sibling module; re-exported here so
+// existing callers keep importing them from `./triage.service`.
+export {
+  DEFAULT_ACTIVATE_RULE_ID,
+  TRIAGE_RULES,
+  type TriageAction,
+  type TriageContext,
+  type TriageRule,
+  type TriageRuleId,
+  type TriageVerdict
+} from './triage-rules'
 
 /** Default backfill scan bound; see {@link runTriageBackfill}. */
 export const DEFAULT_BACKFILL_LIMIT = 100
-
-/** The deterministic classification of one draft. */
-export interface TriageVerdict {
-  action: TriageAction
-  /** Duplicate target for `archive`; `null` for `activate`. */
-  targetId: string | null
-  confidence: number
-  reason: string
-  /** Lexical overlap with the duplicate target; `null` for `activate`. */
-  overlap: number | null
-  rule_id: TriageRuleId
-  review_required: true
-}
 
 /** The `payload` persisted on a triage row. */
 export interface TriagePayload {
