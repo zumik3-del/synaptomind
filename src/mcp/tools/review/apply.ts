@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import { applyProposal } from '../../../services/placement-apply.service'
+import { applyProposalService } from '../../../services/placement-apply.service'
 import { checkDryRunFirst, checkItemGuards, noteDryRun } from '../../../services/apply-run-guards'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
@@ -19,7 +19,7 @@ export const applyHandler: ActionHandler = {
       ? checkDryRunFirst([proposalId], runId) ?? checkItemGuards(proposalId, { confirm, runId })
       : undefined
     if (refusal) return { proposal_id: proposalId, status: 'refused', refusal }
-    const result = applyProposal(proposalId, { confirm, runId, decidedBy: AGENT })
+    const result = applyProposalService(proposalId, { confirm, runId, decidedBy: AGENT })
     if (!confirm) noteDryRun([proposalId], runId)
     return result
   }

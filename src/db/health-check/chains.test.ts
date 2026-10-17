@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { runHealthCheck } from "../../services/health-check.service";
+import { runHealthCheckService } from "../../services/health-check.service";
 import { createTestDb, seedEdge, seedThought } from "../../test/helpers";
 import { getDb } from "../container";
 import { closeDb } from "../init";
 import { findBrokenParentChains, findCircularChains, findReplacesChains } from "./chains";
 
 function replacesChainCount(): number {
-	const report = runHealthCheck();
+	const report = runHealthCheckService();
 	const semantic = report.categories.find((c) => c.name === "semantic_consistency");
 	return semantic!.checks.find((c) => c.name === "replaces_chains")!.count;
 }
@@ -77,7 +77,7 @@ describe("findReplacesChains", () => {
 });
 
 describe("health-check service aggregation (#127)", () => {
-	test("one replaces edge yields replaces_chains count 0 through runHealthCheck", () => {
+	test("one replaces edge yields replaces_chains count 0 through runHealthCheckService", () => {
 		const a = seedThought({ content: "a" });
 		const b = seedThought({ content: "b" });
 		seedEdge(a, b, "replaces");
@@ -85,7 +85,7 @@ describe("health-check service aggregation (#127)", () => {
 		expect(replacesChainCount()).toBe(0);
 	});
 
-	test("A->B->C yields replaces_chains count 1 through runHealthCheck", () => {
+	test("A->B->C yields replaces_chains count 1 through runHealthCheckService", () => {
 		const a = seedThought({ content: "a" });
 		const b = seedThought({ content: "b" });
 		const c = seedThought({ content: "c" });

@@ -12,7 +12,7 @@ import {
   updateContentHash
 } from '../db/thought_verify'
 import { generateEmbedding, isEmbedderReady } from '../embedder/client'
-import { getThoughtById } from './thoughts.service'
+import { getThoughtByIdService } from './thoughts.service'
 import { isOlderThanDays } from './utils'
 
 interface VerifyStats {
@@ -49,7 +49,7 @@ export async function runVerifyJob(
 
   for (const entry of entries) {
     try {
-      const thought = getThoughtById(entry.thought_id, d)
+      const thought = getThoughtByIdService(entry.thought_id, d)
       if (!thought) {
         checked++
         continue

@@ -10,8 +10,8 @@ import { closeDb, getDb } from '../db'
 import { getThoughtRow } from '../db/thoughts'
 import { updateProposalState } from '../db/placement-proposals'
 import { createTestDb, seedThought } from '../test/helpers'
-import { applyProposal } from './placement-apply.service'
-import { rollback } from './placement-rollback.service'
+import { applyProposalService } from './placement-apply.service'
+import { rollbackService } from './placement-rollback.service'
 import {
   assertAccepted,
   assertRolledBack,
@@ -31,7 +31,7 @@ afterEach(closeDb)
 
 function appliedActivateRow(db: Database, sourceId: string): { rowId: string; sourceId: string } {
   const row = insertPendingTriage(db, 'triage_activate', sourceId)
-  const out = applyProposal(row.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
+  const out = applyProposalService(row.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
   expect(out.status).toBe('accepted')
   assertAccepted(db, row.id)
   return { rowId: row.id, sourceId }
@@ -39,7 +39,7 @@ function appliedActivateRow(db: Database, sourceId: string): { rowId: string; so
 
 function appliedArchiveRow(db: Database, sourceId: string, targetId: string): { rowId: string; sourceId: string } {
   const row = insertPendingTriage(db, 'triage_archive', sourceId, targetId)
-  const out = applyProposal(row.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
+  const out = applyProposalService(row.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
   expect(out.status).toBe('accepted')
   assertAccepted(db, row.id)
   return { rowId: row.id, sourceId }
@@ -47,14 +47,14 @@ function appliedArchiveRow(db: Database, sourceId: string, targetId: string): { 
 
 // ── activate → source back to draft ────────────────────────────────────────────
 
-describe('rollback: triage_activate round-trip', () => {
-  test('source returns to draft after rollback', () => {
+describe('rollbackService: triage_activate round-trip', () => {
+  test('source returns to draft after rollbackService', () => {
     const db = getDb()
     const s = seedThought({ id: 'rb-act-s', content: 'activate src', status: 'draft', created_at: NOW })
     const { rowId } = appliedActivateRow(db, s)
     expect(getThoughtRow(db, s)!.status).toBe('active')
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
     expect(report.summary.reverted).toBe(1)
     expect(report.summary.skipped).toBe(0)
     expect(report.summary.refused).toBe(0)
@@ -68,7 +68,7 @@ describe('rollback: triage_activate round-trip', () => {
     const { rowId } = appliedActivateRow(db, s)
     expect(getThoughtRow(db, s)!.status).toBe('active')
 
-    const report = rollback(RUN_ID, { confirm: false, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: false, now: NOW_LATER }, db)
     expect(report.confirm).toBe(false)
     expect(report.summary.reverted).toBe(1) // dry-run still reports what would happen
     // Graph unchanged.
@@ -80,15 +80,15 @@ describe('rollback: triage_activate round-trip', () => {
 
 // ── archive → source back to draft ─────────────────────────────────────────────
 
-describe('rollback: triage_archive round-trip', () => {
-  test('source returns to draft after rollback', () => {
+describe('rollbackService: triage_archive round-trip', () => {
+  test('source returns to draft after rollbackService', () => {
     const db = getDb()
     const s = seedThought({ id: 'rb-arc-s', content: 'archive src', status: 'draft', created_at: NOW })
     const t = seedThought({ id: 'rb-arc-t', content: 'archive tgt', status: 'active', created_at: PAST })
     const { rowId } = appliedArchiveRow(db, s, t)
     expect(getThoughtRow(db, s)!.status).toBe('archived')
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
     expect(report.summary.reverted).toBe(1)
     expect(getThoughtRow(db, s)!.status).toBe('draft')
     assertRolledBack(db, rowId)
@@ -97,8 +97,8 @@ describe('rollback: triage_archive round-trip', () => {
 
 // ── only edges created by the run are deleted ──────────────────────────────────
 
-describe('rollback: edge scope', () => {
-  test('an unrelated edge in the graph survives rollback of a triage row', () => {
+describe('rollbackService: edge scope', () => {
+  test('an unrelated edge in the graph survives rollbackService of a triage row', () => {
     const db = getDb()
     const s = seedThought({ id: 'rb-edge-s', content: 'edge src', status: 'draft', created_at: NOW })
     const t = seedThought({ id: 'rb-edge-t', content: 'edge tgt', status: 'active', created_at: PAST })
@@ -110,7 +110,7 @@ describe('rollback: edge scope', () => {
     const { rowId } = appliedActivateRow(db, s)
     const beforeEdges = db.prepare('SELECT COUNT(*) AS n FROM edges').get() as { n: number }
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
     expect(report.summary.reverted).toBe(1)
 
     const afterEdges = db.prepare('SELECT COUNT(*) AS n FROM edges').get() as { n: number }
@@ -121,7 +121,7 @@ describe('rollback: edge scope', () => {
 
 // ── fingerprint-drifted rows are skipped with a warning ────────────────────────
 
-describe('rollback: fingerprint drift', () => {
+describe('rollbackService: fingerprint drift', () => {
   test('drifted source is skipped (not reverted), row stays accepted', () => {
     const db = getDb()
     const s = seedThought({ id: 'rb-drift-s', content: 'drift src', status: 'draft', created_at: NOW })
@@ -129,7 +129,7 @@ describe('rollback: fingerprint drift', () => {
     // Mutate the source after apply to drift the fingerprint.
     db.prepare("UPDATE thoughts SET updated_at = '2099-01-01T00:00:00.000Z' WHERE id = ?").run(s)
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
     expect(report.summary.reverted).toBe(0)
     expect(report.summary.skipped).toBe(1)
     expect(report.items[0].action).toBe('skipped')
@@ -143,7 +143,7 @@ describe('rollback: fingerprint drift', () => {
 
 // ── merge rows are refused ─────────────────────────────────────────────────────
 
-describe('rollback: merge refusal', () => {
+describe('rollbackService: merge refusal', () => {
   test('a lifecycle/merge row in the same run is refused, other items still revert', () => {
     const db = getDb()
     const s = seedThought({ id: 'rb-merge-s', content: 'merge src', status: 'draft', created_at: NOW })
@@ -160,7 +160,7 @@ describe('rollback: merge refusal', () => {
               0.9, 'merge test', null, '{}', 'merge-fp', 'accepted', ?, ?, ?, ?, ?)
     `).run(mergeRowId, s, t, NOW, RUN_ID, NOW, NOW, JSON.stringify({ idempotent: false }))
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
     expect(report.summary.refused).toBe(1)
     expect(report.summary.reverted).toBe(1)
     expect(report.items.some(i => i.action === 'refused' && i.reason?.includes('merge'))).toBe(true)
@@ -172,12 +172,12 @@ describe('rollback: merge refusal', () => {
 
 // ── rolled_back row shape ──────────────────────────────────────────────────────
 
-describe('rollback: row state after revert', () => {
+describe('rollbackService: row state after revert', () => {
   test('rolled_back rows have non-null decided_at', () => {
     const db = getDb()
     const s = seedThought({ id: 'rb-shape-s', content: 'shape src', status: 'draft', created_at: NOW })
     const { rowId } = appliedActivateRow(db, s)
-    rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
     assertRolledBack(db, rowId)
   })
 })
@@ -186,8 +186,8 @@ describe('rollback: row state after revert', () => {
 
 // ── lifecycle/replaces+archive: the target returns to active ───────────────────
 
-describe('rollback: lifecycle replaces+archive round-trip', () => {
-  test('target returns to active (not draft) after rollback', () => {
+describe('rollbackService: lifecycle replaces+archive round-trip', () => {
+  test('target returns to active (not draft) after rollbackService', () => {
     const db = getDb()
     const source = seedThought({ id: 'rb-sup-s', content: 'newer thought', status: 'active', created_at: NOW })
     const target = seedThought({ id: 'rb-sup-t', content: 'older thought', status: 'active', created_at: PAST })
@@ -200,11 +200,11 @@ describe('rollback: lifecycle replaces+archive round-trip', () => {
               0.9, 'supersede older', null, '{}', ?, 'pending', ?, ?)
     `).run(rowId, source, target, pairFingerprint(db, source, target), NOW, RUN_ID)
 
-    const applied = applyProposal(rowId, { confirm: true, now: NOW, runId: RUN_ID, decidedBy: 'test' }, db)
+    const applied = applyProposalService(rowId, { confirm: true, now: NOW, runId: RUN_ID, decidedBy: 'test' }, db)
     expect(applied.status).toBe('accepted')
     expect(getThoughtRow(db, target)!.status).toBe('archived')
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
     expect(report.summary.reverted).toBe(1)
     // The apply-time gate only admits an `active` target, so the inverse must
     // restore `active` — restoring `draft` would drop it out of active recall.
@@ -215,7 +215,7 @@ describe('rollback: lifecycle replaces+archive round-trip', () => {
 
 // ── Mixed run: activate + archive ──────────────────────────────────────────────
 
-describe('rollback: mixed run', () => {
+describe('rollbackService: mixed run', () => {
   test('both activate and archive in one run revert correctly', () => {
     const db = getDb()
     const s1 = seedThought({ id: 'rb-mix-s1', content: 'mix activate', status: 'draft', created_at: NOW })
@@ -224,7 +224,7 @@ describe('rollback: mixed run', () => {
     const { rowId: actRowId } = appliedActivateRow(db, s1)
     const { rowId: arcRowId } = appliedArchiveRow(db, s2, t2)
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
     expect(report.summary.reverted).toBe(2)
     expect(getThoughtRow(db, s1)!.status).toBe('draft')
     expect(getThoughtRow(db, s2)!.status).toBe('draft')
@@ -235,7 +235,7 @@ describe('rollback: mixed run', () => {
 
 // ── Manifest order ─────────────────────────────────────────────────────────────
 
-describe('rollback: manifest order', () => {
+describe('rollbackService: manifest order', () => {
   test('rows are reverted in reverse application order, not reverse creation order', () => {
     const db = getDb()
     // Created first, applied last: `created_at DESC` would put it FIRST and
@@ -247,23 +247,23 @@ describe('rollback: manifest order', () => {
     const late = insertPendingTriage(db, 'triage_activate', first)
     expect(early.created_at <= late.created_at).toBe(true)
 
-    applyProposal(late.id, { confirm: true, now: '2026-03-02T00:00:00.000Z', runId: RUN_ID }, db)
-    applyProposal(early.id, { confirm: true, now: '2026-03-01T00:00:00.000Z', runId: RUN_ID }, db)
+    applyProposalService(late.id, { confirm: true, now: '2026-03-02T00:00:00.000Z', runId: RUN_ID }, db)
+    applyProposalService(early.id, { confirm: true, now: '2026-03-01T00:00:00.000Z', runId: RUN_ID }, db)
 
     // `late` was applied most recently, so it must be reverted first.
-    // `now` is injected: the F-14 window is measured against the rollback
+    // `now` is injected: the F-14 window is measured against the rollbackService
     // clock, so inheriting the wall clock would make this order test
     // wall-clock dependent (and eventually out of window).
-    const dry = rollback(RUN_ID, { confirm: false, now: NOW_LATER })
+    const dry = rollbackService(RUN_ID, { confirm: false, now: NOW_LATER })
     expect(dry.items.map(item => item.proposal_id)).toEqual([late.id, early.id])
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
     expect(report.summary.reverted).toBe(2)
     expect(getThoughtRow(db, first)!.status).toBe('draft')
     expect(getThoughtRow(db, second)!.status).toBe('draft')
   })
 
-  test('a rollback manifest ignores rows that are not accepted', () => {
+  test('a rollbackService manifest ignores rows that are not accepted', () => {
     const db = getDb()
     const s = seedThought({ id: 'ord-pend-s', content: 'order pending', status: 'draft', created_at: NOW })
     const other = seedThought({ id: 'ord-pend-s2', content: 'order pending two', status: 'draft', created_at: NOW })
@@ -271,9 +271,9 @@ describe('rollback: manifest order', () => {
     const stillPending = insertPendingTriage(db, 'triage_activate', other)
     // Same run envelope, but never confirmed — it is not part of the manifest.
     updateProposalState(db, stillPending.id, { state: 'pending', run_id: RUN_ID })
-    applyProposal(applied.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
+    applyProposalService(applied.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
 
-    const report = rollback(RUN_ID, { confirm: false, now: NOW_LATER })
+    const report = rollbackService(RUN_ID, { confirm: false, now: NOW_LATER })
     expect(report.items.map(item => item.proposal_id)).toEqual([applied.id])
     assertStillPending(db, stillPending.id)
   })

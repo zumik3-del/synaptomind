@@ -2,11 +2,11 @@ import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
   enqueueThoughtProposals,
-  list as listProposals,
-  reject,
+  listPlacementProposalsService as listProposals,
+  rejectPlacementProposalService as reject,
   type ListOptions
 } from '../../services/placement-proposals.service'
-import { applyBatch } from '../../services/placement-apply.service'
+import { applyBatchService } from '../../services/placement-apply.service'
 import { checkDryRunFirst, noteDryRun } from '../../services/apply-run-guards'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
@@ -46,7 +46,7 @@ const handlers = {
       const runId = args.run_id as string | undefined
       const refusal = confirm ? checkDryRunFirst(proposalIds, runId) : undefined
       if (refusal) return { results: [], errors: [], refused: refusal }
-      const outcome = applyBatch(proposalIds, {
+      const outcome = applyBatchService(proposalIds, {
         confirm,
         runId,
         limit: args.limit as number | undefined,

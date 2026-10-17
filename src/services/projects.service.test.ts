@@ -64,16 +64,16 @@ test("deleteProjectService throws when deleting Default", () => {
 });
 
 test("deleteProjectService moves thoughts to Default", () => {
-	const { createThoughtWithUrlLinks } = require("./url_links.service");
+	const { createThoughtWithUrlLinksService } = require("./url_links.service");
 	const projects = listProjectsService();
 	const defaultProject = projects.find(p => p.name === "Default");
 
 	const p = createProjectService({ name: "Disposable" });
-	const thought = createThoughtWithUrlLinks({ content: "test thought", project_id: p.id });
+	const thought = createThoughtWithUrlLinksService({ content: "test thought", project_id: p.id });
 
 	expect(deleteProjectService(p.id)).toBeTrue();
 	expect(getProjectService(p.id)).toBeNull();
 
-	const updatedThought = require("./thoughts.service").getThoughtById(thought.id);
+	const updatedThought = require("./thoughts.service").getThoughtByIdService(thought.id);
 	expect(updatedThought?.project_id).toBe(defaultProject?.id);
 });

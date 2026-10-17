@@ -9,7 +9,7 @@ import {
 } from '../../services/search-options'
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getChainService, getContextService } from '../../services/graph.service'
-import { getThoughtById } from '../../services/thoughts.service'
+import { getThoughtByIdService } from '../../services/thoughts.service'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
@@ -17,7 +17,7 @@ const handlers = {
   get: {
     input: z.object({ thought_id: requiredString('thought_id is required for get action') }),
     run(args: ActionArgs) {
-      const thought = getThoughtById(args.thought_id as string)
+      const thought = getThoughtByIdService(args.thought_id as string)
       if (!thought) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
       return thought
     }

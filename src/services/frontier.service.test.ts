@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
-import { getFrontier } from './frontier.service'
+import { getFrontierService } from './frontier.service'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
@@ -17,96 +17,96 @@ function tagThought(id: string, tag: string): void {
   db.prepare('INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)').run(id, tagRow.id)
 }
 
-test('getFrontier returns empty when no candidates', () => {
-  const result = getFrontier()
+test('getFrontierService returns empty when no candidates', () => {
+  const result = getFrontierService()
   expect(result.items).toEqual([])
 })
 
-test('getFrontier includes directive-tagged thoughts', () => {
+test('getFrontierService includes directive-tagged thoughts', () => {
   const id = seedThought({ content: 'do this thing' })
   tagThought(id, 'directive')
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items).toHaveLength(1)
   expect(result.items[0].thought_id).toBe(id)
   expect(result.items[0].reason).toBe('directive')
 })
 
-test('getFrontier includes todo-tagged thoughts', () => {
+test('getFrontierService includes todo-tagged thoughts', () => {
   const id = seedThought({ content: 'todo item' })
   tagThought(id, 'todo')
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items).toHaveLength(1)
 })
 
-test('getFrontier excludes clusters', () => {
+test('getFrontierService excludes clusters', () => {
   const id = seedThought({ content: 'cluster', is_cluster: 1 })
   tagThought(id, 'directive')
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items).toHaveLength(0)
 })
 
-test('getFrontier excludes profile-summary source', () => {
+test('getFrontierService excludes profile-summary source', () => {
   const id = seedThought({ content: 'profile', source: 'profile-summary' })
   tagThought(id, 'directive')
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items).toHaveLength(0)
 })
 
-test('getFrontier excludes crystal source', () => {
+test('getFrontierService excludes crystal source', () => {
   const id = seedThought({ content: 'crystal', source: 'crystal' })
   tagThought(id, 'directive')
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items).toHaveLength(0)
 })
 
-test('getFrontier excludes replaced thoughts', () => {
+test('getFrontierService excludes replaced thoughts', () => {
   const a = seedThought({ content: 'old' })
   const b = seedThought({ content: 'new' })
   tagThought(a, 'directive')
   tagThought(b, 'directive')
   const db = getDb()
   db.prepare("INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'replaces', ?)").run('e1', b, a, new Date().toISOString())
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items.find(i => i.thought_id === a)).toBeUndefined()
   expect(result.items.find(i => i.thought_id === b)).toBeDefined()
 })
 
-test('getFrontier respects k limit', () => {
+test('getFrontierService respects k limit', () => {
   for (let i = 0; i < 5; i++) {
     const id = seedThought({ content: `thought ${i}` })
     tagThought(id, 'directive')
   }
-  const result = getFrontier({ k: 2 })
+  const result = getFrontierService({ k: 2 })
   expect(result.items).toHaveLength(2)
 })
 
-test('getFrontier filters by project_id', () => {
+test('getFrontierService filters by project_id', () => {
   const id = seedThought({ content: 'project thought', project_id: 'proj-x' })
   tagThought(id, 'directive')
   seedThought({ content: 'other project', project_id: 'proj-y' })
-  const result = getFrontier({ project_id: 'proj-x' })
+  const result = getFrontierService({ project_id: 'proj-x' })
   expect(result.items).toHaveLength(1)
   expect(result.items[0].thought_id).toBe(id)
 })
 
-test('getFrontier priority ranges 0-1', () => {
+test('getFrontierService priority ranges 0-1', () => {
   const id = seedThought({ content: 'thought' })
   tagThought(id, 'directive')
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items[0].priority).toBeGreaterThanOrEqual(0)
   expect(result.items[0].priority).toBeLessThanOrEqual(1)
 })
 
-test('getFrontier content_short truncates long content', () => {
+test('getFrontierService content_short truncates long content', () => {
   const long = 'x'.repeat(200)
   const id = seedThought({ content: long })
   tagThought(id, 'directive')
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items[0].content_short.length).toBeLessThanOrEqual(121)
   expect(result.items[0].content_short).toEndWith('…')
 })
 
-test('getFrontier uses depends_on for blocking', () => {
+test('getFrontierService uses depends_on for blocking', () => {
   const a = seedThought({ content: 'blocker' })
   const b = seedThought({ content: 'blocked' })
   tagThought(a, 'directive')
@@ -114,7 +114,7 @@ test('getFrontier uses depends_on for blocking', () => {
   const db = getDb()
   // A depends_on B → A is blocked by B (B must be done first)
   db.prepare("INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'depends_on', ?)").run('e1', a, b, new Date().toISOString())
-  const result = getFrontier()
+  const result = getFrontierService()
   const itemA = result.items.find(i => i.thought_id === a)
   const itemB = result.items.find(i => i.thought_id === b)
   expect(itemA).toBeDefined()
@@ -124,55 +124,55 @@ test('getFrontier uses depends_on for blocking', () => {
   expect(itemB!.priority).toBeGreaterThan(itemA!.priority)
 })
 
-test('getFrontier does not block via develops edge', () => {
+test('getFrontierService does not block via develops edge', () => {
   const a = seedThought({ content: 'evolved' })
   const b = seedThought({ content: 'evolution' })
   tagThought(a, 'directive')
   tagThought(b, 'directive')
   const db = getDb()
   db.prepare("INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'develops', ?)").run('e1', a, b, new Date().toISOString())
-  const result = getFrontier()
+  const result = getFrontierService()
   const itemB = result.items.find(i => i.thought_id === b)
   expect(itemB).toBeDefined()
   expect(itemB!.blocked_by).toEqual([])
 })
 
-test('getFrontier keeps contradicted thoughts (only replaces removes)', () => {
+test('getFrontierService keeps contradicted thoughts (only replaces removes)', () => {
   const a = seedThought({ content: 'claim a' })
   const b = seedThought({ content: 'rival claim b' })
   tagThought(a, 'directive')
   tagThought(b, 'directive')
   const db = getDb()
   db.prepare("INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'contradicts', ?)").run('e1', a, b, new Date().toISOString())
-  const result = getFrontier()
+  const result = getFrontierService()
   // contradiction is symmetric and neither side is authoritative — both stay
   expect(result.items.find(i => i.thought_id === a)).toBeDefined()
   expect(result.items.find(i => i.thought_id === b)).toBeDefined()
 })
 
-test('getFrontier excludes an archived pending thought', () => {
+test('getFrontierService excludes an archived pending thought', () => {
   const id = seedThought({ content: 'archived pending', status: 'archived', tags: '["pending"]' })
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items.find(i => i.thought_id === id)).toBeUndefined()
 })
 
-test('getFrontier includes a due pending thought with reason=pending', () => {
+test('getFrontierService includes a due pending thought with reason=pending', () => {
   const past = new Date(Date.now() - 86_400_000).toISOString()
   const id = seedThought({ content: 'due pending', status: 'draft', tags: '["pending"]', surface_after: past })
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items.find(i => i.thought_id === id)).toBeDefined()
   expect(result.items.find(i => i.thought_id === id)!.reason).toBe('pending')
 })
 
-test('getFrontier excludes a pending thought whose surface_after is in the future', () => {
+test('getFrontierService excludes a pending thought whose surface_after is in the future', () => {
   const future = new Date(Date.now() + 7 * 86_400_000).toISOString()
   const id = seedThought({ content: 'future pending', status: 'draft', tags: '["pending"]', surface_after: future })
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items.find(i => i.thought_id === id)).toBeUndefined()
 })
 
-test('getFrontier includes a pending thought with NULL surface_after immediately', () => {
+test('getFrontierService includes a pending thought with NULL surface_after immediately', () => {
   const id = seedThought({ content: 'null-surface pending', status: 'draft', tags: '["pending"]', surface_after: null })
-  const result = getFrontier()
+  const result = getFrontierService()
   expect(result.items.find(i => i.thought_id === id)).toBeDefined()
 })

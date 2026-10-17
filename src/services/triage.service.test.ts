@@ -24,7 +24,7 @@ import {
   TRIAGE_RULES,
   type TriageVerdict,
 } from './triage.service'
-import { createThoughtWithParent } from './thoughts.service'
+import { createThoughtWithParentService } from './thoughts.service'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
@@ -556,8 +556,8 @@ describe('static no-writer scan', () => {
     const writers = [
       'createEdgeService',
       'deleteEdgeService',
-      'archiveThoughtById',
-      'updateThoughtById',
+      'archiveThoughtByIdService',
+      'updateThoughtByIdService',
       'mergeThoughtsService',
     ]
     for (const w of writers) {
@@ -566,14 +566,14 @@ describe('static no-writer scan', () => {
   })
 })
 
-// ── Create seam: createThoughtWithParent integration ──────────────────────────
+// ── Create seam: createThoughtWithParentService integration ──────────────────────────
 
-describe('createThoughtWithParent seam', () => {
+describe('createThoughtWithParentService seam', () => {
   test('creating a plain draft enqueues exactly one triage_activate row', () => {
     const db = getDb()
     seedDistinctActive()
     const before = triageRowCount(db)
-    const thought = createThoughtWithParent({
+    const thought = createThoughtWithParentService({
       content: 'fresh draft idea',
       status: 'draft',
     })
@@ -593,7 +593,7 @@ describe('createThoughtWithParent seam', () => {
   test('creating an active thought enqueues no triage row', () => {
     const db = getDb()
     const before = triageRowCount(db)
-    const thought = createThoughtWithParent({
+    const thought = createThoughtWithParentService({
       content: 'already active',
       status: 'active',
     })
@@ -604,7 +604,7 @@ describe('createThoughtWithParent seam', () => {
   test('creating a draft with pending tag enqueues no triage row', () => {
     const db = getDb()
     const before = triageRowCount(db)
-    const thought = createThoughtWithParent({
+    const thought = createThoughtWithParentService({
       content: 'scheduled reminder',
       status: 'draft',
       tags: ['pending'],
@@ -616,7 +616,7 @@ describe('createThoughtWithParent seam', () => {
   test('creating a draft with future surface_after enqueues no triage row', () => {
     const db = getDb()
     const before = triageRowCount(db)
-    const thought = createThoughtWithParent({
+    const thought = createThoughtWithParentService({
       content: 'deferred draft',
       status: 'draft',
       surface_after: FUTURE,
@@ -628,7 +628,7 @@ describe('createThoughtWithParent seam', () => {
   test('creating a cluster draft enqueues no triage row', () => {
     const db = getDb()
     const before = triageRowCount(db)
-    const thought = createThoughtWithParent({
+    const thought = createThoughtWithParentService({
       content: 'cluster draft',
       status: 'draft',
       is_cluster: true,
@@ -641,7 +641,7 @@ describe('createThoughtWithParent seam', () => {
   test('creating a profile draft enqueues no triage row', () => {
     const db = getDb()
     const before = triageRowCount(db)
-    const thought = createThoughtWithParent({
+    const thought = createThoughtWithParentService({
       content: 'profile draft',
       status: 'draft',
       is_profile: true,
@@ -655,14 +655,14 @@ describe('createThoughtWithParent seam', () => {
 // ── Failure isolation ─────────────────────────────────────────────────────────
 
 describe('failure isolation', () => {
-  test('createThoughtWithParent succeeds when triage enqueue would throw', () => {
+  test('createThoughtWithParentService succeeds when triage enqueue would throw', () => {
     const db = getDb()
     // Drop the placement_proposals table so enqueueTriageItem's insert fails.
     db.exec('DROP TABLE IF EXISTS placement_proposals')
     const before = (
       db.prepare('SELECT COUNT(*) AS n FROM thoughts').get() as { n: number }
     ).n
-    const thought = createThoughtWithParent({
+    const thought = createThoughtWithParentService({
       content: 'triage-failure-isolation',
       status: 'draft',
     })

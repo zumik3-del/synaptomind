@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { runHealthCheck } from './health-check.service'
+import { runHealthCheckService } from './health-check.service'
 
 beforeEach(createTestDb)
 afterEach(() => {
@@ -30,7 +30,7 @@ test('checks with autofix hook report auto_fixable=true', () => {
   db.prepare('DELETE FROM thoughts WHERE id = ?').run(a)
   db.run('PRAGMA foreign_keys = ON')
 
-  const report = runHealthCheck()
+  const report = runHealthCheckService()
   const structural = report.categories.find(c => c.name === 'structural_integrity')!
   const orphanCheck = structural.checks.find(c => c.name === 'orphan_edges')!
   expect(orphanCheck.auto_fixable).toBe(true)
@@ -38,7 +38,7 @@ test('checks with autofix hook report auto_fixable=true', () => {
 
 test('checks without autofix hook report auto_fixable undefined', () => {
   // duplicate_edges has no autofix hook.
-  const report = runHealthCheck()
+  const report = runHealthCheckService()
   const structural = report.categories.find(c => c.name === 'structural_integrity')!
   const dupCheck = structural.checks.find(c => c.name === 'duplicate_edges')!
   expect(dupCheck.auto_fixable).toBeUndefined()
@@ -55,7 +55,7 @@ test('broken_parent_chains autofix only deletes edges to archived targets', () =
   const before = getDb().prepare("SELECT target_id FROM edges WHERE type = 'parent'").all() as Array<{ target_id: string }>
   expect(before.map(r => r.target_id).sort()).toEqual([archivedChild, draftChild].sort())
 
-  runHealthCheck({ fix: true })
+  runHealthCheckService({ fix: true })
 
   const remaining = getDb()
     .prepare("SELECT target_id FROM edges WHERE type = 'parent'")
@@ -67,13 +67,13 @@ test('broken_parent_chains autofix only deletes edges to archived targets', () =
 test('empty_cluster autofix removes the empty cluster thought', () => {
   const clusterId = seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
 
-  const before = runHealthCheck()
+  const before = runHealthCheckService()
   const clusterCat = before.categories.find(c => c.name === 'cluster_health')!
   const empty = clusterCat.checks.find(c => c.name === 'empty_clusters')!
   expect(empty.count).toBe(1)
   expect(empty.auto_fixable).toBe(true)
 
-  runHealthCheck({ fix: true })
+  runHealthCheckService({ fix: true })
 
   const db = getDb()
   const stillExists = db.prepare('SELECT 1 FROM thoughts WHERE id = ?').get(clusterId)
@@ -90,13 +90,13 @@ test('orphan_edge autofix removes the dangling edge', () => {
   db.prepare('DELETE FROM thoughts WHERE id = ?').run(a)
   db.run('PRAGMA foreign_keys = ON')
 
-  const before = runHealthCheck()
+  const before = runHealthCheckService()
   const structural = before.categories.find(c => c.name === 'structural_integrity')!
   const orphan = structural.checks.find(c => c.name === 'orphan_edges')!
   expect(orphan.count).toBe(1)
   expect(orphan.auto_fixable).toBe(true)
 
-  runHealthCheck({ fix: true })
+  runHealthCheckService({ fix: true })
 
   const remaining = db.prepare('SELECT 1 FROM edges WHERE id = ?').get(edgeId)
   expect(remaining).toBeNull()
