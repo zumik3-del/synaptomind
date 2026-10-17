@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { closeDb, getDb } from '../db'
 import { createThought, getThoughtRow, updateThought } from '../db/thoughts'
-import { createThoughtWithUrlLinks, updateThoughtById } from '../services/thoughts.service'
+import { createThoughtWithUrlLinks } from '../services/url_links.service'
+import { updateThoughtById } from '../services/thoughts.service'
 import { createTestDb, seedThought } from '../test/helpers'
 
 // DB-layer coverage for the is_global flag (epic #1489), mirroring the

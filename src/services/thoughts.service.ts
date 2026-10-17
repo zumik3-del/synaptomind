@@ -21,11 +21,6 @@ import { validateContentLength, validateStatus } from '../validation'
 import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from '../errors'
 import { enqueueTriageItem } from './triage.service'
 
-// Re-exports for backward compatibility — implementations live in focused services.
-export { getMergePreviewService, mergeThoughtsService } from './merge.service'
-export { bulkCreateThoughtsService, type BulkCreateItem } from './bulk.service'
-export { createThoughtWithUrlLinks } from './url_links.service'
-
 export function getThoughtById(id: string, d: Database = getDb()): Thought | null {
   return dbGetThought(d, id) ?? null
 }

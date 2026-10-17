@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import { createThoughtWithUrlLinks } from '../../../services/thoughts.service'
+import { createThoughtWithUrlLinks } from '../../../services/url_links.service'
 import type { ThoughtStatus } from '../../../types/thought'
 import { resolveProjectId } from '../utils'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'

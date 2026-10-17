@@ -4,7 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
-import { createThoughtWithUrlLinks } from '../../services/thoughts.service'
+import { createThoughtWithUrlLinks } from '../../services/url_links.service'
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 

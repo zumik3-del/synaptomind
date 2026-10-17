@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { withTelemetry } from '../logging'
-import { getMergePreviewService, mergeThoughtsService } from '../services/thoughts.service'
+import { getMergePreviewService, mergeThoughtsService } from '../services/merge.service'
 
 const mergeRouter = new Hono()
 

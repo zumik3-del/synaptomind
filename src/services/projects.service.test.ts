@@ -64,7 +64,7 @@ test("deleteProjectService throws when deleting Default", () => {
 });
 
 test("deleteProjectService moves thoughts to Default", () => {
-	const { createThoughtWithUrlLinks } = require("./thoughts.service");
+	const { createThoughtWithUrlLinks } = require("./url_links.service");
 	const projects = listProjectsService();
 	const defaultProject = projects.find(p => p.name === "Default");
 
