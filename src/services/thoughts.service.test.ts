@@ -6,13 +6,13 @@ import { NotFoundError, ValidationError } from '../errors'
 import {
   archiveThoughtById,
   createThoughtWithParent,
-  createThoughtWithUrlLinks,
   getClusterMembersService,
   getThoughtById,
   listThoughtsService,
-  mergeThoughtsService,
   updateThoughtById
 } from './thoughts.service'
+import { createThoughtWithUrlLinks } from './url_links.service'
+import { mergeThoughtsService } from './merge.service'
 import { validateContentLength } from '../validation'
 
 beforeEach(createTestDb)

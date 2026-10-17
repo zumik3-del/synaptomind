@@ -10,14 +10,13 @@ import { getChainService } from '../services/graph.service'
 import { getLastSelfImproveStatus, runSelfImproveJob } from '../services/self-improve.service'
 import {
   archiveThoughtById,
-  bulkCreateThoughtsService,
   createThoughtWithParent,
   getClusterMembersService,
   getThoughtById,
   listThoughtsService,
-  updateThoughtById,
-  type BulkCreateItem
+  updateThoughtById
 } from '../services/thoughts.service'
+import { bulkCreateThoughtsService, type BulkCreateItem } from '../services/bulk.service'
 import { thoughtLinksRouter } from './thoughts-links'
 import { mergeRouter } from './thoughts-merge'
 import { searchRouter } from './thoughts-search'

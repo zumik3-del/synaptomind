@@ -3,9 +3,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { NotFoundError } from '../../errors'
 import {
   getThoughtById,
-  archiveThoughtById,
-  mergeThoughtsService
+  archiveThoughtById
 } from '../../services/thoughts.service'
+import { mergeThoughtsService } from '../../services/merge.service'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
