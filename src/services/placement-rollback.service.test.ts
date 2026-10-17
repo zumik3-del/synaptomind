@@ -1,7 +1,7 @@
 /**
- * F-14 rollbackService-window guard — coverage for the #1047 implementation (task #1049).
+ * F-14 rollback-window guard — coverage for the #1047 implementation (task #1049).
  *
- * `rollbackService` refuses an accepted row whose `decided_at` predates the rollbackService
+ * `rollbackService` refuses an accepted row whose `decided_at` predates the rollback
  * window `now - placement.proposalTtlDays * 86_400_000` — the same TTL that
  * prunes the queue, so the guard is the read-time backstop for a not-yet-run or
  * slow retention job (ADR 2026-09-29 §2.8, OQ-3). The window IS the retention
@@ -91,7 +91,7 @@ function itemFor(report: RollbackReport, proposalId: string): RollbackItemReport
   return item
 }
 
-/** Everything rollbackService could reach, so a refusal can be proven to mutate nothing. */
+/** Everything rollback could reach, so a refusal can be proven to mutate nothing. */
 function graphCounts(db: Database): { thoughts: number; edges: number } {
   return {
     thoughts: (db.prepare('SELECT COUNT(*) AS n FROM thoughts').get() as { n: number }).n,
@@ -145,7 +145,7 @@ function acceptedGraphRow(db: Database, input: GraphRowInput): string {
 
 // ── AC-F14-1: an out-of-window row is refused, nothing is reverted ────────────
 
-describe('F-14 AC-1: rollbackService window refusal', () => {
+describe('F-14 AC-1: rollback window refusal', () => {
   test('an accepted activate row decided outside the window is refused and not reverted', () => {
     const db = getDb()
     const source = seedThought({ id: 'f14-1-s', content: 'out of window activate src', status: 'draft', created_at: NOW })
@@ -205,7 +205,7 @@ describe('F-14 AC-3: dry-run of an out-of-window row', () => {
 
     expect(report.confirm).toBe(false)
     expect(itemFor(report, rowId).action).toBe('refused')
-    expect(itemFor(report, rowId).reason).toContain('rollbackService window')
+    expect(itemFor(report, rowId).reason).toContain('rollback window')
     expect(itemFor(report, rowId).reason).toContain(cutoffFor(NOW_LATER))
     // a dry run never claims a revert it will not perform
     expect(report.summary).toEqual({ reverted: 0, skipped: 0, refused: 1 })
@@ -273,7 +273,7 @@ describe('F-14 AC-4: window boundary', () => {
 // ── AC-F14-5: fail-closed on an unmeasurable row ─────────────────────────────
 
 describe('F-14 AC-5: unmeasurable decided_at', () => {
-  const FAIL_CLOSED_REASON = 'accepted row has no decided_at; cannot verify the rollbackService window'
+  const FAIL_CLOSED_REASON = 'accepted row has no decided_at; cannot verify the rollback window'
 
   test('an accepted row with decided_at === null is refused, not reverted', () => {
     const db = getDb()
@@ -307,7 +307,7 @@ describe('F-14 AC-5: unmeasurable decided_at', () => {
     assertAccepted(db, rowId)
   })
 
-  test('an unparseable rollbackService clock fails closed instead of throwing', () => {
+  test('an unparseable rollback clock fails closed instead of throwing', () => {
     // `now` is a test seam, not a public surface: RollbackOptions calls it a
     // deterministic clock override (placement-apply.types.ts:118) and neither
     // POST /proposals/rollback nor memory_review forwards one, so this suite is
@@ -320,7 +320,7 @@ describe('F-14 AC-5: unmeasurable decided_at', () => {
     const report = rollbackService(RUN_ID, { confirm: true, now: 'not-a-clock' }, db)
 
     expect(itemFor(report, rowId).action).toBe('refused')
-    expect(itemFor(report, rowId).reason).toContain('cannot verify the rollbackService window')
+    expect(itemFor(report, rowId).reason).toContain('cannot verify the rollback window')
     expect(getThoughtRow(db, source)!.status).toBe('active')
     assertAccepted(db, rowId)
   })
@@ -386,7 +386,7 @@ describe('F-14 guard order', () => {
     const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(itemFor(report, rowId).action).toBe('refused')
-    expect(itemFor(report, rowId).reason).toContain('rollbackService window')
+    expect(itemFor(report, rowId).reason).toContain('rollback window')
     expect(itemFor(report, rowId).reason).not.toContain('fingerprint')
     expect(getThoughtRow(db, source)!.status).toBe('active')
     assertAccepted(db, rowId)
@@ -463,7 +463,7 @@ describe('F-14 AC-8: in-window behaviour is unchanged', () => {
     expect(report.summary).toEqual({ reverted: 0, skipped: 0, refused: 1 })
     expect(itemFor(report, mergeRowId).action).toBe('refused')
     expect(itemFor(report, mergeRowId).reason).toContain('merge')
-    expect(itemFor(report, mergeRowId).reason).not.toContain('rollbackService window')
+    expect(itemFor(report, mergeRowId).reason).not.toContain('rollback window')
     // graph untouched
     expect(getThoughtRow(db, source)!.status).toBe('active')
     expect(getThoughtRow(db, target)!.status).toBe('active')

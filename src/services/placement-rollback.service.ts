@@ -1,12 +1,12 @@
 /**
- * Run-scoped rollbackService for the explicit placement/triage apply orchestrator
+ * Run-scoped rollback for the explicit placement/triage apply orchestrator
  * (ADR 2026-09-29 §2.8).
  *
- * The accepted rows of one `run_id` are the rollbackService manifest: `rollbackService`
+ * The accepted rows of one `run_id` are the rollback manifest: `rollbackService`
  * iterates them in reverse application order and inverts each reversible
  * mutation through **existing** writers only (`updateThoughtByIdService`,
  * `deleteEdgeService`). Nothing is hard-deleted: a row decided outside the
- * rollbackService window is refused, a `merge` row is refused as not
+ * rollback window is refused, a `merge` row is refused as not
  * auto-rollbackable, and a row whose stored fingerprint no longer matches
  * the graph is skipped with a warning. `confirm: false` (default) is a
  * non-mutating dry-run report. No ambient/scheduled caller invokes this.
@@ -29,7 +29,7 @@ type Decision = { action: 'revert' } | { action: 'skipped' | 'refused'; reason: 
 const MS_PER_DAY = 86400000
 
 /**
- * Refuse a row decided outside the rollbackService window (ADR 2026-09-29 §2.8, OQ-3:
+ * Refuse a row decided outside the rollback window (ADR 2026-09-29 §2.8, OQ-3:
  * "While the run's rows are retained (proposal TTL) …; older → refuse + warn").
  * The window IS the retention window — `placement.proposalTtlDays` — so this is
  * the read-time backstop for a not-yet-run/slow retention job. A negative TTL
@@ -43,25 +43,25 @@ function windowRefusal(row: PlacementProposalRow, now: string): Decision | null 
 
   const nowMs = Date.parse(now)
   if (Number.isNaN(nowMs)) {
-    return { action: 'refused', reason: 'cannot verify the rollbackService window: unparseable now' }
+    return { action: 'refused', reason: 'cannot verify the rollback window: unparseable now' }
   }
   const decidedMs = row.decided_at === null ? Number.NaN : Date.parse(row.decided_at)
   if (Number.isNaN(decidedMs)) {
-    return { action: 'refused', reason: 'accepted row has no decided_at; cannot verify the rollbackService window' }
+    return { action: 'refused', reason: 'accepted row has no decided_at; cannot verify the rollback window' }
   }
 
   const cutoff = new Date(nowMs - ttlDays * MS_PER_DAY).toISOString()
   if (decidedMs < Date.parse(cutoff)) {
     return {
       action: 'refused',
-      reason: `decided_at ${row.decided_at} is older than the ${ttlDays}d rollbackService window (cutoff ${cutoff})`
+      reason: `decided_at ${row.decided_at} is older than the ${ttlDays}d rollback window (cutoff ${cutoff})`
     }
   }
   return null
 }
 
 /**
- * Read-only verdict for one accepted row (ADR §2.8): the rollbackService window is
+ * Read-only verdict for one accepted row (ADR §2.8): the rollback window is
  * checked first (a refusal is terminal and outranks the rest), `merge` is
  * refused, an idempotent accept mutated nothing, and a fingerprint drift means
  * the graph moved since apply — all non-revertible; everything else is

@@ -116,7 +116,7 @@ export function crystallizeService(input: CrystallizeInput, d: Database = getDb(
   }
 
   members = members.filter(m => m.status !== 'archived')
-  if (members.length === 0) throw new ValidationError('no non-archived member thoughts to crystallizeService')
+  if (members.length === 0) throw new ValidationError('no non-archived member thoughts to crystallize')
 
   if (!title) {
     const earliest = [...members].sort((a, b) => a.created_at.localeCompare(b.created_at))[0]
