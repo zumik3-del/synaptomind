@@ -618,7 +618,6 @@ describe('memory_crystallize cluster_dissolve', () => {
   })
 
   test('dissolve empty cluster → success with 0 members', async () => {
-    const db = getDb()
     // Create a cluster with no members by creating one and removing all members
     const t1 = seedThought({ content: 'cluster-dissolve-empty member' })
     const { cluster } = createClusterService({ thoughtIds: [t1], title: 'empty cluster' })

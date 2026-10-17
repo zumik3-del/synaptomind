@@ -1,6 +1,6 @@
 import { getGraphDataService } from '../../../services/graph.service'
 import { resolveProjectId } from '../utils'
-import { type ActionArgs, type ActionHandler } from '../action-tool'
+import type { ActionArgs, ActionHandler } from '../action-tool'
 
 export const graphHandler: ActionHandler = {
   run(args: ActionArgs) {

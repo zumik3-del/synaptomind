@@ -1,7 +1,7 @@
 import { z } from 'zod/v4'
 import { proposePlacementPlan } from '../../../services/placement/engine'
 import { resolveProjectId } from '../utils'
-import { type ActionArgs, type ActionHandler } from '../action-tool'
+import type { ActionArgs, ActionHandler } from '../action-tool'
 
 export const proposeHandler: ActionHandler = {
   input: z

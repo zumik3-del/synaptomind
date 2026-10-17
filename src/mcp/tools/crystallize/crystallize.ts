@@ -1,6 +1,6 @@
 import { crystallizeService } from '../../../services/crystals.service'
 import { resolveProjectId } from '../utils'
-import { type ActionArgs, type ActionHandler } from '../action-tool'
+import type { ActionArgs, ActionHandler } from '../action-tool'
 
 export const crystallizeHandler: ActionHandler = {
   run(args: ActionArgs) {
