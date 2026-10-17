@@ -1,9 +1,8 @@
 import type { Database } from 'bun:sqlite'
-import type { Migration } from './index'
 
-const migration: Migration = {
+export default {
   version: 40,
-  apply(db: Database) {
+  apply(db: Database): void {
     // Persisted, advisory review queue for placement proposals (ADR §2.1).
     // Not the graph and not authoritative: a durable worklist whose rows are
     // re-validated (fingerprint) before any apply. `ON DELETE CASCADE` mirrors
@@ -43,5 +42,3 @@ const migration: Migration = {
     `)
   }
 }
-
-export default migration

@@ -1,9 +1,8 @@
 import type { Database } from 'bun:sqlite'
-import type { Migration } from './index'
 
-const migration: Migration = {
+export default {
   version: 39,
-  apply(db: Database) {
+  apply(db: Database): void {
     // Pending surfacing now lives on the thought itself: a nullable delay
     // timestamp, eligible when NULL or already due (see ADR #838).
     db.exec(`ALTER TABLE thoughts ADD COLUMN surface_after TEXT`)
@@ -12,5 +11,3 @@ const migration: Migration = {
     db.exec(`DROP TABLE IF EXISTS smart_notes`)
   }
 }
-
-export default migration
