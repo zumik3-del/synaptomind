@@ -6,8 +6,8 @@ import * as vectorSearchDb from '../db/search-vector'
 import { pairKey } from '../db/utils'
 import { getDb } from '../db/container'
 import {
-  createEdges,
-  findLinkCandidates,
+  createEdgesService,
+  findLinkCandidatesService,
   mergeCandidates,
   runAutoLinkJob
 } from './auto-link.service'
@@ -16,24 +16,24 @@ import type { CandidatePair } from './auto-link.service'
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-// ── findLinkCandidates ────────────────────────────────────────────────────────
+// ── findLinkCandidatesService ────────────────────────────────────────────────────────
 
-test('findLinkCandidates returns active non-cluster thoughts with < 3 edges', () => {
+test('findLinkCandidatesService returns active non-cluster thoughts with < 3 edges', () => {
   const a = seedThought({ content: 'a' })
   const b = seedThought({ content: 'b' })
   seedThought({ content: 'cluster', is_cluster: 1 })
   seedThought({ status: 'archived' })
   seedEdge(a, b, 'related')
-  const candidates = findLinkCandidates()
+  const candidates = findLinkCandidatesService()
   expect(candidates.length).toBeGreaterThanOrEqual(2)
   expect(candidates.every(c => c.edge_count < 3)).toBeTrue()
 })
 
-test('findLinkCandidates excludes cluster members', () => {
+test('findLinkCandidatesService excludes cluster members', () => {
   const cluster = seedThought({ is_cluster: 1 })
   const member = seedThought()
   seedEdge(cluster, member, 'cluster')
-  const candidates = findLinkCandidates()
+  const candidates = findLinkCandidatesService()
   expect(candidates.find(c => c.id === member)).toBeUndefined()
 })
 
@@ -60,28 +60,28 @@ test('mergeCandidates sorts by score descending and limits to maxEdges', () => {
   expect(result[0].source_id).toBe('c')
 })
 
-// ── createEdges ──────────────────────────────────────────────────────────────
+// ── createEdgesService ──────────────────────────────────────────────────────────────
 
-test('createEdges creates related edges for pairs', () => {
+test('createEdgesService creates related edges for pairs', () => {
   const a = seedThought()
   const b = seedThought()
   const pairs: CandidatePair[] = [
     { source_id: a, target_id: b, embeddingSimilarity: 0.9, score: 0.9 }
   ]
-  const created = createEdges(pairs)
+  const created = createEdgesService(pairs)
   expect(created).toHaveLength(1)
   expect(created[0].type).toBe('related')
 })
 
-test('createEdges skips existing edges silently', () => {
+test('createEdgesService skips existing edges silently', () => {
   const a = seedThought()
   const b = seedThought()
   seedEdge(a, b, 'related')
   const pairs: CandidatePair[] = [
     { source_id: a, target_id: b, embeddingSimilarity: 0.9, score: 0.9 }
   ]
-  const created = createEdges(pairs)
-  // createEdges catches EdgeAlreadyExistsError, so no duplicate is created
+  const created = createEdgesService(pairs)
+  // createEdgesService catches EdgeAlreadyExistsError, so no duplicate is created
   expect(created.length).toBeLessThanOrEqual(1)
 })
 
@@ -197,7 +197,7 @@ test('runAutoLinkJob: a mixed run embeds the missing candidates in candidate ord
     const [a, b, c] = [...contents.keys()] as [string, string, string]
     storeVec(a, 0)
     storeVec(b, Math.acos(0.92))
-    const missing = findLinkCandidates()
+    const missing = findLinkCandidatesService()
       .map(candidate => candidate.id)
       .filter(id => id !== a && id !== b)
     expect(missing).toEqual([c])
@@ -214,7 +214,7 @@ test('runAutoLinkJob: a mixed run embeds the missing candidates in candidate ord
       }
     )
 
-    // Exactly the missing contents, in the order `findLinkCandidates` returned.
+    // Exactly the missing contents, in the order `findLinkCandidatesService` returned.
     expect(seen).toEqual([missing.map(id => contents.get(id)!)])
     expect(result.candidates).toBe(3)
     expect(pairKeys(result.pairs)).toEqual(new Set([pairKey(a, b), pairKey(a, c), pairKey(b, c)]))

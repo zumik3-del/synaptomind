@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import { rollback as rollbackRun } from '../../../services/placement-rollback.service'
+import { rollbackService as rollbackRun } from '../../../services/placement-rollback.service'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 import { AGENT } from './apply'
 

@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { config } from '../config'
 import { withTelemetry } from '../logging'
-import { getSlots, type ReflectInput, reflectSession, updateExplicitSlot } from '../services/slots.service'
+import { getSlots, type ReflectInput, reflectSessionService, updateExplicitSlot } from '../services/slots.service'
 import { jsonBodyOrDefault } from './utils'
 
 const slotsRouter = new Hono()
@@ -34,7 +34,7 @@ slotsRouter.put('/:name', async c => {
 slotsRouter.post('/reflect', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'reflect_session' }, async c2 => {
     const body = await jsonBodyOrDefault<ReflectInput | undefined>(c2, undefined)
-    const result = reflectSession(body ?? ({} as ReflectInput))
+    const result = reflectSessionService(body ?? ({} as ReflectInput))
     return c2.json({ ok: true, applied: result })
   })
 })

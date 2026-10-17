@@ -21,11 +21,11 @@ import { validateContentLength, validateStatus } from '../validation'
 import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from '../errors'
 import { enqueueTriageItem } from './triage.service'
 
-export function getThoughtById(id: string, d: Database = getDb()): Thought | null {
+export function getThoughtByIdService(id: string, d: Database = getDb()): Thought | null {
   return dbGetThought(d, id) ?? null
 }
 
-export function createThoughtWithParent(
+export function createThoughtWithParentService(
   data: CreateThoughtInput,
   parentId?: string,
   relation?: string,
@@ -79,7 +79,7 @@ function assertNotProfileArchive(thought: Thought | null | undefined): void {
   }
 }
 
-export function updateThoughtById(id: string, data: UpdateThoughtInput, d: Database = getDb()): Thought | null {
+export function updateThoughtByIdService(id: string, data: UpdateThoughtInput, d: Database = getDb()): Thought | null {
   validateStatus(data.status)
   if (data.content !== undefined) {
     validateContentLength(data.content, getThoughtLimitsDB(d), id)
@@ -102,7 +102,7 @@ export function updateThoughtById(id: string, data: UpdateThoughtInput, d: Datab
   return { ...updated, content_language: config.contentLanguage } as Thought
 }
 
-export function archiveThoughtById(id: string, d: Database = getDb()): Thought | null {
+export function archiveThoughtByIdService(id: string, d: Database = getDb()): Thought | null {
   const thought = dbGetThought(d, id)
   if (!thought) return null
   assertNotProfileArchive(thought)
@@ -114,7 +114,7 @@ export function listThoughtsService(options?: ListThoughtsOptions, d: Database =
 }
 
 export function getClusterMembersService(clusterId: string, d: Database = getDb()): { cluster: Thought; members: Thought[] } {
-  const cluster = getThoughtById(clusterId, d)
+  const cluster = getThoughtByIdService(clusterId, d)
   if (!cluster) throw new NotFoundError('Thought not found')
   if (!cluster.is_cluster) throw new ValidationError('Not a cluster thought')
   const members = getClusterMembers(d, clusterId)

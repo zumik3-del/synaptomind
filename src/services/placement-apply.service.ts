@@ -4,7 +4,7 @@
  *
  * Thin orchestrator: it never writes the graph itself — every mutation
  * delegates to an existing writer (`createEdgeService`, `mergeThoughtsService`,
- * `archiveThoughtById`, `updateThoughtById`) inside the same transaction as the
+ * `archiveThoughtByIdService`, `updateThoughtByIdService`) inside the same transaction as the
  * queue-state update, so the graph and the queue cannot diverge (ADR §2.7).
  * `confirm: false` (the default) is a non-mutating dry-run; nothing
  * ambient/scheduled calls `apply`.
@@ -16,7 +16,7 @@
  *
  * Triage kinds (`triage_activate`/`triage_archive`, ADR 2026-09-29 §2.3.4) are
  * gated in `apply-gates.ts` and applied on the *draft* source through
- * `updateThoughtById`/`archiveThoughtById`; the accepted row records the
+ * `updateThoughtByIdService`/`archiveThoughtByIdService`; the accepted row records the
  * `run_id` envelope that `rollback` (in `placement-rollback.service.ts`)
  * inverts later.
  *
@@ -24,7 +24,7 @@
  * §2.7, §2.8): the caller's `run_id` verbatim, or — for a non-triage item the
  * caller left un-enveloped — one synthesized by `apply-run-envelope.ts` and
  * handed back, so no committed mutation is unreachable by `rollback(run_id)`.
- * Triage kinds keep requiring a caller-supplied `run_id`; `applyBatch` shares
+ * Triage kinds keep requiring a caller-supplied `run_id`; `applyBatchService` shares
  * one envelope across the whole batch.
  */
 
@@ -47,7 +47,7 @@ import { checkBatchGuards, isTriageKind } from './apply-run-guards'
 import { createEdgeService } from './edges.service'
 import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriterCall } from './placement-apply.types'
 import { pairFingerprint } from './placement-proposals.service'
-import { archiveThoughtById, updateThoughtById } from './thoughts.service'
+import { archiveThoughtByIdService, updateThoughtByIdService } from './thoughts.service'
 import { mergeThoughtsService } from './merge.service'
 import { type ApplyWriterCall, planWriterCalls, type WriterCall } from './writer-calls'
 
@@ -80,11 +80,11 @@ function executeWriter(row: PlacementProposalRow, options: ApplyOptions, d: Data
   const result: Record<string, unknown> = {}
   for (const call of calls) {
     switch (call.writer) {
-      case 'updateThoughtById':
-        updateThoughtById(call.args.id, { status: call.args.status }, d)
+      case 'updateThoughtByIdService':
+        updateThoughtByIdService(call.args.id, { status: call.args.status }, d)
         break
-      case 'archiveThoughtById':
-        archiveThoughtById(call.args.id, d)
+      case 'archiveThoughtByIdService':
+        archiveThoughtByIdService(call.args.id, d)
         break
       case 'createEdgeService': {
         const created = createEdgeService(call.args.sourceId, call.args.targetId, call.args.type, d)
@@ -173,7 +173,7 @@ function persistOutcome(row: PlacementProposalRow, status: 'stale' | 'failed', r
  * Returns a typed result — a `stale` refusal is a return value, not a throw.
  * Only an unknown proposal id throws `NotFoundError`.
  */
-export function applyProposal(proposalId: string, options: ApplyOptions = {}, d: Database = getDb()): ApplyResult {
+export function applyProposalService(proposalId: string, options: ApplyOptions = {}, d: Database = getDb()): ApplyResult {
   const row = getProposal(d, proposalId)
   if (!row) throw new NotFoundError(`placement proposal '${proposalId}' not found`)
 
@@ -287,7 +287,7 @@ export function applyProposal(proposalId: string, options: ApplyOptions = {}, d:
  * Apply a list of proposals, each independently (ADR §2.7). Never wraps the
  * items in one cross-item transaction: a partial batch is a valid outcome.
  */
-export function applyBatch(
+export function applyBatchService(
   proposalIds: string[],
   options: ApplyOptions = {},
   d: Database = getDb()
@@ -310,7 +310,7 @@ export function applyBatch(
   const errors: ApplyBatchOutcome['errors'] = []
   for (const proposalId of proposalIds) {
     try {
-      results.push(applyProposal(proposalId, { ...options, runId: batchRunId }, d))
+      results.push(applyProposalService(proposalId, { ...options, runId: batchRunId }, d))
     } catch (err) {
       errors.push({ proposal_id: proposalId, error: err instanceof Error ? err.message : String(err) })
     }

@@ -6,7 +6,7 @@
 import type { ProposalItemKind } from '../db/placement-proposals'
 
 /** Existing writer the orchestrator may call — never a new graph writer. */
-export type PlannedWriter = 'createEdgeService' | 'mergeThoughtsService' | 'archiveThoughtById' | 'updateThoughtById'
+export type PlannedWriter = 'createEdgeService' | 'mergeThoughtsService' | 'archiveThoughtByIdService' | 'updateThoughtByIdService'
 
 /** The exact existing-service call `apply` would make (dry-run output). */
 export interface PlannedWriterCall {

@@ -3,7 +3,7 @@ import { getDb } from '../db'
 import type { Thought } from '../db/thoughts'
 import type { ThoughtStatus } from '../types/thought'
 import { ValidationError } from '../errors'
-import { createThoughtWithParent } from './thoughts.service'
+import { createThoughtWithParentService } from './thoughts.service'
 
 export interface BulkCreateItem {
   content: string
@@ -41,7 +41,7 @@ export function bulkCreateThoughtsService(
     for (let i = 0; i < items.length; i++) {
       const t = items[i]
       try {
-        const thought = createThoughtWithParent(
+        const thought = createThoughtWithParentService(
           {
             content: t.content,
             status: t.status,

@@ -4,7 +4,7 @@
  * Covers `memory_review` actions (`enqueue`/`list`/`apply`/`apply_batch`/`reject`):
  * valid, missing param, unknown id, error envelopes, draft guard, read-only
  * list, write-action telemetry (action='write'), and a static assertion that
- * no read handler in review.ts reaches `applyProposal` / `applyBatch`.
+ * no read handler in review.ts reaches `applyProposalService` / `applyBatchService`.
  *
  * The embedder is mocked so `enqueue`'s happy path runs end-to-end.
  */
@@ -420,35 +420,35 @@ describe('static: no read handler in the review modules calls apply* functions',
   const SOURCE = readFileSync(REVIEW_PATH, 'utf8')
   const APPLY_SOURCE = readFileSync(APPLY_PATH, 'utf8')
 
-  test('list handler does not reference applyProposal or applyBatch', () => {
+  test('list handler does not reference applyProposalService or applyBatchService', () => {
     // Extract the list handler block.
     const listMatch = SOURCE.match(/list:\s*\{[\s\S]*?\n\s*\}/)
     expect(listMatch).not.toBeNull()
     const listBlock = listMatch![0]
-    expect(listBlock).not.toMatch(/applyProposal|applyBatch/)
+    expect(listBlock).not.toMatch(/applyProposalService|applyBatchService/)
   })
 
-  test('enqueue handler does not reference applyProposal or applyBatch', () => {
+  test('enqueue handler does not reference applyProposalService or applyBatchService', () => {
     const enqueueMatch = SOURCE.match(/enqueue:\s*\{[\s\S]*?\n\s*\}/)
     expect(enqueueMatch).not.toBeNull()
     const enqueueBlock = enqueueMatch![0]
-    expect(enqueueBlock).not.toMatch(/applyProposal|applyBatch/)
+    expect(enqueueBlock).not.toMatch(/applyProposalService|applyBatchService/)
   })
 
-  test('reject handler does not reference applyProposal or applyBatch', () => {
+  test('reject handler does not reference applyProposalService or applyBatchService', () => {
     const rejectMatch = SOURCE.match(/reject:\s*\{[\s\S]*?\n\s*\}/)
     expect(rejectMatch).not.toBeNull()
     const rejectBlock = rejectMatch![0]
-    expect(rejectBlock).not.toMatch(/applyProposal|applyBatch/)
+    expect(rejectBlock).not.toMatch(/applyProposalService|applyBatchService/)
   })
 
-  test('apply handler was extracted to review/apply.ts and calls applyProposal', () => {
-    expect(APPLY_SOURCE).toMatch(/applyProposal/)
+  test('apply handler was extracted to review/apply.ts and calls applyProposalService', () => {
+    expect(APPLY_SOURCE).toMatch(/applyProposalService/)
   })
 
-  test('apply_batch handler stays inline in review.ts and calls applyBatch', () => {
+  test('apply_batch handler stays inline in review.ts and calls applyBatchService', () => {
     const applyBatchMatch = SOURCE.match(/apply_batch:\s*\{([\s\S]*?\n\s*\})/)
     expect(applyBatchMatch).not.toBeNull()
-    expect(applyBatchMatch![1]).toMatch(/applyBatch/)
+    expect(applyBatchMatch![1]).toMatch(/applyBatchService/)
   })
 })

@@ -9,12 +9,12 @@ import { proposePlacementPlan } from '../services/placement/engine'
 import { getChainService } from '../services/graph.service'
 import { getLastSelfImproveStatus, runSelfImproveJob } from '../services/self-improve.service'
 import {
-  archiveThoughtById,
-  createThoughtWithParent,
+  archiveThoughtByIdService,
+  createThoughtWithParentService,
   getClusterMembersService,
-  getThoughtById,
+  getThoughtByIdService,
   listThoughtsService,
-  updateThoughtById
+  updateThoughtByIdService
 } from '../services/thoughts.service'
 import { bulkCreateThoughtsService, type BulkCreateItem } from '../services/bulk.service'
 import { thoughtLinksRouter } from './thoughts-links'
@@ -113,7 +113,7 @@ thoughtsRouter.get('/:id/edges', c => {
 thoughtsRouter.get('/:id', c => {
   return withTelemetry(c, { action: 'read', toolName: 'get_thought' }, c2 => {
     const id = c2.req.param('id')!
-    const thought = getThoughtById(id)
+    const thought = getThoughtByIdService(id)
     if (!thought) return c2.json({ error: 'Not found' }, 404)
     return c2.json(thought)
   })
@@ -138,7 +138,7 @@ thoughtsRouter.post('/', async c => {
       content: string; status?: ThoughtStatus; tags?: string[];
       source?: string; project_id?: string; parent_id?: string; relation?: string; is_profile?: boolean; is_protected?: boolean
     }
-    const thought = createThoughtWithParent(
+    const thought = createThoughtWithParentService(
       { content: body.content, status: body.status, tags: body.tags, source: body.source, project_id: body.project_id, is_profile: body.is_profile, is_protected: body.is_protected },
       body.parent_id, body.relation
     )
@@ -153,7 +153,7 @@ thoughtsRouter.put('/:id', async c => {
       content?: string; tags?: string[]; status?: ThoughtStatus;
       project_id?: string; is_profile?: boolean; is_protected?: boolean
     }
-    const thought = updateThoughtById(id, {
+    const thought = updateThoughtByIdService(id, {
       content: body.content, tags: body.tags, status: body.status, project_id: body.project_id, is_profile: body.is_profile, is_protected: body.is_protected
     })
     if (!thought) return c2.json({ error: 'Not found' }, 404)
@@ -164,12 +164,12 @@ thoughtsRouter.put('/:id', async c => {
 thoughtsRouter.delete('/:id', c => {
   return withTelemetry(c, { action: 'write', toolName: 'archive_thought' }, c2 => {
     const id = c2.req.param('id')!
-    const thought = getThoughtById(id)
+    const thought = getThoughtByIdService(id)
     if (!thought) return c2.json({ error: 'Not found' }, 404)
     if (thought.status === 'archived') {
       return c2.json(thought)
     }
-    const updated = archiveThoughtById(id)
+    const updated = archiveThoughtByIdService(id)
     if (!updated) return c2.json({ error: 'Not found' }, 404)
     return c2.json(updated)
   })

@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { withTelemetry } from '../logging'
-import { runHealthCheck } from '../services/health-check.service'
+import { runHealthCheckService } from '../services/health-check.service'
 import type { Severity } from '../services/health-check.service'
 
 const healthCheckRouter = new Hono()
@@ -9,7 +9,7 @@ healthCheckRouter.get('/health-check', c => {
   return withTelemetry(c, { action: 'read', toolName: 'health_check' }, c2 => {
     const severity = c2.req.query('severity') as Severity | undefined
     const fix = c2.req.query('fix') === 'true'
-    const report = runHealthCheck({ severity, fix })
+    const report = runHealthCheckService({ severity, fix })
     return c2.json(report)
   })
 })

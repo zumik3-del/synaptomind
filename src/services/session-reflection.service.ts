@@ -53,7 +53,7 @@ function hasDuplicateDecision(db: Database, decision: string): boolean {
   return false
 }
 
-export function reflectSession(input: ReflectInput, d: Database = getDb()): ReflectResult {
+export function reflectSessionService(input: ReflectInput, d: Database = getDb()): ReflectResult {
   const hasAny =
     input.summary !== undefined ||
     (input.goals_delta?.length ?? 0) > 0 ||

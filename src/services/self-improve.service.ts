@@ -12,7 +12,7 @@ import type { DetectedIssue, IssueId } from './self-improve-detect'
 import { detectIssues } from './self-improve-detect'
 import type { TelemetrySignals } from './self-improve-telemetry'
 import { queryTelemetrySignals } from './self-improve-telemetry'
-import { updateThoughtById } from './thoughts.service'
+import { updateThoughtByIdService } from './thoughts.service'
 import type { Database } from 'bun:sqlite'
 
 export type { IssueId, DetectedIssue } from './self-improve-detect'
@@ -52,7 +52,7 @@ registerIssueHandler('low_activation_rate', ({ db, dryRun, actions }) => {
     if (d.is_cluster || d.is_profile) continue
     const ageDays = (Date.now() - new Date(d.created_at).getTime()) / 86400000
     if (ageDays < 3) continue
-    if (!dryRun) updateThoughtById(d.id, { status: 'active' })
+    if (!dryRun) updateThoughtByIdService(d.id, { status: 'active' })
     promoted++
     actions.push(`promote: ${d.id} (${d.content.slice(0, 50)}...)`)
   }

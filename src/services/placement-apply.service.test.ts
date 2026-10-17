@@ -18,8 +18,8 @@ import { insertProposal, type PlacementProposalRow } from '../db/placement-propo
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError } from '../errors'
 import {
-  applyBatch,
-  applyProposal,
+  applyBatchService,
+  applyProposalService,
 } from './placement-apply.service'
 import type { ApplyResult } from './placement-apply.types'
 import { computeFingerprint } from './placement-proposals.service'
@@ -155,7 +155,7 @@ describe('conflict matrix', () => {
     const t = seedThought({ id: 'cm-sym-t', content: 'sym tgt', created_at: NOW_LATER })
     seedEdge(s, t, 'related')
     const row = pendingEdgeRow(db, s, t, 'related')
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
     expect(out.status).toBe('accepted')
     expect(out.idempotent).toBe(true)
     assertAccepted(db, row.id)
@@ -168,7 +168,7 @@ describe('conflict matrix', () => {
     seedEdge(s, t, 'related')
     // Queue a reverse-direction related edge.
     const row = pendingEdgeRow(db, t, s, 'related')
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
     expect(out.status).toBe('accepted')
     expect(out.idempotent).toBe(true)
     assertAccepted(db, row.id)
@@ -180,7 +180,7 @@ describe('conflict matrix', () => {
     const t = seedThought({ id: 'cm-dir-t', content: 'dir tgt', created_at: NOW_LATER })
     seedEdge(s, t, 'supports')
     const row = pendingEdgeRow(db, s, t, 'supports')
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
     expect(out.status).toBe('accepted')
     expect(out.idempotent).toBe(true)
     assertAccepted(db, row.id)
@@ -193,7 +193,7 @@ describe('conflict matrix', () => {
     seedEdge(s, t, 'supports')
     // Attempt the reverse direction.
     const row = pendingEdgeRow(db, t, s, 'supports')
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('stale')
     expect(out).toHaveProperty('reason')
     assertStale(db, row.id)
@@ -205,7 +205,7 @@ describe('conflict matrix', () => {
     const t = seedThought({ id: 'cm-diff-t', content: 'diff tgt', created_at: NOW_LATER })
     seedEdge(s, t, 'supports')
     const row = pendingEdgeRow(db, s, t, 'contradicts')
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('stale')
     assertStale(db, row.id)
   })
@@ -215,7 +215,7 @@ describe('conflict matrix', () => {
     const s = seedThought({ id: 'cm-arch-s', content: 'arch src', created_at: NOW })
     const t = seedThought({ id: 'cm-arch-t', content: 'arch tgt', created_at: NOW_LATER, status: 'archived' })
     const row = pendingEdgeRow(db, s, t, 'related')
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('stale')
     assertStale(db, row.id)
   })
@@ -225,7 +225,7 @@ describe('conflict matrix', () => {
     const s = seedThought({ id: 'cm-prof-s', content: 'profile src', created_at: NOW, is_profile: 1 })
     const t = seedThought({ id: 'cm-prof-t', content: 'merge tgt', created_at: NOW_LATER })
     const row = pendingLifecycleRow(db, s, t, 'merge')
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('failed')
     expect(out).toHaveProperty('reason')
     // Failed rows stay pending so the caller can retry after fixing the precondition.
@@ -237,7 +237,7 @@ describe('conflict matrix', () => {
     const s = seedThought({ id: 'cm-ra-s', content: 'ra src', created_at: NOW })
     const t = seedThought({ id: 'cm-ra-t', content: 'ra tgt', created_at: NOW_LATER, is_profile: 1 })
     const row = pendingLifecycleRow(db, s, t, 'replaces+archive')
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('failed')
     assertStillPending(db, row.id)
   })
@@ -247,7 +247,7 @@ describe('conflict matrix', () => {
     const s = seedThought({ id: 'cm-cl-s', content: 'cl src', created_at: NOW })
     const t = seedThought({ id: 'cm-cl-t', content: 'cl tgt', created_at: NOW_LATER })
     const row = pendingPlacementRow(db, s, t, 'cluster')
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('failed')
     assertStillPending(db, row.id)
   })
@@ -261,14 +261,14 @@ describe('conflict matrix', () => {
       seedEdge(cl, seedThought({ content: 'm1', created_at: NOW_LATER }), 'cluster')
       seedEdge(cl, seedThought({ content: 'm2', created_at: NOW_LATER }), 'cluster')
       const row = pendingPlacementRow(db, s, cl, 'cluster')
-      const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+      const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
       expect(out.status).toBe('stale')
       assertStale(db, row.id)
     })
   })
 
   test('unknown proposal id throws NotFoundError', () => {
-    expect(() => applyProposal('no-such-id', { confirm: true, now: NOW }, getDb())).toThrow(NotFoundError)
+    expect(() => applyProposalService('no-such-id', { confirm: true, now: NOW }, getDb())).toThrow(NotFoundError)
   })
 })
 
@@ -281,10 +281,10 @@ describe('idempotency', () => {
     const t = seedThought({ id: 'id-t', content: 'idem tgt', created_at: NOW_LATER })
     const row = pendingEdgeRow(db, s, t, 'related')
     // Accept once.
-    applyProposal(row.id, { confirm: true, now: NOW }, db)
+    applyProposalService(row.id, { confirm: true, now: NOW }, db)
     assertAccepted(db, row.id)
     // Re-apply.
-    const out = applyProposal(row.id, { confirm: true, now: NOW_LATER }, db) as Extract<ApplyResult, { status: 'accepted' }>
+    const out = applyProposalService(row.id, { confirm: true, now: NOW_LATER }, db) as Extract<ApplyResult, { status: 'accepted' }>
     expect(out.status).toBe('accepted')
     expect(out.idempotent).toBe(true)
     expect(out.calls).toEqual([])
@@ -299,7 +299,7 @@ describe('idempotency', () => {
     // Edge already exists in the graph.
     seedEdge(s, t, 'supports')
     const row = pendingEdgeRow(db, s, t, 'supports')
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
     expect(out.status).toBe('accepted')
     expect(out.idempotent).toBe(true)
     assertAccepted(db, row.id)
@@ -314,7 +314,7 @@ describe('dry-run (confirm:false / absent)', () => {
     const s = seedThought({ id: 'dr-s', content: 'dry src', created_at: NOW })
     const t = seedThought({ id: 'dr-t', content: 'dry tgt', created_at: NOW_LATER })
     const row = pendingEdgeRow(db, s, t, 'develops')
-    const out = applyProposal(row.id, { now: NOW }, db)
+    const out = applyProposalService(row.id, { now: NOW }, db)
     expect(out.status).toBe('dry_run')
     expect((out as Extract<ApplyResult, { status: 'dry_run' }>).calls).toHaveLength(1)
     // Queue remains pending.
@@ -329,7 +329,7 @@ describe('dry-run (confirm:false / absent)', () => {
     const s = seedThought({ id: 'dr-stale-s', content: 'stale src', created_at: NOW })
     const t = seedThought({ id: 'dr-stale-t', content: 'stale tgt', created_at: NOW_LATER, status: 'archived' })
     const row = pendingEdgeRow(db, s, t, 'related')
-    const out = applyProposal(row.id, { now: NOW }, db)
+    const out = applyProposalService(row.id, { now: NOW }, db)
     expect(out.status).toBe('stale')
     assertStillPending(db, row.id)
   })
@@ -339,7 +339,7 @@ describe('dry-run (confirm:false / absent)', () => {
     const s = seedThought({ id: 'dr-exp-s', content: 'exp src', created_at: NOW })
     const t = seedThought({ id: 'dr-exp-t', content: 'exp tgt', created_at: NOW_LATER })
     const row = pendingEdgeRow(db, s, t, 'related')
-    const out = applyProposal(row.id, { confirm: false, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: false, now: NOW }, db)
     expect(out.status).toBe('dry_run')
     assertStillPending(db, row.id)
   })
@@ -355,7 +355,7 @@ describe('atomicity: writer throws', () => {
     // The gate does not catch this, so the writer runs and throws.
     const row = pendingLifecycleRow(db, s, s, 'merge')
     const beforeEdges = db.prepare('SELECT COUNT(*) AS n FROM edges').get() as { n: number }
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('failed')
     // Transaction rolled back: no edges were added.
     const afterEdges = db.prepare('SELECT COUNT(*) AS n FROM edges').get() as { n: number }
@@ -367,7 +367,7 @@ describe('atomicity: writer throws', () => {
 
 // ── batch partial failure ───────────────────────────────────────────────────────
 
-describe('applyBatch: partial failure independence', () => {
+describe('applyBatchService: partial failure independence', () => {
   test('commits siblings while collecting errors for broken ids', () => {
     const db = getDb()
     const s1 = seedThought({ id: 'bat-s1', content: 'batch s1', created_at: NOW })
@@ -377,7 +377,7 @@ describe('applyBatch: partial failure independence', () => {
     const okRow = pendingEdgeRow(db, s1, t1, 'related')
     const failRow = pendingEdgeRow(db, s2, t2, 'related')
     const unknownId = 'bat-no-such-id'
-    const out = applyBatch([okRow.id, unknownId, failRow.id], { confirm: true, now: NOW }, db)
+    const out = applyBatchService([okRow.id, unknownId, failRow.id], { confirm: true, now: NOW }, db)
     expect(out.errors).toHaveLength(1)
     expect(out.errors[0].proposal_id).toBe(unknownId)
     expect(out.results).toHaveLength(2)
@@ -407,7 +407,7 @@ describe('applyBatch: partial failure independence', () => {
   })
 
   test('empty ids array returns empty results/errors', () => {
-    const out = applyBatch([], { confirm: true, now: NOW }, getDb())
+    const out = applyBatchService([], { confirm: true, now: NOW }, getDb())
     expect(out.results).toEqual([])
     expect(out.errors).toEqual([])
   })
@@ -424,7 +424,7 @@ describe('gates re-checked at apply', () => {
       // Cluster already at cap.
       seedEdge(cl, seedThought({ content: 'gate m1', created_at: NOW_LATER }), 'cluster')
       const row = pendingPlacementRow(db, s, cl, 'cluster')
-      const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+      const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
       expect(out.status).toBe('stale')
       assertStale(db, row.id)
     })
@@ -435,7 +435,7 @@ describe('gates re-checked at apply', () => {
     const s = seedThought({ id: 'gate-proj-s', content: 'proj src', created_at: NOW, project_id: 'pa' })
     const t = seedThought({ id: 'gate-proj-t', content: 'proj tgt', created_at: NOW_LATER, project_id: 'pb' })
     const row = pendingEdgeRow(db, s, t, 'related')
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('stale')
     assertStale(db, row.id)
   })
@@ -445,7 +445,7 @@ describe('gates re-checked at apply', () => {
     const s = seedThought({ id: 'gate-inv-s', content: 'inv src', created_at: NOW })
     const t = seedThought({ id: 'gate-inv-t', content: 'inv tgt', created_at: NOW_LATER })
     const row = pendingEdgeRow(db, s, t, 'child') // deprecated / invalid
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('failed')
     assertStillPending(db, row.id)
   })

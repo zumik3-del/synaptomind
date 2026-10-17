@@ -6,7 +6,7 @@ import { projectExists } from '../db/projects'
 import { getSlotRow, upsertSlot } from '../db/slots'
 import { NotFoundError, ValidationError } from '../errors'
 import { listPendingCandidates } from './frontier.service'
-import { getThoughtById } from './thoughts.service'
+import { getThoughtByIdService } from './thoughts.service'
 import type { Database } from 'bun:sqlite'
 
 // Canonical slot order — consumers (MCP digest, future UI) rely on it.
@@ -57,7 +57,7 @@ function pendingItemsContent(db: Database): string {
 function architectureDecisionsContent(db: Database): string {
   const bullets: string[] = []
   for (const primer of getPrimers(db)) {
-    const thought = getThoughtById(primer.thought_id, db)
+    const thought = getThoughtByIdService(primer.thought_id, db)
     if (!thought) continue
     bullets.push(`- ${thought.content.replace(/\s+/g, ' ').trim()}`)
   }
@@ -143,4 +143,4 @@ export function updateExplicitSlot(
   }
 }
 
-export { type ReflectInput, reflectSession } from './session-reflection.service'
+export { type ReflectInput, reflectSessionService } from './session-reflection.service'

@@ -96,7 +96,7 @@ function formatCrystallizedMarkdown(
   return lines.join('\n').trim()
 }
 
-export function crystallize(input: CrystallizeInput, d: Database = getDb()): CrystallizeResult {
+export function crystallizeService(input: CrystallizeInput, d: Database = getDb()): CrystallizeResult {
   const style = input.style ?? 'decision-log'
   if (!STYLE_LABELS[style]) throw new ValidationError(`style must be one of: ${Object.keys(STYLE_LABELS).join(', ')}`)
   let title = ''
@@ -116,7 +116,7 @@ export function crystallize(input: CrystallizeInput, d: Database = getDb()): Cry
   }
 
   members = members.filter(m => m.status !== 'archived')
-  if (members.length === 0) throw new ValidationError('no non-archived member thoughts to crystallize')
+  if (members.length === 0) throw new ValidationError('no non-archived member thoughts to crystallizeService')
 
   if (!title) {
     const earliest = [...members].sort((a, b) => a.created_at.localeCompare(b.created_at))[0]

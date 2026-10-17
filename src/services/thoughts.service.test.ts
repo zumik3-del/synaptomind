@@ -4,14 +4,14 @@ import { getThoughtLimits, setThoughtLimits } from '../db/settings'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError, ValidationError } from '../errors'
 import {
-  archiveThoughtById,
-  createThoughtWithParent,
+  archiveThoughtByIdService,
+  createThoughtWithParentService,
   getClusterMembersService,
-  getThoughtById,
+  getThoughtByIdService,
   listThoughtsService,
-  updateThoughtById
+  updateThoughtByIdService
 } from './thoughts.service'
-import { createThoughtWithUrlLinks } from './url_links.service'
+import { createThoughtWithUrlLinksService } from './url_links.service'
 import { mergeThoughtsService } from './merge.service'
 import { validateContentLength } from '../validation'
 
@@ -21,74 +21,74 @@ afterEach(() => {
   closeDb()
 })
 
-test('getThoughtById returns thought', () => {
+test('getThoughtByIdService returns thought', () => {
   const id = seedThought({ content: 'hello' })
-  const t = getThoughtById(id)
+  const t = getThoughtByIdService(id)
   expect(t).not.toBeNull()
   expect(t!.content).toBe('hello')
 })
 
-test('getThoughtById returns null for unknown id', () => {
-  expect(getThoughtById('nonexistent')).toBeNull()
+test('getThoughtByIdService returns null for unknown id', () => {
+  expect(getThoughtByIdService('nonexistent')).toBeNull()
 })
 
-test('createThoughtWithParent creates thought without parent', () => {
-  const t = createThoughtWithParent({ content: 'test thought', tags: ['tag1'] })
+test('createThoughtWithParentService creates thought without parent', () => {
+  const t = createThoughtWithParentService({ content: 'test thought', tags: ['tag1'] })
   expect(t.id).toBeString()
   expect(t.content).toBe('test thought')
   expect(t.tags).toHaveLength(1)
   expect((t as unknown as Record<string, unknown>).content_language).toBe('en')
 })
 
-test('createThoughtWithParent creates thought with parent edge', () => {
+test('createThoughtWithParentService creates thought with parent edge', () => {
   const parentId = seedThought()
-  const child = createThoughtWithParent({ content: 'child' }, parentId, 'develops')
+  const child = createThoughtWithParentService({ content: 'child' }, parentId, 'develops')
   const db = getDb()
   const edges = db.prepare('SELECT * FROM edges WHERE source_id = ? AND target_id = ?').all(parentId, child.id)
   expect(edges).toHaveLength(1)
   expect((edges[0] as { type: string }).type).toBe('develops')
 })
 
-test('createThoughtWithParent validates status', () => {
-  expect(() => createThoughtWithParent({ content: 'x', status: 'bogus' as any })).toThrow(ValidationError)
+test('createThoughtWithParentService validates status', () => {
+  expect(() => createThoughtWithParentService({ content: 'x', status: 'bogus' as any })).toThrow(ValidationError)
 })
 
-test('createThoughtWithParent rejects content over hard limit', () => {
+test('createThoughtWithParentService rejects content over hard limit', () => {
   const longContent = 'x'.repeat(100_001)
-  expect(() => createThoughtWithParent({ content: longContent })).toThrow(ValidationError)
+  expect(() => createThoughtWithParentService({ content: longContent })).toThrow(ValidationError)
 })
 
-test('updateThoughtById updates content', () => {
+test('updateThoughtByIdService updates content', () => {
   const id = seedThought()
-  const updated = updateThoughtById(id, { content: 'updated' })
+  const updated = updateThoughtByIdService(id, { content: 'updated' })
   expect(updated).not.toBeNull()
   expect(updated!.content).toBe('updated')
   expect((updated! as unknown as Record<string, unknown>).content_language).toBe('en')
 })
 
-test('updateThoughtById returns null for unknown id', () => {
-  expect(updateThoughtById('nonexistent', { content: 'x' })).toBeNull()
+test('updateThoughtByIdService returns null for unknown id', () => {
+  expect(updateThoughtByIdService('nonexistent', { content: 'x' })).toBeNull()
 })
 
-test('updateThoughtById validates status', () => {
+test('updateThoughtByIdService validates status', () => {
   const id = seedThought()
-  expect(() => updateThoughtById(id, { status: 'bogus' as any })).toThrow(ValidationError)
+  expect(() => updateThoughtByIdService(id, { status: 'bogus' as any })).toThrow(ValidationError)
 })
 
-test('archiveThoughtById archives active thought', () => {
+test('archiveThoughtByIdService archives active thought', () => {
   const id = seedThought({ status: 'active' })
-  const result = archiveThoughtById(id)
+  const result = archiveThoughtByIdService(id)
   expect(result).not.toBeNull()
   expect(result!.status).toBe('archived')
 })
 
-test('archiveThoughtById returns null for unknown id', () => {
-  expect(archiveThoughtById('nonexistent')).toBeNull()
+test('archiveThoughtByIdService returns null for unknown id', () => {
+  expect(archiveThoughtByIdService('nonexistent')).toBeNull()
 })
 
-test('archiveThoughtById rejects profile thoughts', () => {
+test('archiveThoughtByIdService rejects profile thoughts', () => {
   const id = seedThought({ is_profile: 1, status: 'active' })
-  expect(() => archiveThoughtById(id)).toThrow(ValidationError)
+  expect(() => archiveThoughtByIdService(id)).toThrow(ValidationError)
 })
 
 test('listThoughtsService returns thoughts', () => {
@@ -150,7 +150,7 @@ test('mergeThoughtsService merges content and transfers edges', () => {
   expect(result.target.content).toBe('merged content')
   expect(result.transferredEdges).toBe(1)
   // Source should be archived
-  const srcAfter = getThoughtById(source)
+  const srcAfter = getThoughtByIdService(source)
   expect(srcAfter!.status).toBe('archived')
   // Archived source must not retain any output edges — they were cleaned up
   // during edge transfer (issue #98).
@@ -168,8 +168,8 @@ test('mergeThoughtsService handles preview mode (no content/tags)', () => {
   expect(result.transferredEdges).toBe(0)
 })
 
-test('createThoughtWithUrlLinks creates thought with links', () => {
-  const t = createThoughtWithUrlLinks(
+test('createThoughtWithUrlLinksService creates thought with links', () => {
+  const t = createThoughtWithUrlLinksService(
     { content: 'with links' },
     { urlLinks: [{ text: 'google', url: 'http://google.com' }] }
   )
@@ -185,20 +185,20 @@ test('validateContentLength does not throw under soft limit', () => {
 
 // ── Padded hard-limit boundary (issue #123) ─────────────────────────────────
 
-test('createThoughtWithParent accepts content exactly at the derived hard limit', () => {
+test('createThoughtWithParentService accepts content exactly at the derived hard limit', () => {
   setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
   const { hardLimit } = getThoughtLimits(getDb())
   expect(hardLimit).toBe(15)
 
-  const thought = createThoughtWithParent({ content: 'x'.repeat(hardLimit) })
+  const thought = createThoughtWithParentService({ content: 'x'.repeat(hardLimit) })
   expect(thought.content).toHaveLength(hardLimit)
 })
 
-test('createThoughtWithParent rejects content one char over the derived hard limit', () => {
+test('createThoughtWithParentService rejects content one char over the derived hard limit', () => {
   setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
   const { hardLimit } = getThoughtLimits(getDb())
 
-  expect(() => createThoughtWithParent({ content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
+  expect(() => createThoughtWithParentService({ content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
 })
 
 test('content between soft and hard limit is accepted (soft limit is advisory)', () => {
@@ -208,14 +208,14 @@ test('content between soft and hard limit is accepted (soft limit is advisory)',
   expect(middle).toBeGreaterThan(softLimit)
   expect(middle).toBeLessThan(hardLimit)
 
-  expect(() => createThoughtWithParent({ content: 'x'.repeat(middle) })).not.toThrow()
+  expect(() => createThoughtWithParentService({ content: 'x'.repeat(middle) })).not.toThrow()
 })
 
-test('updateThoughtById enforces the derived hard limit and accepts the exact ceiling', () => {
+test('updateThoughtByIdService enforces the derived hard limit and accepts the exact ceiling', () => {
   const id = seedThought({ content: 'short' })
   setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
   const { hardLimit } = getThoughtLimits(getDb())
 
-  expect(() => updateThoughtById(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
-  expect(updateThoughtById(id, { content: 'x'.repeat(hardLimit) })?.content).toHaveLength(hardLimit)
+  expect(() => updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
+  expect(updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit) })?.content).toHaveLength(hardLimit)
 })

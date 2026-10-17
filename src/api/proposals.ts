@@ -3,10 +3,10 @@ import { withTelemetry } from '../logging'
 import type { ProposalItemKind, ProposalState } from '../db/placement-proposals'
 import { ValidationError } from '../errors'
 import { jsonBodyOrDefault } from './utils'
-import { applyProposal } from '../services/placement-apply.service'
-import { rollback } from '../services/placement-rollback.service'
+import { applyProposalService } from '../services/placement-apply.service'
+import { rollbackService } from '../services/placement-rollback.service'
 import { checkDryRunFirst, checkItemGuards, noteDryRun } from '../services/apply-run-guards'
-import { enqueueThoughtProposals, list as listProposals, reject } from '../services/placement-proposals.service'
+import { enqueueThoughtProposals, listPlacementProposalsService as listProposals, rejectPlacementProposalService as reject } from '../services/placement-proposals.service'
 
 const proposalsRouter = new Hono()
 
@@ -35,7 +35,7 @@ proposalsRouter.post('/rollback', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'rollback_placement_proposals' }, async c2 => {
     const body = await jsonBodyOrDefault<{ run_id?: string; confirm?: boolean }>(c2, {})
     if (!body.run_id) throw new ValidationError('run_id is required')
-    return c2.json(rollback(body.run_id, { confirm: body.confirm === true, decidedBy: 'api' }))
+    return c2.json(rollbackService(body.run_id, { confirm: body.confirm === true, decidedBy: 'api' }))
   })
 })
 
@@ -52,7 +52,7 @@ proposalsRouter.post('/:id/apply', async c => {
         checkDryRunFirst([proposalId], body.run_id) ?? checkItemGuards(proposalId, { confirm, runId: body.run_id })
       if (refusal) return c2.json({ proposal_id: proposalId, status: 'refused', refusal })
     }
-    const result = applyProposal(proposalId, { confirm, runId: body.run_id, decidedBy: 'api' })
+    const result = applyProposalService(proposalId, { confirm, runId: body.run_id, decidedBy: 'api' })
     if (!confirm) noteDryRun([proposalId], body.run_id)
     return c2.json(result)
   })
