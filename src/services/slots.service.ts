@@ -47,7 +47,7 @@ function personaContent(db: Database): string {
 // pending_items — due pending candidates, the same set the frontier surfaces (FI-03).
 function pendingItemsContent(db: Database): string {
   const bullets: string[] = []
-  for (const candidate of listPendingCandidates(db)) {
+  for (const candidate of listPendingCandidates(undefined, db)) {
     bullets.push(`- ${candidate.content.replace(/\s+/g, ' ').trim()}`)
   }
   return bullets.join('\n')

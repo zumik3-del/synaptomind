@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { getDb } from '../db'
 import { createEdge, deleteEdge, getEdgesForThought } from '../db/edges'
 import { getThoughtRow, type Thought } from '../db/thoughts'
 import { insertLog } from '../logging/log'
@@ -16,8 +17,8 @@ export function validateMergePreconditions(source: Thought): void {
   }
 }
 
-export function transferEdgesFromSource(db: Database, sourceId: string, targetId: string): number {
-  const edgesToTransfer = getEdgesForThought(db, sourceId)
+export function transferEdgesFromSource(sourceId: string, targetId: string, d: Database = getDb()): number {
+  const edgesToTransfer = getEdgesForThought(d, sourceId)
   let transferredEdges = 0
 
   for (const edge of edgesToTransfer) {
@@ -44,16 +45,16 @@ export function transferEdgesFromSource(db: Database, sourceId: string, targetId
       )
       // Fall through to the uniform delete below.
     } else if (isClusterEdge) {
-      const srcRow = getThoughtRow(db, newSourceId)
+      const srcRow = getThoughtRow(d, newSourceId)
       if (!srcRow?.is_cluster) {
         // Fall through to the uniform delete below.
       } else {
-        const tgtRow = getThoughtRow(db, newTargetId)
+        const tgtRow = getThoughtRow(d, newTargetId)
         if (tgtRow?.is_cluster) {
           // Fall through to the uniform delete below.
         } else {
           try {
-            createEdge(db, newSourceId, newTargetId, edge.type)
+            createEdge(d, newSourceId, newTargetId, edge.type)
             transferredEdges++
           } catch (err) {
             // A duplicate edge on the target is expected dedup — skip, don't
@@ -75,7 +76,7 @@ export function transferEdgesFromSource(db: Database, sourceId: string, targetId
       }
     } else {
       try {
-        createEdge(db, newSourceId, newTargetId, edge.type)
+        createEdge(d, newSourceId, newTargetId, edge.type)
         transferredEdges++
       } catch (err) {
         // A duplicate edge on the target is expected dedup — skip, don't
@@ -98,7 +99,7 @@ export function transferEdgesFromSource(db: Database, sourceId: string, targetId
     // After handling each edge, delete the original row owned by the source.
     // The source will be archived shortly after this function returns, so any
     // remaining edges from it are noise in the health audit.
-    deleteEdge(db, edge.id)
+    deleteEdge(d, edge.id)
   }
 
   return transferredEdges

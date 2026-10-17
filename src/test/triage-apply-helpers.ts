@@ -6,7 +6,7 @@ import type { Database } from 'bun:sqlite'
 import { getEdgePairBetween } from '../db/edges'
 import { getThoughtRow } from '../db/thoughts'
 import { insertProposal, type PlacementProposalRow } from '../db/placement-proposals'
-import { computeFingerprint } from './placement-proposals.service'
+import { computeFingerprint } from '../services/placement-proposals.service'
 
 export const NOW = '2026-01-01T00:00:00.000Z'
 /**

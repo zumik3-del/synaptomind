@@ -23,9 +23,6 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { closeDb, getDb } from '../db'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { applyBatchService, applyProposalService } from './placement-apply.service'
-import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyResult } from './placement-apply.types'
-import { rollbackService } from './placement-rollback.service'
 import {
   assertAccepted,
   assertRolledBack,
@@ -34,7 +31,10 @@ import {
   insertPendingTriage,
   NOW,
   NOW_LATER,
-} from './triage-apply-helpers'
+} from '../test/triage-apply-helpers'
+import { applyBatchService, applyProposalService } from './placement-apply.service'
+import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyResult } from './placement-apply.types'
+import { rollbackService } from './placement-rollback.service'
 
 beforeEach(createTestDb)
 afterEach(closeDb)

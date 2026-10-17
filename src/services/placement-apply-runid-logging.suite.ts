@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { closeDb, getDb } from '../db'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { insertPendingEdge, insertPendingTriage, NOW } from './triage-apply-helpers'
+import { insertPendingEdge, insertPendingTriage, NOW } from '../test/triage-apply-helpers'
 // Type-only, so it is erased at compile time and cannot defeat the mock.module below.
 import type { ApplyResult } from './placement-apply.types'
 

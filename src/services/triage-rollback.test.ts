@@ -10,8 +10,6 @@ import { closeDb, getDb } from '../db'
 import { getThoughtRow } from '../db/thoughts'
 import { updateProposalState } from '../db/placement-proposals'
 import { createTestDb, seedThought } from '../test/helpers'
-import { applyProposalService } from './placement-apply.service'
-import { rollbackService } from './placement-rollback.service'
 import {
   assertAccepted,
   assertRolledBack,
@@ -22,7 +20,9 @@ import {
   RUN_ID,
   insertPendingTriage,
   pairFingerprint,
-} from './triage-apply-helpers'
+} from '../test/triage-apply-helpers'
+import { applyProposalService } from './placement-apply.service'
+import { rollbackService } from './placement-rollback.service'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
