@@ -19,7 +19,7 @@ import { config } from '../config'
 import { closeDb, getDb } from '../db'
 import { getThoughtRow } from '../db/thoughts'
 import { createTestDb, seedThought } from '../test/helpers'
-import { assertAccepted, insertPendingTriage, NOW, NOW_LATER, RUN_ID } from './triage-apply-helpers'
+import { assertAccepted, insertPendingTriage, NOW, NOW_LATER, RUN_ID } from '../test/triage-apply-helpers'
 
 // The real module first, so the spy re-exports everything except the writer.
 const realLog = await import('../logging/log')

@@ -19,9 +19,6 @@ import { getEdgePairBetween } from '../db/edges'
 import { insertProposal } from '../db/placement-proposals'
 import { getThoughtRow } from '../db/thoughts'
 import { createTestDb, seedThought } from '../test/helpers'
-import { applyProposalService } from './placement-apply.service'
-import { rollbackService } from './placement-rollback.service'
-import type { RollbackItemReport, RollbackReport } from './placement-apply.types'
 import {
   assertAccepted,
   assertRolledBack,
@@ -31,7 +28,10 @@ import {
   PAST,
   pairFingerprint,
   RUN_ID,
-} from './triage-apply-helpers'
+} from '../test/triage-apply-helpers'
+import { applyProposalService } from './placement-apply.service'
+import { rollbackService } from './placement-rollback.service'
+import type { RollbackItemReport, RollbackReport } from './placement-apply.types'
 
 beforeEach(createTestDb)
 afterEach(closeDb)

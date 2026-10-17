@@ -26,7 +26,7 @@ function shortContent(content: string, limit = 120): string {
  * Pending candidates — due `pending`-tagged thoughts, minus `replaces` targets.
  * Shared with the `pending_items` slot so both surfaces agree on what is due.
  */
-export function listPendingCandidates(d: Database, projectId?: string): FrontierCandidateRow[] {
+export function listPendingCandidates(projectId?: string, d: Database = getDb()): FrontierCandidateRow[] {
   const replaced = new Set(getReplacedTargetIds(d))
   return findFrontierCandidates(d, projectId).filter(c => c.is_pending === 1 && !replaced.has(c.id))
 }

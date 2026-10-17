@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { closeDb, getDb } from '../db'
 import { createTestDb, seedThought } from '../test/helpers'
-import { insertPendingTriage } from './triage-apply-helpers'
+import { insertPendingTriage } from '../test/triage-apply-helpers'
 import { evaluateGates } from './apply-gates'
 import { computeFingerprint } from './placement-proposals.service'
 import type { ApplyOptions } from './placement-apply.types'

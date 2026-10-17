@@ -76,7 +76,7 @@ export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database 
       pruneThoughtUrlLinks(d, targetId, mergedContent)
     }
 
-    const transferredEdges = transferEdgesFromSource(d, sourceId, targetId)
+    const transferredEdges = transferEdgesFromSource(sourceId, targetId, d)
 
     dbArchiveThought(d, sourceId)
 

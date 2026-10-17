@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { closeDb, getDb } from '../db'
 import { getThoughtRow } from '../db/thoughts'
 import { createTestDb, seedThought } from '../test/helpers'
-import { applyProposalService, applyBatchService } from './placement-apply.service'
 import {
   assertAccepted,
   assertStillPending,
@@ -14,7 +13,8 @@ import {
   NOW_LATER,
   PAST,
   insertPendingTriage,
-} from './triage-apply-helpers'
+} from '../test/triage-apply-helpers'
+import { applyProposalService, applyBatchService } from './placement-apply.service'
 
 beforeEach(createTestDb)
 afterEach(closeDb)

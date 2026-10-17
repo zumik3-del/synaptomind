@@ -15,11 +15,11 @@ import { config } from '../../config'
 import { closeDb, getDb } from '../../db'
 import { closeLogDb, getLogDb } from '../../logging'
 import { createTestDb, seedThought } from '../../test/helpers'
+import { insertPendingTriage } from '../../test/triage-apply-helpers'
 import { insertProposal } from '../../db/placement-proposals'
 import { computeFingerprint } from '../../services/placement-proposals.service'
 import { getThoughtRow } from '../../db/thoughts'
 import { getEdgePairBetween } from '../../db/edges'
-import { insertPendingTriage } from '../../services/triage-apply-helpers'
 import { registerAllMemoryTools } from '.'
 
 let client: Client
