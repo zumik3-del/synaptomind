@@ -12,12 +12,6 @@ interface TriggerBody {
   min_members?: number
   dry_run?: boolean
 }
-const triggerBodySchema = z.object({
-  min_age_days: z.number().int().min(0).optional(),
-  min_similarity: z.number().finite().min(0).max(1).optional(),
-  min_members: z.number().int().min(1).optional(),
-  dry_run: z.boolean().optional()
-})
 
 const triggerBodySchema = z.object({
   min_age_days: z.number().int().min(0).max(3650).optional(),
