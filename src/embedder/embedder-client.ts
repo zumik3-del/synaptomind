@@ -2,7 +2,7 @@ import { type Subprocess, spawn } from 'bun'
 import { getDb } from '../db/container'
 import { getEmbedderIdleTimeoutMs, getEmbedderPrecache } from '../db/settings'
 import { insertLog as defaultInsertLog } from '../logging'
-import { EmbedderNotReadyError } from '../errors'
+import { EmbedderNotReadyError, EmbedderUnavailableError } from '../errors'
 import { isCompiled as defaultIsCompiled } from '../runtime-mode'
 import { IpcClient } from './ipc-client'
 import type { IpcMessage } from './ipc-protocol'
@@ -144,7 +144,7 @@ export class EmbedderClient {
           this.ready = false
           this.proc = null
           if (!this.shuttingDown) {
-            this.ipc.rejectAllPending(new Error('Embedder process went idle'))
+            this.ipc.rejectAllPending(new EmbedderUnavailableError('Embedder process went idle'))
           }
           return
         }
@@ -218,7 +218,7 @@ export class EmbedderClient {
         this.dead = true
         this.ready = false
         if (!this.shuttingDown) {
-          this.ipc.rejectAllPending(new Error('Embedder process crashed'))
+          this.ipc.rejectAllPending(new EmbedderUnavailableError('Embedder process crashed'))
         }
       })
       .catch(() => {})
@@ -284,7 +284,7 @@ export class EmbedderClient {
     this.proc = null
     this.ready = false
     this.dead = true
-    this.ipc.rejectAllPending(new Error(reason))
+    this.ipc.rejectAllPending(new EmbedderUnavailableError(reason))
     this.shuttingDown = false
   }
 
