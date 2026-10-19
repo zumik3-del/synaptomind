@@ -834,7 +834,7 @@ curl `'http://127.0.0.1:3005/api/health-check?severity=warning'`
 
 #### Accepted graph-health trade-offs
 
-Two checks fire by design on a dense, hub-centric graph and are accepted as trade-offs rather than defects (ADR: `ai-workdir/synaptomind/plans/2026-09-28-928-health-overlinked-clusterless-adr.md`; tasks #934/#935):
+Two checks fire by design on a dense, hub-centric graph and are accepted as trade-offs rather than defects (ADR: `synaptomind/adr/2026-09-28-928-health-overlinked-clusterless-adr.md`; tasks #934/#935):
 
 - `overlinked_thoughts` (connectivity, warning) — active non-cluster thoughts above the finder's `maxEdges`. The flagged set is curated cross-domain hubs, not link decay: on the reference dataset active non-cluster thoughts average 4.66 edges, while the 31 flagged hubs sit at 11–24. Raising the threshold cannot change `health_score` and would only hide signal.
 - `clusterless_dense_thoughts` (cluster health, warning) — transient. The finder is age-gated to the same `autoCluster.minAgeDays` window auto-cluster uses (task #935), so it reports only thoughts old enough for the clusterer to act on (see `src/db/health-check/clusters.ts`).

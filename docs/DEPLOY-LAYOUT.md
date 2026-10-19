@@ -17,8 +17,8 @@ repository (`deploy/lib/common.sh` is byte-identical in all three repos —
 sha256 `119edd86…`); ziptask and subagentix each carry a `deploy/` copy plus
 their own `deploy/app.env`. This document therefore lives here, in the
 framework's home repo, and the other two repos point at it. Design history is
-in the ai-workdir, not here:
-`/mnt/external/zum/ai-workdir/synaptomind/plans/2026-10-01-unify-deploy-framework-adr.md`
+in the artifacts repository (`authelia/artifacts`), not here:
+`synaptomind/adr/2026-10-01-unify-deploy-framework-adr.md`
 (§1 layout, §2 unit truth, §3 framework gaps, §4–§5 the two cutovers, §6
 versioning, §8 variant C) and its addendum
 `…-unify-deploy-framework-adr-addendum-config-home.md` (rules R1–R4 below).
@@ -460,7 +460,7 @@ fixed by this document; each needs a code/config change in the owning repo.
 
 | What | Where |
 |---|---|
-| Design decisions | `ai-workdir/synaptomind/plans/2026-10-01-unify-deploy-framework-adr.md` + `…-addendum-config-home.md` |
+| Design decisions | `authelia/artifacts` `synaptomind/adr/2026-10-01-unify-deploy-framework-adr.md` + `…-addendum-config-home.md` |
 | Framework source | `deploy/` in this repo; upstream `bun-templates` `89be318d…` |
 | Framework proof | `deploy/*.test.ts` (12 suites), pointed at the other repos via `DEPLOY_APP_ENVS` |
 | Tracker | epic **#1105** (unify deployment), this document is **#1115**; the per-app procedure docs are **#1045** |
