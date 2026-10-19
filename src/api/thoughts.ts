@@ -62,6 +62,10 @@ const bulkCreateBodySchema = z.object({
   thoughts: z.array(z.unknown()).optional(),
   project_id: z.string().optional()
 })
+const autoLinkBodySchema = z.object({ dry_run: z.boolean().optional(), max_edges: z.number().int().min(1).optional() })
+const edgeDetectBodySchema = z.object({ project_id: z.string().optional(), min_similarity: z.number().finite().min(0).max(1).optional(), max_proposals: z.number().int().min(1).optional() })
+const proposeBodySchema = z.object({ thought_id: z.string().optional(), content: z.string().optional(), project_id: z.string().optional() })
+const selfImproveBodySchema = z.object({ dry_run: z.boolean().optional() })
 
 thoughtsRouter.get('/timeline', c => {
   return withTelemetry(c, { action: 'read', toolName: 'get_thought_timeline' }, c2 => {
@@ -86,7 +90,7 @@ thoughtsRouter.get('/timeline', c => {
 
 thoughtsRouter.post('/auto-link', async c => {
   return withTelemetry(c, { action: 'link', toolName: 'auto_link' }, async c2 => {
-    const body = await jsonBodyOrDefault<{ dry_run?: boolean; max_edges?: number }>(c2, {})
+    const body = await jsonBodyOrDefault<{ dry_run?: boolean; max_edges?: number }>(c2, {}, autoLinkBodySchema)
     const result = await runAutoLinkJob({ dryRun: body.dry_run ?? false, maxEdgesPerRun: body.max_edges ?? undefined })
     return c2.json(result)
   })
@@ -99,7 +103,7 @@ thoughtsRouter.post('/edge-detect', async c => {
       project_id?: string
       min_similarity?: number
       max_proposals?: number
-    }>(c2, {})
+    }>(c2, {}, edgeDetectBodySchema)
     const result = await detectEdgeProposals({
       projectId: body.project_id,
       minSimilarity: body.min_similarity,
@@ -116,7 +120,7 @@ thoughtsRouter.post('/propose', async c => {
       thought_id?: string
       content?: string
       project_id?: string
-    }>(c2, {})
+    }>(c2, {}, proposeBodySchema)
     const result = await proposePlacementPlan(
       { thoughtId: body.thought_id, content: body.content, projectId: body.project_id },
       { projectId: body.project_id }
@@ -127,7 +131,7 @@ thoughtsRouter.post('/propose', async c => {
 
 thoughtsRouter.post('/self-improve/run', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'self_improve' }, async c2 => {
-    const body = await jsonBodyOrDefault<{ dry_run?: boolean }>(c2, {})
+    const body = await jsonBodyOrDefault<{ dry_run?: boolean }>(c2, {}, selfImproveBodySchema)
     const result = await runSelfImproveJob({ dryRun: body.dry_run ?? false })
     return c2.json(result)
   })
