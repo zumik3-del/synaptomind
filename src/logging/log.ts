@@ -134,6 +134,14 @@ export class LogStore {
       return this.db
     } catch (e) {
       console.warn('[logs] Failed to open logs.db:', e)
+      // Do not leave a half-initialized handle behind: without this reset the next
+      // getLogDb() would return the poisoned connection instead of retrying.
+      try {
+        this.db?.close()
+      } catch {
+        /* ignore */
+      }
+      this.db = null
       return null
     }
   }

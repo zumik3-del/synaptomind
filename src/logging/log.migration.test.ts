@@ -181,3 +181,33 @@ test('a failed migration stamp rolls back both the DDL and the version (#1752)',
   expect(tableNames(path)).toContain('logs')
   expect(tableNames(path)).toContain('thought_telemetry')
 })
+
+// Regression coverage for #1770: a failed migration must not leave a poisoned
+// connection on the store. ensureDb() opens the Database before ensureSchema()
+// can throw, so without the explicit close+null in the catch block a second
+// getLogDb() returned that half-initialized handle (non-null, no tables) instead
+// of retrying. The fault is raised by stamping migration 1 while abort triggers
+// stay installed, and cleared only to prove the retry can recover.
+test('a failed migration does not poison the store: a later getLogDb() retries and returns null (#1770)', () => {
+  const path = logDbPath('retry-after-failure')
+  installStampFailureTrigger(path)
+
+  const store = new LogStore({ logDbPath: path })
+  try {
+    // First open fails and reports no DB...
+    expect(store.getLogDb()).toBeNull()
+    // ...and the second open must fail the same way, not hand back the broken handle.
+    expect(store.getLogDb()).toBeNull()
+
+    // With the fault removed the same store can still recover on a third call.
+    dropStampFailureTrigger(path)
+    const recovered = store.getLogDb()
+    expect(recovered).not.toBeNull()
+    expect(schemaVersion(path)).toBe('1')
+  } finally {
+    store.closeLogDb()
+  }
+
+  expect(tableNames(path)).toContain('logs')
+  expect(tableNames(path)).toContain('thought_telemetry')
+})
