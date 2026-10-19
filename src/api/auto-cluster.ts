@@ -19,6 +19,13 @@ const triggerBodySchema = z.object({
   dry_run: z.boolean().optional()
 })
 
+const triggerBodySchema = z.object({
+  min_age_days: z.number().int().min(0).max(3650).optional(),
+  min_similarity: z.number().finite().min(0).max(1).optional(),
+  min_members: z.number().int().min(1).max(1000).optional(),
+  dry_run: z.boolean().optional(),
+})
+
 autoClusterRouter.post('/auto-cluster/trigger', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'auto_cluster' }, async c2 => {
     const body = await jsonBodyOrDefault<TriggerBody>(c2, {}, triggerBodySchema)
