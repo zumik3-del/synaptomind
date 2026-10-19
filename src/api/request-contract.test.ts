@@ -21,6 +21,15 @@
  *   - `GET /api/thoughts/timeline?offset=abc` slipped a NaN through to
  *     bun:sqlite (a datatype-mismatch 500) instead of a 400.
  *
+ * #1783 (audit M8 residual) closed the last raw-body/limit paths the shared
+ * contract missed:
+ *   - `POST /api/thoughts/:targetId/merge` called `c.req.json()` directly
+ *     (malformed body → 500; a missing `source_id` slipped through unvalidated);
+ *   - `PUT /api/slots/:name` did the same (malformed body → 500); and
+ *   - `GET /api/proposals?limit=` had no range check (0 / 1001 reached the
+ *     service as-is instead of a typed 400), now bound to the same
+ *     `proposalsLimitSchema` the `memory_review` tool advertises.
+ *
  * The behaviour suite mounts the three routers directly: `createApp()` installs
  * the process-wide API rate-limit singleton (`src/middleware/rate-limit.ts`),
  * shared with every other `createApp()` in a `bun test` run, and this file's
@@ -36,6 +45,7 @@ import { createApp } from "./router";
 import { errorHandler } from "./error-handler";
 import { graphRouter } from "./graph";
 import { proposalsRouter } from "./proposals";
+import { slotsRouter } from "./slots";
 import { thoughtsRouter } from "./thoughts";
 
 const restartEmbedderMock = mock(() => {});
@@ -56,6 +66,7 @@ app.onError(errorHandler);
 app.route("/api/thoughts", thoughtsRouter);
 app.route("/api", graphRouter);
 app.route("/api/proposals", proposalsRouter);
+app.route("/api/slots", slotsRouter);
 
 async function request(path: string, init?: RequestInit): Promise<Response> {
 	const headers = new Headers(init?.headers);
@@ -254,5 +265,95 @@ test("GET /api/thoughts/timeline with a negative offset yields 400", async () =>
 
 test("GET /api/thoughts/timeline with offset 0 still succeeds", async () => {
 	const res = await request("/api/thoughts/timeline?offset=0");
+	expect(res.status).toBe(200);
+});
+
+// ── #1783: POST /api/thoughts/:targetId/merge request body ──────────────────
+//
+// The merge route used raw `c.req.json()`: a malformed payload surfaced as an
+// unhandled `SyntaxError` → 500 and an absent/empty `source_id` was never
+// validated. It now shares `requiredJsonBody(mergeBodySchema)` with the rest of
+// the surface.
+
+test("POST /api/thoughts/:targetId/merge with malformed JSON yields 400 (was 500)", async () => {
+	const targetId = seedThought({ content: "target" });
+	const res = await postJson(`/api/thoughts/${targetId}/merge`, "{ not json");
+	expect(res.status).toBe(400);
+	expect(await errorOf(res)).toContain("Malformed JSON");
+});
+
+test("POST /api/thoughts/:targetId/merge with no body yields 400", async () => {
+	const targetId = seedThought({ content: "target" });
+	const res = await request(`/api/thoughts/${targetId}/merge`, { method: "POST" });
+	expect(res.status).toBe(400);
+	expect(await errorOf(res)).toContain("Request body is required");
+});
+
+test("POST /api/thoughts/:targetId/merge without source_id yields 400 (was unvalidated)", async () => {
+	const targetId = seedThought({ content: "target" });
+	const res = await postJson(`/api/thoughts/${targetId}/merge`, JSON.stringify({}));
+	expect(res.status).toBe(400);
+	expect(await errorOf(res)).toBeString();
+});
+
+test("POST /api/thoughts/:targetId/merge with a valid body still succeeds", async () => {
+	const sourceId = seedThought({ content: "source" });
+	const targetId = seedThought({ content: "target" });
+	const res = await postJson(`/api/thoughts/${targetId}/merge`, JSON.stringify({ source_id: sourceId }));
+	expect(res.status).toBe(200);
+	expect(((await res.json()) as Record<string, unknown>).mode).toBe("preview");
+});
+
+// ── #1783: PUT /api/slots/:name request body ────────────────────────────────
+//
+// The slot route also used raw `c.req.json()`; malformed JSON was a 500, while
+// an absent body must keep working via the `{}` default.
+
+test("PUT /api/slots/:name with malformed JSON yields 400 (was 500)", async () => {
+	const res = await postJson("/api/slots/project_context", "{ not json", "PUT");
+	expect(res.status).toBe(400);
+	expect(await errorOf(res)).toContain("Malformed JSON");
+});
+
+test("PUT /api/slots/:name with no body keeps the empty-content default", async () => {
+	const res = await request("/api/slots/project_context", { method: "PUT" });
+	expect(res.status).toBe(200);
+});
+
+test("PUT /api/slots/:name with a JSON null body keeps the default (not a 500)", async () => {
+	const res = await postJson("/api/slots/project_context", "null", "PUT");
+	expect(res.status).toBe(200);
+});
+
+// ── #1783: GET /api/proposals limit range ───────────────────────────────────
+//
+// `limit` was coerced and floored with no range check, so 0 or 1001 reached the
+// service; the shared `proposalsLimitSchema` (1–1000) now rejects them.
+
+test("GET /api/proposals with limit 0 yields 400 (was passed through)", async () => {
+	const res = await request("/api/proposals?limit=0");
+	expect(res.status).toBe(400);
+	expect(await errorOf(res)).toBeString();
+});
+
+test("GET /api/proposals with limit above 1000 yields 400 (was passed through)", async () => {
+	const res = await request("/api/proposals?limit=1001");
+	expect(res.status).toBe(400);
+	expect(await errorOf(res)).toBeString();
+});
+
+test("GET /api/proposals with a non-numeric limit yields 400 (was ignored)", async () => {
+	const res = await request("/api/proposals?limit=abc");
+	expect(res.status).toBe(400);
+	expect(await errorOf(res)).toBeString();
+});
+
+test("GET /api/proposals with a valid limit still succeeds", async () => {
+	const res = await request("/api/proposals?limit=50");
+	expect(res.status).toBe(200);
+});
+
+test("GET /api/proposals without a limit still succeeds (default 100)", async () => {
+	const res = await request("/api/proposals");
 	expect(res.status).toBe(200);
 });
