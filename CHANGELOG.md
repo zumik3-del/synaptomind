@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.12.1
+
+> October 19, 2026
+
+- [`5d32f76`](https://github.com/zumik3-del/synaptomind/commit/5d32f76af763e3077a9fd351557e9e2710b131b9): test(api): align proposal error assertion
+- [`ac56042`](https://github.com/zumik3-del/synaptomind/commit/ac560427f0c29dab73da2d00cf7b17b7dab8fa1e): fix(api): resolve auto-cluster schema merge
+- [`c05eecf`](https://github.com/zumik3-del/synaptomind/commit/c05eecfb7d31c5092ed17ef62e1f3347754a8cd1): test(api): cover optional body validation
+- [`7c090c2`](https://github.com/zumik3-del/synaptomind/commit/7c090c24af9414e67a9801ea8423af75afda9815): fix(api): bound auto-cluster options
+- [`67e1c1d`](https://github.com/zumik3-del/synaptomind/commit/67e1c1d79b51b45a7b0a1492caccdf78d39939ec): fix(api): validate optional request bodies
+- [`ba3bb3c`](https://github.com/zumik3-del/synaptomind/commit/ba3bb3cd6ab5e60822c26f6f9062901b1d7458b3): test(api): pin residual M8 body/limit validation (#1790)
+- [`3a792a8`](https://github.com/zumik3-del/synaptomind/commit/3a792a8491617235a6c341740a191901e4a20b54): feat(api): close residual M8 raw-body/limit paths (#1783, fix #1795)
+- [`ca3dfc2`](https://github.com/zumik3-del/synaptomind/commit/ca3dfc2b73254a470becaf3130cfaadba9f93a9b): test(api): pin request contract + null-body/offset fixes (#1781, #1789)
+- [`1e89d62`](https://github.com/zumik3-del/synaptomind/commit/1e89d628cbbef07bdf1c0032667a465ff812e8ca): feat(api): shared request contract, malformed body -> 400 (#1758, fix #1787)
+- [`0be1f69`](https://github.com/zumik3-del/synaptomind/commit/0be1f69b5e7582cb3a193caf89ec98bb61ea2122): test(embedder): prove superseded child stays inert (#1785)
+- [`a99e0f7`](https://github.com/zumik3-del/synaptomind/commit/a99e0f7028d979e6c7b23f6d438ef3f4be21d46e): fix(embedder): guard superseded children with a per-spawn generation token (#1784)
+- [`c7f12a9`](https://github.com/zumik3-del/synaptomind/commit/c7f12a9b800476cd36d093e6ea41633517c711d7): test(docs): cover deploy/ and docs/adr/ lint cases
+- [`73b47ed`](https://github.com/zumik3-del/synaptomind/commit/73b47ed671878df6cfbf5dbc67ec67da7d6cfe17): chore(docs): widen doc-ref lint to deploy/ and repair deploy ADR links (#1780)
+- [`69e0cd4`](https://github.com/zumik3-del/synaptomind/commit/69e0cd46509761901f61670109a244c4c177ce04): test(embedder): cover EmbedderUnavailableError paths (#1778)
+- [`c9bf8f8`](https://github.com/zumik3-del/synaptomind/commit/c9bf8f86805d886874e3375974c5bb2308f2dcd7): fix(embedder): type idle/crash/teardown reject paths as 503 (#1773)
+- [`60a39eb`](https://github.com/zumik3-del/synaptomind/commit/60a39eb97b302567913f05b5d04c48acbb317739): docs: document the MCP result and error envelope (#1774)
+- [`9cf9769`](https://github.com/zumik3-del/synaptomind/commit/9cf976911708f4ce732910d02bf6551d3a9e177a): ci: run the doc-ref lint (bun run lint:docs) in CI (#1777)
+- [`230eff9`](https://github.com/zumik3-del/synaptomind/commit/230eff91a0aac490726ba5e484c6ca95bb70ee68): test(docs): pin the ai-workdir doc-ref lint (#1775)
+- [`b1ccac7`](https://github.com/zumik3-del/synaptomind/commit/b1ccac701c9725958209ac9de9f87070880166e6): docs: repair dead ADR links and add offline doc-ref lint (#1757)
+- [`69d5692`](https://github.com/zumik3-del/synaptomind/commit/69d5692ed47cd152f5cb29b6f80a5bba936029a3): test(embedder): cover typed 503 + MCP retryable envelope (#1768)
+- [`22117d9`](https://github.com/zumik3-del/synaptomind/commit/22117d9c6a3585b5ff535337158e9feafe4a8e25): feat(embedder): typed 503 errors + retryable MCP envelope (#1756)
+- [`99be78b`](https://github.com/zumik3-del/synaptomind/commit/99be78b10e23c07d640ebe627f07504346a08f3b): test(logging): assert LogStore retry after failed migration (#1771)
+- [`4a92b25`](https://github.com/zumik3-del/synaptomind/commit/4a92b258ad400f707027ac849222f066fbd1af9a): fix(logging): reset poisoned LogStore handle after a failed migration (#1770)
+- [`cd53e68`](https://github.com/zumik3-del/synaptomind/commit/cd53e68fcb57c7ead7a64deb62b2c831446114de): test(telemetry): parity + window/limit coverage (#1763)
+- [`2741115`](https://github.com/zumik3-del/synaptomind/commit/2741115e88917a27c0bed200ef2a6a32cdc2357f): refactor(telemetry): single query service for HTTP and MCP (#1755)
+- [`c6c8512`](https://github.com/zumik3-del/synaptomind/commit/c6c8512ba98c2f09bf20768aa1c4634537668c1c): test(db): db-level coverage for findUntriagedDrafts (#1765)
+- [`a36672a`](https://github.com/zumik3-del/synaptomind/commit/a36672a77c19423909922018336d3472339a0b4d): test(logging): cover versioned logs.db migration policy (#1766)
+- [`3ecbf4e`](https://github.com/zumik3-del/synaptomind/commit/3ecbf4ea180288934efc2d69ac8d40b3556f4a88): feat(logging): version logs.db schema with micro-migrations (#1752)
+- [`e0ab25f`](https://github.com/zumik3-del/synaptomind/commit/e0ab25fb35b21ba90675c3e9b628241f01c91b2e): refactor(db): move findUntriagedDrafts into placement-proposals (#1754)
+- [`0d2e554`](https://github.com/zumik3-del/synaptomind/commit/0d2e5541a63dbae20db1ce828374efd9c8a3d029): refactor(embedder): consolidate IPC contract into ipc-protocol.ts (#1753)
+- [`90ac56d`](https://github.com/zumik3-del/synaptomind/commit/90ac56d92785cd886450521edceb836fb6114cec): test(db): regression coverage for migration apply+stamp atomicity (#1759)
+- [`16a4729`](https://github.com/zumik3-del/synaptomind/commit/16a47294b3579f48fa0d0d5456141cd02af654ba): fix(db): make migration apply + schema_version stamp atomic (#1751)
+- [`75c1270`](https://github.com/zumik3-del/synaptomind/commit/75c1270cb583c99200ce991ccecf834f4889cb24): style: apply biome import-type fixes and drop an unused test binding
+- [`9af4813`](https://github.com/zumik3-del/synaptomind/commit/9af4813afdd28d3f381e981706851e8db937bad7): refactor(db): unify migration default-export shape (#1689)
+- [`b4f2ae8`](https://github.com/zumik3-del/synaptomind/commit/b4f2ae8c696af15ddc7cc9931b000b04ed94345f): fix(services): restore prose and telemetry names mangled by the rename (#1690)
+- [`5f51928`](https://github.com/zumik3-del/synaptomind/commit/5f51928c5b7a069f64f3e35fc0fe40961d2bc746): refactor(db,services): split oversized modules along existing seams (#1688)
+- [`0594ded`](https://github.com/zumik3-del/synaptomind/commit/0594ded30af20c9c0eac9023d4158054c9ad01a8): refactor(services): fix Database DI signatures and move test fixtures to src/test (#1687)
+- [`a84e8bb`](https://github.com/zumik3-del/synaptomind/commit/a84e8bbfe2afe77e3806f482dd7395b3cb07237c): refactor(services): add Service suffix to exported functions (#1686)
+- [`11b5a0e`](https://github.com/zumik3-del/synaptomind/commit/11b5a0ec61ec3f31bd9d1e4ea8609ef538d334ac): refactor(services): remove backward-compat re-exports from thoughts.service (#1685)
+
 ## v0.12.0
 
 > October 15, 2026
