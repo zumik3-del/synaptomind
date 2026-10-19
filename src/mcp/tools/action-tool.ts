@@ -43,6 +43,15 @@ function formatIssues(error: z.ZodError): string {
   return error.issues.map(issue => issue.message).join('; ')
 }
 
+/** Read the HTTP-style `statusCode` a domain error carries (`src/errors.ts`), if any. */
+function errorStatusCode(err: unknown): number | undefined {
+  if (err instanceof Error && 'statusCode' in err) {
+    const status = (err as { statusCode: unknown }).statusCode
+    if (typeof status === 'number') return status
+  }
+  return undefined
+}
+
 /** Required non-empty string with one message reused for both missing and empty input. */
 export function requiredString(message: string): z.ZodString {
   return z.string({ error: message }).min(1, message)
@@ -88,7 +97,15 @@ export function registerActionTool(server: McpServer, config: ActionToolConfig):
         const result = await handler.run(effectiveArgs)
         return isToolResult(result) ? result : jsonResult(result)
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : `${config.name} failed`)
+        const statusCode = errorStatusCode(err)
+        // A classified domain error surfaces its HTTP status and retryability in
+        // the envelope; 503 is the availability/transient class (embedder not
+        // ready, overloaded, timeout, send failure) and is safe to retry. An
+        // unclassified error keeps the plain message-only envelope.
+        return errorResult(
+          err instanceof Error ? err.message : `${config.name} failed`,
+          statusCode === undefined ? {} : { statusCode, retryable: statusCode === 503 },
+        )
       }
     }
   )
