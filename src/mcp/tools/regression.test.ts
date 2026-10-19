@@ -166,6 +166,83 @@ describe('numeric parameter schema validation', () => {
   })
 })
 
+// ── Shared request contract parity (task #1758, audit M8) ───────────────────
+//
+// `src/validation.ts` declares the status enum and limit ranges once; both the
+// HTTP adapters and these MCP tool input schemas import them, so the two
+// surfaces can never drift. Red-proof: on the pre-#1758 code `memory_crystallize`
+// advertised `status` as an open string (accepting `bogus`) and the limits were
+// inlined literals.
+
+describe('shared request contract parity (audit M8)', () => {
+  async function inputSchemaOf(name: string): Promise<Record<string, any>> {
+    const { tools } = await client.listTools()
+    const tool = tools.find(t => t.name === name)
+    expect(tool).toBeDefined()
+    return tool!.inputSchema as Record<string, any>
+  }
+
+  test('memory_crystallize advertises the shared graph status enum', async () => {
+    const schema = await inputSchemaOf('memory_crystallize')
+    expect(schema.properties.status.enum).toEqual(['active', 'draft', 'archived', 'all'])
+    expect(schema.properties.limit.minimum).toBe(1)
+    expect(schema.properties.limit.maximum).toBe(2000)
+  })
+
+  test('memory_reflect advertises the shared timeline limit range', async () => {
+    const schema = await inputSchemaOf('memory_reflect')
+    expect(schema.properties.limit.minimum).toBe(1)
+    expect(schema.properties.limit.maximum).toBe(500)
+    expect(schema.properties.status.enum).toEqual(['draft', 'active', 'archived'])
+  })
+
+  test('memory_crystallize graph rejects an out-of-enum status', async () => {
+    const result = await client.callTool({
+      name: 'memory_crystallize',
+      arguments: { action: 'graph', status: 'bogus' }
+    })
+    const { data, isError } = parseResult(result)
+
+    expect(isError).toBe(true)
+    expect(String(data)).toContain('status')
+  })
+
+  test('memory_crystallize graph rejects a limit above 2000', async () => {
+    const result = await client.callTool({
+      name: 'memory_crystallize',
+      arguments: { action: 'graph', limit: 2001 }
+    })
+    const { data, isError } = parseResult(result)
+
+    expect(isError).toBe(true)
+    expect(String(data)).toContain('limit')
+  })
+
+  test('memory_reflect timeline rejects a limit above 500 but accepts 500', async () => {
+    const over = await client.callTool({
+      name: 'memory_reflect',
+      arguments: { action: 'timeline', limit: 501 }
+    })
+    expect(parseResult(over).isError).toBe(true)
+
+    const atMax = await client.callTool({
+      name: 'memory_reflect',
+      arguments: { action: 'timeline', limit: 500 }
+    })
+    expect(parseResult(atMax).isError).toBe(false)
+  })
+
+  test('memory_reflect timeline coerces a numeric-string limit (shared coerce schema)', async () => {
+    // The old inline schema was a bare `z.number()`; the shared
+    // `timelineLimitSchema` coerces, matching the HTTP query-string path.
+    const result = await client.callTool({
+      name: 'memory_reflect',
+      arguments: { action: 'timeline', limit: '50' }
+    })
+    expect(parseResult(result).isError).toBe(false)
+  })
+})
+
 // ── memory_recall context project scoping ───────────────────────────────────
 
 describe('memory_recall context honors project_id', () => {

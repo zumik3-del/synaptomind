@@ -77,7 +77,7 @@ Lists thoughts with pagination and filters.
 | status | query | string | optional | Status filter (draft/active/archived) |
 | project_id | query | string | optional | Project filter |
 | tag | query | string | optional | Comma-separated tag filter |
-| limit | query | int | 50 | Max thoughts |
+| limit | query | int | 50 (1-500) | Max thoughts |
 | offset | query | int | 0 | Pagination offset |
 
 curl `'http://127.0.0.1:3005/api/thoughts/timeline?limit=5&status=active'`
@@ -372,13 +372,13 @@ curl `-X DELETE http://127.0.0.1:3005/api/edges/<edge-id>`
 
 ### GET /api/graph
 
-Returns the full thought graph (nodes + edges) for visualization or traversal. 400 on invalid `status`.
+Returns the full thought graph (nodes + edges) for visualization or traversal. 400 on invalid `status` or out-of-range `limit`.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
 | project_id | query | string | optional | Project filter |
 | status | query | string | active | One of: `active`, `draft`, `archived`, `all` |
-| limit | query | int | 500 (clamped 1-2000) | Max nodes |
+| limit | query | int | 500 (1-2000; 400 outside) | Max nodes |
 
 curl `'http://127.0.0.1:3005/api/graph?limit=50'`
 

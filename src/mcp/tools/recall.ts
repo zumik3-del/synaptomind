@@ -1,6 +1,7 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { NotFoundError } from '../../errors'
+import { thoughtStatusSchema } from '../../validation'
 import { searchThoughts, searchThoughtsGrouped } from '../../services/search.service'
 import {
   buildSearchOptions,
@@ -100,7 +101,7 @@ export function registerMemoryRecall(server: McpServer) {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters']).describe('Action'),
       query: z.string().optional().describe('Search query (required for search/context/clusters, not for chain)'),
       top_k: z.coerce.number().int().min(1).max(100).optional().describe('Max results (default 10, 1-100)'),
-      status: z.string().optional().describe('Filter by status (default: active)'),
+      status: thoughtStatusSchema.optional().describe('Filter by status (default: active)'),
       project_id: z.string().optional().describe('Filter by project (prefer cwd instead)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
       tag: z.string().optional().describe('Filter by tag'),
