@@ -52,6 +52,13 @@ export class EmbedderClient {
   private ready = false
   private dead = false
   private shuttingDown = false
+  /**
+   * Per-spawn identity token. Bumped on every spawn so a superseded child's
+   * late `exiting` IPC or `exited` event can be recognised as stale and ignored
+   * instead of clobbering its successor's shared `dead`/`ready`/`startFailed`
+   * flags or its pending map (review #1779, race in this file's exit handlers).
+   */
+  private generation = 0
   private ipc = new IpcClient({
     getProc: () => this.proc,
     isAlive: () => !this.dead,
@@ -121,12 +128,21 @@ export class EmbedderClient {
     // Suppress unhandled-rejection warnings when nobody is awaiting startup yet.
     this.readyPromise.catch(() => {})
 
+    // Capture this spawn's identity before the callbacks below close over it, so
+    // a superseded child's late IPC/exit can be told apart from the live one.
+    const generation = ++this.generation
+
     // Spawn the real bun binary (process.execPath), not the `bun` on PATH:
     // on Windows a launcher shim (Chocolatey/scoop) drops the fd table, so the
     // child never gets the IPC pipe — same limitation as Node.js. `process.execPath`
     // points at the running bun.exe even when the parent itself came from a shim.
     const child = spawn(this.getSpawnArgv(), {
       ipc: (message: IpcMessage) => {
+        // Ignore IPC from a superseded child: without this a late 'exiting'
+        // (idle unload) or 'ready' from a child that was already replaced would
+        // mutate the successor's shared flags and orphan its live child.
+        if (generation !== this.generation) return
+
         if (message.type === 'ready') {
           this.ready = true
           this.startFailed = false
@@ -202,7 +218,11 @@ export class EmbedderClient {
 
     child.exited
       .then(code => {
-        if (this.proc === child) this.proc = null
+        // A superseded child's late exit must be inert: by the time it fires
+        // this.proc already points at its successor, so touching the shared
+        // flags here would latch the successor dead/not-ready.
+        if (generation !== this.generation) return
+        this.proc = null
         if (!this.dead && !this.shuttingDown) {
           console.error(`[embedder] process exited unexpectedly with code ${code}`)
           // Same guard as the message above: an 'exiting' IPC (idle unload) or a
