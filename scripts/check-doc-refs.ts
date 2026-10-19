@@ -7,8 +7,12 @@
  * so every such pointer was dead. Long-form design documents live in the
  * artifacts repository `authelia/artifacts` under `synaptomind/adr/…`.
  *
- * Scans text files under `src/` and `docs/` and exits non-zero when any
- * `ai-workdir/` reference survives. Cheap and offline: no network, no tracker.
+ * The same class survives with a second spelling: `docs/adr/…`, an in-repo path
+ * that has never existed (the ADRs were never committed here). Both tokens mark
+ * a pointer a reader cannot follow, so both fail the lint.
+ *
+ * Scans text files under `src/`, `docs/` and `deploy/` and exits non-zero when
+ * any dead reference survives. Cheap and offline: no network, no tracker.
  *
  * Run: `bun run lint:docs`
  */
@@ -17,8 +21,8 @@ import { dirname, join } from "path";
 
 process.chdir(dirname(import.meta.dir));
 
-const ROOTS = ["src", "docs"];
-const FORBIDDEN = "ai-workdir/";
+const ROOTS = ["src", "docs", "deploy"];
+const FORBIDDEN = ["ai-workdir/", "docs/adr/"];
 const TEXT_EXTENSIONS = new Set([
   ".ts",
   ".tsx",
@@ -28,6 +32,7 @@ const TEXT_EXTENSIONS = new Set([
   ".json",
   ".md",
   ".sh",
+  ".env",
   ".yml",
   ".yaml",
 ]);
@@ -49,7 +54,8 @@ for (const root of ROOTS) {
     if (dot < 0 || !TEXT_EXTENSIONS.has(file.slice(dot))) continue;
     const lines = readFileSync(file, "utf8").split("\n");
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(FORBIDDEN)) {
+      const token = FORBIDDEN.find((t) => lines[i].includes(t));
+      if (token) {
         offences.push(`${file}:${i + 1}: ${lines[i].trim()}`);
       }
     }
@@ -58,10 +64,10 @@ for (const root of ROOTS) {
 
 if (offences.length > 0) {
   console.error(
-    `ERROR: dead "${FORBIDDEN}" reference(s) in ${ROOTS.join(", ")} — design docs live in authelia/artifacts (synaptomind/adr/…):`,
+    `ERROR: dead doc reference(s) (${FORBIDDEN.join(", ")}) in ${ROOTS.join(", ")} — design docs live in authelia/artifacts (synaptomind/adr/…):`,
   );
   for (const offence of offences) console.error(`  ${offence}`);
   process.exit(1);
 }
 
-console.log(`OK: no "${FORBIDDEN}" references in ${ROOTS.join(", ")}`);
+console.log(`OK: no dead doc references (${FORBIDDEN.join(", ")}) in ${ROOTS.join(", ")}`);

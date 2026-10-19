@@ -9,7 +9,7 @@
 # first and are then re-vendored; a hand-edit in a copy breaks that equality, so if the
 # digests differ, re-vendor from synaptomind rather than reconciling in place.
 #
-# Locally extended for DIST=binary per docs/adr/0001-self-contained-binary-tarball-deployment.md:
+# Locally extended for DIST=binary per synaptomind/adr/2026-10-01-unify-deploy-framework-adr.md:
 #   * cleanup_run      — rm -rf, so a registered staging *directory* is removed too.
 #   * release_resolve_tag() — CHECKOUT_POLICY over the RELEASE_API list (§2.10).
 #   * binary_stage_payload() and friends — tarball extract/verify/swap (§2.9).
