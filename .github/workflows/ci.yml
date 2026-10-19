@@ -46,6 +46,12 @@ jobs:
         continue-on-error: true
         run: bun x @biomejs/biome check src/ eval/
 
+      # Blocking: a dead `ai-workdir/` pointer in src/ or docs/ (gitignored scratch
+      # dir, absent from a checkout) breaks agent-facing docs, so this is a gate, not
+      # advisory like biome above. Mirrors the local `bun run lint:docs` (audit M7).
+      - name: "Lint: docs (no dead ai-workdir references)"
+        run: bun run lint:docs
+
       - name: "Type-check: tsc"
         run: bun run tsc --noEmit
 

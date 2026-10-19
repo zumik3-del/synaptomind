@@ -1,16 +1,6 @@
 import type { Subprocess } from 'bun'
-import { EmbedderNotReadyError, EmbedderOverloadedError } from '../errors'
-
-type EmbeddingPayload = number[] | number[][]
-
-export interface IpcMessage {
-  type: 'ready' | 'exiting' | 'result' | 'error' | 'request' | 'shutdown'
-  id?: string
-  error?: string
-  embedding?: EmbeddingPayload
-  method?: string
-  params?: unknown
-}
+import { EmbedderNotReadyError, EmbedderOverloadedError, EmbedderSendError, EmbedderTimeoutError } from '../errors'
+import type { IpcMessage } from './ipc-protocol'
 
 interface PendingRequest {
   resolve: (value: unknown) => void
@@ -56,7 +46,7 @@ export class IpcClient {
         const req = this.pending.get(id)
         if (req) {
           this.pending.delete(id)
-          req.reject(new Error('Embedder request timed out after 60s'))
+          req.reject(new EmbedderTimeoutError('Embedder request timed out after 60s'))
         }
       }, EMBEDDER_REQUEST_TIMEOUT_MS)
       this.pending.set(id, { resolve, reject, timer })
@@ -73,7 +63,7 @@ export class IpcClient {
         clearTimeout(timer)
         this.pending.delete(id)
         this.deps.onSendFailure()
-        reject(new Error('Failed to send request to embedder process'))
+        reject(new EmbedderSendError('Failed to send request to embedder process'))
       }
     })
   }

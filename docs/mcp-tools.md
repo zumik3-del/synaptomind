@@ -35,6 +35,42 @@ pattern, consistent with `memory_review` (`apply`/`apply_batch`/`rollback`) and
   Nothing is written.
 - **Execute.** `confirm: true` performs the write and returns a status-specific result.
 
+## Result and error envelopes
+
+Every tool declares the same output shape, `{ result: <payload> }` (`toolOutputShape`,
+`src/mcp/tools/utils.ts:12`). A successful action returns that payload in `structuredContent.result`
+mirroring the JSON in `content[].text` (`jsonResult`, `src/mcp/tools/utils.ts:14-19`).
+
+An action failure returns `isError: true` with the human-readable message in `content[].text`. When
+the failure carries a domain status code, the classification is additionally mirrored into
+`structuredContent.result.error`:
+
+```json
+{
+  "content": [{ "type": "text", "text": "Embedder request timed out" }],
+  "structuredContent": {
+    "result": {
+      "error": { "message": "Embedder request timed out", "statusCode": 503, "retryable": true }
+    }
+  },
+  "isError": true
+}
+```
+
+- **Nesting.** The metadata sits under `result` — the key the declared output schema expects. The
+  SDK client validates `structuredContent` against that schema whenever the key is present, so
+  putting it anywhere else would fail the check (`src/mcp/tools/utils.ts:37-39`).
+- **Classified vs unclassified.** Only errors exposing a numeric `statusCode` are enriched. A plain
+  `Error` or a non-`Error` throw keeps the plain `{ content, isError }` shape with **no**
+  `structuredContent` key (`src/mcp/tools/utils.ts:49-52`, `src/mcp/tools/action-tool.ts:99-108`).
+- **Retryability.** `retryable` is `statusCode === 503`. The 503 class is the transient
+  availability failures — embedder not ready, overloaded, timed out, send failure
+  (`src/errors.ts`) — the only class safe to repeat as-is. Every other classified code
+  (`400`, `404`, `409`) is reported `retryable: false` (`src/mcp/tools/action-tool.ts:107`).
+
+A client should re-issue the identical request only when `retryable` is `true`; otherwise the
+failure is a bad request and repeating it will not help.
+
 ## `memory_store` — edges
 
 ### `action=unlink`
@@ -88,8 +124,9 @@ only a cluster thought may carry a `cluster` edge).
 
 **Execute**: `{ "status": "retyped", "edge_id": "edge-123", "old_type": "contradicts", "new_type": "supports" }`
 
-Errors return an `isError` envelope: a non-existent edge (`Edge not found`), retyping to the
-current type (`is already of type`), an invalid type, or a cluster-constraint violation.
+Errors return an [`isError` envelope](#result-and-error-envelopes): a non-existent edge
+(`Edge not found`), retyping to the current type (`is already of type`), an invalid type, or a
+cluster-constraint violation.
 
 > **Id note.** Retype is a transactional delete + insert that carries `created_at` over, so
 > the edge gets a **new id**. The response echoes the `edge_id` you passed — re-fetch the

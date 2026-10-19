@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { closeDb, getDb } from '../db'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { insertPendingEdge, insertPendingTriage, NOW } from './triage-apply-helpers'
+import { insertPendingEdge, insertPendingTriage, NOW } from '../test/triage-apply-helpers'
 // Type-only, so it is erased at compile time and cannot defeat the mock.module below.
 import type { ApplyResult } from './placement-apply.types'
 
@@ -49,9 +49,9 @@ mock.module('../logging/log', () => ({
   }
 }))
 
-// Imported AFTER the mock: `applyProposal` / `applyBatch` must resolve
+// Imported AFTER the mock: `applyProposalService` / `applyBatchService` must resolve
 // `../logging/log` to the spy.
-const { applyBatch, applyProposal } = await import('./placement-apply.service')
+const { applyBatchService, applyProposalService } = await import('./placement-apply.service')
 
 beforeEach(() => {
   createTestDb()
@@ -119,7 +119,7 @@ function logFor(proposalId: string): LogCall {
 function expectSpyLive(db: Database, prefix: string): void {
   const { source, target } = activePair(db, prefix)
   const row = insertPendingEdge(db, source, target, 'develops')
-  const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+  const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
   expect(out.status).toBe('accepted')
   expect(runIdLogs()).toHaveLength(1)
   clearLogs()
@@ -133,7 +133,7 @@ describe('AC-F28-8: the main accept log line carries the run envelope', () => {
     const { source, target } = activePair(db, 'log1')
     const row = insertPendingEdge(db, source, target, 'develops')
 
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
 
     expect(out.status).toBe('accepted')
     expect(placementLogs()).toHaveLength(1)
@@ -158,7 +158,7 @@ describe('AC-F28-8: the main accept log line carries the run envelope', () => {
     seedEdge(source, target, 'develops')
     const row = insertPendingEdge(db, source, target, 'develops')
 
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
 
     expect(out.status).toBe('accepted')
     expect((out as { idempotent: boolean }).idempotent).toBe(true)
@@ -180,7 +180,7 @@ describe('AC-F28-8: a caller-supplied run_id is logged verbatim', () => {
     const { source, target } = activePair(db, 'log3')
     const row = insertPendingEdge(db, source, target, 'develops')
 
-    applyProposal(row.id, { confirm: true, now: NOW, runId: 'run-caller-42' }, db)
+    applyProposalService(row.id, { confirm: true, now: NOW, runId: 'run-caller-42' }, db)
 
     expect(placementLogs()).toHaveLength(1)
     const line = logFor(row.id)
@@ -196,7 +196,7 @@ describe('AC-F28-8: a caller-supplied run_id is logged verbatim', () => {
     const row = insertPendingEdge(db, source, target, 'develops')
     const callerId = 'auto-not-really-synthesized'
 
-    applyProposal(row.id, { confirm: true, now: NOW, runId: callerId }, db)
+    applyProposalService(row.id, { confirm: true, now: NOW, runId: callerId }, db)
 
     // Provenance is advisory (D2): the line must not present a caller-chosen id
     // as if the service had synthesized it. Asserted as an exact match, not a
@@ -215,7 +215,7 @@ describe('AC-F28-8: a batch logs one shared envelope for every item', () => {
     const rowA = insertPendingEdge(db, first.source, first.target, 'develops')
     const rowB = insertPendingEdge(db, second.source, second.target, 'develops')
 
-    const out = applyBatch([rowA.id, rowB.id], { confirm: true, now: NOW }, db)
+    const out = applyBatchService([rowA.id, rowB.id], { confirm: true, now: NOW }, db)
 
     // `run_id` is optional on the batch outcome; `?? null` narrows it for the
     // `toBe` overloads below while the assertion on the next line pins its type.
@@ -243,7 +243,7 @@ describe('AC-F28-8: refusals and previews log no run envelope', () => {
     const source = seedThought({ id: 'log6-src', content: 'draft src', status: 'draft', created_at: NOW })
     const row = insertPendingTriage(db, 'triage_activate', source)
 
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
 
     expect(out.status).toBe('refused')
     expect((out as { refusal: { code: string } }).refusal.code).toBe('run_id_required')
@@ -261,7 +261,7 @@ describe('AC-F28-8: refusals and previews log no run envelope', () => {
     const { source, target } = activePair(db, 'log7')
     const row = insertPendingEdge(db, source, target, 'develops')
 
-    const out = applyProposal(row.id, { confirm: false, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: false, now: NOW }, db)
 
     expect(out.status).toBe('dry_run')
     expect('run_id' in out).toBe(false)
@@ -280,7 +280,7 @@ describe('AC-F28-8: refusals and previews log no run envelope', () => {
     db.prepare("UPDATE thoughts SET status = 'archived' WHERE id = ?").run(target)
     const row = insertPendingEdge(db, source, target, 'develops')
 
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
 
     expect(out.status).toBe('stale')
     // The warning exists (the outcome is announced) ...

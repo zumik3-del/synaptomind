@@ -14,6 +14,73 @@ const TELEMETRY_CLEANUP_INTERVAL = 100
 
 type LogLevel = 'debug' | 'info' | 'warning' | 'error'
 
+// ── logs.db schema policy (audit M2) ────────────────────────────────────────
+//
+// logs.db is a separate SQLite file from the main synaptomind.db, so it carries
+// its own `schema_version` in its own `_meta` table. Evolve it the same way as
+// the main DB (src/db/init.ts): APPEND a migration to LOG_MIGRATIONS, never edit
+// an applied one, and let `ensureSchema` apply the pending ones forward-only
+// inside one transaction each. `CREATE TABLE IF NOT EXISTS` on its own is not an
+// evolution path: on an already-deployed logs.db it is a silent no-op, which is
+// exactly the drift this policy removes.
+interface LogMigration {
+  version: number
+  apply: (db: Database) => void
+}
+
+const LOG_MIGRATIONS: LogMigration[] = [
+  {
+    version: 1,
+    apply: db => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS logs (
+          id         TEXT PRIMARY KEY,
+          level      TEXT NOT NULL,
+          type       TEXT NOT NULL,
+          message    TEXT NOT NULL,
+          metadata   TEXT,
+          source     TEXT,
+          error      TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS thought_telemetry (
+          id            TEXT PRIMARY KEY,
+          correlation_id TEXT,
+          user_id       TEXT,
+          action        TEXT NOT NULL,
+          tool_name     TEXT NOT NULL,
+          prev_tool     TEXT,
+          query         TEXT,
+          thought_id    TEXT,
+          response_size INTEGER,
+          latency_ms    INTEGER,
+          session_id    TEXT,
+          meta          TEXT,
+          created_at    TEXT NOT NULL
+        )
+      `)
+    }
+  }
+]
+
+const SCHEMA_VERSION_KEY = 'schema_version'
+
+function getSchemaVersion(db: Database): number {
+  const row = db.prepare(`SELECT value FROM _meta WHERE key = ?`).get(SCHEMA_VERSION_KEY) as
+    | { value: string }
+    | undefined
+  return row ? parseInt(row.value, 10) : 0
+}
+
+function setSchemaVersion(db: Database, version: number): void {
+  db.prepare(
+    `INSERT INTO _meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).run(SCHEMA_VERSION_KEY, String(version))
+}
+
 export interface TelemetryInsertOpts {
   correlationId?: string
   userId?: string
@@ -37,37 +104,20 @@ export class LogStore {
 
   constructor(private config: { logDbPath: string } = appConfig) {}
 
-  private ensureSchema(): void {
-    if (!this.db) return
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS logs (
-        id         TEXT PRIMARY KEY,
-        level      TEXT NOT NULL,
-        type       TEXT NOT NULL,
-        message    TEXT NOT NULL,
-        metadata   TEXT,
-        source     TEXT,
-        error      TEXT,
-        created_at TEXT NOT NULL
-      )
-    `)
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS thought_telemetry (
-        id            TEXT PRIMARY KEY,
-        correlation_id TEXT,
-        user_id       TEXT,
-        action        TEXT NOT NULL,
-        tool_name     TEXT NOT NULL,
-        prev_tool     TEXT,
-        query         TEXT,
-        thought_id    TEXT,
-        response_size INTEGER,
-        latency_ms    INTEGER,
-        session_id    TEXT,
-        meta          TEXT,
-        created_at    TEXT NOT NULL
-      )
-    `)
+  private ensureSchema(db: Database): void {
+    db.exec(`CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)`)
+    let current = getSchemaVersion(db)
+    for (const migration of LOG_MIGRATIONS) {
+      if (current >= migration.version) continue
+      // Apply the DDL and stamp its schema_version in one transaction, so a crash
+      // between the two cannot leave a non-idempotent migration half-applied.
+      const run = db.transaction(() => {
+        migration.apply(db)
+        setSchemaVersion(db, migration.version)
+      })
+      run()
+      current = migration.version
+    }
   }
 
   private ensureDb(): Database | null {
@@ -80,10 +130,18 @@ export class LogStore {
       this.db.run('PRAGMA journal_mode = WAL')
       this.db.run('PRAGMA synchronous = FULL')
       this.db.run('PRAGMA busy_timeout = 3000')
-      this.ensureSchema()
+      this.ensureSchema(this.db)
       return this.db
     } catch (e) {
       console.warn('[logs] Failed to open logs.db:', e)
+      // Do not leave a half-initialized handle behind: without this reset the next
+      // getLogDb() would return the poisoned connection instead of retrying.
+      try {
+        this.db?.close()
+      } catch {
+        /* ignore */
+      }
+      this.db = null
       return null
     }
   }

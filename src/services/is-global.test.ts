@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { closeDb, getDb } from '../db'
 import { createThought, getThoughtRow, updateThought } from '../db/thoughts'
-import { createThoughtWithUrlLinks, updateThoughtById } from '../services/thoughts.service'
+import { createThoughtWithUrlLinksService } from '../services/url_links.service'
+import { updateThoughtByIdService } from '../services/thoughts.service'
 import { createTestDb, seedThought } from '../test/helpers'
 
 // DB-layer coverage for the is_global flag (epic #1489), mirroring the
@@ -85,23 +86,23 @@ describe('is_global — DB layer', () => {
 })
 
 describe('is_global — service layer', () => {
-  test('createThoughtWithUrlLinks forwards is_global to the row', () => {
-    const thought = createThoughtWithUrlLinks({ content: 'svc global create', is_global: true })
+  test('createThoughtWithUrlLinksService forwards is_global to the row', () => {
+    const thought = createThoughtWithUrlLinksService({ content: 'svc global create', is_global: true })
     expect(thought.is_global).toBe(1)
     expect(rawIsGlobal(thought.id)).toBe(1)
   })
 
-  test('createThoughtWithUrlLinks defaults is_global to 0', () => {
-    const thought = createThoughtWithUrlLinks({ content: 'svc local create' })
+  test('createThoughtWithUrlLinksService defaults is_global to 0', () => {
+    const thought = createThoughtWithUrlLinksService({ content: 'svc local create' })
     expect(thought.is_global).toBe(0)
   })
 
-  test('updateThoughtById toggles is_global on and back off', () => {
-    const thought = createThoughtWithUrlLinks({ content: 'svc toggle' })
+  test('updateThoughtByIdService toggles is_global on and back off', () => {
+    const thought = createThoughtWithUrlLinksService({ content: 'svc toggle' })
     expect(thought.is_global).toBe(0)
-    const on = updateThoughtById(thought.id, { is_global: true })
+    const on = updateThoughtByIdService(thought.id, { is_global: true })
     expect(on?.is_global).toBe(1)
-    const off = updateThoughtById(thought.id, { is_global: false })
+    const off = updateThoughtByIdService(thought.id, { is_global: false })
     expect(off?.is_global).toBe(0)
   })
 })

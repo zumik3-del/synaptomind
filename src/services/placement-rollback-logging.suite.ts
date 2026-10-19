@@ -19,7 +19,7 @@ import { config } from '../config'
 import { closeDb, getDb } from '../db'
 import { getThoughtRow } from '../db/thoughts'
 import { createTestDb, seedThought } from '../test/helpers'
-import { assertAccepted, insertPendingTriage, NOW, NOW_LATER, RUN_ID } from './triage-apply-helpers'
+import { assertAccepted, insertPendingTriage, NOW, NOW_LATER, RUN_ID } from '../test/triage-apply-helpers'
 
 // The real module first, so the spy re-exports everything except the writer.
 const realLog = await import('../logging/log')
@@ -46,8 +46,8 @@ mock.module('../logging/log', () => ({
 // Imported AFTER the mock: `rollback` must resolve `../logging/log` to the spy.
 // `placement-apply.service` comes along so the fixtures are produced by the real
 // writer path, not by hand-built rows.
-const { applyProposal } = await import('./placement-apply.service')
-const { rollback } = await import('./placement-rollback.service')
+const { applyProposalService } = await import('./placement-apply.service')
+const { rollbackService } = await import('./placement-rollback.service')
 
 beforeEach(() => {
   createTestDb()
@@ -80,7 +80,7 @@ function acceptedRow(
   targetId: string | null = null
 ): string {
   const row = insertPendingTriage(db, itemKind, sourceId, targetId)
-  const out = applyProposal(row.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
+  const out = applyProposalService(row.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
   expect(out.status).toBe('accepted')
   assertAccepted(db, row.id)
   return row.id
@@ -116,7 +116,7 @@ describe('F-14 AC-7: the window refusal is announced exactly once', () => {
     setDecidedAt(db, rowId, ANCIENT)
     clearLogs()
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 0, skipped: 0, refused: 1 })
 
@@ -155,7 +155,7 @@ describe('F-14 AC-7: the window refusal is announced exactly once', () => {
     setDecidedAt(db, secondRow, ANCIENT)
     clearLogs()
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 2 })
     const warnings = placementLogs('warning')
@@ -179,7 +179,7 @@ describe('F-14 AC-7: the window refusal is announced exactly once', () => {
     setDecidedAt(db, rowId, ANCIENT)
     clearLogs()
 
-    const report = rollback(RUN_ID, { confirm: false, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: false, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 0, skipped: 0, refused: 1 })
     // the refusal is reported, not announced: a preview logs nothing
@@ -200,7 +200,7 @@ describe('F-14 AC-7: the refusal path never hard-deletes a thought', () => {
     const idsBefore = thoughtIds(db)
     clearLogs()
 
-    rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     // the row is still readable by id, not a tombstone
     const row = getThoughtRow(db, source)
@@ -221,7 +221,7 @@ describe('F-14 AC-7: the refusal path never hard-deletes a thought', () => {
     const idsBefore = thoughtIds(db)
     clearLogs()
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 1 })
     // the inverse writer only ever moves `status` back — the id set is stable

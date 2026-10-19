@@ -6,7 +6,7 @@
  *
  * These guards live at the explicit-run boundary (MCP `memory_review`, HTTP
  * `/api/proposals`) rather than inside the item orchestrator: existing callers
- * of `applyProposal`/`applyBatch` are explicit tests of the writer path and
+ * of `applyProposalService`/`applyBatchService` are explicit tests of the writer path and
  * must keep working without a preview. A refusal is always returned — the
  * caller gets a typed `RunRefusal` and **no item runs** (no partial surprise).
  *

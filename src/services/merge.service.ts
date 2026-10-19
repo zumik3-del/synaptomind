@@ -10,7 +10,7 @@ import {
 import { pruneThoughtUrlLinks } from '../db/thought_url_links'
 import { NotFoundError, ValidationError } from '../errors'
 import { transferEdgesFromSource, validateMergePreconditions } from './merge'
-import { getThoughtById } from './thoughts.service'
+import { getThoughtByIdService } from './thoughts.service'
 
 export interface MergePreview {
   mode: 'preview'
@@ -32,8 +32,8 @@ export interface MergeThoughtsOptions {
 }
 
 export function getMergePreviewService(sourceId: string, targetId: string, d: Database = getDb()): MergePreview | null {
-  const source = getThoughtById(sourceId, d)
-  const target = getThoughtById(targetId, d)
+  const source = getThoughtByIdService(sourceId, d)
+  const target = getThoughtByIdService(targetId, d)
   if (!source || !target) return null
   return {
     mode: 'preview',
@@ -48,10 +48,10 @@ export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database 
     throw new ValidationError('source_id and target_id must be different')
   }
 
-  const source = getThoughtById(sourceId, d)
+  const source = getThoughtByIdService(sourceId, d)
   if (!source) throw new NotFoundError(`Source thought '${sourceId}' not found`)
 
-  const target = getThoughtById(targetId, d)
+  const target = getThoughtByIdService(targetId, d)
   if (!target) throw new NotFoundError(`Target thought '${targetId}' not found`)
 
   validateMergePreconditions(source)
@@ -76,7 +76,7 @@ export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database 
       pruneThoughtUrlLinks(d, targetId, mergedContent)
     }
 
-    const transferredEdges = transferEdgesFromSource(d, sourceId, targetId)
+    const transferredEdges = transferEdgesFromSource(sourceId, targetId, d)
 
     dbArchiveThought(d, sourceId)
 
@@ -86,7 +86,7 @@ export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database 
   })
 
   const counts = run()
-  const updatedTarget = getThoughtById(targetId, d)
+  const updatedTarget = getThoughtByIdService(targetId, d)
   if (!updatedTarget) throw new NotFoundError(`Target thought '${targetId}' not found after merge`)
   return { target: updatedTarget, ...counts }
 }

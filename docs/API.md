@@ -77,7 +77,7 @@ Lists thoughts with pagination and filters.
 | status | query | string | optional | Status filter (draft/active/archived) |
 | project_id | query | string | optional | Project filter |
 | tag | query | string | optional | Comma-separated tag filter |
-| limit | query | int | 50 | Max thoughts |
+| limit | query | int | 50 (1-500) | Max thoughts |
 | offset | query | int | 0 | Pagination offset |
 
 curl `'http://127.0.0.1:3005/api/thoughts/timeline?limit=5&status=active'`
@@ -372,13 +372,13 @@ curl `-X DELETE http://127.0.0.1:3005/api/edges/<edge-id>`
 
 ### GET /api/graph
 
-Returns the full thought graph (nodes + edges) for visualization or traversal. 400 on invalid `status`.
+Returns the full thought graph (nodes + edges) for visualization or traversal. 400 on invalid `status` or out-of-range `limit`.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
 | project_id | query | string | optional | Project filter |
 | status | query | string | active | One of: `active`, `draft`, `archived`, `all` |
-| limit | query | int | 500 (clamped 1-2000) | Max nodes |
+| limit | query | int | 500 (1-2000; 400 outside) | Max nodes |
 
 curl `'http://127.0.0.1:3005/api/graph?limit=50'`
 
@@ -415,7 +415,7 @@ Lists queued proposals, newest first. Read-only; never applies anything. Default
 | state | query | string | pending | One of: `pending`, `accepted`, `rejected`, `expired`, `stale`, `rolled_back` |
 | item_kind | query | string | optional | Item-kind filter: `edge`, `placement`, `lifecycle`, `triage_activate`, `triage_archive` |
 | project_id | query | string | optional | Project scope |
-| limit | query | int | 100 | Max rows (clamped to 1..1000) |
+| limit | query | int | 100 | Max rows (1-1000; 400 outside) |
 
 curl `'http://127.0.0.1:3005/api/proposals?state=pending'`
 
@@ -637,7 +637,9 @@ Response: `{"thoughts": 120, "edges": 45, ..., "db_size_bytes": 1048576}`
 
 ## Telemetry
 
-All telemetry endpoints require `SYNAPTOMIND_LOG_DB_PATH` to be configured; otherwise they return 503 `{"error": "LOG_DB_PATH not set"}`.
+All telemetry endpoints require `SYNAPTOMIND_LOG_DB_PATH` to be configured; otherwise they return 503 `{"error": "Log database not available"}`.
+
+Aggregation lives in `src/services/telemetry.service.ts`, shared with the MCP `memory_telemetry` action `query`; this route layer only parses the query params and serializes the returned DTO. Both surfaces resolve the window (floor + default) and the result cap (default) from the same per-metric spec. The payloads differ only where intentional: MCP `query` returns raw aggregate rows, while the HTTP endpoints below return the shaped reports — `orphan_writes` returns the offending write list (MCP returns the aggregate counts) and `draft_lifecycle` returns the named lifecycle counters (MCP returns raw `action`/`count` rows).
 
 ### GET /api/telemetry/patterns
 
@@ -832,7 +834,7 @@ curl `'http://127.0.0.1:3005/api/health-check?severity=warning'`
 
 #### Accepted graph-health trade-offs
 
-Two checks fire by design on a dense, hub-centric graph and are accepted as trade-offs rather than defects (ADR: `ai-workdir/synaptomind/plans/2026-09-28-928-health-overlinked-clusterless-adr.md`; tasks #934/#935):
+Two checks fire by design on a dense, hub-centric graph and are accepted as trade-offs rather than defects (ADR: `synaptomind/adr/2026-09-28-928-health-overlinked-clusterless-adr.md`; tasks #934/#935):
 
 - `overlinked_thoughts` (connectivity, warning) — active non-cluster thoughts above the finder's `maxEdges`. The flagged set is curated cross-domain hubs, not link decay: on the reference dataset active non-cluster thoughts average 4.66 edges, while the 31 flagged hubs sit at 11–24. Raising the threshold cannot change `health_score` and would only hide signal.
 - `clusterless_dense_thoughts` (cluster health, warning) — transient. The finder is age-gated to the same `autoCluster.minAgeDays` window auto-cluster uses (task #935), so it reports only thoughts old enough for the clusterer to act on (see `src/db/health-check/clusters.ts`).

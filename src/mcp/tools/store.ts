@@ -2,6 +2,7 @@ import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getAdvertisedSoftLimitService } from '../../services/settings.service'
 import { EDGE_TYPES } from '../../services/edges.service'
+import { thoughtStatusSchema } from '../../validation'
 import { registerActionTool } from './action-tool'
 import { createHandler } from './store/create'
 import { updateHandler } from './store/update'
@@ -30,7 +31,7 @@ export function registerMemoryStore(server: McpServer) {
       action: z.enum(['create', 'update', 'link', 'unlink', 'retype']).describe('The specific action to perform. This dictates which other parameters are required.'),
       content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". Ignored for "link", "unlink", "retype". Recommended soft limit: ${getAdvertisedSoftLimitService()} chars.`),
       tags: z.array(z.string()).optional().describe('Tags'),
-      status: z.enum(['draft', 'active', 'archived']).optional().describe('Status (draft/active/archived)'),
+      status: thoughtStatusSchema.optional().describe('Status (draft/active/archived)'),
       project_id: z.string().optional().describe('Project ID (prefer cwd instead)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
       parent_id: z.string().optional().describe('Parent thought ID (for create)'),

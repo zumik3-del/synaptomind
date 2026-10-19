@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTestDb } from '../test/helpers'
 import { closeDb } from '../db/init'
+import { EmbedderUnavailableError } from '../errors'
+import { EmbedderClient } from './embedder-client'
 import { getHealthService } from '../services/health.service'
 import {
   generateEmbedding,
@@ -46,19 +48,36 @@ afterEach(async () => {
   delete process.env.SYNAPTOMIND_STUB_MODE
   delete process.env.SYNAPTOMIND_STUB_HANG_MS
   delete process.env.SYNAPTOMIND_STUB_ATTEMPT_FILE
+  delete process.env.SYNAPTOMIND_STUB_REQUEST_FILE
+  delete process.env.SYNAPTOMIND_STUB_EXIT_FILE
   for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
-/** Point the client at the lifecycle stub; `attempts()` counts its spawns. */
-function useLifecycleStub(mode: 'hang' | 'crash-then-recover', hangMs?: number) {
+/**
+ * Point the client at the lifecycle stub; `attempts()` counts its spawns and
+ * `requestSeen()` flips once the stub has received an IPC request (the parent
+ * has already registered it in its pending map at that point).
+ */
+function useLifecycleStub(
+  mode: 'hang' | 'crash-then-recover' | 'ready-no-answer' | 'idle-exit-on-request' | 'crash-on-request' | 'idle-exit-once',
+  hangMs?: number
+) {
   const dir = mkdtempSync(join(tmpdir(), 'synaptomind-embedder-'))
   scratchDirs.push(dir)
   const counter = join(dir, 'attempts')
+  const requestFile = join(dir, 'request')
+  const exitFile = join(dir, 'exited')
   process.env.SYNAPTOMIND_EMBEDDER_SCRIPT = LIFECYCLE_STUB_PATH
   process.env.SYNAPTOMIND_STUB_MODE = mode
   if (hangMs !== undefined) process.env.SYNAPTOMIND_STUB_HANG_MS = String(hangMs)
   process.env.SYNAPTOMIND_STUB_ATTEMPT_FILE = counter
-  return { attempts: () => (existsSync(counter) ? Number(readFileSync(counter, 'utf8').trim()) : 0) }
+  process.env.SYNAPTOMIND_STUB_REQUEST_FILE = requestFile
+  process.env.SYNAPTOMIND_STUB_EXIT_FILE = exitFile
+  return {
+    attempts: () => (existsSync(counter) ? Number(readFileSync(counter, 'utf8').trim()) : 0),
+    requestSeen: () => existsSync(requestFile),
+    exited: () => existsSync(exitFile)
+  }
 }
 
 /** Poll `check` until it holds; fails the test rather than hanging the suite. */
@@ -184,6 +203,98 @@ test('a deliberate teardown leaves the state stopped instead of latching failed'
   expect(getEmbedderState()).toBe('stopped')
   expect(getHealthService().checks.embedder).toBe('not ready')
 })
+
+// ── #1773: the remaining transient reject paths are typed ───────────────────
+// An idle unload, a crash and a deliberate teardown all drop every in-flight
+// request. Before #1773 they rejected with a plain `Error` (HTTP 500, MCP not
+// retryable); now each carries EmbedderUnavailableError (503) so the HTTP and
+// MCP layers classify it as a retryable availability failure (audit M6). Each
+// test leaves one request unanswered and triggers a different path in the stub.
+//
+// These three use their OWN EmbedderClient instead of the shared singleton: an
+// 'exiting' child exits a beat after its IPC message, and that late
+// child.exited bookkeeping (it latches dead) would otherwise clobber the next
+// test's freshly spawned child. A private instance keeps the blast radius local.
+test('an idle unload rejects an in-flight request with EmbedderUnavailableError (503)', async () => {
+  useLifecycleStub('idle-exit-on-request')
+  const client = new EmbedderClient()
+  await client.startEmbedderProcess()
+
+  const err: unknown = await client.generateEmbedding('hello').catch(e => e)
+
+  expect(err).toBeInstanceOf(EmbedderUnavailableError)
+  expect((err as EmbedderUnavailableError).statusCode).toBe(503)
+  expect((err as Error).message).toBe('Embedder process went idle')
+}, 15_000)
+
+test('a crashed child rejects an in-flight request with EmbedderUnavailableError (503)', async () => {
+  // Expected noise from the crash guard:
+  // "[embedder] process exited unexpectedly with code 1".
+  useLifecycleStub('crash-on-request')
+  const client = new EmbedderClient()
+  await client.startEmbedderProcess()
+
+  const err: unknown = await client.generateEmbedding('hello').catch(e => e)
+
+  expect(err).toBeInstanceOf(EmbedderUnavailableError)
+  expect((err as EmbedderUnavailableError).statusCode).toBe(503)
+  expect((err as Error).message).toBe('Embedder process crashed')
+}, 15_000)
+
+test('a deliberate teardown rejects an in-flight request with EmbedderUnavailableError (503)', async () => {
+  const stub = useLifecycleStub('ready-no-answer')
+  const client = new EmbedderClient()
+  await client.startEmbedderProcess()
+
+  const pending = client.generateEmbedding('hello').catch(e => e)
+  // Wait until the stub has the request: at that point the client has registered
+  // it in its pending map, so the teardown below has something to reject.
+  await waitFor(() => stub.requestSeen(), 'the stub to receive the request')
+  await client.stopEmbedderProcess()
+
+  const err: unknown = await pending
+
+  expect(err).toBeInstanceOf(EmbedderUnavailableError)
+  expect((err as EmbedderUnavailableError).statusCode).toBe(503)
+  expect((err as Error).message).toBe('Embedder shutting down')
+}, 15_000)
+
+// ── #1784: a superseded child's late exit must stay inert ───────────────────
+// The idle unload sets the client's shared flags when the child sends 'exiting',
+// and the very next request respawns with a bumped generation. The superseded
+// child exits a beat LATER still, by which time its successor is already live —
+// so the unguarded `exited` handler would null `proc`, latch `failed` and reject
+// the successor's in-flight request. The per-spawn generation guard in
+// embedder-client.ts (the `exiting` IPC at :144 and the `exited` handler at :224)
+// is what makes that late exit inert. A private client keeps a regressed guard's
+// damage out of the shared singleton the rest of the suite uses.
+test('a superseded idle-exit child cannot clobber its respawned successor (#1784)', async () => {
+  // Attempt 1 lingers 1.5 s after 'exiting', so the successor is spawned and
+  // ready well inside the window and the stale `exited` races a LIVE successor.
+  const stub = useLifecycleStub('idle-exit-once', 1_500)
+  const client = new EmbedderClient()
+  await client.startEmbedderProcess()
+  expect(client.getEmbedderState()).toBe('ok')
+
+  // (1) the idle unload: the in-flight request is rejected as a 503
+  const err: unknown = await client.generateEmbedding('hello').catch(e => e)
+  expect(err).toBeInstanceOf(EmbedderUnavailableError)
+  expect((err as EmbedderUnavailableError).statusCode).toBe(503)
+  expect((err as Error).message).toBe('Embedder process went idle')
+
+  // (2) the next request respawns the child (generation++); attempt 2 serves it
+  const vector = await client.generateEmbedding('hello')
+  expect(Array.from(vector)).toEqual([5, 1, 2])
+
+  // (3) attempt 1 has since exited: its late `exited` must have been ignored
+  await waitFor(() => stub.exited(), 'the superseded child to exit')
+  await new Promise(r => setTimeout(r, 150))
+
+  expect(client.getEmbedderState()).toBe('ok')
+  expect(Array.from(await client.generateEmbedding('hello'))).toEqual([5, 1, 2])
+
+  await client.stopEmbedderProcess()
+}, 20_000)
 
 test('generateEmbeddings chunks the batch and returns N vectors in input order', async () => {
   await startEmbedderProcess()

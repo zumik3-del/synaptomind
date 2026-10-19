@@ -1,26 +1,26 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb } from '../test/helpers'
 import { closeDb, getDb } from '../db'
-import { reflectSession } from './session-reflection.service'
+import { reflectSessionService } from './session-reflection.service'
 import { ValidationError, NotFoundError } from '../errors'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-test('reflectSession throws when nothing provided', () => {
-  expect(() => reflectSession({})).toThrow(ValidationError)
+test('reflectSessionService throws when nothing provided', () => {
+  expect(() => reflectSessionService({})).toThrow(ValidationError)
 })
 
-test('reflectSession appends summary to project_context', () => {
-  const result = reflectSession({ summary: 'Session went well' })
+test('reflectSessionService appends summary to project_context', () => {
+  const result = reflectSessionService({ summary: 'Session went well' })
   expect(result.summary_appended).toBeTrue()
   const db = getDb()
   const row = db.prepare("SELECT content FROM slots WHERE name = 'project_context' AND scope = 'global'").get() as { content: string }
   expect(row.content).toContain('Session went well')
 })
 
-test('reflectSession adds goals', () => {
-  const result = reflectSession({ goals_delta: ['Goal A', 'Goal B'] })
+test('reflectSessionService adds goals', () => {
+  const result = reflectSessionService({ goals_delta: ['Goal A', 'Goal B'] })
   expect(result.goals_added).toBe(2)
   const db = getDb()
   const row = db.prepare("SELECT content FROM slots WHERE name = 'active_goals'").get() as { content: string }
@@ -28,38 +28,38 @@ test('reflectSession adds goals', () => {
   expect(row.content).toContain('Goal B')
 })
 
-test('reflectSession removes goals with closed: prefix', () => {
-  reflectSession({ goals_delta: ['Goal A', 'Goal B'] })
-  const result = reflectSession({ goals_delta: ['closed: Goal A'] })
+test('reflectSessionService removes goals with closed: prefix', () => {
+  reflectSessionService({ goals_delta: ['Goal A', 'Goal B'] })
+  const result = reflectSessionService({ goals_delta: ['closed: Goal A'] })
   expect(result.goals_removed).toBe(1)
   expect(result.goals_added).toBe(0)
 })
 
-test('reflectSession deduplicates goals', () => {
-  reflectSession({ goals_delta: ['Goal A'] })
-  const result = reflectSession({ goals_delta: ['Goal A'] })
+test('reflectSessionService deduplicates goals', () => {
+  reflectSessionService({ goals_delta: ['Goal A'] })
+  const result = reflectSessionService({ goals_delta: ['Goal A'] })
   expect(result.goals_added).toBe(0)
 })
 
-test('reflectSession deduplicates identical decisions across sessions', () => {
-  reflectSession({ decisions: ['Use SQLite for storage'] })
-  const result = reflectSession({ decisions: ['Use SQLite for storage'] })
+test('reflectSessionService deduplicates identical decisions across sessions', () => {
+  reflectSessionService({ decisions: ['Use SQLite for storage'] })
+  const result = reflectSessionService({ decisions: ['Use SQLite for storage'] })
   expect(result.decisions_created).toBe(0)
 })
 
-test('reflectSession deduplicates similar decisions via Jaccard', () => {
-  reflectSession({ decisions: ['We decided to use SQLite'] })
-  const result = reflectSession({ decisions: ['We have decided to use sqlite'] })
+test('reflectSessionService deduplicates similar decisions via Jaccard', () => {
+  reflectSessionService({ decisions: ['We decided to use SQLite'] })
+  const result = reflectSessionService({ decisions: ['We have decided to use sqlite'] })
   expect(result.decisions_created).toBe(0)
 })
 
-test('reflectSession creates new decision when sufficiently different', () => {
-  reflectSession({ decisions: ['Use SQLite for storage'] })
-  const result = reflectSession({ decisions: ['Use PostgreSQL instead'] })
+test('reflectSessionService creates new decision when sufficiently different', () => {
+  reflectSessionService({ decisions: ['Use SQLite for storage'] })
+  const result = reflectSessionService({ decisions: ['Use PostgreSQL instead'] })
   expect(result.decisions_created).toBe(1)
 })
 
-test('reflectSession skips archived decisions when checking dedup', () => {
+test('reflectSessionService skips archived decisions when checking dedup', () => {
   const db = getDb()
   // Create an archived decision manually
   const thoughtId = crypto.randomUUID()
@@ -72,12 +72,12 @@ test('reflectSession skips archived decisions when checking dedup', () => {
   const tagId = db.prepare("SELECT id FROM tags WHERE name = 'decision'").get() as { id: string }
   db.prepare("INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)").run(thoughtId, tagId)
 
-  const result = reflectSession({ decisions: ['Use SQLite for storage'] })
+  const result = reflectSessionService({ decisions: ['Use SQLite for storage'] })
   expect(result.decisions_created).toBe(1)
 })
 
-test('reflectSession creates decision thoughts', () => {
-  const result = reflectSession({ decisions: ['Use SQLite', 'Keep it simple'] })
+test('reflectSessionService creates decision thoughts', () => {
+  const result = reflectSessionService({ decisions: ['Use SQLite', 'Keep it simple'] })
   expect(result.decisions_created).toBe(2)
   const db = getDb()
   const thoughts = db.prepare("SELECT t.id, t.content FROM thoughts t WHERE t.source = 'session-reflection'").all() as { id: string; content: string }[]
@@ -89,8 +89,8 @@ test('reflectSession creates decision thoughts', () => {
   }
 })
 
-test('reflectSession creates pending thoughts with a surface delay', () => {
-  const result = reflectSession({ pending: ['Write tests'], wake_days: 3 })
+test('reflectSessionService creates pending thoughts with a surface delay', () => {
+  const result = reflectSessionService({ pending: ['Write tests'], wake_days: 3 })
   expect(result.pending_created).toBe(1)
   const db = getDb()
   const thought = db.prepare("SELECT status, surface_after FROM thoughts WHERE source = 'session-reflection'").get() as {
@@ -101,36 +101,36 @@ test('reflectSession creates pending thoughts with a surface delay', () => {
   expect(thought.surface_after).not.toBeNull()
 })
 
-test('reflectSession validates summary is non-empty string', () => {
-  expect(() => reflectSession({ summary: '' })).toThrow(ValidationError)
-  expect(() => reflectSession({ summary: '   ' })).toThrow(ValidationError)
+test('reflectSessionService validates summary is non-empty string', () => {
+  expect(() => reflectSessionService({ summary: '' })).toThrow(ValidationError)
+  expect(() => reflectSessionService({ summary: '   ' })).toThrow(ValidationError)
 })
 
-test('reflectSession validates goals_delta entries', () => {
-  expect(() => reflectSession({ goals_delta: [''] })).toThrow(ValidationError)
-  expect(() => reflectSession({ goals_delta: ['  '] })).toThrow(ValidationError)
+test('reflectSessionService validates goals_delta entries', () => {
+  expect(() => reflectSessionService({ goals_delta: [''] })).toThrow(ValidationError)
+  expect(() => reflectSessionService({ goals_delta: ['  '] })).toThrow(ValidationError)
 })
 
-test('reflectSession validates wake_days range', () => {
-  expect(() => reflectSession({ pending: ['task'], wake_days: 0 })).toThrow(ValidationError)
-  expect(() => reflectSession({ pending: ['task'], wake_days: 400 })).toThrow(ValidationError)
+test('reflectSessionService validates wake_days range', () => {
+  expect(() => reflectSessionService({ pending: ['task'], wake_days: 0 })).toThrow(ValidationError)
+  expect(() => reflectSessionService({ pending: ['task'], wake_days: 400 })).toThrow(ValidationError)
 })
 
-test('reflectSession validates project exists when project_id given', () => {
-  expect(() => reflectSession({ summary: 'test', project_id: 'nonexistent' })).toThrow(NotFoundError)
+test('reflectSessionService validates project exists when project_id given', () => {
+  expect(() => reflectSessionService({ summary: 'test', project_id: 'nonexistent' })).toThrow(NotFoundError)
 })
 
-test('reflectSession works with project scope', () => {
+test('reflectSessionService works with project scope', () => {
   const db = getDb()
   db.prepare('INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, ?, ?)').run('proj-1', 'Test', new Date().toISOString())
-  const result = reflectSession({ summary: 'project update', project_id: 'proj-1' })
+  const result = reflectSessionService({ summary: 'project update', project_id: 'proj-1' })
   expect(result.summary_appended).toBeTrue()
   const row = db.prepare("SELECT content FROM slots WHERE name = 'project_context' AND scope = 'project' AND scope_id = 'proj-1'").get() as { content: string }
   expect(row.content).toContain('project update')
 })
 
-test('reflectSession combines multiple inputs in one call', () => {
-  const result = reflectSession({
+test('reflectSessionService combines multiple inputs in one call', () => {
+  const result = reflectSessionService({
     summary: 'did stuff',
     goals_delta: ['new goal'],
     decisions: ['made a call'],

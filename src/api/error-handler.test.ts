@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { ValidationError, EmbedderNotReadyError, EmbedderOverloadedError, NotFoundError } from "../errors";
+import {
+	ValidationError,
+	EmbedderNotReadyError,
+	EmbedderOverloadedError,
+	EmbedderTimeoutError,
+	EmbedderSendError,
+	EmbedderUnavailableError,
+	NotFoundError,
+} from "../errors";
 import { errorHandler } from "./error-handler";
 
 function makeContext() {
@@ -33,6 +41,33 @@ describe("errorHandler", () => {
 		expect(res.status).toBe(503);
 		return res.json().then((body) => {
 			expect(body).toEqual({ error: "Embedder is overloaded; try again later" });
+		});
+	});
+
+	test("EmbedderTimeoutError maps to 503 via statusCode", () => {
+		const c = makeContext();
+		const res = errorHandler(new EmbedderTimeoutError("Embedder request timed out after 60s"), c) as Response;
+		expect(res.status).toBe(503);
+		return res.json().then((body) => {
+			expect(body).toEqual({ error: "Embedder request timed out after 60s" });
+		});
+	});
+
+	test("EmbedderSendError maps to 503 via statusCode", () => {
+		const c = makeContext();
+		const res = errorHandler(new EmbedderSendError(), c) as Response;
+		expect(res.status).toBe(503);
+		return res.json().then((body) => {
+			expect(body).toEqual({ error: "Failed to send request to embedder process" });
+		});
+	});
+
+	test("EmbedderUnavailableError maps to 503 via statusCode", () => {
+		const c = makeContext();
+		const res = errorHandler(new EmbedderUnavailableError("Embedder process went idle"), c) as Response;
+		expect(res.status).toBe(503);
+		return res.json().then((body) => {
+			expect(body).toEqual({ error: "Embedder process went idle" });
 		});
 	});
 

@@ -85,7 +85,7 @@ export interface RejectOptions {
  * and it must be `active`: placement is the second phase, downstream of the
  * triage verdict that activates a draft.
  */
-export function enqueuePlan(
+export function enqueuePlanService(
   plan: PlacementPlan,
   options: EnqueuePlanOptions = {},
   d: Database = getDb()
@@ -163,7 +163,7 @@ export function enqueuePlan(
  * Propose a read-only placement plan for a persisted thought and enqueue its
  * confirmable items (ADR §2.9 / R5). The surface stays thin behind this
  * service call; drafts are rejected (OQ-2) because both the engine's draft
- * sentinel and `enqueuePlan` refuse a non-persisted source.
+ * sentinel and `enqueuePlanService` refuse a non-persisted source.
  */
 export async function enqueueThoughtProposals(
   thoughtId: string,
@@ -176,7 +176,7 @@ export async function enqueueThoughtProposals(
     {},
     d
   )
-  return enqueuePlan(plan, { now: options.now }, d)
+  return enqueuePlanService(plan, { now: options.now }, d)
 }
 
 /** Default and hard ceiling of the `list` page size (matches the MCP schema). */
@@ -198,7 +198,7 @@ function clampListLimit(limit: number | undefined): number {
  * rows and drops pending rows whose `expires_at` has passed, so terminal and
  * expired proposals are excluded unless an explicit `state` is requested.
  */
-export function list(options: ListOptions = {}, d: Database = getDb()): PlacementProposalRow[] {
+export function listPlacementProposalsService(options: ListOptions = {}, d: Database = getDb()): PlacementProposalRow[] {
   const state = options.state ?? 'pending'
   const now = options.now ?? new Date().toISOString()
   const rows = listProposals(d, {
@@ -215,7 +215,7 @@ export function list(options: ListOptions = {}, d: Database = getDb()): Placemen
  * Transition a live `pending` proposal to `rejected` (ADR §2.2). Terminal rows
  * cannot be rejected again; unknown ids throw `NotFoundError`.
  */
-export function reject(proposalId: string, options: RejectOptions = {}, d: Database = getDb()): PlacementProposalRow {
+export function rejectPlacementProposalService(proposalId: string, options: RejectOptions = {}, d: Database = getDb()): PlacementProposalRow {
   const existing = getProposal(d, proposalId)
   if (!existing) throw new NotFoundError(`placement proposal '${proposalId}' not found`)
   if (existing.state !== 'pending') {

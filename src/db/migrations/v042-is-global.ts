@@ -1,9 +1,10 @@
 import type { Database } from 'bun:sqlite'
-import type { Migration } from './index'
 
-const migration: Migration = {
+export default {
   version: 42,
-  apply(db: Database) {
+  // `_opts` keeps the signature of `Migration.apply` (unused here) so callers
+  // may invoke any migration uniformly.
+  apply(db: Database, _opts: { isMemory: boolean; dimensions: number }): void {
     // Global thoughts appear in project-scoped searches (includeGlobal).
     // Column probe for crash-replay safety (see v041 pattern).
     const columns = db.prepare('PRAGMA table_info(thoughts)').all() as Array<{ name: string }>
@@ -12,5 +13,3 @@ const migration: Migration = {
     }
   }
 }
-
-export default migration

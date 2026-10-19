@@ -230,6 +230,23 @@ recovery block.
 database file is `/var/lib/synaptomind/synaptomind.db` — there is no `data/`
 under `/var/lib/synaptomind`.
 
+### Log database (`logs.db`) schema
+
+`logs.db` is a separate SQLite file with its own schema and its own
+`schema_version` stored in its `_meta` table. Its schema is evolved by
+**versioned micro-migrations** (`src/logging/log.ts`, `LOG_MIGRATIONS`), reusing
+the same forward-only, one-transaction-per-migration runner as the main
+database: on open the store applies every migration whose version is higher than
+the stamped one, then writes the new `schema_version`. `CREATE TABLE IF NOT
+EXISTS` alone is never used to change an already-deployed file — it silently
+no-ops there — so schema changes (new columns, indexes) are appended as new
+`apply()` entries, and an applied entry is never edited.
+
+A `logs.db` created before this policy has no `_meta`/`schema_version` row; it is
+treated as version `0` and evolved to the current version on first open. The
+updater backs up `logs.db` alongside the main database, so the restore-on-rollback
+procedure above applies to it too.
+
 ---
 
 ## Troubleshooting

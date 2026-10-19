@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { closeDb, getDb } from '../db'
 import { createTestDb, seedThought } from '../test/helpers'
-import { insertPendingTriage } from './triage-apply-helpers'
+import { insertPendingTriage } from '../test/triage-apply-helpers'
 import { evaluateGates } from './apply-gates'
 import { computeFingerprint } from './placement-proposals.service'
 import type { ApplyOptions } from './placement-apply.types'
@@ -247,7 +247,7 @@ describe('safety: no deleteThought, no disallowed writer imports', () => {
   test('placement-apply.service imports only the allowlisted writers', async () => {
     const src = await Bun.file(new URL('./placement-apply.service.ts', import.meta.url).pathname).text()
     for (const w of DISALLOWED_WRITERS) expect(src).not.toMatch(new RegExp(`\\b${w}\\b`))
-    for (const w of ['createEdgeService', 'archiveThoughtById', 'updateThoughtById', 'mergeThoughtsService']) {
+    for (const w of ['createEdgeService', 'archiveThoughtByIdService', 'updateThoughtByIdService', 'mergeThoughtsService']) {
       expect(src).toMatch(new RegExp(`\\b${w}\\b`))
     }
   })
@@ -256,6 +256,6 @@ describe('safety: no deleteThought, no disallowed writer imports', () => {
     const src = await Bun.file(new URL('./placement-rollback.service.ts', import.meta.url).pathname).text()
     for (const w of DISALLOWED_WRITERS) expect(src).not.toMatch(new RegExp(`\\b${w}\\b`))
     expect(src).toMatch(/\bdeleteEdgeService\b/)
-    expect(src).toMatch(/\bupdateThoughtById\b/)
+    expect(src).toMatch(/\bupdateThoughtByIdService\b/)
   })
 })

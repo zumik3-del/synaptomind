@@ -1,10 +1,32 @@
 import { Hono } from 'hono'
+import { z } from 'zod/v4'
 import { config } from '../config'
 import { withTelemetry } from '../logging'
-import { getSlots, type ReflectInput, reflectSession, updateExplicitSlot } from '../services/slots.service'
+import { getSlots, type ReflectInput, reflectSessionService, updateExplicitSlot } from '../services/slots.service'
 import { jsonBodyOrDefault } from './utils'
 
 const slotsRouter = new Hono()
+
+// Shared body helper (audit M8): a malformed payload becomes a typed 400, while
+// an absent body keeps the `{}` default (the slot update already tolerates it).
+const updateSlotBodySchema = z.object({
+  content: z.string().optional(),
+  max_chars: z.number().int().optional(),
+  scope: z.enum(['project', 'global']).optional(),
+  project_id: z.string().optional()
+})
+
+// Shared body schema for the reflect endpoint (audit M8 residual): a malformed
+// payload (e.g. `decisions` given as a string instead of string[]) becomes a
+// typed 400 instead of being iterated character-by-character downstream.
+export const reflectBodySchema = z.object({
+  project_id: z.string().nullable().optional(),
+  summary: z.string().optional(),
+  goals_delta: z.array(z.string()).optional(),
+  decisions: z.array(z.string()).optional(),
+  pending: z.array(z.string()).optional(),
+  wake_days: z.number().int().min(1).max(365).optional()
+})
 
 slotsRouter.get('/', c => {
   return withTelemetry(c, { action: 'read', toolName: 'get_slots' }, c2 => {
@@ -20,12 +42,7 @@ slotsRouter.get('/', c => {
 slotsRouter.put('/:name', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'update_slot' }, async c2 => {
     const name = c2.req.param('name')!
-    const body = await c2.req.json() as {
-      content?: string
-      max_chars?: number
-      scope?: 'project' | 'global'
-      project_id?: string
-    }
+    const body = await jsonBodyOrDefault(c2, {}, updateSlotBodySchema)
     const slot = updateExplicitSlot(name, { ...body, content: body.content ?? '' }, config.slots.defaultMaxChars)
     return c2.json(slot)
   })
@@ -33,8 +50,8 @@ slotsRouter.put('/:name', async c => {
 
 slotsRouter.post('/reflect', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'reflect_session' }, async c2 => {
-    const body = await jsonBodyOrDefault<ReflectInput | undefined>(c2, undefined)
-    const result = reflectSession(body ?? ({} as ReflectInput))
+    const body = await jsonBodyOrDefault<ReflectInput | undefined>(c2, undefined, reflectBodySchema as z.ZodType<ReflectInput | undefined>)
+    const result = reflectSessionService(body ?? ({} as ReflectInput))
     return c2.json({ ok: true, applied: result })
   })
 })

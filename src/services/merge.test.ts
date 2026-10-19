@@ -33,7 +33,7 @@ test('remaps outgoing edges source→X to target→X and returns the count', () 
   seedEdge(source, x1, 'develops')
   seedEdge(source, x2, 'related')
 
-  const transferred = transferEdgesFromSource(db, source, target)
+  const transferred = transferEdgesFromSource(source, target, db)
 
   expect(transferred).toBe(2)
   expect(edgeExists(db, target, x1, 'develops')).toBe(true)
@@ -47,7 +47,7 @@ test('remaps incoming edges X→source to X→target', () => {
   const x = seedThought({ content: 'upstream x' })
   seedEdge(x, source, 'develops')
 
-  const transferred = transferEdgesFromSource(db, source, target)
+  const transferred = transferEdgesFromSource(source, target, db)
 
   expect(transferred).toBe(1)
   expect(edgeExists(db, x, target, 'develops')).toBe(true)
@@ -60,7 +60,7 @@ test('collapses the pair edge between source and target without creating a self-
   seedEdge(source, target, 'related')
   seedEdge(target, source, 'develops')
 
-  const transferred = transferEdgesFromSource(db, source, target)
+  const transferred = transferEdgesFromSource(source, target, db)
 
   expect(transferred).toBe(0)
   // both pair edges are deleted, neither recreated as target→target
@@ -81,7 +81,7 @@ test('skips a duplicate edge on the target and continues the merge', () => {
   seedEdge(target, x, 'develops')
   seedEdge(source, y, 'develops')
 
-  const transferred = transferEdgesFromSource(db, source, target)
+  const transferred = transferEdgesFromSource(source, target, db)
 
   // duplicate skipped (EdgeAlreadyExistsError), the other edge still transfers
   expect(transferred).toBe(1)
@@ -96,7 +96,7 @@ test('skips a cluster edge whose remapped source is not a cluster thought', () =
   const member = seedThought({ content: 'cluster member' })
   seedEdge(source, member, 'cluster')
 
-  const transferred = transferEdgesFromSource(db, source, target)
+  const transferred = transferEdgesFromSource(source, target, db)
 
   // revalidation fails → edge not transferred, but original is deleted
   // (source will be archived after merge, so dangling source→member edges are noise)
@@ -112,7 +112,7 @@ test('skips a cluster edge when both remapped endpoints are clusters', () => {
   const otherCluster = seedThought({ content: 'other cluster', is_cluster: 1 })
   seedEdge(source, otherCluster, 'cluster')
 
-  const transferred = transferEdgesFromSource(db, source, target)
+  const transferred = transferEdgesFromSource(source, target, db)
 
   expect(transferred).toBe(0)
   // original edge removed from source; source will be archived
@@ -127,7 +127,7 @@ test('transfers valid cluster edges when merging a cluster into a cluster', () =
   const member = seedThought({ content: 'cluster member' })
   seedEdge(source, member, 'cluster')
 
-  const transferred = transferEdgesFromSource(db, source, target)
+  const transferred = transferEdgesFromSource(source, target, db)
 
   expect(transferred).toBe(1)
   expect(edgeExists(db, target, member, 'cluster')).toBe(true)
@@ -140,7 +140,7 @@ test('transfers a contradicts edge from source to the target', () => {
   const x = seedThought({ content: 'neighbor x' })
   seedEdge(source, x, 'contradicts')
 
-  const transferred = transferEdgesFromSource(db, source, target)
+  const transferred = transferEdgesFromSource(source, target, db)
 
   expect(transferred).toBe(1)
   expect(edgeExists(db, target, x, 'contradicts')).toBe(true)
@@ -153,7 +153,7 @@ test('drops a contradicts edge between the merged pair instead of self-looping',
   const target = seedThought({ content: 'rival claim' })
   seedEdge(source, target, 'contradicts')
 
-  const transferred = transferEdgesFromSource(db, source, target)
+  const transferred = transferEdgesFromSource(source, target, db)
 
   expect(transferred).toBe(0)
   expect(edgeCountBetween(db, target, target, 'contradicts')).toBe(0)
@@ -167,7 +167,7 @@ test('transfers a supports edge and preserves its direction', () => {
   const x = seedThought({ content: 'supported claim' })
   seedEdge(source, x, 'supports')
 
-  const transferred = transferEdgesFromSource(db, source, target)
+  const transferred = transferEdgesFromSource(source, target, db)
 
   expect(transferred).toBe(1)
   expect(edgeExists(db, target, x, 'supports')).toBe(true)

@@ -1,5 +1,5 @@
 import { getProfileService } from '../../../services/profile.service'
-import { type ActionHandler } from '../action-tool'
+import type { ActionHandler } from '../action-tool'
 
 export const profileHandler: ActionHandler = {
   run() {

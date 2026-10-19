@@ -4,7 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
-import { createThoughtWithUrlLinks } from '../../services/thoughts.service'
+import { createThoughtWithUrlLinksService } from '../../services/url_links.service'
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
@@ -75,7 +75,7 @@ describe('memory_store create stamps source=mcp (F15)', () => {
   test('negative control: the service itself does not default to mcp', () => {
     // The source is added by the MCP tool layer, not by the shared service;
     // otherwise every HTTP-created thought would also be stamped as agent-made.
-    const thought = createThoughtWithUrlLinks({ content: 'direct service marker' })
+    const thought = createThoughtWithUrlLinksService({ content: 'direct service marker' })
     expect(dbSource(thought.id)).toBeNull()
   })
 })

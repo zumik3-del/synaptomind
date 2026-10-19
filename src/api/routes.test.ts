@@ -5,7 +5,7 @@ import {
 	getThoughtUrlLinks,
 	upsertThoughtUrlLink,
 } from "../db/thought_url_links";
-import { getThoughtById } from "../services/thoughts.service";
+import { getThoughtByIdService } from "../services/thoughts.service";
 import { createTestDb, seedEdge, seedThought } from "../test/helpers";
 import { createApp } from "./router";
 
@@ -653,7 +653,7 @@ test("POST /api/thoughts/:targetId/merge executes and returns transfer counts", 
 		"merged content",
 	);
 	expect(body.transferredEdges).toBe(1);
-	expect(getThoughtById(sourceId)?.status).toBe("archived");
+	expect(getThoughtByIdService(sourceId)?.status).toBe("archived");
 });
 
 test("POST /api/thoughts/:targetId/merge returns 400 when source equals target", async () => {
@@ -1022,7 +1022,7 @@ test("POST /api/thoughts accepts is_profile flag", async () => {
 	const body = (await res.json()) as Record<string, unknown>;
 	expect(body.is_profile).toBe(1);
 
-	const t = getThoughtById(String(body.id));
+	const t = getThoughtByIdService(String(body.id));
 	expect(t?.is_profile).toBe(1);
 });
 

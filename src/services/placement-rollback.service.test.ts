@@ -1,7 +1,7 @@
 /**
  * F-14 rollback-window guard — coverage for the #1047 implementation (task #1049).
  *
- * `rollback` refuses an accepted row whose `decided_at` predates the rollback
+ * `rollbackService` refuses an accepted row whose `decided_at` predates the rollback
  * window `now - placement.proposalTtlDays * 86_400_000` — the same TTL that
  * prunes the queue, so the guard is the read-time backstop for a not-yet-run or
  * slow retention job (ADR 2026-09-29 §2.8, OQ-3). The window IS the retention
@@ -19,9 +19,6 @@ import { getEdgePairBetween } from '../db/edges'
 import { insertProposal } from '../db/placement-proposals'
 import { getThoughtRow } from '../db/thoughts'
 import { createTestDb, seedThought } from '../test/helpers'
-import { applyProposal } from './placement-apply.service'
-import { rollback } from './placement-rollback.service'
-import type { RollbackItemReport, RollbackReport } from './placement-apply.types'
 import {
   assertAccepted,
   assertRolledBack,
@@ -31,7 +28,10 @@ import {
   PAST,
   pairFingerprint,
   RUN_ID,
-} from './triage-apply-helpers'
+} from '../test/triage-apply-helpers'
+import { applyProposalService } from './placement-apply.service'
+import { rollbackService } from './placement-rollback.service'
+import type { RollbackItemReport, RollbackReport } from './placement-apply.types'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
@@ -107,7 +107,7 @@ function acceptedTriageRow(
   targetId: string | null = null
 ): string {
   const row = insertPendingTriage(db, itemKind, sourceId, targetId)
-  const out = applyProposal(row.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
+  const out = applyProposalService(row.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
   expect(out.status).toBe('accepted')
   assertAccepted(db, row.id)
   return row.id
@@ -137,7 +137,7 @@ function acceptedGraphRow(db: Database, input: GraphRowInput): string {
     payload: '{}',
     fingerprint: pairFingerprint(db, input.sourceId, input.targetId)
   })
-  const out = applyProposal(row.id, { confirm: true, now: NOW, runId: RUN_ID, decidedBy: 'tester' }, db)
+  const out = applyProposalService(row.id, { confirm: true, now: NOW, runId: RUN_ID, decidedBy: 'tester' }, db)
   expect(out.status).toBe('accepted')
   assertAccepted(db, row.id)
   return row.id
@@ -153,7 +153,7 @@ describe('F-14 AC-1: rollback window refusal', () => {
     expect(getThoughtRow(db, source)!.status).toBe('active')
     setDecidedAt(db, rowId, ANCIENT)
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(itemFor(report, rowId).action).toBe('refused')
     expect(report.summary).toEqual({ reverted: 0, skipped: 0, refused: 1 })
@@ -177,7 +177,7 @@ describe('F-14 AC-2: a mixed-window run', () => {
     const staleRow = acceptedTriageRow(db, 'triage_archive', stale, target)
     setDecidedAt(db, staleRow, ANCIENT)
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 1 })
     expect(itemFor(report, freshRow).action).toBe('reverted')
@@ -201,7 +201,7 @@ describe('F-14 AC-3: dry-run of an out-of-window row', () => {
     setDecidedAt(db, rowId, ANCIENT)
     const before = graphCounts(db)
 
-    const report = rollback(RUN_ID, { confirm: false, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: false, now: NOW_LATER }, db)
 
     expect(report.confirm).toBe(false)
     expect(itemFor(report, rowId).action).toBe('refused')
@@ -223,7 +223,7 @@ describe('F-14 AC-3: dry-run of an out-of-window row', () => {
     setDecidedAt(db, firstRow, ANCIENT)
     setDecidedAt(db, secondRow, ANCIENT)
 
-    const report = rollback(RUN_ID, { confirm: false, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: false, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 0, skipped: 0, refused: 2 })
     expect(report.items.every(i => i.action === 'refused')).toBe(true)
@@ -241,7 +241,7 @@ describe('F-14 AC-4: window boundary', () => {
     const rowId = acceptedTriageRow(db, 'triage_activate', source)
     setDecidedAt(db, rowId, cutoffFor(NOW))
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW }, db)
 
     expect(itemFor(report, rowId).action).toBe('reverted')
     expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 0 })
@@ -255,7 +255,7 @@ describe('F-14 AC-4: window boundary', () => {
     const rowId = acceptedTriageRow(db, 'triage_activate', source)
     setDecidedAt(db, rowId, beforeCutoffFor(NOW))
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW }, db)
 
     expect(itemFor(report, rowId).action).toBe('refused')
     expect(report.summary).toEqual({ reverted: 0, skipped: 0, refused: 1 })
@@ -282,7 +282,7 @@ describe('F-14 AC-5: unmeasurable decided_at', () => {
     // legacy pre-fix data: accepted, enveloped, but never stamped
     setDecidedAt(db, rowId, null)
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(itemFor(report, rowId).action).toBe('refused')
     expect(itemFor(report, rowId).reason).toBe(FAIL_CLOSED_REASON)
@@ -298,7 +298,7 @@ describe('F-14 AC-5: unmeasurable decided_at', () => {
     const rowId = acceptedTriageRow(db, 'triage_activate', source)
     setDecidedAt(db, rowId, 'not-a-timestamp')
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(itemFor(report, rowId).action).toBe('refused')
     expect(itemFor(report, rowId).reason).toBe(FAIL_CLOSED_REASON)
@@ -317,7 +317,7 @@ describe('F-14 AC-5: unmeasurable decided_at', () => {
     const source = seedThought({ id: 'f14-5-now-s', content: 'bad clock src', status: 'draft', created_at: NOW })
     const rowId = acceptedTriageRow(db, 'triage_activate', source)
 
-    const report = rollback(RUN_ID, { confirm: true, now: 'not-a-clock' }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: 'not-a-clock' }, db)
 
     expect(itemFor(report, rowId).action).toBe('refused')
     expect(itemFor(report, rowId).reason).toContain('cannot verify the rollback window')
@@ -336,13 +336,13 @@ describe('F-14 AC-6: proposalTtlDays < 0 disables the guard', () => {
     setDecidedAt(db, rowId, ANCIENT)
 
     // Control: at the default TTL this row is out of window.
-    const guarded = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const guarded = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
     expect(guarded.items[0].action).toBe('refused')
     expect(getThoughtRow(db, source)!.status).toBe('active')
 
     // With pruning disabled nothing is ever out of window, so nothing is refused.
     withPlacementConfig({ proposalTtlDays: -1 }, () => {
-      const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+      const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
       expect(itemFor(report, rowId).action).toBe('reverted')
       expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 0 })
@@ -361,7 +361,7 @@ describe('F-14 AC-6: proposalTtlDays < 0 disables the guard', () => {
     setDecidedAt(db, exactRow, NOW_LATER)
 
     withPlacementConfig({ proposalTtlDays: 0 }, () => {
-      const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+      const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
       expect(itemFor(report, olderRow).action).toBe('refused')
       expect(itemFor(report, exactRow).action).toBe('reverted')
@@ -383,7 +383,7 @@ describe('F-14 guard order', () => {
     // drift the fingerprint as well
     db.prepare("UPDATE thoughts SET updated_at = '2099-01-01T00:00:00.000Z' WHERE id = ?").run(source)
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(itemFor(report, rowId).action).toBe('refused')
     expect(itemFor(report, rowId).reason).toContain('rollback window')
@@ -430,7 +430,7 @@ describe('F-14 AC-8: in-window behaviour is unchanged', () => {
     }
     const edgesAfterApply = graphCounts(db).edges
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 5, skipped: 0, refused: 0 })
     for (const id of rows) expect(itemFor(report, id).action).toBe('reverted')
@@ -458,7 +458,7 @@ describe('F-14 AC-8: in-window behaviour is unchanged', () => {
     `).run(mergeRowId, source, target, NOW, RUN_ID, NOW, NOW, JSON.stringify({ idempotent: false }))
     const edgesBefore = graphCounts(db).edges
 
-    const report = rollback(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 0, skipped: 0, refused: 1 })
     expect(itemFor(report, mergeRowId).action).toBe('refused')

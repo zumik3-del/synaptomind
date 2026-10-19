@@ -55,7 +55,7 @@ export interface AutoLinkDeps {
  * Find active, non-cluster thoughts with low connectivity (< 3 related edges).
  * These are the best candidates for auto-linking.
  */
-export function findLinkCandidates(d: Database = getDb()): LinkCandidate[] {
+export function findLinkCandidatesService(d: Database = getDb()): LinkCandidate[] {
   return dbFindLinkCandidates(d)
 }
 
@@ -90,7 +90,7 @@ export function mergeCandidates(embeddingPairs: CandidatePair[], maxEdges: numbe
  * Create `related` edges for the given pairs. Skips pairs where an edge
  * already exists (createEdge handles dedup).
  */
-export function createEdges(pairs: CandidatePair[], d: Database = getDb()): Edge[] {
+export function createEdgesService(pairs: CandidatePair[], d: Database = getDb()): Edge[] {
   const created: Edge[] = []
   for (const pair of pairs) {
     try {
@@ -124,7 +124,7 @@ export async function runAutoLinkJob(
   const embed = deps.embed ?? generateEmbeddings
 
   // 1. Find candidates
-  const candidates = findLinkCandidates(d)
+  const candidates = findLinkCandidatesService(d)
   if (candidates.length < 2) {
     const empty: AutoLinkResult = {
       dry_run: dryRun,
@@ -164,7 +164,7 @@ export async function runAutoLinkJob(
   // 4. Create edges
   let created: Edge[] = []
   if (!dryRun && pairs.length > 0) {
-    created = createEdges(pairs, d)
+    created = createEdgesService(pairs, d)
   }
 
   const result: AutoLinkResult = {

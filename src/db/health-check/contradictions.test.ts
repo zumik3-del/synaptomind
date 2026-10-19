@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createTestDb, seedEdge, seedThought } from "../../test/helpers";
 import { getDb } from "../container";
 import { closeDb } from "../init";
-import { runHealthCheck } from "../../services/health-check.service";
+import { runHealthCheckService } from "../../services/health-check.service";
 import {
 	findContradictionInCluster,
 	findContradictsRedundantWithReplaces,
@@ -265,9 +265,9 @@ describe("findSupportsSelfConflict", () => {
 	});
 });
 
-describe("runHealthCheck semantic_consistency integration", () => {
+describe("runHealthCheckService semantic_consistency integration", () => {
 	test("registers the new checks with the ADR severities", () => {
-		const report = runHealthCheck();
+		const report = runHealthCheckService();
 		const semantic = report.categories.find(
 			(c) => c.name === "semantic_consistency",
 		);
@@ -291,7 +291,7 @@ describe("runHealthCheck semantic_consistency integration", () => {
 		seedEdge(a, b, "supports");
 		seedEdge(a, b, "contradicts");
 
-		const report = runHealthCheck();
+		const report = runHealthCheckService();
 		const semantic = report.categories.find(
 			(c) => c.name === "semantic_consistency",
 		)!;
@@ -326,7 +326,7 @@ describe("runHealthCheck semantic_consistency integration", () => {
 		seedEdge(junk1, junk2, "supports");
 		seedEdge(junk2, junk1, "contradicts");
 
-		const report = runHealthCheck();
+		const report = runHealthCheckService();
 		const semantic = report.categories.find(
 			(c) => c.name === "semantic_consistency",
 		)!;
@@ -362,7 +362,7 @@ describe("runHealthCheck semantic_consistency integration", () => {
 		seedEdge(cluster, archived, "cluster");
 		seedEdge(live, archived, "contradicts");
 
-		const report = runHealthCheck();
+		const report = runHealthCheckService();
 		const semantic = report.categories.find(
 			(c) => c.name === "semantic_consistency",
 		)!;
@@ -389,7 +389,7 @@ describe("runHealthCheck semantic_consistency integration", () => {
 		seedEdge(cluster, upper, "cluster");
 		seedEdge(lower, upper, "contradicts");
 
-		const report = runHealthCheck();
+		const report = runHealthCheckService();
 		const semantic = report.categories.find(
 			(c) => c.name === "semantic_consistency",
 		)!;

@@ -81,11 +81,11 @@ function importedIdentifiers(src: string): string[] {
 // Writers the placement layer must never pull in (ADR §2.4 — propose-only).
 const WRITER_IMPORTS = [
   // edges
-  'createEdge', 'deleteEdge', 'createEdgeService', 'deleteEdgeService', 'createEdges',
+  'createEdge', 'deleteEdge', 'createEdgeService', 'deleteEdgeService', 'createEdgesService',
   // thoughts / lifecycle
   'createThought', 'updateThought', 'deleteThought', 'archiveThought',
-  'createThoughtWithParent', 'createThoughtWithUrlLinks',
-  'updateThoughtById', 'archiveThoughtById', 'mergeThoughtsService',
+  'createThoughtWithParentService', 'createThoughtWithUrlLinksService',
+  'updateThoughtByIdService', 'archiveThoughtByIdService', 'mergeThoughtsService',
   // clusters
   'createClusterService',
   // crystallize / supersede surface

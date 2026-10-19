@@ -1,6 +1,7 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { NotFoundError } from '../../errors'
+import { thoughtStatusSchema } from '../../validation'
 import { searchThoughts, searchThoughtsGrouped } from '../../services/search.service'
 import {
   buildSearchOptions,
@@ -9,7 +10,7 @@ import {
 } from '../../services/search-options'
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getChainService, getContextService } from '../../services/graph.service'
-import { getThoughtById } from '../../services/thoughts.service'
+import { getThoughtByIdService } from '../../services/thoughts.service'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
@@ -17,7 +18,7 @@ const handlers = {
   get: {
     input: z.object({ thought_id: requiredString('thought_id is required for get action') }),
     run(args: ActionArgs) {
-      const thought = getThoughtById(args.thought_id as string)
+      const thought = getThoughtByIdService(args.thought_id as string)
       if (!thought) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
       return thought
     }
@@ -100,7 +101,7 @@ export function registerMemoryRecall(server: McpServer) {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters']).describe('Action'),
       query: z.string().optional().describe('Search query (required for search/context/clusters, not for chain)'),
       top_k: z.coerce.number().int().min(1).max(100).optional().describe('Max results (default 10, 1-100)'),
-      status: z.string().optional().describe('Filter by status (default: active)'),
+      status: thoughtStatusSchema.optional().describe('Filter by status (default: active)'),
       project_id: z.string().optional().describe('Filter by project (prefer cwd instead)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
       tag: z.string().optional().describe('Filter by tag'),

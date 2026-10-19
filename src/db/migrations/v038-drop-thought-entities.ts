@@ -1,11 +1,8 @@
 import type { Database } from 'bun:sqlite'
-import type { Migration } from './index'
 
-const migration: Migration = {
+export default {
   version: 38,
-  apply(db: Database) {
+  apply(db: Database): void {
     db.exec(`DROP TABLE IF EXISTS thought_entities`)
   }
 }
-
-export default migration

@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { getThoughtRow, type Thought } from './thoughts'
 
 /**
  * Item classes a placement plan maps to (ADR §2.1). `triage_activate` /
@@ -267,4 +268,35 @@ export function findPendingByItem(db: Database, input: InsertProposalInput): { i
       input.lifecycle_action ?? null
     ) as { id: string } | null
   return row ?? undefined
+}
+
+/**
+ * Drafts with no live/accepted triage row, newest first (ADR 2026-09-29 §2.3.3).
+ * The `NOT EXISTS` clause is the backfill's idempotence key; the enqueue itself
+ * is additionally deduped by `idx_pp_dedup`.
+ */
+export function findUntriagedDrafts(db: Database, limit: number): Thought[] {
+  const rows = db
+    .prepare(
+      `SELECT t.id FROM thoughts t
+        WHERE t.status = 'draft'
+          AND COALESCE(t.is_cluster, 0) = 0
+          AND COALESCE(t.is_profile, 0) = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM placement_proposals p
+            WHERE p.source_thought_id = t.id
+              AND p.item_kind IN ('triage_activate', 'triage_archive')
+              AND p.state IN ('pending', 'accepted')
+          )
+        ORDER BY t.created_at DESC, t.id DESC
+        LIMIT ?`
+    )
+    .all(Math.floor(limit)) as Array<{ id: string }>
+
+  const drafts: Thought[] = []
+  for (const row of rows) {
+    const thought = getThoughtRow(db, row.id)
+    if (thought) drafts.push(thought)
+  }
+  return drafts
 }

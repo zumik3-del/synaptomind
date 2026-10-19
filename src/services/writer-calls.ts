@@ -6,9 +6,9 @@
  * `item_kind` to the same small set of existing writers, in the same order. This
  * module owns that dispatch once: {@link planWriterCalls} turns a row into the
  * call(s) it implies, and each orchestrator executes that plan through the
- * writers it imports — apply forward (`createEdgeService`, `archiveThoughtById`,
- * `updateThoughtById`, `mergeThoughtsService`), rollback inverse
- * (`deleteEdgeService`, `updateThoughtById`). Planning is pure and never touches
+ * writers it imports — apply forward (`createEdgeService`, `archiveThoughtByIdService`,
+ * `updateThoughtByIdService`, `mergeThoughtsService`), rollback inverse
+ * (`deleteEdgeService`, `updateThoughtByIdService`). Planning is pure and never touches
  * the graph, so the non-mutating dry-run reuses it unchanged.
  */
 
@@ -21,8 +21,8 @@ export type WriterDirection = 'apply' | 'rollback'
 
 /** A planned existing-writer invocation; rollback adds the inverse-only `deleteEdgeService`. */
 export type WriterCall =
-  | { writer: 'updateThoughtById'; args: { id: string; status: 'active' | 'draft' } }
-  | { writer: 'archiveThoughtById'; args: { id: string } }
+  | { writer: 'updateThoughtByIdService'; args: { id: string; status: 'active' | 'draft' } }
+  | { writer: 'archiveThoughtByIdService'; args: { id: string } }
   | { writer: 'createEdgeService'; args: { sourceId: string; targetId: string; type: string } }
   | { writer: 'deleteEdgeService'; args: { id: string } }
   | {
@@ -64,15 +64,15 @@ export function planWriterCalls(
 ): WriterCall[] | undefined {
   if (row.item_kind === 'triage_activate' || row.item_kind === 'triage_archive') {
     // Rollback always returns a triage source to `draft`; forward activation
-    // updates the status while forward archiving goes through `archiveThoughtById`
+    // updates the status while forward archiving goes through `archiveThoughtByIdService`
     // (which also stamps `archived_at`).
     if (direction === 'rollback') {
-      return [{ writer: 'updateThoughtById', args: { id: row.source_thought_id, status: 'draft' } }]
+      return [{ writer: 'updateThoughtByIdService', args: { id: row.source_thought_id, status: 'draft' } }]
     }
     if (row.item_kind === 'triage_activate') {
-      return [{ writer: 'updateThoughtById', args: { id: row.source_thought_id, status: 'active' } }]
+      return [{ writer: 'updateThoughtByIdService', args: { id: row.source_thought_id, status: 'active' } }]
     }
-    return [{ writer: 'archiveThoughtById', args: { id: row.source_thought_id } }]
+    return [{ writer: 'archiveThoughtByIdService', args: { id: row.source_thought_id } }]
   }
 
   if (row.item_kind === 'edge' || row.item_kind === 'placement') {
@@ -105,13 +105,13 @@ export function planWriterCalls(
       const calls: WriterCall[] = []
       const edgeId = createdEdgeId(row)
       if (edgeId) calls.push({ writer: 'deleteEdgeService', args: { id: edgeId } })
-      if (row.target_id) calls.push({ writer: 'updateThoughtById', args: { id: row.target_id, status: 'active' } })
+      if (row.target_id) calls.push({ writer: 'updateThoughtByIdService', args: { id: row.target_id, status: 'active' } })
       return calls
     }
     if (!edge) return undefined
     return [
       { writer: 'createEdgeService', args: { sourceId: edge.sourceId, targetId: edge.targetId, type: edge.type } },
-      { writer: 'archiveThoughtById', args: { id: edge.targetId } }
+      { writer: 'archiveThoughtByIdService', args: { id: edge.targetId } }
     ]
   }
 

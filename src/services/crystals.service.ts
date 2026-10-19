@@ -96,7 +96,7 @@ function formatCrystallizedMarkdown(
   return lines.join('\n').trim()
 }
 
-export function crystallize(input: CrystallizeInput, d: Database = getDb()): CrystallizeResult {
+export function crystallizeService(input: CrystallizeInput, d: Database = getDb()): CrystallizeResult {
   const style = input.style ?? 'decision-log'
   if (!STYLE_LABELS[style]) throw new ValidationError(`style must be one of: ${Object.keys(STYLE_LABELS).join(', ')}`)
   let title = ''

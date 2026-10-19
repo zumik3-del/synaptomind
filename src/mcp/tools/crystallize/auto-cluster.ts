@@ -1,5 +1,5 @@
 import { runAutoClusterJob } from '../../../services/auto-cluster.service'
-import { type ActionArgs, type ActionHandler } from '../action-tool'
+import type { ActionArgs, ActionHandler } from '../action-tool'
 
 /**
  * Normalize an optional numeric argument that may arrive as a number or as a

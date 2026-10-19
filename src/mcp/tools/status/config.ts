@@ -1,5 +1,5 @@
 import { buildConfigDisplay } from '../../../services/config-display.service'
-import { type ActionHandler } from '../action-tool'
+import type { ActionHandler } from '../action-tool'
 
 export const configHandler: ActionHandler = {
   run() {

@@ -26,7 +26,7 @@ function shortContent(content: string, limit = 120): string {
  * Pending candidates — due `pending`-tagged thoughts, minus `replaces` targets.
  * Shared with the `pending_items` slot so both surfaces agree on what is due.
  */
-export function listPendingCandidates(d: Database, projectId?: string): FrontierCandidateRow[] {
+export function listPendingCandidates(projectId?: string, d: Database = getDb()): FrontierCandidateRow[] {
   const replaced = new Set(getReplacedTargetIds(d))
   return findFrontierCandidates(d, projectId).filter(c => c.is_pending === 1 && !replaced.has(c.id))
 }
@@ -40,7 +40,7 @@ export function listPendingCandidates(d: Database, projectId?: string): Frontier
  *
  * priority ∈ [0,1] = 0.5·importance + 0.15·unblocked + age bonus.
  */
-export function getFrontier(input: FrontierInput = {}, d: Database = getDb()): { items: FrontierItem[] } {
+export function getFrontierService(input: FrontierInput = {}, d: Database = getDb()): { items: FrontierItem[] } {
   const k = Math.min(Math.max(input.k ?? 10, 1), 50)
 
   const candidates = new Map<string, FrontierCandidateRow>()

@@ -4,7 +4,7 @@
  *
  * Before F-28 a confirming `edge` / `placement` / `lifecycle` apply that the
  * caller left un-enveloped committed a graph mutation with `row.run_id = NULL`,
- * so no `rollback(run_id)` could ever reach it. The service now synthesizes one
+ * so no `rollbackService(run_id)` could ever reach it. The service now synthesizes one
  * `auto-` envelope per accepted row (single) or per batch, and the accepted row
  * is the rollback manifest.
  *
@@ -23,9 +23,6 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { closeDb, getDb } from '../db'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { applyBatch, applyProposal } from './placement-apply.service'
-import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyResult } from './placement-apply.types'
-import { rollback } from './placement-rollback.service'
 import {
   assertAccepted,
   assertRolledBack,
@@ -34,7 +31,10 @@ import {
   insertPendingTriage,
   NOW,
   NOW_LATER,
-} from './triage-apply-helpers'
+} from '../test/triage-apply-helpers'
+import { applyBatchService, applyProposalService } from './placement-apply.service'
+import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyResult } from './placement-apply.types'
+import { rollbackService } from './placement-rollback.service'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
@@ -87,7 +87,7 @@ function expectSynthesizedRunId(value: string | null | undefined): string {
 
 /** Apply and return the accepted envelope, asserting it really was accepted. */
 function applyAccepted(id: string, db: Database, runId?: string): AcceptedApplyResult {
-  const out = applyProposal(id, { confirm: true, now: NOW, ...(runId === undefined ? {} : { runId }) }, db)
+  const out = applyProposalService(id, { confirm: true, now: NOW, ...(runId === undefined ? {} : { runId }) }, db)
   expect(out.status).toBe('accepted')
   return out as AcceptedApplyResult
 }
@@ -159,7 +159,7 @@ describe('AC-F28-1: single non-triage apply without a caller run_id', () => {
     const row = insertPendingEdge(db, source, target, 'develops')
     const first = expectSynthesizedRunId(applyAccepted(row.id, db).run_id)
 
-    const again = applyProposal(row.id, { confirm: true, now: NOW_LATER }, db) as AcceptedApplyResult
+    const again = applyProposalService(row.id, { confirm: true, now: NOW_LATER }, db) as AcceptedApplyResult
 
     expect(again.status).toBe('accepted')
     expect(again.idempotent).toBe(true)
@@ -181,7 +181,7 @@ describe('AC-F28-2: rollback of the synthesized envelope reverts the row', () =>
 
     // In-window clock: NOW → NOW_LATER is 19 d < proposalTtlDays 30, so the
     // F-14 window check passes and the revert branch is reached.
-    const report = rollback(runId, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(runId, { confirm: true, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 0 })
     expect(report.items).toHaveLength(1)
@@ -199,7 +199,7 @@ describe('AC-F28-2: rollback of the synthesized envelope reverts the row', () =>
 
     // Addressability itself: a preview resolves the same manifest the confirm
     // does, and previews nothing.
-    const preview = rollback(runId, { now: NOW_LATER }, db)
+    const preview = rollbackService(runId, { now: NOW_LATER }, db)
 
     expect(preview.confirm).toBe(false)
     expect(preview.summary).toEqual({ reverted: 1, skipped: 0, refused: 0 })
@@ -218,7 +218,7 @@ describe('AC-F28-3: apply_batch shares exactly one envelope', () => {
     const rowA = insertPendingEdge(db, first.source, first.target, 'develops')
     const rowB = insertPendingEdge(db, second.source, second.target, 'develops')
 
-    const out = applyBatch([rowA.id, rowB.id], { confirm: true, now: NOW }, db)
+    const out = applyBatchService([rowA.id, rowB.id], { confirm: true, now: NOW }, db)
 
     expect(out.refused).toBeUndefined()
     expect(out.errors).toHaveLength(0)
@@ -245,10 +245,10 @@ describe('AC-F28-3: apply_batch shares exactly one envelope', () => {
     const rowA = insertPendingEdge(db, first.source, first.target, 'develops')
     const rowB = insertPendingEdge(db, second.source, second.target, 'develops')
 
-    const out = applyBatch([rowA.id, rowB.id], { confirm: true, now: NOW }, db)
+    const out = applyBatchService([rowA.id, rowB.id], { confirm: true, now: NOW }, db)
     const shared = expectSynthesizedRunId(out.run_id)
 
-    const report = rollback(shared, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(shared, { confirm: true, now: NOW_LATER }, db)
 
     // The batch IS the run: one call must invert everything it committed.
     expect(report.summary).toEqual({ reverted: 2, skipped: 0, refused: 0 })
@@ -267,7 +267,7 @@ describe('AC-F28-4: a triage confirm without a caller run_id stays refused', () 
     const source = seedThought({ id: 'ac4-src', content: 'draft src', status: 'draft', created_at: NOW })
     const row = insertPendingTriage(db, 'triage_activate', source)
 
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
 
     expect(out.status).toBe('refused')
     expect((out as { refusal: { code: string } }).refusal.code).toBe('run_id_required')
@@ -286,7 +286,7 @@ describe('AC-F28-4: a triage confirm without a caller run_id stays refused', () 
     const target = seedThought({ id: 'ac4-arc-tgt', content: 'dup tgt', created_at: NOW })
     const row = insertPendingTriage(db, 'triage_archive', source, target)
 
-    const out = applyProposal(row.id, { confirm: true, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
 
     expect(out.status).toBe('refused')
     expect((out as { refusal: { code: string } }).refusal.code).toBe('run_id_required')
@@ -301,7 +301,7 @@ describe('AC-F28-4: a triage confirm without a caller run_id stays refused', () 
     const triageRow = insertPendingTriage(db, 'triage_activate', source)
     const edgeRow = insertPendingEdge(db, edgeSource, edgeTarget, 'develops')
 
-    const out = applyBatch([triageRow.id, edgeRow.id], { confirm: true, now: NOW }, db)
+    const out = applyBatchService([triageRow.id, edgeRow.id], { confirm: true, now: NOW }, db)
 
     // The guard runs before the batch envelope is minted (D4/D5 order).
     expect(out.refused?.code).toBe('run_id_required')
@@ -353,7 +353,7 @@ describe('AC-F28-5: a caller-supplied run_id is used verbatim', () => {
     const rowA = insertPendingEdge(db, first.source, first.target, 'develops')
     const rowB = insertPendingEdge(db, second.source, second.target, 'develops')
 
-    const out = applyBatch([rowA.id, rowB.id], { confirm: true, now: NOW, runId: 'run-batch-caller' }, db)
+    const out = applyBatchService([rowA.id, rowB.id], { confirm: true, now: NOW, runId: 'run-batch-caller' }, db)
 
     expect(out.run_id).toBe('run-batch-caller')
     expect(stored(db, rowA.id).run_id).toBe('run-batch-caller')
@@ -369,7 +369,7 @@ describe('AC-F28-6: confirm:false writes no run_id and leaves the row pending', 
     const { source, target } = activePair(db, 'ac6')
     const row = insertPendingEdge(db, source, target, 'develops')
 
-    const out = applyProposal(row.id, { now: NOW }, db)
+    const out = applyProposalService(row.id, { now: NOW }, db)
 
     expect(out.status).toBe('dry_run')
     expect('run_id' in out).toBe(false)
@@ -386,7 +386,7 @@ describe('AC-F28-6: confirm:false writes no run_id and leaves the row pending', 
     const { source, target } = activePair(db, 'ac6-exp')
     const row = insertPendingEdge(db, source, target, 'develops')
 
-    const out = applyProposal(row.id, { confirm: false, now: NOW }, db)
+    const out = applyProposalService(row.id, { confirm: false, now: NOW }, db)
 
     expect(out.status).toBe('dry_run')
     expect('run_id' in out).toBe(false)
@@ -401,7 +401,7 @@ describe('AC-F28-6: confirm:false writes no run_id and leaves the row pending', 
     const rowA = insertPendingEdge(db, first.source, first.target, 'develops')
     const rowB = insertPendingEdge(db, second.source, second.target, 'develops')
 
-    const out = applyBatch([rowA.id, rowB.id], { now: NOW }, db)
+    const out = applyBatchService([rowA.id, rowB.id], { now: NOW }, db)
 
     expect('run_id' in out).toBe(false)
     expect(out.results.map(r => r.status)).toEqual(['dry_run', 'dry_run'])
@@ -446,7 +446,7 @@ describe('AC-F28-7: an idempotent accept is recorded, and rolls back as skipped'
 
     // In-window clock, otherwise the F-14 window guard refuses first and the
     // `skipped` branch is never reached (windowRefusal runs before idempotency).
-    const report = rollback(runId, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(runId, { confirm: true, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 0, skipped: 1, refused: 0 })
     expect(report.items[0]).toMatchObject({ proposal_id: row.id, action: 'skipped' })
@@ -507,7 +507,7 @@ describe('apply_batch: envelope edge cases', () => {
     const rowA = insertPendingEdge(db, first.source, first.target, 'develops')
     const rowB = insertPendingEdge(db, second.source, second.target, 'develops')
 
-    const out = applyBatch([rowA.id, rowB.id], { confirm: true, now: NOW }, db)
+    const out = applyBatchService([rowA.id, rowB.id], { confirm: true, now: NOW }, db)
 
     expect(out.results.map(r => r.status)).toEqual(['stale', 'stale'])
     // An id with an empty manifest would send the caller after a run that
@@ -525,7 +525,7 @@ describe('apply_batch: envelope edge cases', () => {
     const { source: edgeSource, target: edgeTarget } = activePair(db, 'mix-edge')
     const edgeRow = insertPendingEdge(db, edgeSource, edgeTarget, 'develops')
 
-    const out = applyBatch([triageRow.id, edgeRow.id], { confirm: true, now: NOW }, db)
+    const out = applyBatchService([triageRow.id, edgeRow.id], { confirm: true, now: NOW }, db)
 
     const shared = expectSynthesizedRunId(out.run_id)
     // The shared id goes only to the pending non-triage row ...
@@ -542,7 +542,7 @@ describe('apply_batch: envelope edge cases', () => {
     const row = insertPendingEdge(db, source, target, 'develops')
     const first = expectSynthesizedRunId(applyAccepted(row.id, db).run_id)
 
-    const out = applyBatch([row.id], { confirm: true, now: NOW_LATER }, db)
+    const out = applyBatchService([row.id], { confirm: true, now: NOW_LATER }, db)
 
     // Nothing new was decided, so no envelope is minted; the echo still reports
     // the run the row was originally accepted under.
@@ -560,12 +560,12 @@ describe('response typing', () => {
     const { source, target } = activePair(db, 'types')
     const row = insertPendingEdge(db, source, target, 'develops')
 
-    const out: ApplyResult = applyProposal(row.id, { now: NOW }, db)
+    const out: ApplyResult = applyProposalService(row.id, { now: NOW }, db)
     // A dry-run result type carries no `run_id` key at all, so reading it is a
     // type error — the guarantee is structural, not just a missing value.
     expect(out.status === 'dry_run' && 'run_id' in out).toBe(false)
 
-    const batch: ApplyBatchOutcome = applyBatch([], { now: NOW }, db)
+    const batch: ApplyBatchOutcome = applyBatchService([], { now: NOW }, db)
     expect(batch.results).toEqual([])
   })
 })

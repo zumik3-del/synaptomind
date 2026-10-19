@@ -2,9 +2,9 @@
  * Run-scoped rollback for the explicit placement/triage apply orchestrator
  * (ADR 2026-09-29 §2.8).
  *
- * The accepted rows of one `run_id` are the rollback manifest: `rollback`
+ * The accepted rows of one `run_id` are the rollback manifest: `rollbackService`
  * iterates them in reverse application order and inverts each reversible
- * mutation through **existing** writers only (`updateThoughtById`,
+ * mutation through **existing** writers only (`updateThoughtByIdService`,
  * `deleteEdgeService`). Nothing is hard-deleted: a row decided outside the
  * rollback window is refused, a `merge` row is refused as not
  * auto-rollbackable, and a row whose stored fingerprint no longer matches
@@ -21,7 +21,7 @@ import { insertLog } from '../logging/log'
 import { deleteEdgeService } from './edges.service'
 import type { RollbackItemReport, RollbackOptions, RollbackReport } from './placement-apply.types'
 import { isProposalStale } from './placement-proposals.service'
-import { updateThoughtById } from './thoughts.service'
+import { updateThoughtByIdService } from './thoughts.service'
 import { parseResult, planWriterCalls } from './writer-calls'
 
 type Decision = { action: 'revert' } | { action: 'skipped' | 'refused'; reason: string }
@@ -89,12 +89,12 @@ function applyInverse(row: PlacementProposalRow, d: Database): void {
 
   for (const call of calls) {
     switch (call.writer) {
-      case 'updateThoughtById':
+      case 'updateThoughtByIdService':
         // A triage source returns to `draft`; a `replaces+archive` target returns
         // to `active` — the apply-time gate only admits an `active` target
         // (`apply-gates.ts`), so restoring `draft` would silently drop it out of
         // active recall.
-        updateThoughtById(call.args.id, { status: call.args.status }, d)
+        updateThoughtByIdService(call.args.id, { status: call.args.status }, d)
         break
       case 'deleteEdgeService':
         deleteEdgeService(call.args.id, d)
@@ -117,7 +117,7 @@ function summarize(items: RollbackItemReport[]): RollbackReport['summary'] {
  * performs each inverse in its own transaction and marks the row `rolled_back`
  * with `decided_at` (so retention can prune it). Returns the per-row report.
  */
-export function rollback(runId: string, options: RollbackOptions = {}, d: Database = getDb()): RollbackReport {
+export function rollbackService(runId: string, options: RollbackOptions = {}, d: Database = getDb()): RollbackReport {
   if (!runId) throw new ValidationError('run_id is required')
 
   const confirm = options.confirm === true

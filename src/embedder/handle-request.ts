@@ -1,16 +1,7 @@
 import { generateEmbedding, generateEmbeddings } from './model'
+import type { EmbedderReply, EmbedderRequest } from './ipc-protocol'
 
-interface EmbedderRequest {
-  id?: string
-  method?: string
-  params?: { text?: string; texts?: string[] }
-}
-
-export type EmbedderReply = { type: 'result'; id?: string; embedding: number[] | number[][] } | {
-  type: 'error'
-  id?: string
-  error: string
-}
+export type { EmbedderReply } from './ipc-protocol'
 
 // Handles one embedder IPC request and produces exactly one reply — unknown
 // methods get an error reply instead of leaving the client waiting out its

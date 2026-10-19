@@ -1,5 +1,5 @@
 import { cleanupArchivedThoughts } from '../../../services/ttl-cleanup.service'
-import { type ActionArgs, type ActionHandler } from '../action-tool'
+import type { ActionArgs, ActionHandler } from '../action-tool'
 
 export const cleanupHandler: ActionHandler = {
   run(args: ActionArgs) {

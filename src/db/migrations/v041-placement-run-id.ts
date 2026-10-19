@@ -1,9 +1,8 @@
 import type { Database } from 'bun:sqlite'
-import type { Migration } from './index'
 
-const migration: Migration = {
+export default {
   version: 41,
-  apply(db: Database) {
+  apply(db: Database): void {
     // Run envelope for the placement-proposal queue (ADR 2026-09-29 §2.2).
     // `run_id` groups the rows accepted by one explicit triage/apply run, so
     // the queue itself is the queryable rollback manifest. Nullable: rows
@@ -20,5 +19,3 @@ const migration: Migration = {
     db.run(`CREATE INDEX IF NOT EXISTS idx_pp_run ON placement_proposals(run_id, state)`)
   }
 }
-
-export default migration
