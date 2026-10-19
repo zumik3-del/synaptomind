@@ -1,5 +1,6 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { proposalsLimitSchema } from '../../validation'
 import {
   enqueueThoughtProposals,
   listPlacementProposalsService as listProposals,
@@ -90,7 +91,7 @@ export function registerMemoryReview(server: McpServer) {
       item_kind: z.enum(ITEM_KINDS).optional().describe('list: item-kind filter (edge | placement | lifecycle | triage_activate | triage_archive)'),
       project_id: z.string().optional().describe('Project ID (prefer cwd)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project'),
-      limit: z.number().int().min(1).max(1000).optional().describe('list: max rows (default 100); apply_batch: max items this call may apply')
+      limit: proposalsLimitSchema.optional().describe('list: max rows (default 100, 1-1000); apply_batch: max items this call may apply')
     },
     handlers
   })

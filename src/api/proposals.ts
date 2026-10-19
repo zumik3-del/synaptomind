@@ -1,8 +1,10 @@
 import { Hono } from 'hono'
+import { z } from 'zod/v4'
 import { withTelemetry } from '../logging'
 import type { ProposalItemKind, ProposalState } from '../db/placement-proposals'
 import { ValidationError } from '../errors'
-import { jsonBodyOrDefault } from './utils'
+import { PROPOSALS_LIMIT_DEFAULT, proposalsLimitSchema } from '../validation'
+import { formatZodIssues, jsonBodyOrDefault } from './utils'
 import { applyProposalService } from '../services/placement-apply.service'
 import { rollbackService } from '../services/placement-rollback.service'
 import { checkDryRunFirst, checkItemGuards, noteDryRun } from '../services/apply-run-guards'
@@ -10,14 +12,23 @@ import { enqueueThoughtProposals, listPlacementProposalsService as listProposals
 
 const proposalsRouter = new Hono()
 
+// Shared request contract (audit M8): the `limit` range comes from
+// `src/validation.ts`, the same schema `memory_review action=list` advertises, so
+// an out-of-range value is a typed 400 instead of a silent service-side clamp.
+const proposalsQuerySchema = z.object({
+  limit: proposalsLimitSchema.default(PROPOSALS_LIMIT_DEFAULT)
+})
+
 // Read-only: list queued placement proposals (default state=pending).
 proposalsRouter.get('/', c => {
   return withTelemetry(c, { action: 'read', toolName: 'list_placement_proposals' }, c2 => {
     const state = c2.req.query('state') as ProposalState | undefined
     const itemKind = c2.req.query('item_kind') as ProposalItemKind | undefined
-    const parsedLimit = c2.req.query('limit') ? Number(c2.req.query('limit')) : Number.NaN
-    const limit = Number.isFinite(parsedLimit) ? Math.floor(parsedLimit) : undefined
-    return c2.json(listProposals({ state, itemKind, projectId: c2.req.query('project_id'), limit }))
+    const parsed = proposalsQuerySchema.safeParse({
+      limit: c2.req.query('limit') || undefined
+    })
+    if (!parsed.success) throw new ValidationError(formatZodIssues(parsed.error))
+    return c2.json(listProposals({ state, itemKind, projectId: c2.req.query('project_id'), limit: parsed.data.limit }))
   })
 })
 
