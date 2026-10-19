@@ -21,6 +21,7 @@ import { getEdgePairBetween } from '../db/edges'
 import {
   countLivePendingProposals,
   findPendingByItem,
+  findUntriagedDrafts,
   insertProposal,
   type InsertProposalInput,
   type PlacementProposalRow,
@@ -210,37 +211,6 @@ export function enqueueTriageItem(draft: Thought, d: Database = getDb()): Placem
   if (isNew && countLivePendingProposals(d, now) >= config.placement.maxPendingProposals) return null
 
   return insertProposal(d, input)
-}
-
-/**
- * Drafts with no live/accepted triage row, newest first. The `NOT EXISTS`
- * clause is the backfill's idempotence key; the enqueue itself is additionally
- * deduped by `idx_pp_dedup`.
- */
-function findUntriagedDrafts(d: Database, limit: number): Thought[] {
-  const rows = d
-    .prepare(
-      `SELECT t.id FROM thoughts t
-        WHERE t.status = 'draft'
-          AND COALESCE(t.is_cluster, 0) = 0
-          AND COALESCE(t.is_profile, 0) = 0
-          AND NOT EXISTS (
-            SELECT 1 FROM placement_proposals p
-            WHERE p.source_thought_id = t.id
-              AND p.item_kind IN ('triage_activate', 'triage_archive')
-              AND p.state IN ('pending', 'accepted')
-          )
-        ORDER BY t.created_at DESC, t.id DESC
-        LIMIT ?`
-    )
-    .all(Math.floor(limit)) as Array<{ id: string }>
-
-  const drafts: Thought[] = []
-  for (const row of rows) {
-    const thought = getThoughtRow(d, row.id)
-    if (thought) drafts.push(thought)
-  }
-  return drafts
 }
 
 /**
