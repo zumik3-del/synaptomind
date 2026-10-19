@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // Regression coverage for the offline doc-reference lint added by #1757
-// (audit M7, Theme F). `scripts/check-doc-refs.ts` must fail on any surviving
-// `ai-workdir/` pointer (a gitignored scratch dir absent from a checkout) and
-// pass on the real tree. The script self-executes at import time
+// (audit M7, Theme F) and widened by #1780 to `deploy/` + the `docs/adr/` token.
+// `scripts/check-doc-refs.ts` must fail on any surviving `ai-workdir/` or
+// `docs/adr/` pointer (both absent from a checkout) and pass on the real tree.
+// The script self-executes at import time
 // (`process.chdir(dirname(import.meta.dir))`), so it is exercised as a child
 // process — never imported into this test's module registry.
 
@@ -46,12 +47,13 @@ function makeTree(): { script: string; cwd: string } {
   mkdirSync(join(dir, 'scripts'), { recursive: true })
   mkdirSync(join(dir, 'src'), { recursive: true })
   mkdirSync(join(dir, 'docs'), { recursive: true })
+  mkdirSync(join(dir, 'deploy'), { recursive: true })
   const script = join(dir, 'scripts', 'check-doc-refs.ts')
   writeFileSync(script, readFileSync(scriptSource, 'utf8'))
   return { script, cwd: dir }
 }
 
-describe('check-doc-refs lint #1757', () => {
+describe('check-doc-refs lint #1757/#1780', () => {
   test('passes on the current tree (no ai-workdir/ references)', async () => {
     const { stdout, stderr, exitCode } = await runLint(scriptSource, repoRoot)
     if (exitCode !== 0) console.error('[check-doc-refs] current tree:\n' + stdout + stderr)
@@ -76,6 +78,30 @@ describe('check-doc-refs lint #1757', () => {
     if (exitCode !== 0) console.error('[check-doc-refs] clean tree:\n' + stderr)
     expect(stderr).toBe('')
     expect(exitCode).toBe(0)
+  })
+
+  test('covers deploy/ and the docs/adr/ token (app.env is scanned)', async () => {
+    const { script, cwd } = makeTree()
+    // Mirrors the real repair site: deploy/app.env pointed at a `docs/adr/0001-…`
+    // path that never existed. Proves the deploy/ root and the .env extension.
+    writeFileSync(
+      join(cwd, 'deploy', 'app.env'),
+      '# see docs/adr/0001-self-contained-binary-tarball-deployment.md\nDIST="binary"\n'
+    )
+    const { stderr, exitCode } = await runLint(script, cwd)
+    if (exitCode === 0) console.error('[check-doc-refs] deploy/ seed unexpectedly clean:\n' + stderr)
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain('docs/adr/')
+    expect(stderr).toContain('deploy/app.env')
+  })
+
+  test('covers a seeded offence under docs/ (was never seeded before)', async () => {
+    const { script, cwd } = makeTree()
+    writeFileSync(join(cwd, 'docs', 'seed.md'), '# seeded\n\nDesign: docs/adr/0001-x.md\n')
+    const { stderr, exitCode } = await runLint(script, cwd)
+    if (exitCode === 0) console.error('[check-doc-refs] docs/ seed unexpectedly clean:\n' + stderr)
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain('docs/seed.md')
   })
 
   test('rejects only text extensions, not binary blobs', async () => {
