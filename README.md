@@ -141,7 +141,7 @@ sequenceDiagram
 | **Slots** | Context windows summarizing your state: persona, goals, architecture decisions. Agents read these on startup. |
 | **Frontier** | Ranks "what to do next" over `directive`/`todo`/`pending` thoughts. Deferred pending items join once their `wake_days` delay has elapsed. |
 | **Primer** | Compact project summary for quick context injection. Promotes the most relevant thoughts into one document. |
-| **Crystals** | Compressed markdown from thought clusters — runbooks, decision logs, overviews. |
+| **Clusters** | Group related thoughts; inspect and maintain their graph membership. |
 
 </details>
 
@@ -399,13 +399,22 @@ curl http://127.0.0.1:3005/health
 | Supersede | `memory_supersede` (archive, merge) |
 | Status | `memory_status` (slots, frontier, profile, config, health, edge_suggestions, propose, cleanup) |
 | Projects | `memory_manage` (list, create, update, delete, resolve) |
-| Consolidate | `memory_crystallize` (crystallize, graph, cluster, auto_cluster, cluster_remove, cluster_dissolve) |
+| Consolidate | `memory_crystallize` (graph, cluster, auto_cluster, cluster_remove, cluster_dissolve) |
 | Reflect | `memory_reflect` (reflect, timeline) |
 | Telemetry | `memory_telemetry` (query, analyze, primers) |
 | Review | `memory_review` (enqueue, list, apply, apply_batch, rollback, reject) |
 | Guide | `memory_guide` |
 
 For action-level detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
+
+**Breaking 0.x change:** crystal generation (`memory_crystallize action=crystallize`,
+`POST /api/crystals/`) and standalone thought verification
+(`POST /api/thought-verify/run` and `verify` configuration) are removed. Supplying
+`exclude_flagged` to HTTP search or MCP `memory_recall` search/clusters is rejected;
+previously flagged thoughts may now appear in default search results. Existing crystal
+thoughts and `thought_verify` rows are retained; graph/cluster actions and `/health`
+remain available. No destructive migration is included. See [API](docs/API.md) and
+[configuration](docs/CONFIG.md) for details.
 
 </details>
 

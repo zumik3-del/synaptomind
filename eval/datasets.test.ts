@@ -93,7 +93,11 @@ describe('dataset coverage', () => {
 })
 
 describe('dataset behaviour (end-to-end)', () => {
-  test('every pass scenario passes and every xfail scenario still exercises its gap', async () => {
+  // runEval() seeds and queries every scenario DB (8 scenarios, ~1.8s in an
+  // isolated process). Under the canonical full suite the default 5s per-test
+  // deadline is occasionally exceeded by scheduling/load, not by a product
+  // regression; widen only this test's deadline instead of the whole suite.
+  test('scenarios retain their outcomes and measure-only probes stay out of gated aggregates', async () => {
     const res = await runEval()
 
     expect(res.scenarios).toHaveLength(EVAL_SCENARIOS.length)
@@ -114,7 +118,21 @@ describe('dataset behaviour (end-to-end)', () => {
     expect(res.overall.queries).toBeGreaterThan(0)
     expect(res.categories.supersession?.queries).toBe(1)
     expect(res.categories.contradiction).toBeUndefined()
-  })
+
+    // Reuse this end-to-end run: a second runEval() recreates every scenario DB
+    // and can exceed Bun's per-test deadline under full-suite load.
+    expect(res.scenarios.map(scenario => scenario.name)).toEqual(EVAL_SCENARIOS.map(scenario => scenario.name))
+    expect(res.scenarios.filter(scenario => scenario.measureOnly).map(scenario => scenario.name)).toEqual([
+      'recency-prefers-fresh',
+      'negative-no-match'
+    ])
+    expect(res.categories['no-match']).toBeUndefined()
+
+    const gatedQueries = EVAL_SCENARIOS.filter(
+      scenario => !scenario.measureOnly && scenario.outcome !== 'xfail'
+    ).reduce((count, scenario) => count + scenario.queries.length, 0)
+    expect(res.overall.queries).toBe(gatedQueries)
+  }, 30_000)
 })
 
 function scenarioNamed(name: string): Extract<typeof EVAL_SCENARIOS[number], { name: string }> {
@@ -197,23 +215,6 @@ describe('feature-probe dataset audit (#825)', () => {
     // Every retrieved hit carries the confidence signal, and none is a strong match.
     expect(run.queries[0].hits.length).toBeGreaterThan(0)
     for (const hit of run.queries[0].hits) expect(hit.lowConfidence).toBe(true)
-  })
-
-  test('the probe scenarios are reported but stay out of the gated aggregates', async () => {
-    const res = await runEval()
-
-    expect(res.scenarios.map(scenario => scenario.name)).toEqual(EVAL_SCENARIOS.map(scenario => scenario.name))
-    expect(res.scenarios.filter(scenario => scenario.measureOnly).map(scenario => scenario.name)).toEqual([
-      'recency-prefers-fresh',
-      'negative-no-match'
-    ])
-    expect(res.categories['no-match']).toBeUndefined()
-
-    // Only non-measureOnly non-xfail scenarios contribute to the overall query count.
-    const gatedQueries = EVAL_SCENARIOS.filter(
-      scenario => !scenario.measureOnly && scenario.outcome !== 'xfail'
-    ).reduce((count, scenario) => count + scenario.queries.length, 0)
-    expect(res.overall.queries).toBe(gatedQueries)
   })
 
   test('measure-only categories carry no threshold floor in eval/thresholds.json', () => {

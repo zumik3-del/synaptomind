@@ -1,6 +1,11 @@
 # HTTP API Reference
 
-REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Server version at time of writing: **0.9.0**.
+REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Package version at time of writing: **0.12.1**.
+
+**Breaking 0.x change:** `POST /api/crystals/` and `POST /api/thought-verify/run`
+are no longer mounted. Existing crystal thoughts and `thought_verify` rows remain
+stored; there is no destructive migration. Graph/cluster MCP actions and `GET /health`
+remain available. Search no longer filters previously flagged thoughts by default.
 
 - **Auth:** all `/api/*` endpoints require `Authorization: Bearer <token>` (401 otherwise). The token is set via the `SYNAPTOMIND_SECRET` or `SYNAPTOMIND_SERVICE_TOKEN` environment variable. `GET /health` is the only public endpoint.
 - **Body limit:** request bodies over 5 MB are rejected with `413`.
@@ -26,7 +31,6 @@ Hybrid (vector + FTS5) search over thoughts. Results can be grouped by cluster a
 | group_by_cluster | query | bool | false | `true` groups results by cluster |
 | min_importance | query | float | optional | Minimum importance |
 | show_primers | query | bool | true | Set `false` to hide primer results |
-| exclude_flagged | query | bool | false | `true` excludes flagged thoughts |
 | hybrid | query | bool | true | `0` disables hybrid search |
 | recency_weight | query | float | 0 | Opt-in recency boost weight (0-1); `0` preserves relevance-only ranking, `>0` adds `recency_weight × 0.5^(ageDays/recency_half_life_days)` |
 | recency_half_life_days | query | int | 30 | Recency decay half-life in days (clamped 1-3650); only meaningful when `recency_weight > 0` |
@@ -35,6 +39,10 @@ Hybrid (vector + FTS5) search over thoughts. Results can be grouped by cluster a
 | contradiction_mode | query | string | flag | Contradicted thoughts: `off` or `flag`; never suppressed |
 
 curl `'http://127.0.0.1:3005/api/thoughts/search?q=auth+middleware&k=3&supersession_mode=flag'`
+
+Supplying `exclude_flagged` (including `false`) returns HTTP 400 with
+`{"error":"exclude_flagged is retired"}`. Previously flagged thoughts may appear
+in default search results; graph standing filters still apply independently.
 
 Response: `[{"thought": {"id": "...", "content": "...", ...}, "distance": 0.12, "similarity": 0.88, "standing": "current"}, ...]`
 
@@ -571,16 +579,6 @@ Deletes a primer. 404 if missing. Returns `{"success": true}`.
 
 curl `-X DELETE http://127.0.0.1:3005/api/primers/<id>`
 
-## Thought Verify
-
-### POST /api/thought-verify/run
-
-Runs the verify job (integrity checks over stored thoughts). 500 with `{"error": "Verify job failed", "ok": false}` on failure.
-
-curl `-X POST http://127.0.0.1:3005/api/thought-verify/run`
-
-Response: `{"ok": true, ...stats}`
-
 ## Settings
 
 Also see docs/CONFIG.md for file/environment configuration.
@@ -763,23 +761,6 @@ curl `-d '{"summary": "Added API docs", "decisions": ["Use manual API reference"
 Response: `{"ok": true, "applied": {"summary_appended": true, "goals_added": 0, "goals_removed": 0, "decisions_created": 1, "pending_created": 0}}`
 
 `pending` items are stored with `surface_after = now + wake_days`; they enter the frontier (reason `pending`) and the `pending_items` slot once due, and stay drafts until the agent activates or archives them.
-
-## Crystals
-
-### POST /api/crystals/
-
-Compresses selected thoughts (or a cluster) into a single markdown "crystal" thought. 400 on validation error.
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| thought_ids | body | string[] | optional | Thoughts to crystallize |
-| cluster_id | body | string | optional | Crystallize a whole cluster |
-| style | body | string | optional | `runbook`, `decision-log`, or `overview` |
-| project_id | body | string | optional | Project scope |
-
-curl `-d '{"thought_ids": ["<id1>", "<id2>"], "style": "overview"}' http://127.0.0.1:3005/api/crystals/`
-
-Response: `{"crystal_id": "...", "content": "## Context\n...", "style": "overview", "members_used": 2}`
 
 ## Frontier
 

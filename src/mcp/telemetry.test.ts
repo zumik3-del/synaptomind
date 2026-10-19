@@ -123,7 +123,6 @@ const CANONICAL_ROUTES: CanonicalRoute[] = [
   { tool: 'memory_manage', action: 'update', actionType: 'write', toolName: 'update_project' },
   { tool: 'memory_manage', action: 'delete', actionType: 'write', toolName: 'delete_project' },
   { tool: 'memory_manage', action: 'resolve', actionType: 'read', toolName: 'resolve_project' },
-  { tool: 'memory_crystallize', action: 'crystallize', actionType: 'write', toolName: 'crystallize' },
   { tool: 'memory_crystallize', action: 'graph', actionType: 'read', toolName: 'get_thought_graph' },
   { tool: 'memory_crystallize', action: 'cluster', actionType: 'write', toolName: 'cluster' },
   { tool: 'memory_crystallize', action: 'auto_cluster', actionType: 'write', toolName: 'auto_cluster' },
@@ -177,6 +176,17 @@ describe('canonical tool/action mapping', () => {
     const row = lastRow()
     expect(row.action).toBe('read')
     expect(row.tool_name).toBe('memory_store')
+  })
+
+  test('retired crystallize action is not recorded as a crystal write', async () => {
+    const server = instrumentedServer()
+    registerPassthrough(server, 'memory_crystallize')
+
+    await dispatch(server, 'memory_crystallize', { action: 'crystallize' }, 's')
+
+    expect({ action: lastRow().action, tool: lastRow().tool_name }).toEqual({
+      action: 'read', tool: 'memory_crystallize'
+    })
   })
 
   test('a tool absent from the routing table writes no row', async () => {
