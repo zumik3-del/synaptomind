@@ -48,7 +48,6 @@ export interface SearchOptionsParams {
   tagFilter?: string
   clusterFilter?: 'only' | 'exclude'
   minImportance?: number
-  excludeFlagged?: boolean
   includeGlobal?: boolean
   hybrid?: boolean
   supersessionMode?: SupersessionMode
@@ -72,7 +71,6 @@ export function buildSearchOptions(params: SearchOptionsParams): SearchServiceOp
     tagFilter: params.tagFilter,
     clusterFilter: params.clusterFilter,
     minImportance: params.minImportance,
-    excludeFlagged: params.excludeFlagged,
     includeGlobal: params.includeGlobal,
     hybrid: params.hybrid,
     supersessionMode: params.supersessionMode,

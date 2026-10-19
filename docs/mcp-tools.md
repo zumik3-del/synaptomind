@@ -18,10 +18,18 @@ For the HTTP equivalents, see [docs/API.md](API.md). For end-to-end usage, see
 | `memory_status` | slots, frontier, profile, config, health, edge_suggestions, propose, cleanup | Query system state |
 | `memory_manage` | list, create, update, delete, resolve | Project management |
 | `memory_review` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
-| `memory_crystallize` | crystallize, graph, cluster, auto_cluster, cluster_remove, cluster_dissolve | Consolidate, visualize and reorganize clusters |
+| `memory_crystallize` | graph, cluster, auto_cluster, cluster_remove, cluster_dissolve | Visualize and reorganize clusters |
 | `memory_reflect` | reflect, timeline | Session management |
 | `memory_telemetry` | query, analyze, primers | Analytics and self-improvement |
 | `memory_guide` | (no action) | In-band reference text |
+
+**Breaking 0.x change:** `memory_crystallize action=crystallize` is removed;
+graph and cluster actions still work. Standalone thought verification is removed,
+but existing crystal thoughts and `thought_verify` rows remain in the database.
+`memory_recall` search/clusters rejects a supplied `exclude_flagged` argument
+(even `false`) with a validation error. Previously flagged thoughts may now
+appear in default search results. No destructive migration is included; `/health`
+is unchanged. See [API.md](API.md) for removed HTTP routes.
 
 ## Dry-run / confirm pattern
 

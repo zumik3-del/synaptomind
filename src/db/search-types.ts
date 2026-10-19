@@ -9,7 +9,6 @@ export interface SearchOptions {
   projectFilter?: string
   clusterFilter?: 'only' | 'exclude'
   minImportance?: number
-  excludeFlagged?: boolean
   includeGlobal?: boolean
   hybrid?: boolean
   /**

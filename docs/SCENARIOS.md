@@ -80,20 +80,23 @@ What happens inside:
 memory_status(action=frontier)
   → candidates: active/draft thoughts tagged directive, todo or pending
     whose surface_after delay has elapsed (or is unset)
-  → excluded: clusters, crystals, profile summaries, replaced thoughts
+  → excluded: clusters, historical crystal thoughts, profile summaries, replaced thoughts
   → priority = 0.5·importance + 0.15·unblocked + age bonus
     (age ≤ 7d: +0.1, ≤ 30d: +0.05, else 0)
   → depends_on: blocked items lose the 0.15 unblocked bonus but still surface with lower priority and blocked_by metadata
 ```
 
-## Scenario 7: Grouping and Compression
+## Scenario 7: Grouping and Cluster Maintenance
 
 ```
-memory_crystallize(action=auto_cluster) → similar thoughts merged into clusters (Union-Find)
-memory_crystallize(action=crystallize, cluster_id=..., style="runbook") →
-  cluster compressed into markdown: Procedure + Gotchas + Open questions
-  → crystal thought created (source="crystal"), excluded from frontier
+memory_crystallize(action=auto_cluster) → similar thoughts grouped into clusters (Union-Find)
+memory_crystallize(action=graph) → inspect thoughts and edges
+memory_crystallize(action=cluster_remove, cluster_id="<cluster-id>", thought_id="<thought-id>")
+  → preview removing a member; repeat with confirm=true to apply
 ```
+
+Crystal generation (`action=crystallize`) is removed in this breaking 0.x release.
+Existing crystal thoughts remain stored and excluded from the frontier.
 
 ## Scenario 8: Profile (Persona)
 
@@ -111,14 +114,18 @@ memory_store(action=create, "Work at night", is_profile=true, tags=["@profile", 
 decay job → importance decreases by rate (0.95) every 24h
   → importance < 0.1 + age > 30 days + active → auto-archive
 
-thought_verify → re-embeds content, flags drift (cosine distance > driftThreshold) or staleness (> staleWarnDays)
-
 self-improve → detects:
   orphan_writes → thoughts created without project binding (advisory only)
   low_activation_rate → many drafts, few promotions (auto-promotes old drafts)
   zero_clusters → no clusters with a large thought count (auto-triggers clustering)
   → some checks auto-fix, others recommend manual review
 ```
+
+The standalone thought-verification job was removed; existing `thought_verify`
+rows remain stored. Do not use `exclude_flagged` in search calls: HTTP search
+rejects it with 400 and MCP recall search/clusters reject it with a validation
+error. Previously flagged thoughts may now appear in default search results.
+There is no destructive migration; `/health` remains available.
 
 ---
 

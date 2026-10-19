@@ -15,7 +15,7 @@ const original = {
   mcp: config.mcp,
   embedder: config.embedder,
   thoughts: config.thoughts,
-  verify: config.verify
+  logDbPath: config.logDbPath
 }
 
 afterEach(() => {
@@ -23,7 +23,7 @@ afterEach(() => {
   config.mcp = original.mcp
   config.embedder = original.embedder
   config.thoughts = original.thoughts
-  config.verify = original.verify
+  config.logDbPath = original.logDbPath
 })
 
 describe('buildConfigDisplay redaction', () => {
@@ -66,14 +66,12 @@ describe('buildConfigDisplay redaction', () => {
   })
 
   test('formats scalars and annotates a value that differs from the default', () => {
-    config.verify = { ...config.verify, enabled: true }
     config.thoughts = { ...config.thoughts, softLimit: DEFAULT_SOFT_LIMIT + 1 }
 
     const out = buildConfigDisplay()
 
-    expect(out).toContain('--- Verify ---')
+    expect(out).not.toContain('--- Verify ---')
     expect(out).toContain('--- Thoughts ---')
-    expect(out).toContain('verify.enabled = yes')
     expect(out).toContain(`thoughts.softLimit = ${DEFAULT_SOFT_LIMIT + 1}`)
     expect(out).toContain(`[default: ${DEFAULT_SOFT_LIMIT}]`)
   })

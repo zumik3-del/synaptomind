@@ -40,7 +40,6 @@ interface Config {
     archiveMinAgeDays: number; intervalMs: number
   }
   primer: { promoteThreshold: number; topN: number }
-  verify: { enabled: boolean; driftThreshold: number; staleWarnDays: number }
   autoCluster: {
     minAgeDays: number; minSimilarity: number;
     minMembers: number; dryRun: boolean
@@ -93,7 +92,6 @@ export const DEFAULTS: Config = {
     archiveMinAgeDays: 30, intervalMs: 86400000
   },
   primer: { promoteThreshold: 5, topN: 3 },
-  verify: { enabled: true, driftThreshold: 0.25, staleWarnDays: 30 },
   // `minSimilarity` is a cosine DISTANCE (see auto-cluster.service.ts
   // `r.distance < minSimilarity`), so lower = tighter. The distance is now
   // computed in memory as `1 - cos` instead of read from vec0 — same value.
@@ -192,10 +190,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
 
   M('SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD', 'primer.promoteThreshold', 'int'),
   M('SYNAPTOMIND_PRIMER_TOP_N', 'primer.topN', 'int'),
-
-  M('SYNAPTOMIND_VERIFY_ENABLED', 'verify.enabled', 'bool'),
-  M('SYNAPTOMIND_DRIFT_THRESHOLD', 'verify.driftThreshold', 'float'),
-  M('SYNAPTOMIND_STALE_WARN_DAYS', 'verify.staleWarnDays', 'int'),
 
   M('SYNAPTOMIND_AUTO_CLUSTER_MIN_AGE_DAYS', 'autoCluster.minAgeDays', 'int'),
   M('SYNAPTOMIND_AUTO_CLUSTER_MIN_SIMILARITY', 'autoCluster.minSimilarity', 'float'),

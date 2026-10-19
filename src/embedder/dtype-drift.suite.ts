@@ -27,8 +27,8 @@
  * Both embedding paths are measured because they answer different questions:
  * `generateEmbedding` (the `query: ` prefix) is what search embeds at query
  * time, and `generateEmbeddings` (the `passage: ` prefix) is what
- * `thought_verify` recomputes to compare against the stored corpus vector — the
- * half that decides whether a dtype switch lights up the drift flag. Both are
+ * the corpus was embedded with a passage prefix, so this path measures whether
+ * a dtype switch changes stored-vector compatibility. Both paths are
  * driven through `./model`, i.e. the same `pipeline()` options (mean pooling,
  * normalize) the embedder child process uses; only the process is separate.
  */
@@ -46,13 +46,13 @@ const SAMPLES: string[] = [
   'Decided to keep exactly one model copy resident: a single embedding model costs 300-400 MB of RSS.',
   'The q8 quantized ONNX file is roughly a quarter of the fp32 size, which matters on a 1 GB host.',
   'Search blends BM25 and vector hits with reciprocal rank fusion, then applies the confidence floor.',
-  'A long thought: the verifier compares every stored embedding against a freshly computed one and flags drift above the threshold, so a silent model change surfaces as a wave of stale entries instead of a wrong search result that nobody notices for a month.',
+  'A long thought: changing the embedding model precision may alter similarity to previously stored passage vectors, so compare both paths before deciding whether to re-embed the corpus.',
   'Tests must stay offline: no network, no model files, no live database, no production service.',
   'p95 latency for search stayed under 40 ms on the development host.',
   'Rollback is never automatic: restore the pre-update database backup, then check out the printed revision.',
   'Vector dimensions are 384 for multilingual-e5-small.',
   'Решение: по умолчанию используем квантованную модель q8, потому что fp32 занимает 449 МБ на диске.',
-  'Проверка дрейфа сравнивает сохранённый вектор с только что посчитанным.',
+  'Калибровка точности сравнивает сохранённый вектор с заново посчитанным.',
   'Если сменить точность модели, старые эмбеддинги могут перестать соответствовать новым.',
   'Поиск по мыслям объединяет полнотекстовый и векторный ранжировщик.',
   'Память — узкое место: на сервере всего 1–2 ГБ, поэтому держим одну копию модели.',
@@ -194,19 +194,20 @@ test.skipIf(MODE !== 'compare')('compare — fp32 vs q8 cosine distance per path
     console.log(`[drift] ${String(i).padStart(2)} ${perText.join(' ')}  ${a.text.slice(0, 40)}`)
   }
 
-  const driftThreshold = config.verify.driftThreshold
+  // Test-only provisional bound; not recalibrated after verifier retirement.
+  const dtypeDistanceBound = 0.25
   const vectorFloor = config.search.confidence.vectorFloor
   console.log(`[drift] fp32 onnx=${fp32.onnxFile} q8 onnx=${q8.onnxFile} dims=${fp32.dimensions}`)
-  console.log(`[drift] driftThreshold=${driftThreshold} vectorFloor=${vectorFloor}`)
+  console.log(`[drift] provisional dtypeDistanceBound=${dtypeDistanceBound} vectorFloor=${vectorFloor}`)
 
   const dists: Record<Path, Distribution> = { query: distribution(distances.query), passage: distribution(distances.passage) }
   for (const path of PATHS) {
     const dist = dists[path]
-    const over = distances[path].filter(d => d > driftThreshold).length
+    const over = distances[path].filter(d => d > dtypeDistanceBound).length
     const worstSimilarity = 1 - dist.max
     console.log(
       `[drift] ${path.padEnd(7)} distance: min=${fmt(dist.min)} median=${fmt(dist.median)} ` +
-        `mean=${fmt(dist.mean)} max=${fmt(dist.max)} over${driftThreshold}=${over}/${SAMPLES.length} ` +
+        `mean=${fmt(dist.mean)} max=${fmt(dist.max)} over${dtypeDistanceBound}=${over}/${SAMPLES.length} ` +
         `| worst self-similarity=${fmt(worstSimilarity)}`
     )
     expect(dist.min, `${path}: identical texts must not be identical vectors across dtypes`).toBeGreaterThan(0)
@@ -227,12 +228,12 @@ test.skipIf(MODE !== 'compare')('compare — fp32 vs q8 cosine distance per path
       `min=${fmt(cross.min)} median=${fmt(cross.median)} max=${fmt(cross.max)}`
   )
 
-  const blocking = distances.passage.filter(d => d > driftThreshold).length
+  const blocking = distances.passage.filter(d => d > dtypeDistanceBound).length
   const worst = Math.min(...PATHS.map(path => 1 - dists[path].max))
   console.log(
-    `[drift] verdict: ${blocking === 0 ? 'corpus re-embed NOT required' : 'corpus re-embed REQUIRED'} — ` +
-      `thought_verify compares stored vs fresh PASSAGE vectors: ${blocking}/${SAMPLES.length} texts exceed ` +
-      `driftThreshold=${driftThreshold} (query max=${fmt(dists.query.max)}, passage max=${fmt(dists.passage.max)}); ` +
+    `[drift] provisional calibration: ${blocking === 0 ? 'corpus re-embed NOT indicated' : 'corpus re-embed MAY be required'} — ` +
+      `${blocking}/${SAMPLES.length} PASSAGE samples exceed test-only dtypeDistanceBound=${dtypeDistanceBound} ` +
+      `(query max=${fmt(dists.query.max)}, passage max=${fmt(dists.passage.max)}); ` +
       `worst cross-dtype self-similarity=${fmt(worst)} vs vectorFloor=${vectorFloor}; ` +
       `quantization noise is ${(dists.passage.max / cross.median * 100).toFixed(1)}% of the median distance ` +
       `between two different thoughts (${fmt(cross.median)})`

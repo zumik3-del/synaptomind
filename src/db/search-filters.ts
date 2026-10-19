@@ -5,7 +5,6 @@ export interface FilterOptions {
   projectFilter?: string
   clusterFilter?: 'only' | 'exclude'
   minImportance?: number
-  excludeFlagged?: boolean
   includeGlobal?: boolean
 }
 
@@ -42,9 +41,6 @@ export function buildFilterSQL(options: FilterOptions): { sql: string; params: S
   if (options.minImportance !== undefined && options.minImportance > 0) {
     sql += 'AND ti.importance >= ? '
     params.push(options.minImportance)
-  }
-  if (options.excludeFlagged) {
-    sql += 'AND NOT EXISTS (SELECT 1 FROM thought_verify tv WHERE tv.thought_id = t.id AND tv.flagged = 1) '
   }
   return { sql, params }
 }
