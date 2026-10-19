@@ -106,27 +106,31 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
     }
   }
 
-  const getVersion = (): number => {
-    const row = d.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
+  const getVersion = (db: Database): number => {
+    const row = db.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
       | { value: string }
       | undefined
     return row ? parseInt(row.value, 10) : 0
   }
 
-  const setVersion = (version: number): void => {
-    d.prepare(
+  const setVersion = (db: Database, version: number): void => {
+    db.prepare(
       `INSERT INTO _meta (key, value) VALUES ('schema_version', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`
     ).run(String(version))
   }
 
-  let current = getVersion()
+  let current = getVersion(d)
 
   for (const migration of MIGRATIONS) {
     if (current >= migration.version) continue
-    const run = d.transaction(() => migration.apply(d, { isMemory, dimensions }))
+    // Apply the migration and stamp its schema_version in one transaction: a crash
+    // between the two must not leave a non-idempotent migration half-applied (audit H1).
+    const run = d.transaction(() => {
+      migration.apply(d, { isMemory, dimensions })
+      setVersion(d, migration.version)
+    })
     run()
-    setVersion(migration.version)
     current = migration.version
   }
 
