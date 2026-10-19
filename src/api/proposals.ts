@@ -18,6 +18,9 @@ const proposalsRouter = new Hono()
 const proposalsQuerySchema = z.object({
   limit: proposalsLimitSchema.default(PROPOSALS_LIMIT_DEFAULT)
 })
+const enqueueBodySchema = z.object({ thought_id: z.string().optional(), project_id: z.string().optional() })
+const rollbackBodySchema = z.object({ run_id: z.string().optional(), confirm: z.boolean().optional() })
+const applyBodySchema = z.object({ confirm: z.boolean().optional(), run_id: z.string().optional() })
 
 // Read-only: list queued placement proposals (default state=pending).
 proposalsRouter.get('/', c => {
@@ -35,8 +38,9 @@ proposalsRouter.get('/', c => {
 // Write: propose a plan for a persisted thought and queue its confirmable items.
 proposalsRouter.post('/', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'enqueue_placement_proposals' }, async c2 => {
-    const body = await jsonBodyOrDefault<{ thought_id?: string; project_id?: string }>(c2, {})
-    const rows = await enqueueThoughtProposals(body.thought_id as string, { projectId: body.project_id })
+    const body = await jsonBodyOrDefault<{ thought_id?: string; project_id?: string }>(c2, {}, enqueueBodySchema)
+    if (!body.thought_id) throw new ValidationError('thought_id is required')
+    const rows = await enqueueThoughtProposals(body.thought_id, { projectId: body.project_id })
     return c2.json(rows, 201)
   })
 })
@@ -44,7 +48,7 @@ proposalsRouter.post('/', async c => {
 // Write: roll back every reversible mutation of one explicit run (ADR §2.8).
 proposalsRouter.post('/rollback', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'rollback_placement_proposals' }, async c2 => {
-    const body = await jsonBodyOrDefault<{ run_id?: string; confirm?: boolean }>(c2, {})
+    const body = await jsonBodyOrDefault<{ run_id?: string; confirm?: boolean }>(c2, {}, rollbackBodySchema)
     if (!body.run_id) throw new ValidationError('run_id is required')
     return c2.json(rollbackService(body.run_id, { confirm: body.confirm === true, decidedBy: 'api' }))
   })
@@ -53,7 +57,7 @@ proposalsRouter.post('/rollback', async c => {
 // Write: apply exactly one queued proposal; dry-run unless confirm=true (ADR §2.10.3).
 proposalsRouter.post('/:id/apply', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'apply_placement_proposal' }, async c2 => {
-    const body = await jsonBodyOrDefault<{ confirm?: boolean; run_id?: string }>(c2, {})
+    const body = await jsonBodyOrDefault<{ confirm?: boolean; run_id?: string }>(c2, {}, applyBodySchema)
     const proposalId = c2.req.param('id')!
     const confirm = body.confirm === true
     if (confirm) {

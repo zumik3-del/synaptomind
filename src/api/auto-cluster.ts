@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { z } from 'zod/v4'
 import { withTelemetry } from '../logging'
 import { type AutoClusterOptions, getLastAutoClusterStatus, runAutoClusterJob } from '../services/auto-cluster.service'
 import { jsonBodyOrDefault } from './utils'
@@ -11,10 +12,16 @@ interface TriggerBody {
   min_members?: number
   dry_run?: boolean
 }
+const triggerBodySchema = z.object({
+  min_age_days: z.number().int().min(0).optional(),
+  min_similarity: z.number().finite().min(0).max(1).optional(),
+  min_members: z.number().int().min(1).optional(),
+  dry_run: z.boolean().optional()
+})
 
 autoClusterRouter.post('/auto-cluster/trigger', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'auto_cluster' }, async c2 => {
-    const body = await jsonBodyOrDefault<TriggerBody>(c2, {})
+    const body = await jsonBodyOrDefault<TriggerBody>(c2, {}, triggerBodySchema)
 
     const options: AutoClusterOptions = {}
     if (body.min_age_days !== undefined) options.minAgeDays = body.min_age_days
