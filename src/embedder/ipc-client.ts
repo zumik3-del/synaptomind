@@ -1,16 +1,6 @@
 import type { Subprocess } from 'bun'
 import { EmbedderNotReadyError, EmbedderOverloadedError } from '../errors'
-
-type EmbeddingPayload = number[] | number[][]
-
-export interface IpcMessage {
-  type: 'ready' | 'exiting' | 'result' | 'error' | 'request' | 'shutdown'
-  id?: string
-  error?: string
-  embedding?: EmbeddingPayload
-  method?: string
-  params?: unknown
-}
+import type { IpcMessage } from './ipc-protocol'
 
 interface PendingRequest {
   resolve: (value: unknown) => void
