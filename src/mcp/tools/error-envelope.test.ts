@@ -4,7 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod/v4'
-import { EmbedderNotReadyError, EmbedderSendError, EmbedderTimeoutError } from '../../errors'
+import { EmbedderNotReadyError, EmbedderSendError, EmbedderTimeoutError, EmbedderUnavailableError } from '../../errors'
 import { type ActionToolConfig, registerActionTool } from './action-tool'
 import { errorResult } from './utils'
 
@@ -52,6 +52,11 @@ const classifiedConfig: ActionToolConfig = {
     not_ready: {
       run: () => {
         throw new EmbedderNotReadyError()
+      }
+    },
+    unavailable: {
+      run: () => {
+        throw new EmbedderUnavailableError()
       }
     },
     plain: {
@@ -105,6 +110,18 @@ describe('registerActionTool classifies thrown domain errors in the envelope', (
     expect(result.isError).toBe(true)
     expect(result.structuredContent?.result?.error).toEqual({
       message: 'Failed to send request to embedder process',
+      statusCode: 503,
+      retryable: true
+    })
+  })
+
+  test('a handler throwing EmbedderUnavailableError yields 503 + retryable (#1773)', async () => {
+    const handler = captureTool(server => registerActionTool(server, classifiedConfig))
+    const result = (await handler({ action: 'unavailable' })) as ToolResult
+
+    expect(result.isError).toBe(true)
+    expect(result.structuredContent?.result?.error).toEqual({
+      message: 'Embedder process is unavailable',
       statusCode: 503,
       retryable: true
     })

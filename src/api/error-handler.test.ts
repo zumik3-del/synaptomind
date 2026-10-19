@@ -5,6 +5,7 @@ import {
 	EmbedderOverloadedError,
 	EmbedderTimeoutError,
 	EmbedderSendError,
+	EmbedderUnavailableError,
 	NotFoundError,
 } from "../errors";
 import { errorHandler } from "./error-handler";
@@ -58,6 +59,15 @@ describe("errorHandler", () => {
 		expect(res.status).toBe(503);
 		return res.json().then((body) => {
 			expect(body).toEqual({ error: "Failed to send request to embedder process" });
+		});
+	});
+
+	test("EmbedderUnavailableError maps to 503 via statusCode", () => {
+		const c = makeContext();
+		const res = errorHandler(new EmbedderUnavailableError("Embedder process went idle"), c) as Response;
+		expect(res.status).toBe(503);
+		return res.json().then((body) => {
+			expect(body).toEqual({ error: "Embedder process went idle" });
 		});
 	});
 
