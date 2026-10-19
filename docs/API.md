@@ -637,7 +637,9 @@ Response: `{"thoughts": 120, "edges": 45, ..., "db_size_bytes": 1048576}`
 
 ## Telemetry
 
-All telemetry endpoints require `SYNAPTOMIND_LOG_DB_PATH` to be configured; otherwise they return 503 `{"error": "LOG_DB_PATH not set"}`.
+All telemetry endpoints require `SYNAPTOMIND_LOG_DB_PATH` to be configured; otherwise they return 503 `{"error": "Log database not available"}`.
+
+Aggregation lives in `src/services/telemetry.service.ts`, shared with the MCP `memory_telemetry` action `query`; this route layer only parses the query params and serializes the returned DTO. Both surfaces resolve the window (floor + default) and the result cap (default) from the same per-metric spec. The payloads differ only where intentional: MCP `query` returns raw aggregate rows, while the HTTP endpoints below return the shaped reports — `orphan_writes` returns the offending write list (MCP returns the aggregate counts) and `draft_lifecycle` returns the named lifecycle counters (MCP returns raw `action`/`count` rows).
 
 ### GET /api/telemetry/patterns
 
