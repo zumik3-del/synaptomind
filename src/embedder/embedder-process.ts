@@ -15,6 +15,7 @@ import {
   sweepOrphanedThoughts
 } from '../db/pending-embeddings'
 import { handleEmbedderRequest } from './handle-request'
+import type { IpcMessage } from './ipc-protocol'
 import { type EmbeddingRow, type FailedRow, type RowOutcome, classifyBatch } from './batch'
 
 const BATCH_SIZE = config.embedder.batchSize
@@ -209,7 +210,7 @@ function startWorker(): void {
 }
 
 process.on('message', async (raw: unknown) => {
-  const message = raw as { type?: string; id?: string; method?: string; params?: { text?: string; texts?: string[] } }
+  const message = raw as IpcMessage
   if (message.type === 'shutdown') {
     console.log('[embedder] shutdown requested, exiting')
     if (pollTimer) clearInterval(pollTimer)

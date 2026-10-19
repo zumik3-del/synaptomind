@@ -4,7 +4,8 @@ import { getEmbedderIdleTimeoutMs, getEmbedderPrecache } from '../db/settings'
 import { insertLog as defaultInsertLog } from '../logging'
 import { EmbedderNotReadyError } from '../errors'
 import { isCompiled as defaultIsCompiled } from '../runtime-mode'
-import { IpcClient, type IpcMessage } from './ipc-client'
+import { IpcClient } from './ipc-client'
+import type { IpcMessage } from './ipc-protocol'
 
 type InsertLogFn = (
   level: 'debug' | 'info' | 'warning' | 'error',
