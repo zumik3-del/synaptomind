@@ -149,7 +149,7 @@ describe('POST /api/proposals', () => {
     })
     expect(res.status).toBe(400)
     const body = await res.json() as { error: string }
-    expect(body.error.toLowerCase()).toContain('thoughtid')
+    expect(body.error.toLowerCase()).toContain('thought_id')
   })
 
   test('404 when thought_id does not exist', async () => {
