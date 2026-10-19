@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.14.0
+
+> October 19, 2026
+
+- [`806ecc0`](https://github.com/zumik3-del/synaptomind/commit/806ecc0d4c8543300013740b6878b5e6d14b4bc1): docs(agents): update canonical test command after suite split
+- [`3f2553e`](https://github.com/zumik3-del/synaptomind/commit/3f2553eff89dfe07bd5fad19a24948ead8b6ffab): chore(test): split canonical and extended test commands
+- [`c5601f4`](https://github.com/zumik3-del/synaptomind/commit/c5601f464157bb767eb075f057c7cad3ace93bec): test(eval): stabilize datasets behaviour test under full suite load
+- [`143099e`](https://github.com/zumik3-del/synaptomind/commit/143099e6fd42d020d7393e1a877dc59af3ddbba2): feat(memory)!: retire crystals and thought verification
+
 ## v0.12.1
 
 > October 19, 2026
