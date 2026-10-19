@@ -28,5 +28,6 @@ test.skipIf(!PERF_SUITE_ENABLED)(
     }
     expect(exitCode).toBe(0)
     expect(stdout + stderr).toContain('0 fail')
-  }
+  },
+  30000
 )

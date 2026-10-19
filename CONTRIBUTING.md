@@ -25,7 +25,7 @@ Open an issue with the `enhancement` label. Describe the problem you want to sol
 
 1. Fork the repo and create a feature branch from `dev`.
 2. Make your changes following the code conventions below.
-3. Run `bun test` to make sure tests pass.
+3. Run `bun run test` (canonical) or `bun run test:all` to make sure tests pass.
 4. Run `bunx biome check src/` for lint (advisory, not blocking).
 5. Open a pull request `dev` → `main` with a **Conventional Commit title** (see below).
 6. PRs are merged with a **merge commit** (never squash) — the PR title becomes the merge-commit subject on `main`.
@@ -89,7 +89,10 @@ src/
 
 ```bash
 bun install
-bun test                    # run tests
+bun run test                # canonical fast suite (src/)
+bun run test:all            # full suite
+bun run test:deploy         # deploy shell integration
+bun run test:eval           # retrieval quality gates
 bunx biome check src/       # lint
 bun run dev                 # start dev server
 ```

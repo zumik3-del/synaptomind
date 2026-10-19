@@ -446,10 +446,18 @@ Falls back to default instructions if file not found.
 ## Development
 
 ```bash
-bun test                 # run tests
+bun run test             # canonical fast suite (src/)
+bun run test:all         # full suite (src/ + deploy/ + eval/ + scripts/)
+bun run test:deploy      # deploy shell integration (deploy/)
+bun run test:eval        # retrieval quality gates (eval/)
+bun run test:perf        # perf scale (SYNAPTOMIND_PERF_SUITE=1)
+bun run test:isolated    # subprocess-heavy embedder IPC + http transport lifecycle
 bun run eval             # memory evaluation harness (recall@k, MRR, baselines)
 bunx biome check src/ eval/   # lint (advisory)
 ```
+
+`bun test` (without a script) still runs the full suite; the canonical developer
+gate is `bun run test` (`bun test src`).
 
 For step-by-step usage scenarios, see [docs/SCENARIOS.md](docs/SCENARIOS.md).
 
