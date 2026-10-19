@@ -415,7 +415,7 @@ Lists queued proposals, newest first. Read-only; never applies anything. Default
 | state | query | string | pending | One of: `pending`, `accepted`, `rejected`, `expired`, `stale`, `rolled_back` |
 | item_kind | query | string | optional | Item-kind filter: `edge`, `placement`, `lifecycle`, `triage_activate`, `triage_archive` |
 | project_id | query | string | optional | Project scope |
-| limit | query | int | 100 | Max rows (clamped to 1..1000) |
+| limit | query | int | 100 | Max rows (1-1000; 400 outside) |
 
 curl `'http://127.0.0.1:3005/api/proposals?state=pending'`
 

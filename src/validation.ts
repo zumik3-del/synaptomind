@@ -29,6 +29,12 @@ export const TIMELINE_LIMIT_MIN = 1
 export const TIMELINE_LIMIT_MAX = 500
 export const timelineLimitSchema = z.coerce.number().int().min(TIMELINE_LIMIT_MIN).max(TIMELINE_LIMIT_MAX)
 
+/** Page size for the proposal queue (`GET /api/proposals`, `memory_review action=list`). */
+export const PROPOSALS_LIMIT_DEFAULT = 100
+export const PROPOSALS_LIMIT_MIN = 1
+export const PROPOSALS_LIMIT_MAX = 1000
+export const proposalsLimitSchema = z.coerce.number().int().min(PROPOSALS_LIMIT_MIN).max(PROPOSALS_LIMIT_MAX)
+
 export function validateStatus(status: string | undefined): void {
   if (status !== undefined && !isThoughtStatus(status)) {
     throw new ValidationError(`Invalid status: ${status}. Must be one of: draft, active, archived`)
