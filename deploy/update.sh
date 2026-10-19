@@ -19,7 +19,7 @@
 #
 #  DIST=binary swaps a release tarball's payload (executable + vec0.so +
 #  lib/libonnxruntime.so.1) instead of a git checkout; see
-#  docs/adr/0001-self-contained-binary-tarball-deployment.md.
+#  synaptomind/adr/2026-10-01-unify-deploy-framework-adr.md.
 # ════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
