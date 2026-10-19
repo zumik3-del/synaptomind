@@ -12,6 +12,14 @@
 //                         then an in-flight retry that is alive but not ready
 //                         (attempt 2), then a respawn that becomes ready
 //                         (attempt 3+, the recovery)
+//   'ready-no-answer'     announces 'ready' and then swallows every request,
+//                         staying alive until torn down — the state a deliberate
+//                         teardown (shutdown/restart) finds in flight (#1773)
+//   'idle-exit-on-request' announces 'ready', then on the first request sends
+//                         {'exiting'} (the parent-side idle unload) and leaves
+//                         without answering — the request stays in flight (#1773)
+//   'crash-on-request'    announces 'ready', then exits code 1 on the first
+//                         request without answering — the hard crash path (#1773)
 //
 // SYNAPTOMIND_STUB_ATTEMPT_FILE counts spawns into a file, so the parent can
 // tell which attempt is in flight without racing on the client's own state.
@@ -34,7 +42,43 @@ function idle(): void {
   setInterval(() => {}, 1_000)
 }
 
-if (process.env.SYNAPTOMIND_STUB_MODE === 'crash-then-recover') {
+const mode = process.env.SYNAPTOMIND_STUB_MODE
+
+/**
+ * Announce readiness, then replay the per-request lifecycle of the mode. Used by
+ * the #1773 reject paths: a request is in flight when the child leaves.
+ */
+function answering(): void {
+  process.send?.({ type: 'ready' })
+  process.on('message', (raw: unknown) => {
+    const message = raw as { type?: string; id?: string }
+    if (message?.type === 'shutdown') process.exit(0)
+    if (message?.type !== 'request') return
+    // Signal receipt through a file so the parent can synchronise on the request
+    // being registered in its pending map before it triggers a reject path.
+    const requestFile = process.env.SYNAPTOMIND_STUB_REQUEST_FILE
+    if (requestFile) writeFileSync(requestFile, message.id ?? '')
+    if (mode === 'idle-exit-on-request') {
+      // The idle unload: the parent's IPC handler sees 'exiting' while the
+      // request is still pending, then the process leaves on its own.
+      setTimeout(() => {
+        process.send?.({ type: 'exiting' })
+        setTimeout(() => process.exit(0), 25)
+      }, 25)
+      return
+    }
+    if (mode === 'crash-on-request') {
+      process.exit(1)
+      return
+    }
+    // 'ready-no-answer': stay alive and swallow the request.
+  })
+  setInterval(() => {}, 1_000)
+}
+
+if (mode === 'ready-no-answer' || mode === 'idle-exit-on-request' || mode === 'crash-on-request') {
+  answering()
+} else if (mode === 'crash-then-recover') {
   const hangMs = Number(process.env.SYNAPTOMIND_STUB_HANG_MS ?? '3000')
   if (attempt === 1) {
     process.exit(1)
