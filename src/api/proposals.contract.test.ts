@@ -6,6 +6,7 @@
  * and the rollback endpoint (ADR §2.8).
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { Hono } from 'hono'
 import { config } from '../config'
 import { getDb, closeDb } from '../db'
 import { closeLogDb, getLogDb } from '../logging'
@@ -14,6 +15,9 @@ import { getThoughtRow } from '../db/thoughts'
 import { insertProposal, type PlacementProposalRow } from '../db/placement-proposals'
 import { computeFingerprint } from '../services/placement-proposals.service'
 import { createTestDb, seedThought } from '../test/helpers'
+import { authMiddleware } from '../middleware/auth'
+import { errorHandler } from './error-handler'
+import { proposalsRouter } from './proposals'
 import { createApp } from './router'
 
 const restartEmbedderMock = mock(() => {})
@@ -26,7 +30,13 @@ mock.module('../embedder/client', () => ({
 }))
 
 process.env.SYNAPTOMIND_SECRET = 'test-token'
-const app = createApp()
+// The production app shares a process-wide IP quota with every other API suite.
+// Exercise route behaviour without spending that quota; keep auth and error
+// handling on the same path, and prove the production mount separately below.
+const app = new Hono()
+app.onError(errorHandler)
+app.use('/api/*', authMiddleware)
+app.route('/api/proposals', proposalsRouter)
 
 async function request(path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers)
@@ -89,6 +99,16 @@ async function withMemoryLogDb<T>(fn: () => T | Promise<T>): Promise<T> {
 
 beforeEach(createTestDb)
 afterEach(closeDb)
+
+test('production app mounts proposals behind authentication', async () => {
+  const production = createApp()
+  const denied = await production.request('/api/proposals')
+  expect(denied.status).toBe(401)
+  const allowed = await production.request('/api/proposals', {
+    headers: { Authorization: 'Bearer test-token' }
+  })
+  expect(allowed.status).toBe(200)
+})
 
 // ── GET /api/proposals ─────────────────────────────────────────────────────────
 

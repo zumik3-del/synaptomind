@@ -35,6 +35,9 @@ test("GET /health returns ok", async () => {
 	expect(res.status).toBe(200);
 	const body = (await res.json()) as Record<string, unknown>;
 	expect(body.status).toBe("ok");
+	const checks = body.checks as Record<string, unknown>;
+	expect(checks.database).toBe("ok");
+	expect(["ok", "not ready", "failed"]).toContain(String(checks.embedder));
 });
 
 test("GET /health returns 503 degraded when database check fails (issue #107)", async () => {
@@ -49,6 +52,7 @@ test("GET /health returns 503 degraded when database check fails (issue #107)", 
 	const checks = body.checks as Record<string, unknown>;
 	expect(checks.database).toBeTruthy();
 	expect(checks.database).not.toBe("ok");
+	expect(["ok", "not ready", "failed"]).toContain(String(checks.embedder));
 });
 
 test("GET /health returns version", async () => {
@@ -954,11 +958,24 @@ test("POST /api/thoughts with parent_id creates edge and boosts source importanc
 	expect(imp?.importance).toBeCloseTo(0.6, 5);
 });
 
-test("POST /api/thought-verify/run returns ok", async () => {
+test("POST /api/thought-verify/run is retired", async () => {
 	const res = await request("/api/thought-verify/run", { method: "POST" });
+	expect(res.status).toBe(404);
+});
+
+for (const value of ["true", "false"]) {
+	test(`GET /api/thoughts/search rejects exclude_flagged=${value}`, async () => {
+		const res = await request(`/api/thoughts/search?q=marker&exclude_flagged=${value}`);
+		expect(res.status).toBe(400);
+	});
+}
+
+test("GET /api/thoughts/search still returns ordinary matching thoughts", async () => {
+	const id = seedThought({ content: "RETIRE_SEARCH_MARKER unique result" });
+	const res = await request("/api/thoughts/search?q=RETIRE_SEARCH_MARKER&hybrid=1&status=active");
 	expect(res.status).toBe(200);
-	const body = (await res.json()) as Record<string, unknown>;
-	expect(body.ok).toBe(true);
+	const results = (await res.json()) as Array<{ thought: { id: string } }>;
+	expect(results.map((result) => result.thought.id)).toContain(id);
 });
 
 test("GET /api/primers returns empty list when no primers", async () => {

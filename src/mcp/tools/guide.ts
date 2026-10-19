@@ -18,7 +18,6 @@ function buildGuideText(softLimit: number): string {
 | Plan | \`memory_status\` | action=propose |
 | Review | \`memory_review\` | action=enqueue/list/apply/apply_batch/rollback/reject |
 | Prioritize | \`memory_status\` | action=frontier |
-| Compress | \`memory_crystallize\` | action=crystallize |
 | Maintain | \`memory_status\` | action=health |
 | Reflect | \`memory_reflect\` | action=reflect |
 | Supersede | \`memory_supersede\` | action=archive/merge |
@@ -34,7 +33,7 @@ function buildGuideText(softLimit: number): string {
 | \`memory_status\` | slots, frontier, profile, config, health, edge_suggestions, propose, cleanup | Query system state |
 | \`memory_manage\` | list, create, update, delete, resolve | Project management |
 | \`memory_review\` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
-| \`memory_crystallize\` | crystallize, graph, cluster, auto_cluster, cluster_remove, cluster_dissolve | Consolidate, visualize and reorganize clusters |
+| \`memory_crystallize\` | graph, cluster, auto_cluster, cluster_remove, cluster_dissolve | Visualize and reorganize clusters |
 | \`memory_reflect\` | reflect, timeline | Session management |
 | \`memory_telemetry\` | query, analyze, primers | Analytics and self-improvement |
 | \`memory_guide\` | (no action) | This reference text |
@@ -54,9 +53,9 @@ Rules: default status is draft. Profile thoughts (\`is_profile=1\`) cannot be ar
 - \`@profile\`, \`@profile-*\` — persona markers, feed the persona slot
 - \`decision\`, \`pending\` — created by session reflection
 - \`todo\`, \`directive\`, \`pending\` — frontier candidates
-- \`gotcha\` — surfaces in crystal "Gotchas" section
+- \`gotcha\` — user-defined tag; historical crystal thoughts may carry it
 - \`cluster\` — auto-added to cluster thoughts
-- \`crystal\` — applied to crystal output
+- \`crystal\` — may occur on historical crystal thoughts
 
 ## Edges
 
@@ -83,7 +82,9 @@ Three modes:
 - **vector** — semantic similarity only via sqlite-vec. Good for conceptual queries.
 - **BM25** — keyword matching via FTS5. Good for exact terms.
 
-Filters: status, project, tag, cluster (only/exclude), min importance, exclude flagged.
+Filters: status, project, tag, cluster (only/exclude), min importance.
+
+**Breaking 0.x change:** \`memory_crystallize\` action=crystallize and standalone thought verification are removed. Supplying \`exclude_flagged\` to \`memory_recall\` search/clusters (even false) returns a validation error; previously flagged thoughts may now appear in default search results. Historical crystal thoughts and \`thought_verify\` rows remain stored; no destructive migration is included. Graph/cluster actions and the HTTP \`/health\` probe still work.
 
 Result ranking signals: \`match_source\` (legs that matched, in fixed order \`vector\`, \`bm25\`), \`similarity\`/\`distance\` (vector leg only), \`bm25_score\` (keyword relevance, higher = more relevant, only for BM25 hits), and \`rrf_score\` (fused hybrid score, present only when fusion ran).
 
@@ -156,16 +157,6 @@ The engine is a filter, never a source of truth: it is read-only and never write
 **Triage items.** Draft-triage verdicts are queued as \`triage_activate\` (promote a draft to active) and \`triage_archive\` (archive a duplicate draft) alongside the engine's \`edge\`/\`placement\`/\`lifecycle\` items. They mutate a *draft* source, so they are gated before the active-source check. Applying a triage kind requires a \`run_id\`: the accepted rows of a run are its rollback manifest. \`apply_batch\` also takes \`run_id\` + \`limit\`, and a batch obeys the per-run caps \`triage.maxItemsPerRun\` and \`triage.maxArchivesPerRun\` (triage verdicts) and \`triage.maxLinksPerRun\` (\`edge\`/\`placement\`/\`lifecycle\` link items); exceeding a cap or the limit refuses the whole batch (typed \`refused\`, nothing applied). When \`triage.requireDryRunFirst\` is set (default true) a triage run must be previewed with \`confirm: false\` before any confirm; \`rollback\` (also default dry-run) reverses a run's reversible mutations and refuses a \`merge\`.
 
 Typed edge proposals require a non-embedding cue; embedding similarity alone yields \`related\` with \`rationale: embedding_similarity_only\`. ADR: \`synaptomind/adr/2026-09-28-placement-link-policy-engine-adr.md\`; the review queue/apply workflow is specified by \`synaptomind/adr/2026-09-28-p8-review-queue-apply-adr.md\` and the draft-triage run by \`synaptomind/adr/2026-09-29-auto-draft-triage-adr.md\`; see also ADR #142 and task #927. HTTP parity: \`POST /api/thoughts/propose\` (see \`docs/API.md\` §Propose); the review queue is \`GET/POST /api/proposals\`, \`POST /api/proposals/:id/apply\`, \`POST /api/proposals/rollback\`, \`POST /api/proposals/:id/reject\` (see \`docs/API.md\` §Review).
-
-## Crystals
-
-Compress thought chains/clusters into markdown. Styles:
-
-- \`runbook\` — Procedure + Gotchas + Open questions. For operational knowledge.
-- \`decision-log\` — Decisions + Gotchas + Open questions. For architectural choices.
-- \`overview\` — Context + Gotchas + Open questions. For general background.
-
-Bucketing: draft → "Open questions", tag \`gotcha\` → "Gotchas", rest → main section.
 
 ## Session Reflection
 

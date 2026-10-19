@@ -21,7 +21,7 @@ function getVal(obj: Record<string, unknown>, path: string): unknown {
 const SECTION_LABELS: Record<string, string> = {
   contentLanguage: 'General', server: 'Server', mcp: 'MCP', db: 'Database',
   logDbPath: 'Database', embedder: 'Embedder', thoughts: 'Thoughts', decay: 'Decay',
-  primer: 'Primer', verify: 'Verify',
+  primer: 'Primer',
   autoCluster: 'Auto Cluster', autoLink: 'Auto Link', selfImprove: 'Self Improve',
   edgeDetect: 'Edge Detect', slots: 'Slots', git: 'Git', search: 'Search',
   placement: 'Placement', triage: 'Triage'

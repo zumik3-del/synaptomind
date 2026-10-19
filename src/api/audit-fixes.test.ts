@@ -6,11 +6,10 @@
  *        type is consumed by the route. Malformed thoughts values must still
  *        surface ValidationError → 400 via the global error handler.
  *
- * #847 — per-route try/catch blocks were removed from slots, crystals, tags,
+ * #847 — per-route try/catch blocks were removed from slots, tags,
  *        and projects. Domain errors must flow through the global errorHandler.
  *        Three previously uncovered paths:
  *          - slots PUT project-scope with missing project → 404
- *          - crystals POST with invalid input             → 400
  *          - tags PUT with missing id                     → 404
  */
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
@@ -125,16 +124,13 @@ test("PUT /api/slots project-scope with non-existent project yields 404", async 
 	expect(body.error).toBe("Project not found");
 });
 
-test("POST /api/crystals with invalid input yields 400", async () => {
-	// No thought_ids and no cluster_id → ValidationError from crystallize().
+test("POST /api/crystals is no longer mounted, even for formerly valid input", async () => {
 	const res = await request("/api/crystals", {
 		method: "POST",
-		body: JSON.stringify({ style: "overview" }),
+		body: JSON.stringify({ thought_ids: ["legacy-thought"] }),
 		headers: { "Content-Type": "application/json" },
 	});
-	expect(res.status).toBe(400);
-	const body = (await res.json()) as Record<string, unknown>;
-	expect(body.error).toBeString();
+	expect(res.status).toBe(404);
 });
 
 test("PUT /api/tags/:id with missing id yields 404", async () => {

@@ -77,7 +77,7 @@ Local embedding model for semantic search. No API keys required.
 |---------|---------|---------|-------------|
 | `embedder.enabled` | `SYNAPTOMIND_EMBEDDER_ENABLED` | `true` | Enable/disable local embeddings. Disabled = vector search unavailable |
 | `embedder.model` | `SYNAPTOMIND_EMBEDDER_MODEL` | `Xenova/multilingual-e5-small` | HuggingFace model name |
-| `embedder.dtype` | `SYNAPTOMIND_EMBEDDER_DTYPE` | `q8` | ONNX precision of the local model. `q8` downloads `onnx/model_quantized.onnx` (~113 MB), `fp32` downloads `onnx/model.onnx` (~449 MB). An unknown value fails at startup. Switching needs **no** corpus re-embed (measured drift ≤0.0061 vs `verify.driftThreshold` 0.25); an offline host holding only an fp32 cache recovers with `SYNAPTOMIND_EMBEDDER_DTYPE=fp32` — see the note below |
+| `embedder.dtype` | `SYNAPTOMIND_EMBEDDER_DTYPE` | `q8` | ONNX precision of the local model. `q8` downloads `onnx/model_quantized.onnx` (~113 MB), `fp32` downloads `onnx/model.onnx` (~449 MB). An unknown value fails at startup. Switching needs **no** corpus re-embed (measured fp32↔q8 cosine drift ≤0.0061); an offline host holding only an fp32 cache recovers with `SYNAPTOMIND_EMBEDDER_DTYPE=fp32` — see the note below |
 | `embedder.dimensions` | `SYNAPTOMIND_EMBEDDER_DIMENSIONS` | `384` | Embedding vector dimensions |
 | `embedder.pollIntervalMs` | `SYNAPTOMIND_EMBEDDER_POLL_INTERVAL` | `7000` | How often to check for pending embeddings (ms) |
 | `embedder.cacheDir` | `SYNAPTOMIND_EMBEDDER_CACHE_DIR` | `./data/huggingface` | Model cache directory (~449 MB with `fp32`, ~113 MB with `q8`, after first load) |
@@ -87,8 +87,7 @@ Local embedding model for semantic search. No API keys required.
 | `embedder.batchSize` | `SYNAPTOMIND_EMBEDDER_BATCH_SIZE` | `8` | Embeddings per batch. Higher = faster but more RAM |
 
 **Note:** Switching `embedder.dtype` shifts embedding values only slightly — measured on the default
-model with transformers.js 4.2.0, the fp32↔q8 cosine drift is ≤0.0061 against a `verify.driftThreshold`
-of 0.25: about 40× below the threshold, and far under the ~0.19 median distance between two different
+model with transformers.js 4.2.0, the fp32↔q8 cosine drift is ≤0.0061, far under the ~0.19 median distance between two different
 thoughts. An existing corpus therefore does **not** need re-embedding after a switch.
 
 An **offline host with an fp32-only cache** cannot become ready after the `q8` default: the quantized
@@ -149,15 +148,13 @@ Compact project summary for quick context injection.
 
 ---
 
-## Verification
+## Retired verification settings (breaking 0.x change)
 
-Detects stale or drifted thoughts. `POST /api/thought-verify/run` (on-demand job) re-embeds each tracked thought's content and compares it against the stored embedding using cosine distance (same metric as vector search). A thought is flagged when the distance exceeds its drift threshold, or when it hasn't been checked within `staleWarnDays`. Verify entries are armed automatically for every embedded thought, each snapshotted from `verify.driftThreshold` at creation. Runs without a ready embedder degrade to staleness-only checks.
-
-| Setting | Env Var | Default | Description |
-|---------|---------|---------|-------------|
-| `verify.enabled` | `SYNAPTOMIND_VERIFY_ENABLED` | `true` | Enable/disable thought verification |
-| `verify.driftThreshold` | `SYNAPTOMIND_DRIFT_THRESHOLD` | `0.25` | Max allowed embedding drift (cosine distance) before flagging |
-| `verify.staleWarnDays` | `SYNAPTOMIND_STALE_WARN_DAYS` | `30` | Days before a thought is considered stale |
+The standalone thought-verification job and its `verify` settings/environment
+variables are retired. Remove the old `verify` object from existing configuration;
+the example below omits it. Existing `thought_verify` rows are retained, but they
+are no longer updated by a verification job. Search no longer excludes thoughts
+flagged in those rows; there is no destructive migration.
 
 ---
 
@@ -353,7 +350,6 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
   },
   "ttl": { "archivedTtlDays": 90, "cleanupIntervalMs": 86400000 },
   "primer": { "promoteThreshold": 5, "topN": 3 },
-  "verify": { "enabled": true, "driftThreshold": 0.25, "staleWarnDays": 30 },
   "autoCluster": {
     "minAgeDays": 3, "minSimilarity": 0.09,
     "minMembers": 3, "dryRun": false

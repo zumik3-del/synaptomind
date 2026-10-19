@@ -23,6 +23,7 @@ interface HintItem {
 searchRouter.get('/search', async c => {
   const q = c.req.query('q')
   if (!q) return c.json({ error: 'query "q" is required' }, 400)
+  if (c.req.query('exclude_flagged') !== undefined) return c.json({ error: 'exclude_flagged is retired' }, 400)
   const k = parseInt(c.req.query('k') || '10', 10)
   const status = c.req.query('status') || 'active'
   const project_id = c.req.query('project_id')
@@ -32,7 +33,6 @@ searchRouter.get('/search', async c => {
   const groupByCluster = c.req.query('group_by_cluster') === 'true'
   const minImportance = c.req.query('min_importance') ? parseFloat(c.req.query('min_importance')!) : undefined
   const showPrimers = c.req.query('show_primers') !== 'false'
-  const excludeFlagged = c.req.query('exclude_flagged') === 'true'
   const hybridParam = c.req.query('hybrid')
   const hybrid = hybridParam === null ? true : hybridParam !== '0'
   let clusterFilter: 'only' | 'exclude' | undefined
@@ -41,7 +41,7 @@ searchRouter.get('/search', async c => {
 
   const searchOpts = buildSearchOptions({
     query: q, topK: k, status, projectFilter: project_id,
-    tagFilter: tag, clusterFilter, minImportance, excludeFlagged, hybrid,
+    tagFilter: tag, clusterFilter, minImportance, hybrid,
     includeGlobal: c.req.query('include_global') === 'true',
     supersessionMode: parseSupersessionMode(c.req.query('supersession_mode')),
     contradictionMode: parseContradictionMode(c.req.query('contradiction_mode')),

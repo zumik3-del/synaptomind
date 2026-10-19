@@ -92,7 +92,7 @@ itVec("searchThoughts with minImportance=0 returns all", (db) => {
 	expect(results.map((r) => r.thought.id)).toContain(t);
 });
 
-itVec("searchThoughts with excludeFlagged omits flagged thoughts", (db) => {
+itVec("searchThoughts retains legacy flagged thoughts by default", (db) => {
 	const clean = seedThought({ content: "clean thought" });
 	const flagged = seedThought({ content: "flagged thought" });
 	seedEmbedding(clean);
@@ -101,20 +101,13 @@ itVec("searchThoughts with excludeFlagged omits flagged thoughts", (db) => {
 		`INSERT INTO thought_verify (id, thought_id, flagged, created_at) VALUES (?, ?, 1, ?)`,
 	).run(Bun.randomUUIDv7(), flagged, new Date().toISOString());
 
-	const excluding = searchThoughts(db, {
-		embedding: new Float32Array(384),
-		topK: 10,
-		statusFilter: "active",
-		excludeFlagged: true,
-	});
 	const keeping = searchThoughts(db, {
 		embedding: new Float32Array(384),
 		topK: 10,
 		statusFilter: "active",
 	});
 
-	expect(excluding.map((r) => r.thought.id)).toContain(clean);
-	expect(excluding.map((r) => r.thought.id)).not.toContain(flagged);
+	expect(keeping.map((r) => r.thought.id)).toContain(clean);
 	expect(keeping.map((r) => r.thought.id)).toContain(flagged);
 });
 

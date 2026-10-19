@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { setThoughtLimits } from '../../db/settings'
-import { createTestDb } from '../../test/helpers'
+import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
 mock.module('../../embedder/client', () => ({
@@ -440,6 +440,20 @@ describe('memory_status', () => {
 // ── memory_crystallize ───────────────────────────────────────────────────────
 
 describe('memory_crystallize', () => {
+  test('advertises only the five surviving graph and cluster actions', async () => {
+    const { tools } = await client.listTools()
+    const tool = tools.find(t => t.name === 'memory_crystallize')
+    const schema = tool?.inputSchema as { properties?: { action?: { enum?: string[] } } } | undefined
+    expect(schema?.properties?.action?.enum).toEqual([
+      'graph', 'cluster', 'auto_cluster', 'cluster_remove', 'cluster_dissolve'
+    ])
+  })
+
+  test('rejects retired crystallize action through MCP', async () => {
+    const result = await client.callTool({ name: 'memory_crystallize', arguments: { action: 'crystallize' } })
+    expect(parseResult(result).isError).toBe(true)
+  })
+
   test('graph returns nodes and edges', async () => {
     await client.callTool({
       name: 'memory_store',
@@ -454,6 +468,43 @@ describe('memory_crystallize', () => {
     expect(isError).toBe(false)
     expect(Array.isArray(data.nodes)).toBe(true)
     expect(Array.isArray(data.edges)).toBe(true)
+  })
+
+  test('dispatches cluster creation, auto-cluster, member removal and dissolution', async () => {
+    const member = seedThought({ content: 'retained cluster member' })
+    const created = parseResult(await client.callTool({
+      name: 'memory_crystallize', arguments: { action: 'cluster', thought_ids: [member], title: 'retained cluster' }
+    }))
+    expect(created.isError).toBe(false)
+    const clusterId = created.data.cluster.id as string
+
+    const auto = parseResult(await client.callTool({
+      name: 'memory_crystallize', arguments: { action: 'auto_cluster', dry_run: true }
+    }))
+    expect(auto.isError).toBe(false)
+
+    const removal = parseResult(await client.callTool({
+      name: 'memory_crystallize', arguments: { action: 'cluster_remove', cluster_id: clusterId, thought_id: member }
+    }))
+    expect(removal.data.status).toBe('preview')
+
+    const dissolution = parseResult(await client.callTool({
+      name: 'memory_crystallize', arguments: { action: 'cluster_dissolve', cluster_id: clusterId }
+    }))
+    expect(dissolution.data.status).toBe('preview')
+  })
+
+  test('historical crystal-source thought remains accessible through get and search', async () => {
+    const id = seedThought({ content: 'unique historic crystal archival record', source: 'crystal', status: 'active' })
+    const get = parseResult(await client.callTool({
+      name: 'memory_recall', arguments: { action: 'get', thought_id: id }
+    }))
+    expect(get.data.source).toBe('crystal')
+
+    const search = parseResult(await client.callTool({
+      name: 'memory_recall', arguments: { action: 'search', query: 'unique historic crystal archival record', hybrid: true }
+    }))
+    expect(JSON.stringify(search.data)).toContain(id)
   })
 })
 

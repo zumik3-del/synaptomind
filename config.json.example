@@ -49,11 +49,6 @@
     "promoteThreshold": 5,
     "topN": 3
   },
-  "verify": {
-    "enabled": true,
-    "driftThreshold": 0.25,
-    "staleWarnDays": 30
-  },
   "autoCluster": {
     "minAgeDays": 3,
     "minSimilarity": 0.09,

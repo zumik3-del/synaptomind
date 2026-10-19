@@ -83,7 +83,6 @@ registerToolRoute('memory_manage', {
 
 registerToolRoute('memory_crystallize', {
   actions: {
-    crystallize: { action: 'write', toolName: 'crystallize' },
     graph: { action: 'read', toolName: 'get_thought_graph' },
     cluster: { action: 'write', toolName: 'cluster' },
     auto_cluster: { action: 'write', toolName: 'auto_cluster' }

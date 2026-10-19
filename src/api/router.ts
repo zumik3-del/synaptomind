@@ -5,7 +5,6 @@ import { apiRateLimitMiddleware } from '../middleware/rate-limit'
 import { errorHandler } from './error-handler'
 import { autoClusterRouter } from './auto-cluster'
 import { clusterRouter } from './cluster'
-import { crystalsRouter } from './crystals'
 import { frontierRouter } from './frontier'
 import { graphRouter } from './graph'
 import { linksRouter } from './links'
@@ -18,7 +17,6 @@ import { slotsRouter } from './slots'
 import { statsRouter } from './stats'
 import { tagsRouter } from './tags'
 import { telemetryRouter } from './telemetry'
-import { thoughtVerifyRouter } from './thought-verify'
 import { thoughtsRouter } from './thoughts'
 import { healthCheckRouter } from './health-check'
 
@@ -44,13 +42,11 @@ export function createApp(): Hono {
   app.route('/api', clusterRouter)
   app.route('/api/projects', projectsRouter)
   app.route('/api/primers', primersRouter)
-  app.route('/api/thought-verify', thoughtVerifyRouter)
   app.route('/api', settingsRouter)
   app.route('/api', statsRouter)
   app.route('/api/telemetry', telemetryRouter)
   app.route('/api/profile', profileRouter)
   app.route('/api/slots', slotsRouter)
-  app.route('/api/crystals', crystalsRouter)
   app.route('/api/frontier', frontierRouter)
   app.route('/api', autoClusterRouter)
   app.route('/api', healthCheckRouter)

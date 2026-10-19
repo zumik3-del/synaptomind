@@ -25,14 +25,17 @@ const handlers = {
   },
 
   search: {
-    input: z.object({ query: requiredString('query is required for search action') }),
+    input: z.object({
+      query: requiredString('query is required for search action'),
+      exclude_flagged: z.never({ error: 'exclude_flagged is retired' }).optional()
+    }),
     async run(args: ActionArgs) {
       const topK = (args.top_k as number) ?? 10
       const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
       const baseOptions = buildSearchOptions({
         query: args.query as string, topK, status: args.status as string | undefined,
         projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: args.cluster as 'only' | 'exclude' | undefined,
-        minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
+        minImportance: args.min_importance as number | undefined,
         includeGlobal: args.include_global as boolean | undefined,
         hybrid: args.hybrid as boolean | undefined,
         // Agent-facing defaults: drop superseded rows, flag contradicted ones.
@@ -69,14 +72,17 @@ const handlers = {
   },
 
   clusters: {
-    input: z.object({ query: requiredString('query is required for clusters action') }),
+    input: z.object({
+      query: requiredString('query is required for clusters action'),
+      exclude_flagged: z.never({ error: 'exclude_flagged is retired' }).optional()
+    }),
     async run(args: ActionArgs) {
       const topK = (args.top_k as number) ?? 10
       const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
       const results = await searchThoughts(buildSearchOptions({
         query: args.query as string, topK, status: args.status as string | undefined,
         projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: 'only',
-        minImportance: args.min_importance as number | undefined, excludeFlagged: args.exclude_flagged as boolean | undefined,
+        minImportance: args.min_importance as number | undefined,
         includeGlobal: args.include_global as boolean | undefined,
         hybrid: args.hybrid as boolean | undefined,
         recencyWeight: args.recency_weight as number | undefined,
@@ -108,7 +114,7 @@ export function registerMemoryRecall(server: McpServer) {
       cluster: z.enum(['only', 'exclude']).optional().describe('Cluster filter: only (clusters only), exclude (exclude clusters)'),
       group_by_cluster: z.boolean().optional().describe('Group results by cluster'),
       min_importance: z.coerce.number().min(0).max(1).optional().describe('Minimum importance (0-1)'),
-      exclude_flagged: z.boolean().optional().describe('Exclude flagged thoughts'),
+      exclude_flagged: z.boolean().optional().describe('Retired; supplying this option to search or clusters returns an error'),
       include_global: z.boolean().optional().describe('When true and project_id is set, include global thoughts in results'),
       hybrid: z.boolean().optional().describe('Use hybrid search'),
       recency_weight: z

@@ -10,7 +10,6 @@ const runSelfImproveJobMock = mock(async () => ({}));
 const enqueueThoughtProposalsMock = mock(async () => []);
 const rollbackServiceMock = mock(() => ({}));
 const applyProposalServiceMock = mock(() => ({}));
-const crystallizeServiceMock = mock(() => ({}));
 
 mock.module("../embedder/client", () => ({
 	generateEmbedding: () => new Float32Array(384),
@@ -35,7 +34,6 @@ mock.module("../services/placement-proposals.service", () => ({
 }));
 mock.module("../services/placement-rollback.service", () => ({ rollbackService: rollbackServiceMock }));
 mock.module("../services/placement-apply.service", () => ({ applyProposalService: applyProposalServiceMock }));
-mock.module("../services/crystals.service", () => ({ crystallizeService: crystallizeServiceMock }));
 
 process.env.SYNAPTOMIND_SECRET = "test-token";
 const app = createApp();
@@ -65,7 +63,6 @@ test("optional-body endpoints reject invalid payload types", async () => {
 		["/api/proposals", { thought_id: 42 }],
 		["/api/proposals/rollback", { run_id: "run-1", confirm: "yes" }],
 		["/api/proposals/test-id/apply", { confirm: 1 }],
-		["/api/crystals", { thought_ids: "not-an-array" }],
 	] as const;
 	for (const [path, payload] of cases) {
 		expect((await postJson(path, JSON.stringify(payload))).status).toBe(400);
@@ -105,7 +102,6 @@ test("invalid optional write bodies do not invoke their mutation services", asyn
 		["/api/proposals", { thought_id: 42 }, enqueueThoughtProposalsMock],
 		["/api/proposals/rollback", { run_id: "run-1", confirm: "yes" }, rollbackServiceMock],
 		["/api/proposals/test-id/apply", { confirm: 1 }, applyProposalServiceMock],
-		["/api/crystals", { thought_ids: "not-an-array" }, crystallizeServiceMock],
 	] as const;
 	for (const [path, payload, service] of cases) {
 		service.mockClear();

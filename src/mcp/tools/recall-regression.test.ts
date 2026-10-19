@@ -52,6 +52,31 @@ beforeAll(async () => {
   client = await setupClient()
 })
 
+describe('retired exclude_flagged option', () => {
+  for (const action of ['search', 'clusters'] as const) {
+    for (const excluded of [true, false]) {
+      test(`${action} rejects explicit exclude_flagged=${excluded}`, async () => {
+        const result = await client.callTool({
+          name: 'memory_recall',
+          arguments: { action, query: 'legacy', exclude_flagged: excluded }
+        })
+        expect(parseResult(result).isError).toBe(true)
+      })
+    }
+  }
+
+  test('search without retired option still returns matching thoughts with status filter', async () => {
+    const id = seedThought({ content: 'RECALL_RETIRED_MARKER unique content', status: 'active' })
+    const result = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'search', query: 'RECALL_RETIRED_MARKER', status: 'active', hybrid: true }
+    })
+    const parsed = parseResult(result)
+    expect(parsed.isError).toBe(false)
+    expect(JSON.stringify(parsed.data)).toContain(id)
+  })
+})
+
 // ── String-numeric coercion (task #926) ───────────────────────────────────────
 
 describe('memory_recall string-numeric coercion', () => {
