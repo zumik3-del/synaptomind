@@ -2,6 +2,7 @@ import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { reflectSessionService } from '../../services/slots.service'
 import { listThoughtsService } from '../../services/thoughts.service'
+import { thoughtStatusSchema, timelineLimitSchema } from '../../validation'
 import { resolveProjectId } from './utils'
 import { registerActionTool, type ActionArgs } from './action-tool'
 
@@ -45,8 +46,8 @@ export function registerMemoryReflect(server: McpServer) {
       wake_days: z.number().int().min(1).max(365).optional().describe('Days before pending items surface in the frontier (default 7, 1-365, reflect only)'),
       project_id: z.string().optional().describe('Project scope (omit for global)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
-      status: z.enum(['draft', 'active', 'archived']).optional().describe('Filter by status (timeline only)'),
-      limit: z.number().int().min(1).max(500).optional().describe('Max results (default 50, 1-500, timeline only)'),
+      status: thoughtStatusSchema.optional().describe('Filter by status (timeline only)'),
+      limit: timelineLimitSchema.optional().describe('Max results (default 50, 1-500, timeline only)'),
       offset: z.number().int().min(0).max(1_000_000).optional().describe('Offset for pagination (timeline only)')
     },
     handlers
