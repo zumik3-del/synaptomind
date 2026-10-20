@@ -52,7 +52,8 @@ interface Config {
     maxProposals: number
   }
   placement: {
-    maxClusterSize: number; proposalTtlDays: number; maxPendingProposals: number
+    maxClusterSize: number; proposalTtlDays: number; maxPendingProposals: number;
+    maxProposalsPerEnqueue: number; maxProposals: number; maxItemsPerEnqueue: number
   }
   triage: {
     enabled: boolean; maxItemsPerRun: number; maxArchivesPerRun: number;
@@ -114,7 +115,7 @@ export const DEFAULTS: Config = {
   // proposer — the cap only suppresses the suggestion, it never mutates.
   // `proposalTtlDays` bounds the review queue (ADR §2.4): terminal rows are
   // pruned after the TTL and live `pending` rows use `expires_at`.
-  placement: { maxClusterSize: 50, proposalTtlDays: 30, maxPendingProposals: 500 },
+  placement: { maxClusterSize: 50, proposalTtlDays: 30, maxPendingProposals: 500, maxProposalsPerEnqueue: 5, maxProposals: 5, maxItemsPerEnqueue: 5 },
   // Draft-triage per-run caps (ADR 2026-09-29 §2.7/§2.8). `maxLinksPerRun`
   // mirrors `autoLink.maxEdgesPerRun` (phase-2 link proposals), and
   // `requireDryRunFirst` forces a preview before a run may confirm.
@@ -208,6 +209,9 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE', 'placement.maxClusterSize', 'int'),
   M('SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS', 'placement.proposalTtlDays', 'int'),
   M('SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS', 'placement.maxPendingProposals', 'int'),
+  M('SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS_PER_ENQUEUE', 'placement.maxProposalsPerEnqueue', 'int'),
+  M('SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS', 'placement.maxProposals', 'int'),
+  M('SYNAPTOMIND_PLACEMENT_MAX_ITEMS_PER_ENQUEUE', 'placement.maxItemsPerEnqueue', 'int'),
 
   M('SYNAPTOMIND_TRIAGE_ENABLED', 'triage.enabled', 'bool'),
   M('SYNAPTOMIND_TRIAGE_MAX_ITEMS_PER_RUN', 'triage.maxItemsPerRun', 'int'),

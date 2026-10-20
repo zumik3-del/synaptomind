@@ -18,7 +18,7 @@ const proposalsRouter = new Hono()
 const proposalsQuerySchema = z.object({
   limit: proposalsLimitSchema.default(PROPOSALS_LIMIT_DEFAULT)
 })
-const enqueueBodySchema = z.object({ thought_id: z.string().optional(), project_id: z.string().optional() })
+const enqueueBodySchema = z.object({ thought_id: z.string().optional(), project_id: z.string().optional(), max_proposals: z.number().int().min(1).optional(), max_items: z.number().int().min(1).optional(), limit: z.number().int().min(1).optional() })
 const rollbackBodySchema = z.object({ run_id: z.string().optional(), confirm: z.boolean().optional() })
 const applyBodySchema = z.object({ confirm: z.boolean().optional(), run_id: z.string().optional() })
 
@@ -38,9 +38,9 @@ proposalsRouter.get('/', c => {
 // Write: propose a plan for a persisted thought and queue its confirmable items.
 proposalsRouter.post('/', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'enqueue_placement_proposals' }, async c2 => {
-    const body = await jsonBodyOrDefault<{ thought_id?: string; project_id?: string }>(c2, {}, enqueueBodySchema)
+    const body = await jsonBodyOrDefault<{ thought_id?: string; project_id?: string; max_proposals?: number; max_items?: number; limit?: number }>(c2, {}, enqueueBodySchema)
     if (!body.thought_id) throw new ValidationError('thought_id is required')
-    const rows = await enqueueThoughtProposals(body.thought_id, { projectId: body.project_id })
+    const rows = await enqueueThoughtProposals(body.thought_id, { projectId: body.project_id, maxProposals: body.max_proposals, maxItems: body.max_items, limit: body.limit })
     return c2.json(rows, 201)
   })
 })
