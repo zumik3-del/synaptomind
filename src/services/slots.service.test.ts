@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
+import { config } from '../config'
 import { getSlots, updateExplicitSlot, SLOT_NAMES } from './slots.service'
 import { ValidationError } from '../errors'
 
@@ -45,6 +46,31 @@ test('getSlots architecture_decisions content from primers', () => {
   db.prepare('INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)').run(id, 5, new Date().toISOString())
   const slots = getSlots({ names: ['architecture_decisions'] })
   expect(slots[0].content).toContain('use SQLite for local storage')
+})
+
+test('getSlots architecture_decisions renders only the topN primers', () => {
+  const original = config.primer.topN
+  config.primer.topN = 2
+  try {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const top = seedThought({ content: 'top hit decision' })
+    const middle = seedThought({ content: 'middle hit decision' })
+    const low = seedThought({ content: 'low hit decision' })
+    const insert = db.prepare('INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)')
+    insert.run(top, 30, now)
+    insert.run(middle, 20, now)
+    insert.run(low, 10, now)
+
+    const slots = getSlots({ names: ['architecture_decisions'] })
+    const bullets = slots[0].content.split('\n')
+    expect(bullets).toHaveLength(2)
+    expect(bullets[0]).toBe('- top hit decision')
+    expect(bullets[1]).toBe('- middle hit decision')
+    expect(slots[0].content).not.toContain('low hit decision')
+  } finally {
+    config.primer.topN = original
+  }
 })
 
 // ── updateExplicitSlot ───────────────────────────────────────────────────────
