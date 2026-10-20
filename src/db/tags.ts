@@ -56,6 +56,11 @@ export function deleteTag(db: Database, id: string): boolean {
   return result.changes > 0
 }
 
+export function mergeThoughtTags(db: Database, thoughtId: string, tagNames: string[]): Tag[] {
+  const existing = getThoughtTags(db, thoughtId).map(t => t.name)
+  return setThoughtTags(db, thoughtId, [...existing, ...tagNames])
+}
+
 export function setThoughtTags(db: Database, thoughtId: string, tagNames: string[]): Tag[] {
   const run = db.transaction(() => {
     db.prepare('DELETE FROM thought_tags WHERE thought_id = ?').run(thoughtId)

@@ -136,7 +136,8 @@ Updates a thought. All body fields optional; only provided fields change. Provid
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
 | content | body | string | optional | New content |
-| tags | body | string[] | optional | Replacement tag set |
+| tags | body | string[] | optional | Replacement tag set (default replace; pass tags_mode=merge to union with existing tags) |
+| tags_mode | body | string | optional | `replace` (default) or `merge`: how `tags` is applied |
 | status | body | string | optional | draft/active/archived |
 | project_id | body | string | optional | Move to project |
 | is_profile | body | bool | optional | Profile flag |
