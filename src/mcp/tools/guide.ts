@@ -6,109 +6,70 @@ function buildGuideText(softLimit: number): string {
   return `# SynaptoMind — Reference
 
 ## Quick Reference
-
 | Concept | Tool | Action |
 |---|---|---|
-| Capture | \`memory_store\` | action=create |
-| Find | \`memory_recall\` | action=search/get/context/chain/clusters |
-| Connect | \`memory_store\` | action=link |
-| Edit edges | \`memory_store\` | action=unlink/retype |
-| Group | \`memory_crystallize\` | action=cluster/auto_cluster |
-| Maintain clusters | \`memory_crystallize\` | action=cluster_remove/cluster_dissolve |
-| Plan | \`memory_status\` | action=propose |
-| Review | \`memory_review\` | action=enqueue/list/apply/apply_batch/rollback/reject |
-| Prioritize | \`memory_status\` | action=frontier |
-| Maintain | \`memory_status\` | action=health |
-| Reflect | \`memory_reflect\` | action=reflect |
-| Supersede | \`memory_supersede\` | action=archive/merge |
-| Projects | \`memory_manage\` | action=list/create/update/delete/resolve |
+| Capture | memory_store | create |
+| Find | memory_recall | search/get/context/chain/clusters |
+| Connect | memory_store | link |
+| Edit edges | memory_store | unlink/retype |
+| Group | memory_crystallize | cluster/auto_cluster |
+| Maintain clusters | memory_crystallize | cluster_remove/cluster_dissolve |
+| Plan | memory_status | propose |
+| Review | memory_review | enqueue/list/apply/apply_batch/rollback/reject |
+| Prioritize | memory_status | frontier |
+| Maintain | memory_status | health |
+| Reflect | memory_reflect | reflect |
+| Supersede | memory_supersede | archive/merge |
+| Projects | memory_manage | list/create/update/delete/resolve |
 
 ## Runtime tools
 | Tool | Actions | Purpose |
 |---|---|---|
-| \`memory_recall\` | search, get, context, chain, clusters | Find and retrieve thoughts |
-| \`memory_store\` | create, update, link, unlink, retype | Write, connect and edit thoughts |
-| \`memory_supersede\` | archive, merge | Version and supersede thoughts |
-| \`memory_status\` | slots, frontier, profile, config, health, edge_suggestions, propose, cleanup | Query system state |
-| \`memory_manage\` | list, create, update, delete, resolve | Project management |
-| \`memory_review\` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
-| \`memory_crystallize\` | graph, cluster, auto_cluster, cluster_remove, cluster_dissolve | Visualize and reorganize clusters |
-| \`memory_reflect\` | reflect, timeline | Session management |
-| \`memory_telemetry\` | query, analyze, primers | Analytics and self-improvement |
-| \`memory_guide\` | (no action) | This reference text |
+| memory_recall | search, get, context, chain, clusters | Find and retrieve thoughts |
+| memory_store | create, update, link, unlink, retype | Write, connect and edit thoughts |
+| memory_supersede | archive, merge | Version and supersede thoughts |
+| memory_status | slots, frontier, profile, config, health, edge_suggestions, propose, cleanup | Query system state |
+| memory_manage | list, create, update, delete, resolve | Project management |
+| memory_review | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
+| memory_crystallize | graph, cluster, auto_cluster, cluster_remove, cluster_dissolve | Visualize and reorganize clusters |
+| memory_reflect | reflect, timeline | Session management |
+| memory_telemetry | query, analyze, primers | Analytics and self-improvement |
+| memory_guide | (no action) | This reference text |
 
 ## Thoughts
-
 Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_profile, source.
-
-**Tag updates:** \`memory_store\` action=update replaces the whole tag set by default; pass \`tags_mode=merge\` to union the supplied tags with the existing ones (backward compatible: omitting \`tags_mode\` keeps replace semantics).
-
-**Status lifecycle:**
-- \`draft\` — work in progress; only \`pending\`-tagged drafts surface in the frontier
-- \`active\` — live, searchable, included in frontier
-- \`archived\` — hidden from search and frontier, kept for history
-
-Rules: default status is draft on create (pass \`status=active\` to publish immediately). Profile thoughts (\`is_profile=1\`) cannot be archived. Archive is idempotent. TTL cleanup deletes after configured retention period.
-
-**Tags on update replace, not append:** \`memory_store\` action=update with a \`tags\` array overwrites the thought's entire tag set — tags not listed are removed. Omit \`tags\` to leave them untouched.
-
-**System tags:**
-- \`@profile\`, \`@profile-*\` — persona markers, feed the persona slot
-- \`decision\`, \`pending\` — created by session reflection
-- \`todo\`, \`directive\`, \`pending\` — frontier candidates
-- \`gotcha\` — user-defined tag; historical crystal thoughts may carry it
-- \`cluster\` — auto-added to cluster thoughts
-- \`crystal\` — may occur on historical crystal thoughts
+Status: draft (wip; pending-tagged drafts surface in frontier), active (live), archived (hidden). Default draft on create; pass status=active to publish. Profile thoughts not archivable. Archive idempotent. TTL cleanup after retention.
+Tags: update replaces the whole tag set unless tags_mode=merge. System tags: @profile*, decision, pending, todo, directive, gotcha, cluster, crystal.
 
 ## Edges
-
 | Type | When to use |
 |---|---|
-| \`related\` | General association. Default. Idempotent (duplicates reused) |
-| \`parent\` | Hierarchical decomposition. Source = parent, target = child |
-| \`develops\` | Conceptual evolution. Source evolves into target |
-| \`replaces\` | Source supersedes target. Target blocked in frontier |
-| \`contradicts\` | Two live, mutually exclusive claims. **Symmetric** (A↔B), neither side authoritative — never hide one endpoint |
-| \`supports\` | Source provides evidence for target. **Directed** |
-| \`cluster\` | Cluster → member. Only from cluster thoughts (\`is_cluster=1\`) |
-| \`references\` | Cluster ↔ cluster. Mutual link between clusters |
-| \`depends_on\` | Source blocked until target done. Affects frontier ranking |
+| related | General association. Default. Idempotent (duplicates reused) |
+| parent | Hierarchical decomposition. Source=parent, target=child |
+| develops | Conceptual evolution. Source evolves into target |
+| replaces | Source supersedes target. Target blocked in frontier |
+| contradicts | Two live, mutually exclusive claims. Symmetric (A↔B), neither authoritative |
+| supports | Source provides evidence for target. Directed |
+| cluster | Cluster → member. Only from cluster thoughts (is_cluster=1) |
+| references | Cluster ↔ cluster. Mutual link between clusters |
+| depends_on | Source blocked until target done. Affects frontier ranking
 
-Constraints: no self-loops. One edge type per (source, target) pair. Cluster edges enforced strictly. Symmetric \`related\`/\`contradicts\` are idempotent in both directions; linking a pair that already has a \`related\` edge with a specific type upgrades the placeholder.
-
-**Editing edges:** \`memory_store\` action=unlink deletes one edge (idempotent — a missing edge comes back \`not_found\`, not an error), and action=retype changes an edge's type in one transaction, preserving its \`created_at\` (the row is replaced, so the edge gets a new id). Both are dry-run first: preview, then repeat with \`confirm=true\`. Neither cascades to thoughts or other edges.
+Constraints: no self-loops; one type per pair; cluster edges strict; related/contradicts idempotent both ways; linking a pair that already has a related edge with a specific type upgrades the placeholder.
+Editing: unlink (idempotent; missing edge → not_found), retype (new id, created_at preserved); both dry-run first, then confirm=true. No cascade.
 
 ## Search
-
-Three modes:
-- **hybrid** (default) — vector + BM25 via Reciprocal Rank Fusion (k=60). Best general-purpose mode.
-- **vector** — semantic similarity only via sqlite-vec. Good for conceptual queries.
-- **BM25** — keyword matching via FTS5. Good for exact terms.
-
+Modes: hybrid (default, vector+BM25 RRF), vector (semantic), BM25 (keywords).
 Filters: status, project, tag, cluster (only/exclude), min importance.
-
-**Embedding indexing delay:** a newly created/updated thought is searchable by BM25 (FTS5, synchronous trigger) immediately, but vector and hybrid modes only see it once the embedder has computed and stored its vector in \`vec_thoughts\`. The embedder polls \`pending_embeddings\` every \`embedder.pollIntervalMs\` (default 7000 ms), so fresh thoughts typically appear in vector/hybrid results after ~10-15 s. Until then they may be absent from vector-only results or score as BM25-only hits.
-
-**Breaking 0.x change:** \`memory_crystallize\` action=crystallize and standalone thought verification are removed. Supplying \`exclude_flagged\` to \`memory_recall\` search/clusters (even false) returns a validation error; previously flagged thoughts may now appear in default search results. Historical crystal thoughts and \`thought_verify\` rows remain stored; no destructive migration is included. Graph/cluster actions and the HTTP \`/health\` probe still work.
-
-Result ranking signals: \`match_source\` (legs that matched, in fixed order \`vector\`, \`bm25\`), \`similarity\`/\`distance\` (vector leg only), \`bm25_score\` (keyword relevance, higher = more relevant, only for BM25 hits), and \`rrf_score\` (fused hybrid score, present only when fusion ran).
-
-**Confidence (no-strong-match hint):** every result carries \`low_confidence\` (boolean). \`true\` means there is no strong evidence of relevance — no lexical (\`bm25\`) anchor and no vector hit at or above the configured \`search.confidence.vectorFloor\`. It is an additive hint that never changes ranking, so a \`low_confidence\` result is still returned and readable. To drop weak results server-side, pass \`min_relevance\` (0–1, default **0**): \`> 0\` keeps \`bm25\` hits and vector hits with \`similarity >= min_relevance\` (the candidate pool is widened so \`top_k\` is still filled); \`0\` (unset) returns the full result set unchanged. The two knobs are independent: the floor drives the hint, \`min_relevance\` drives the gate.
-
-**Recency boost (opt-in):** \`recency_weight\` (0–1, default **0**) adds a time term to the ranking; \`recency_half_life_days\` (1–3650, default 30) sets its decay half-life. At \`recency_weight > 0\` each result also carries \`recency_score\` (\`0.5^(ageDays/halfLifeDays)\`, \`1\` = created now) and \`final_score\` (\`relevant + recency_weight × recency_score\`, where \`relevant\` is \`rrf_score\` normalised to \`[0,1]\` on the fused path or \`similarity\` on the vector-only path). \`rrf_score\` stays raw/un-boosted. \`recency_weight = 0\` (unset) preserves the relevance-only ranking and omits both fields.
-
-**Standing (per-axis opt-out):** results carry \`standing\` (\`current\` | \`contradicted\` | \`superseded\`) from the \`supersession_mode\` (\`off\`/\`flag\`/\`suppress\`, agent default \`suppress\`) and \`contradiction_mode\` (\`off\`/\`flag\`, default \`flag\`) axes. \`off\` disables only its own axis' annotation (\`suppress\` also drops superseded rows); contradicted rows are never suppressed. \`standing\` is emitted whenever at least one axis is enabled and omitted entirely only when both are \`off\`. Numeric arguments accept numbers (string-serialized numbers are coerced).
-
-Post-processing: hit counting → primer promotion → primer hoisting → profile hoisting.
+Embedding delay: BM25 (FTS5) immediate; vector/hybrid only after embedder stores vector in vec_thoughts (polls pending_embeddings every embedder.pollIntervalMs, default 7000 ms; visible ~10-15 s).
+Confidence: low_confidence hint (no bm25 anchor / vector below vectorFloor). min_relevance gate drops weak vector-only hits (default 0 = all).
+Recency: recency_weight (default 0) + recency_half_life_days (default 30); adds recency_score/final_score when >0.
+Standing: supersession_mode (off/flag/suppress, default suppress) + contradiction_mode (off/flag, default flag); contradicted rows never suppressed.
+Post-processing: hit counting → primer promotion/hoisting → profile hoisting.
 
 ## Lifecycle
-
-**Importance:** starts at 1.0. Boosted by edges (+0.1) and primer promotion (+0.15). Decays by \`decay.rate\` (default 0.95) every \`decay.intervalMs\` (default 24h).
-
-**Auto-archive:** when importance < \`decay.archiveThreshold\` (0.1) AND age > \`decay.archiveMinAgeDays\` (30) AND status=active AND not a profile thought.
+Importance starts 1.0; edges +0.1, primer promotion +0.15; decays by decay.rate (default 0.95) per decay.intervalMs (default 24 h). Auto-archive: importance < decay.archiveThreshold (0.1) AND age > decay.archiveMinAgeDays (30) AND status=active AND not profile.
 
 ## Projects vs Clusters
-
 | | Projects | Clusters |
 |---|---|---|
 | Purpose | Organizational containers | Semantic groupings |
@@ -119,66 +80,33 @@ Post-processing: hit counting → primer promotion → primer hoisting → profi
 ## Nightly normalization
 | Job | What it does | Key config |
 |---|---|---|
-| **decay** | Decays importance, auto-archives stale thoughts | \`rate\`, \`archiveThreshold\`, \`archiveMinAgeDays\` |
-| **auto-cluster** | Groups similar thoughts into clusters (Union-Find) | \`minAgeDays\`, \`minSimilarity\`, \`minMembers\`, \`dry_run\` |
-| **auto-link** | Creates related edges for low-connectivity thoughts | \`minSimilarity\`, \`maxEdgesPerRun\`, \`dry_run\` |
-| **self-improve** | Detects issues, auto-corrects (orphan writes, stale drafts) | \`enabled\` (default false) |
+| decay | Decays importance, auto-archives stale thoughts | rate, archiveThreshold, archiveMinAgeDays |
+| auto-cluster | Groups similar thoughts into clusters (Union-Find) | minAgeDays, minSimilarity, minMembers, dry_run |
+| auto-link | Creates related edges for low-connectivity thoughts | minSimilarity, maxEdgesPerRun, dry_run |
+| self-improve | Detects issues, auto-corrects (orphan writes, stale drafts) | enabled (default false) |
 
-**auto_cluster dry_run default is config-dependent:** when \`dry_run\` is omitted, it falls back to \`config.autoCluster.dryRun\` (default \`false\`), so a run mutates unless the operator opts into preview. Pass \`dry_run: true\` explicitly to compute groups without creating clusters. The same config-dependent default applies to auto-link (\`config.autoLink.dryRun\`, default \`false\`).
-
-Decay and self-improve run on intervals (default 24 h); auto-cluster and auto-link are invoked on demand via MCP/HTTP. All four are normalization passes over the graph and record their run in the log.
+dry_run defaults to config (autoCluster.dryRun / autoLink.dryRun, default false), so a run mutates unless preview is requested explicitly. Decay and self-improve run on intervals (default 24 h); auto-cluster and auto-link are invoked on demand. All four are normalization passes and log their run.
 
 ## Health Check
-
-Run \`memory_status\` (action=health) to audit graph integrity. Pass fix=true for auto-repair.
-
-Categories: structural integrity (orphan/self-loop edges), cluster health (empty/singleton), connectivity (islands), content quality (duplicates, stale drafts), semantic consistency (circular chains, contradiction interactions), data drift (missing embeddings).
-
-Score: 100 - (criticalCategories×40) - (warningCategories×15) - (infoOccurrences×0.25), clamped [0,100]. The score penalises the PRESENCE of a flagged category (critical/warning categories), not raw issue counts; info issues are counted per occurrence. Counts shown in the summary (critical/warning/info) are raw issue counts and may therefore be large while the score stays high. See score_breakdown in the health result for the per-term values.
-
-Composition: \`issues: { critical, warning, info }\` are raw occurrence counts per severity. \`criticalCategories\`/\`warningCategories\` count how many *categories* contain at least one critical/warning finding (0/1 per category, not per finding). Info findings contribute per occurrence (0.25 each). Thus one critical finding in a category costs 40 points regardless of how many findings that category has; many info findings accumulate linearly. Severity filter (\`severity\` param) restricts the reported checks but the score is computed on the unfiltered result.
-Accepted trade-offs on a dense, hub-centric graph (do not "fix" by mutating the graph): \`overlinked_thoughts\` flags curated cross-domain hubs; \`clusterless_dense_thoughts\` is age-gated to the auto-cluster window (task #935). ADR: \`synaptomind/adr/2026-09-28-928-health-overlinked-clusterless-adr.md\`; recalibration #934.
-
-**Remediating \`contradiction_in_cluster\`:** this semantic-consistency warning flags two non-archived members of the same cluster joined by a \`contradicts\` edge. There is no autofix — the check detects, the agent decides. Each finding's \`details\` carries \`cluster_id\`, \`member_a\`, \`member_b\` and \`contradicts_edge_id\`; resolve it with the edge/cluster writers, then re-run the check:
-- \`memory_store\` action=unlink on \`contradicts_edge_id\` — drop the contradiction.
-- \`memory_store\` action=retype, \`new_type=supports\` (or \`related\`) on \`contradicts_edge_id\` — if the contradiction was a mistake.
-- \`memory_crystallize\` action=cluster_remove on \`cluster_id\` + \`member_a\`/\`member_b\` — extract a member so the pair is no longer co-clustered (the thought stays standalone).
-All are dry-run first: preview, then repeat with \`confirm=true\`.
+Run memory_status (action=health); fix=true auto-repairs safe issues.
+Categories: structural integrity, cluster health, connectivity (islands), content quality, semantic consistency, data drift.
+Score: 100 - criticalCategories×40 - warningCategories×15 - infoOccurrences×0.25, clamped [0,100]. Critical/warning counted per category (0/1 each); info per occurrence. issues counts are raw occurrences and may be large while the score stays high. severity filter restricts reported checks but score is computed on the unfiltered result.
+Trade-offs on dense graphs (do not fix by mutating): overlinked_thoughts (curated hubs), clusterless_dense_thoughts (age-gated). ADR: synaptomind/adr/2026-09-28-928-health-overlinked-clusterless-adr.md.
+Remediating contradiction_in_cluster: unlink on contradicts_edge_id, or retype to supports/related, or cluster_remove a member. All dry-run first, then confirm=true.
 
 ## Edge Suggestions
-
-Run \`memory_status\` (action=edge_suggestions) to get *candidate* pairs worth reviewing for a link. Detection is a filter, never a source of truth: it is read-only and never writes edges. Confirm a suggestion explicitly with \`memory_store\` (action=link).
-
-Every proposal is similarity-only and always \`type: related\`: high embedding similarity means "same subject matter", **not** "conflict". Each one carries \`review_required: true\` and \`rationale: embedding_similarity_only\` — read both thoughts and decide the real type (\`contradicts\`/\`supports\`/other) yourself; never report or link a proposal as a contradiction on the strength of the proposal alone.
-
-Config: \`edgeDetect.minSimilarity\` (recall threshold), \`topK\`, \`maxCandidates\`, \`maxProposals\`. Embedder unavailability degrades to an empty result (\`degraded: true\`) instead of failing.
+Read-only candidate pairs (always type related, review_required). Confirm explicitly with memory_store (action=link). Embedder down degrades to empty result (degraded=true). Config: edgeDetect.minSimilarity, topK, maxCandidates, maxProposals.
 
 ## Placement Proposal
-
-Run \`memory_status\` (action=propose) to get one read-only plan for a single thought: pass \`thought_id\` (existing thought) **or** \`content\` (unpersisted draft), plus optional \`project_id\`/\`cwd\`.
-
-The result is a \`PlacementPlan\` — \`placement\` (cluster or parent, or null), \`edges[]\`, \`lifecycle\`, \`degraded\`, \`generated_at\`. Every element carries \`rationale\`, \`confidence\` (ordinal, not calibrated) and \`review_required\`; \`lifecycle.action\` is one of \`keep\`/\`link\`/\`merge\`/\`replaces+archive\`, with \`blocked_by[]\` explaining why a proposed move cannot be confirmed. Pairs that already carry an edge are excluded.
-
-The engine is a filter, never a source of truth: it is read-only and never writes the graph. Confirmation never goes through the plan itself: either use the existing writers directly — \`memory_store\` (action=link) for edges, \`memory_supersede\` (action=merge/archive) for a merge or supersede, \`memory_crystallize\` (action=cluster) for a placement — or queue the plan for a separate, explicit review with \`memory_review\`.
-
-\`memory_review\` persists proposals so they can be confirmed one item at a time: \`enqueue\` requires a persisted \`thought_id\` (drafts are not enqueued — create the thought first), \`list\` shows the live queue (default \`state=pending\`, optional \`item_kind\` filter), and \`apply\`/\`apply_batch\`/\`rollback\`/\`reject\` are explicit writes. \`apply\` defaults to a non-mutating dry-run and executes only when \`confirm: true\`, taking a \`proposal_id\` alone — the stored target/type cannot be redirected — and re-checks the staleness fingerprint and cluster-size gates before any mutation. Each item delegates to exactly one existing writer inside its own transaction; a stale item is marked \`stale\` and must be re-proposed, never auto-repaired. Embedder unavailability degrades to lexical-only signals (\`degraded: true\`) instead of failing.
-
-**Triage items.** Draft-triage verdicts are queued as \`triage_activate\` (promote a draft to active) and \`triage_archive\` (archive a duplicate draft) alongside the engine's \`edge\`/\`placement\`/\`lifecycle\` items. They mutate a *draft* source, so they are gated before the active-source check. Applying a triage kind requires a \`run_id\`: the accepted rows of a run are its rollback manifest. \`apply_batch\` also takes \`run_id\` + \`limit\`, and a batch obeys the per-run caps \`triage.maxItemsPerRun\` and \`triage.maxArchivesPerRun\` (triage verdicts) and \`triage.maxLinksPerRun\` (\`edge\`/\`placement\`/\`lifecycle\` link items); exceeding a cap or the limit refuses the whole batch (typed \`refused\`, nothing applied). When \`triage.requireDryRunFirst\` is set (default true) a triage run must be previewed with \`confirm: false\` before any confirm; \`rollback\` (also default dry-run) reverses a run's reversible mutations and refuses a \`merge\`.
-
-Typed edge proposals require a non-embedding cue; embedding similarity alone yields \`related\` with \`rationale: embedding_similarity_only\`. ADR: \`synaptomind/adr/2026-09-28-placement-link-policy-engine-adr.md\`; the review queue/apply workflow is specified by \`synaptomind/adr/2026-09-28-p8-review-queue-apply-adr.md\` and the draft-triage run by \`synaptomind/adr/2026-09-29-auto-draft-triage-adr.md\`; see also ADR #142 and task #927. HTTP parity: \`POST /api/thoughts/propose\` (see \`docs/API.md\` §Propose); the review queue is \`GET/POST /api/proposals\`, \`POST /api/proposals/:id/apply\`, \`POST /api/proposals/rollback\`, \`POST /api/proposals/:id/reject\` (see \`docs/API.md\` §Review).
+Read-only plan for a thought (thought_id) or draft (content): placement, edges[], lifecycle, degraded, generated_at. Every element carries rationale, confidence (ordinal), review_required. lifecycle.action ∈ {keep, link, merge, replaces+archive}; blocked_by[] explains unconfirmable moves. Pairs already carrying an edge are excluded.
+Engine is a filter, never a source of truth; it never writes. Confirm via writers (link/merge/archive/cluster) or queue with memory_review.
+memory_review: enqueue (persisted thought only), list (state/item_kind filters), apply/apply_batch/rollback/reject. apply is dry-run unless confirm=true; re-checks staleness fingerprint and cluster-size gates; stale items marked stale, never auto-repaired. Triage items (triage_activate/triage_archive) require run_id; per-run caps apply; dry-run first when triage.requireDryRunFirst. rollback reverses reversible mutations (not merge).
 
 ## Session Reflection
-
-Call \`memory_reflect\` (action=reflect) at natural breakpoints (after a decision, a task, or architectural work).
-Records outcomes into slots and creates thoughts:
-- \`summary\` — appends to project_context slot
-- \`goals_delta\` — add/remove from active_goals (prefix "closed:" to remove)
-- \`decisions\` — creates active thoughts with tag \`decision\`
-- \`pending\` — creates draft thoughts with tag \`pending\` (surface in the frontier after \`wake_days\`, default 7)
+memory_reflect (action=reflect): summary appends to project_context; goals_delta add/remove (prefix "closed:" to remove); decisions create active thoughts tagged decision; pending create draft thoughts tagged pending (surface after wake_days, default 7).
 
 ## Profile
-
-Mark thoughts with \`is_profile=1\` and \`@profile\` tag. Sub-tags \`@profile-work\`, \`@profile-preferences\` group by topic. Profile thoughts are never auto-archived. Use \`memory_status\` (action=profile) to retrieve persona stats.`
+Mark thoughts is_profile=1 with @profile tag; sub-tags @profile-work, @profile-preferences. Never auto-archived. Use memory_status (action=profile) for persona stats.`
 }
 
 export function registerMemoryGuide(server: McpServer) {
