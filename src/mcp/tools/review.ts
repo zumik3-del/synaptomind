@@ -31,6 +31,7 @@ const handlers = {
       return listProposals({
         state: args.state as ListOptions['state'],
         itemKind: args.item_kind as ListOptions['itemKind'],
+        sourceThoughtId: args.source_thought_id as string | undefined,
         projectId,
         limit: args.limit as number | undefined
       })
@@ -89,6 +90,7 @@ export function registerMemoryReview(server: McpServer) {
       confirm: z.boolean().optional().describe('apply/apply_batch/rollback: set true to execute the write; absent/false is a non-mutating dry-run'),
       state: z.enum(['pending', 'accepted', 'rejected', 'expired', 'stale', 'rolled_back']).optional().describe('list: state filter (default pending)'),
       item_kind: z.enum(ITEM_KINDS).optional().describe('list: item-kind filter (edge | placement | lifecycle | triage_activate | triage_archive)'),
+      source_thought_id: z.string().optional().describe('list: filter queued proposals by source thought id'),
       project_id: z.string().optional().describe('Project ID (prefer cwd)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project'),
       limit: proposalsLimitSchema.optional().describe('list: max rows (default 100, 1-1000); apply_batch: max items this call may apply')
