@@ -25,7 +25,7 @@ export function registerMemoryStatus(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_status',
     description: `Query system state. Actions:
-- slots: Get context slots (persona, pending_items, architecture_decisions, project_context, active_goals)
+- slots: Get context slots (persona, pending_items, architecture_decisions, project_context, active_goals). pending_items supports limit/offset pagination.
 - frontier: Get "what to do next" ranking
 - profile: Get user profile stats and thoughts
 - config: Show current configuration with defaults and env vars
@@ -36,6 +36,8 @@ export function registerMemoryStatus(server: McpServer) {
     inputSchema: {
       action: z.enum(['slots', 'frontier', 'profile', 'config', 'health', 'edge_suggestions', 'propose', 'cleanup']).describe('Action'),
       names: z.array(z.string()).optional().describe('Filter by slot names (slots only)'),
+      limit: z.number().int().min(1).max(1000).optional().describe('Max items (slots only, pending_items pagination)'),
+      offset: z.number().int().min(0).max(1_000_000).optional().describe('Offset for pagination (slots only, pending_items)'),
       project_id: z.string().optional().describe('Filter by project (slots/frontier/edge_suggestions/propose only)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project (slots/frontier/edge_suggestions/propose only)'),
       thought_id: z.string().optional().describe('Existing thought to analyse (propose only; provide this or content)'),
