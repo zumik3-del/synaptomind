@@ -80,7 +80,7 @@ const handlers = {
 export function registerMemoryReview(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_review',
-    description: `Review and apply placement proposals. Actions: enqueue (persisted thought only), list (default pending), apply (dry-run), apply_batch, rollback (dry-run), reject.`,
+    description: `Review and apply placement proposals. Actions: enqueue (persisted thought only), list (default pending), apply (dry-run; triage needs run_id), apply_batch (per-run caps), rollback (dry-run), reject.`,
     inputSchema: {
       action: z
         .enum(['enqueue', 'list', 'apply', 'apply_batch', 'rollback', 'reject'])
