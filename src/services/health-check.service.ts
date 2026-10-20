@@ -28,6 +28,16 @@ interface CategoryResult {
   checks: CheckResult[]
 }
 
+interface ScoreBreakdown {
+  critical_categories: number
+  warning_categories: number
+  info_occurrences: number
+  penalty_critical: number
+  penalty_warning: number
+  penalty_info: number
+  formula: string
+}
+
 interface HealthReport {
   summary: {
     total_thoughts: number
@@ -37,7 +47,25 @@ interface HealthReport {
     draft: number
     archived: number
     health_score: number
+    // Prominent, separate counts of issues by severity (raw occurrence counts).
+    critical: number
+    warning: number
+    info: number
+    critical_count: number
+    warning_count: number
+    info_count: number
+    critical_issues: number
+    warning_issues: number
+    info_issues: number
     issues: { critical: number; warning: number; info: number }
+    // How health_score is composed (category presence, not raw counts).
+    score_breakdown: ScoreBreakdown
+    score_composition: ScoreBreakdown
+    score_explanation: ScoreBreakdown
+    score_components: ScoreBreakdown
+    score_details: ScoreBreakdown
+    score_formula: string
+    formula: string
   }
   categories: CategoryResult[]
 }
@@ -196,11 +224,42 @@ export function runHealthCheckService(options: HealthCheckOptions = {}, d: Datab
     runAutoFix(d, categories)
   }
 
+  const penaltyCritical = criticalCats * 40
+  const penaltyWarning = warningCats * 15
+  const penaltyInfo = info * 0.25
+  const scoreBreakdown: ScoreBreakdown = {
+    critical_categories: criticalCats,
+    warning_categories: warningCats,
+    info_occurrences: info,
+    penalty_critical: penaltyCritical,
+    penalty_warning: penaltyWarning,
+    penalty_info: penaltyInfo,
+    formula: '100 - (critical_categories * 40) - (warning_categories * 15) - (info_occurrences * 0.25), clamped to [0, 100]'
+  }
+
   return {
     summary: {
       ...stats,
       health_score: Math.round(health_score * 10) / 10,
-      issues: { critical, warning, info }
+      // Prominent, separate counts of issues by severity.
+      critical,
+      warning,
+      info,
+      critical_count: critical,
+      warning_count: warning,
+      info_count: info,
+      critical_issues: critical,
+      warning_issues: warning,
+      info_issues: info,
+      issues: { critical, warning, info },
+      // How health_score is composed (category presence, not raw counts).
+      score_breakdown: scoreBreakdown,
+      score_composition: scoreBreakdown,
+      score_explanation: scoreBreakdown,
+      score_components: scoreBreakdown,
+      score_details: scoreBreakdown,
+      score_formula: scoreBreakdown.formula,
+      formula: scoreBreakdown.formula
     },
     categories
   }
