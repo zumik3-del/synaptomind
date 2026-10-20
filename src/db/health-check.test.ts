@@ -363,6 +363,22 @@ test("findTooShort uses a 10-char default and skips clusters", () => {
 	expect(shorts[0]?.length).toBe(2);
 });
 
+test("findTooShort skips archived thoughts", () => {
+	const db = getDb();
+	const archived = seedThought({ content: "ab", status: "archived" });
+	const draft = seedThought({ content: "cd", status: "draft" });
+	const active = seedThought({ content: "ef" });
+
+	const shorts = findTooShort(db);
+	const ids = shorts.map((s) => s.id);
+	// Archived rows are frozen and un-actionable — flagging them produced a
+	// permanent, unfixable finding.
+	expect(ids).toContain(draft);
+	expect(ids).toContain(active);
+	expect(ids).not.toContain(archived);
+	expect(shorts).toHaveLength(2);
+});
+
 test("findTestRemnants flags test-looking content", () => {
   const db = getDb();
   const remnant = seedThought({ content: "Test thought A" });
