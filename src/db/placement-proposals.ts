@@ -64,6 +64,9 @@ export interface ListProposalsOptions {
   /** Optional source-thought filter (queued proposals of one source thought). */
   source_thought_id?: string
   sourceThoughtId?: string
+  /** Optional lower bound on created_at (ISO; inclusive). */
+  created_after?: string
+  createdAfter?: string
   limit?: number
 }
 
@@ -162,6 +165,11 @@ export function listProposals(db: Database, options: ListProposalsOptions = {}):
   if (sourceThoughtId !== undefined) {
     clauses.push('source_thought_id = ?')
     params.push(sourceThoughtId)
+  }
+  const createdAfter = options.created_after ?? options.createdAfter
+  if (createdAfter !== undefined) {
+    clauses.push('created_at >= ?')
+    params.push(createdAfter)
   }
   params.push(limit)
   return db

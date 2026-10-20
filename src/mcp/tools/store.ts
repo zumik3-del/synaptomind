@@ -21,12 +21,12 @@ const handlers = {
 export function registerMemoryStore(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_store',
-    description: `Store and modify thoughts. Actions: create, update (tags replace by default; tags_mode=merge to union), link, unlink (dry-run), retype (dry-run; returns old/new edge id).`,
+    description: `Store and modify thoughts. Actions: create, update (tags merge by default; tags_mode=replace to overwrite), link, unlink (dry-run), retype (dry-run; returns old/new edge id).`,
     inputSchema: {
       action: z.enum(['create', 'update', 'link', 'unlink', 'retype']).describe('The specific action to perform. This dictates which other parameters are required.'),
       content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". Ignored for "link", "unlink", "retype". Recommended soft limit: ${getAdvertisedSoftLimitService()} chars.`),
-      tags: z.array(z.string()).optional().describe('Tags (update replaces the whole tag set by default; use tags_mode=merge to union with existing tags)'),
-      tags_mode: z.enum(['replace', 'merge']).optional().describe('update only: how to apply `tags` — "replace" (default) overwrites the whole tag set, "merge" unions with existing tags'),
+      tags: z.array(z.string()).optional().describe('Tags (update merges with existing tags by default; use tags_mode=replace to overwrite the whole tag set)'),
+      tags_mode: z.enum(['replace', 'merge']).optional().describe('update only: how to apply `tags` — "merge" (default) unions with existing tags, "replace" overwrites the whole tag set'),
       status: thoughtStatusSchema.optional().describe('Status (draft/active/archived)'),
       project_id: z.string().optional().describe('Project ID (prefer cwd instead)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),

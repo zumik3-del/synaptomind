@@ -28,11 +28,12 @@ proposalsRouter.get('/', c => {
     const state = c2.req.query('state') as ProposalState | undefined
     const itemKind = c2.req.query('item_kind') as ProposalItemKind | undefined
     const sourceThoughtId = c2.req.query('source_thought_id')
+    const createdAfter = c2.req.query('created_after')
     const parsed = proposalsQuerySchema.safeParse({
       limit: c2.req.query('limit') || undefined
     })
     if (!parsed.success) throw new ValidationError(formatZodIssues(parsed.error))
-    return c2.json(listProposals({ state, itemKind, sourceThoughtId, projectId: c2.req.query('project_id'), limit: parsed.data.limit }))
+    return c2.json(listProposals({ state, itemKind, sourceThoughtId, createdAfter, projectId: c2.req.query('project_id'), limit: parsed.data.limit }))
   })
 })
 
