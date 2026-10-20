@@ -80,13 +80,7 @@ const handlers = {
 export function registerMemoryReview(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_review',
-    description: `Review and apply the persisted placement-proposal queue. Actions:
-- enqueue: Propose a read-only plan for a persisted thought and queue its confirmable items (drafts are not enqueued)
-- list: List queued proposals (read-only; default state=pending)
-- apply: Apply exactly one queued item (dry-run unless confirm=true); triage kinds require run_id
-- apply_batch: Apply a list of queued items independently (dry-run unless confirm=true); enforces run_id, limit and the per-run triage caps
-- rollback: Reverse a run's reversible mutations (dry-run report unless confirm=true)
-- reject: Reject one pending item`,
+    description: `Review and apply placement proposals. Actions: enqueue (persisted thought only), list (default pending), apply (dry-run), apply_batch, rollback (dry-run), reject.`,
     inputSchema: {
       action: z
         .enum(['enqueue', 'list', 'apply', 'apply_batch', 'rollback', 'reject'])

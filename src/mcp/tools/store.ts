@@ -21,12 +21,7 @@ const handlers = {
 export function registerMemoryStore(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_store',
-    description: `Store and modify thoughts. Actions:
-- create: Create a new thought
-- update: Partially update a thought (content, tags, status, project). tags replaces the whole tag set by default; pass tags_mode=merge to union with existing tags
-- link: Create a directed edge between two thoughts
-- unlink: Delete an edge (dry-run with confirm=false, then confirm=true)
-- retype: Change an edge's type (dry-run with confirm=false, then confirm=true)`,
+    description: `Store and modify thoughts. Actions: create, update (tags replace by default; tags_mode=merge to union), link, unlink (dry-run), retype (dry-run; returns old/new edge id).`,
     inputSchema: {
       action: z.enum(['create', 'update', 'link', 'unlink', 'retype']).describe('The specific action to perform. This dictates which other parameters are required.'),
       content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". Ignored for "link", "unlink", "retype". Recommended soft limit: ${getAdvertisedSoftLimitService()} chars.`),

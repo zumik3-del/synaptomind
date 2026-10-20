@@ -19,12 +19,7 @@ const handlers = {
 export function registerMemoryCrystallize(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_crystallize',
-    description: `Consolidate and visualize thoughts. Actions:
-- graph: Return all thoughts and edges as a graph
-- cluster: Create a cluster from thought IDs
-- auto_cluster: Batch auto-clustering (Union-Find based)
-- cluster_remove: Remove a member from a cluster (dry-run with confirm=false, then confirm=true)
-- cluster_dissolve: Dissolve an entire cluster (dry-run with confirm=false, then confirm=true)`,
+    description: `Visualize and reorganize clusters. Actions: graph, cluster, auto_cluster (Union-Find), cluster_remove (dry-run), cluster_dissolve (dry-run).`,
     inputSchema: {
       action: z.enum(['graph', 'cluster', 'auto_cluster', 'cluster_remove', 'cluster_dissolve']).describe('Action'),
       thought_ids: z.array(z.string()).optional().describe('Thought IDs (required for cluster action)'),
