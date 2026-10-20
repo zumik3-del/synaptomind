@@ -23,8 +23,7 @@ function buildGuideText(softLimit: number): string {
 | Supersede | \`memory_supersede\` | action=archive/merge |
 | Projects | \`memory_manage\` | action=list/create/update/delete/resolve |
 
-## Tool Map
-
+## Runtime tools
 | Tool | Actions | Purpose |
 |---|---|---|
 | \`memory_recall\` | search, get, context, chain, clusters | Find and retrieve thoughts |
@@ -47,7 +46,9 @@ Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, 
 - \`active\` — live, searchable, included in frontier
 - \`archived\` — hidden from search and frontier, kept for history
 
-Rules: default status is draft. Profile thoughts (\`is_profile=1\`) cannot be archived. Archive is idempotent. TTL cleanup deletes after configured retention period.
+Rules: default status is draft on create (pass \`status=active\` to publish immediately). Profile thoughts (\`is_profile=1\`) cannot be archived. Archive is idempotent. TTL cleanup deletes after configured retention period.
+
+**Tags on update replace, not append:** \`memory_store\` action=update with a \`tags\` array overwrites the thought's entire tag set — tags not listed are removed. Omit \`tags\` to leave them untouched.
 
 **System tags:**
 - \`@profile\`, \`@profile-*\` — persona markers, feed the persona slot
@@ -84,6 +85,8 @@ Three modes:
 
 Filters: status, project, tag, cluster (only/exclude), min importance.
 
+**Embedding indexing delay:** a newly created/updated thought is searchable by BM25 (FTS5, synchronous trigger) immediately, but vector and hybrid modes only see it once the embedder has computed and stored its vector in \`vec_thoughts\`. The embedder polls \`pending_embeddings\` every \`embedder.pollIntervalMs\` (default 7000 ms), so fresh thoughts typically appear in vector/hybrid results after ~10-15 s. Until then they may be absent from vector-only results or score as BM25-only hits.
+
 **Breaking 0.x change:** \`memory_crystallize\` action=crystallize and standalone thought verification are removed. Supplying \`exclude_flagged\` to \`memory_recall\` search/clusters (even false) returns a validation error; previously flagged thoughts may now appear in default search results. Historical crystal thoughts and \`thought_verify\` rows remain stored; no destructive migration is included. Graph/cluster actions and the HTTP \`/health\` probe still work.
 
 Result ranking signals: \`match_source\` (legs that matched, in fixed order \`vector\`, \`bm25\`), \`similarity\`/\`distance\` (vector leg only), \`bm25_score\` (keyword relevance, higher = more relevant, only for BM25 hits), and \`rrf_score\` (fused hybrid score, present only when fusion ran).
@@ -111,14 +114,17 @@ Post-processing: hit counting → primer promotion → primer hoisting → profi
 | Deletion | Thoughts moved to Default | N/A |
 | Frontier | Included | Excluded |
 
-## Background Jobs
-
+## Nightly normalization
 | Job | What it does | Key config |
 |---|---|---|
 | **decay** | Decays importance, auto-archives stale thoughts | \`rate\`, \`archiveThreshold\`, \`archiveMinAgeDays\` |
-| **auto-cluster** | Groups similar thoughts into clusters (Union-Find) | \`minAgeDays\`, \`minSimilarity\`, \`minMembers\` |
-| **auto-link** | Creates related edges for low-connectivity thoughts | \`minSimilarity\`, \`maxEdgesPerRun\` |
+| **auto-cluster** | Groups similar thoughts into clusters (Union-Find) | \`minAgeDays\`, \`minSimilarity\`, \`minMembers\`, \`dry_run\` |
+| **auto-link** | Creates related edges for low-connectivity thoughts | \`minSimilarity\`, \`maxEdgesPerRun\`, \`dry_run\` |
 | **self-improve** | Detects issues, auto-corrects (orphan writes, stale drafts) | \`enabled\` (default false) |
+
+**auto_cluster dry_run default is config-dependent:** when \`dry_run\` is omitted, it falls back to \`config.autoCluster.dryRun\` (default \`false\`), so a run mutates unless the operator opts into preview. Pass \`dry_run: true\` explicitly to compute groups without creating clusters. The same config-dependent default applies to auto-link (\`config.autoLink.dryRun\`, default \`false\`).
+
+Decay and self-improve run on intervals (default 24 h); auto-cluster and auto-link are invoked on demand via MCP/HTTP. All four are normalization passes over the graph and record their run in the log.
 
 ## Health Check
 
@@ -128,6 +134,7 @@ Categories: structural integrity (orphan/self-loop edges), cluster health (empty
 
 Score: 100 - (criticalCategories×40) - (warningCategories×15) - (infoOccurrences×0.25), clamped [0,100]. The score penalises the PRESENCE of a flagged category, not its counts — a large island count dominates via the per-occurrence info term.
 
+Composition: \`issues: { critical, warning, info }\` are raw occurrence counts per severity. \`criticalCategories\`/\`warningCategories\` count how many *categories* contain at least one critical/warning finding (0/1 per category, not per finding). Info findings contribute per occurrence (0.25 each). Thus one critical finding in a category costs 40 points regardless of how many findings that category has; many info findings accumulate linearly. Severity filter (\`severity\` param) restricts the reported checks but the score is computed on the unfiltered result.
 Accepted trade-offs on a dense, hub-centric graph (do not "fix" by mutating the graph): \`overlinked_thoughts\` flags curated cross-domain hubs; \`clusterless_dense_thoughts\` is age-gated to the auto-cluster window (task #935). ADR: \`synaptomind/adr/2026-09-28-928-health-overlinked-clusterless-adr.md\`; recalibration #934.
 
 **Remediating \`contradiction_in_cluster\`:** this semantic-consistency warning flags two non-archived members of the same cluster joined by a \`contradicts\` edge. There is no autofix — the check detects, the agent decides. Each finding's \`details\` carries \`cluster_id\`, \`member_a\`, \`member_b\` and \`contradicts_edge_id\`; resolve it with the edge/cluster writers, then re-run the check:
