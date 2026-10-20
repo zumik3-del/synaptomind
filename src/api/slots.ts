@@ -2,8 +2,9 @@ import { Hono } from 'hono'
 import { z } from 'zod/v4'
 import { config } from '../config'
 import { withTelemetry } from '../logging'
+import { ValidationError } from '../errors'
 import { getSlots, type ReflectInput, reflectSessionService, updateExplicitSlot } from '../services/slots.service'
-import { jsonBodyOrDefault } from './utils'
+import { formatZodIssues, jsonBodyOrDefault } from './utils'
 
 const slotsRouter = new Hono()
 
@@ -28,6 +29,11 @@ export const reflectBodySchema = z.object({
   wake_days: z.number().int().min(1).max(365).optional()
 })
 
+const slotsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
+  offset: z.coerce.number().int().min(0).max(1_000_000).optional().default(0)
+})
+
 slotsRouter.get('/', c => {
   return withTelemetry(c, { action: 'read', toolName: 'get_slots' }, c2 => {
     const projectId = c2.req.query('project_id') || undefined
@@ -35,7 +41,12 @@ slotsRouter.get('/', c => {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
-    return c2.json({ slots: getSlots({ projectId, names }) })
+    const parsed = slotsQuerySchema.safeParse({
+      limit: c2.req.query('limit') || undefined,
+      offset: c2.req.query('offset') || undefined
+    })
+    if (!parsed.success) throw new ValidationError(formatZodIssues(parsed.error))
+    return c2.json({ slots: getSlots({ projectId, names, limit: parsed.data.limit, offset: parsed.data.offset }) })
   })
 })
 
