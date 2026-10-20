@@ -37,9 +37,7 @@ const handlers = {
 export function registerMemorySupersede(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_supersede',
-    description: `Version and supersede thoughts. Actions:
-- archive: Archive a thought (set status=archived). If already archived, returns the thought unchanged (idempotent).
-- merge: Merge source into target (source archived, target updated with merged content/tags)`,
+    description: `Version and supersede thoughts. Actions: archive (idempotent), merge (source→target).`,
     inputSchema: {
       action: z.enum(['archive', 'merge']).describe('Action'),
       thought_id: z.string().optional().describe('Thought ID (required for archive)'),

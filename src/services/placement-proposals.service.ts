@@ -51,6 +51,16 @@ export type { FingerprintInput } from './placement-proposals.mapping'
 export interface EnqueuePlanOptions {
   /** Clock override for deterministic tests (default now). */
   now?: string
+  /** Cap on the number of proposals enqueued for this plan (default config.placement.maxProposalsPerEnqueue). */
+  maxProposals?: number
+  max_proposals?: number
+  maxItems?: number
+  max_items?: number
+  maxItemsPerEnqueue?: number
+  max_items_per_enqueue?: number
+  maxProposalsPerEnqueue?: number
+  max_proposals_per_enqueue?: number
+  limit?: number
 }
 
 export interface EnqueueThoughtOptions {
@@ -58,6 +68,16 @@ export interface EnqueueThoughtOptions {
   projectId?: string
   /** Clock override for deterministic tests (default now). */
   now?: string
+  /** Cap on the number of proposals enqueued for this thought (default config.placement.maxProposalsPerEnqueue). */
+  maxProposals?: number
+  max_proposals?: number
+  maxItems?: number
+  max_items?: number
+  maxItemsPerEnqueue?: number
+  max_items_per_enqueue?: number
+  maxProposalsPerEnqueue?: number
+  max_proposals_per_enqueue?: number
+  limit?: number
 }
 
 export interface ListOptions {
@@ -66,6 +86,9 @@ export interface ListOptions {
   projectId?: string
   /** Optional item-kind filter, e.g. `triage_activate` (ADR 2026-09-29 §2.7). */
   itemKind?: ProposalItemKind
+  /** Optional source-thought filter (queued proposals of one source thought). */
+  sourceThoughtId?: string
+  source_thought_id?: string
   limit?: number
   /** Clock override for the expired-row filter (default now). */
   now?: string
@@ -85,6 +108,32 @@ export interface RejectOptions {
  * and it must be `active`: placement is the second phase, downstream of the
  * triage verdict that activates a draft.
  */
+/** Resolve the per-enqueue proposal cap from options/config (first defined wins). */
+function resolveMaxProposalsPerEnqueue(options: EnqueuePlanOptions | EnqueueThoughtOptions = {}): number {
+  const o = options as Record<string, unknown>
+  const candidates = [
+    o.maxProposals, o.max_proposals, o.maxItems, o.max_items,
+    o.maxItemsPerEnqueue, o.max_items_per_enqueue,
+    o.maxProposalsPerEnqueue, o.max_proposals_per_enqueue, o.limit
+  ]
+  for (const c of candidates) {
+    if (c !== undefined && c !== null && Number.isFinite(c as number)) {
+      return Math.max(1, Math.floor(c as number))
+    }
+  }
+  const cfg = config.placement as Record<string, unknown>
+  const cfgCandidates = [
+    cfg.maxProposalsPerEnqueue, cfg.maxProposals, cfg.maxItemsPerEnqueue, cfg.maxItemsPerRun,
+    (config.edgeDetect as Record<string, unknown>)?.maxProposals
+  ]
+  for (const c of cfgCandidates) {
+    if (c !== undefined && c !== null && Number.isFinite(c as number)) {
+      return Math.max(1, Math.floor(c as number))
+    }
+  }
+  return 5
+}
+
 export function enqueuePlanService(
   plan: PlacementPlan,
   options: EnqueuePlanOptions = {},
@@ -107,6 +156,11 @@ export function enqueuePlanService(
   const items = mapPlan(d, source, plan)
   if (items.length === 0) return []
 
+  // Reduce enqueue noise: cap the number of auto-generated proposals per enqueue.
+  const maxPerEnqueue = resolveMaxProposalsPerEnqueue(options)
+  const cappedItems = items.slice(0, maxPerEnqueue)
+  if (cappedItems.length === 0) return []
+
   const maxPending = config.placement.maxPendingProposals
   const expiresAt = proposalExpiry(now)
   const projectId = source.project_id ?? null
@@ -114,13 +168,13 @@ export function enqueuePlanService(
   const run = d.transaction(() => {
     // Count only live (non-expired) pending rows so overdue rows do not
     // consume the cap; the retention job marks them expired (ADR §2.4).
-    const pending = listProposals(d, { state: 'pending', limit: maxPending + items.length + 1 })
+    const pending = listProposals(d, { state: 'pending', limit: maxPending + cappedItems.length + 1 })
       .filter(row => row.expires_at === null || row.expires_at > now)
     const keys = new Set(pending.map(toItemKey))
     let pendingCount = pending.length
 
     const rows: PlacementProposalRow[] = []
-    for (const item of items) {
+    for (const item of cappedItems) {
       const key = itemKey({
         sourceId: source.id,
         itemKind: item.itemKind,
@@ -156,7 +210,13 @@ export function enqueuePlanService(
     return rows
   })
 
-  return run()
+  const rows = run()
+  // Clearer output grouping by target/type for review readability.
+  rows.sort((a, b) =>
+    String(a.item_kind).localeCompare(String(b.item_kind)) ||
+    String(a.target_id ?? '').localeCompare(String(b.target_id ?? ''))
+  )
+  return rows
 }
 
 /**
@@ -170,13 +230,14 @@ export async function enqueueThoughtProposals(
   options: EnqueueThoughtOptions = {},
   d: Database = getDb()
 ): Promise<PlacementProposalRow[]> {
+  const maxPerEnqueue = resolveMaxProposalsPerEnqueue(options)
   const plan = await proposePlacementPlan(
     { thoughtId, projectId: options.projectId },
-    { projectId: options.projectId, now: options.now },
+    { projectId: options.projectId, now: options.now, maxProposals: maxPerEnqueue },
     {},
     d
   )
-  return enqueuePlanService(plan, { now: options.now }, d)
+  return enqueuePlanService(plan, { now: options.now, maxProposals: maxPerEnqueue }, d)
 }
 
 /** Default and hard ceiling of the `list` page size (matches the MCP schema). */
@@ -201,10 +262,12 @@ function clampListLimit(limit: number | undefined): number {
 export function listPlacementProposalsService(options: ListOptions = {}, d: Database = getDb()): PlacementProposalRow[] {
   const state = options.state ?? 'pending'
   const now = options.now ?? new Date().toISOString()
+  const sourceThoughtId = options.sourceThoughtId ?? options.source_thought_id
   const rows = listProposals(d, {
     state,
     project_id: options.projectId,
     item_kind: options.itemKind,
+    source_thought_id: sourceThoughtId,
     limit: clampListLimit(options.limit)
   })
   if (state !== 'pending') return rows

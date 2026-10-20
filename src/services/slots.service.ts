@@ -45,9 +45,13 @@ function personaContent(db: Database): string {
 }
 
 // pending_items — due pending candidates, the same set the frontier surfaces (FI-03).
-function pendingItemsContent(db: Database): string {
+function pendingItemsContent(db: Database, limit?: number, offset?: number): string {
+  const candidates = listPendingCandidates(undefined, db)
+  const start = Math.max(0, offset ?? 0)
+  const end = limit !== undefined ? start + Math.max(0, limit) : undefined
+  const page = end === undefined ? candidates.slice(start) : candidates.slice(start, end)
   const bullets: string[] = []
-  for (const candidate of listPendingCandidates(undefined, db)) {
+  for (const candidate of page) {
     bullets.push(`- ${candidate.content.replace(/\s+/g, ' ').trim()}`)
   }
   return bullets.join('\n')
@@ -64,7 +68,7 @@ function architectureDecisionsContent(db: Database): string {
   return bullets.join('\n')
 }
 
-export function getSlots(opts?: { projectId?: string; names?: string[] }, d: Database = getDb()): SlotView[] {
+export function getSlots(opts?: { projectId?: string; names?: string[]; limit?: number; offset?: number }, d: Database = getDb()): SlotView[] {
   const projectId = opts?.projectId || undefined
   const filter = opts?.names?.length ? new Set(opts.names) : null
 
@@ -76,7 +80,7 @@ export function getSlots(opts?: { projectId?: string; names?: string[] }, d: Dat
       let content: string
       if (name === 'persona') content = personaContent(d)
       else if (name === 'architecture_decisions') content = architectureDecisionsContent(d)
-      else content = pendingItemsContent(d)
+      else content = pendingItemsContent(d, opts?.limit, opts?.offset)
       const { content: truncatedContent, truncated } = truncate(content, maxChars)
       views.push({ name, scope: 'global', virtual: true, content: truncatedContent, truncated, max_chars: maxChars, updated_at: null })
       continue

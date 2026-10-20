@@ -54,10 +54,7 @@ const handlers = {
 export function registerMemoryTelemetry(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_telemetry',
-    description: `Analytics and self-improvement. Actions:
-- query: Query telemetry aggregates (patterns, frequency, orphan_writes, draft_lifecycle)
-- analyze: Analyze thought patterns — orphans, merges, promotions (self-improve job)
-- primers: List or delete primers`,
+    description: `Analytics. Actions: query (patterns, frequency, orphan_writes, draft_lifecycle), analyze (dry-run), primers (list/delete).`,
     inputSchema: {
       action: z.enum(['query', 'analyze', 'primers']).describe('Action'),
       metric: z.enum(['patterns', 'frequency', 'orphan_writes', 'draft_lifecycle']).optional().describe('Metric to query (query only)'),

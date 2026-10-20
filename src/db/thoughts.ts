@@ -2,7 +2,7 @@ import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import type { ThoughtStatus } from '../types/thought'
 import { computeContentHash, parseTags } from '../utils'
 import { resolveDefaultProjectId } from './projects'
-import { getThoughtTags, getThoughtTagsBatch, pruneOrphanTags, setThoughtTags, type Tag } from './tags'
+import { getThoughtTags, getThoughtTagsBatch, mergeThoughtTags, pruneOrphanTags, setThoughtTags, type Tag } from './tags'
 import { sqlIn, toBit } from './utils'
 
 // The auto-clustering candidate query lives in the sibling module; re-exported
@@ -44,6 +44,7 @@ export interface CreateThoughtInput {
 export interface UpdateThoughtInput {
   content?: string
   tags?: string[]
+  tags_mode?: 'replace' | 'merge'
   status?: ThoughtStatus
   project_id?: string
   is_cluster?: boolean
@@ -168,7 +169,11 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
       values.push(data.content)
     }
     if (data.tags !== undefined) {
-      setThoughtTags(db, id, data.tags)
+      if (data.tags_mode === 'merge') {
+        mergeThoughtTags(db, id, data.tags)
+      } else {
+        setThoughtTags(db, id, data.tags)
+      }
     }
     if (data.status !== undefined) {
       sets.push('status = ?')

@@ -61,6 +61,9 @@ export interface ListProposalsOptions {
   project_id?: string
   /** Optional item-kind filter (ADR 2026-09-29 §2.7). */
   item_kind?: ProposalItemKind
+  /** Optional source-thought filter (queued proposals of one source thought). */
+  source_thought_id?: string
+  sourceThoughtId?: string
   limit?: number
 }
 
@@ -154,6 +157,11 @@ export function listProposals(db: Database, options: ListProposalsOptions = {}):
   if (options.item_kind !== undefined) {
     clauses.push('item_kind = ?')
     params.push(options.item_kind)
+  }
+  const sourceThoughtId = options.source_thought_id ?? options.sourceThoughtId
+  if (sourceThoughtId !== undefined) {
+    clauses.push('source_thought_id = ?')
+    params.push(sourceThoughtId)
   }
   params.push(limit)
   return db

@@ -24,18 +24,12 @@ const handlers = {
 export function registerMemoryStatus(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_status',
-    description: `Query system state. Actions:
-- slots: Get context slots (persona, pending_items, architecture_decisions, project_context, active_goals)
-- frontier: Get "what to do next" ranking
-- profile: Get user profile stats and thoughts
-- config: Show current configuration with defaults and env vars
-- health: Audit graph health (broken links, orphans, duplicates, structural issues)
-- edge_suggestions: Propose unconfirmed \`related\` candidate pairs from embedding similarity (read-only; never implies conflict; confirm via memory_store action=link)
-- propose: Propose a read-only placement/link plan for one thought (placement, edge proposals, lifecycle); confirm via memory_store action=link, memory_supersede, memory_crystallize
-- cleanup: Preview expired archived thoughts based on TTL config (dry-run by default; pass dry_run=false to delete)`,
+    description: `Query system state. Actions: slots (persona, pending_items w/ limit/offset, architecture_decisions, project_context, active_goals), frontier, profile, config, health, edge_suggestions (read-only related candidates), propose (read-only plan), cleanup (TTL; dry-run default).`,
     inputSchema: {
       action: z.enum(['slots', 'frontier', 'profile', 'config', 'health', 'edge_suggestions', 'propose', 'cleanup']).describe('Action'),
       names: z.array(z.string()).optional().describe('Filter by slot names (slots only)'),
+      limit: z.number().int().min(1).max(1000).optional().describe('Max items (slots only, pending_items pagination)'),
+      offset: z.number().int().min(0).max(1_000_000).optional().describe('Offset for pagination (slots only, pending_items)'),
       project_id: z.string().optional().describe('Filter by project (slots/frontier/edge_suggestions/propose only)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project (slots/frontier/edge_suggestions/propose only)'),
       thought_id: z.string().optional().describe('Existing thought to analyse (propose only; provide this or content)'),

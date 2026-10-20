@@ -136,7 +136,8 @@ Updates a thought. All body fields optional; only provided fields change. Provid
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
 | content | body | string | optional | New content |
-| tags | body | string[] | optional | Replacement tag set |
+| tags | body | string[] | optional | Replacement tag set (default replace; pass tags_mode=merge to union with existing tags) |
+| tags_mode | body | string | optional | `replace` (default) or `merge`: how `tags` is applied |
 | status | body | string | optional | draft/active/archived |
 | project_id | body | string | optional | Move to project |
 | is_profile | body | bool | optional | Profile flag |
@@ -722,12 +723,16 @@ Returns context slots.
 |---|---|---|---|---|
 | project_id | query | string | optional | Scope to a project |
 | names | query | string | optional | Comma-separated slot names filter |
+| limit | query | int | optional | Max items for `pending_items` (1-1000); paginates the pending list |
+| offset | query | int | 0 | Offset for `pending_items` pagination |
 
 curl `'http://127.0.0.1:3005/api/slots/?names=persona,pending_items'`
 
 Response: `{"slots": [{"name": "persona", "content": "...", ...}]}`
 
 `pending_items` is virtual: it is built from the same due `pending` candidates the frontier surfaces.
+
+Truncation: every slot's `content` is capped at `max_chars` (default `slots.defaultMaxChars`, 2000; hard limit 20000). When the stored/composed content exceeds the cap it is sliced to `max_chars` and `truncated: true` is set; the remainder is dropped from that response. Use `limit`/`offset` on `pending_items` to page through long queues without losing entries to the char cap. Explicit slots may raise their cap via `max_chars` on `PUT`.
 
 ### PUT /api/slots/:name
 

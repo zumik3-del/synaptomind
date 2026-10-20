@@ -18,7 +18,7 @@ const proposalsRouter = new Hono()
 const proposalsQuerySchema = z.object({
   limit: proposalsLimitSchema.default(PROPOSALS_LIMIT_DEFAULT)
 })
-const enqueueBodySchema = z.object({ thought_id: z.string().optional(), project_id: z.string().optional() })
+const enqueueBodySchema = z.object({ thought_id: z.string().optional(), project_id: z.string().optional(), max_proposals: z.number().int().min(1).optional(), max_items: z.number().int().min(1).optional(), limit: z.number().int().min(1).optional() })
 const rollbackBodySchema = z.object({ run_id: z.string().optional(), confirm: z.boolean().optional() })
 const applyBodySchema = z.object({ confirm: z.boolean().optional(), run_id: z.string().optional() })
 
@@ -27,20 +27,21 @@ proposalsRouter.get('/', c => {
   return withTelemetry(c, { action: 'read', toolName: 'list_placement_proposals' }, c2 => {
     const state = c2.req.query('state') as ProposalState | undefined
     const itemKind = c2.req.query('item_kind') as ProposalItemKind | undefined
+    const sourceThoughtId = c2.req.query('source_thought_id')
     const parsed = proposalsQuerySchema.safeParse({
       limit: c2.req.query('limit') || undefined
     })
     if (!parsed.success) throw new ValidationError(formatZodIssues(parsed.error))
-    return c2.json(listProposals({ state, itemKind, projectId: c2.req.query('project_id'), limit: parsed.data.limit }))
+    return c2.json(listProposals({ state, itemKind, sourceThoughtId, projectId: c2.req.query('project_id'), limit: parsed.data.limit }))
   })
 })
 
 // Write: propose a plan for a persisted thought and queue its confirmable items.
 proposalsRouter.post('/', async c => {
   return withTelemetry(c, { action: 'write', toolName: 'enqueue_placement_proposals' }, async c2 => {
-    const body = await jsonBodyOrDefault<{ thought_id?: string; project_id?: string }>(c2, {}, enqueueBodySchema)
+    const body = await jsonBodyOrDefault<{ thought_id?: string; project_id?: string; max_proposals?: number; max_items?: number; limit?: number }>(c2, {}, enqueueBodySchema)
     if (!body.thought_id) throw new ValidationError('thought_id is required')
-    const rows = await enqueueThoughtProposals(body.thought_id, { projectId: body.project_id })
+    const rows = await enqueueThoughtProposals(body.thought_id, { projectId: body.project_id, maxProposals: body.max_proposals, maxItems: body.max_items, limit: body.limit })
     return c2.json(rows, 201)
   })
 })

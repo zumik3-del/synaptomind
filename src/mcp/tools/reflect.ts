@@ -34,9 +34,7 @@ const handlers = {
 export function registerMemoryReflect(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_reflect',
-    description: `Session management and history. Actions:
-- reflect: Record session outcomes (summary, decisions, pending tasks, goal changes). Call at natural breakpoints — after a decision, after finishing a task, after architectural work.
-- timeline: List thoughts with pagination (recent activity feed)`,
+    description: `Session management. Actions: reflect (summary, decisions, pending, goals), timeline (paginated).`,
     inputSchema: {
       action: z.enum(['reflect', 'timeline']).describe('Action'),
       summary: z.string().optional().describe('Brief summary of what was accomplished (reflect only)'),

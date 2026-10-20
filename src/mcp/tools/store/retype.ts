@@ -20,6 +20,7 @@ export const retypeHandler: ActionHandler = {
       return {
         status: 'preview',
         edge_id: edgeId,
+        old_edge_id: edgeId,
         old_type: edge.type,
         new_type: newType,
         source_id: edge.source_id,
@@ -31,7 +32,15 @@ export const retypeHandler: ActionHandler = {
     const oldType = edge.type
     const retyped = retypeEdgeService(edgeId, newType)
     // retypeEdge does delete+insert, so the id changes — return the fresh
-    // id so a chained unlink/retype resolves.
-    return { status: 'retyped', edge_id: retyped.id, old_type: oldType, new_type: newType }
+    // id so a chained unlink/retype resolves. Keep `edge_id` (new id) for
+    // backward compatibility and expose both ids for traceability.
+    return {
+      status: 'retyped',
+      edge_id: retyped.id,
+      old_edge_id: edgeId,
+      new_edge_id: retyped.id,
+      old_type: oldType,
+      new_type: newType
+    }
   }
 }

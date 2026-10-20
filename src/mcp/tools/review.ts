@@ -21,7 +21,15 @@ const handlers = {
     input: z.object({ thought_id: requiredString('thought_id is required for enqueue action') }),
     run(args: ActionArgs) {
       const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      return enqueueThoughtProposals(args.thought_id as string, { projectId })
+      return enqueueThoughtProposals(args.thought_id as string, {
+        projectId,
+        maxProposals: args.max_proposals as number | undefined,
+        max_proposals: args.max_proposals as number | undefined,
+        maxItems: args.max_items as number | undefined,
+        max_items: args.max_items as number | undefined,
+        maxItemsPerEnqueue: args.max_items as number | undefined,
+        limit: args.limit as number | undefined
+      })
     }
   },
 
@@ -31,6 +39,7 @@ const handlers = {
       return listProposals({
         state: args.state as ListOptions['state'],
         itemKind: args.item_kind as ListOptions['itemKind'],
+        sourceThoughtId: args.source_thought_id as string | undefined,
         projectId,
         limit: args.limit as number | undefined
       })
@@ -71,24 +80,21 @@ const handlers = {
 export function registerMemoryReview(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_review',
-    description: `Review and apply the persisted placement-proposal queue. Actions:
-- enqueue: Propose a read-only plan for a persisted thought and queue its confirmable items (drafts are not enqueued)
-- list: List queued proposals (read-only; default state=pending)
-- apply: Apply exactly one queued item (dry-run unless confirm=true); triage kinds require run_id
-- apply_batch: Apply a list of queued items independently (dry-run unless confirm=true); enforces run_id, limit and the per-run triage caps
-- rollback: Reverse a run's reversible mutations (dry-run report unless confirm=true)
-- reject: Reject one pending item`,
+    description: `Review and apply placement proposals. Actions: enqueue (persisted thought only), list (default pending), apply (dry-run; triage needs run_id), apply_batch (per-run caps), rollback (dry-run), reject.`,
     inputSchema: {
       action: z
         .enum(['enqueue', 'list', 'apply', 'apply_batch', 'rollback', 'reject'])
         .describe('Action'),
       thought_id: z.string().optional().describe('REQUIRED for "enqueue": persisted thought whose proposals are queued (create the thought first; drafts are not enqueued)'),
+      max_proposals: z.number().int().min(1).optional().describe('enqueue: cap on the number of proposals generated for this thought (default placement.maxProposalsPerEnqueue)'),
+      max_items: z.number().int().min(1).optional().describe('enqueue: alias for max_proposals'),
       proposal_id: z.string().optional().describe('REQUIRED for "apply"/"reject": queued proposal id'),
       proposal_ids: z.array(z.string()).optional().describe('REQUIRED for "apply_batch": queued proposal ids'),
       run_id: z.string().optional().describe('Run envelope: REQUIRED for "rollback" and for apply/apply_batch of triage_activate/triage_archive items. It groups the rows one rollback can reverse. An un-enveloped non-triage apply/apply_batch gets a synthesized "auto-" + UUIDv7 envelope, returned as run_id on the accepted result (apply) and on the batch outcome (apply_batch), so it is rollback-addressable. "rollback" refuses any row decided more than placement.proposalTtlDays (default 30) days before the server\'s own clock; no public surface accepts a caller-supplied clock. The cutoff is inclusive: a row decided exactly at the boundary is still reversible, and a negative proposalTtlDays disables the window entirely'),
       confirm: z.boolean().optional().describe('apply/apply_batch/rollback: set true to execute the write; absent/false is a non-mutating dry-run'),
       state: z.enum(['pending', 'accepted', 'rejected', 'expired', 'stale', 'rolled_back']).optional().describe('list: state filter (default pending)'),
       item_kind: z.enum(ITEM_KINDS).optional().describe('list: item-kind filter (edge | placement | lifecycle | triage_activate | triage_archive)'),
+      source_thought_id: z.string().optional().describe('list: filter queued proposals by source thought id'),
       project_id: z.string().optional().describe('Project ID (prefer cwd)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project'),
       limit: proposalsLimitSchema.optional().describe('list: max rows (default 100, 1-1000); apply_batch: max items this call may apply')

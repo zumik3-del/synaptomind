@@ -82,12 +82,7 @@ const handlers = {
 export function registerMemoryManage(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_manage',
-    description: `Manage projects. Actions:
-- list: List all projects
-- create: Create a new project
-- update: Update a project
-- delete: Delete a project (preview first with confirm=false, then confirm=true)
-- resolve: Resolve project from a filesystem path`,
+    description: `Manage projects. Actions: list, create, update, delete (preview→confirm), resolve (from path).`,
     inputSchema: {
       action: z.enum(['list', 'create', 'update', 'delete', 'resolve']).describe('Action'),
       project_id: z.string().optional().describe('REQUIRED ONLY for "update" and "delete". IGNORED for "list", "create", "resolve".'),
