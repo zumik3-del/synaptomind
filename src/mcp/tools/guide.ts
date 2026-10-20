@@ -41,6 +41,8 @@ function buildGuideText(softLimit: number): string {
 
 Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_profile, source.
 
+**Tag updates:** \`memory_store\` action=update replaces the whole tag set by default; pass \`tags_mode=merge\` to union the supplied tags with the existing ones (backward compatible: omitting \`tags_mode\` keeps replace semantics).
+
 **Status lifecycle:**
 - \`draft\` — work in progress; only \`pending\`-tagged drafts surface in the frontier
 - \`active\` — live, searchable, included in frontier

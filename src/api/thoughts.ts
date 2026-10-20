@@ -52,6 +52,7 @@ const createThoughtBodySchema = z.object({
 const updateThoughtBodySchema = z.object({
   content: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  tags_mode: z.enum(['replace', 'merge']).optional(),
   status: thoughtStatusSchema.optional(),
   project_id: z.string().optional(),
   is_profile: z.boolean().optional(),
@@ -197,7 +198,7 @@ thoughtsRouter.put('/:id', async c => {
     const id = c2.req.param('id')!
     const body = await requiredJsonBody(c2, updateThoughtBodySchema)
     const thought = updateThoughtByIdService(id, {
-      content: body.content, tags: body.tags, status: body.status, project_id: body.project_id, is_profile: body.is_profile, is_protected: body.is_protected
+      content: body.content, tags: body.tags, tags_mode: body.tags_mode, status: body.status, project_id: body.project_id, is_profile: body.is_profile, is_protected: body.is_protected
     })
     if (!thought) return c2.json({ error: 'Not found' }, 404)
     return c2.json(thought)
