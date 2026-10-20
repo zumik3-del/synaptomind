@@ -27,11 +27,12 @@ proposalsRouter.get('/', c => {
   return withTelemetry(c, { action: 'read', toolName: 'list_placement_proposals' }, c2 => {
     const state = c2.req.query('state') as ProposalState | undefined
     const itemKind = c2.req.query('item_kind') as ProposalItemKind | undefined
+    const sourceThoughtId = c2.req.query('source_thought_id')
     const parsed = proposalsQuerySchema.safeParse({
       limit: c2.req.query('limit') || undefined
     })
     if (!parsed.success) throw new ValidationError(formatZodIssues(parsed.error))
-    return c2.json(listProposals({ state, itemKind, projectId: c2.req.query('project_id'), limit: parsed.data.limit }))
+    return c2.json(listProposals({ state, itemKind, sourceThoughtId, projectId: c2.req.query('project_id'), limit: parsed.data.limit }))
   })
 })
 

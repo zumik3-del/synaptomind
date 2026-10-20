@@ -66,6 +66,9 @@ export interface ListOptions {
   projectId?: string
   /** Optional item-kind filter, e.g. `triage_activate` (ADR 2026-09-29 §2.7). */
   itemKind?: ProposalItemKind
+  /** Optional source-thought filter (queued proposals of one source thought). */
+  sourceThoughtId?: string
+  source_thought_id?: string
   limit?: number
   /** Clock override for the expired-row filter (default now). */
   now?: string
@@ -201,10 +204,12 @@ function clampListLimit(limit: number | undefined): number {
 export function listPlacementProposalsService(options: ListOptions = {}, d: Database = getDb()): PlacementProposalRow[] {
   const state = options.state ?? 'pending'
   const now = options.now ?? new Date().toISOString()
+  const sourceThoughtId = options.sourceThoughtId ?? options.source_thought_id
   const rows = listProposals(d, {
     state,
     project_id: options.projectId,
     item_kind: options.itemKind,
+    source_thought_id: sourceThoughtId,
     limit: clampListLimit(options.limit)
   })
   if (state !== 'pending') return rows
