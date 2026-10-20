@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.14.1
+
+> October 20, 2026
+
+- [`8bda21c`](https://github.com/zumik3-del/synaptomind/commit/8bda21c346251fe9e9e6f030be747d15db7f4a15): docs(mcp): keep key nuances in review tool description
+- [`4047d1a`](https://github.com/zumik3-del/synaptomind/commit/4047d1ad731f12fe5a1af7a173fa63abc102f1e1): docs(mcp): condense tool descriptions for consistency
+- [`4cab6fc`](https://github.com/zumik3-del/synaptomind/commit/4cab6fc29c13621a67b4a6574ccc6989ffaab661): docs(mcp): condense memory_guide without losing meaning
+- [`628de41`](https://github.com/zumik3-del/synaptomind/commit/628de41a109aebcd8614b7e873694853926c2de1): chore: remove stray _httptest.test.ts accidentally added in #1838
+- [`c28114b`](https://github.com/zumik3-del/synaptomind/commit/c28114bd4c8d3c22da0900d00658ff53b2d7f2d3): feat(mcp): configurable per-enqueue proposal cap + grouped output (#1839)
+- [`dfbdbf2`](https://github.com/zumik3-del/synaptomind/commit/dfbdbf2e3fb3454fee4c1a6503565ae7068a92c9): feat(mcp): add limit/offset pagination to pending_items slot (#1838)
+- [`342df6e`](https://github.com/zumik3-del/synaptomind/commit/342df6ed298cbb0d005d3b638ea298094c80ba42): feat(mcp): retype response includes old_edge_id and new_edge_id (#1837)
+- [`d2258a3`](https://github.com/zumik3-del/synaptomind/commit/d2258a37ab5644d4bf017dcdb9426bde00afe745): feat(mcp): add tags_mode (replace/merge) to memory_store update (#1836)
+- [`5ec4cd1`](https://github.com/zumik3-del/synaptomind/commit/5ec4cd16ce75072e9648fee277d69dacc9de9198): feat(mcp): clarify health score breakdown (critical/warning/info) (#1835)
+- [`72dc96f`](https://github.com/zumik3-del/synaptomind/commit/72dc96f0b6d61088c6fe457764c1377dd6723225): feat(mcp): add source_thought_id filter to memory_review list (#1834)
+- [`869c895`](https://github.com/zumik3-del/synaptomind/commit/869c895f1aab5c667935ec834a2f276f657526db): docs(mcp): group SynaptoMind MCP tools into Runtime/Nightly in memory_guide (#1840)
+
 ## v0.14.0
 
 > October 19, 2026
