@@ -58,9 +58,12 @@ function pendingItemsContent(db: Database, limit?: number, offset?: number): str
 }
 
 // architecture_decisions — primers, most-hit first (FI-07).
+// Only the top `primer.topN` primers are rendered: the slot content is
+// truncated to `slots.defaultMaxChars` anyway, so reading 500 primers'
+// text first just paid for content that was thrown away.
 function architectureDecisionsContent(db: Database): string {
   const bullets: string[] = []
-  for (const primer of getPrimers(db)) {
+  for (const primer of getPrimers(db, config.primer.topN)) {
     const thought = getThoughtByIdService(primer.thought_id, db)
     if (!thought) continue
     bullets.push(`- ${thought.content.replace(/\s+/g, ' ').trim()}`)
