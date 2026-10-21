@@ -114,10 +114,8 @@ memory_store(action=create, "Work at night", is_profile=true, tags=["@profile", 
 decay job → importance decreases by rate (0.95) every 24h
   → importance < 0.1 + age > 30 days + active → auto-archive
 
-self-improve → detects:
-  frequent_unpromoted → thoughts recalled often (hit_count >= selfImprove.hitsThreshold)
-                         that are not primers yet
-  → promotes them to primers (up to selfImprove.maxPrimerPromotesPerRun per run)
+search path → promotes frequently-hit thoughts to primers once hit_count reaches
+              primer.promoteThreshold (default 5)
 ```
 
 The standalone thought-verification job was removed; existing `thought_verify`

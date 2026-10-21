@@ -24,18 +24,18 @@ For the HTTP equivalents, see [docs/API.md](API.md). For end-to-end usage, see
 | `memory_guide` | (no action) | In-band reference text |
 
 **Breaking 0.x change:** the `memory_telemetry` tool is removed, together with the
-`GET /api/telemetry/{patterns,frequency,orphan_writes,draft_lifecycle}` routes and the
-`selfImprove.orphanThreshold`, `selfImprove.activationThreshold`,
-`selfImprove.maxPromotesPerRun` and `selfImprove.maxMergesPerRun` config keys. The primer
-list/delete capability moves to the new `memory_primers` tool (list, delete); its delete is
-preview-first and needs `confirm: true`. The self-improve job keeps one detection
-(`frequent_unpromoted`). The removed `memory_telemetry action=analyze` was the only MCP
-trigger of a self-improve run, so an agent can no longer start a self-improve run over MCP;
-the remaining ways to run it are the HTTP route `POST /api/thoughts/self-improve/run` and the
-interval job (disabled by default). That route's body narrows too: `signals` carries only
-`highHitThoughts`, and the counters `orphanRate`, `totalWrites`, `activationRate`,
-`draftCreates`, `archives` and `clusterOps` are gone. The structured `logs` table, its
-rotation and `GET /api/thoughts/self-improve/status` are unchanged.
+`GET /api/telemetry/{patterns,frequency,orphan_writes,draft_lifecycle}` routes. The whole
+self-improve subsystem goes with it: the `POST /api/thoughts/self-improve/run` and
+`GET /api/thoughts/self-improve/status` routes, the background job, and the entire
+`selfImprove` config section (`enabled`, `intervalMs`, `orphanThreshold`,
+`activationThreshold`, `hitsThreshold`, `maxMergesPerRun`, `maxPromotesPerRun`,
+`maxPrimerPromotesPerRun`). Promotion of frequently-hit thoughts to primers is **not**
+lost — it happens on the search path and is tuned by `primer.promoteThreshold`
+(`SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD`); `selfImprove.hitsThreshold` is gone, use the
+`primer` one. The primer list/delete capability moves to the new `memory_primers` tool
+(list, delete); its delete is preview-first and needs `confirm: true`. The structured
+`logs` table and its rotation are unchanged; the historical `self_improve` log rows stay
+as history and rotate out with the 5000-row cap.
 
 **Breaking 0.x change:** `memory_crystallize action=crystallize` is removed;
 graph and cluster actions still work. Standalone thought verification is removed,

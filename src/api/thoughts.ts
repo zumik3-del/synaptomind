@@ -8,7 +8,6 @@ import { runAutoLinkJob } from '../services/auto-link.service'
 import { detectEdgeProposals } from '../services/edge-detect.service'
 import { proposePlacementPlan } from '../services/placement/engine'
 import { getChainService } from '../services/graph.service'
-import { getLastSelfImproveStatus, runSelfImproveJob } from '../services/self-improve.service'
 import {
   archiveThoughtByIdService,
   createThoughtWithParentService,
@@ -65,7 +64,6 @@ const bulkCreateBodySchema = z.object({
 const autoLinkBodySchema = z.object({ dry_run: z.boolean().optional(), max_edges: z.number().int().min(1).optional() })
 const edgeDetectBodySchema = z.object({ project_id: z.string().optional(), min_similarity: z.number().finite().min(0).max(1).optional(), max_proposals: z.number().int().min(1).optional() })
 const proposeBodySchema = z.object({ thought_id: z.string().optional(), content: z.string().optional(), project_id: z.string().optional() })
-const selfImproveBodySchema = z.object({ dry_run: z.boolean().optional() })
 
 thoughtsRouter.get('/timeline', c => {
   const parsed = timelineQuerySchema.safeParse({
@@ -119,16 +117,6 @@ thoughtsRouter.post('/propose', async c => {
     { projectId: body.project_id }
   )
   return c.json(result)
-})
-
-thoughtsRouter.post('/self-improve/run', async c => {
-  const body = await jsonBodyOrDefault<{ dry_run?: boolean }>(c, {}, selfImproveBodySchema)
-  const result = await runSelfImproveJob({ dryRun: body.dry_run ?? false })
-  return c.json(result)
-})
-
-thoughtsRouter.get('/self-improve/status', c => {
-  return c.json(getLastSelfImproveStatus())
 })
 
 thoughtsRouter.get('/members/:id', c => {

@@ -60,10 +60,6 @@ interface Config {
     enabled: boolean; maxItemsPerRun: number; maxArchivesPerRun: number;
     maxLinksPerRun: number; requireDryRunFirst: boolean; backfillEnabled: boolean
   }
-  selfImprove: {
-    enabled: boolean; intervalMs: number; hitsThreshold: number;
-    maxPrimerPromotesPerRun: number
-  }
   slots: { defaultMaxChars: number; hardLimit: number }
   graph: { maxDegree: number }
   search: { confidence: { vectorFloor: number } }
@@ -121,10 +117,6 @@ export const DEFAULTS: Config = {
   triage: {
     enabled: true, maxItemsPerRun: 25, maxArchivesPerRun: 25,
     maxLinksPerRun: 20, requireDryRunFirst: true, backfillEnabled: true
-  },
-  selfImprove: {
-    enabled: false, intervalMs: 86400000,
-    hitsThreshold: 5, maxPrimerPromotesPerRun: 3
   },
   slots: { defaultMaxChars: 2000, hardLimit: 20000 },
   graph: { maxDegree: 50 },
@@ -216,11 +208,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_TRIAGE_MAX_LINKS_PER_RUN', 'triage.maxLinksPerRun', 'int'),
   M('SYNAPTOMIND_TRIAGE_REQUIRE_DRY_RUN_FIRST', 'triage.requireDryRunFirst', 'bool'),
   M('SYNAPTOMIND_TRIAGE_BACKFILL_ENABLED', 'triage.backfillEnabled', 'bool'),
-
-  M('SYNAPTOMIND_SELF_IMPROVE_ENABLED', 'selfImprove.enabled', 'bool'),
-  M('SYNAPTOMIND_SELF_IMPROVE_INTERVAL_MS', 'selfImprove.intervalMs', 'int'),
-  M('SYNAPTOMIND_SELF_IMPROVE_HITS_THRESHOLD', 'selfImprove.hitsThreshold', 'int'),
-  M('SYNAPTOMIND_SELF_IMPROVE_MAX_PRIMER_PROMOTES', 'selfImprove.maxPrimerPromotesPerRun', 'int'),
 
   M('SYNAPTOMIND_SLOTS_MAX_CHARS', 'slots.defaultMaxChars', 'int'),
   M('SYNAPTOMIND_SLOTS_HARD_LIMIT', 'slots.hardLimit', 'int'),
