@@ -8,15 +8,15 @@ import { closeLogDb, getLogDb, insertLog, LogStore } from './log'
 
 // Coverage for the telemetry cut (ADR 2026-10-21, Q2/Q7): the structured
 // `logs` table is the survivor of the cut. It is the durable, human-readable
-// audit trail (types `embedding`, `embedder`, `placement`, `self_improve`, …)
-// and it keeps its rotation. The telemetry table was a different thing: a
-// machine-scoped analytics stream whose last reader died with the cut.
+// audit trail (types `embedding`, `embedder`, `placement`, …) and it keeps its
+// rotation. The telemetry table was a different thing: a machine-scoped
+// analytics stream whose last reader died with the cut.
 //
 // The rotation was never covered by a test; it is pinned here because the cut
 // touches the very migration that owns the log-db schema.
 
 const TMP_ROOT = '/tmp/opencode'
-const LOG_TYPES = ['embedding', 'embedder', 'placement', 'self_improve']
+const LOG_TYPES = ['embedding', 'embedder', 'placement']
 
 let tmpRoot = ''
 let originalLogDbPath = ''
@@ -40,7 +40,7 @@ afterAll(() => {
   rmSync(tmpRoot, { recursive: true, force: true })
 })
 
-test('the logs table still receives the embedding, embedder, placement and self_improve rows', () => {
+test('the logs table still receives the embedding, embedder and placement rows', () => {
   for (const type of LOG_TYPES) {
     insertLog('info', type, `${type} row`)
   }
@@ -54,18 +54,6 @@ test('the logs table still receives the embedding, embedder, placement and self_
   for (const type of LOG_TYPES) {
     expect(rows.filter(r => r.type === type).map(r => r.message)).toEqual([`${type} row`])
   }
-})
-
-test('the self-improve job writes its run row into the logs table', async () => {
-  const { runSelfImproveJob } = await import('../services/self-improve.service')
-  await runSelfImproveJob()
-
-  const db = getLogDb()!
-  const row = db
-    .prepare(`SELECT message FROM logs WHERE type = 'self_improve' ORDER BY created_at DESC LIMIT 1`)
-    .get() as { message: string } | undefined
-
-  expect(row?.message ?? '').toContain('Self-improve run')
 })
 
 test('the logs table still rotates: only the newest 5000 rows survive', () => {

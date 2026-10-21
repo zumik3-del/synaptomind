@@ -4,15 +4,16 @@ REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.
 
 **Breaking 0.x change:** the `GET /api/telemetry/{patterns,frequency,orphan_writes,draft_lifecycle}`
 routes are no longer mounted, and the `memory_telemetry` MCP tool is removed with them. The
-removed `memory_telemetry action=analyze` was the only MCP trigger of a self-improve run, so
-an agent can no longer start a self-improve run over MCP; the remaining ways to run it are the
-HTTP route `POST /api/thoughts/self-improve/run` and the interval job (disabled by default).
-The primer list/delete capability moves to the new `memory_primers` MCP tool (list, delete);
-its delete is preview-first and needs `confirm: true`. The HTTP `GET /api/primers` and
-`DELETE /api/primers/:id` routes are unchanged. The self-improve job keeps one detection
-(`frequent_unpromoted`); its `signals` payload narrows to `highHitThoughts` alone, and the
-counters `orphanRate`, `totalWrites`, `activationRate`, `draftCreates`, `archives` and
-`clusterOps` are gone.
+self-improve subsystem is removed as well: `POST /api/thoughts/self-improve/run` and
+`GET /api/thoughts/self-improve/status` are no longer mounted, and with them the
+background job and the whole `selfImprove` config section. Promotion of frequently-hit
+thoughts to primers is not lost — it happens on the search path, at
+`primer.promoteThreshold`; use that knob instead of the removed
+`selfImprove.hitsThreshold`. The primer list/delete capability moves to the new
+`memory_primers` MCP tool (list, delete); its delete is preview-first and needs
+`confirm: true`. The HTTP `GET /api/primers` and `DELETE /api/primers/:id` routes are
+unchanged. The structured `logs` table and its rotation are unchanged; the historical
+`self_improve` log rows stay as history.
 
 **Breaking 0.x change:** `POST /api/crystals/` and `POST /api/thought-verify/run`
 are no longer mounted. Existing crystal thoughts and `thought_verify` rows remain
@@ -307,22 +308,6 @@ Every proposal carries `review_required: true` and an **ordinal** (not calibrate
 | placement `kind: parent` | `POST /api/thoughts/:id/link` to `target_id` with `type: parent`/`develops` |
 
 Typed edge proposals require a non-embedding cue (negation, evidential, evolution, temporal ordering). Embedding similarity alone yields `type: related` with `rationale: embedding_similarity_only` — similarity means "same subject matter", not conflict; `contradicts` is never inferred from similarity. See ADR #142 and task #927. MCP parity: `memory_status action=propose`.
-
-### POST /api/thoughts/self-improve/run
-
-Runs the self-improve analysis job (promotes frequently-hit thoughts that are not yet primers).
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| dry_run | body | bool | false | Analyze without writing |
-
-curl `-d '{}' http://127.0.0.1:3005/api/thoughts/self-improve/run`
-
-### GET /api/thoughts/self-improve/status
-
-Returns the result of the last self-improve run, or `{"last_run": null, "result": null}` if none.
-
-curl `http://127.0.0.1:3005/api/thoughts/self-improve/status`
 
 ## Tags
 

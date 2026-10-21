@@ -22,7 +22,7 @@ const SECTION_LABELS: Record<string, string> = {
   contentLanguage: 'General', server: 'Server', mcp: 'MCP', db: 'Database',
   logDbPath: 'Database', embedder: 'Embedder', thoughts: 'Thoughts', decay: 'Decay',
   primer: 'Primer',
-  autoCluster: 'Auto Cluster', autoLink: 'Auto Link', selfImprove: 'Self Improve',
+  autoCluster: 'Auto Cluster', autoLink: 'Auto Link',
   edgeDetect: 'Edge Detect', slots: 'Slots', git: 'Git', search: 'Search',
   placement: 'Placement', triage: 'Triage'
 }

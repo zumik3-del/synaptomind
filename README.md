@@ -153,7 +153,7 @@ sequenceDiagram
 - **Local embeddings** — `@huggingface/transformers`, no API keys
 - **MCP server** — stdio + HTTP transport
 - **Auto-clustering** — batch grouping by embedding proximity
-- **Background jobs** — decay, self-improve, TTL cleanup
+- **Background jobs** — decay, TTL cleanup
 
 </details>
 
@@ -249,7 +249,7 @@ For clients that prefer stdio:
 
 By default the stdio process is a **single-owner client**: it opens an MCP
 session against the shared database but does **not** start its own embedder
-child process or the decay / self-improve / TTL-cleanup jobs. Those
+child process or the decay / TTL-cleanup jobs. Those
 are owned by the standalone HTTP server, so N stdio clients no longer spawn N
 embedders and N schedulers against one DB.
 
@@ -408,18 +408,18 @@ curl http://127.0.0.1:3005/health
 For action-level detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
 
 **Breaking 0.x change:** the `memory_telemetry` tool is removed, together with the
-`GET /api/telemetry/{patterns,frequency,orphan_writes,draft_lifecycle}` routes and the
-`selfImprove.orphanThreshold`, `selfImprove.activationThreshold`,
-`selfImprove.maxPromotesPerRun` and `selfImprove.maxMergesPerRun` config keys. The primer
-list/delete capability moves to the new `memory_primers` tool (list, delete); its delete is
-preview-first and needs `confirm: true`. The self-improve job keeps one detection
-(`frequent_unpromoted`). The removed `memory_telemetry action=analyze` was the only MCP
-trigger of a self-improve run, so an agent can no longer start a self-improve run over MCP;
-the remaining ways to run it are the HTTP route `POST /api/thoughts/self-improve/run` and the
-interval job (disabled by default). That route's body narrows too: `signals` carries only
-`highHitThoughts`, and the counters `orphanRate`, `totalWrites`, `activationRate`,
-`draftCreates`, `archives` and `clusterOps` are gone. The structured `logs` table, its
-rotation and `GET /api/thoughts/self-improve/status` are unchanged.
+`GET /api/telemetry/{patterns,frequency,orphan_writes,draft_lifecycle}` routes. The whole
+self-improve subsystem goes with it: the `POST /api/thoughts/self-improve/run` and
+`GET /api/thoughts/self-improve/status` routes, the background job, and the entire
+`selfImprove` config section (`enabled`, `intervalMs`, `orphanThreshold`,
+`activationThreshold`, `hitsThreshold`, `maxMergesPerRun`, `maxPromotesPerRun`,
+`maxPrimerPromotesPerRun`). Promotion of frequently-hit thoughts to primers is **not**
+lost — it happens on the search path and is tuned by `primer.promoteThreshold`
+(`SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD`); `selfImprove.hitsThreshold` is gone, use the
+`primer` one. The primer list/delete capability moves to the new `memory_primers` tool
+(list, delete); its delete is preview-first and needs `confirm: true`. The structured
+`logs` table and its rotation are unchanged; the historical `self_improve` log rows stay
+as history and rotate out with the 5000-row cap.
 
 **Breaking 0.x change:** crystal generation (`memory_crystallize action=crystallize`,
 `POST /api/crystals/`) and standalone thought verification

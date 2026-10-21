@@ -66,12 +66,6 @@
     "maxCandidates": 100,
     "maxProposals": 20
   },
-  "selfImprove": {
-    "enabled": false,
-    "intervalMs": 86400000,
-    "hitsThreshold": 5,
-    "maxPrimerPromotesPerRun": 3
-  },
   "slots": {
     "defaultMaxChars": 2000,
     "hardLimit": 20000

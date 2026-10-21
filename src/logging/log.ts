@@ -63,7 +63,7 @@ const LOG_MIGRATIONS: LogMigration[] = [
     }
   },
   {
-    // The telemetry collection is gone (ADR 2026-10-21): after the self-improve
+    // The telemetry collection is gone (ADR 2026-10-21): after the detection
     // signal layer was collapsed, `thought_telemetry` had no reader left. The
     // table is dropped here rather than left orphaned, so every deployed
     // logs.db is cleaned by the same forward-only path. `logs` is untouched.
@@ -229,22 +229,6 @@ export class LogStore {
 }
 
 const defaultStore = new LogStore()
-
-/**
- * Last self-improve run row from the `logs` table (log DB).
- *
- * It lives here, next to the schema it reads: the `logs` table is owned by this
- * module, so the reader belongs to the same layer as the writer.
- */
-export function getLastSelfImproveRun(db: Database): { metadata: string | null; created_at: string } | undefined {
-  return db
-    .prepare(
-      `SELECT metadata, created_at FROM logs
-       WHERE type = 'self_improve' AND message LIKE 'Self-improve run:%'
-       ORDER BY created_at DESC LIMIT 1`
-    )
-    .get() as { metadata: string | null; created_at: string } | undefined
-}
 
 export function insertLog(
   level: LogLevel,
