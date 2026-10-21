@@ -4,7 +4,7 @@
  * Covers `memory_review` actions for triage items (`triage_activate` /
  * `triage_archive`): item_kind list filter, run_id required on apply,
  * requireDryRunFirst guard, apply_batch cap refusal, rollback preview +
- * confirm, and telemetry action mapping for rollback/apply_batch.
+ * confirm.
  */
 import { afterEach, beforeEach, beforeAll, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
@@ -13,7 +13,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { config } from '../../config'
 import { closeDb, getDb } from '../../db'
-import { closeLogDb, getLogDb } from '../../logging'
+import { closeLogDb } from '../../logging'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { insertPendingTriage } from '../../test/triage-apply-helpers'
 import { insertProposal } from '../../db/placement-proposals'
@@ -45,12 +45,6 @@ function parseResult(result: unknown): { data: any; isError: boolean; text: stri
 function propState(db: Database, id: string): string {
   const row = db.prepare('SELECT state FROM placement_proposals WHERE id = ?').get(id) as { state: string } | undefined
   return row?.state ?? 'missing'
-}
-
-function telemetryRows(): Array<{ action: string; tool_name: string }> {
-  const db = getLogDb()
-  if (!db) return []
-  return db.query('SELECT action, tool_name FROM thought_telemetry ORDER BY rowid').all() as Array<{ action: string; tool_name: string }>
 }
 
 function useMemoryLogDb(): void {
@@ -224,32 +218,5 @@ describe('memory_review rollback triage', () => {
     expect(confData.summary.reverted).toBe(1)
     expect(propState(db, row.id)).toBe('rolled_back')
     expect(getThoughtRow(db, s)!.status).toBe('draft') // reverted
-  })
-})
-
-// ── telemetry: rollback and apply_batch are writes ─────────────────────────────
-
-describe('memory_review telemetry (triage actions)', () => {
-  test('rollback writes action=write, tool=rollback_placement_proposals', async () => {
-    const db = getDb()
-    const s = seedThought({ content: 'telemetry-rb source', status: 'draft' })
-    const row = insertPendingTriage(db, 'triage_activate', s)
-    await client.callTool({ name: 'memory_review', arguments: { action: 'apply', proposal_id: row.id, confirm: true, run_id: 'run-telem-rb' } })
-    await client.callTool({ name: 'memory_review', arguments: { action: 'rollback', run_id: 'run-telem-rb', confirm: true } })
-    const rows = telemetryRows()
-    const last = rows[rows.length - 1]
-    expect(last.action).toBe('write')
-    expect(last.tool_name).toBe('rollback_placement_proposals')
-  })
-
-  test('apply_batch writes action=write, tool=apply_placement_proposals', async () => {
-    const db = getDb()
-    const s = seedThought({ content: 'telemetry-batch source', status: 'draft' })
-    const row = insertPendingTriage(db, 'triage_activate', s)
-    await client.callTool({ name: 'memory_review', arguments: { action: 'apply_batch', proposal_ids: [row.id], confirm: true, run_id: 'run-telem-batch' } })
-    const rows = telemetryRows()
-    const last = rows[rows.length - 1]
-    expect(last.action).toBe('write')
-    expect(last.tool_name).toBe('apply_placement_proposals')
   })
 })

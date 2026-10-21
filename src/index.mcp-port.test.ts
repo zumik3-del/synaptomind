@@ -71,7 +71,7 @@ async function runServer(mcpPort: string): Promise<RunResult> {
         SYNAPTOMIND_PORT: '0',
         SYNAPTOMIND_MCP_HTTP_PORT: mcpPort,
         SYNAPTOMIND_DB_PATH: join(SCRATCH, 'db', 'synaptomind.db'),
-        SYNAPTOMIND_LOG_DB_PATH: join(SCRATCH, 'telemetry.db'),
+        SYNAPTOMIND_LOG_DB_PATH: join(SCRATCH, 'logs.db'),
         SYNAPTOMIND_EMBEDDER_ENABLED: 'false',
         // Belt and braces: nothing may reach a model cache outside the scratch.
         SYNAPTOMIND_EMBEDDER_CACHE_DIR: join(SCRATCH, 'huggingface'),

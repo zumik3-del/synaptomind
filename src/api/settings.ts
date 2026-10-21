@@ -9,8 +9,8 @@ import {
   setThoughtLimitsService
 } from '../services/settings.service'
 
-// Intentionally NOT wrapped in withTelemetry: runtime configuration endpoints
-// (thought limits, embedder tuning) are infrastructure, not memory operations.
+// Runtime configuration endpoints (thought limits, embedder tuning) are
+// infrastructure, not memory operations.
 const settingsRouter = new Hono()
 
 settingsRouter.get('/thought-settings', c => {

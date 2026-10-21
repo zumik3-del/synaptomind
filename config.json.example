@@ -69,11 +69,7 @@
   "selfImprove": {
     "enabled": false,
     "intervalMs": 86400000,
-    "orphanThreshold": 0.5,
-    "activationThreshold": 0.3,
     "hitsThreshold": 5,
-    "maxMergesPerRun": 3,
-    "maxPromotesPerRun": 5,
     "maxPrimerPromotesPerRun": 3
   },
   "slots": {

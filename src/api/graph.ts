@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
-import { withTelemetry } from '../logging'
 import { ValidationError } from '../errors'
 import { GRAPH_LIMIT_DEFAULT, graphLimitSchema, graphStatusSchema } from '../validation'
 import { getGraphDataService } from '../services/graph.service'
@@ -17,14 +16,12 @@ const graphQuerySchema = z.object({
 })
 
 graphRouter.get('/graph', c => {
-  return withTelemetry(c, { action: 'read', toolName: 'get_thought_graph' }, c2 => {
-    const parsed = graphQuerySchema.safeParse({
-      status: c2.req.query('status') || undefined,
-      limit: c2.req.query('limit') || undefined
-    })
-    if (!parsed.success) throw new ValidationError(formatZodIssues(parsed.error))
-    return c2.json(getGraphDataService(c2.req.query('project_id'), parsed.data.status, parsed.data.limit))
+  const parsed = graphQuerySchema.safeParse({
+    status: c.req.query('status') || undefined,
+    limit: c.req.query('limit') || undefined
   })
+  if (!parsed.success) throw new ValidationError(formatZodIssues(parsed.error))
+  return c.json(getGraphDataService(c.req.query('project_id'), parsed.data.status, parsed.data.limit))
 })
 
 export { graphRouter }

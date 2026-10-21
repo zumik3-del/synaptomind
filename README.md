@@ -401,11 +401,25 @@ curl http://127.0.0.1:3005/health
 | Projects | `memory_manage` (list, create, update, delete, resolve) |
 | Consolidate | `memory_crystallize` (graph, cluster, auto_cluster, cluster_remove, cluster_dissolve) |
 | Reflect | `memory_reflect` (reflect, timeline) |
-| Telemetry | `memory_telemetry` (query, analyze, primers) |
+| Primers | `memory_primers` (list, delete) |
 | Review | `memory_review` (enqueue, list, apply, apply_batch, rollback, reject) |
 | Guide | `memory_guide` |
 
 For action-level detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
+
+**Breaking 0.x change:** the `memory_telemetry` tool is removed, together with the
+`GET /api/telemetry/{patterns,frequency,orphan_writes,draft_lifecycle}` routes and the
+`selfImprove.orphanThreshold`, `selfImprove.activationThreshold`,
+`selfImprove.maxPromotesPerRun` and `selfImprove.maxMergesPerRun` config keys. The primer
+list/delete capability moves to the new `memory_primers` tool (list, delete); its delete is
+preview-first and needs `confirm: true`. The self-improve job keeps one detection
+(`frequent_unpromoted`). The removed `memory_telemetry action=analyze` was the only MCP
+trigger of a self-improve run, so an agent can no longer start a self-improve run over MCP;
+the remaining ways to run it are the HTTP route `POST /api/thoughts/self-improve/run` and the
+interval job (disabled by default). That route's body narrows too: `signals` carries only
+`highHitThoughts`, and the counters `orphanRate`, `totalWrites`, `activationRate`,
+`draftCreates`, `archives` and `clusterOps` are gone. The structured `logs` table, its
+rotation and `GET /api/thoughts/self-improve/status` are unchanged.
 
 **Breaking 0.x change:** crystal generation (`memory_crystallize action=crystallize`,
 `POST /api/crystals/`) and standalone thought verification

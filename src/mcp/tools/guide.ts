@@ -16,7 +16,7 @@ function buildGuideText(softLimit: number): string {
 | memory_review | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
 | memory_crystallize | graph, cluster, auto_cluster, cluster_remove, cluster_dissolve | Visualize and reorganize clusters |
 | memory_reflect | reflect, timeline | Session management |
-| memory_telemetry | query, analyze, primers | Analytics and self-improvement |
+| memory_primers | list, delete | Manage the always-at-hand set (primers) |
 | memory_guide | (no action) | This reference text |
 
 ## Thoughts
@@ -65,9 +65,14 @@ Importance starts 1.0; edges +0.1, primer promotion +0.15; decays by decay.rate 
 | decay | Decays importance, auto-archives stale thoughts | rate, archiveThreshold, archiveMinAgeDays |
 | auto-cluster | Groups similar thoughts into clusters (Union-Find) | minAgeDays, minSimilarity, minMembers, dry_run |
 | auto-link | Creates related edges for low-connectivity thoughts | minSimilarity, maxEdgesPerRun, dry_run |
-| self-improve | Detects issues, auto-corrects (orphan writes, stale drafts) | enabled (default false) |
+| self-improve | Detects frequently-hit thoughts not yet promoted to primers | enabled (default false) |
 
 dry_run defaults to config (default false), so a run mutates unless previewed. Decay/self-improve run on intervals (24h); auto-cluster/auto-link on demand. All four log their run.
+
+Self-improve has no MCP trigger: the removed telemetry tool's action=analyze was the only MCP trigger of a self-improve run, so an agent can no longer start one over MCP — use the HTTP route POST /api/thoughts/self-improve/run, or the interval job (disabled by default).
+
+## Primers
+memory_primers (action=list) returns the always-at-hand set; action=delete is preview-first: without confirm=true it only reports what would be removed, with confirm=true it deletes. The HTTP DELETE /api/primers/:id stays immediate.
 
 ## Health Check
 Run memory_status (action=health); fix=true auto-repairs safe issues.

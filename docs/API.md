@@ -2,6 +2,18 @@
 
 REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Package version at time of writing: **0.12.1**.
 
+**Breaking 0.x change:** the `GET /api/telemetry/{patterns,frequency,orphan_writes,draft_lifecycle}`
+routes are no longer mounted, and the `memory_telemetry` MCP tool is removed with them. The
+removed `memory_telemetry action=analyze` was the only MCP trigger of a self-improve run, so
+an agent can no longer start a self-improve run over MCP; the remaining ways to run it are the
+HTTP route `POST /api/thoughts/self-improve/run` and the interval job (disabled by default).
+The primer list/delete capability moves to the new `memory_primers` MCP tool (list, delete);
+its delete is preview-first and needs `confirm: true`. The HTTP `GET /api/primers` and
+`DELETE /api/primers/:id` routes are unchanged. The self-improve job keeps one detection
+(`frequent_unpromoted`); its `signals` payload narrows to `highHitThoughts` alone, and the
+counters `orphanRate`, `totalWrites`, `activationRate`, `draftCreates`, `archives` and
+`clusterOps` are gone.
+
 **Breaking 0.x change:** `POST /api/crystals/` and `POST /api/thought-verify/run`
 are no longer mounted. Existing crystal thoughts and `thought_verify` rows remain
 stored; there is no destructive migration. Graph/cluster MCP actions and `GET /health`
@@ -298,7 +310,7 @@ Typed edge proposals require a non-embedding cue (negation, evidential, evolutio
 
 ### POST /api/thoughts/self-improve/run
 
-Runs the self-improve analysis job (orphan detection, merge suggestions).
+Runs the self-improve analysis job (promotes frequently-hit thoughts that are not yet primers).
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
@@ -430,8 +442,6 @@ curl `'http://127.0.0.1:3005/api/proposals?state=pending'`
 
 Response: `[{"id": "...", "project_id": "...", "source_thought_id": "...", "item_kind": "edge", "target_id": "...", "edge_type": "related", "lifecycle_action": null, "direction": "symmetric", "state": "pending", "confidence": 0.8, "rationale": "...", "rule_id": "...", "run_id": null, "created_at": "...", "expires_at": "...", "decided_at": null, "decided_by": null, "applied_at": null, "result": null}]`
 
-Telemetry: `action: read`, tool `list_placement_proposals`.
-
 ### POST /api/proposals
 
 Proposes a plan for a persisted thought and queues its confirmable items (plan shape in §Propose above). Returns 201 with the enqueued/refreshed rows, or `[]` when the plan has no confirmable item. Re-enqueueing the same item refreshes its live `pending` row instead of inserting a duplicate. 400 without `thought_id`, 404 for an unknown thought, 400 when the source thought is not `active`, and 400 when the queue already holds `placement.maxPendingProposals` live rows and the plan would add a new item. The cap covers the whole queue: draft-triage rows share it, so triage backs off (skips, never throws) once the queue is full.
@@ -442,8 +452,6 @@ Proposes a plan for a persisted thought and queues its confirmable items (plan s
 | project_id | body | string | optional | Project scope |
 
 curl `-d '{"thought_id": "<id>"}' http://127.0.0.1:3005/api/proposals`
-
-Telemetry: `action: write`, tool `enqueue_placement_proposals`.
 
 ### POST /api/proposals/:id/apply
 
@@ -466,7 +474,7 @@ Response is a typed result, not a throw (only an unknown id errors):
 | `failed` | Refused on a retryable precondition (e.g. profile merge, invalid edge type, cluster shape, a `triage_archive` row with no duplicate target) | stays `pending` (fix and retry) |
 | `refused` | Typed `{"refusal": {"code", "reason"}}` guard refusal (e.g. `run_id_required`, `dry_run_required`, `max_items_exceeded`); nothing ran | stays `pending` |
 
-Every apply re-checks the staleness fingerprint and the state-dependent gates (`placement.maxClusterSize`, project isolation) against the live graph. The TTL is checked first and applies to dry-runs too, so an overdue row can never be confirmed — nor recorded as an idempotent accept, which would put a phantom entry in a run's rollback manifest. A dry-run of an already `stale`/`failed` row returns that same status and still leaves the row unchanged. Telemetry: `action: write`, tool `apply_placement_proposal`.
+Every apply re-checks the staleness fingerprint and the state-dependent gates (`placement.maxClusterSize`, project isolation) against the live graph. The TTL is checked first and applies to dry-runs too, so an overdue row can never be confirmed — nor recorded as an idempotent accept, which would put a phantom entry in a run's rollback manifest. A dry-run of an already `stale`/`failed` row returns that same status and still leaves the row unchanged.
 
 **Run envelope (`run_id`).** Every row an apply accepts carries a run envelope, so a committed graph mutation is always reachable by `POST /api/proposals/rollback` with that id: the `accepted` result echoes it in `run_id` (`string | null`) and no second query is needed. The envelope is the caller's `run_id` verbatim, or — for an `edge`/`placement`/`lifecycle` item the caller left un-enveloped — one synthesized as `auto-` plus a UUIDv7. The `auto-` prefix is advisory, not a namespace: a caller-supplied id that happens to look like one works, and a synthesized id is accepted by `rollback` like any other. One id lands in four places — the row's `run_id` column (the rollback key), the stored `result` JSON, the `insertLog` context of the apply, and the response. Re-applying an already `accepted` row echoes the envelope the row was accepted under (`null` only when re-reading a row accepted before envelopes were recorded). Triage kinds are never synthesized: an un-enveloped `triage_activate`/`triage_archive` still comes back `refused` with `run_id_required`, because a triage run is a run the caller defines. A dry-run synthesizes nothing either, since a preview decides nothing. `apply_batch` mints **one** envelope for the whole batch — the batch *is* the run, so a single `rollback` reverts all of it — and returns it as the top-level `run_id`; that field is present only when at least one row actually joined the run and is absent when the batch accepted nothing that needs one (e.g. every item went `stale`). The operator's consequence: an apply made without a `run_id` is now rollback-addressable, but only inside the retention window below.
 
@@ -483,11 +491,9 @@ Rolls back every reversible mutation of one explicit run (ADR 2026-09-29 §2.8).
 
 curl `-d '{"run_id": "<run>", "confirm": true}' http://127.0.0.1:3005/api/proposals/rollback`
 
-Telemetry: `action: write`, tool `rollback_placement_proposals`.
-
 ### POST /api/proposals/:id/reject
 
-Rejects one live `pending` item (no graph write). Returns the updated row with `state: "rejected"`, `decided_at`, and `decided_by`. 404 for an unknown id; 400 if the row is not `pending` (terminal rows cannot be re-decided). Telemetry: `action: write`, tool `reject_placement_proposal`.
+Rejects one live `pending` item (no graph write). Returns the updated row with `state: "rejected"`, `decided_at`, and `decided_by`. 404 for an unknown id; 400 if the row is not `pending` (terminal rows cannot be re-decided).
 
 curl -X POST http://127.0.0.1:3005/api/proposals/<id>/reject
 
@@ -633,63 +639,6 @@ Returns database statistics plus the DB file size on disk.
 curl `http://127.0.0.1:3005/api/stats`
 
 Response: `{"thoughts": 120, "edges": 45, ..., "db_size_bytes": 1048576}`
-
-## Telemetry
-
-All telemetry endpoints require `SYNAPTOMIND_LOG_DB_PATH` to be configured; otherwise they return 503 `{"error": "Log database not available"}`.
-
-Aggregation lives in `src/services/telemetry.service.ts`, shared with the MCP `memory_telemetry` action `query`; this route layer only parses the query params and serializes the returned DTO. Both surfaces resolve the window (floor + default) and the result cap (default) from the same per-metric spec. The payloads differ only where intentional: MCP `query` returns raw aggregate rows, while the HTTP endpoints below return the shaped reports — `orphan_writes` returns the offending write list (MCP returns the aggregate counts) and `draft_lifecycle` returns the named lifecycle counters (MCP returns raw `action`/`count` rows).
-
-### GET /api/telemetry/patterns
-
-Tool-usage sequences (tool transitions) observed in the telemetry log.
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| window | query | int | 86400 (min 60) | Window in seconds |
-| limit | query | int | 10 (clamped 1-50) | Max patterns |
-
-curl `'http://127.0.0.1:3005/api/telemetry/patterns?window=3600&limit=5'`
-
-Response: `{"window_secs": 3600, "limit": 5, "patterns": [{"sequence": "tool_a → tool_b", "prev_tool": "tool_a", "tool_name": "tool_b", "count": 7}]}`
-
-### GET /api/telemetry/frequency
-
-Aggregate call frequency by action.
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| window | query | int | 86400 (min 3600) | Window in seconds |
-| limit | query | int | 50 (clamped 1-100) | Max action rows |
-
-curl `http://127.0.0.1:3005/api/telemetry/frequency`
-
-Response: `{"window_secs": 86400, "total_calls": 320, "per_hour": 13.3, "by_action": {"read": 200, "write": 120}}`
-
-### GET /api/telemetry/orphan_writes
-
-Detailed list of orphaned thought writes (writes with no follow-up linkage).
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| window | query | int | 86400 (min 3600) | Window in seconds |
-| limit | query | int | 100 (clamped 1-500) | Max rows |
-
-curl `http://127.0.0.1:3005/api/telemetry/orphan_writes`
-
-Response: `{"window_secs": 86400, "count": 1, "writes": [{"id": "...", "tool_name": "...", "prev_tool": "...", "thought_id": "...", "created_at": "..."}]}`
-
-### GET /api/telemetry/draft_lifecycle
-
-Draft thought lifecycle aggregates.
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| window | query | int | 2592000 (min 86400) | Window in seconds |
-
-curl `http://127.0.0.1:3005/api/telemetry/draft_lifecycle`
-
-Response: `{"window_secs": 2592000, ...lifecycle}`
 
 ## Profile
 
