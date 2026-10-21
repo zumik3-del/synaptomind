@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { clampPrimerCount } from '../config.primer-bounds'
 import { boostImportance } from './importance'
 
 export interface Primer {
@@ -9,8 +10,15 @@ export interface Primer {
   created_at: string
 }
 
-export function getPrimers(db: Database, limit = 500): Primer[] {
-  return db.prepare(`SELECT * FROM primers ORDER BY hit_count DESC LIMIT ?`).all(limit) as Primer[]
+/** The default primer page size; also the fallback for a non-numeric limit. */
+const DEFAULT_LIMIT = 500
+
+export function getPrimers(db: Database, limit = DEFAULT_LIMIT): Primer[] {
+  // A LIMIT bind must be an integer (repo gotcha) and a negative LIMIT means
+  // "no limit" in SQLite, so the limit is clamped: no call site can ask for
+  // an unbounded result set.
+  const safeLimit = clampPrimerCount(limit, DEFAULT_LIMIT)
+  return db.prepare(`SELECT * FROM primers ORDER BY hit_count DESC LIMIT ?`).all(safeLimit) as Primer[]
 }
 
 export function getPrimerByThoughtId(db: Database, thoughtId: string): Primer | undefined {
