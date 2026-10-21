@@ -2,14 +2,11 @@
  * Contract tests for the R5 HTTP /api/proposals surface (task #978, epic #964).
  *
  * Covers error envelopes (unknown id, missing param, double reject), status
- * codes, telemetry `action` values (read on list, write on enqueue/apply/reject),
- * and the rollback endpoint (ADR §2.8).
+ * codes, and the rollback endpoint (ADR §2.8).
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Hono } from 'hono'
-import { config } from '../config'
 import { getDb, closeDb } from '../db'
-import { closeLogDb, getLogDb } from '../logging'
 import { getEdgePairBetween } from '../db/edges'
 import { getThoughtRow } from '../db/thoughts'
 import { insertProposal, type PlacementProposalRow } from '../db/placement-proposals'
@@ -78,25 +75,6 @@ function insertPendingEdge(src: string, tgt: string): PlacementProposalRow {
   })
 }
 
-function telemetryRows(): Array<{ action: string; tool_name: string }> {
-  const db = getLogDb()
-  if (!db) return []
-  return db.query('SELECT action, tool_name FROM thought_telemetry ORDER BY rowid').all() as Array<{ action: string; tool_name: string }>
-}
-
-/** Temporarily point the log DB at `:memory:` for a telemetry assertion. */
-async function withMemoryLogDb<T>(fn: () => T | Promise<T>): Promise<T> {
-  closeLogDb()
-  const saved = config.logDbPath
-  config.logDbPath = ':memory:'
-  try {
-    return await fn()
-  } finally {
-    closeLogDb()
-    config.logDbPath = saved
-  }
-}
-
 beforeEach(createTestDb)
 afterEach(closeDb)
 
@@ -131,16 +109,6 @@ describe('GET /api/proposals', () => {
     const body = await res.json() as unknown[]
     expect(Array.isArray(body)).toBe(true)
     expect(body.length).toBe(0)
-  })
-
-  test('writes telemetry with action=read', async () => {
-    await withMemoryLogDb(async () => {
-      await request('/api/proposals')
-      const rows = telemetryRows()
-      expect(rows.length).toBe(1)
-      expect(rows[0].action).toBe('read')
-      expect(rows[0].tool_name).toBe('list_placement_proposals')
-    })
   })
 })
 
@@ -181,21 +149,6 @@ describe('POST /api/proposals', () => {
     expect(res.status).toBe(404)
     const body = await res.json() as { error: string }
     expect(body.error.toLowerCase()).toContain('not found')
-  })
-
-  test('writes telemetry with action=write', async () => {
-    const src = seedThought({ content: 'telemetry-post-proposals source' })
-    await withMemoryLogDb(async () => {
-      await request('/api/proposals', {
-        method: 'POST',
-        body: JSON.stringify({ thought_id: src }),
-        headers: { 'Content-Type': 'application/json' }
-      })
-      const rows = telemetryRows()
-      expect(rows.length).toBe(1)
-      expect(rows[0].action).toBe('write')
-      expect(rows[0].tool_name).toBe('enqueue_placement_proposals')
-    })
   })
 })
 
@@ -242,23 +195,6 @@ describe('POST /api/proposals/:id/apply', () => {
     const body = await res.json() as { error: string }
     expect(body.error.toLowerCase()).toContain('not found')
   })
-
-  test('writes telemetry with action=write', async () => {
-    const src = seedThought({ content: 'telemetry-apply-api source' })
-    const tgt = seedThought({ content: 'telemetry-apply-api target' })
-    const row = insertPendingEdge(src, tgt)
-    await withMemoryLogDb(async () => {
-      await request(`/api/proposals/${row.id}/apply`, {
-        method: 'POST',
-        body: JSON.stringify({ confirm: true }),
-        headers: { 'Content-Type': 'application/json' }
-      })
-      const rows = telemetryRows()
-      expect(rows.length).toBe(1)
-      expect(rows[0].action).toBe('write')
-      expect(rows[0].tool_name).toBe('apply_placement_proposal')
-    })
-  })
 })
 
 // ── POST /api/proposals/:id/reject ────────────────────────────────────────────
@@ -300,19 +236,6 @@ describe('POST /api/proposals/:id/reject', () => {
     expect(res.status).toBe(404)
     const body = await res.json() as { error: string }
     expect(body.error.toLowerCase()).toContain('not found')
-  })
-
-  test('writes telemetry with action=write', async () => {
-    const src = seedThought({ content: 'telemetry-reject-api source' })
-    const tgt = seedThought({ content: 'telemetry-reject-api target' })
-    const row = insertPendingEdge(src, tgt)
-    await withMemoryLogDb(async () => {
-      await request(`/api/proposals/${row.id}/reject`, { method: 'POST' })
-      const rows = telemetryRows()
-      expect(rows.length).toBe(1)
-      expect(rows[0].action).toBe('write')
-      expect(rows[0].tool_name).toBe('reject_placement_proposal')
-    })
   })
 })
 
@@ -429,22 +352,5 @@ describe('POST /api/proposals/rollback', () => {
     expect(body.run_id).toBe('no-such-run')
     expect(body.items).toEqual([])
     expect(body.summary).toEqual({ reverted: 0, skipped: 0, refused: 0 })
-  })
-
-  test('writes telemetry with action=write', async () => {
-    const src = seedThought({ content: 'telemetry-rollback source' })
-    const tgt = seedThought({ content: 'telemetry-rollback target' })
-    insertAcceptedEdgeRunWithRunId(src, tgt, 'run-tel')
-    await withMemoryLogDb(async () => {
-      await request('/api/proposals/rollback', {
-        method: 'POST',
-        body: JSON.stringify({ run_id: 'run-tel', confirm: true }),
-        headers: { 'Content-Type': 'application/json' }
-      })
-      const rows = telemetryRows()
-      expect(rows.length).toBe(1)
-      expect(rows[0].action).toBe('write')
-      expect(rows[0].tool_name).toBe('rollback_placement_proposals')
-    })
   })
 })

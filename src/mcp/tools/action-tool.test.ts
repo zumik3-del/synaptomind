@@ -15,7 +15,7 @@ import { registerMemoryStatus } from './status'
 import { registerMemoryManage } from './manage'
 import { registerMemoryCrystallize } from './crystallize'
 import { registerMemoryReflect } from './reflect'
-import { registerMemoryTelemetry } from './telemetry'
+import { registerMemoryPrimers } from './primers'
 
 // Coverage for the unified MCP action dispatch (task #169, audit findings
 // F8/F9/F18). The dispatcher is shared by all eight action tools, so it is
@@ -172,7 +172,7 @@ const ACTION_REGISTRARS: Array<{ name: string; register: (server: McpServer) => 
   { name: 'memory_manage', register: registerMemoryManage },
   { name: 'memory_crystallize', register: registerMemoryCrystallize },
   { name: 'memory_reflect', register: registerMemoryReflect },
-  { name: 'memory_telemetry', register: registerMemoryTelemetry }
+  { name: 'memory_primers', register: registerMemoryPrimers }
 ]
 
 describe('unknown action is rejected by every registered action tool', () => {
@@ -223,7 +223,7 @@ const KNOWN_ACTION_CASES: Array<{
   { label: 'memory_manage list', tool: 'memory_manage', args: () => ({ action: 'list' }) },
   { label: 'memory_crystallize graph', tool: 'memory_crystallize', args: () => ({ action: 'graph' }) },
   { label: 'memory_reflect timeline', tool: 'memory_reflect', args: () => ({ action: 'timeline' }) },
-  { label: 'memory_telemetry primers', tool: 'memory_telemetry', args: () => ({ action: 'primers' }) }
+  { label: 'memory_primers list', tool: 'memory_primers', args: () => ({ action: 'list' }) }
 ]
 
 describe('known action routes to a handler on every action tool', () => {
@@ -294,16 +294,10 @@ const REQUIRED_FIELD_CASES: Array<{ label: string; tool: string; args: Record<st
     message: 'thought_ids is required for cluster action'
   },
   {
-    label: 'telemetry query',
-    tool: 'memory_telemetry',
-    args: { action: 'query' },
-    message: 'metric is required for query action'
-  },
-  {
-    label: 'telemetry primers delete',
-    tool: 'memory_telemetry',
-    args: { action: 'primers', primer_action: 'delete' },
-    message: 'primer_id required for delete'
+    label: 'primers delete',
+    tool: 'memory_primers',
+    args: { action: 'delete' },
+    message: 'primer_id is required for delete action'
   }
 ]
 

@@ -18,8 +18,7 @@ export interface EmbeddingNeighbor {
 
 /**
  * Vector neighbour lookup, injected so callers can swap in a deterministic stub
- * in tests or a different index. `thoughtId` is the query thought (used for
- * logging/telemetry by real implementations, may be ignored by stubs).
+ * in tests or a different index. `thoughtId` is the query thought.
  */
 export type SearchNeighborsFn = (
   thoughtId: string,

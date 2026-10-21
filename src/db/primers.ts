@@ -26,6 +26,11 @@ export function getPrimerByThoughtId(db: Database, thoughtId: string): Primer | 
   return row ?? undefined
 }
 
+export function getPrimerById(db: Database, primerId: string): Primer | undefined {
+  const row = db.prepare(`SELECT * FROM primers WHERE id = ?`).get(primerId) as Primer | undefined | null
+  return row ?? undefined
+}
+
 export function getPrimerIds(db: Database): string[] {
   const rows = db.prepare(`SELECT thought_id FROM primers`).all() as { thought_id: string }[]
   return rows.map(r => r.thought_id)

@@ -57,7 +57,7 @@ describe('tool registration', () => {
     expect(names).toContain('memory_manage')
     expect(names).toContain('memory_crystallize')
     expect(names).toContain('memory_reflect')
-    expect(names).toContain('memory_telemetry')
+    expect(names).toContain('memory_primers')
     expect(names).toContain('memory_review')
     expect(names).toContain('memory_guide')
     expect(tools.length).toBe(10)
@@ -508,13 +508,13 @@ describe('memory_crystallize', () => {
   })
 })
 
-// ── memory_telemetry ─────────────────────────────────────────────────────────
+// ── memory_primers ───────────────────────────────────────────────────────────
 
-describe('memory_telemetry', () => {
-  test('primers list returns array', async () => {
+describe('memory_primers', () => {
+  test('list returns array', async () => {
     const result = await client.callTool({
-      name: 'memory_telemetry',
-      arguments: { action: 'primers', primer_action: 'list' }
+      name: 'memory_primers',
+      arguments: { action: 'list' }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)

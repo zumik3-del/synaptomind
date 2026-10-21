@@ -61,9 +61,7 @@ interface Config {
     maxLinksPerRun: number; requireDryRunFirst: boolean; backfillEnabled: boolean
   }
   selfImprove: {
-    enabled: boolean; intervalMs: number; orphanThreshold: number;
-    activationThreshold: number; hitsThreshold: number;
-    maxMergesPerRun: number; maxPromotesPerRun: number;
+    enabled: boolean; intervalMs: number; hitsThreshold: number;
     maxPrimerPromotesPerRun: number
   }
   slots: { defaultMaxChars: number; hardLimit: number }
@@ -125,10 +123,8 @@ export const DEFAULTS: Config = {
     maxLinksPerRun: 20, requireDryRunFirst: true, backfillEnabled: true
   },
   selfImprove: {
-    enabled: false, intervalMs: 86400000, orphanThreshold: 0.5,
-    activationThreshold: 0.3, hitsThreshold: 5,
-    maxMergesPerRun: 3, maxPromotesPerRun: 5,
-    maxPrimerPromotesPerRun: 3
+    enabled: false, intervalMs: 86400000,
+    hitsThreshold: 5, maxPrimerPromotesPerRun: 3
   },
   slots: { defaultMaxChars: 2000, hardLimit: 20000 },
   graph: { maxDegree: 50 },
@@ -223,11 +219,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
 
   M('SYNAPTOMIND_SELF_IMPROVE_ENABLED', 'selfImprove.enabled', 'bool'),
   M('SYNAPTOMIND_SELF_IMPROVE_INTERVAL_MS', 'selfImprove.intervalMs', 'int'),
-  M('SYNAPTOMIND_SELF_IMPROVE_ORPHAN_THRESHOLD', 'selfImprove.orphanThreshold', 'float'),
-  M('SYNAPTOMIND_SELF_IMPROVE_ACTIVATION_THRESHOLD', 'selfImprove.activationThreshold', 'float'),
   M('SYNAPTOMIND_SELF_IMPROVE_HITS_THRESHOLD', 'selfImprove.hitsThreshold', 'int'),
-  M('SYNAPTOMIND_SELF_IMPROVE_MAX_MERGES', 'selfImprove.maxMergesPerRun', 'int'),
-  M('SYNAPTOMIND_SELF_IMPROVE_MAX_PROMOTES', 'selfImprove.maxPromotesPerRun', 'int'),
   M('SYNAPTOMIND_SELF_IMPROVE_MAX_PRIMER_PROMOTES', 'selfImprove.maxPrimerPromotesPerRun', 'int'),
 
   M('SYNAPTOMIND_SLOTS_MAX_CHARS', 'slots.defaultMaxChars', 'int'),

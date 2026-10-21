@@ -16,7 +16,6 @@ import { settingsRouter } from './settings'
 import { slotsRouter } from './slots'
 import { statsRouter } from './stats'
 import { tagsRouter } from './tags'
-import { telemetryRouter } from './telemetry'
 import { thoughtsRouter } from './thoughts'
 import { healthCheckRouter } from './health-check'
 
@@ -44,7 +43,6 @@ export function createApp(): Hono {
   app.route('/api/primers', primersRouter)
   app.route('/api', settingsRouter)
   app.route('/api', statsRouter)
-  app.route('/api/telemetry', telemetryRouter)
   app.route('/api/profile', profileRouter)
   app.route('/api/slots', slotsRouter)
   app.route('/api/frontier', frontierRouter)

@@ -71,7 +71,55 @@ function dropStampFailureTrigger(path: string): void {
   })
 }
 
-test('a fresh logs.db stamps schema_version = 1 and creates both tables (#1752)', () => {
+// The deployed production logs.db: migration 1 already ran on it, so it is
+// stamped schema_version = 1 and carries BOTH tables with their rows (the
+// deployed file held ~6 200 logs rows and ~36 000 thought_telemetry rows).
+// The DDL below is migration 1's own DDL, verbatim.
+function seedV1LogsDb(path: string): void {
+  raw(path, db => {
+    db.exec(`CREATE TABLE _meta (key TEXT PRIMARY KEY, value TEXT)`)
+    db.prepare(`INSERT INTO _meta (key, value) VALUES ('schema_version', '1')`).run()
+    db.exec(`
+      CREATE TABLE logs (
+        id         TEXT PRIMARY KEY,
+        level      TEXT NOT NULL,
+        type       TEXT NOT NULL,
+        message    TEXT NOT NULL,
+        metadata   TEXT,
+        source     TEXT,
+        error      TEXT,
+        created_at TEXT NOT NULL
+      )
+    `)
+    db.exec(`
+      CREATE TABLE thought_telemetry (
+        id            TEXT PRIMARY KEY,
+        correlation_id TEXT,
+        user_id       TEXT,
+        action        TEXT NOT NULL,
+        tool_name     TEXT NOT NULL,
+        prev_tool     TEXT,
+        query         TEXT,
+        thought_id    TEXT,
+        response_size INTEGER,
+        latency_ms    INTEGER,
+        session_id    TEXT,
+        meta          TEXT,
+        created_at    TEXT NOT NULL
+      )
+    `)
+    db.prepare(
+      `INSERT INTO logs (id, level, type, message, metadata, source, created_at)
+       VALUES ('v1-log-1', 'info', 'embedding', 'deployed row', NULL, 'synaptomind', '2026-10-19T00:00:00.000Z')`
+    ).run()
+    db.prepare(
+      `INSERT INTO thought_telemetry (id, action, tool_name, created_at)
+       VALUES ('v1-telemetry-1', 'query', 'memory_telemetry', '2026-10-19T00:00:00.000Z')`
+    ).run()
+  })
+}
+
+test('a fresh logs.db stamps schema_version = 2 and creates only the logs table (#1752)', () => {
   const path = logDbPath('fresh')
   const store = new LogStore({ logDbPath: path })
   try {
@@ -80,12 +128,12 @@ test('a fresh logs.db stamps schema_version = 1 and creates both tables (#1752)'
     store.closeLogDb()
   }
 
-  expect(schemaVersion(path)).toBe('1')
+  expect(schemaVersion(path)).toBe('2')
   expect(tableNames(path)).toContain('logs')
-  expect(tableNames(path)).toContain('thought_telemetry')
+  expect(tableNames(path)).not.toContain('thought_telemetry')
 })
 
-test('a pre-policy logs.db without _meta migrates to v1 on open, rows preserved (#1752)', () => {
+test('a pre-policy logs.db without _meta migrates on open, rows preserved (#1752)', () => {
   const path = logDbPath('legacy')
   // The shape the old `CREATE TABLE IF NOT EXISTS` path left behind: data, no _meta.
   raw(path, db => {
@@ -120,8 +168,8 @@ test('a pre-policy logs.db without _meta migrates to v1 on open, rows preserved 
     store.closeLogDb()
   }
 
-  expect(schemaVersion(path)).toBe('1')
-  expect(tableNames(path)).toContain('thought_telemetry')
+  expect(schemaVersion(path)).toBe('2')
+  expect(tableNames(path)).not.toContain('thought_telemetry')
 })
 
 test('reopening a migrated logs.db does not re-run migrations (#1752)', () => {
@@ -132,17 +180,17 @@ test('reopening a migrated logs.db does not re-run migrations (#1752)', () => {
   } finally {
     first.closeLogDb()
   }
-  expect(schemaVersion(path)).toBe('1')
+  expect(schemaVersion(path)).toBe('2')
 
-  // With v1 already stamped, a second open must skip the runner entirely. If it
-  // re-applied migration 1, this trigger would abort the stamp write and the open
-  // would fail (ensureDb swallows the error and returns null).
+  // With the current version already stamped, a second open must skip the runner
+  // entirely. If it re-applied migration 1, this trigger would abort the stamp
+  // write and the open would fail (ensureDb swallows the error and returns null).
   installStampFailureTrigger(path)
 
   const second = new LogStore({ logDbPath: path })
   try {
     expect(second.getLogDb()).not.toBeNull()
-    expect(schemaVersion(path)).toBe('1')
+    expect(schemaVersion(path)).toBe('2')
   } finally {
     second.closeLogDb()
   }
@@ -168,7 +216,7 @@ test('a failed migration stamp rolls back both the DDL and the version (#1752)',
   expect(tableNames(path)).not.toContain('thought_telemetry')
   expect(schemaVersion(path)).toBeUndefined()
 
-  // The next open replays migration 1 cleanly and stamps v1.
+  // The next open replays the migrations cleanly and stamps the current version.
   dropStampFailureTrigger(path)
   const recovered = new LogStore({ logDbPath: path })
   try {
@@ -177,9 +225,9 @@ test('a failed migration stamp rolls back both the DDL and the version (#1752)',
     recovered.closeLogDb()
   }
 
-  expect(schemaVersion(path)).toBe('1')
+  expect(schemaVersion(path)).toBe('2')
   expect(tableNames(path)).toContain('logs')
-  expect(tableNames(path)).toContain('thought_telemetry')
+  expect(tableNames(path)).not.toContain('thought_telemetry')
 })
 
 // Regression coverage for #1770: a failed migration must not leave a poisoned
@@ -203,11 +251,70 @@ test('a failed migration does not poison the store: a later getLogDb() retries a
     dropStampFailureTrigger(path)
     const recovered = store.getLogDb()
     expect(recovered).not.toBeNull()
-    expect(schemaVersion(path)).toBe('1')
+    expect(schemaVersion(path)).toBe('2')
   } finally {
     store.closeLogDb()
   }
 
   expect(tableNames(path)).toContain('logs')
+  expect(tableNames(path)).not.toContain('thought_telemetry')
+})
+
+// ADR 2026-10-21 (Q5) mandates the v1 -> v2 upgrade to be proven: "a test that
+// opens a v1 logs.db, migrates it and asserts that `logs` survives and
+// `thought_telemetry` is gone". The two cases above both start at version 0 (a
+// fresh file, and a pre-policy file without `_meta`), so neither of them
+// exercises the deployed path - a production logs.db that migration 1 already
+// stamped. This case starts from exactly that shape.
+test('a deployed v1 logs.db upgrades to v2: the telemetry table is gone, the logs rows survive (#1912, ADR Q5)', () => {
+  const path = logDbPath('v1-upgrade')
+  seedV1LogsDb(path)
+
+  // The starting point is the deployed shape, not a fresh file.
+  expect(schemaVersion(path)).toBe('1')
   expect(tableNames(path)).toContain('thought_telemetry')
+
+  const store = new LogStore({ logDbPath: path })
+  try {
+    expect(store.getLogDb()).not.toBeNull()
+  } finally {
+    store.closeLogDb()
+  }
+
+  // Forward upgrade: the version becomes 2 and the telemetry table is dropped.
+  expect(schemaVersion(path)).toBe('2')
+  expect(tableNames(path)).not.toContain('thought_telemetry')
+  expect(tableNames(path)).toContain('logs')
+
+  // The telemetry rows went with the table - the data is dropped, not archived.
+  expect(() => raw(path, db => db.prepare(`SELECT COUNT(*) FROM thought_telemetry`).get())).toThrow(
+    /no such table: thought_telemetry/
+  )
+
+  // The logs rows survive: the audit trail is not derived data, it is why the
+  // table is not dropped together with the telemetry one.
+  const rows = raw(
+    path,
+    db =>
+      db.prepare(`SELECT id, message, created_at FROM logs ORDER BY created_at`).all() as {
+        id: string
+        message: string
+        created_at: string
+      }[]
+  )
+  expect(rows).toHaveLength(1)
+  expect(rows[0].id).toBe('v1-log-1')
+  expect(rows[0].message).toBe('deployed row')
+  expect(rows[0].created_at).toBe('2026-10-19T00:00:00.000Z')
+
+  // The upgrade is forward-only and terminal: the next open must not replay
+  // migration 1 and re-create the telemetry table.
+  const reopened = new LogStore({ logDbPath: path })
+  try {
+    expect(reopened.getLogDb()).not.toBeNull()
+  } finally {
+    reopened.closeLogDb()
+  }
+  expect(schemaVersion(path)).toBe('2')
+  expect(tableNames(path)).not.toContain('thought_telemetry')
 })

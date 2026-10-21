@@ -3,7 +3,7 @@
  *
  * Covers `memory_review` actions (`enqueue`/`list`/`apply`/`apply_batch`/`reject`):
  * valid, missing param, unknown id, error envelopes, draft guard, read-only
- * list, write-action telemetry (action='write'), and a static assertion that
+ * list, and a static assertion that
  * no read handler in review.ts reaches `applyProposalService` / `applyBatchService`.
  *
  * The embedder is mocked so `enqueue`'s happy path runs end-to-end.
@@ -19,7 +19,7 @@ import { config } from '../../config'
 import { getDb, closeDb } from '../../db'
 import { getEdgePairBetween } from '../../db/edges'
 import { getThoughtRow } from '../../db/thoughts'
-import { closeLogDb, getLogDb } from '../../logging'
+import { closeLogDb } from '../../logging'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { insertProposal, type PlacementProposalRow } from '../../db/placement-proposals'
 import { computeFingerprint } from '../../services/placement-proposals.service'
@@ -84,12 +84,6 @@ function insertPendingEdge(src: string, tgt: string): PlacementProposalRow {
 function propState(db: Database, id: string): string {
   const row = db.prepare('SELECT state FROM placement_proposals WHERE id = ?').get(id) as { state: string } | undefined
   return row?.state ?? 'missing'
-}
-
-function telemetryRows(): Array<{ action: string; tool_name: string }> {
-  const db = getLogDb()
-  if (!db) return []
-  return db.query('SELECT action, tool_name FROM thought_telemetry ORDER BY rowid').all() as Array<{ action: string; tool_name: string }>
 }
 
 function useMemoryLogDb(): void {
@@ -364,51 +358,6 @@ describe('memory_review reject', () => {
     const { isError, text } = parseResult(result)
     expect(isError).toBe(true)
     expect(text).toContain('proposal_id is required')
-  })
-})
-
-// ── telemetry: write vs read action mapping ───────────────────────────────────
-
-describe('memory_review telemetry', () => {
-  test('enqueue writes action=write, tool=enqueue_placement_proposals', async () => {
-    const src = seedThought({ content: 'telemetry-enqueue source' })
-    seedThought({ content: 'telemetry-enqueue target' })
-    await client.callTool({ name: 'memory_review', arguments: { action: 'enqueue', thought_id: src } })
-    const rows = telemetryRows()
-    expect(rows.length).toBeGreaterThanOrEqual(1)
-    const last = rows[rows.length - 1]
-    expect(last.action).toBe('write')
-    expect(last.tool_name).toBe('enqueue_placement_proposals')
-  })
-
-  test('list writes action=read, tool=list_placement_proposals', async () => {
-    await client.callTool({ name: 'memory_review', arguments: { action: 'list' } })
-    const rows = telemetryRows()
-    const last = rows[rows.length - 1]
-    expect(last.action).toBe('read')
-    expect(last.tool_name).toBe('list_placement_proposals')
-  })
-
-  test('apply writes action=write, tool=apply_placement_proposal', async () => {
-    const src = seedThought({ content: 'telemetry-apply source' })
-    const tgt = seedThought({ content: 'telemetry-apply target' })
-    const row = insertPendingEdge(src, tgt)
-    await client.callTool({ name: 'memory_review', arguments: { action: 'apply', proposal_id: row.id } })
-    const rows = telemetryRows()
-    const last = rows[rows.length - 1]
-    expect(last.action).toBe('write')
-    expect(last.tool_name).toBe('apply_placement_proposal')
-  })
-
-  test('reject writes action=write, tool=reject_placement_proposal', async () => {
-    const src = seedThought({ content: 'telemetry-reject source' })
-    const tgt = seedThought({ content: 'telemetry-reject target' })
-    const row = insertPendingEdge(src, tgt)
-    await client.callTool({ name: 'memory_review', arguments: { action: 'reject', proposal_id: row.id } })
-    const rows = telemetryRows()
-    const last = rows[rows.length - 1]
-    expect(last.action).toBe('write')
-    expect(last.tool_name).toBe('reject_placement_proposal')
   })
 })
 
