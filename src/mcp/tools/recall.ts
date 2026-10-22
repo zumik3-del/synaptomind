@@ -16,21 +16,6 @@ import { getHandler as getRecallGetHandler } from './recall/get'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
-/**
- * Map the boolean `is_cluster` filter onto the tri-state `cluster` filter. Both
- * express the same thing, so a contradictory pair is a caller error instead of
- * a silent precedence rule.
- */
-function resolveClusterFilter(args: ActionArgs): 'only' | 'exclude' | undefined {
-  const explicit = args.cluster as 'only' | 'exclude' | undefined
-  if (args.is_cluster === undefined) return explicit
-  const fromFlag: 'only' | 'exclude' = args.is_cluster ? 'only' : 'exclude'
-  if (explicit && explicit !== fromFlag) {
-    throw new ValidationError(`cluster='${explicit}' conflicts with is_cluster=${args.is_cluster}; pass one filter`)
-  }
-  return explicit ?? fromFlag
-}
-
 const handlers = {
   get: getRecallGetHandler,
 
@@ -39,11 +24,12 @@ const handlers = {
       query: requiredString('query is required for search action')
     }),
     async run(args: ActionArgs) {
-      const topK = (args.top_k as number) ?? 10
+      const limit = (args.limit as number) ?? 10
       const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
       const baseOptions = buildSearchOptions({
-        query: args.query as string, topK, status: args.status as string | undefined,
-        projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: resolveClusterFilter(args),
+        query: args.query as string, topK: limit, status: args.status as string | undefined,
+        projectFilter, tagFilter: args.tag as string | undefined,
+        clusterFilter: args.is_cluster === undefined ? undefined : args.is_cluster ? 'only' : 'exclude',
         minImportance: args.min_importance as number | undefined,
         hybrid: args.hybrid as boolean | undefined,
         // Agent-facing defaults: drop superseded rows, flag contradicted ones.
@@ -56,7 +42,7 @@ const handlers = {
       const results = args.group_by_cluster
         ? await searchThoughtsGrouped(baseOptions)
         : await searchThoughts(baseOptions)
-      return postProcessSearchResults(results, { query: args.query as string, topK, showPrimers: true })
+      return postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
     }
   },
 
@@ -76,7 +62,7 @@ const handlers = {
       query: requiredString('query is required for clusters action')
     }),
     async run(args: ActionArgs) {
-      const topK = (args.top_k as number) ?? 10
+      const limit = (args.limit as number) ?? 10
       const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
       // This action lists cluster thoughts by definition, so an explicit
       // `is_cluster=false` contradicts it.
@@ -84,7 +70,7 @@ const handlers = {
         throw new ValidationError('the clusters action lists cluster thoughts; is_cluster=false conflicts')
       }
       const results = await searchThoughts(buildSearchOptions({
-        query: args.query as string, topK, status: args.status as string | undefined,
+        query: args.query as string, topK: limit, status: args.status as string | undefined,
         projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: 'only',
         minImportance: args.min_importance as number | undefined,
         hybrid: args.hybrid as boolean | undefined,
@@ -92,7 +78,7 @@ const handlers = {
         recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
         minRelevance: args.min_relevance as number | undefined
       }))
-      return postProcessSearchResults(results, { query: args.query as string, topK, showPrimers: true })
+      return postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
     }
   },
 
@@ -118,13 +104,12 @@ export function registerMemoryRecall(server: McpServer) {
     description: `Search and retrieve thoughts. Actions: search (hybrid/vector/BM25; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/project_id/tag/is_cluster filters, limit/offset paging, total count).`,
     inputSchema: {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters', 'list']).describe('Action'),
-      query: z.string().optional().describe('Search query (required for search/clusters; for context either query or thought_id)'),      top_k: z.coerce.number().int().min(1).max(100).optional().describe('Max results (default 10, 1-100)'),
+      query: z.string().optional().describe('Search query (required for search/clusters; for context either query or thought_id)'),
       status: thoughtStatusSchema.optional().describe('Filter by status (search default: active; list default: all)'),
       project_id: z.string().optional().describe('Filter by project (prefer cwd instead)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
       tag: z.string().optional().describe('Filter by tag'),
-      cluster: z.enum(['only', 'exclude']).optional().describe('Cluster filter: only (clusters only), exclude (exclude clusters)'),
-      is_cluster: z.boolean().optional().describe('Cluster filter: true = cluster thoughts only, false = exclude cluster thoughts (search/list). Conflicts with a contradictory `cluster` value'),
+      is_cluster: z.boolean().optional().describe('Cluster filter: true = cluster thoughts only, false = exclude cluster thoughts (search/list)'),
       group_by_cluster: z.boolean().optional().describe('Group results by cluster'),
       min_importance: z.coerce.number().min(0).max(1).optional().describe('Minimum importance (0-1)'),
       hybrid: z.boolean().optional().describe('Use hybrid search'),
@@ -164,7 +149,7 @@ export function registerMemoryRecall(server: McpServer) {
       max_degree: z.coerce.number().int().min(1).max(200).optional().describe('Max edges to return for chain/context (default 50, 1-200)'),
       // The list page shares the timeline's page size (src/validation.ts) so the
       // two paginated thought surfaces cannot drift apart.
-      limit: timelineLimitSchema.optional().describe('list: max thoughts (default 50, 1-500)'),
+      limit: timelineLimitSchema.optional().describe('Max results for search/clusters (default 10) or list page size (default 50)'),
       offset: z.number().int().min(0).max(1_000_000).optional().describe('list: offset for pagination')
     },
     handlers
