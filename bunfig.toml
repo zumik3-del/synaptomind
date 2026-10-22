@@ -1,0 +1,5 @@
+# Tests only — never applied to `bun run src/index.ts` or a compiled binary.
+# The preload points a checkout without its own vec0.so (a fresh git worktree) at
+# the main checkout's copy; see src/test/preload.ts.
+[test]
+preload = ["./src/test/preload.ts"]

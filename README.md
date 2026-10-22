@@ -473,6 +473,13 @@ bunx biome check src/ eval/   # lint (advisory)
 `bun test` (without a script) still runs the full suite; the canonical developer
 gate is `bun run test` (`bun test src`).
 
+`vec0.so` is installed by `bun install` into the checkout that ran it, so a fresh
+git worktree has no copy of its own. `bunfig.toml` preloads `src/test/preload.ts`
+for tests only: when the running checkout has no `vec0.so`, it points the test
+process at the main checkout's copy and prints one line naming the file it used. A
+local copy always wins (and `SYNAPTOMIND_VEC0_PATH` overrides everything), so a
+genuinely broken extension still fails loudly.
+
 For step-by-step usage scenarios, see [docs/SCENARIOS.md](docs/SCENARIOS.md).
 
 For performance benchmarks (search latency, write throughput, embedding speed), see [docs/BENCHMARK.md](docs/BENCHMARK.md).
