@@ -26,9 +26,10 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Dry-run / confirm pattern
 
-Every mutating action added for graph maintenance — `memory_store` `unlink` and `retype`,
-plus `memory_review` (`apply`/`apply_batch`/`rollback`) and `memory_manage action=delete` —
-follows the same two-step pattern:
+Every destructive action — `memory_store` `unlink` and `retype`, `memory_supersede` `archive`
+and `merge`, `memory_manage action=delete`, `memory_review` (`apply`/`apply_batch`/`rollback`),
+`memory_primers action=delete`, and `memory_status action=cleanup` — follows the same two-step
+pattern:
 
 - **Preview (default).** `confirm` is absent or `false`. The tool validates the target and
   returns a non-mutating preview with `status: "preview"` and a human-readable `consequence`.
@@ -383,6 +384,33 @@ Example:
 
 > **HTTP parity.** The HTTP routes `GET /api/primers` and `DELETE /api/primers/:id` keep their
 > previous semantics: the HTTP delete is immediate and takes no `confirm`.
+
+## `memory_status` — system state
+
+### `action=slots` (read-only)
+
+Slots are **read-only** through this tool: it never writes. `pending_items` is derived from
+thoughts tagged `pending` (the same set the frontier surfaces); `architecture_decisions` from
+primers (most-hit first); `project_context` and `active_goals` are stored rows. To change slot
+content, update or archive the underlying thoughts (virtual slots) or use `memory_reflect`
+(`summary` appends to `project_context`; `goals_delta` edits `active_goals`). Paging applies to
+`pending_items` via `limit`/`offset`.
+
+### `action=cleanup`
+
+TTL cleanup of archived thoughts. `dry_run` defaults to `true` (preview); set `dry_run: false`
+to actually delete. Protected thoughts are never deleted.
+
+### `action=propose`
+
+Read-only placement plan (placement, edges, lifecycle); never writes.
+
+## `memory_manage` — projects
+
+CRUD over projects plus resolution from a path.
+
+- `list`, `create`, `update`, `delete (preview→confirm)`, `resolve` (resolve project from `cwd`).
+- `delete` is preview-first: returns `action: "preview"` unless `confirm: true`.
 
 ## Health-check remediation: `contradiction_in_cluster`
 
