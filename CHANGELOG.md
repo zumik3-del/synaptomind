@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.16.3
+
+> October 22, 2026
+
+- [`423a954`](https://github.com/zumik3-del/synaptomind/commit/423a954b4a8deac4082fa290f90710bb430ec7d0): docs(mcp): correct link thought_id guidance
+- [`942d6f5`](https://github.com/zumik3-del/synaptomind/commit/942d6f59007f8c6803552e706c8bee1734dcb551): test(mcp): cover retired input schema contracts
+- [`1073603`](https://github.com/zumik3-del/synaptomind/commit/1073603276c7f468b83ae25f42fb001cbcda80b2): docs(mcp): document is_profile removal without replacement
+- [`beab0f0`](https://github.com/zumik3-del/synaptomind/commit/beab0f07c10810d6597749c998c583fa6355c477): test(mcp): assert retired-argument tombstones carry precise hints
+- [`b2d51cf`](https://github.com/zumik3-del/synaptomind/commit/b2d51cf7e928d1b8ebbfa9abd7f0bd5b4443a734): docs(mcp): document retired-argument tombstones and client validation
+- [`c049291`](https://github.com/zumik3-del/synaptomind/commit/c0492916a377744b3428b9a3bbe6d3ae2a798b6d): fix(mcp): reject retired is_profile at validation and scope thought_id
+- [`30de4e8`](https://github.com/zumik3-del/synaptomind/commit/30de4e817ee0867135a4dd6bbfccc8d936c6a5b3): docs(mcp): describe retired parameters with removal guidance
+
 ## v0.16.2
 
 > October 22, 2026
