@@ -202,7 +202,7 @@ export function findEmbeddingNeighborPairs(
     for (const r of results) {
       if (r.id === candidates[i].id) continue
       if (!candidateSet.has(r.id)) continue
-      if (r.similarity < minSimilarity) continue
+      if ((r.similarity ?? 0) < minSimilarity) continue
 
       const key = pairKey(candidates[i].id, r.id)
       const existing = pairMap.get(key)

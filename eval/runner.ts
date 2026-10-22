@@ -170,7 +170,7 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
         const hits: RetrievedHit[] = found.map(result => ({
           id: result.thought.id,
           lowConfidence: result.low_confidence,
-          similarity: result.similarity,
+          similarity: result.similarity ?? 0,
           matchSource: result.match_source
         }))
         const retrieved = hits.map(hit => hit.id)

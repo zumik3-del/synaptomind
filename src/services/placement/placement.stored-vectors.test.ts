@@ -63,7 +63,7 @@ function indexLookup(d: Database, projectId: string): SearchNeighborsFn {
       statusFilter: 'active',
       projectFilter: projectId,
       hybrid: false
-    }).map(r => ({ id: r.thought.id, similarity: r.similarity }))
+    }).map(r => ({ id: r.thought.id, similarity: r.similarity ?? 0 }))
 }
 
 /** Structural projection: everything a change of neighbour source could move. */

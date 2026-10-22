@@ -127,7 +127,7 @@ function resolveEmbeddingSimilarity(
 
   try {
     const hit = searchThoughts(d, { embedding, topK, hybrid: false }).find(r => r.thought.id === target.id)
-    return hit ? clamp01(hit.similarity) : 0
+    return hit ? clamp01(hit.similarity ?? 0) : 0
   } catch {
     return 0
   }

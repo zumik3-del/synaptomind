@@ -63,6 +63,8 @@ memory_recall action=list returns a paginated inventory without a query: filters
 memory_recall action=get accepts include_edges (default false) to return incident edges inline (upstream/downstream with type and created_at).
 BM25 hits are immediate; vector/hybrid hits appear only after the embedder stores the vector in vec_thoughts (polls pending_embeddings every embedder.pollIntervalMs, default 7000 ms; visible ~10-15 s).
 low_confidence: no BM25 anchor, or vector below search.confidence.vectorFloor. min_relevance gates weak vector-only hits (default 0 = all).
+match_source: subset of {embedding, bm25} — indicates which legs matched (embedding = vector leg, bm25 = keyword leg); both = hybrid overlap, embedding = semantic only, bm25 = keyword only.
+similarity/distance: cosine similarity (and 1-similarity distance) for the embedding leg; omitted (null-ish) for BM25-only matches so a keyword hit is not misread as zero relevance. rrf_score/bm25_score are additive ranking signals.
 recency_weight (default 0) + recency_half_life_days (default 30) add recency_score/final_score when >0. supersession_mode (off/flag/suppress, default suppress) + contradiction_mode (off/flag, default flag).
 
 ## Lifecycle

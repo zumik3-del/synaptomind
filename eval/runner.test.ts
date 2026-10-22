@@ -134,7 +134,7 @@ describe('evaluateChecks', () => {
 
   test('expectNoStrongMatch passes when every retrieved hit is low-confidence', () => {
     const hits = [
-      { id: 'd1', lowConfidence: true, similarity: 0.1, matchSource: ['vector'] },
+      { id: 'd1', lowConfidence: true, similarity: 0.1, matchSource: ['embedding'] },
       { id: 'd2', lowConfidence: true, similarity: 0.05, matchSource: ['bm25'] }
     ]
     const errors = evaluateChecks(
@@ -149,8 +149,8 @@ describe('evaluateChecks', () => {
 
   test('expectNoStrongMatch flags a strong match among retrieved hits', () => {
     const hits = [
-      { id: 'd1', lowConfidence: true, similarity: 0.1, matchSource: ['vector'] },
-      { id: 'd2', lowConfidence: false, similarity: 0.9, matchSource: ['vector'] }
+      { id: 'd1', lowConfidence: true, similarity: 0.1, matchSource: ['embedding'] },
+      { id: 'd2', lowConfidence: false, similarity: 0.9, matchSource: ['embedding'] }
     ]
     const errors = evaluateChecks(
       { query: 'q', relevant: [], expectNoStrongMatch: true },
@@ -165,7 +165,7 @@ describe('evaluateChecks', () => {
   })
 
   test('expectNoStrongMatch reports a missing-confidence entry when a retrieved id has no hit', () => {
-    const hits = [{ id: 'd1', lowConfidence: true, similarity: 0.1, matchSource: ['vector'] }]
+    const hits = [{ id: 'd1', lowConfidence: true, similarity: 0.1, matchSource: ['embedding'] }]
     const errors = evaluateChecks(
       { query: 'q', relevant: [], expectNoStrongMatch: true },
       ['d1', 'd2'],
@@ -180,8 +180,8 @@ describe('evaluateChecks', () => {
 
   test('expectNoStrongMatch fails on every strong match, not just the first', () => {
     const hits = [
-      { id: 'a', lowConfidence: false, similarity: 0.9, matchSource: ['vector'] },
-      { id: 'b', lowConfidence: false, similarity: 0.85, matchSource: ['vector'] }
+      { id: 'a', lowConfidence: false, similarity: 0.9, matchSource: ['embedding'] },
+      { id: 'b', lowConfidence: false, similarity: 0.85, matchSource: ['embedding'] }
     ]
     const errors = evaluateChecks(
       { query: 'q', relevant: [], expectNoStrongMatch: true },

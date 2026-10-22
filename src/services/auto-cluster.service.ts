@@ -147,7 +147,7 @@ export async function runAutoClusterJob(
     const idx = candidates.findIndex(c => c.id === thoughtId)
     if (idx === -1) return []
     const results = searchNeighbors(thoughtId, embeddings[idx], Math.max(minMembers, candidates.length))
-    return results.filter(r => r.distance < minSimilarity).map(r => r.id)
+    return results.filter(r => (r.distance ?? 1) < minSimilarity).map(r => r.id)
   }
 
   const groups = groupCandidates(candidates, neighborFn, minMembers)
