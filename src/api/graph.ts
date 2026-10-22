@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
 import { ValidationError } from '../errors'
-import { GRAPH_LIMIT_DEFAULT, graphLimitSchema, graphStatusSchema } from '../validation'
+import { GRAPH_LIMIT_DEFAULT, GRAPH_OFFSET_DEFAULT, graphLimitSchema, graphOffsetSchema, graphStatusSchema } from '../validation'
 import { getGraphDataService } from '../services/graph.service'
 import { formatZodIssues } from './utils'
 
@@ -12,16 +12,18 @@ const graphRouter = new Hono()
 // out-of-range value is a typed 400 instead of a silent clamp.
 const graphQuerySchema = z.object({
   status: graphStatusSchema.default('active'),
-  limit: graphLimitSchema.default(GRAPH_LIMIT_DEFAULT)
+  limit: graphLimitSchema.default(GRAPH_LIMIT_DEFAULT),
+  offset: graphOffsetSchema.default(GRAPH_OFFSET_DEFAULT)
 })
 
 graphRouter.get('/graph', c => {
   const parsed = graphQuerySchema.safeParse({
     status: c.req.query('status') || undefined,
-    limit: c.req.query('limit') || undefined
+    limit: c.req.query('limit') || undefined,
+    offset: c.req.query('offset') || undefined
   })
   if (!parsed.success) throw new ValidationError(formatZodIssues(parsed.error))
-  return c.json(getGraphDataService(c.req.query('project_id'), parsed.data.status, parsed.data.limit))
+  return c.json(getGraphDataService(c.req.query('project_id'), parsed.data.status, parsed.data.limit, parsed.data.offset))
 })
 
 export { graphRouter }
