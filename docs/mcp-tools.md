@@ -14,7 +14,7 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 | Tool | Actions | Purpose |
 |---|---|---|
 | `memory_recall` | search, get, context, chain, clusters, list | Find and retrieve thoughts (list = paginated inventory) |
-| `memory_store` | create, update, link, link_batch, unlink, retype | Write, connect and edit thoughts |
+| `memory_store` | create, update, link, link_batch, unlink, unlink_batch, retype | Write, connect and edit thoughts |
 | `memory_supersede` | archive, archive_batch, merge | Version and supersede thoughts |
 | `memory_status` | slots, frontier, config, health, propose, cleanup | Query system state |
 | `memory_manage` | list, create, update, delete, resolve | Project management |
@@ -207,6 +207,31 @@ Example:
 
 ```json
 { "action": "unlink", "edge_id": "edge-123", "confirm": true }
+```
+
+### `action=unlink_batch`
+
+Delete or preview up to 1000 edges in one call. The batch runs in a **single
+transaction** and reuses the `unlink` writer. In `confirm` mode every `edge_id`
+is validated to exist **before** any deletion happens, so a missing id aborts
+the whole batch instead of leaving a partial prune behind. Preview mode
+(`confirm` absent/`false`) never mutates.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `edge_ids` | string[] | yes | Edge IDs to delete/preview (1–1000 items) |
+| `confirm` | boolean | no | Absent/`false` = preview; `true` = delete |
+
+Result: `{ "deleted": 2, "preview": 0, "failed": 1, "results": [{ "edge_id": "edge-1", "status": "deleted" }, { "edge_id": "edge-2", "status": "deleted" }, { "edge_id": "missing", "status": "failed", "error": "Edge not found: missing" }] }`
+
+In preview mode each result carries `status: "preview"` plus the edge details and
+`consequence` (mirroring single `unlink`). `failed` always equals the number of
+entries in `errors`.
+
+Example:
+
+```json
+{ "action": "unlink_batch", "edge_ids": ["edge-1", "edge-2"], "confirm": true }
 ```
 
 ### `action=retype`

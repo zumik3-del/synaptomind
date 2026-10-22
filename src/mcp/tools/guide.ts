@@ -25,7 +25,7 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 | Tool | Actions |
 |---|---|
 | memory_recall | search, get, context, chain, clusters, list |
-| memory_store | create, update, link, link_batch, unlink, retype |
+| memory_store | create, update, link, link_batch, unlink, unlink_batch, retype |
 | memory_supersede | archive, archive_batch, merge |
 | memory_status | slots, frontier, config, health, propose, cleanup |
 | memory_manage | list, create, update, delete, resolve |
@@ -46,7 +46,7 @@ No self-loops; one type per pair; cluster edges strict; a retype upgrades a rela
 link takes thought_id (alias source_id) + target_id; merge takes source_id + target_id — one source/target vocabulary across both tools.
 merge archives the source onto the target and returns {target, edges_transferred}: the count of source edges the target now holds. Dropped — and not counted — are a self-loop the merge would create, a duplicate non-symmetric edge, and a cluster edge the cluster rule rejects; an existing related/contradicts pair still counts, since the target now owns that relation.
 unlink and retype are dry-run first, then confirm=true. No cascade.
-link_batch creates up to 1000 edges in one transaction and reports per item as {linked, failed, errors[]}; archive_batch (memory_supersede) reports {archived, failed, errors[]}.
+link_batch creates up to 1000 edges in one transaction and reports per item as {linked, failed, errors[]}; unlink_batch deletes/previews up to 1000 edges in one transaction, validates all ids exist before deleting any, and reports per edge as {deleted, preview, failed} with counts; archive_batch (memory_supersede) reports {archived, failed, errors[]}.
 
 ## Search
 Modes: hybrid (default, RRF), vector, BM25. Filters: status, project, tag, cluster (only/exclude), min importance.
