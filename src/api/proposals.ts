@@ -16,7 +16,10 @@ const proposalsRouter = new Hono()
 const proposalsQuerySchema = z.object({
   limit: proposalsLimitSchema.default(PROPOSALS_LIMIT_DEFAULT)
 })
-const enqueueBodySchema = z.object({ thought_id: z.string().optional(), project_id: z.string().optional(), max_proposals: z.number().int().min(1).optional(), max_items: z.number().int().min(1).optional(), limit: z.number().int().min(1).optional() })
+// Enqueue accepts the canonical cap only: `max_items` and `limit` are retired,
+// so they fail the schema with a typed 400 naming `max_proposals` (same
+// tombstone pattern as the retired is_profile flag) instead of being dropped.
+const enqueueBodySchema = z.object({ thought_id: z.string().optional(), project_id: z.string().optional(), max_proposals: z.number().int().min(1).optional(), max_items: z.never({ error: 'max_items was removed; use max_proposals' }).optional(), limit: z.never({ error: 'limit was removed; use max_proposals' }).optional() })
 const rollbackBodySchema = z.object({ run_id: z.string().optional(), confirm: z.boolean().optional() })
 const applyBodySchema = z.object({ confirm: z.boolean().optional(), run_id: z.string().optional() })
 
@@ -39,9 +42,11 @@ proposalsRouter.get('/', c => {
 // The response reports the queued rows AND the plan items that were skipped
 // because their kind is no longer supported (task #1942).
 proposalsRouter.post('/', async c => {
-  const body = await jsonBodyOrDefault<{ thought_id?: string; project_id?: string; max_proposals?: number; max_items?: number; limit?: number }>(c, {}, enqueueBodySchema)
+  const body = await jsonBodyOrDefault<{ thought_id?: string; project_id?: string; max_proposals?: number }>(c, {}, enqueueBodySchema)
   if (!body.thought_id) throw new ValidationError('thought_id is required')
-  const outcome = await enqueueThoughtProposals(body.thought_id, { projectId: body.project_id, maxProposals: body.max_proposals, maxItems: body.max_items, limit: body.limit })
+  // Only the canonical cap is forwarded: the retired aliases were rejected by
+  // the schema above, and the service is not re-informed of them here.
+  const outcome = await enqueueThoughtProposals(body.thought_id, { projectId: body.project_id, maxProposals: body.max_proposals })
   return c.json(outcome, 201)
 })
 

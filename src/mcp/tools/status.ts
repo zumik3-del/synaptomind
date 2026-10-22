@@ -32,7 +32,11 @@ export function registerMemoryStatus(server: McpServer) {
       content: z.string().optional().describe('Draft content to analyse when the thought is not persisted yet (propose only; provide this or thought_id)'),
       severity: z.enum(['critical', 'warning', 'info']).optional().describe('Minimum severity (health only)'),
       fix: z.boolean().optional().describe('Auto-fix safe issues (health only)'),
-      confirm: z.boolean().optional().describe('Execute cleanup deletion (cleanup only). Defaults to false; set true to delete.')
+      confirm: z.boolean().optional().describe('Execute cleanup deletion (cleanup only). Defaults to false; set true to delete.'),
+      // Tombstones for retired parameters: supplying one fails input validation
+      // with the canonical replacement instead of a silent strip.
+      k: z.never({ error: 'k was removed; use limit' }).optional(),
+      dry_run: z.never({ error: 'dry_run was removed; use confirm' }).optional()
     },
     handlers
   })

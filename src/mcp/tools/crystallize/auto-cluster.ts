@@ -19,13 +19,16 @@ export const autoClusterHandler: ActionHandler = {
     // Confirm semantics: without confirm the run is a non-mutating preview
     // (service dryRun mode); clusters are created only with confirm: true.
     const confirm = args.confirm === true
+    // Confirmation is explicit authorization to write; service config only
+    // supplies defaults and does not override it.
+    const dryRun = !confirm
     const result = await runAutoClusterJob({
       minAgeDays: optionalNumber(args.min_age_days),
       minSimilarity: optionalNumber(args.min_similarity),
       minMembers: optionalNumber(args.min_members),
-      dryRun: !confirm
+      dryRun
     })
-    if (!confirm) {
+    if (dryRun) {
       return {
         status: 'preview',
         candidates: result.candidates,
