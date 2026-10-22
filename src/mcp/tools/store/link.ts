@@ -4,10 +4,12 @@ import type { ActionArgs, ActionHandler } from '../action-tool'
 
 const SOURCE_REQUIRED = 'source_id is required for link action'
 const TARGET_REQUIRED = 'target_id is required for link action'
+const THOUGHT_ID_RETIRED = 'thought_id is retired for link action; use source_id instead'
 
 export const linkHandler: ActionHandler = {
   input: z
     .object({
+      thought_id: z.never({ error: THOUGHT_ID_RETIRED }).optional(),
       source_id: z.string({ error: SOURCE_REQUIRED }).min(1, SOURCE_REQUIRED).optional(),
       target_id: z.string({ error: TARGET_REQUIRED }).optional()
     })
