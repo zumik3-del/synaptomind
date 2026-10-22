@@ -917,3 +917,52 @@ test("POST /api/slots/reflect folds session outcome into slots", async () => {
 	});
 	expect(empty.status).toBe(400);
 });
+
+test("POST /api/slots/reflect applies canonical goal add and remove semantics", async () => {
+	const added = await request("/api/slots/reflect", {
+		method: "POST",
+		body: JSON.stringify({ goals_add: ["Ship alpha", "ship ALPHA", "Ship beta"] }),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(added.status).toBe(200);
+	const addedBody = (await added.json()) as { applied: { goals_added: number } };
+	expect(addedBody.applied.goals_added).toBe(2);
+
+	const removed = await request("/api/slots/reflect", {
+		method: "POST",
+		body: JSON.stringify({
+			goals_add: ["Ship gamma"],
+			goals_remove: ["ALPHA", "BETA"],
+		}),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(removed.status).toBe(200);
+	const removedBody = (await removed.json()) as {
+		applied: { goals_added: number; goals_removed: number };
+	};
+	expect(removedBody.applied.goals_removed).toBe(2);
+	expect(removedBody.applied.goals_added).toBe(1);
+
+	const slots = await request("/api/slots?names=active_goals");
+	const slotBody = (await slots.json()) as { slots: Array<{ content: string }> };
+	expect(slotBody.slots[0].content).toBe("Ship gamma");
+});
+
+test("POST /api/slots/reflect rejects blank goals and retired goals_delta with migration hint", async () => {
+	for (const payload of [{ goals_add: ["  "] }, { goals_remove: [""] }]) {
+		const invalid = await request("/api/slots/reflect", {
+			method: "POST",
+			body: JSON.stringify(payload),
+			headers: { "Content-Type": "application/json" },
+		});
+		expect(invalid.status).toBe(400);
+	}
+
+	const retired = await request("/api/slots/reflect", {
+		method: "POST",
+		body: JSON.stringify({ goals_delta: ["old goal"] }),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(retired.status).toBe(400);
+	expect(await retired.text()).toContain("goals_add / goals_remove");
+});
