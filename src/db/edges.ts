@@ -167,6 +167,19 @@ export function getEdgesForThought(db: Database, id: string): Edge[] {
     .all(id, id) as Edge[]
 }
 
+/** Return the first `limit` edges touching a thought in stable order and their total count. */
+export function getSourceEdgesForThoughtBounded(
+  db: Database,
+  id: string,
+  limit: number
+): { edges: Edge[]; count: number } {
+  const count = db.prepare('SELECT COUNT(*) AS count FROM edges WHERE source_id = ? OR target_id = ?').get(id, id) as { count: number }
+  const edges = db
+    .prepare('SELECT * FROM edges WHERE source_id = ? OR target_id = ? ORDER BY id ASC LIMIT ?')
+    .all(id, id, limit) as Edge[]
+  return { edges, count: count.count }
+}
+
 export function getAllActiveEdges(db: Database): Edge[] {
   return db
     .prepare(`
