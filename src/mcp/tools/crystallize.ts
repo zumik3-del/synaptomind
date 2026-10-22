@@ -31,7 +31,7 @@ export function registerMemoryCrystallize(server: McpServer) {
       min_members: z.coerce.number().int().min(1).max(1000).optional().describe('Min members per cluster (auto_cluster only)'),
       confirm: z.boolean().optional().describe('Set to true to create the clusters. Set to false to preview first (auto_cluster only).'),
       // Tombstone for the retired preview flag: only confirm is advertised.
-      dry_run: z.never({ error: 'dry_run was removed; use confirm' }).optional()
+      dry_run: z.never({ error: 'dry_run was removed; use confirm' }).optional().describe('Removed; use confirm.'),
     },
     handlers
   })

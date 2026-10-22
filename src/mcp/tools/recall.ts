@@ -154,8 +154,8 @@ export function registerMemoryRecall(server: McpServer) {
       // Tombstones for retired parameters: a supplied value fails the advertised
       // input validation with the canonical replacement (the same pattern as
       // the retired is_profile input) instead of being silently stripped.
-      top_k: z.never({ error: 'top_k was removed; use limit' }).optional(),
-      cluster: z.never({ error: 'cluster was removed; use is_cluster' }).optional()
+      top_k: z.never({ error: 'top_k was removed; use limit' }).optional().describe('Removed; use limit.'),
+      cluster: z.never({ error: 'cluster was removed; use is_cluster' }).optional().describe('Removed; use is_cluster.')
     },
     handlers
   })
