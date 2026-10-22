@@ -111,8 +111,9 @@ Fetch one thought by `thought_id` (full content, tags, project, importance, edge
 
 ### `action=context` / `action=chain` / `action=clusters`
 
-`context` returns a thought plus its neighbours up to `max_degree`; `chain` walks a parent/develops
-chain; `clusters` lists cluster thoughts and their members.
+`context` returns a thought plus its neighbours up to `max_degree` (accepts a text `query` or a
+`thought_id`); `chain` walks a parent/develops chain; `clusters` lists cluster thoughts and their
+members.
 
 ## `memory_store` — edges
 

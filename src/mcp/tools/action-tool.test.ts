@@ -254,8 +254,7 @@ describe('unknown action returns a structured error on every action tool', () =>
 const REQUIRED_FIELD_CASES: Array<{ label: string; tool: string; args: Record<string, unknown>; message: string }> = [
   { label: 'recall get', tool: 'memory_recall', args: { action: 'get' }, message: 'thought_id is required for get action' },
   { label: 'recall search', tool: 'memory_recall', args: { action: 'search' }, message: 'query is required for search action' },
-  { label: 'recall context', tool: 'memory_recall', args: { action: 'context' }, message: 'query is required for context action' },
-  { label: 'recall chain', tool: 'memory_recall', args: { action: 'chain' }, message: 'thought_id is required for chain action' },
+  { label: 'recall context', tool: 'memory_recall', args: { action: 'context' }, message: 'query or thought_id is required for context action' },  { label: 'recall chain', tool: 'memory_recall', args: { action: 'chain' }, message: 'thought_id is required for chain action' },
   { label: 'recall clusters', tool: 'memory_recall', args: { action: 'clusters' }, message: 'query is required for clusters action' },
   { label: 'store create', tool: 'memory_store', args: { action: 'create' }, message: 'content is required for create action' },
   { label: 'store update', tool: 'memory_store', args: { action: 'update' }, message: 'thought_id is required for update action' },

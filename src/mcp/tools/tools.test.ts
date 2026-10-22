@@ -244,8 +244,7 @@ describe('memory_recall', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(true)
-    expect(data).toContain('query is required for context action')
-  })
+    expect(data).toContain('query or thought_id is required for context action')  })
 
   test('clusters without query returns error', async () => {
     const result = await client.callTool({
