@@ -24,9 +24,9 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 ## Tools
 | Tool | Actions |
 |---|---|
-| memory_recall | search, get, context, chain, clusters |
-| memory_store | create, update, link, unlink, retype |
-| memory_supersede | archive, merge |
+| memory_recall | search, get, context, chain, clusters, list |
+| memory_store | create, update, link, link_batch, unlink, retype |
+| memory_supersede | archive, archive_batch, merge |
 | memory_status | slots, frontier, config, health, propose, cleanup |
 | memory_manage | list, create, update, delete, resolve |
 | memory_review | enqueue, list, apply, apply_batch, rollback, reject |
@@ -38,12 +38,15 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 ## Thoughts
 Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_global, is_protected, source.
 Status: draft (wip), active (live), archived (hidden). Default draft on create; pass status=active to publish. Archive is idempotent.
-Tags: update merges by default; pass tags_mode=replace to overwrite the whole set. Common tags: decision, pending, todo, directive, gotcha, cluster.
+Tags: update merges by default; pass tags_mode=replace to overwrite the whole set. Common tags: decision, pending, todo, directive, gotcha, cluster, reflect.
 
 ## Edges
 related (default, idempotent), parent, develops, replaces (target blocked in frontier), contradicts (symmetric), supports (directed), cluster, references, depends_on.
 No self-loops; one type per pair; cluster edges strict; a retype upgrades a related edge in place.
+link takes thought_id (alias source_id) + target_id; merge takes source_id + target_id — one source/target vocabulary across both tools.
+merge archives the source onto the target and returns {target, edges_transferred}: the count of source edges the target now holds. Dropped — and not counted — are a self-loop the merge would create, a duplicate non-symmetric edge, and a cluster edge the cluster rule rejects; an existing related/contradicts pair still counts, since the target now owns that relation.
 unlink and retype are dry-run first, then confirm=true. No cascade.
+link_batch creates up to 1000 edges in one transaction and reports per item as {linked, failed, errors[]}; archive_batch (memory_supersede) reports {archived, failed, errors[]}.
 
 ## Search
 Modes: hybrid (default, RRF), vector, BM25. Filters: status, project, tag, cluster (only/exclude), min importance.
@@ -65,14 +68,14 @@ One project per thought. A cluster is a thought with is_cluster=1 whose cluster 
 A recalled thought whose hit count reaches primer.promoteThreshold (default 5) becomes a primer on the search path. memory_primers delete is preview-first (confirm=true); the HTTP DELETE is immediate.
 
 ## Health check
-memory_status action=health; severity restricts reported findings, fix=true auto-repairs safe issues. Score: 100 - criticalCategories×40 - warningCategories×15 - infoOccurrences×0.25, clamped [0,100].
+memory_status action=health; severity restricts reported findings, fix=true auto-repairs safe issues. Score: 100 - criticalCategories×40 - warningCategories×15 - scoredInfoOccurrences×0.25, clamped [0,100]. Islands are an informational coverage finding and are not scored, so publishing an unlinked thought never lowers the score.
 contradiction_in_cluster remediation: memory_store action=unlink on the contradicts edge, or retype it to supports/related, or archive the cluster thought. Dry-run first, then confirm=true.
 
 ## Placement proposal and review
 memory_status action=propose returns a read-only plan (placement, edges[], lifecycle) and never writes. memory_review enqueue/list/apply/apply_batch/rollback/reject; apply is dry-run unless confirm=true and re-checks staleness. The queue holds edge items only: a plan's placement and lifecycle items are reported as skipped.
 
 ## Session reflection
-memory_reflect reflect: summary appends to project_context; goals_delta adds/removes goals; decisions create active thoughts tagged decision; pending create draft thoughts tagged pending (surface after wake_days, default 7).`
+memory_reflect reflect writes thoughts, it is not read-only: decisions create active thoughts tagged decision + reflect; pending create draft thoughts tagged pending + reflect (surface after wake_days, default 7). The reflect tag marks every thought reflect created, so they can be filtered (search tag=reflect) or cleaned up without touching hand-created ones. summary appends to project_context; goals_delta adds/removes goals.`
 }
 
 export function registerMemoryGuide(server: McpServer) {

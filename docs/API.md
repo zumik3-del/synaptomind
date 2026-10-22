@@ -148,6 +148,10 @@ curl `-d '{"source_id": "<source>"}' http://127.0.0.1:3005/api/thoughts/<targetI
 
 Preview response: `{"mode": "preview", "source": {"id": "...", "edges": [...]}, "target": {...}}`
 
+Executed response: `{"target": {...}, "transferredEdges": 2}` — `transferredEdges` counts the
+source edges the target now holds (dropped self-loops and duplicate non-symmetric edges are not
+counted). The MCP `memory_supersede` `action=merge` reports the same number as `edges_transferred`.
+
 ### GET /api/thoughts/:id/edges
 
 Returns the edge chain around a thought (its graph neighborhood). 404 if not found.
@@ -574,8 +578,8 @@ Records a session outcome: appends a summary, adjusts goals, creates decision an
 | project_id | body | string | optional/null | Project scope |
 | summary | body | string | optional | Session summary |
 | goals_delta | body | string[] | optional | Goals to add; prefix `closed:` to remove |
-| decisions | body | string[] | optional | Decisions made — each created as an active thought tagged `decision` |
-| pending | body | string[] | optional | Pending tasks — each created as a draft thought tagged `pending` |
+| decisions | body | string[] | optional | Decisions made — each created as an active thought tagged `decision` and `reflect` |
+| pending | body | string[] | optional | Pending tasks — each created as a draft thought tagged `pending` and `reflect` |
 | wake_days | body | int | optional | Days before the newly created `pending` thoughts join the frontier (default 7, 1-365) |
 
 curl `-d '{"summary": "Added API docs", "decisions": ["Use manual API reference"]}' http://127.0.0.1:3005/api/slots/reflect`
@@ -583,6 +587,11 @@ curl `-d '{"summary": "Added API docs", "decisions": ["Use manual API reference"
 Response: `{"ok": true, "applied": {"summary_appended": true, "goals_added": 0, "goals_removed": 0, "decisions_created": 1, "pending_created": 0}}`
 
 `pending` items are stored with `surface_after = now + wake_days`; they enter the frontier (reason `pending`) and the `pending_items` slot once due, and stay drafts until the agent activates or archives them.
+
+Every thought this endpoint creates carries the tag `reflect` in addition to its semantic tag
+(`decision` / `pending`), so reflect output can be filtered (`GET /api/thoughts/timeline?tag=reflect`,
+or `memory_recall` with `tag: "reflect"`) or cleaned up without touching hand-created thoughts. The
+tag is additive: dedup, statuses and the scheduled surface time are unchanged.
 
 ## Frontier
 
@@ -623,11 +632,12 @@ curl `'http://127.0.0.1:3005/api/health-check?severity=warning'`
 
 #### Accepted graph-health trade-offs
 
-Two checks fire by design on a dense, hub-centric graph and are accepted as trade-offs rather than defects (ADR: `synaptomind/adr/2026-09-28-928-health-overlinked-clusterless-adr.md`; tasks #934/#935):
+The following graph-health behaviours are accepted trade-offs rather than defects (ADR: `synaptomind/adr/2026-09-28-928-health-overlinked-clusterless-adr.md`; tasks #934/#935):
 
 - `overlinked_thoughts` (connectivity, warning) — active non-cluster thoughts above the finder's `maxEdges`. The flagged set is curated cross-domain hubs, not link decay: on the reference dataset active non-cluster thoughts average 4.66 edges, while the 31 flagged hubs sit at 11–24. Raising the threshold cannot change `health_score` and would only hide signal.
 - `clusterless_dense_thoughts` (cluster health, warning) — transient. The finder is age-gated to the same `autoCluster.minAgeDays` window auto-cluster uses (task #935), so it reports only thoughts old enough for the clusterer to act on (see `src/db/health-check/clusters.ts`).
-- `health_score` penalises the presence of a flagged *category*, not occurrence counts: `100 − criticalCategories×40 − warningCategories×15 − infoOccurrences×0.25`, clamped to `[0,100]`. Because the `info` term is per-occurrence, a large `island_thoughts` count dominates the score, while clearing a single `overlinked_thoughts` hub does not move it (`src/services/health-check.service.ts`).
+- `health_score` penalises the presence of a flagged *category*, not occurrence counts: `100 − criticalCategories×40 − warningCategories×15 − scoredInfoOccurrences×0.25`, clamped to `[0,100]`. Because the `info` term is per-occurrence, clearing a single `overlinked_thoughts` hub does not move it (`src/services/health-check.service.ts`).
+- `island_thoughts` is an informational *coverage* finding and is exempt from the `info` term. Publishing a thought (`status: active`) before linking it makes it an island, so charging each island would score correct publishing as a regression and discourage it (task #1967). Islands stay visible in `summary.info` and in the `connectivity` category; `score_breakdown` reports the charged count as `info_scored_occurrences` and names the exempt findings in `info_unscored_checks`. Critical and warning categories are unaffected.
 
 Findings about *live* claims deliberately ignore `archived` endpoints. Archiving only flips the `status` column — the edges stay attached (`src/db/thoughts.ts`) — and the documented supersession flow (link `replaces`, then archive the target) does not transfer them, so a retired endpoint would otherwise be flagged forever after a correct procedure:
 

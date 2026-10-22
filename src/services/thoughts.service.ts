@@ -8,16 +8,18 @@ import { pruneThoughtUrlLinks } from '../db/thought_url_links'
 import {
   type CreateThoughtInput,
   archiveThought as dbArchiveThought,
+  countThoughts,
   createThought as dbCreateThought,
   getThought as dbGetThought,
   listThoughts as dbListThoughts,
   updateThought as dbUpdateThought,
   type ListThoughtsOptions,
   type Thought,
-  type UpdateThoughtInput
+  type UpdateThoughtInput,
+  THOUGHTS_PAGE_LIMIT_DEFAULT
 } from '../db/thoughts'
 import { insertLog } from '../logging/log'
-import { validateContentLength, validateStatus } from '../validation'
+import { validateContentLength, validateStatus, BATCH_ITEMS_MAX } from '../validation'
 import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from '../errors'
 
 export function getThoughtByIdService(id: string, d: Database = getDb()): Thought | null {
@@ -96,8 +98,83 @@ export function archiveThoughtByIdService(id: string, d: Database = getDb()): Th
   return dbArchiveThought(d, id) ?? null
 }
 
+/** One `archive_batch` item that could not be archived, with the reason. */
+export interface ArchiveBatchError {
+  thought_id: string
+  error: string
+}
+
+/** Outcome of `archiveThoughtsBatchService` (task #1964): counts plus per-item failures. */
+export interface ArchiveBatchResult {
+  /** Items that ended archived — an already-archived thought counts (idempotent replay). */
+  archived: number
+  /** Always `errors.length`, so a caller sees the failure count without scanning. */
+  failed: number
+  errors: ArchiveBatchError[]
+}
+
+/**
+ * Archive several thoughts in one call (task #1964).
+ *
+ * Reuses `archiveThoughtByIdService`, so the profile guard (issue #200) and the
+ * idempotency of an already-archived thought are unchanged. The batch runs in ONE
+ * transaction and reports per-item failures instead of aborting the rest — the
+ * contract `bulkCreateThoughtsService` already uses: a failure is collected, the
+ * items that succeeded still commit, and nothing is swallowed silently.
+ */
+export function archiveThoughtsBatchService(ids: string[], d: Database = getDb()): ArchiveBatchResult {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new ValidationError('thought_ids is required and must not be empty')
+  }
+  if (ids.length > BATCH_ITEMS_MAX) {
+    throw new ValidationError(`thought_ids accepts at most ${BATCH_ITEMS_MAX} ids per call (got ${ids.length})`)
+  }
+
+  let archived = 0
+  const errors: ArchiveBatchError[] = []
+
+  const run = d.transaction(() => {
+    for (const id of ids) {
+      try {
+        const existing = dbGetThought(d, id)
+        if (!existing) throw new NotFoundError(`Thought '${id}' not found`)
+        // Mirror the single-item action: archiving an archived thought is a no-op,
+        // not a re-stamp of `archived_at`.
+        if (existing.status !== 'archived') archiveThoughtByIdService(id, d)
+        archived++
+      } catch (err) {
+        errors.push({ thought_id: id, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+  })
+  run()
+
+  return { archived, failed: errors.length, errors }
+}
+
 export function listThoughtsService(options?: ListThoughtsOptions, d: Database = getDb()): Thought[] {
   return dbListThoughts(d, options)
+}
+
+/** One page of thoughts plus the total matching the same filters. */
+export interface ThoughtPage {
+  thoughts: Thought[]
+  /** Number of thoughts matching the filters, ignoring `limit`/`offset`. */
+  total: number
+  /** Page size applied (`null` = no limit). */
+  limit: number | null
+  offset: number
+}
+
+/**
+ * Paginated thought inventory: the page (newest first) together with the total
+ * count for the same filters, so a caller can page without a second request.
+ */
+export function listThoughtsPageService(options: ListThoughtsOptions = {}, d: Database = getDb()): ThoughtPage {
+  const limit = options.limit === undefined ? THOUGHTS_PAGE_LIMIT_DEFAULT : options.limit
+  const offset = options.offset ?? 0
+  const thoughts = dbListThoughts(d, { ...options, limit, offset })
+  return { thoughts, total: countThoughts(d, options), limit, offset }
 }
 
 export function getClusterMembersService(clusterId: string, d: Database = getDb()): { cluster: Thought; members: Thought[] } {

@@ -13,9 +13,9 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 
 | Tool | Actions | Purpose |
 |---|---|---|
-| `memory_recall` | search, get, context, chain, clusters | Find and retrieve thoughts |
-| `memory_store` | create, update, link, unlink, retype | Write, connect and edit thoughts |
-| `memory_supersede` | archive, merge | Version and supersede thoughts |
+| `memory_recall` | search, get, context, chain, clusters, list | Find and retrieve thoughts (list = paginated inventory) |
+| `memory_store` | create, update, link, link_batch, unlink, retype | Write, connect and edit thoughts |
+| `memory_supersede` | archive, archive_batch, merge | Version and supersede thoughts |
 | `memory_status` | slots, frontier, config, health, propose, cleanup | Query system state |
 | `memory_manage` | list, create, update, delete, resolve | Project management |
 | `memory_review` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
@@ -72,6 +72,64 @@ A client should re-issue the identical request only when `retryable` is `true`; 
 failure is a bad request and repeating it will not help.
 
 ## `memory_store` — edges
+
+### `action=link`
+
+Create an edge between two thoughts. A pair carries **one** edge: re-linking the same pair with
+the same type is idempotent for the symmetric types (`related`, `contradicts`), while a directed
+duplicate or a second, different type on the pair is reported as an error — except that a
+`related` placeholder edge is upgraded in place to the specific type you ask for. Constraints: no
+self-loops, and only a cluster thought may carry a `cluster` edge.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `thought_id` | string | one of the two | The source thought (canonical name) |
+| `source_id` | string | one of the two | Alias for `thought_id` — the same spelling `memory_supersede action=merge` uses |
+| `target_id` | string | yes | The target thought |
+| `edge_type` | enum | no | One of `related`, `parent`, `develops`, `replaces`, `cluster`, `references`, `depends_on`, `contradicts`, `supports`; default `related` |
+
+**Naming convention.** `source_id`/`target_id` name the pair in both writers: `memory_store`
+`action=link` and `memory_supersede` `action=merge`. `link` accepts either `source_id` or the
+legacy `thought_id` for the source side — the two names address the same thought, so an agent
+that learned the merge spelling does not have to switch vocabularies. If both are supplied,
+`source_id` wins. Existing `thought_id` calls are unchanged.
+
+Example (either form is equivalent):
+
+```json
+{ "action": "link", "source_id": "thought-a", "target_id": "thought-b", "edge_type": "develops" }
+```
+
+```json
+{ "action": "link", "thought_id": "thought-a", "target_id": "thought-b", "edge_type": "develops" }
+```
+
+### `action=link_batch`
+
+Create up to 1000 edges in one call. The batch runs in a **single transaction** and reuses the
+`link` writer, so every single-link rule (type vocabulary, no self-loops, one type per pair,
+cluster strictness, the `related` upgrade) applies item by item. A failing item is collected
+rather than aborting the batch: the accepted items still commit and the failure is reported.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `links` | `{source, target, type?}`[] | yes | Edges to create (1–1000 items); `type` defaults to `related` |
+| `edge_type` | enum | no | Ignored — each item carries its own `type` |
+
+Result: `{ "linked": 2, "failed": 1, "errors": [{ "index": 2, "source": "thought-c", "target": "thought-c", "error": "Self-loop edges are not allowed" }] }`
+
+`linked` counts the accepted items (a repeated symmetric edge is an idempotent replay and counts
+too) and `failed` always equals `errors.length`. An empty or over-long `links` array is refused
+with an `isError` envelope before anything runs, so a batch is never applied as a silent prefix.
+
+Example:
+
+```json
+{ "action": "link_batch", "links": [
+  { "source": "thought-a", "target": "thought-b", "type": "supports" },
+  { "source": "thought-a", "target": "thought-c" }
+] }
+```
 
 ### `action=unlink`
 
@@ -138,6 +196,62 @@ Example:
 { "action": "retype", "edge_id": "edge-123", "new_type": "supports", "confirm": true }
 ```
 
+## `memory_supersede` — archiving and merging
+
+`action=archive` archives one thought (`thought_id`) and is idempotent: an already-archived
+thought is returned unchanged rather than re-stamped. Profile thoughts are refused
+(`Profile thoughts cannot be archived`).
+
+### `action=archive_batch`
+
+Archive up to 1000 thoughts in one call, in a **single transaction**. Same writer and same
+guards as `archive`: already-archived thoughts count as archived without being re-stamped, and
+profile thoughts fail per item instead of aborting the batch.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `thought_ids` | string[] | yes | Thoughts to archive (1–1000 items) |
+
+Result: `{ "archived": 2, "failed": 1, "errors": [{ "thought_id": "missing-id", "error": "Thought 'missing-id' not found" }] }`
+
+`failed` always equals `errors.length`; an unknown id or a profile thought lands in `errors`
+while the other items commit. An empty or over-long array is refused with an `isError` envelope
+before anything runs.
+
+Example:
+
+```json
+{ "action": "archive_batch", "thought_ids": ["thought-a", "thought-b"] }
+```
+
+### `action=merge`
+
+Consolidates a source thought into a target: the source's edges are recreated on the target,
+the target's content/tags are replaced when supplied, the source is archived, and a `replaces`
+edge target → source records the consolidation. Merging an archived source or a profile thought
+is refused.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source_id` | string | yes | Thought to merge away (archived by the merge) |
+| `target_id` | string | yes | Thought that survives and receives the edges |
+| `merged_content` | string | no | Resulting content of the target |
+| `merged_tags` | string[] | no | Resulting tag set of the target |
+| `project_id` | string | no | Resulting project (defaults to the target's, then the source's) |
+
+Result: `{ "target": { ... }, "edges_transferred": 2 }` — `edges_transferred` is the number of
+source edges the target now holds, so a caller can verify the consolidation. Not every source
+edge contributes: one that would collapse into a self-loop (it joined the target to the source),
+a duplicate of a non-symmetric edge the target already has, and a cluster edge the cluster rule
+rejects are dropped and left out of the count. An existing symmetric pair (`related`,
+`contradicts`) does count — the target owns that relation after the merge. The HTTP twin
+(`POST /api/thoughts/:targetId/merge`) reports the same number under its long-standing name
+`transferredEdges`.
+
+```json
+{ "action": "merge", "source_id": "thought-a", "target_id": "thought-b", "merged_content": "merged claim" }
+```
+
 ## `memory_crystallize` — clusters
 
 Three actions, all read-mostly: `graph` (nodes + edges for a project, `status` and `limit`
@@ -145,6 +259,35 @@ filters), `cluster` (create a cluster thought from `thought_ids` with an optiona
 and `tags`), and `auto_cluster` (Union-Find grouping over active thoughts, tuned by the
 `autoCluster.*` settings in [CONFIG.md](CONFIG.md) and previewable with `dry_run: true`;
 `project_id`/`cwd` do not apply — the run is global).
+
+## `memory_reflect` — session reflection
+
+`action=reflect` is **not read-only**: it writes slots and thoughts.
+
+- `summary` is appended (with a timestamp) to the `project_context` slot.
+- `goals_delta` adds goals to `active_goals`; an entry prefixed with `closed:` removes a
+  matching goal instead.
+- `decisions` creates one **active** thought each, tagged `decision` + `reflect`. Entries
+  sufficiently similar to an existing non-archived `decision` thought are skipped
+  (Jaccard ≥ 0.6 on normalised text), so re-reflecting the same decision is a no-op.
+- `pending` creates one **draft** thought each, tagged `pending` + `reflect`, with
+  `surface_after = now + wake_days` (default 7, range 1–365). A pending thought is invisible
+  to the frontier until that time, then surfaces with reason `pending` and in the
+  `pending_items` slot.
+
+Returns the applied counts:
+
+```json
+{ "summary_appended": true, "goals_added": 1, "goals_removed": 0, "decisions_created": 2, "pending_created": 1 }
+```
+
+The `reflect` tag marks **every** thought `reflect` created (next to the semantic tag), so the
+output is identifiable and can be filtered (`memory_recall` with `tag: "reflect"`) or cleaned up
+without touching hand-created thoughts. It is additive: statuses, dedup and the scheduled
+surface time are unchanged, and no read path keys off it.
+
+`action=timeline` is the plain paginated thought list (`status`, `project_id`, `limit`,
+`offset`).
 
 ## `memory_primers` — the always-at-hand set
 

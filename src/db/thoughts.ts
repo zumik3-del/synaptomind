@@ -54,13 +54,22 @@ export interface UpdateThoughtInput {
   archived_at?: string | null
 }
 
-export interface ListThoughtsOptions {
+/** Filters shared by the list and count queries (everything except paging). */
+export interface ThoughtListFilters {
   status?: string
   project_id?: string
   tag?: string
+  /** `true` = cluster thoughts only; `false` = exclude cluster thoughts. */
+  is_cluster?: boolean
+}
+
+export interface ListThoughtsOptions extends ThoughtListFilters {
   limit?: number | null
   offset?: number
 }
+
+/** Page size used when the caller passes no `limit` (`limit: null` means "all"). */
+export const THOUGHTS_PAGE_LIMIT_DEFAULT = 50
 
 export function rowToThought(row: Record<string, unknown>): Thought {
   return {
@@ -248,8 +257,13 @@ export function deleteThought(db: Database, id: string): boolean {
   return result.changes > 0
 }
 
-export function listThoughts(db: Database, options: ListThoughtsOptions = {}): Thought[] {
-  const { status, project_id, tag, limit = 50, offset = 0 } = options
+/**
+ * Build the shared `WHERE ...` fragment (with its bindings) for a thought list.
+ * `countThoughts` applies the very same filters as `listThoughts`, so the page
+ * and its total can never disagree.
+ */
+function buildThoughtsWhere(options: ThoughtListFilters): { sql: string; values: SQLQueryBindings[] } {
+  const { status, project_id, tag, is_cluster } = options
 
   const where: string[] = []
   const values: SQLQueryBindings[] = []
@@ -275,8 +289,21 @@ export function listThoughts(db: Database, options: ListThoughtsOptions = {}): T
       values.push(...tagNames, tagNames.length)
     }
   }
+  // Rows predating the column read as non-cluster, mirroring the search filter.
+  if (is_cluster === true) {
+    where.push('t.is_cluster = 1')
+  } else if (is_cluster === false) {
+    where.push('(t.is_cluster IS NULL OR t.is_cluster = 0)')
+  }
 
-  const baseSql = `${THOUGHT_BASE_SELECT}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY t.created_at DESC`
+  return { sql: where.length ? ` WHERE ${where.join(' AND ')}` : '', values }
+}
+
+export function listThoughts(db: Database, options: ListThoughtsOptions = {}): Thought[] {
+  const { limit = THOUGHTS_PAGE_LIMIT_DEFAULT, offset = 0, ...filters } = options
+  const { sql: whereSql, values } = buildThoughtsWhere(filters)
+
+  const baseSql = `${THOUGHT_BASE_SELECT}${whereSql} ORDER BY t.created_at DESC`
   let sql: string
   let sqlValues: SQLQueryBindings[]
   if (limit === null) {
@@ -291,4 +318,13 @@ export function listThoughts(db: Database, options: ListThoughtsOptions = {}): T
   const rows = db.prepare(sql).all(...sqlValues) as Record<string, unknown>[]
   const tagMap = getThoughtTagsBatch(db, rows.map(r => r.id as string))
   return rows.map(r => ({ ...rowToThought(r), tags: tagMap.get(r.id as string) ?? [] }))
+}
+
+/** Total number of thoughts matching `filters`, ignoring paging. */
+export function countThoughts(db: Database, options: ThoughtListFilters = {}): number {
+  const { sql: whereSql, values } = buildThoughtsWhere(options)
+  const row = db.prepare(`SELECT COUNT(*) AS total FROM thoughts t${whereSql}`).get(...values) as
+    | { total: number }
+    | undefined
+  return row?.total ?? 0
 }
