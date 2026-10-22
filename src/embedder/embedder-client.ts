@@ -308,12 +308,6 @@ export class EmbedderClient {
     this.shuttingDown = false
   }
 
-  async restartEmbedder(): Promise<void> {
-    await this.teardownProcess('Embedder restarting')
-    this.spawnProcess()
-    await this.ensureReady()
-  }
-
   async generateEmbedding(text: string): Promise<Float32Array> {
     await this.ensureReady()
     return this.sendRequest('embed', { text }) as Promise<Float32Array>

@@ -6,9 +6,6 @@ import {
   getEmbedderIdleTimeoutMs as resolveEmbedderIdleTimeoutMs,
   getEmbedderPrecache as resolveEmbedderPrecache,
   getThoughtLimits as resolveThoughtLimits,
-  setEmbedderIdleTimeoutMs as resolveSetEmbedderIdleTimeoutMs,
-  setEmbedderPrecache as resolveSetEmbedderPrecache,
-  setThoughtLimits as resolveSetThoughtLimits,
   type ThoughtLimits
 } from '../db/settings'
 
@@ -25,28 +22,12 @@ export function getThoughtLimitsService(d: Database = getDb()): ThoughtLimits {
   return resolveThoughtLimits(d)
 }
 
-export function setThoughtLimitsService(
-  softLimit: number,
-  hardLimitBufferPercent: number,
-  d: Database = getDb()
-): ThoughtLimits {
-  return resolveSetThoughtLimits(d, softLimit, hardLimitBufferPercent)
-}
-
 export function getEmbedderPrecacheService(d: Database = getDb()): boolean {
   return resolveEmbedderPrecache(d)
 }
 
-export function setEmbedderPrecacheService(value: boolean, d: Database = getDb()): void {
-  resolveSetEmbedderPrecache(d, value)
-}
-
 export function getEmbedderIdleTimeoutMsService(d: Database = getDb()): number {
   return resolveEmbedderIdleTimeoutMs(d)
-}
-
-export function setEmbedderIdleTimeoutMsService(value: number, d: Database = getDb()): void {
-  resolveSetEmbedderIdleTimeoutMs(d, value)
 }
 
 /**

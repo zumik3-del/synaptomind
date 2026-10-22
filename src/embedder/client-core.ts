@@ -20,10 +20,6 @@ export async function stopEmbedderProcess(): Promise<void> {
   return defaultClient.stopEmbedderProcess()
 }
 
-export async function restartEmbedder(): Promise<void> {
-  return defaultClient.restartEmbedder()
-}
-
 export async function generateEmbedding(text: string): Promise<Float32Array> {
   return defaultClient.generateEmbedding(text)
 }
