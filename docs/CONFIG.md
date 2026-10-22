@@ -118,19 +118,24 @@ Automatic importance decay for old thoughts.
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | `decay.rate` | `SYNAPTOMIND_DECAY_RATE` | `0.95` | Daily decay multiplier. 0.95 = importance × 0.95 per day |
-| `decay.archiveThreshold` | `SYNAPTOMIND_ARCHIVE_THRESHOLD` | `0.1` | Archive thoughts below this importance score |
-| `decay.archiveMinAgeDays` | `SYNAPTOMIND_ARCHIVE_MIN_AGE_DAYS` | `30` | Don't archive thoughts younger than this |
 | `decay.intervalMs` | `SYNAPTOMIND_DECAY_INTERVAL_MS` | `86400000` | How often to run decay (ms). Default: 24h |
+
+**Note:** Decay only lowers importance. The former auto-archive half
+(`decay.archiveThreshold` / `decay.archiveMinAgeDays`, env
+`SYNAPTOMIND_ARCHIVE_THRESHOLD` / `SYNAPTOMIND_ARCHIVE_MIN_AGE_DAYS`) is retired:
+no thought is archived by the decay job (task #1943). An existing configuration
+that still carries those keys loads unchanged and simply ignores them.
 
 ---
 
 ## TTL Cleanup
 
-Auto-delete archived thoughts after TTL.
+Auto-delete archived thoughts after TTL. Deletion is **opt-in**: the shipped
+default is `-1` (disabled), so a default install never deletes archived memory.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `ttl.archivedTtlDays` | `SYNAPTOMIND_ARCHIVED_TTL_DAYS` | `90` | Days before archived thoughts are deleted. 0 = disabled |
+| `ttl.archivedTtlDays` | `SYNAPTOMIND_ARCHIVED_TTL_DAYS` | `-1` | Days before archived thoughts are deleted. A positive value opts in; `0` and negative values both disable the job |
 | `ttl.cleanupIntervalMs` | `SYNAPTOMIND_CLEANUP_INTERVAL_MS` | `86400000` | How often to run cleanup (ms). Default: 24h |
 
 **Note:** Thoughts with `is_protected: true` are never deleted by TTL cleanup.
@@ -171,18 +176,6 @@ Batch grouping by embedding proximity.
 
 ---
 
-## Auto-Link
-
-Automatically create edges between related thoughts.
-
-| Setting | Env Var | Default | Description |
-|---------|---------|---------|-------------|
-| `autoLink.minSimilarity` | `SYNAPTOMIND_AUTO_LINK_MIN_SIMILARITY` | `0.65` | Min cosine similarity to auto-link |
-| `autoLink.maxEdgesPerRun` | `SYNAPTOMIND_AUTO_LINK_MAX_EDGES` | `20` | Max edges created per auto-link run |
-| `autoLink.dryRun` | `SYNAPTOMIND_AUTO_LINK_DRY_RUN` | `false` | Preview without creating edges |
-
----
-
 ## Edge Detect
 
 Read-only proposal of unconfirmed `related` candidates (used by `POST /api/thoughts/edge-detect` and `memory_status action=edge_suggestions`). Detection never writes edges. It ranks neighbor pairs by embedding similarity alone, so every proposal has `type: related`, `rationale: embedding_similarity_only`, and `review_required: true` — similarity means "same subject matter", not conflict. Confirm a proposal explicitly with a link (e.g. `POST /api/thoughts/:id/link`).
@@ -205,21 +198,12 @@ Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory
 | `placement.maxClusterSize` | `SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE` | `50` | Skip a cluster placement proposal when the target cluster already holds this many members (`>=`). Re-checked against the live count at apply time. Prevents routing new thoughts into an oversized mega-cluster (lessons #934/#928) |
 | `placement.proposalTtlDays` | `SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS` | `30` | Review-queue TTL in days. A newly enqueued (or refreshed) `pending` proposal gets `expires_at = now + this`; the retention job expires overdue `pending` rows and prunes terminal rows this long after they were decided. The same value is the **rollback window**: `POST /api/proposals/rollback` refuses an accepted row decided more than this many days before the server's own clock (neither the route nor the MCP action accepts a caller-supplied clock), inclusively at the boundary (see [API.md](./API.md) §Review). `0` expires immediately; a negative value disables expiry (`expires_at = null`), the retention job, and the rollback-window guard |
 | `placement.maxPendingProposals` | `SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS` | `500` | Cap on live `pending` proposals. Enqueueing a *new* item at the cap throws a validation error; refreshing an existing live row is unaffected |
+| `placement.maxProposalsPerEnqueue` | `SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS_PER_ENQUEUE` | `5` | Cap on the number of proposals generated for one thought (enqueue/propose). A caller-supplied `max_proposals` overrides it |
 
----
-
-## Triage
-
-Deterministic draft triage (ADR 2026-09-29). A triage run turns plain drafts into `triage_activate` / `triage_archive` verdicts in the placement-proposal review queue (see §Placement). The caps below bound one autonomy run: phase 1 applies the triage verdicts, phase 2 runs the existing placement engine for activated thoughts. They are cumulative over the run's already-accepted rows and are enforced on **both** `apply` and `apply_batch`, so confirming items one at a time cannot exceed them. `requireDryRunFirst` forces a preview before a run may confirm, so nothing is applied without an explicit `confirm:true`.
-
-| Setting | Env Var | Default | Description |
-|---------|---------|---------|-------------|
-| `triage.enabled` | `SYNAPTOMIND_TRIAGE_ENABLED` | `true` | Master switch for the triage **producer**: no draft is triaged on the create path or by the backfill sweep. Already-queued triage rows stay applicable — turning it off stops new work, it does not retract a verdict |
-| `triage.maxItemsPerRun` | `SYNAPTOMIND_TRIAGE_MAX_ITEMS_PER_RUN` | `25` | Max triage verdicts applied per run. Excess items are refused with a typed error, never partially applied |
-| `triage.maxArchivesPerRun` | `SYNAPTOMIND_TRIAGE_MAX_ARCHIVES_PER_RUN` | `25` | Max `triage_archive` verdicts (draft archived as a near-duplicate) per run |
-| `triage.maxLinksPerRun` | `SYNAPTOMIND_TRIAGE_MAX_LINKS_PER_RUN` | `20` | Max phase-2 link proposals per run (counted only for items carrying that `run_id`). Mirrors `autoLink.maxEdgesPerRun` |
-| `triage.requireDryRunFirst` | `SYNAPTOMIND_TRIAGE_REQUIRE_DRY_RUN_FIRST` | `true` | Require a dry-run preview before a run may be confirmed |
-| `triage.backfillEnabled` | `SYNAPTOMIND_TRIAGE_BACKFILL_ENABLED` | `true` | Enable the bounded, idempotent backfill sweep that enqueues triage items for drafts that have no live/accepted row yet |
+**Note:** The deterministic draft-triage subsystem and its `triage.*` knobs
+(env `SYNAPTOMIND_TRIAGE_*`) are retired (task #1946). Already-queued
+`triage_*` rows stay listable, but no run is produced any more; a configuration
+that still carries the block loads unchanged and ignores it.
 
 ---
 
@@ -325,31 +309,18 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
     "resetDeadLetters": false
   },
   "thoughts": { "softLimit": 600, "hardLimitBufferPercent": 20 },
-  "decay": {
-    "rate": 0.95,
-    "archiveThreshold": 0.1,
-    "archiveMinAgeDays": 30,
-    "intervalMs": 86400000
-  },
-  "ttl": { "archivedTtlDays": 90, "cleanupIntervalMs": 86400000 },
+  "decay": { "rate": 0.95, "intervalMs": 86400000 },
+  "ttl": { "archivedTtlDays": -1, "cleanupIntervalMs": 86400000 },
   "primer": { "promoteThreshold": 5, "topN": 3 },
   "autoCluster": {
     "minAgeDays": 3, "minSimilarity": 0.09,
     "minMembers": 3, "dryRun": false
   },
-  "autoLink": {
-    "minSimilarity": 0.65, "maxEdgesPerRun": 20,
-    "dryRun": false
-  },
   "edgeDetect": {
     "minSimilarity": 0.75, "topK": 10,
     "maxCandidates": 100, "maxProposals": 20
   },
-  "placement": { "maxClusterSize": 50, "proposalTtlDays": 30, "maxPendingProposals": 500 },
-  "triage": {
-    "enabled": true, "maxItemsPerRun": 25, "maxArchivesPerRun": 25,
-    "maxLinksPerRun": 20, "requireDryRunFirst": true, "backfillEnabled": true
-  },
+  "placement": { "maxClusterSize": 50, "proposalTtlDays": 30, "maxPendingProposals": 500, "maxProposalsPerEnqueue": 5 },
   "slots": { "defaultMaxChars": 2000, "hardLimit": 20000 },
   "graph": { "maxDegree": 50 },
   "search": { "confidence": { "vectorFloor": 0.9 } },
