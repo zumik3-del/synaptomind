@@ -6,7 +6,7 @@ import {
   archiveThoughtByIdService,
   archiveThoughtsBatchService
 } from '../../services/thoughts.service'
-import { getMergePreviewService, mergeThoughtsService } from '../../services/merge.service'
+import { getBoundedMergePreviewService, mergeThoughtsService } from '../../services/merge.service'
 import { validateMergePreconditions } from '../../services/merge'
 import { BATCH_ITEMS_MAX } from '../../validation'
 import { resolveProjectId } from './utils'
@@ -78,7 +78,7 @@ const handlers = {
     run(args: ActionArgs) {
       const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
       if (args.confirm !== true) {
-        const preview = getMergePreviewService(args.source_id as string, args.target_id as string)
+        const preview = getBoundedMergePreviewService(args.source_id as string, args.target_id as string, MERGE_PREVIEW_EDGE_LIMIT)
         if (!preview) return { status: 'preview', action: 'merge', source: { id: args.source_id, status: null }, target: { id: args.target_id, status: null }, outcome: 'not_found' }
         let outcome = 'would_merge'
         let reason: string | undefined
@@ -87,7 +87,7 @@ const handlers = {
           try { validateMergePreconditions(preview.source) }
           catch (error) { outcome = 'ineligible'; reason = error instanceof Error ? error.message : String(error) }
         }
-        const edgePreview = { edges: preview.source.edges.slice(0, MERGE_PREVIEW_EDGE_LIMIT), source_edge_count: preview.source.edges.length, truncated: preview.source.edges.length > MERGE_PREVIEW_EDGE_LIMIT }
+        const edgePreview = { edges: preview.source.edges, source_edge_count: preview.sourceEdgeCount, truncated: preview.sourceEdgeCount > MERGE_PREVIEW_EDGE_LIMIT }
         return {
           status: 'preview', action: 'merge', outcome, ...(reason ? { reason } : {}),
           source: { id: preview.source.id, status: preview.source.status, ...edgePreview },
