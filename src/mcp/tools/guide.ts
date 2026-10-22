@@ -41,7 +41,7 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 - memory_store / memory_supersede = thought and edge writes; memory_recall = reads/search.
 
 ## Destructive operations (preview by default)
-memory_store unlink/retype, memory_supersede archive/merge, memory_manage delete, memory_review apply/apply_batch/rollback, memory_primers delete, memory_status cleanup, and memory_crystallize auto_cluster are preview-first. confirm absent/false previews; confirm:true executes (cleanup uses dry_run instead). Retired argument names are rejected with an error hint naming the replacement.
+memory_store unlink/retype, memory_supersede archive/merge, memory_manage delete, memory_review apply/apply_batch/rollback, memory_primers delete, memory_status cleanup, and memory_crystallize auto_cluster are preview-first. confirm absent/false previews; confirm:true executes. Retired argument names are rejected with an error hint naming the replacement.
 Slots (memory_status action=slots) are read-only: pending_items is derived from thoughts tagged pending, architecture_decisions from primers, and only project_context/active_goals are stored rows. To change slot content, update or archive the underlying thoughts (virtual slots) or use memory_reflect (summary, goals_add, goals_remove) for the explicit slots; memory_status never writes.
 
 ## Thoughts
