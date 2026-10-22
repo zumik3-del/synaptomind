@@ -224,6 +224,34 @@ Example:
 { "action": "archive_batch", "thought_ids": ["thought-a", "thought-b"] }
 ```
 
+### `action=merge`
+
+Consolidates a source thought into a target: the source's edges are recreated on the target,
+the target's content/tags are replaced when supplied, the source is archived, and a `replaces`
+edge target → source records the consolidation. Merging an archived source or a profile thought
+is refused.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source_id` | string | yes | Thought to merge away (archived by the merge) |
+| `target_id` | string | yes | Thought that survives and receives the edges |
+| `merged_content` | string | no | Resulting content of the target |
+| `merged_tags` | string[] | no | Resulting tag set of the target |
+| `project_id` | string | no | Resulting project (defaults to the target's, then the source's) |
+
+Result: `{ "target": { ... }, "edges_transferred": 2 }` — `edges_transferred` is the number of
+source edges the target now holds, so a caller can verify the consolidation. Not every source
+edge contributes: one that would collapse into a self-loop (it joined the target to the source),
+a duplicate of a non-symmetric edge the target already has, and a cluster edge the cluster rule
+rejects are dropped and left out of the count. An existing symmetric pair (`related`,
+`contradicts`) does count — the target owns that relation after the merge. The HTTP twin
+(`POST /api/thoughts/:targetId/merge`) reports the same number under its long-standing name
+`transferredEdges`.
+
+```json
+{ "action": "merge", "source_id": "thought-a", "target_id": "thought-b", "merged_content": "merged claim" }
+```
+
 ## `memory_crystallize` — clusters
 
 Three actions, all read-mostly: `graph` (nodes + edges for a project, `status` and `limit`
