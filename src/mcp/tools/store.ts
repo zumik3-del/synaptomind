@@ -31,7 +31,7 @@ export function registerMemoryStore(server: McpServer) {
       project_id: z.string().optional().describe('Project ID (prefer cwd instead)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
       parent_id: z.string().optional().describe('Parent thought ID (for create)'),
-      is_profile: z.boolean().optional().describe('Mark as profile thought'),
+      is_profile: z.boolean().optional().describe('Retired; supplying this field to create or update returns an error'),
       is_protected: z.boolean().optional().describe('Protect from auto-deletion'),
       is_global: z.boolean().optional().describe('Mark as global thought (appears in all project-scoped searches)'),
       url_links: z.array(z.object({ text: z.string(), url: z.string() })).optional().describe('URL links (for create)'),

@@ -5,6 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { setThoughtLimits } from '../../db/settings'
+import { createThought } from '../../db/thoughts'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
@@ -653,11 +654,10 @@ describe('merge edge cases', () => {
 
 describe('archive edge cases', () => {
   test('archive on profile thought returns error', async () => {
-    const c = await client.callTool({
-      name: 'memory_store',
-      arguments: { action: 'create', content: 'profile thought', is_profile: true }
-    })
-    const { data: thought } = parseResult(c)
+    // Legacy profile data still exists in deployed DBs even though the flag is
+    // no longer writable through the API/MCP surface (task #1939), so the
+    // archive guard is seeded at the db layer.
+    const thought = createThought(getDb(), { content: 'profile thought', status: 'active', is_profile: true })
 
     const result = await client.callTool({
       name: 'memory_supersede',

@@ -1027,86 +1027,40 @@ test("GET /api/auto-cluster/status reflects last run", async () => {
 	expect(body.result).not.toBeNull();
 });
 
-// Profile routes (issue #200)
+// Profile routes (issue #200) — retired: the surface is gone.
 
-test("POST /api/thoughts accepts is_profile flag", async () => {
+test("POST /api/thoughts rejects the retired is_profile flag", async () => {
 	const res = await request("/api/thoughts", {
 		method: "POST",
 		body: JSON.stringify({ content: "persona fact", is_profile: true }),
 		headers: { "Content-Type": "application/json" },
 	});
-	expect(res.status).toBe(201);
-	const body = (await res.json()) as Record<string, unknown>;
-	expect(body.is_profile).toBe(1);
-
-	const t = getThoughtByIdService(String(body.id));
-	expect(t?.is_profile).toBe(1);
+	expect(res.status).toBe(400);
+	expect(((await res.json()) as Record<string, unknown>).error).toContain(
+		"is_profile is retired",
+	);
 });
 
-test("PUT /api/thoughts/:id can set and clear is_profile", async () => {
+test("PUT /api/thoughts/:id rejects the retired is_profile flag", async () => {
 	const id = seedThought({ content: "plain" });
-	const setRes = await request(`/api/thoughts/${id}`, {
+	const res = await request(`/api/thoughts/${id}`, {
 		method: "PUT",
 		body: JSON.stringify({ is_profile: true }),
 		headers: { "Content-Type": "application/json" },
 	});
-	expect(((await setRes.json()) as Record<string, unknown>).is_profile).toBe(1);
-
-	const clearRes = await request(`/api/thoughts/${id}`, {
-		method: "PUT",
-		body: JSON.stringify({ is_profile: false }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(((await clearRes.json()) as Record<string, unknown>).is_profile).toBe(
-		0,
-	);
+	expect(res.status).toBe(400);
+	expect(getThoughtByIdService(id)?.is_profile).toBe(0);
 });
 
-test("GET /api/profile/thoughts and /stats reflect profile thoughts", async () => {
-	seedThought({
-		content: "p1",
-		tags: JSON.stringify(["@profile-style"]),
-		is_profile: 1,
-	});
-	seedThought({ content: "regular" });
-
-	const listRes = await request("/api/profile/thoughts");
-	expect(listRes.status).toBe(200);
-	const list = (await listRes.json()) as Record<string, unknown>[];
-	expect(list).toHaveLength(1);
-	expect(list[0].content).toBe("p1");
-
-	const statsRes = await request("/api/profile/stats");
-	const stats = (await statsRes.json()) as Record<string, unknown>;
-	expect(stats.profile_thoughts).toBe(1);
-	expect((stats.top_tags as Record<string, unknown>[])[0]?.name).toBe(
-		"@profile-style",
-	);
-});
-
-test("POST /api/profile/summarize creates summaries", async () => {
-	seedThought({
-		content: "one",
-		tags: JSON.stringify(["@profile-style"]),
-		is_profile: 1,
-	});
-	seedThought({
-		content: "two",
-		tags: JSON.stringify(["@profile-style"]),
-		is_profile: 1,
-	});
-
-	const res = await request("/api/profile/summarize", { method: "POST" });
-	expect(res.status).toBe(200);
-	const body = (await res.json()) as Record<string, unknown>;
-	const created = body.created as Record<string, unknown>[];
-	expect(created).toHaveLength(1);
-	expect(created[0].topic).toBe("style");
-
-	const list = (await (
-		await request("/api/profile/thoughts")
-	).json()) as Record<string, unknown>[];
-	expect(list).toHaveLength(3);
+test("the retired profile endpoints are not mounted", async () => {
+	for (const path of [
+		"/api/profile/thoughts",
+		"/api/profile/stats",
+		"/api/profile/summarize",
+	]) {
+		const res = await request(path, { method: path.endsWith("summarize") ? "POST" : "GET" });
+		expect(res.status).toBe(404);
+	}
 });
 
 test("PUT /api/thoughts/:id archive rejected for profile thought", async () => {
@@ -1121,12 +1075,11 @@ test("PUT /api/thoughts/:id archive rejected for profile thought", async () => {
 
 // Slots routes
 
-test("GET /api/slots returns all five canonical slots", async () => {
+test("GET /api/slots returns all four canonical slots", async () => {
 	const res = await request("/api/slots");
 	expect(res.status).toBe(200);
 	const body = (await res.json()) as { slots: Record<string, unknown>[] };
 	expect(body.slots.map((s) => s.name)).toEqual([
-		"persona",
 		"pending_items",
 		"architecture_decisions",
 		"project_context",
@@ -1152,6 +1105,15 @@ test("PUT /api/slots/:name writes an explicit slot and GET reflects it", async (
 });
 
 test("PUT /api/slots/:name rejects virtual slots", async () => {
+	const res = await request("/api/slots/pending_items", {
+		method: "PUT",
+		body: JSON.stringify({ content: "nope" }),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(res.status).toBe(400);
+});
+
+test("PUT /api/slots/:name rejects the retired persona slot", async () => {
 	const res = await request("/api/slots/persona", {
 		method: "PUT",
 		body: JSON.stringify({ content: "nope" }),
