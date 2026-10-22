@@ -32,7 +32,12 @@ interface CategoryResult {
 interface ScoreBreakdown {
   critical_categories: number
   warning_categories: number
+  /** All reported `info` occurrences (`summary.info`), scored or not. */
   info_occurrences: number
+  /** The subset of `info_occurrences` the score actually charges. */
+  info_scored_occurrences: number
+  /** Findings whose `info` occurrences are reported but not scored. */
+  info_unscored_checks: string[]
   penalty_critical: number
   penalty_warning: number
   penalty_info: number
@@ -88,6 +93,20 @@ interface CheckDef {
 }
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, info: 2 }
+
+/**
+ * `info` findings that report graph *coverage* rather than a defect: their
+ * occurrences are reported (and stay visible in `summary.info` and in the
+ * `connectivity` category) but they carry no score penalty.
+ *
+ * A thought is an island the moment it is published, because activation
+ * (`status: active`) precedes linking, so charging each island would make
+ * publishing durable knowledge look like a health regression and discourage it
+ * (task #1967). Islands are therefore informational only; the finding itself
+ * is kept. Only `info` checks may be listed here — the `critical`/`warning`
+ * terms are category-presence penalties and stay unchanged.
+ */
+const INFO_CHECKS_NOT_SCORED: ReadonlySet<string> = new Set(['island_thoughts'])
 
 function matchesSeverity(check: CheckResult, minSeverity?: Severity): boolean {
   if (!minSeverity) return true
@@ -197,6 +216,7 @@ export function runHealthCheckService(options: HealthCheckOptions = {}, d: Datab
   }
 
   let critical = 0, warning = 0, info = 0
+  let scoredInfo = 0
   let criticalCats = 0, warningCats = 0
   for (const cat of categories) {
     let catCritical = false, catWarning = false
@@ -209,6 +229,7 @@ export function runHealthCheckService(options: HealthCheckOptions = {}, d: Datab
         if (check.count > 0) catWarning = true
       } else {
         info += check.count
+        if (!INFO_CHECKS_NOT_SCORED.has(check.name)) scoredInfo += check.count
       }
     }
     if (catCritical) criticalCats++
@@ -219,9 +240,10 @@ export function runHealthCheckService(options: HealthCheckOptions = {}, d: Datab
   // occurrence count: structural critical categories hit hard, warning
   // categories moderately, info occurrences slightly. This keeps health_score
   // a reflection of structural health and prevents it from being zeroed out by
-  // many harmless warning cases (like parent->draft).
+  // many harmless warning cases (like parent->draft). Info occurrences of
+  // coverage findings (`INFO_CHECKS_NOT_SCORED`) are reported but not charged.
   const health_score = Math.max(0, Math.min(100,
-    100 - (criticalCats * 40) - (warningCats * 15) - (info * 0.25)
+    100 - (criticalCats * 40) - (warningCats * 15) - (scoredInfo * 0.25)
   ))
 
   if (options.fix) {
@@ -230,15 +252,17 @@ export function runHealthCheckService(options: HealthCheckOptions = {}, d: Datab
 
   const penaltyCritical = criticalCats * 40
   const penaltyWarning = warningCats * 15
-  const penaltyInfo = info * 0.25
+  const penaltyInfo = scoredInfo * 0.25
   const scoreBreakdown: ScoreBreakdown = {
     critical_categories: criticalCats,
     warning_categories: warningCats,
     info_occurrences: info,
+    info_scored_occurrences: scoredInfo,
+    info_unscored_checks: [...INFO_CHECKS_NOT_SCORED],
     penalty_critical: penaltyCritical,
     penalty_warning: penaltyWarning,
     penalty_info: penaltyInfo,
-    formula: '100 - (critical_categories * 40) - (warning_categories * 15) - (info_occurrences * 0.25), clamped to [0, 100]'
+    formula: '100 - (critical_categories * 40) - (warning_categories * 15) - (info_scored_occurrences * 0.25), clamped to [0, 100]'
   }
 
   return {

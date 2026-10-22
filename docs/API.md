@@ -623,11 +623,12 @@ curl `'http://127.0.0.1:3005/api/health-check?severity=warning'`
 
 #### Accepted graph-health trade-offs
 
-Two checks fire by design on a dense, hub-centric graph and are accepted as trade-offs rather than defects (ADR: `synaptomind/adr/2026-09-28-928-health-overlinked-clusterless-adr.md`; tasks #934/#935):
+The following graph-health behaviours are accepted trade-offs rather than defects (ADR: `synaptomind/adr/2026-09-28-928-health-overlinked-clusterless-adr.md`; tasks #934/#935):
 
 - `overlinked_thoughts` (connectivity, warning) — active non-cluster thoughts above the finder's `maxEdges`. The flagged set is curated cross-domain hubs, not link decay: on the reference dataset active non-cluster thoughts average 4.66 edges, while the 31 flagged hubs sit at 11–24. Raising the threshold cannot change `health_score` and would only hide signal.
 - `clusterless_dense_thoughts` (cluster health, warning) — transient. The finder is age-gated to the same `autoCluster.minAgeDays` window auto-cluster uses (task #935), so it reports only thoughts old enough for the clusterer to act on (see `src/db/health-check/clusters.ts`).
-- `health_score` penalises the presence of a flagged *category*, not occurrence counts: `100 − criticalCategories×40 − warningCategories×15 − infoOccurrences×0.25`, clamped to `[0,100]`. Because the `info` term is per-occurrence, a large `island_thoughts` count dominates the score, while clearing a single `overlinked_thoughts` hub does not move it (`src/services/health-check.service.ts`).
+- `health_score` penalises the presence of a flagged *category*, not occurrence counts: `100 − criticalCategories×40 − warningCategories×15 − scoredInfoOccurrences×0.25`, clamped to `[0,100]`. Because the `info` term is per-occurrence, clearing a single `overlinked_thoughts` hub does not move it (`src/services/health-check.service.ts`).
+- `island_thoughts` is an informational *coverage* finding and is exempt from the `info` term. Publishing a thought (`status: active`) before linking it makes it an island, so charging each island would score correct publishing as a regression and discourage it (task #1967). Islands stay visible in `summary.info` and in the `connectivity` category; `score_breakdown` reports the charged count as `info_scored_occurrences` and names the exempt findings in `info_unscored_checks`. Critical and warning categories are unaffected.
 
 Findings about *live* claims deliberately ignore `archived` endpoints. Archiving only flips the `status` column — the edges stay attached (`src/db/thoughts.ts`) — and the documented supersession flow (link `replaces`, then archive the target) does not transfer them, so a retired endpoint would otherwise be flagged forever after a correct procedure:
 
