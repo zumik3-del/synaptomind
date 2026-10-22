@@ -30,11 +30,11 @@ export function isTriageKind(kind: string): kind is TriageItemKind {
 }
 
 /** Link/edge-producing item kinds that count toward `triage.maxLinksPerRun` (ADR §2.7). */
-export type LinkItemKind = 'edge' | 'placement' | 'lifecycle'
+export type LinkItemKind = 'edge'
 
 /** Does `kind` produce a graph link/edge rather than a triage verdict? */
 export function isLinkKind(kind: string): kind is LinkItemKind {
-  return kind === 'edge' || kind === 'placement' || kind === 'lifecycle'
+  return kind === 'edge'
 }
 
 const previewedRuns = new WeakMap<Database, Set<string>>()

@@ -105,7 +105,7 @@ beforeAll(async () => {
 // ── enqueue ────────────────────────────────────────────────────────────────────
 
 describe('memory_review enqueue', () => {
-  test('valid thought_id → success, returns array (possibly empty if engine degrades)', async () => {
+  test('valid thought_id → success, returns the enqueue outcome (possibly empty if engine degrades)', async () => {
     const src = seedThought({ content: 'enqueue valid subject marker' })
     seedThought({ content: 'enqueue valid related content here' })
 
@@ -115,7 +115,11 @@ describe('memory_review enqueue', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
+    // Task #1942: the response reports the queued rows plus the skipped count.
+    const outcome = data as { proposals: unknown[]; skipped: number; skipped_kinds: Record<string, number> }
+    expect(Array.isArray(outcome.proposals)).toBe(true)
+    expect(typeof outcome.skipped).toBe('number')
+    expect(typeof outcome.skipped_kinds).toBe('object')
   })
 
   test('missing thought_id → error envelope with a clear message', async () => {

@@ -14,7 +14,7 @@ import { registerActionTool, requiredString, type ActionArgs } from './action-to
 import { applyHandler, AGENT } from './review/apply'
 import { rollbackHandler } from './review/rollback'
 
-const ITEM_KINDS = ['edge', 'placement', 'lifecycle', 'triage_activate', 'triage_archive'] as const
+const ITEM_KINDS = ['edge', 'triage_activate', 'triage_archive'] as const
 
 const handlers = {
   enqueue: {
@@ -81,7 +81,7 @@ const handlers = {
 export function registerMemoryReview(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_review',
-    description: `Review and apply placement proposals. Actions: enqueue (persisted thought only), list (default pending), apply (dry-run; triage needs run_id), apply_batch (per-run caps), rollback (dry-run), reject.`,
+    description: `Review and apply placement proposals. Actions: enqueue (persisted thought only; queues the plan's edge items and reports the skipped ones), list (default pending), apply (dry-run; triage needs run_id), apply_batch (per-run caps), rollback (dry-run), reject.`,
     inputSchema: {
       action: z
         .enum(['enqueue', 'list', 'apply', 'apply_batch', 'rollback', 'reject'])
@@ -94,7 +94,7 @@ export function registerMemoryReview(server: McpServer) {
       run_id: z.string().optional().describe('Run envelope: REQUIRED for "rollback" and for apply/apply_batch of triage_activate/triage_archive items. It groups the rows one rollback can reverse. An un-enveloped non-triage apply/apply_batch gets a synthesized "auto-" + UUIDv7 envelope, returned as run_id on the accepted result (apply) and on the batch outcome (apply_batch), so it is rollback-addressable. "rollback" refuses any row decided more than placement.proposalTtlDays (default 30) days before the server\'s own clock; no public surface accepts a caller-supplied clock. The cutoff is inclusive: a row decided exactly at the boundary is still reversible, and a negative proposalTtlDays disables the window entirely'),
       confirm: z.boolean().optional().describe('apply/apply_batch/rollback: set true to execute the write; absent/false is a non-mutating dry-run'),
       state: z.enum(['pending', 'accepted', 'rejected', 'expired', 'stale', 'rolled_back']).optional().describe('list: state filter (default pending)'),
-      item_kind: z.enum(ITEM_KINDS).optional().describe('list: item-kind filter (edge | placement | lifecycle | triage_activate | triage_archive)'),
+      item_kind: z.enum(ITEM_KINDS).optional().describe('list: item-kind filter (edge | triage_activate | triage_archive)'),
       source_thought_id: z.string().optional().describe('list: filter queued proposals by source thought id'),
       created_after: z.string().optional().describe('list: only proposals created at or after this ISO timestamp'),
       project_id: z.string().optional().describe('Project ID (prefer cwd)'),

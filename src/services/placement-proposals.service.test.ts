@@ -2,8 +2,8 @@
  * P8 queue-service tests (task #973, epic #964; service authored in #971).
  *
  * Verifies `src/services/placement-proposals.service.ts`: plan → row mapping
- * (edge / placement / lifecycle shapes; replaces+archive owns its pair; keep /
- * link emit no lifecycle item), dedup refresh, fingerprint / staleness,
+ * (edge rows; the removed `placement`/`lifecycle` kinds are reported as
+ * skipped — task #1942), dedup refresh, fingerprint / staleness,
  * maxPendingProposals cap, list defaults, reject, draft guard, determinism, and
  * the regression that proposePlacementPlan leaves placement_proposals empty.
  */
@@ -125,6 +125,19 @@ function queueRowCount(db: Database): number {
   return (db.prepare('SELECT COUNT(*) AS n FROM placement_proposals').get() as { n: number }).n
 }
 
+/**
+ * Enqueue and return just the queued rows. Since task #1942 a plan's
+ * `placement`/`lifecycle` items are skipped, so the rows are the `edge` items;
+ * the skip counters are asserted through `enqueuePlanService` directly.
+ */
+function enqueueProposals(
+  plan: PlacementPlan,
+  options: Parameters<typeof enqueuePlanService>[1],
+  db: Database
+): PlacementProposalRow[] {
+  return enqueuePlanService(plan, options, db).proposals
+}
+
 function okEmbed(_texts: string[]): Promise<Float32Array[]> {
   return Promise.resolve(_texts.map(() => new Float32Array(384)))
 }
@@ -177,7 +190,7 @@ describe('enqueuePlanService: plan → row mapping', () => {
       rationale: 'supports this',
       review_required: true,
     })
-    const rows = enqueuePlanService(plan, { now: NOW }, db)
+    const rows = enqueueProposals(plan, { now: NOW }, db)
     expect(rows).toHaveLength(1)
     const r = rows[0]
     expect(r.state).toBe('pending')
@@ -201,7 +214,7 @@ describe('enqueuePlanService: plan → row mapping', () => {
     expect(queueRowCount(db)).toBe(1)
   })
 
-  test('placement (cluster) → one placement row with edge_type=cluster', () => {
+  test('placement-only plan queues nothing and reports the skipped placement', () => {
     const db = getDb()
     const src = seedThought({ id: 'cl-src', content: 'cluster source', created_at: T_SRC })
     const cl = seedThought({ id: 'cl-target', content: 'the cluster', is_cluster: 1, created_at: T_TGT })
@@ -213,21 +226,14 @@ describe('enqueuePlanService: plan → row mapping', () => {
       degraded: false,
       generated_at: NOW,
     }
-    const rows = enqueuePlanService(plan, { now: NOW }, db)
-    expect(rows).toHaveLength(1)
-    const r = rows[0]
-    expect(r.item_kind).toBe('placement')
-    expect(r.edge_type).toBe('cluster')
-    expect(r.lifecycle_action).toBeNull()
-    expect(r.direction).toBe('directed')
-    expect(r.rule_id).toBeNull()
-    expect(r.rationale).toBe('placement rationale')
-    const payload = JSON.parse(r.payload) as Record<string, unknown>
-    expect(payload.kind).toBe('cluster')
-    expect(payload.review_required).toBe(true)
+    const outcome = enqueuePlanService(plan, { now: NOW }, db)
+    expect(outcome.proposals).toEqual([])
+    expect(outcome.skipped).toBe(1)
+    expect(outcome.skipped_kinds).toEqual({ placement: 1 })
+    expect(queueRowCount(db)).toBe(0)
   })
 
-  test('placement (parent) → one placement row with edge_type=parent', () => {
+  test('a parent placement + merge lifecycle are both skipped and reported', () => {
     const db = getDb()
     const src = seedThought({ id: 'pp-src', content: 'parent placement', created_at: T_SRC })
     const par = seedThought({ id: 'pp-par', content: 'chain node', created_at: T_TGT })
@@ -235,19 +241,18 @@ describe('enqueuePlanService: plan → row mapping', () => {
       thought_id: src,
       placement: makePlacement(par, 'parent', { confidence: 0.65, review_required: false }),
       edges: [],
-      lifecycle: makeLifecycle('keep'),
+      lifecycle: makeLifecycle('merge', { target_id: par }),
       degraded: false,
       generated_at: NOW,
     }
-    const rows = enqueuePlanService(plan, { now: NOW }, db)
-    expect(rows).toHaveLength(1)
-    expect(rows[0].item_kind).toBe('placement')
-    expect(rows[0].edge_type).toBe('parent')
-    expect(rows[0].confidence).toBe(0.65)
-    expect(rows[0].rule_id).toBeNull()
+    const outcome = enqueuePlanService(plan, { now: NOW }, db)
+    expect(outcome.proposals).toEqual([])
+    expect(outcome.skipped).toBe(2)
+    expect(outcome.skipped_kinds).toEqual({ placement: 1, lifecycle: 1 })
+    expect(queueRowCount(db)).toBe(0)
   })
 
-  test('merge lifecycle → one lifecycle row with target and null edge_type', () => {
+  test('merge lifecycle → one lifecycle item skipped, no row created', () => {
     const db = getDb()
     const src = seedThought({ id: 'mg-src', content: 'merge source', created_at: T_SRC })
     const tgt = seedThought({ id: 'mg-tgt', content: 'merge target', created_at: T_TGT })
@@ -259,21 +264,13 @@ describe('enqueuePlanService: plan → row mapping', () => {
       degraded: false,
       generated_at: NOW,
     }
-    const rows = enqueuePlanService(plan, { now: NOW }, db)
-    expect(rows).toHaveLength(1)
-    const r = rows[0]
-    expect(r.item_kind).toBe('lifecycle')
-    expect(r.lifecycle_action).toBe('merge')
-    expect(r.target_id).toBe(tgt)
-    expect(r.edge_type).toBeNull()
-    expect(r.direction).toBeNull()
-    expect(r.rule_id).toBeNull()
-    const payload = JSON.parse(r.payload) as Record<string, unknown>
-    expect(payload.blocked_by).toEqual(['source is protected'])
-    expect(payload.review_required).toBe(true)
+    const outcome = enqueuePlanService(plan, { now: NOW }, db)
+    expect(outcome.proposals).toEqual([])
+    expect(outcome.skipped).toBe(1)
+    expect(outcome.skipped_kinds).toEqual({ lifecycle: 1 })
   })
 
-  test('replaces+archive owns its pair: the replaces edge is not queued a second time', () => {
+  test('replaces+archive no longer owns its pair: the replaces edge is queued, the lifecycle is skipped', () => {
     const db = getDb()
     const src = seedThought({ id: 'ra-src', content: 'newer', created_at: T_SRC })
     const tgt = seedThought({ id: 'ra-tgt', content: 'older', created_at: T_TGT })
@@ -285,35 +282,17 @@ describe('enqueuePlanService: plan → row mapping', () => {
       degraded: false,
       generated_at: NOW,
     }
-    const rows = enqueuePlanService(plan, { now: NOW }, db)
-    expect(rows).toHaveLength(1)
-    const r = rows[0]
-    expect(r.item_kind).toBe('lifecycle')
-    expect(r.lifecycle_action).toBe('replaces+archive')
+    const outcome = enqueuePlanService(plan, { now: NOW }, db)
+    expect(outcome.proposals).toHaveLength(1)
+    expect(outcome.skipped).toBe(1)
+    expect(outcome.skipped_kinds).toEqual({ lifecycle: 1 })
+    const r = outcome.proposals[0]
+    expect(r.item_kind).toBe('edge')
     expect(r.edge_type).toBe('replaces')
+    expect(r.lifecycle_action).toBeNull()
     expect(r.rule_id).toBe('supersede.newer_replaces_older')
     expect(r.target_id).toBe(tgt)
-    expect(r.confidence).toBe(0.9)
     expect(queueRowCount(db)).toBe(1)
-  })
-
-  test('replaces+archive without a lifecycle target_id falls back to the replaces edge target', () => {
-    const db = getDb()
-    const src = seedThought({ id: 'fb-src', content: 'fallback source', created_at: T_SRC })
-    const tgt = seedThought({ id: 'fb-tgt', content: 'fallback target', created_at: T_TGT })
-    const plan: PlacementPlan = {
-      thought_id: src,
-      placement: null,
-      edges: [makeEdge(src, tgt, { type: 'replaces', rule_id: 'supersede.newer_replaces_older' })],
-      lifecycle: makeLifecycle('replaces+archive'), // pre-#971 shape: no target_id
-      degraded: false,
-      generated_at: NOW,
-    }
-    const rows = enqueuePlanService(plan, { now: NOW }, db)
-    expect(rows).toHaveLength(1)
-    expect(rows[0].item_kind).toBe('lifecycle')
-    expect(rows[0].target_id).toBe(tgt)
-    expect(rows[0].lifecycle_action).toBe('replaces+archive')
   })
 
   test('link lifecycle queues only edge items (no lifecycle row)', () => {
@@ -329,7 +308,7 @@ describe('enqueuePlanService: plan → row mapping', () => {
       degraded: false,
       generated_at: NOW,
     }
-    const rows = enqueuePlanService(plan, { now: NOW }, db)
+    const rows = enqueueProposals(plan, { now: NOW }, db)
     expect(rows).toHaveLength(2)
     expect(rows.every((r) => r.item_kind === 'edge')).toBe(true)
     expect(rows.every((r) => r.lifecycle_action === null)).toBe(true)
@@ -346,7 +325,7 @@ describe('enqueuePlanService: plan → row mapping', () => {
       degraded: false,
       generated_at: NOW,
     }
-    const rows = enqueuePlanService(plan, { now: NOW }, db)
+    const rows = enqueueProposals(plan, { now: NOW }, db)
     expect(rows).toEqual([])
     expect(queueRowCount(db)).toBe(0)
   })
@@ -354,7 +333,7 @@ describe('enqueuePlanService: plan → row mapping', () => {
   test('an edge whose target is not persisted is skipped (no row, no throw)', () => {
     const db = getDb()
     const src = seedThought({ id: 'gh-src', content: 'ghost source', created_at: T_SRC })
-    const rows = enqueuePlanService(edgePlan(src, 'ghost-target'), { now: NOW }, db)
+    const rows = enqueueProposals(edgePlan(src, 'ghost-target'), { now: NOW }, db)
     expect(rows).toEqual([])
     expect(queueRowCount(db)).toBe(0)
   })
@@ -364,13 +343,13 @@ describe('enqueuePlanService: plan → row mapping', () => {
     const src = seedThought({ id: 'ttl-src', content: 'ttl source', created_at: T_SRC })
     const tgt = seedThought({ id: 'ttl-tgt', content: 'ttl target', created_at: T_TGT })
     withPlacementConfig({ proposalTtlDays: -1 }, () => {
-      const rows = enqueuePlanService(edgePlan(src, tgt), { now: NOW }, db)
+      const rows = enqueueProposals(edgePlan(src, tgt), { now: NOW }, db)
       expect(rows).toHaveLength(1)
       expect(rows[0].expires_at).toBeNull()
     })
   })
 
-  test('multiple edges + placement → one row per item', () => {
+  test('multiple edges + placement → one row per edge, the placement reported as skipped', () => {
     const db = getDb()
     const src = seedThought({ id: 'mm-src', content: 'multi source', created_at: T_SRC })
     const t1 = seedThought({ id: 'mm-t1', content: 'multi first', created_at: T_TGT })
@@ -384,12 +363,13 @@ describe('enqueuePlanService: plan → row mapping', () => {
       degraded: false,
       generated_at: NOW,
     }
-    const rows = enqueuePlanService(plan, { now: NOW }, db)
-    expect(rows.map((r) => `${r.item_kind}:${r.target_id}`).sort()).toEqual([
+    const outcome = enqueuePlanService(plan, { now: NOW }, db)
+    expect(outcome.proposals.map((r) => `${r.item_kind}:${r.target_id}`).sort()).toEqual([
       `edge:${t1}`,
       `edge:${t2}`,
-      `placement:${cl}`,
     ].sort())
+    expect(outcome.skipped).toBe(1)
+    expect(outcome.skipped_kinds).toEqual({ placement: 1 })
   })
 })
 
@@ -401,11 +381,11 @@ describe('enqueuePlanService: dedup refresh', () => {
     const src = seedThought({ id: 'dd-src', content: 'dedup source', created_at: T_SRC })
     const tgt = seedThought({ id: 'dd-tgt', content: 'dedup target', created_at: T_TGT })
     const plan = edgePlan(src, tgt, { rationale: 'first pass', confidence: 0.55 })
-    const first = enqueuePlanService(plan, { now: NOW }, db)[0]
+    const first = enqueueProposals(plan, { now: NOW }, db)[0]
 
     plan.edges[0].rationale = 'second pass'
     plan.edges[0].confidence = 0.8
-    const refreshed = enqueuePlanService(plan, { now: NOW_LATER }, db)
+    const refreshed = enqueueProposals(plan, { now: NOW_LATER }, db)
     expect(refreshed).toHaveLength(1)
     expect(refreshed[0].id).toBe(first.id)
     expect(refreshed[0].created_at).toBe(first.created_at)
@@ -421,13 +401,13 @@ describe('enqueuePlanService: dedup refresh', () => {
     const src = seedThought({ id: 'rf-src', content: 'refresh-stale source', created_at: T_SRC })
     const tgt = seedThought({ id: 'rf-tgt', content: 'refresh-stale target', created_at: T_TGT })
     const plan = edgePlan(src, tgt)
-    const first = enqueuePlanService(plan, { now: NOW }, db)[0]
+    const first = enqueueProposals(plan, { now: NOW }, db)[0]
     // Mutate the source in place without changing its status: the fingerprint
     // covers `updated_at`, so this drifts the snapshot while keeping the source
     // `active` (an archived/other-status source is refused at the enqueue seam).
     const mutatedAt = '2026-01-15T00:00:00.000Z'
     db.prepare('UPDATE thoughts SET updated_at = ? WHERE id = ?').run(mutatedAt, src)
-    const refreshed = enqueuePlanService(plan, { now: NOW_LATER }, db)
+    const refreshed = enqueueProposals(plan, { now: NOW_LATER }, db)
     expect(refreshed).toHaveLength(1)
     expect(refreshed[0].id).toBe(first.id)
     expect(refreshed[0].fingerprint).not.toBe(first.fingerprint)
@@ -441,7 +421,7 @@ describe('enqueuePlanService: dedup refresh', () => {
     const src = seedThought({ id: 'dr-src', content: 'still a draft', created_at: T_SRC })
     const tgt = seedThought({ id: 'dr-tgt', content: 'draft-source target', created_at: T_TGT })
     db.prepare("UPDATE thoughts SET status = 'draft' WHERE id = ?").run(src)
-    expect(() => enqueuePlanService(edgePlan(src, tgt), { now: NOW }, db)).toThrow(ValidationError)
+    expect(() => enqueueProposals(edgePlan(src, tgt), { now: NOW }, db)).toThrow(ValidationError)
     expect(list({ now: NOW }, db)).toHaveLength(0)
   })
 
@@ -450,7 +430,7 @@ describe('enqueuePlanService: dedup refresh', () => {
     for (let i = 0; i < 5; i++) {
       const src = seedThought({ id: `cl-src-${i}`, content: `limit clamp source ${i}`, created_at: T_SRC })
       const tgt = seedThought({ id: `cl-tgt-${i}`, content: `limit clamp target ${i}`, created_at: T_TGT })
-      enqueuePlanService(edgePlan(src, tgt), { now: NOW }, db)
+      enqueueProposals(edgePlan(src, tgt), { now: NOW }, db)
     }
     // `LIMIT -1` means *no limit* in SQLite and `LIMIT 0` returns nothing, so
     // both are clamped into range instead of reaching SQLite unvalidated.
@@ -470,7 +450,7 @@ describe('isProposalStale', () => {
     const src = seedThought({ id: 'sl-src', content: 'staleness source', created_at: T_SRC })
     const tgt = seedThought({ id: 'sl-tgt', content: 'staleness target', created_at: T_TGT })
     if (withExistingEdge) seedEdge(src, tgt, withExistingEdge)
-    const rows = enqueuePlanService(edgePlan(src, tgt, edgeOpts), { now: NOW }, db)
+    const rows = enqueueProposals(edgePlan(src, tgt, edgeOpts), { now: NOW }, db)
     return { db, src, tgt, row: rows[0] }
   }
 
@@ -512,24 +492,6 @@ describe('isProposalStale', () => {
     f.db.prepare('DELETE FROM thoughts WHERE id = ?').run(f.src)
     expect(isProposalStale(f.row, f.db)).toBe(true)
   })
-
-  test('a lifecycle row goes stale when a new edge appears on its merge pair', () => {
-    const db = getDb()
-    const src = seedThought({ id: 'slc-src', content: 'lifecycle-source', created_at: T_SRC })
-    const tgt = seedThought({ id: 'slc-tgt', content: 'lifecycle-target', created_at: T_TGT })
-    const plan: PlacementPlan = {
-      thought_id: src,
-      placement: null,
-      edges: [],
-      lifecycle: makeLifecycle('merge', { target_id: tgt, confidence: 0.9 }),
-      degraded: false,
-      generated_at: NOW,
-    }
-    const row = enqueuePlanService(plan, { now: NOW }, db)[0]
-    expect(isProposalStale(row, db)).toBe(false)
-    seedEdge(src, tgt, 'supports')
-    expect(isProposalStale(row, db)).toBe(true)
-  })
 })
 
 // ── maxPendingProposals cap ───────────────────────────────────────────────────
@@ -550,8 +512,8 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       generated_at: NOW,
     }
     withPlacementConfig({ maxPendingProposals: 2 }, () => {
-      expect(() => enqueuePlanService(plan, { now: NOW }, db)).toThrow(ValidationError)
-      expect(() => enqueuePlanService(plan, { now: NOW }, db)).toThrow(/maximum 2 pending placement proposals reached/)
+      expect(() => enqueueProposals(plan, { now: NOW }, db)).toThrow(ValidationError)
+      expect(() => enqueueProposals(plan, { now: NOW }, db)).toThrow(/maximum 2 pending placement proposals reached/)
       expect(queueRowCount(db)).toBe(0) // transaction rolled back
     })
   })
@@ -571,12 +533,12 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       generated_at: NOW,
     }
     withPlacementConfig({ maxPendingProposals: 2 }, () => {
-      const first = enqueuePlanService(plan, { now: NOW }, db)
-      const second = enqueuePlanService(structuredClone(plan), { now: NOW_LATER }, db)
+      const first = enqueueProposals(plan, { now: NOW }, db)
+      const second = enqueueProposals(structuredClone(plan), { now: NOW_LATER }, db)
       expect(second.map((r) => r.id)).toEqual(first.map((r) => r.id))
       // genuinely new third item still blocks
       const fresh = edgePlan(src, t3, { type: 'develops' })
-      expect(() => enqueuePlanService(fresh, { now: NOW_LATER }, db)).toThrow(/maximum 2 pending/)
+      expect(() => enqueueProposals(fresh, { now: NOW_LATER }, db)).toThrow(/maximum 2 pending/)
       expect(queueRowCount(db)).toBe(2)
     })
   })
@@ -596,9 +558,9 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       generated_at: NOW,
     }
     withPlacementConfig({ maxPendingProposals: 2 }, () => {
-      const rows = enqueuePlanService(plan, { now: NOW }, db)
+      const rows = enqueueProposals(plan, { now: NOW }, db)
       reject(rows[0].id, { decidedBy: 'tester', now: NOW }, db)
-      const third = enqueuePlanService(edgePlan(src, t3, { type: 'develops' }), { now: NOW }, db)
+      const third = enqueueProposals(edgePlan(src, t3, { type: 'develops' }), { now: NOW }, db)
       expect(third).toHaveLength(1)
       expect(list({ now: NOW }, db)).toHaveLength(2) // t2 + t3 live
     })
@@ -610,8 +572,8 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
     const t1 = seedThought({ id: 'exp-t1', content: 'expiry-cap t1', created_at: T_TGT })
     const t2 = seedThought({ id: 'exp-t2', content: 'expiry-cap t2', created_at: T_TGT })
     withPlacementConfig({ maxPendingProposals: 1 }, () => {
-      enqueuePlanService(edgePlan(src, t1), { now: '2026-01-01T00:00:00.000Z' }, db) // expires 2026-01-31 (TTL 30)
-      const second = enqueuePlanService(edgePlan(src, t2), { now: '2026-02-01T00:00:00.000Z' }, db)
+      enqueueProposals(edgePlan(src, t1), { now: '2026-01-01T00:00:00.000Z' }, db) // expires 2026-01-31 (TTL 30)
+      const second = enqueueProposals(edgePlan(src, t2), { now: '2026-02-01T00:00:00.000Z' }, db)
       expect(second).toHaveLength(1) // first row is expired → not counted against the cap
       expect(list({ now: '2026-02-01T00:00:00.000Z' }, db)).toHaveLength(1)
     })
@@ -625,7 +587,7 @@ describe('reject', () => {
     const db = getDb()
     const src = seedThought({ id: 'rj-src', content: 'reject source', created_at: T_SRC })
     const tgt = seedThought({ id: 'rj-tgt', content: 'reject target', created_at: T_TGT })
-    const row = enqueuePlanService(edgePlan(src, tgt), { now: NOW }, db)[0]
+    const row = enqueueProposals(edgePlan(src, tgt), { now: NOW }, db)[0]
     const rejected = reject(row.id, { decidedBy: 'tester', now: NOW_LATER }, db)
     expect(rejected.state).toBe('rejected')
     expect(rejected.decided_by).toBe('tester')
@@ -638,7 +600,7 @@ describe('reject', () => {
     const db = getDb()
     const src = seedThought({ id: 'rj2-src', content: 'reject-term source', created_at: T_SRC })
     const tgt = seedThought({ id: 'rj2-tgt', content: 'reject-term target', created_at: T_TGT })
-    const row = enqueuePlanService(edgePlan(src, tgt), { now: NOW }, db)[0]
+    const row = enqueueProposals(edgePlan(src, tgt), { now: NOW }, db)[0]
     reject(row.id, { now: NOW }, db)
     expect(() => reject(row.id, { now: NOW_LATER }, db)).toThrow(ValidationError)
     expect(() => reject(row.id, { now: NOW_LATER }, db)).toThrow(/'rejected', not 'pending'/)
@@ -653,9 +615,9 @@ describe('reject', () => {
     const src = seedThought({ id: 'rj3-src', content: 'reject-free source', created_at: T_SRC })
     const tgt = seedThought({ id: 'rj3-tgt', content: 'reject-free target', created_at: T_TGT })
     const plan = edgePlan(src, tgt)
-    const first = enqueuePlanService(plan, { now: NOW }, db)[0]
+    const first = enqueueProposals(plan, { now: NOW }, db)[0]
     reject(first.id, { now: NOW_LATER }, db)
-    const second = enqueuePlanService(plan, { now: NOW_LATER }, db)
+    const second = enqueueProposals(plan, { now: NOW_LATER }, db)
     expect(second).toHaveLength(1)
     expect(second[0].id).not.toBe(first.id)
     expect(second[0].state).toBe('pending')
@@ -678,10 +640,10 @@ describe('list', () => {
     const t3 = seedThought({ id: 'ls-t3', content: 't3', created_at: T_TGT })
     const t4 = seedThought({ id: 'ls-t4', content: 't4', created_at: T_TGT })
     const t5 = seedThought({ id: 'ls-t5', content: 't5', created_at: T_TGT })
-    const a1 = enqueuePlanService(edgePlan(s1, t1), { now: NOW }, db)[0]
-    const a2 = enqueuePlanService(edgePlan(s2, t2), { now: NOW }, db)[0]
-    const a3 = enqueuePlanService(edgePlan(s3, t3), { now: NOW }, db)[0]
-    const a4 = enqueuePlanService(edgePlan(s4, t4), { now: NOW }, db)[0]
+    const a1 = enqueueProposals(edgePlan(s1, t1), { now: NOW }, db)[0]
+    const a2 = enqueueProposals(edgePlan(s2, t2), { now: NOW }, db)[0]
+    const a3 = enqueueProposals(edgePlan(s3, t3), { now: NOW }, db)[0]
+    const a4 = enqueueProposals(edgePlan(s4, t4), { now: NOW }, db)[0]
     reject(a1.id, { now: NOW }, db)
     updateProposalState(db, a2.id, { state: 'accepted', decided_at: NOW })
     insertProposal(db, {
@@ -709,15 +671,15 @@ describe('list', () => {
     const pb = seedThought({ id: 'lp-b', project_id: 'proj-b', content: 'project b', created_at: T_SRC })
     const ta = seedThought({ id: 'lt-a', project_id: 'proj-a', content: 'ta', created_at: T_TGT })
     const tb = seedThought({ id: 'lt-b', project_id: 'proj-b', content: 'tb', created_at: T_TGT })
-    const rowA = enqueuePlanService(edgePlan(pa, ta), { now: NOW }, db)[0]
-    enqueuePlanService(edgePlan(pb, tb), { now: NOW }, db)
+    const rowA = enqueueProposals(edgePlan(pa, ta), { now: NOW }, db)[0]
+    enqueueProposals(edgePlan(pb, tb), { now: NOW }, db)
     expect(list({ projectId: 'proj-a', now: NOW }, db).map((r) => r.id)).toEqual([rowA.id])
     expect(list({ projectId: 'proj-b', now: NOW }, db)).toHaveLength(1)
     // limit
     for (let i = 0; i < 2; i++) {
       const s = seedThought({ id: `lp-x${i}`, project_id: 'proj-a', content: `extra ${i}`, created_at: T_SRC })
       const t = seedThought({ id: `lt-x${i}`, project_id: 'proj-a', content: `extra t ${i}`, created_at: T_TGT })
-      enqueuePlanService(edgePlan(s, t), { now: NOW }, db)
+      enqueueProposals(edgePlan(s, t), { now: NOW }, db)
     }
     expect(list({ projectId: 'proj-a', limit: 2, now: NOW }, db)).toHaveLength(2)
   })
@@ -727,7 +689,7 @@ describe('list', () => {
     const src = seedThought({ id: 'lx-src', content: 'list-expire source', created_at: T_SRC })
     const tgt = seedThought({ id: 'lx-tgt', content: 'list-expire target', created_at: T_TGT })
     withPlacementConfig({ proposalTtlDays: 1 }, () => {
-      const rows = enqueuePlanService(edgePlan(src, tgt), { now: '2026-01-01T00:00:00.000Z' }, db)
+      const rows = enqueueProposals(edgePlan(src, tgt), { now: '2026-01-01T00:00:00.000Z' }, db)
       expect(rows[0].expires_at).toBe('2026-01-02T00:00:00.000Z')
       expect(list({ now: '2026-01-01T12:00:00.000Z' }, db)).toHaveLength(1)
       expect(list({ now: '2026-01-03T00:00:00.000Z' }, db)).toHaveLength(0)
@@ -739,12 +701,12 @@ describe('list', () => {
 
 describe('enqueuePlanService: draft guard', () => {
   test('the draft sentinel id cannot be enqueued', () => {
-    expect(() => enqueuePlanService(edgePlan(DRAFT_THOUGHT_ID, 'dg-tgt'), { now: NOW }, getDb())).toThrow(ValidationError)
-    expect(() => enqueuePlanService(edgePlan(DRAFT_THOUGHT_ID, 'dg-tgt'), { now: NOW }, getDb())).toThrow(/draft or unknown thought/)
+    expect(() => enqueueProposals(edgePlan(DRAFT_THOUGHT_ID, 'dg-tgt'), { now: NOW }, getDb())).toThrow(ValidationError)
+    expect(() => enqueueProposals(edgePlan(DRAFT_THOUGHT_ID, 'dg-tgt'), { now: NOW }, getDb())).toThrow(/draft or unknown thought/)
   })
 
   test('an unknown thought id cannot be enqueued', () => {
-    expect(() => enqueuePlanService(edgePlan('unknown-thought-id', 'dg-x'), { now: NOW }, getDb())).toThrow(ValidationError)
+    expect(() => enqueueProposals(edgePlan('unknown-thought-id', 'dg-x'), { now: NOW }, getDb())).toThrow(ValidationError)
   })
 })
 
@@ -765,8 +727,8 @@ describe('determinism', () => {
       degraded: false,
       generated_at: NOW,
     }
-    const first = enqueuePlanService(plan, { now: NOW }, db)
-    const second = enqueuePlanService(structuredClone(plan), { now: NOW_LATER }, db)
+    const first = enqueueProposals(plan, { now: NOW }, db)
+    const second = enqueueProposals(structuredClone(plan), { now: NOW_LATER }, db)
     expect(second.length).toBe(first.length)
     for (let i = 0; i < first.length; i++) {
       expect(second[i].id).toBe(first[i].id)
@@ -791,7 +753,7 @@ describe('determinism', () => {
         degraded: false,
         generated_at: NOW,
       }
-      return enqueuePlanService(plan, { now: NOW }, getDb())
+      return enqueueProposals(plan, { now: NOW }, getDb())
         .map((r) =>
           [r.source_thought_id, r.item_kind, r.target_id, r.edge_type, r.lifecycle_action, r.direction, r.confidence, r.rationale, r.rule_id, r.payload, r.fingerprint, r.expires_at].join('|')
         )
@@ -820,7 +782,7 @@ describe('regression: proposePlacementPlan does not write to placement_proposals
     expect(plan.edges.length).toBeGreaterThanOrEqual(1)
     expect(queueRowCount(db)).toBe(0)
     // Only explicit enqueuePlanService writes the queue.
-    const rows = enqueuePlanService(plan, { now: NOW }, db)
+    const rows = enqueueProposals(plan, { now: NOW }, db)
     expect(rows.length).toBeGreaterThanOrEqual(1)
   })
 

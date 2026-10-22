@@ -158,7 +158,7 @@ test('listProposals returns pending rows', () => {
   const src1 = seedThought()
   const src2 = seedThought()
   insertProposal(db, makeInput({ source_thought_id: src1, payload: 'p1', item_kind: 'edge', edge_type: 'develops' }))
-  insertProposal(db, makeInput({ source_thought_id: src2, payload: 'p2', item_kind: 'placement' }))
+  insertProposal(db, makeInput({ source_thought_id: src2, payload: 'p2', item_kind: 'triage_activate' }))
   const rows = listProposals(db)
   expect(rows).toHaveLength(2)
   expect(rows.every((r) => r.state === 'pending')).toBe(true)
@@ -169,7 +169,7 @@ test('listProposals defaults to pending state, excludes accepted rows', () => {
   const src1 = seedThought()
   const src2 = seedThought()
   const p1 = insertProposal(db, makeInput({ source_thought_id: src1, payload: 'pending-one', item_kind: 'edge', edge_type: 'parent' }))
-  insertProposal(db, makeInput({ source_thought_id: src2, payload: 'accepted-one', item_kind: 'placement' }))
+  insertProposal(db, makeInput({ source_thought_id: src2, payload: 'accepted-one', item_kind: 'triage_activate' }))
   updateProposalState(db, p1.id, { state: 'accepted', decided_by: 'user' })
   // p1 is now accepted; src2's proposal is still pending
   const pending = listProposals(db)
@@ -228,7 +228,7 @@ test('listAcceptedProposalsByRun orders by applied_at, not created_at', () => {
   const db = getDb()
   const src = seedThought()
   const first = insertProposal(db, makeInput({ source_thought_id: src, run_id: 'run-1' }))
-  const second = insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'placement', run_id: 'run-1' }))
+  const second = insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'triage_activate', run_id: 'run-1' }))
   // Applied in the opposite order to creation: the manifest must follow
   // `applied_at` (reverse application order), not `created_at`.
   updateProposalState(db, first.id, { state: 'accepted', decided_at: '2026-01-02T00:00:00.000Z', applied_at: '2026-01-03T00:00:00.000Z' })
@@ -314,7 +314,7 @@ test('double insert with different item_kind → two rows', () => {
   const db = getDb()
   const src = seedThought()
   insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'edge', payload: 'e' }))
-  insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'placement', payload: 'p' }))
+  insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'triage_activate', payload: 'p' }))
   expect(listProposals(db)).toHaveLength(2)
 })
 
@@ -440,7 +440,7 @@ test('deleteExpired marks expired-past-pending rows as expired and deletes old t
   // Pending with expired-at in the past
   insertProposal(db, makeInput({ source_thought_id: src1, expires_at: twoDaysAgo, item_kind: 'edge', edge_type: 'develops' }))
   // Terminal row decided long ago (different source to avoid dedup)
-  const accepted = insertProposal(db, makeInput({ source_thought_id: src2, item_kind: 'placement' }))
+  const accepted = insertProposal(db, makeInput({ source_thought_id: src2, item_kind: 'triage_activate' }))
   updateProposalState(db, accepted.id, {
     state: 'accepted',
     decided_at: tenDaysAgo,

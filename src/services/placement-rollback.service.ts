@@ -6,16 +6,22 @@
  * iterates them in reverse application order and inverts each reversible
  * mutation through **existing** writers only (`updateThoughtByIdService`,
  * `deleteEdgeService`). Nothing is hard-deleted: a row decided outside the
- * rollback window is refused, a `merge` row is refused as not
- * auto-rollbackable, and a row whose stored fingerprint no longer matches
- * the graph is skipped with a warning. `confirm: false` (default) is a
+ * rollback window is refused, a row of a kind the queue no longer supports
+ * (`placement`/`lifecycle`, task #1942) is refused because it has no inverse
+ * writer left, and a row whose stored fingerprint no longer matches the graph
+ * is skipped with a warning. `confirm: false` (default) is a
  * non-mutating dry-run report. No ambient/scheduled caller invokes this.
  */
 
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { getDb } from '../db'
-import { listAcceptedProposalsByRun, updateProposalState, type PlacementProposalRow } from '../db/placement-proposals'
+import {
+  isLegacyItemKind,
+  listAcceptedProposalsByRun,
+  updateProposalState,
+  type PlacementProposalRow
+} from '../db/placement-proposals'
 import { ValidationError } from '../errors'
 import { insertLog } from '../logging/log'
 import { deleteEdgeService } from './edges.service'
@@ -62,16 +68,19 @@ function windowRefusal(row: PlacementProposalRow, now: string): Decision | null 
 
 /**
  * Read-only verdict for one accepted row (ADR §2.8): the rollback window is
- * checked first (a refusal is terminal and outranks the rest), `merge` is
- * refused, an idempotent accept mutated nothing, and a fingerprint drift means
- * the graph moved since apply — all non-revertible; everything else is
- * revertible.
+ * checked first (a refusal is terminal and outranks the rest), a row of a
+ * removed kind (task #1942) has no inverse writer left and is refused, an
+ * idempotent accept mutated nothing, and a fingerprint drift means the graph
+ * moved since apply — all non-revertible; everything else is revertible.
  */
 function decideRollback(row: PlacementProposalRow, now: string, d: Database): Decision {
   const outsideWindow = windowRefusal(row, now)
   if (outsideWindow) return outsideWindow
-  if (row.item_kind === 'lifecycle' && row.lifecycle_action === 'merge') {
-    return { action: 'refused', reason: 'merge is not auto-rollbackable' }
+  if (isLegacyItemKind(row.item_kind)) {
+    return {
+      action: 'refused',
+      reason: `item kind '${row.item_kind}' is no longer supported; it cannot be rolled back`
+    }
   }
   if (parseResult(row.result).idempotent === true) {
     return { action: 'skipped', reason: 'accepted idempotently; no graph mutation to revert' }

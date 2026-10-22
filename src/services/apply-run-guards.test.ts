@@ -224,12 +224,15 @@ describe('isLinkKind', () => {
     expect(isLinkKind('edge')).toBe(true)
   })
 
-  test('placement → true', () => {
-    expect(isLinkKind('placement')).toBe(true)
+  // `placement`/`lifecycle` were removed from the queue (task #1942): a stored
+  // row of a removed kind is refused before it reaches a writer, so it never
+  // counts toward the link cap.
+  test('placement (removed kind) → false', () => {
+    expect(isLinkKind('placement')).toBe(false)
   })
 
-  test('lifecycle → true', () => {
-    expect(isLinkKind('lifecycle')).toBe(true)
+  test('lifecycle (removed kind) → false', () => {
+    expect(isLinkKind('lifecycle')).toBe(false)
   })
 
   test('triage_activate → false', () => {
@@ -278,7 +281,7 @@ describe('checkBatchGuards — maxLinksPerRun', () => {
     const originalMaxLinks = config.triage.maxLinksPerRun
     config.triage.maxLinksPerRun = 1
     try {
-      const row = makeRow({ item_kind: 'placement', state: 'pending', run_id: RUN_ID })
+      const row = makeRow({ item_kind: 'edge', state: 'pending', run_id: RUN_ID })
       expect(checkBatchGuards([row], 1, { confirm: true, runId: RUN_ID })).toBeUndefined()
     } finally {
       config.triage.maxLinksPerRun = originalMaxLinks
@@ -313,16 +316,16 @@ describe('checkBatchGuards — maxLinksPerRun', () => {
     try {
       // First batch: 2 accepted links
       for (let i = 0; i < 2; i++) {
-        const r = makeRow({ item_kind: 'lifecycle', state: 'accepted', run_id: RUN_ID, source_thought_id: `thought-lc-acc-${i}` })
+        const r = makeRow({ item_kind: 'edge', state: 'accepted', run_id: RUN_ID, source_thought_id: `thought-lc-acc-${i}` })
         setState(r, 'accepted')
       }
       // Simulate first batch being applied: 1 pending → accepted
-      const batch1 = makeRow({ item_kind: 'lifecycle', state: 'pending', run_id: RUN_ID, source_thought_id: 'thought-lc-b1' })
+      const batch1 = makeRow({ item_kind: 'edge', state: 'pending', run_id: RUN_ID, source_thought_id: 'thought-lc-b1' })
       expect(checkBatchGuards([batch1], 1, { confirm: true, runId: RUN_ID })).toBeUndefined()
       setState(batch1, 'accepted') // simulate post-apply state
 
       // Second batch: 1 more pending → would be 4 accepted > cap 3
-      const batch2 = makeRow({ item_kind: 'placement', state: 'pending', run_id: RUN_ID, source_thought_id: 'thought-pl-b2' })
+      const batch2 = makeRow({ item_kind: 'edge', state: 'pending', run_id: RUN_ID, source_thought_id: 'thought-pl-b2' })
       const refusal = checkBatchGuards([batch2], 1, { confirm: true, runId: RUN_ID })
       expect(refusal?.code).toBe('max_links_exceeded')
     } finally {

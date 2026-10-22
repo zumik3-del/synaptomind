@@ -7,14 +7,18 @@
  * module owns that dispatch once: {@link planWriterCalls} turns a row into the
  * call(s) it implies, and each orchestrator executes that plan through the
  * writers it imports — apply forward (`createEdgeService`, `archiveThoughtByIdService`,
- * `updateThoughtByIdService`, `mergeThoughtsService`), rollback inverse
- * (`deleteEdgeService`, `updateThoughtByIdService`). Planning is pure and never touches
- * the graph, so the non-mutating dry-run reuses it unchanged.
+ * `updateThoughtByIdService`), rollback inverse (`deleteEdgeService`,
+ * `updateThoughtByIdService`). Planning is pure and never touches the graph,
+ * so the non-mutating dry-run reuses it unchanged.
+ *
+ * Since task #1942 the planner knows two kinds only: `edge` (an edge the
+ * reviewer confirms) and the two triage verdicts. The `placement`/`lifecycle`
+ * kinds were removed from the queue — a row of a removed kind has no writer
+ * action here and is refused by the orchestrators instead.
  */
 
 import type { PlacementProposalRow } from '../db/placement-proposals'
 import type { PlannedEdge } from './apply-gates'
-import type { ApplyOptions } from './placement-apply.types'
 
 /** Which way a plan runs: forward apply or inverse rollback. */
 export type WriterDirection = 'apply' | 'rollback'
@@ -25,10 +29,6 @@ export type WriterCall =
   | { writer: 'archiveThoughtByIdService'; args: { id: string } }
   | { writer: 'createEdgeService'; args: { sourceId: string; targetId: string; type: string } }
   | { writer: 'deleteEdgeService'; args: { id: string } }
-  | {
-      writer: 'mergeThoughtsService'
-      args: { sourceId: string; targetId: string; mergedContent?: string; mergedTags?: string[] }
-    }
 
 /** The apply direction never plans the rollback-only `deleteEdgeService`. */
 export type ApplyWriterCall = Exclude<WriterCall, { writer: 'deleteEdgeService' }>
@@ -59,7 +59,6 @@ export function createdEdgeId(row: PlacementProposalRow): string | undefined {
 export function planWriterCalls(
   row: PlacementProposalRow,
   direction: WriterDirection,
-  options: ApplyOptions = {},
   edge?: PlannedEdge
 ): WriterCall[] | undefined {
   if (row.item_kind === 'triage_activate' || row.item_kind === 'triage_archive') {
@@ -75,44 +74,13 @@ export function planWriterCalls(
     return [{ writer: 'archiveThoughtByIdService', args: { id: row.source_thought_id } }]
   }
 
-  if (row.item_kind === 'edge' || row.item_kind === 'placement') {
+  if (row.item_kind === 'edge') {
     if (direction === 'rollback') {
       const edgeId = createdEdgeId(row)
       return edgeId ? [{ writer: 'deleteEdgeService', args: { id: edgeId } }] : []
     }
     if (!edge) return undefined
     return [{ writer: 'createEdgeService', args: { sourceId: edge.sourceId, targetId: edge.targetId, type: edge.type } }]
-  }
-
-  if (row.item_kind === 'lifecycle' && row.lifecycle_action === 'merge') {
-    // A merge has no auto-inverse; rollback refuses it before ever planning.
-    if (direction === 'rollback' || !row.target_id) return undefined
-    return [
-      {
-        writer: 'mergeThoughtsService',
-        args: {
-          sourceId: row.source_thought_id,
-          targetId: row.target_id,
-          mergedContent: options.mergedContent,
-          mergedTags: options.mergedTags
-        }
-      }
-    ]
-  }
-
-  if (row.item_kind === 'lifecycle' && row.lifecycle_action === 'replaces+archive') {
-    if (direction === 'rollback') {
-      const calls: WriterCall[] = []
-      const edgeId = createdEdgeId(row)
-      if (edgeId) calls.push({ writer: 'deleteEdgeService', args: { id: edgeId } })
-      if (row.target_id) calls.push({ writer: 'updateThoughtByIdService', args: { id: row.target_id, status: 'active' } })
-      return calls
-    }
-    if (!edge) return undefined
-    return [
-      { writer: 'createEdgeService', args: { sourceId: edge.sourceId, targetId: edge.targetId, type: edge.type } },
-      { writer: 'archiveThoughtByIdService', args: { id: edge.targetId } }
-    ]
   }
 
   return undefined

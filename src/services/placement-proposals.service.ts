@@ -6,13 +6,11 @@
  * manages the review worklist (`list`/`reject`). It never calls a graph writer;
  * applying a queued item is R4 (`placement-apply.service.ts`).
  *
- * Mapping (ADR §2.2, §2.5):
- *  - every emitted `EdgeProposal` → one `edge` item;
- *  - the `PlacementProposal` (cluster or parent) → one `placement` item;
- *  - `merge` / `replaces+archive` → one `lifecycle` item. `keep` (nothing) and
- *    `link` (already represented by the edge items) are not queued as lifecycle.
- *  - a `replaces+archive` lifecycle **owns** its pair: the matching `replaces`
- *    edge item is not enqueued a second time.
+ * Mapping (ADR §2.2, §2.5) — since task #1942 the queue creates `edge` items
+ * only: every emitted `EdgeProposal` becomes one `edge` item. A plan's
+ * `placement` proposal and its queueable `lifecycle` action are *skipped* and
+ * reported in the enqueue outcome, so a caller learns what was dropped instead
+ * of losing it silently.
  *
  * Staleness (ADR §2.3): every row stores a `fingerprint` of the exact graph
  * snapshot an apply would touch. Re-enqueue refreshes the live row (dedup is
@@ -30,14 +28,15 @@ import {
   updateProposalState,
   type InsertProposalInput,
   type PlacementProposalRow,
-  type ProposalItemKind,
-  type ProposalState
+  type ProposalState,
+  type StoredProposalItemKind
 } from '../db/placement-proposals'
 import { getThoughtRow } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
 import { DRAFT_THOUGHT_ID, proposePlacementPlan } from './placement/engine'
 import type { PlacementPlan } from './placement/types'
 import {
+  countSkippedKinds,
   itemKey,
   mapPlan,
   pairFingerprint,
@@ -47,6 +46,20 @@ import {
 
 export { computeFingerprint, pairFingerprint } from './placement-proposals.mapping'
 export type { FingerprintInput } from './placement-proposals.mapping'
+
+/**
+ * The result of one enqueue: the queued rows plus what was *not* queued.
+ * `skipped` counts the plan items whose kind the queue no longer supports
+ * (task #1942) — `placement` and `lifecycle` — so nothing is lost silently.
+ */
+export interface EnqueueOutcome {
+  /** The queued rows — `edge` items only (task #1942). */
+  proposals: PlacementProposalRow[]
+  /** How many plan items were not queued because their kind is no longer supported. */
+  skipped: number
+  /** The skipped kinds and how many of each (`placement`, `lifecycle`). */
+  skipped_kinds: Record<string, number>
+}
 
 export interface EnqueuePlanOptions {
   /** Clock override for deterministic tests (default now). */
@@ -85,7 +98,7 @@ export interface ListOptions {
   state?: ProposalState
   projectId?: string
   /** Optional item-kind filter, e.g. `triage_activate` (ADR 2026-09-29 §2.7). */
-  itemKind?: ProposalItemKind
+  itemKind?: StoredProposalItemKind
   /** Optional source-thought filter (queued proposals of one source thought). */
   sourceThoughtId?: string
   source_thought_id?: string
@@ -104,12 +117,14 @@ export interface RejectOptions {
 }
 
 /**
- * Enqueue every confirmable item of `plan` (ADR §2.2–2.4). Re-enqueueing the
- * same item refreshes the live pending row (dedup via `insertProposal`);
- * enqueueing a *new* item while `maxPendingProposals` live rows exist throws.
- * Drafts cannot be enqueued (ADR OQ-2) — the thought must be persisted first,
- * and it must be `active`: placement is the second phase, downstream of the
- * triage verdict that activates a draft.
+ * Enqueue every confirmable item of `plan` (ADR §2.2–2.4). Only the plan's
+ * `edge` items are queued (task #1942); the items of a removed kind are
+ * reported in the outcome's `skipped` counter. Re-enqueueing the same item
+ * refreshes the live pending row (dedup via `insertProposal`); enqueueing a
+ * *new* item while `maxPendingProposals` live rows exist throws. Drafts cannot
+ * be enqueued (ADR OQ-2) — the thought must be persisted first, and it must be
+ * `active`: placement is the second phase, downstream of the triage verdict
+ * that activates a draft.
  */
 /** Resolve the per-enqueue proposal cap from options/config (first defined wins). */
 function resolveMaxProposalsPerEnqueue(options: EnqueuePlanOptions | EnqueueThoughtOptions = {}): number {
@@ -141,7 +156,7 @@ export function enqueuePlanService(
   plan: PlacementPlan,
   options: EnqueuePlanOptions = {},
   d: Database = getDb()
-): PlacementProposalRow[] {
+): EnqueueOutcome {
   const source = getThoughtRow(d, plan.thought_id)
   if (plan.thought_id === DRAFT_THOUGHT_ID || !source) {
     throw new ValidationError(
@@ -156,13 +171,16 @@ export function enqueuePlanService(
   }
 
   const now = options.now ?? new Date().toISOString()
-  const items = mapPlan(d, source, plan)
-  if (items.length === 0) return []
+  const mapped = mapPlan(d, source, plan)
+  const skipped = mapped.skipped.length
+  const skippedKinds = countSkippedKinds(mapped.skipped)
+  const items = mapped.items
+  if (items.length === 0) return { proposals: [], skipped, skipped_kinds: skippedKinds }
 
   // Reduce enqueue noise: cap the number of auto-generated proposals per enqueue.
   const maxPerEnqueue = resolveMaxProposalsPerEnqueue(options)
   const cappedItems = items.slice(0, maxPerEnqueue)
-  if (cappedItems.length === 0) return []
+  if (cappedItems.length === 0) return { proposals: [], skipped, skipped_kinds: skippedKinds }
 
   const maxPending = config.placement.maxPendingProposals
   const expiresAt = proposalExpiry(now)
@@ -219,7 +237,7 @@ export function enqueuePlanService(
     String(a.item_kind).localeCompare(String(b.item_kind)) ||
     String(a.target_id ?? '').localeCompare(String(b.target_id ?? ''))
   )
-  return rows
+  return { proposals: rows, skipped, skipped_kinds: skippedKinds }
 }
 
 /**
@@ -227,12 +245,15 @@ export function enqueuePlanService(
  * confirmable items (ADR §2.9 / R5). The surface stays thin behind this
  * service call; drafts are rejected (OQ-2) because both the engine's draft
  * sentinel and `enqueuePlanService` refuse a non-persisted source.
+ *
+ * The outcome reports the queued rows *and* the plan items that were skipped
+ * because their kind is no longer supported (task #1942).
  */
 export async function enqueueThoughtProposals(
   thoughtId: string,
   options: EnqueueThoughtOptions = {},
   d: Database = getDb()
-): Promise<PlacementProposalRow[]> {
+): Promise<EnqueueOutcome> {
   const maxPerEnqueue = resolveMaxProposalsPerEnqueue(options)
   const plan = await proposePlacementPlan(
     { thoughtId, projectId: options.projectId },
