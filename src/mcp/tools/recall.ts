@@ -150,7 +150,12 @@ export function registerMemoryRecall(server: McpServer) {
       // The list page shares the timeline's page size (src/validation.ts) so the
       // two paginated thought surfaces cannot drift apart.
       limit: timelineLimitSchema.optional().describe('Max results for search/clusters (default 10) or list page size (default 50)'),
-      offset: z.number().int().min(0).max(1_000_000).optional().describe('list: offset for pagination')
+      offset: z.number().int().min(0).max(1_000_000).optional().describe('list: offset for pagination'),
+      // Tombstones for retired parameters: a supplied value fails the advertised
+      // input validation with the canonical replacement (the same pattern as
+      // the retired is_profile input) instead of being silently stripped.
+      top_k: z.never({ error: 'top_k was removed; use limit' }).optional(),
+      cluster: z.never({ error: 'cluster was removed; use is_cluster' }).optional()
     },
     handlers
   })

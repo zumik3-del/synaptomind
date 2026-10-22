@@ -37,7 +37,7 @@ async function main() {
 
     const recall = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: MARKER, top_k: 10 }
+      arguments: { action: 'search', query: MARKER, limit: 10 }
     })
     const results = JSON.parse(text(recall).text)
 

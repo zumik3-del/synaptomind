@@ -29,7 +29,9 @@ export function registerMemoryCrystallize(server: McpServer) {
       min_age_days: z.coerce.number().int().min(0).max(3650).optional().describe('Min age in days (auto_cluster only)'),
       min_similarity: z.coerce.number().min(0).max(1).optional().describe('Min similarity threshold 0-1 (auto_cluster only)'),
       min_members: z.coerce.number().int().min(1).max(1000).optional().describe('Min members per cluster (auto_cluster only)'),
-      confirm: z.boolean().optional().describe('Set to true to create the clusters. Set to false to preview first (auto_cluster only).')
+      confirm: z.boolean().optional().describe('Set to true to create the clusters. Set to false to preview first (auto_cluster only).'),
+      // Tombstone for the retired preview flag: only confirm is advertised.
+      dry_run: z.never({ error: 'dry_run was removed; use confirm' }).optional()
     },
     handlers
   })

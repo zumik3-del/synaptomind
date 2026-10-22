@@ -50,7 +50,10 @@ export function registerMemoryReflect(server: McpServer) {
       cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
       status: thoughtStatusSchema.optional().describe('Filter by status (timeline only)'),
       limit: timelineLimitSchema.optional().describe('Max results (default 50, 1-500, timeline only)'),
-      offset: z.number().int().min(0).max(1_000_000).optional().describe('Offset for pagination (timeline only)')
+      offset: z.number().int().min(0).max(1_000_000).optional().describe('Offset for pagination (timeline only)'),
+      // Tombstone for the retired goals argument: only goals_add /
+      // goals_remove are advertised.
+      goals_delta: z.never({ error: 'goals_delta was removed; use goals_add / goals_remove' }).optional()
     },
     handlers
   })
