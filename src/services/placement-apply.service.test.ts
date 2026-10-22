@@ -461,9 +461,9 @@ describe('no-new-writer static assertion', () => {
   test('imports only the allowed existing writers, no lower-level graph modules', () => {
     const importRegex = /import\s+(?:[\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g
     const imports = [...SOURCE.matchAll(importRegex)].map(m => m[1])
-    // Explicit writers the orchestrator may call.
+    // Explicit writers the orchestrator may call. Since task #1946 `edge` is the
+    // only applicable kind, so `createEdgeService` is the only writer left.
     expect(imports).toContain('./edges.service')
-    expect(imports).toContain('./thoughts.service')
     // Read-only db helper the orchestrator still needs (queue row lookup). The
     // fingerprint snapshot reads (source/target row + pair edge) now live in
     // `placement-proposals.mapping.ts` (`pairFingerprint`), so `../db/edges` and

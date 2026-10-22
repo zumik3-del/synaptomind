@@ -11,6 +11,7 @@ import {
   getGraphStats, deleteEdges, deleteThoughts,
 } from '../db/health-check'
 import type { Database } from 'bun:sqlite'
+import { findDuplicateDrafts } from './health-check-drafts.service'
 
 export type Severity = 'critical' | 'warning' | 'info'
 
@@ -149,6 +150,9 @@ const CONTENT_CHECKS: CheckDef[] = [
   { name: 'too_short_content', severity: 'info', finder: findTooShort },
   { name: 'test_remnants', severity: 'info', finder: findTestRemnants, autofix: autofixThoughtIds },
   { name: 'stale_drafts', severity: 'info', finder: findStaleDrafts },
+  // Read-only by design: a duplicate draft needs a human merge/archive decision,
+  // so `fix=true` must never act on it (task #1946).
+  { name: 'duplicate_drafts', severity: 'warning', finder: findDuplicateDrafts },
   { name: 'untagged_thoughts', severity: 'info', finder: findUntagged },
 ]
 

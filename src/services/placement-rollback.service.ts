@@ -1,15 +1,15 @@
 /**
- * Run-scoped rollback for the explicit placement/triage apply orchestrator
+ * Run-scoped rollback for the explicit placement apply orchestrator
  * (ADR 2026-09-29 §2.8).
  *
  * The accepted rows of one `run_id` are the rollback manifest: `rollbackService`
  * iterates them in reverse application order and inverts each reversible
- * mutation through **existing** writers only (`updateThoughtByIdService`,
- * `deleteEdgeService`). Nothing is hard-deleted: a row decided outside the
- * rollback window is refused, a row of a kind the queue no longer supports
- * (`placement`/`lifecycle`, task #1942) is refused because it has no inverse
- * writer left, and a row whose stored fingerprint no longer matches the graph
- * is skipped with a warning. `confirm: false` (default) is a
+ * mutation through **existing** writers only (`deleteEdgeService`). Nothing is
+ * hard-deleted: a row decided outside the rollback window is refused, a row of a
+ * kind the queue no longer supports (`placement`/`lifecycle` from #1942, the
+ * triage verdicts from #1946) is refused because it has no inverse writer left,
+ * and a row whose stored fingerprint no longer matches the graph is skipped with
+ * a warning. `confirm: false` (default) is a
  * non-mutating dry-run report. No ambient/scheduled caller invokes this.
  */
 
@@ -27,7 +27,6 @@ import { insertLog } from '../logging/log'
 import { deleteEdgeService } from './edges.service'
 import type { RollbackItemReport, RollbackOptions, RollbackReport } from './placement-apply.types'
 import { isProposalStale } from './placement-proposals.service'
-import { updateThoughtByIdService } from './thoughts.service'
 import { parseResult, planWriterCalls } from './writer-calls'
 
 type Decision = { action: 'revert' } | { action: 'skipped' | 'refused'; reason: string }
@@ -69,7 +68,7 @@ function windowRefusal(row: PlacementProposalRow, now: string): Decision | null 
 /**
  * Read-only verdict for one accepted row (ADR §2.8): the rollback window is
  * checked first (a refusal is terminal and outranks the rest), a row of a
- * removed kind (task #1942) has no inverse writer left and is refused, an
+ * removed kind (tasks #1942, #1946) has no inverse writer left and is refused, an
  * idempotent accept mutated nothing, and a fingerprint drift means the graph
  * moved since apply — all non-revertible; everything else is revertible.
  */
@@ -98,13 +97,6 @@ function applyInverse(row: PlacementProposalRow, d: Database): void {
 
   for (const call of calls) {
     switch (call.writer) {
-      case 'updateThoughtByIdService':
-        // A triage source returns to `draft`; a `replaces+archive` target returns
-        // to `active` — the apply-time gate only admits an `active` target
-        // (`apply-gates.ts`), so restoring `draft` would silently drop it out of
-        // active recall.
-        updateThoughtByIdService(call.args.id, { status: call.args.status }, d)
-        break
       case 'deleteEdgeService':
         deleteEdgeService(call.args.id, d)
         break

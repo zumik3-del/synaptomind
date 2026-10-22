@@ -6,7 +6,7 @@
 import type { StoredProposalItemKind } from '../db/placement-proposals'
 
 /** Existing writer the orchestrator may call — never a new graph writer. */
-export type PlannedWriter = 'createEdgeService' | 'archiveThoughtByIdService' | 'updateThoughtByIdService'
+export type PlannedWriter = 'createEdgeService'
 
 /** The exact existing-service call `apply` would make (dry-run output). */
 export interface PlannedWriterCall {
@@ -30,15 +30,10 @@ export interface ApplyOptions {
   limit?: number
 }
 
-/** Why a run-scoped guard refused an explicit apply/rollback (ADR 2026-09-29 §2.7). */
+/** Why an explicit apply/rollback refused the request (ADR 2026-09-29 §2.7). */
 export type RunRefusalCode =
-  | 'run_id_required'
-  | 'dry_run_required'
   | 'limit_exceeded'
-  | 'max_items_exceeded'
-  | 'max_archives_exceeded'
-  | 'max_links_exceeded'
-  /** The row's item kind was removed from the queue (task #1942). */
+  /** The row's item kind was removed from the queue (tasks #1942, #1946). */
   | 'unsupported_item_kind'
 
 /** Typed refusal returned instead of a partial write; nothing was mutated. */
@@ -49,7 +44,7 @@ export interface RunRefusal {
 
 interface ApplyResultBase {
   proposal_id: string
-  /** The row's kind — a removed kind is possible in older installs (task #1942). */
+  /** The row's kind — a removed kind is possible in older installs (tasks #1942, #1946). */
   item_kind: StoredProposalItemKind
 }
 
@@ -84,7 +79,7 @@ export interface FailedApplyResult extends ApplyResultBase {
   reason: string
 }
 
-/** Typed refusal (missing `run_id`, cap/limit exceeded, dry-run-first). No writer ran. */
+/** Typed refusal (batch limit exceeded, removed item kind). No writer ran. */
 export interface RefusedApplyResult extends ApplyResultBase {
   status: 'refused'
   refusal: RunRefusal

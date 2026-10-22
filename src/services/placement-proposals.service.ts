@@ -97,7 +97,7 @@ export interface ListOptions {
   /** State filter; defaults to live `pending` rows (ADR §2.2). */
   state?: ProposalState
   projectId?: string
-  /** Optional item-kind filter, e.g. `triage_activate` (ADR 2026-09-29 §2.7). */
+  /** Optional item-kind filter; a removed kind still filters (tasks #1942, #1946). */
   itemKind?: StoredProposalItemKind
   /** Optional source-thought filter (queued proposals of one source thought). */
   sourceThoughtId?: string
@@ -123,8 +123,7 @@ export interface RejectOptions {
  * refreshes the live pending row (dedup via `insertProposal`); enqueueing a
  * *new* item while `maxPendingProposals` live rows exist throws. Drafts cannot
  * be enqueued (ADR OQ-2) — the thought must be persisted first, and it must be
- * `active`: placement is the second phase, downstream of the triage verdict
- * that activates a draft.
+ * `active`: a draft gets no edge proposals.
  */
 /** Resolve the per-enqueue proposal cap from options/config (first defined wins). */
 function resolveMaxProposalsPerEnqueue(options: EnqueuePlanOptions | EnqueueThoughtOptions = {}): number {
@@ -166,7 +165,7 @@ export function enqueuePlanService(
   if (source.status !== 'active') {
     throw new ValidationError(
       `cannot enqueue placement proposals for '${source.status}' thought '${source.id}'; ` +
-        'placement is the phase after triage activation, so the source must be active'
+        'only a thought with status active participates in placement'
     )
   }
 

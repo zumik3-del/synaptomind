@@ -3,29 +3,21 @@
  * §2.5–2.8 / R4).
  *
  * Thin orchestrator: it never writes the graph itself — every mutation
- * delegates to an existing writer (`createEdgeService`, `mergeThoughtsService`,
- * `archiveThoughtByIdService`, `updateThoughtByIdService`) inside the same transaction as the
- * queue-state update, so the graph and the queue cannot diverge (ADR §2.7).
- * `confirm: false` (the default) is a non-mutating dry-run; nothing
- * ambient/scheduled calls `apply`.
+ * delegates to an existing writer (`createEdgeService`) inside the same
+ * transaction as the queue-state update, so the graph and the queue cannot
+ * diverge (ADR §2.7). `confirm: false` (the default) is a non-mutating dry-run;
+ * nothing ambient/scheduled calls `apply`.
  *
  * Conflict matrix (ADR §2.6): exact/symmetric duplicate → idempotent success;
  * reverse/different-type conflict, archived target, stale fingerprint, cluster
  * over `maxClusterSize` → `stale`; profile, invalid type, cluster constraint
  * violation → typed `failed`.
  *
- * Triage kinds (`triage_activate`/`triage_archive`, ADR 2026-09-29 §2.3.4) are
- * gated in `apply-gates.ts` and applied on the *draft* source through
- * `updateThoughtByIdService`/`archiveThoughtByIdService`; the accepted row records the
- * `run_id` envelope that `rollback` (in `placement-rollback.service.ts`)
- * inverts later.
- *
- * Every row this service accepts carries such an envelope (ADR 2026-09-29
- * §2.7, §2.8): the caller's `run_id` verbatim, or — for a non-triage item the
- * caller left un-enveloped — one synthesized by `apply-run-envelope.ts` and
- * handed back, so no committed mutation is unreachable by `rollback(run_id)`.
- * Triage kinds keep requiring a caller-supplied `run_id`; `applyBatchService` shares
- * one envelope across the whole batch.
+ * Every row this service accepts carries a run envelope (ADR 2026-09-29 §2.7,
+ * §2.8): the caller's `run_id` verbatim, or — for an item the caller left
+ * un-enveloped — one synthesized by `apply-run-envelope.ts` and handed back, so
+ * no committed mutation is unreachable by `rollback(run_id)`.
+ * `applyBatchService` shares one envelope across the whole batch.
  */
 
 import type { Database } from 'bun:sqlite'
@@ -47,12 +39,10 @@ import {
 } from '../errors'
 import { insertLog } from '../logging/log'
 import { evaluateGates, plannedEdge } from './apply-gates'
-import { resolveApplyRunId, resolveBatchRunId, triageEnvelope } from './apply-run-envelope'
-import { checkBatchGuards, isTriageKind } from './apply-run-guards'
+import { resolveApplyRunId, resolveBatchRunId } from './apply-run-envelope'
 import { createEdgeService } from './edges.service'
 import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriterCall } from './placement-apply.types'
 import { pairFingerprint } from './placement-proposals.service'
-import { archiveThoughtByIdService, updateThoughtByIdService } from './thoughts.service'
 import { type ApplyWriterCall, planWriterCalls, type WriterCall } from './writer-calls'
 
 export type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriter, PlannedWriterCall, RefusedApplyResult, RunRefusal } from './placement-apply.types'
@@ -84,22 +74,12 @@ function executeWriter(row: PlacementProposalRow, d: Database): WriterRun {
   const result: Record<string, unknown> = {}
   for (const call of calls) {
     switch (call.writer) {
-      case 'updateThoughtByIdService':
-        updateThoughtByIdService(call.args.id, { status: call.args.status }, d)
-        break
-      case 'archiveThoughtByIdService':
-        archiveThoughtByIdService(call.args.id, d)
-        break
       case 'createEdgeService': {
         const created = createEdgeService(call.args.sourceId, call.args.targetId, call.args.type, d)
         result.edge_id = created.id
         break
       }
     }
-  }
-  // A triage accept records its before/after provenance envelope (ADR §2.3.4).
-  if (row.item_kind === 'triage_activate' || row.item_kind === 'triage_archive') {
-    Object.assign(result, triageEnvelope(row, row.item_kind === 'triage_archive' ? 'archived' : 'active'))
   }
   return { calls, result }
 }
@@ -179,9 +159,9 @@ export function applyProposalService(proposalId: string, options: ApplyOptions =
 
   const base = { proposal_id: proposalId, item_kind: row.item_kind }
 
-  // A row of a removed kind (task #1942) stays readable but can never be
-  // applied: the queue no longer knows how to write it. Refuse it with a typed
-  // refusal instead of letting it reach a writer.
+  // A row of a removed kind (tasks #1942, #1946) stays readable but can never
+  // be applied: the queue no longer knows how to write it. Refuse it with a
+  // typed refusal instead of letting it reach a writer.
   if (isLegacyItemKind(row.item_kind)) {
     return {
       ...base,
@@ -201,16 +181,6 @@ export function applyProposalService(proposalId: string, options: ApplyOptions =
   }
   if (row.state === 'stale') return { ...base, status: 'stale', reason: 'proposal is already stale' }
   if (row.state !== 'pending') return { ...base, status: 'failed', reason: `proposal is '${row.state}', not 'pending'` }
-
-  // A triage item is applied as part of an explicit run; without a run envelope
-  // it could never be rolled back (ADR 2026-09-29 §2.7).
-  if (options.confirm === true && isTriageKind(row.item_kind) && !options.runId) {
-    return {
-      ...base,
-      status: 'refused',
-      refusal: { code: 'run_id_required', reason: `run_id is required to apply ${row.item_kind} item '${proposalId}'` }
-    }
-  }
 
   const gate = evaluateGates(row, options, d)
 
@@ -235,9 +205,8 @@ export function applyProposalService(proposalId: string, options: ApplyOptions =
   }
 
   // The envelope every accepted row carries (ADR 2026-09-29 §2.7, §2.8), and
-  // it MUST be resolved here — past the dry-run branch and the triage refusal
-  // above — so nothing is synthesized for a preview and a synthesized id can
-  // never satisfy `run_id_required` (triage kinds keep requiring the caller's).
+  // it MUST be resolved here — past the dry-run branch — so nothing is
+  // synthesized for a preview.
   const runId = resolveApplyRunId(options)
 
   if (gate.kind === 'already_applied') return acceptIdempotent(row, now, decidedBy, runId, d)
@@ -308,16 +277,23 @@ export function applyBatchService(
 ): ApplyBatchOutcome {
   if (!Array.isArray(proposalIds)) throw new ValidationError('proposal_ids must be an array')
 
-  // Run-scoped guardrails are evaluated once, before any item runs: exceeding
-  // a cap, the batch limit, or confirming a triage run without a `run_id`
-  // refuses the whole batch instead of applying a prefix (ADR 2026-09-29 §2.7).
-  const rows = proposalIds.map(id => getProposal(d, id))
-  const refusal = checkBatchGuards(rows, proposalIds.length, options, d)
-  if (refusal) return { results: [], errors: [], refused: refusal }
+  // The caller's per-call cap is evaluated once, before any item runs: an
+  // over-long batch is refused whole instead of applying a prefix
+  // (ADR 2026-09-29 §2.7).
+  if (options.limit !== undefined && proposalIds.length > options.limit) {
+    return {
+      results: [],
+      errors: [],
+      refused: {
+        code: 'limit_exceeded',
+        reason: `batch has ${proposalIds.length} items but limit is ${options.limit}`
+      }
+    }
+  }
 
   // One envelope for the whole batch, not one per item: the batch *is* the run
-  // (ADR 2026-09-29 §2.7, §2.8). Resolved only after the guards above, which
-  // already refused any batch holding a pending triage row without a `run_id`.
+  // (ADR 2026-09-29 §2.7, §2.8).
+  const rows = proposalIds.map(id => getProposal(d, id))
   const batchRunId = resolveBatchRunId(rows, options)
 
   const results: ApplyResult[] = []
