@@ -4,8 +4,6 @@ import { ValidationError } from '../errors'
 import { parseTags } from '../utils'
 import { TIMELINE_LIMIT_DEFAULT, thoughtStatusSchema, timelineLimitSchema } from '../validation'
 import { formatZodIssues, jsonBodyOrDefault, requiredJsonBody } from './utils'
-import { runAutoLinkJob } from '../services/auto-link.service'
-import { detectEdgeProposals } from '../services/edge-detect.service'
 import { proposePlacementPlan } from '../services/placement/engine'
 import { getChainService } from '../services/graph.service'
 import {
@@ -61,8 +59,6 @@ const bulkCreateBodySchema = z.object({
   thoughts: z.array(z.unknown()).optional(),
   project_id: z.string().optional()
 })
-const autoLinkBodySchema = z.object({ dry_run: z.boolean().optional(), max_edges: z.number().int().min(1).optional() })
-const edgeDetectBodySchema = z.object({ project_id: z.string().optional(), min_similarity: z.number().finite().min(0).max(1).optional(), max_proposals: z.number().int().min(1).optional() })
 const proposeBodySchema = z.object({ thought_id: z.string().optional(), content: z.string().optional(), project_id: z.string().optional() })
 
 thoughtsRouter.get('/timeline', c => {
@@ -82,27 +78,6 @@ thoughtsRouter.get('/timeline', c => {
     offset: parsed.data.offset
   })
   return c.json(thoughts)
-})
-
-thoughtsRouter.post('/auto-link', async c => {
-  const body = await jsonBodyOrDefault<{ dry_run?: boolean; max_edges?: number }>(c, {}, autoLinkBodySchema)
-  const result = await runAutoLinkJob({ dryRun: body.dry_run ?? false, maxEdgesPerRun: body.max_edges ?? undefined })
-  return c.json(result)
-})
-
-// Read-only: returns unconfirmed `related` candidate pairs (similarity-only); never writes edges.
-thoughtsRouter.post('/edge-detect', async c => {
-  const body = await jsonBodyOrDefault<{
-    project_id?: string
-    min_similarity?: number
-    max_proposals?: number
-  }>(c, {}, edgeDetectBodySchema)
-  const result = await detectEdgeProposals({
-    projectId: body.project_id,
-    minSimilarity: body.min_similarity,
-    maxProposals: body.max_proposals
-  })
-  return c.json(result)
 })
 
 // Read-only: returns one placement/link plan for a thought (or draft); never writes.

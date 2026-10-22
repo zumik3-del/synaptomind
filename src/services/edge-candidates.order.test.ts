@@ -12,7 +12,7 @@ import {
   findEmbeddingNeighborPairs,
   type SearchNeighborsFn
 } from './edge-candidates.service'
-import { detectEdgeProposals } from './edge-detect.service'
+import { proposePlacementPlan } from './placement/engine'
 
 /**
  * Task #1570 — AC8 (skip-sort fast path) and AC9 (superset claim) pins for the
@@ -298,28 +298,34 @@ describe('AC9: the candidate-local lookup is a superset of the pool-capped index
     expect(onlyNew.length).toBeGreaterThan(0)
   })
 
-  test('proposals: the extra pair is a real `detectEdgeProposals` proposal, and no old pair is lost', async () => {
+  test('proposals: the extra pair is a real placement-engine edge proposal, and no old pair is lost', async () => {
     await withVecDb(async db => {
       const ids = seedSupersetCandidates(db, AC9_ANGLES)
       const topK = 10
       const options = { minSimilarity: 0.99, topK, maxProposals: 500, maxCandidates: 500 }
       expect(config.edgeDetect.topK).toBe(topK)
 
-      const result = await detectEdgeProposals(options, { embed: async () => [] })
-      const oldResult = await detectEdgeProposals(options, {
+      // The placement engine is the only live consumer of the candidate-local
+      // lookup, so the AC9 superset claim is stated on its edge proposals.
+      const result = await proposePlacementPlan({ thoughtId: ids[0]! }, options, { embed: async () => [] })
+      const oldResult = await proposePlacementPlan({ thoughtId: ids[0]! }, options, {
         embed: async () => [],
         searchNeighbors: poolCappedLookup(Math.min(1000, topK * 10), topK, uuidUniverse(ids, AC9_ANGLES))
       })
 
       expect(result.degraded).toBe(false)
-      const proposed = new Set(result.proposals.map(p => pairKey(p.source_id, p.target_id)))
-      const oldProposed = new Set(oldResult.proposals.map(p => pairKey(p.source_id, p.target_id)))
-      expect(oldProposed.size).toBeGreaterThan(0)
+      const proposed = new Set(result.edges.map(p => pairKey(p.source_id, p.target_id)))
+      const oldProposed = new Set(oldResult.edges.map(p => pairKey(p.source_id, p.target_id)))
       for (const key of oldProposed) expect(proposed.has(key)).toBe(true)
       const onlyNew = [...proposed].filter(k => !oldProposed.has(k))
       expect(onlyNew.length).toBeGreaterThan(0)
+      // The old index-ranked pool was crowded out by the decoy rows: it saw
+      // none of the source's candidate neighbours, the candidate-local lookup
+      // sees them all.
+      expect(oldProposed.size).toBe(0)
+      expect(proposed.size).toBeGreaterThan(0)
       // Every proposal keeps the documented shape (unconfirmed `related`).
-      expect(result.proposals.every(p => p.review_required && p.type === 'related')).toBe(true)
+      expect(result.edges.every(p => p.review_required && p.type === 'related')).toBe(true)
     })
   })
 

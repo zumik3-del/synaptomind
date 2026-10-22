@@ -86,20 +86,16 @@ describe('memory_status propose — thought_id path', () => {
     expect(text.toLowerCase()).toContain('not found')
   })
 
-  test('result shape mirrors edge_suggestions degraded shape', async () => {
+  test('result shape carries a degraded flag and an edges array', async () => {
     const id = seedThought({ content: 'shape mirror' })
-    const [plan, edges] = await Promise.all([
-      client.callTool({ name: 'memory_status', arguments: { action: 'propose', thought_id: id } }),
-      client.callTool({ name: 'memory_status', arguments: { action: 'edge_suggestions' } })
-    ])
+    const plan = await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'propose', thought_id: id }
+    })
     const planData = parseResult(plan).data
-    const edgesResult = parseResult(edges)
-    // Both surfaces carry a degraded flag.
+    // The plan carries a degraded flag and the proposed edges.
     expect(typeof planData!.degraded).toBe('boolean')
-    expect(typeof (edgesResult.data as any)?.degraded).toBe('boolean')
-    // Plan carries edges array; edge_suggestions carries proposals array.
     expect(Array.isArray(planData!.edges)).toBe(true)
-    expect(Array.isArray((edgesResult.data as any)?.proposals)).toBe(true)
   })
 })
 

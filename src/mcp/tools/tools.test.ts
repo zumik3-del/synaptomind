@@ -732,17 +732,12 @@ describe('memory_store link edge types', () => {
     expect(parseResult(result).isError).toBe(true)
   })
 
-  test('edge_suggestions action returns a detection result shape', async () => {
-    await createPair()
-    const result = await client.callTool({
-      name: 'memory_status',
-      arguments: { action: 'edge_suggestions' }
-    })
-    const { data, isError } = parseResult(result)
-    expect(isError).toBe(false)
-    expect(Array.isArray(data.proposals)).toBe(true)
-    expect(typeof data.candidates).toBe('number')
-    expect(typeof data.degraded).toBe('boolean')
+  test('the removed edge_suggestions action is no longer advertised', async () => {
+    const { tools } = await client.listTools()
+    const status = tools.find(t => t.name === 'memory_status')
+    expect(status).toBeDefined()
+    const schema = status!.inputSchema as Record<string, any>
+    expect(schema.properties.action.enum).not.toContain('edge_suggestions')
   })
 })
 
