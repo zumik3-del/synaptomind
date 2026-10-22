@@ -7,6 +7,7 @@ import { registerActionTool } from './action-tool'
 import { createHandler } from './store/create'
 import { updateHandler } from './store/update'
 import { linkHandler } from './store/link'
+import { linkBatchHandler } from './store/link-batch'
 import { unlinkHandler } from './store/unlink'
 import { retypeHandler } from './store/retype'
 
@@ -14,6 +15,7 @@ const handlers = {
   create: createHandler,
   update: updateHandler,
   link: linkHandler,
+  link_batch: linkBatchHandler,
   unlink: unlinkHandler,
   retype: retypeHandler
 }
@@ -21,9 +23,9 @@ const handlers = {
 export function registerMemoryStore(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_store',
-    description: `Store and modify thoughts. Actions: create, update (tags merge by default; tags_mode=replace to overwrite), link, unlink (dry-run), retype (dry-run; returns old/new edge id).`,
+    description: `Store and modify thoughts. Actions: create, update (tags merge by default; tags_mode=replace to overwrite), link, link_batch (one transaction, per-item results), unlink (dry-run), retype (dry-run; returns old/new edge id).`,
     inputSchema: {
-      action: z.enum(['create', 'update', 'link', 'unlink', 'retype']).describe('The specific action to perform. This dictates which other parameters are required.'),
+      action: z.enum(['create', 'update', 'link', 'link_batch', 'unlink', 'retype']).describe('The specific action to perform. This dictates which other parameters are required.'),
       content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". Ignored for "link", "unlink", "retype". Recommended soft limit: ${getAdvertisedSoftLimitService()} chars.`),
       tags: z.array(z.string()).optional().describe('Tags (update merges with existing tags by default; use tags_mode=replace to overwrite the whole tag set)'),
       tags_mode: z.enum(['replace', 'merge']).optional().describe('update only: how to apply `tags` — "merge" (default) unions with existing tags, "replace" overwrites the whole tag set'),
@@ -37,6 +39,10 @@ export function registerMemoryStore(server: McpServer) {
       url_links: z.array(z.object({ text: z.string(), url: z.string() })).optional().describe('URL links (for create)'),
       thought_id: z.string().optional().describe('REQUIRED for "update", "link". IGNORED for "create", "unlink", "retype".'),
       target_id: z.string().optional().describe('REQUIRED ONLY for "link". IGNORED for all other actions.'),
+      links: z
+        .array(z.object({ source: z.string(), target: z.string(), type: z.enum(EDGE_TYPES).optional() }))
+        .optional()
+        .describe('REQUIRED ONLY for "link_batch". Edges to create as {source, target, type?} pairs (1-1000); partial failures are reported per item. IGNORED for all other actions.'),
       edge_type: z.enum(EDGE_TYPES).optional().describe('Edge type (default: related)'),
       edge_id: z.string().optional().describe('REQUIRED for "unlink" and "retype". The edge to modify.'),
       new_type: z.enum(EDGE_TYPES).optional().describe('REQUIRED for "retype". The new edge type.'),

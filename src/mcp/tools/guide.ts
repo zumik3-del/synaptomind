@@ -25,8 +25,8 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 | Tool | Actions |
 |---|---|
 | memory_recall | search, get, context, chain, clusters |
-| memory_store | create, update, link, unlink, retype |
-| memory_supersede | archive, merge |
+| memory_store | create, update, link, link_batch, unlink, retype |
+| memory_supersede | archive, archive_batch, merge |
 | memory_status | slots, frontier, config, health, propose, cleanup |
 | memory_manage | list, create, update, delete, resolve |
 | memory_review | enqueue, list, apply, apply_batch, rollback, reject |
@@ -44,6 +44,7 @@ Tags: update merges by default; pass tags_mode=replace to overwrite the whole se
 related (default, idempotent), parent, develops, replaces (target blocked in frontier), contradicts (symmetric), supports (directed), cluster, references, depends_on.
 No self-loops; one type per pair; cluster edges strict; a retype upgrades a related edge in place.
 unlink and retype are dry-run first, then confirm=true. No cascade.
+link_batch creates up to 1000 edges in one transaction and reports per item as {linked, failed, errors[]}; archive_batch (memory_supersede) reports {archived, failed, errors[]}.
 
 ## Search
 Modes: hybrid (default, RRF), vector, BM25. Filters: status, project, tag, cluster (only/exclude), min importance.
