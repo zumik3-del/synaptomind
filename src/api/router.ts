@@ -3,7 +3,6 @@ import { getHealthService } from '../services/health.service'
 import { authMiddleware } from '../middleware/auth'
 import { apiRateLimitMiddleware } from '../middleware/rate-limit'
 import { errorHandler } from './error-handler'
-import { autoClusterRouter } from './auto-cluster'
 import { clusterRouter } from './cluster'
 import { frontierRouter } from './frontier'
 import { graphRouter } from './graph'
@@ -11,9 +10,7 @@ import { linksRouter } from './links'
 import { primersRouter } from './primers'
 import { proposalsRouter } from './proposals'
 import { projectsRouter } from './projects'
-import { settingsRouter } from './settings'
 import { slotsRouter } from './slots'
-import { statsRouter } from './stats'
 import { tagsRouter } from './tags'
 import { thoughtsRouter } from './thoughts'
 import { healthCheckRouter } from './health-check'
@@ -40,11 +37,8 @@ export function createApp(): Hono {
   app.route('/api', clusterRouter)
   app.route('/api/projects', projectsRouter)
   app.route('/api/primers', primersRouter)
-  app.route('/api', settingsRouter)
-  app.route('/api', statsRouter)
   app.route('/api/slots', slotsRouter)
   app.route('/api/frontier', frontierRouter)
-  app.route('/api', autoClusterRouter)
   app.route('/api', healthCheckRouter)
   app.route('/api/proposals', proposalsRouter)
 

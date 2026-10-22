@@ -1,6 +1,6 @@
 import { config } from '../config'
 import { getDb } from '../db'
-import { getLastJobRun, recordJobRun } from '../db/meta'
+import { recordJobRun } from '../db/meta'
 import { type ClusterCandidate, listClusterCandidates } from '../db/thoughts'
 import { generateEmbeddings } from '../embedder/client'
 import { insertLog } from '../logging/log'
@@ -112,10 +112,6 @@ const defaultSearchNeighbors = (
 
 function recordRun(result: AutoClusterResult, db: Database): void {
   recordJobRun(db, 'last_auto_cluster', result)
-}
-
-export function getLastAutoClusterStatus(d: Database = getDb()): { last_run: string | null; result: AutoClusterResult | null } {
-  return getLastJobRun<AutoClusterResult>(d, 'last_auto_cluster')
 }
 
 /**

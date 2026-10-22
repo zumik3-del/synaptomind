@@ -4,7 +4,7 @@ import { closeDb } from '../db/init'
 import * as searchDb from '../db/search'
 import * as vectorSearchDb from '../db/search-vector'
 import { config, DEFAULTS } from '../config'
-import { findComponents, generateClusterTitle, groupCandidates, getLastAutoClusterStatus, runAutoClusterJob } from './auto-cluster.service'
+import { findComponents, generateClusterTitle, groupCandidates, runAutoClusterJob } from './auto-cluster.service'
 import type { ClusterCandidate } from '../db/thoughts'
 import { getDb } from '../db/container'
 
@@ -88,10 +88,6 @@ test('runAutoClusterJob dry run does not create clusters', async () => {
   const result = await runAutoClusterJob({ dryRun: true, minAgeDays: 0 })
   expect(result.dry_run).toBeTrue()
   expect(result.clusters_created).toBe(0)
-})
-
-test('getLastAutoClusterStatus returns null before any run', () => {
-  expect(getLastAutoClusterStatus().last_run).toBeNull()
 })
 
 // ── runAutoClusterJob with injected embed + searchNeighbors ───────────────────
