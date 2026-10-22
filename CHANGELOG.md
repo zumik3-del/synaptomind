@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.16.0
+
+> October 22, 2026
+
+- [`2b202c7`](https://github.com/zumik3-del/synaptomind/commit/2b202c7f3cdd378c3af09b3772665210f88723e2): test: pin the pruned surface found by the batch verification (task #1953)
+- [`bf6c5b3`](https://github.com/zumik3-del/synaptomind/commit/bf6c5b363c667a63431c2c28baf219111e3f1e89): docs: sync README, docs and memory_guide with the pruned surface (task #1952)
+- [`fbc187d`](https://github.com/zumik3-del/synaptomind/commit/fbc187deeb20eba112e9d9047103b81c8beac67c): test: pin duplicate_drafts, the batch and run refusals and legacy triage apply (task #1962)
+- [`31a7b6d`](https://github.com/zumik3-del/synaptomind/commit/31a7b6d33692b8bbc92bb1249d26c56963249fe2): fix(apply): restore the per-run edge cap (task #1961)
+- [`bc365a8`](https://github.com/zumik3-del/synaptomind/commit/bc365a87331a5bcde528309ed2806421216bcb34): refactor(config): remove the config surface left dead by the pruning batch (task #1951)
+- [`dbc7001`](https://github.com/zumik3-del/synaptomind/commit/dbc700108f3c373ada995ebfdb1dadd2a34eb102): refactor(triage): retire the triage subsystem in favour of a duplicate_drafts finding (task #1946)
+- [`fe927a6`](https://github.com/zumik3-del/synaptomind/commit/fe927a646dacf7a4c4848ad79325df62be0cc32c): refactor(search): always include global thoughts and drop the include_global toggle (task #1954)
+- [`c20693d`](https://github.com/zumik3-del/synaptomind/commit/c20693dc485e7e965caf80b35dc6fe2192c97b5a): test(ttl): pin the disabled archived-TTL direction (task #1957)
+- [`ef2c5e5`](https://github.com/zumik3-del/synaptomind/commit/ef2c5e54c6d3deaab652ea960a3c28fdf099ba8c): refactor(api): remove HTTP-only admin and duplicate endpoints (task #1940)
+- [`8badaaf`](https://github.com/zumik3-del/synaptomind/commit/8badaaf7d6d158b077b58fd2b38118dc7c060334): fix(ttl): disable archived-thought deletion for a zero or negative TTL (task #1960)
+- [`fb380f9`](https://github.com/zumik3-del/synaptomind/commit/fb380f9d0f39a80b17f4a883ff757b5202d17202): refactor(review): shrink the placement queue to the live item kinds (task #1942)
+- [`57782c1`](https://github.com/zumik3-del/synaptomind/commit/57782c1ad6560c266e6d1a6cf7a8763526be3132): refactor(memory): drop cluster_remove and cluster_dissolve actions (task #1938)
+- [`8e3a8bd`](https://github.com/zumik3-del/synaptomind/commit/8e3a8bd8fa19481044ca2a200dc2ef214ea11fdd): ci: drop the per-PR Docker build job (task #1955)
+- [`78d7ce6`](https://github.com/zumik3-del/synaptomind/commit/78d7ce612177f172d3cc8aafa91c34dbb09f508a): refactor(memory): retire the profile/persona surface (task #1939)
+- [`03db3d5`](https://github.com/zumik3-del/synaptomind/commit/03db3d582c45087f9fec315217b3f16ccac90465): refactor(db): drop thought_verify and retired tombstones (task #1941)
+- [`94f5f74`](https://github.com/zumik3-del/synaptomind/commit/94f5f7468a6722e640953f897f6640667c53a675): refactor(decay): remove the unreachable auto-archive branch (task #1943)
+- [`a984738`](https://github.com/zumik3-del/synaptomind/commit/a984738c4b2ef5bc247c706fe50f2629e4857464): refactor(memory): remove the auto-link and edge-detect surfaces (task #1937)
+- [`1778928`](https://github.com/zumik3-del/synaptomind/commit/1778928dc2c5f6f06a6893fbc600538c5fa9e925): fix(ttl): make archived-thought TTL deletion opt-in (task #1944)
+- [`7c383d7`](https://github.com/zumik3-del/synaptomind/commit/7c383d735c604a19db687a7d4d1277d95cfed3e9): test: resolve vec0.so from the main checkout in a fresh worktree (task #1935)
+
 ## v0.15.0
 
 > October 22, 2026
