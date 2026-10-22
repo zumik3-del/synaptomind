@@ -1,20 +1,19 @@
 /**
  * Shared writer-call planner for the explicit placement apply/rollback
- * orchestrators (ADR 2026-09-28 P8 §2.5–2.6; ADR 2026-09-29 §2.7–2.8).
+ * orchestrators (ADR 2026-09-28 P8 §2.5–2.6).
  *
  * Apply (forward) and rollback (inverse) both dispatch on a proposal row's
  * `item_kind` to the same small set of existing writers, in the same order. This
  * module owns that dispatch once: {@link planWriterCalls} turns a row into the
  * call(s) it implies, and each orchestrator executes that plan through the
- * writers it imports — apply forward (`createEdgeService`, `archiveThoughtByIdService`,
- * `updateThoughtByIdService`), rollback inverse (`deleteEdgeService`,
- * `updateThoughtByIdService`). Planning is pure and never touches the graph,
- * so the non-mutating dry-run reuses it unchanged.
+ * writers it imports — apply forward (`createEdgeService`), rollback inverse
+ * (`deleteEdgeService`). Planning is pure and never touches the graph, so the
+ * non-mutating dry-run reuses it unchanged.
  *
- * Since task #1942 the planner knows two kinds only: `edge` (an edge the
- * reviewer confirms) and the two triage verdicts. The `placement`/`lifecycle`
- * kinds were removed from the queue — a row of a removed kind has no writer
- * action here and is refused by the orchestrators instead.
+ * Since task #1946 `edge` is the only live kind: every other kind was removed
+ * from the queue (`placement`/`lifecycle` in #1942, the two triage verdicts in
+ * #1946) and a row of a removed kind has no writer action here — the
+ * orchestrators refuse it instead.
  */
 
 import type { PlacementProposalRow } from '../db/placement-proposals'
@@ -25,8 +24,6 @@ export type WriterDirection = 'apply' | 'rollback'
 
 /** A planned existing-writer invocation; rollback adds the inverse-only `deleteEdgeService`. */
 export type WriterCall =
-  | { writer: 'updateThoughtByIdService'; args: { id: string; status: 'active' | 'draft' } }
-  | { writer: 'archiveThoughtByIdService'; args: { id: string } }
   | { writer: 'createEdgeService'; args: { sourceId: string; targetId: string; type: string } }
   | { writer: 'deleteEdgeService'; args: { id: string } }
 
@@ -61,19 +58,6 @@ export function planWriterCalls(
   direction: WriterDirection,
   edge?: PlannedEdge
 ): WriterCall[] | undefined {
-  if (row.item_kind === 'triage_activate' || row.item_kind === 'triage_archive') {
-    // Rollback always returns a triage source to `draft`; forward activation
-    // updates the status while forward archiving goes through `archiveThoughtByIdService`
-    // (which also stamps `archived_at`).
-    if (direction === 'rollback') {
-      return [{ writer: 'updateThoughtByIdService', args: { id: row.source_thought_id, status: 'draft' } }]
-    }
-    if (row.item_kind === 'triage_activate') {
-      return [{ writer: 'updateThoughtByIdService', args: { id: row.source_thought_id, status: 'active' } }]
-    }
-    return [{ writer: 'archiveThoughtByIdService', args: { id: row.source_thought_id } }]
-  }
-
   if (row.item_kind === 'edge') {
     if (direction === 'rollback') {
       const edgeId = createdEdgeId(row)

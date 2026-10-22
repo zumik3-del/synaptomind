@@ -17,9 +17,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { closeDb, getDb } from '../db'
+import { getEdgePairBetween } from '../db/edges'
 import { getThoughtRow } from '../db/thoughts'
 import { createTestDb, seedThought } from '../test/helpers'
-import { assertAccepted, insertPendingTriage, NOW, NOW_LATER, RUN_ID } from '../test/triage-apply-helpers'
+import { assertAccepted, insertPendingEdge, NOW, NOW_LATER, PAST, RUN_ID } from '../test/proposal-apply-helpers'
 
 // The real module first, so the spy re-exports everything except the writer.
 const realLog = await import('../logging/log')
@@ -72,18 +73,26 @@ function cutoffFor(now: string, ttlDays = config.placement.proposalTtlDays): str
   return new Date(Date.parse(now) - ttlDays * DAY_MS).toISOString()
 }
 
-/** Apply a triage row at `NOW` under `RUN_ID`, then return its accepted row id. */
-function acceptedRow(
-  db: Database,
-  itemKind: 'triage_activate' | 'triage_archive',
-  sourceId: string,
-  targetId: string | null = null
-): string {
-  const row = insertPendingTriage(db, itemKind, sourceId, targetId)
+interface AcceptedEdge {
+  rowId: string
+  source: string
+  target: string
+}
+
+/** Accept one `edge` row between a fresh active pair at `NOW`; returns its id and ends. */
+function acceptedRow(db: Database, id: string): AcceptedEdge {
+  const source = seedThought({ id: `${id}-s`, content: `${id} source content`, status: 'active', created_at: NOW })
+  const target = seedThought({ id: `${id}-t`, content: `${id} target content`, status: 'active', created_at: PAST })
+  const row = insertPendingEdge(db, source, target, 'related')
   const out = applyProposalService(row.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
   expect(out.status).toBe('accepted')
   assertAccepted(db, row.id)
-  return row.id
+  return { rowId: row.id, source, target }
+}
+
+/** Does the accepted edge still exist in the graph? */
+function edgeHeld(db: Database, pair: AcceptedEdge): boolean {
+  return getEdgePairBetween(db, pair.source, pair.target) !== null
 }
 
 /** Age an accepted row in place (see placement-rollback.service.test.ts:74). */
@@ -111,9 +120,8 @@ function thoughtIds(db: Database): string[] {
 describe('F-14 AC-7: the window refusal is announced exactly once', () => {
   test('a confirm-time refusal emits exactly one placement warning naming the cutoff', () => {
     const db = getDb()
-    const source = seedThought({ id: 'f14-7-w-s', content: 'warned refusal src', status: 'draft', created_at: NOW })
-    const rowId = acceptedRow(db, 'triage_activate', source)
-    setDecidedAt(db, rowId, ANCIENT)
+    const pair = acceptedRow(db, 'f14-7-w')
+    setDecidedAt(db, pair.rowId, ANCIENT)
     clearLogs()
 
     const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
@@ -135,24 +143,21 @@ describe('F-14 AC-7: the window refusal is announced exactly once', () => {
     expect(warning!.message).toContain(`${DEFAULT_TTL_DAYS}d`)
     expect(warning!.message).toContain(`cutoff ${cutoffFor(NOW_LATER)}`)
     // and identifies the row it is about
-    expect(warning!.message).toContain(rowId)
+    expect(warning!.message).toContain(pair.rowId)
     expect(warning!.metadata).toEqual({
-      proposal_id: rowId,
+      proposal_id: pair.rowId,
       run_id: RUN_ID,
-      item_kind: 'triage_activate'
+      item_kind: 'edge'
     })
   })
 
   test('the count tracks refusals: one warning per refused row, none for a revert', () => {
     const db = getDb()
-    const fresh = seedThought({ id: 'f14-7-mix-fresh', content: 'mixed in window src', status: 'draft', created_at: NOW })
-    const first = seedThought({ id: 'f14-7-mix-a', content: 'mixed old one', status: 'draft', created_at: NOW })
-    const second = seedThought({ id: 'f14-7-mix-b', content: 'mixed old two', status: 'draft', created_at: NOW })
-    const freshRow = acceptedRow(db, 'triage_activate', fresh)
-    const firstRow = acceptedRow(db, 'triage_activate', first)
-    const secondRow = acceptedRow(db, 'triage_activate', second)
-    setDecidedAt(db, firstRow, ANCIENT)
-    setDecidedAt(db, secondRow, ANCIENT)
+    const fresh = acceptedRow(db, 'f14-7-mix-fresh')
+    const first = acceptedRow(db, 'f14-7-mix-a')
+    const second = acceptedRow(db, 'f14-7-mix-b')
+    setDecidedAt(db, first.rowId, ANCIENT)
+    setDecidedAt(db, second.rowId, ANCIENT)
     clearLogs()
 
     const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
@@ -162,21 +167,20 @@ describe('F-14 AC-7: the window refusal is announced exactly once', () => {
     expect(warnings).toHaveLength(2)
     // one warning per refused row, and each names its own row
     const named = new Set(warnings.map(w => w.metadata?.proposal_id))
-    expect(named).toEqual(new Set([firstRow, secondRow]))
+    expect(named).toEqual(new Set([first.rowId, second.rowId]))
     // the reverted row is announced as info, never as a warning
-    expect(warnings.some(w => w.message.includes(freshRow))).toBe(false)
+    expect(warnings.some(w => w.message.includes(fresh.rowId))).toBe(false)
     const infos = placementLogs('info')
     expect(infos).toHaveLength(1)
-    expect(infos[0]!.metadata?.proposal_id).toBe(freshRow)
+    expect(infos[0]!.metadata?.proposal_id).toBe(fresh.rowId)
     // three rows, three lines: nothing extra is emitted
     expect(calls).toHaveLength(3)
   })
 
   test('a dry-run refusal is not announced — the warning is confirm-gated', () => {
     const db = getDb()
-    const source = seedThought({ id: 'f14-7-dry-s', content: 'dry run refusal src', status: 'draft', created_at: NOW })
-    const rowId = acceptedRow(db, 'triage_activate', source)
-    setDecidedAt(db, rowId, ANCIENT)
+    const pair = acceptedRow(db, 'f14-7-dry')
+    setDecidedAt(db, pair.rowId, ANCIENT)
     clearLogs()
 
     const report = rollbackService(RUN_ID, { confirm: false, now: NOW_LATER }, db)
@@ -192,43 +196,41 @@ describe('F-14 AC-7: the window refusal is announced exactly once', () => {
 // ── AC-F14-7: a refusal never hard-deletes a thought ─────────────────────────
 
 describe('F-14 AC-7: the refusal path never hard-deletes a thought', () => {
-  test('the source thought of a refused row survives, still activated', () => {
+  test('the source thought of a refused row survives, still active', () => {
     const db = getDb()
-    const source = seedThought({ id: 'f14-7-del-s', content: 'refused source src', status: 'draft', created_at: NOW })
-    const rowId = acceptedRow(db, 'triage_activate', source)
-    setDecidedAt(db, rowId, ANCIENT)
+    const pair = acceptedRow(db, 'f14-7-del')
+    setDecidedAt(db, pair.rowId, ANCIENT)
     const idsBefore = thoughtIds(db)
     clearLogs()
 
     rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     // the row is still readable by id, not a tombstone
-    const row = getThoughtRow(db, source)
+    const row = getThoughtRow(db, pair.source)
     expect(row).not.toBeNull()
     expect(row!.status).toBe('active')
     // and nothing was dropped from the table
     expect(thoughtIds(db)).toEqual(idsBefore)
-    assertAccepted(db, rowId)
+    assertAccepted(db, pair.rowId)
+    expect(edgeHeld(db, pair)).toBe(true)
   })
 
   test('a mixed run reverts and refuses without losing any thought row', () => {
     const db = getDb()
-    const fresh = seedThought({ id: 'f14-7-mix2-fresh', content: 'mixed2 in window src', status: 'draft', created_at: NOW })
-    const old = seedThought({ id: 'f14-7-mix2-old', content: 'mixed2 out of window src', status: 'draft', created_at: NOW })
-    const freshRow = acceptedRow(db, 'triage_activate', fresh)
-    const oldRow = acceptedRow(db, 'triage_activate', old)
-    setDecidedAt(db, oldRow, ANCIENT)
+    const fresh = acceptedRow(db, 'f14-7-mix2-fresh')
+    const old = acceptedRow(db, 'f14-7-mix2-old')
+    setDecidedAt(db, old.rowId, ANCIENT)
     const idsBefore = thoughtIds(db)
     clearLogs()
 
     const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 1 })
-    // the inverse writer only ever moves `status` back — the id set is stable
+    // the inverse writer only ever deletes the edge it created — the id set is stable
     expect(thoughtIds(db)).toEqual(idsBefore)
-    expect(getThoughtRow(db, fresh)!.status).toBe('draft')
-    expect(getThoughtRow(db, old)!.status).toBe('active')
+    expect(edgeHeld(db, fresh)).toBe(false)
+    expect(edgeHeld(db, old)).toBe(true)
     expect(placementLogs('warning')).toHaveLength(1)
-    expect(freshRow).not.toBe(oldRow)
+    expect(fresh.rowId).not.toBe(old.rowId)
   })
 })

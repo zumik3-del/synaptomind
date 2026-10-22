@@ -1,9 +1,7 @@
 /**
  * Read-only staleness + state gates for the explicit apply orchestrator
- * (ADR 2026-09-28 §2.3/§2.6/§2.10.5, ADR 2026-09-29 §2.3.4).
+ * (ADR 2026-09-28 §2.3/§2.6/§2.10.5).
  *
- * Extracted from `placement-apply.service.ts` so that orchestrator stays under
- * the project's 350-line file convention once the triage branch was added.
  * Pure reads only — none of these functions touches the graph, so they also
  * serve the non-mutating dry-run.
  */
@@ -20,7 +18,6 @@ import type { PlacementProposalRow } from '../db/placement-proposals'
 import { getThoughtRow } from '../db/thoughts'
 import type { ApplyOptions } from './placement-apply.types'
 import { isProposalStale } from './placement-proposals.service'
-import { isScheduledReminder } from './triage.service'
 
 /** The (source, target, type) an edge-creating item would write, if any. */
 export interface PlannedEdge {
@@ -60,32 +57,6 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
   if (!source) return { kind: 'stale', reason: 'source thought no longer exists' }
   const target = row.target_id ? getThoughtRow(d, row.target_id) : undefined
   if (row.target_id && !target) return { kind: 'stale', reason: 'target thought no longer exists' }
-
-  // Triage kinds mutate a *draft* source, so they must be gated before the
-  // active-source gate below, which would wrongly refuse every draft
-  // (ADR 2026-09-29 §2.3.4).
-  if (row.item_kind === 'triage_activate' || row.item_kind === 'triage_archive') {
-    const archive = row.item_kind === 'triage_archive'
-    if (source.is_cluster || source.is_profile) return { kind: 'failed', reason: 'cluster/profile thoughts cannot be triaged' }
-    // An `archive` verdict exists because a live duplicate was found, so a row
-    // without one is malformed: archiving here would drop a draft with no
-    // verified near-duplicate behind it (ADR 2026-09-29 §2.3.4).
-    if (archive && !row.target_id) return { kind: 'failed', reason: 'triage_archive item has no duplicate target' }
-    if (archive && source.status === 'archived') return { kind: 'already_applied' }
-    if (source.status !== 'draft') {
-      if (!archive && source.status === 'active') return { kind: 'already_applied' }
-      return { kind: 'stale', reason: `source is '${source.status}', not draft` }
-    }
-    if (isScheduledReminder(source, now)) {
-      return { kind: 'stale', reason: 'source became a scheduled reminder since enqueue' }
-    }
-    if (archive) {
-      if (target?.status === 'archived') return { kind: 'stale', reason: 'the target duplicate is archived' }
-      if (target && target.status !== 'active') return { kind: 'stale', reason: `target is '${target.status}', not active` }
-    }
-    if (isProposalStale(row, d)) return { kind: 'stale', reason: 'the graph changed since the proposal was enqueued' }
-    return { kind: 'ok' }
-  }
 
   const edge = plannedEdge(row)
   if (edge && !isValidEdgeType(edge.type)) return { kind: 'failed', reason: `invalid edge type '${edge.type}'` }

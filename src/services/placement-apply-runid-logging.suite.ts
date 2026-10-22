@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { closeDb, getDb } from '../db'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { insertPendingEdge, insertPendingTriage, NOW } from '../test/triage-apply-helpers'
+import { insertPendingEdge, NOW } from '../test/proposal-apply-helpers'
 // Type-only, so it is erased at compile time and cannot defeat the mock.module below.
 import type { ApplyResult } from './placement-apply.types'
 
@@ -236,24 +236,6 @@ describe('AC-F28-8: a batch logs one shared envelope for every item', () => {
 // ── AC-F28-8 negatives: a non-accepting outcome files no envelope ──────────────
 
 describe('AC-F28-8: refusals and previews log no run envelope', () => {
-  test('a triage confirm without a caller run_id logs nothing at all', () => {
-    const db = getDb()
-    // Liveness first: this test is a "nothing happened" assertion.
-    expectSpyLive(db, 'log6-witness')
-    const source = seedThought({ id: 'log6-src', content: 'draft src', status: 'draft', created_at: NOW })
-    const row = insertPendingTriage(db, 'triage_activate', source)
-
-    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
-
-    expect(out.status).toBe('refused')
-    expect((out as { refusal: { code: string } }).refusal.code).toBe('run_id_required')
-    // Not "a line with run_id: null" — no line: nothing joined a run, so
-    // announcing one would point a reader at a manifest that does not exist.
-    expect(runIdLogs()).toHaveLength(0)
-    expect(placementLogs()).toHaveLength(0)
-    expect(calls).toHaveLength(0)
-  })
-
   test('a dry-run logs nothing, so a preview cannot be mistaken for a commit', () => {
     const db = getDb()
     // Liveness first: this test is a "nothing happened" assertion.

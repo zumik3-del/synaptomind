@@ -3,7 +3,9 @@ import { createTestDb, seedThought } from '../test/helpers'
 import { getDb } from './container'
 import { closeDb, initDb } from './init'
 import {
+  getProposal,
   insertProposal,
+  listProposals,
   listProposalsByRun,
   type InsertProposalInput,
   updateProposalState,
@@ -161,26 +163,37 @@ test('v041: updateProposalState with explicit null run_id preserves existing val
   expect(updated!.run_id).toBe('run-preserves')
 })
 
-// ── new ProposalItemKind values round-trip ───────────────────────────────────
+// ── a retired item kind stays readable, with no migration ────────────────────
 
-test('v041: triage_activate kind round-trips through insert/list', () => {
-  const db = getDb()
-  const row = insertProposal(db, makeInput({ item_kind: 'triage_activate' }))
-  expect(row.item_kind).toBe('triage_activate')
-  const found = db
-    .prepare("SELECT item_kind FROM placement_proposals WHERE id = ?")
-    .get(row.id) as { item_kind: string }
-  expect(found.item_kind).toBe('triage_activate')
+/** Insert a row of a kind the queue no longer creates, exactly as an old install stored it. */
+function insertRetiredKind(id: string, itemKind: string, source: string): void {
+  getDb()
+    .prepare(`
+      INSERT INTO placement_proposals
+        (id, project_id, source_thought_id, item_kind, target_id, edge_type, lifecycle_action, direction,
+         confidence, rationale, rule_id, payload, fingerprint, state, created_at)
+      VALUES (?, 'default', ?, ?, null, null, null, null, 0.5, 'retired kind', null, '{}', 'fp-old', 'accepted', ?)
+    `)
+    .run(id, source, itemKind, '2026-01-01T00:00:00.000Z')
+}
+
+test('v041: a retired triage_activate row stays readable without a migration', () => {
+  const source = seedThought()
+  insertRetiredKind('retired-activate', 'triage_activate', source)
+
+  const row = getProposal(getDb(), 'retired-activate')
+  expect(row!.item_kind).toBe('triage_activate')
+  // and it is listed with the other rows, so an operator can still see it
+  expect(listProposals(getDb(), { state: 'accepted' }).map(r => r.id)).toEqual(['retired-activate'])
 })
 
-test('v041: triage_archive kind round-trips through insert/list', () => {
-  const db = getDb()
-  const row = insertProposal(db, makeInput({ item_kind: 'triage_archive' }))
-  expect(row.item_kind).toBe('triage_archive')
-  const found = db
-    .prepare("SELECT item_kind FROM placement_proposals WHERE id = ?")
-    .get(row.id) as { item_kind: string }
-  expect(found.item_kind).toBe('triage_archive')
+test('v041: a retired triage_archive row stays readable without a migration', () => {
+  const source = seedThought()
+  insertRetiredKind('retired-archive', 'triage_archive', source)
+
+  const row = getProposal(getDb(), 'retired-archive')
+  expect(row!.item_kind).toBe('triage_archive')
+  expect(listProposals(getDb(), { state: 'accepted', item_kind: 'triage_archive' }).map(r => r.id)).toEqual(['retired-archive'])
 })
 
 // ── new ProposalState value round-trips ──────────────────────────────────────

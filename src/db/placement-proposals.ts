@@ -1,29 +1,27 @@
 import type { Database } from 'bun:sqlite'
-import { getThoughtRow, type Thought } from './thoughts'
 
 /**
- * Item classes the queue creates and applies (ADR §2.1). `triage_activate` /
- * `triage_archive` are the deterministic draft-triage verdicts (ADR 2026-09-29 §2.2).
- *
- * `placement` and `lifecycle` were removed in task #1942: they never occurred
- * in production, so the queue now handles `edge` proposals (plus the triage
- * verdicts) only.
+ * Item classes the queue creates and applies (ADR §2.1). `edge` is the only
+ * live kind: `placement`/`lifecycle` were removed in task #1942 and the
+ * deterministic draft-triage verdicts (`triage_activate`/`triage_archive`) in
+ * task #1946, none of which production used enough to justify the machinery.
  */
-export type ProposalItemKind = 'edge' | 'triage_activate' | 'triage_archive'
+export type ProposalItemKind = 'edge'
 
 /**
- * Item kinds the queue no longer creates (task #1942). Rows of these kinds may
- * still exist in installs upgraded from an older version: they stay readable
- * (their state is shown in `list`) but can never be applied or rolled back.
+ * Item kinds the queue no longer creates (tasks #1942, #1946). Rows of these
+ * kinds may still exist in installs upgraded from an older version: they stay
+ * readable (their state is shown in `list`) but can never be applied or rolled
+ * back.
  */
-export type LegacyProposalItemKind = 'placement' | 'lifecycle'
+export type LegacyProposalItemKind = 'placement' | 'lifecycle' | 'triage_activate' | 'triage_archive'
 
 /** Every kind a stored row can carry — the live kinds plus the removed ones. */
 export type StoredProposalItemKind = ProposalItemKind | LegacyProposalItemKind
 
-/** Is this a kind the queue no longer supports (task #1942)? */
+/** Is this a kind the queue no longer supports (tasks #1942, #1946)? */
 export function isLegacyItemKind(kind: string): kind is LegacyProposalItemKind {
-  return kind === 'placement' || kind === 'lifecycle'
+  return kind === 'placement' || kind === 'lifecycle' || kind === 'triage_activate' || kind === 'triage_archive'
 }
 
 /**
@@ -304,35 +302,4 @@ export function findPendingByItem(db: Database, input: InsertProposalInput): { i
       input.lifecycle_action ?? null
     ) as { id: string } | null
   return row ?? undefined
-}
-
-/**
- * Drafts with no live/accepted triage row, newest first (ADR 2026-09-29 §2.3.3).
- * The `NOT EXISTS` clause is the backfill's idempotence key; the enqueue itself
- * is additionally deduped by `idx_pp_dedup`.
- */
-export function findUntriagedDrafts(db: Database, limit: number): Thought[] {
-  const rows = db
-    .prepare(
-      `SELECT t.id FROM thoughts t
-        WHERE t.status = 'draft'
-          AND COALESCE(t.is_cluster, 0) = 0
-          AND COALESCE(t.is_profile, 0) = 0
-          AND NOT EXISTS (
-            SELECT 1 FROM placement_proposals p
-            WHERE p.source_thought_id = t.id
-              AND p.item_kind IN ('triage_activate', 'triage_archive')
-              AND p.state IN ('pending', 'accepted')
-          )
-        ORDER BY t.created_at DESC, t.id DESC
-        LIMIT ?`
-    )
-    .all(Math.floor(limit)) as Array<{ id: string }>
-
-  const drafts: Thought[] = []
-  for (const row of rows) {
-    const thought = getThoughtRow(db, row.id)
-    if (thought) drafts.push(thought)
-  }
-  return drafts
 }

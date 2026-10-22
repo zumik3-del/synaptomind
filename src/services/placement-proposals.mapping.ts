@@ -147,8 +147,8 @@ function assembleFingerprint(
 /**
  * Fingerprint of a (source, target) pair from the current DB snapshot (ADR
  * §2.3) — the one read-time derivation, shared by the queue's staleness check
- * (`isProposalStale`), the apply path's post-writer snapshot, and triage
- * enqueue. `targetId: null` fingerprints the source alone.
+ * (`isProposalStale`), the apply path's post-writer snapshot and the rollback
+ * gate. `targetId: null` fingerprints the source alone.
  */
 export function pairFingerprint(d: Database, sourceId: string, targetId: string | null): string {
   const source = getThoughtRow(d, sourceId)

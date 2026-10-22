@@ -6,7 +6,6 @@ import { PROPOSALS_LIMIT_DEFAULT, proposalsLimitSchema } from '../validation'
 import { formatZodIssues, jsonBodyOrDefault } from './utils'
 import { applyProposalService } from '../services/placement-apply.service'
 import { rollbackService } from '../services/placement-rollback.service'
-import { checkDryRunFirst, checkItemGuards, noteDryRun } from '../services/apply-run-guards'
 import { enqueueThoughtProposals, listPlacementProposalsService as listProposals, rejectPlacementProposalService as reject } from '../services/placement-proposals.service'
 
 const proposalsRouter = new Hono()
@@ -24,8 +23,8 @@ const applyBodySchema = z.object({ confirm: z.boolean().optional(), run_id: z.st
 // Read-only: list queued placement proposals (default state=pending).
 proposalsRouter.get('/', c => {
   const state = c.req.query('state') as ProposalState | undefined
-  // A removed kind (`placement`/`lifecycle`) still filters: rows of those
-  // kinds stay readable in older installs (task #1942).
+  // A removed kind (`placement`/`lifecycle`/`triage_*`) still filters: rows of
+  // those kinds stay readable in older installs (tasks #1942, #1946).
   const itemKind = c.req.query('item_kind') as StoredProposalItemKind | undefined
   const sourceThoughtId = c.req.query('source_thought_id')
   const createdAfter = c.req.query('created_after')
@@ -57,17 +56,9 @@ proposalsRouter.post('/rollback', async c => {
 proposalsRouter.post('/:id/apply', async c => {
   const body = await jsonBodyOrDefault<{ confirm?: boolean; run_id?: string }>(c, {}, applyBodySchema)
   const proposalId = c.req.param('id')!
-  const confirm = body.confirm === true
-  if (confirm) {
-    // Same envelope as the MCP surface: a prior preview of the run plus the
-    // per-run caps, so the single-item path cannot exceed a run's budget.
-    const refusal =
-      checkDryRunFirst([proposalId], body.run_id) ?? checkItemGuards(proposalId, { confirm, runId: body.run_id })
-    if (refusal) return c.json({ proposal_id: proposalId, status: 'refused', refusal })
-  }
-  const result = applyProposalService(proposalId, { confirm, runId: body.run_id, decidedBy: 'api' })
-  if (!confirm) noteDryRun([proposalId], body.run_id)
-  return c.json(result)
+  return c.json(
+    applyProposalService(proposalId, { confirm: body.confirm === true, runId: body.run_id, decidedBy: 'api' })
+  )
 })
 
 // Write: reject one pending proposal.

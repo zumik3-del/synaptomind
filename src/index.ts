@@ -44,7 +44,6 @@ const { McpHttpPortInUseError } = await import('./errors')
 const { startDecayJob, stopDecayJob } = await import('./services/decay.service')
 const { startTtlCleanupJob, stopTtlCleanupJob } = await import('./services/ttl-cleanup.service')
 const { startPlacementRetentionJob, stopPlacementRetentionJob } = await import('./services/placement-retention.service')
-const { startTriageBackfillJob, stopTriageBackfillJob } = await import('./services/triage.service')
 
 const isStdio = process.argv.includes('--stdio')
 // Single-owner default: a stdio MCP client must not spawn its own embedder and
@@ -94,7 +93,6 @@ if (!ownsBackgroundJobs) {
   startDecayJob()
   startTtlCleanupJob()
   startPlacementRetentionJob()
-  startTriageBackfillJob()
 }
 
 let shutdownStarted = false
@@ -106,7 +104,6 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   stopDecayJob()
   stopTtlCleanupJob()
   stopPlacementRetentionJob()
-  stopTriageBackfillJob()
   await stopEmbedderProcess()
   closeLogDb()
   if (extra) await extra()
