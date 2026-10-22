@@ -394,7 +394,7 @@ curl http://127.0.0.1:3005/health
 
 | Category | Tools |
 |----------|-------|
-| Recall | `memory_recall` (search, get, context, chain, clusters) |
+| Recall | `memory_recall` (search, get, context, chain, clusters, list) |
 | Store | `memory_store` (create, update, link, link_batch, unlink, retype) |
 | Supersede | `memory_supersede` (archive, archive_batch, merge) |
 | Status | `memory_status` (slots, frontier, config, health, propose, cleanup) |

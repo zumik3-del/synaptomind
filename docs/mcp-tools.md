@@ -71,6 +71,49 @@ the failure carries a domain status code, the classification is additionally mir
 A client should re-issue the identical request only when `retryable` is `true`; otherwise the
 failure is a bad request and repeating it will not help.
 
+## `memory_recall` — finding and retrieving thoughts
+
+### `action=list`
+
+Paginated inventory of thoughts without a search query. Use this to enumerate by status,
+project, tag, or cluster flag — the tool that makes bulk triage and cleanup possible.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `status` | enum | no | `draft`, `active`, or `archived` |
+| `project_id` | string | no | Restrict to one project |
+| `tag` | string | no | Restrict to thoughts carrying this tag |
+| `is_cluster` | boolean | no | `true` = only clusters, `false` = only non-clusters |
+| `limit` | integer | no | Page size (1–500, default 50) |
+| `offset` | integer | no | Skip this many rows (default 0) |
+
+Result: `{ "thoughts": [ { "id", "content", "status", "tags", "project_id", "project_name", "is_cluster", "is_profile", "is_protected", "is_global", "created_at", "updated_at", ... } ], "total": 42, "limit": 50, "offset": 0 }`
+
+`total` is the un-paged count matching the filters, so a caller can page with
+`offset += limit` until `offset >= total`.
+
+Example:
+
+```json
+{ "action": "list", "status": "draft", "limit": 50, "offset": 0 }
+```
+
+### `action=search`
+
+Hybrid (RRF) / vector / BM25 search. Key arguments: `query` (required), `mode` (`hybrid`/`vector`/`bm25`),
+`status`, `project`, `tag`, `cluster` (only/exclude), `min_importance`, `top_k`, `min_relevance`,
+`recency_weight`, `recency_half_life_days`, `supersession_mode`, `contradiction_mode`.
+Returns hits with `similarity`, `distance`, `match_source`, `low_confidence`.
+
+### `action=get`
+
+Fetch one thought by `thought_id` (full content, tags, project, importance, edges).
+
+### `action=context` / `action=chain` / `action=clusters`
+
+`context` returns a thought plus its neighbours up to `max_degree`; `chain` walks a parent/develops
+chain; `clusters` lists cluster thoughts and their members.
+
 ## `memory_store` — edges
 
 ### `action=link`
