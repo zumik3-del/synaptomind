@@ -3,6 +3,6 @@ import type { ActionArgs, ActionHandler } from '../action-tool'
 
 export const cleanupHandler: ActionHandler = {
   run(args: ActionArgs) {
-    return cleanupArchivedThoughts((args.dry_run as boolean | undefined) ?? true)
+    return cleanupArchivedThoughts(!(args.confirm as boolean | undefined))
   }
 }
