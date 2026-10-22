@@ -1,16 +1,18 @@
 import { config } from '../config'
 import { getDb } from '../db'
-import { archiveStaleLowImportance, decayImportance } from '../db/importance'
+import { decayImportance } from '../db/importance'
 import { createIntervalJob } from './jobs'
 import type { Database } from 'bun:sqlite'
 
-function runDecayJob(d: Database = getDb()): void {
-  const rate = config.decay.rate
-  decayImportance(d, rate)
-  const archived = archiveStaleLowImportance(d, config.decay.archiveThreshold, config.decay.archiveMinAgeDays)
-  if (archived > 0) {
-    console.error(`[decay] archived ${archived} stale low-importance thoughts`)
-  }
+/**
+ * One decay pass: importance only.
+ *
+ * The auto-archive half was removed (task #1943) — it could not fire for
+ * thoughts created with `is_protected = 1`, so it only archived the few
+ * unprotected thoughts the decay job has no business touching.
+ */
+export function runDecayJob(d: Database = getDb()): void {
+  decayImportance(d, config.decay.rate)
 }
 
 const job = createIntervalJob({

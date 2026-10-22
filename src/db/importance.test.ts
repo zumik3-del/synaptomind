@@ -2,7 +2,6 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from './index'
 import {
-  archiveStaleLowImportance,
   batchGetImportance,
   boostImportance,
   boostImportanceBatch,
@@ -95,28 +94,4 @@ test('decayImportance does not touch recently decayed rows', () => {
   setImportance(id, 0.8)
   decayImportance(getDb(), 0.5)
   expect(getThoughtImportance(getDb(), id)!.importance).toBe(0.8)
-})
-
-test('archiveStaleLowImportance archives old low-importance active thoughts', () => {
-  const id = seedThought({ is_protected: 0 })
-  setImportance(id, 0.05)
-  const db = getDb()
-  const oldDate = new Date(Date.now() - 30 * 86400000).toISOString()
-  db.prepare('UPDATE thought_importance SET created_at = ? WHERE thought_id = ?').run(oldDate, id)
-  db.prepare('UPDATE thoughts SET created_at = ? WHERE id = ?').run(oldDate, id)
-  const changes = archiveStaleLowImportance(getDb(), 0.1, 7)
-  expect(changes).toBe(1)
-  const thought = db.prepare('SELECT status FROM thoughts WHERE id = ?').get(id) as { status: string }
-  expect(thought.status).toBe('archived')
-})
-
-test('archiveStaleLowImportance does not archive profile thoughts', () => {
-  const id = seedThought({ is_profile: 1, is_protected: 0 })
-  setImportance(id, 0.05)
-  const db = getDb()
-  const oldDate = new Date(Date.now() - 30 * 86400000).toISOString()
-  db.prepare('UPDATE thought_importance SET created_at = ? WHERE thought_id = ?').run(oldDate, id)
-  db.prepare('UPDATE thoughts SET created_at = ? WHERE id = ?').run(oldDate, id)
-  const changes = archiveStaleLowImportance(getDb(), 0.1, 7)
-  expect(changes).toBe(0)
 })

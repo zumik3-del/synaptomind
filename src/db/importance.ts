@@ -63,6 +63,14 @@ export function boostImportanceBatch(db: Database, ids: string[], delta: number)
   `).run(delta, now, ...ids)
 }
 
+/**
+ * Decay the importance of every row that has not been decayed for a day.
+ *
+ * The decay job used to have a second half — archiving active, unprotected
+ * thoughts whose importance fell below `decay.archiveThreshold` and whose age
+ * exceeded `decay.archiveMinAgeDays`. That branch was removed in task #1943:
+ * thoughts are created with `is_protected = 1`, so it could not fire for them.
+ */
 export function decayImportance(db: Database, rate: number): void {
   const oneDayAgo = new Date(Date.now() - 86400000).toISOString()
   const now = new Date().toISOString()
@@ -72,22 +80,4 @@ export function decayImportance(db: Database, rate: number): void {
     WHERE importance > ?
       AND last_decay < ?
   `).run(rate, now, 0, oneDayAgo)
-}
-
-export function archiveStaleLowImportance(db: Database, threshold: number, minAgeDays: number): number {
-  const cutoff = new Date(Date.now() - minAgeDays * 86400000).toISOString()
-  const result = db
-    .prepare(`
-    UPDATE thoughts
-    SET status = 'archived', updated_at = ?
-    WHERE id IN (
-      SELECT thought_id FROM thought_importance
-      WHERE importance < ? AND created_at < ?
-    )
-    AND status = 'active'
-    AND (is_profile IS NULL OR is_profile = 0)
-    AND (is_protected IS NULL OR is_protected = 0)
-  `)
-    .run(new Date().toISOString(), threshold, cutoff)
-  return result.changes
 }
