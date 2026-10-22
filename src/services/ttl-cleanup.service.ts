@@ -14,7 +14,10 @@ interface CleanupResult {
 export function cleanupArchivedThoughts(dryRun = false, d: Database = getDb()): CleanupResult {
   const ttlDays = config.ttl.archivedTtlDays
 
-  if (ttlDays < 0) return { deleted: 0, ids: [] }
+  // A non-positive TTL disables deletion outright: without this the cutoff
+  // would be "now" (TTL 0) or the future (TTL < 0) and every archived thought
+  // would be expired.
+  if (ttlDays <= 0) return { deleted: 0, ids: [] }
 
   const cutoff = new Date(Date.now() - ttlDays * 86400000).toISOString()
   const ids = findExpiredArchivedThoughtIds(d, cutoff)
@@ -38,7 +41,7 @@ export function cleanupArchivedThoughts(dryRun = false, d: Database = getDb()): 
 const job = createIntervalJob({
   name: 'ttl-cleanup',
   intervalMs: config.ttl.cleanupIntervalMs,
-  guard: () => config.ttl.archivedTtlDays >= 0,
+  guard: () => config.ttl.archivedTtlDays > 0,
   onError: (err) => console.error('[ttl-cleanup] job error:', err)
 }, () => {
   const result = cleanupArchivedThoughts()

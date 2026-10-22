@@ -307,20 +307,3 @@ test("GET /api/thoughts/search includes bm25_score for keyword hits", async () =
 		);
 		expect(res.status).toBe(200);
 	});
-
-	test("GET /api/thoughts/search/hints payload is byte-identical (no low_confidence field)", async () => {
-		const res = await request(
-			`/api/thoughts/search/hints?q=${QUERY}`,
-		);
-		expect(res.status).toBe(200);
-		const hints = (await res.json()) as Array<Record<string, unknown>>;
-		expect(Array.isArray(hints)).toBe(true);
-		// Hints are compact 3-field payloads — no low_confidence, no match_source.
-		for (const h of hints) {
-			expect(h).not.toHaveProperty("low_confidence");
-			expect(h).not.toHaveProperty("match_source");
-			expect(h).toHaveProperty("id");
-			expect(h).toHaveProperty("content_short");
-			expect(h).toHaveProperty("similarity");
-		}
-	});

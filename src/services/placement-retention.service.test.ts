@@ -203,7 +203,7 @@ describe('cleanupPlacementProposals', () => {
     withClock(Date.now(), () => {
       const db = getDb()
       const src = seedThought()
-      const accepted = insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'placement' }))
+      const accepted = insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'edge', edge_type: 'parent' }))
       updateProposalState(db, accepted.id, {
         state: 'accepted',
         decided_at: new Date(Date.now() - 60 * 86400000).toISOString()
@@ -230,7 +230,7 @@ describe('cleanupPlacementProposals', () => {
         edge_type: 'parent'
       }))
       // Terminal row decided 1 day ago — should stay in the table.
-      const accepted = insertProposal(db, makeInput({ source_thought_id: src2, item_kind: 'placement' }))
+      const accepted = insertProposal(db, makeInput({ source_thought_id: src2, item_kind: 'edge', edge_type: 'parent' }))
       updateProposalState(db, accepted.id, {
         state: 'accepted',
         decided_at: new Date(Date.now() - 1 * 86400000).toISOString()
@@ -279,13 +279,13 @@ describe('cleanupPlacementProposals', () => {
         edge_type: 'develops'
       }))
       // Terminal → accepted 60 days ago.
-      const accepted = insertProposal(db, makeInput({ source_thought_id: srcPrune, item_kind: 'placement' }))
+      const accepted = insertProposal(db, makeInput({ source_thought_id: srcPrune, item_kind: 'edge', edge_type: 'parent' }))
       updateProposalState(db, accepted.id, {
         state: 'accepted',
         decided_at: new Date(Date.now() - 60 * 86400000).toISOString()
       })
       // Fresh: pending with no expires_at (survives).
-      insertProposal(db, makeInput({ source_thought_id: srcFresh, item_kind: 'lifecycle' }))
+      insertProposal(db, makeInput({ source_thought_id: srcFresh, item_kind: 'edge', edge_type: 'develops' }))
 
       const removed = cleanupPlacementProposals(db)
       expect(removed).toBe(2)

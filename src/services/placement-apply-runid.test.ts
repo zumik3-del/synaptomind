@@ -2,8 +2,8 @@
  * F-28 run-envelope synthesis on `apply` / `apply_batch` (task #1050, spec
  * `2026-09-29-review-queue-adr-deviations.md` §4.5).
  *
- * Before F-28 a confirming `edge` / `placement` / `lifecycle` apply that the
- * caller left un-enveloped committed a graph mutation with `row.run_id = NULL`,
+ * Before F-28 a confirming apply that the caller left un-enveloped committed a
+ * graph mutation with `row.run_id = NULL`,
  * so no `rollbackService(run_id)` could ever reach it. The service now synthesizes one
  * `auto-` envelope per accepted row (single) or per batch, and the accepted row
  * is the rollback manifest.
@@ -17,7 +17,7 @@
  * (`placement.proposalTtlDays`, default 30 d). `NOW` → `NOW_LATER` is 19 days,
  * so `windowRefusal` returns `null` and the row reaches the revert/skip
  * branches; an out-of-window clock reports `refused` and would look like a
- * synthesis failure when it is not (`triage-apply-helpers.ts:11-19`).
+ * synthesis failure when it is not (`proposal-apply-helpers.ts:11-19`).
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
@@ -28,10 +28,9 @@ import {
   assertRolledBack,
   assertStillPending,
   insertPendingEdge,
-  insertPendingTriage,
   NOW,
   NOW_LATER,
-} from '../test/triage-apply-helpers'
+} from '../test/proposal-apply-helpers'
 import { applyBatchService, applyProposalService } from './placement-apply.service'
 import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyResult } from './placement-apply.types'
 import { rollbackService } from './placement-rollback.service'
@@ -106,7 +105,7 @@ function edgeBetween(db: Database, source: string, target: string, type: string)
 
 // ── AC-F28-1: a single un-enveloped apply synthesizes one envelope ──────────────
 
-describe('AC-F28-1: single non-triage apply without a caller run_id', () => {
+describe('AC-F28-1: single apply without a caller run_id', () => {
   test('row, stored result and returned envelope all carry the same synthesized id', () => {
     const db = getDb()
     const { source, target } = activePair(db, 'ac1')
@@ -256,62 +255,6 @@ describe('AC-F28-3: apply_batch shares exactly one envelope', () => {
     expect(edgeBetween(db, second.source, second.target, 'develops')).toBe(false)
     assertRolledBack(db, rowA.id)
     assertRolledBack(db, rowB.id)
-  })
-})
-
-// ── AC-F28-4: a synthesized id can never satisfy run_id_required ───────────────
-
-describe('AC-F28-4: a triage confirm without a caller run_id stays refused', () => {
-  test('triage_activate is refused and no id is written anywhere', () => {
-    const db = getDb()
-    const source = seedThought({ id: 'ac4-src', content: 'draft src', status: 'draft', created_at: NOW })
-    const row = insertPendingTriage(db, 'triage_activate', source)
-
-    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
-
-    expect(out.status).toBe('refused')
-    expect((out as { refusal: { code: string } }).refusal.code).toBe('run_id_required')
-    // Nothing was written: no column, no result JSON, no envelope key.
-    const after = stored(db, row.id)
-    expect(after.run_id).toBeNull()
-    expect(after.result).toBeNull()
-    expect(after.decided_at).toBeNull()
-    expect('run_id' in out).toBe(false)
-    assertStillPending(db, row.id)
-  })
-
-  test('triage_archive is refused too, and the draft is untouched', () => {
-    const db = getDb()
-    const source = seedThought({ id: 'ac4-arc-src', content: 'draft src', status: 'draft', created_at: NOW })
-    const target = seedThought({ id: 'ac4-arc-tgt', content: 'dup tgt', created_at: NOW })
-    const row = insertPendingTriage(db, 'triage_archive', source, target)
-
-    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
-
-    expect(out.status).toBe('refused')
-    expect((out as { refusal: { code: string } }).refusal.code).toBe('run_id_required')
-    expect(stored(db, row.id).run_id).toBeNull()
-    assertStillPending(db, row.id)
-  })
-
-  test('a batch mixing a pending triage row refuses whole and synthesizes nothing', () => {
-    const db = getDb()
-    const source = seedThought({ id: 'ac4-mix-src', content: 'draft src', status: 'draft', created_at: NOW })
-    const { source: edgeSource, target: edgeTarget } = activePair(db, 'ac4-mix')
-    const triageRow = insertPendingTriage(db, 'triage_activate', source)
-    const edgeRow = insertPendingEdge(db, edgeSource, edgeTarget, 'develops')
-
-    const out = applyBatchService([triageRow.id, edgeRow.id], { confirm: true, now: NOW }, db)
-
-    // The guard runs before the batch envelope is minted (D4/D5 order).
-    expect(out.refused?.code).toBe('run_id_required')
-    expect(out.results).toEqual([])
-    expect('run_id' in out).toBe(false)
-    expect(stored(db, triageRow.id).run_id).toBeNull()
-    expect(stored(db, edgeRow.id).run_id).toBeNull()
-    assertStillPending(db, triageRow.id)
-    assertStillPending(db, edgeRow.id)
-    expect(edgeBetween(db, edgeSource, edgeTarget, 'develops')).toBe(false)
   })
 })
 
@@ -515,25 +458,6 @@ describe('apply_batch: envelope edge cases', () => {
     expect('run_id' in out).toBe(false)
     expect(stored(db, rowA.id).run_id).toBeNull()
     expect(stored(db, rowB.id).run_id).toBeNull()
-  })
-
-  test('an already-accepted triage row keeps its own envelope and is not re-grouped', () => {
-    const db = getDb()
-    const source = seedThought({ id: 'mix-src', content: 'draft src', status: 'draft', created_at: NOW })
-    const triageRow = insertPendingTriage(db, 'triage_activate', source)
-    applyAccepted(triageRow.id, db, 'run-triage-prior')
-    const { source: edgeSource, target: edgeTarget } = activePair(db, 'mix-edge')
-    const edgeRow = insertPendingEdge(db, edgeSource, edgeTarget, 'develops')
-
-    const out = applyBatchService([triageRow.id, edgeRow.id], { confirm: true, now: NOW }, db)
-
-    const shared = expectSynthesizedRunId(out.run_id)
-    // The shared id goes only to the pending non-triage row ...
-    expect(stored(db, edgeRow.id).run_id).toBe(shared)
-    // ... and a row already accepted under another run is never re-grouped.
-    expect(stored(db, triageRow.id).run_id).toBe('run-triage-prior')
-    expect((out.results[0] as AcceptedApplyResult).run_id).toBe('run-triage-prior')
-    expect((out.results[1] as AcceptedApplyResult).run_id).toBe(shared)
   })
 
   test('a batch of only already-accepted rows reports no run_id', () => {

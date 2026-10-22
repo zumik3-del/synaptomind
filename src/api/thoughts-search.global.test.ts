@@ -4,9 +4,10 @@ import { createTestDb, seedThought } from "../test/helpers";
 import { createApp } from "./router";
 
 // HTTP surface coverage for the is_global flag (epic #1489):
-// GET /api/thoughts/search?project_id=X&include_global=true must widen a
-// project-scoped search to also return global thoughts. Mirrors the mock/auth
-// setup of thoughts-search.supersession.test.ts.
+// GET /api/thoughts/search?project_id=X always includes global thoughts — the
+// include_global toggle is gone, so a project-scoped search is never narrowed by
+// is_global = 0. Mirrors the mock/auth setup of
+// thoughts-search.supersession.test.ts.
 
 mock.module("../embedder/client", () => ({
 	generateEmbedding: () => new Float32Array(384),
@@ -62,41 +63,29 @@ function seedWorld(): { local: string; foreign: string; global: string } {
 	return { local, foreign, global };
 }
 
-test("GET /api/thoughts/search?project_id&include_global=true includes global thoughts", async () => {
+test("GET /api/thoughts/search?project_id includes global thoughts", async () => {
 	const { local, foreign, global } = seedWorld();
 
-	const results = await search(`q=${QUERY}&project_id=${P1}&include_global=true`);
+	const results = await search(`q=${QUERY}&project_id=${P1}`);
 	const ids = results.map((r) => r.thought.id);
 	expect(ids).toContain(local);
 	expect(ids).toContain(global);
 	expect(ids).not.toContain(foreign);
 });
 
-test("GET /api/thoughts/search without include_global excludes global thoughts (backward compatible)", async () => {
-	const { local, foreign, global } = seedWorld();
+test("GET /api/thoughts/search?project_id does not leak another project's thoughts", async () => {
+	const { local, foreign } = seedWorld();
 
-	const results = await search(`q=${QUERY}&project_id=${P1}`);
+	const results = await search(`q=${QUERY}&project_id=${P2}`);
 	const ids = results.map((r) => r.thought.id);
-	expect(ids).toContain(local);
-	expect(ids).not.toContain(global);
-	expect(ids).not.toContain(foreign);
+	expect(ids).toContain(foreign);
+	expect(ids).not.toContain(local);
 });
 
-test("GET /api/thoughts/search?include_global=false excludes global thoughts", async () => {
-	const { local, global } = seedWorld();
-
-	const results = await search(
-		`q=${QUERY}&project_id=${P1}&include_global=false`,
-	);
-	const ids = results.map((r) => r.thought.id);
-	expect(ids).toContain(local);
-	expect(ids).not.toContain(global);
-});
-
-test("GET /api/thoughts/search?include_global=true without project_id returns every project's thoughts", async () => {
+test("GET /api/thoughts/search without project_id returns every project's thoughts", async () => {
 	const { local, foreign, global } = seedWorld();
 
-	const results = await search(`q=${QUERY}&include_global=true`);
+	const results = await search(`q=${QUERY}`);
 	const ids = results.map((r) => r.thought.id);
 	expect(ids).toContain(local);
 	expect(ids).toContain(foreign);

@@ -52,29 +52,32 @@ beforeAll(async () => {
   client = await setupClient()
 })
 
-describe('retired exclude_flagged option', () => {
-  for (const action of ['search', 'clusters'] as const) {
-    for (const excluded of [true, false]) {
-      test(`${action} rejects explicit exclude_flagged=${excluded}`, async () => {
-        const result = await client.callTool({
-          name: 'memory_recall',
-          arguments: { action, query: 'legacy', exclude_flagged: excluded }
-        })
-        expect(parseResult(result).isError).toBe(true)
-      })
-    }
-  }
-
-  test('search without retired option still returns matching thoughts with status filter', async () => {
-    const id = seedThought({ content: 'RECALL_RETIRED_MARKER unique content', status: 'active' })
-    const result = await client.callTool({
-      name: 'memory_recall',
-      arguments: { action: 'search', query: 'RECALL_RETIRED_MARKER', status: 'active', hybrid: true }
-    })
-    const parsed = parseResult(result)
-    expect(parsed.isError).toBe(false)
-    expect(JSON.stringify(parsed.data)).toContain(id)
+describe('memory_recall schema after exclude_flagged retirement', () => {
+  test('the advertised schema no longer exposes exclude_flagged', async () => {
+    const { tools } = await client.listTools()
+    const recallTool = tools.find(t => t.name === 'memory_recall')
+    expect(recallTool).toBeDefined()
+    const props = (recallTool?.inputSchema as { properties?: Record<string, unknown> })?.properties
+    expect(props).toBeDefined()
+    expect(props).not.toHaveProperty('exclude_flagged')
   })
+
+  for (const action of ['search', 'clusters'] as const) {
+    test(`${action} treats the retired exclude_flagged argument as an unknown key`, async () => {
+      const id = seedThought({
+        content: 'RECALL_RETIRED_MARKER unique content',
+        status: 'active',
+        ...(action === 'clusters' ? { is_cluster: 1 } : {})
+      })
+      const result = await client.callTool({
+        name: 'memory_recall',
+        arguments: { action, query: 'RECALL_RETIRED_MARKER', exclude_flagged: true, status: 'active' }
+      })
+      const parsed = parseResult(result)
+      expect(parsed.isError).toBe(false)
+      expect(JSON.stringify(parsed.data)).toContain(id)
+    })
+  }
 })
 
 // ── String-numeric coercion (task #926) ───────────────────────────────────────
@@ -354,7 +357,7 @@ describe('memory_recall advertised schema retains numeric bounds with z.coerce',
 
 // ── is_global project scoping through memory_recall (epic #1489) ─────────────
 
-describe('memory_recall include_global — project scoping', () => {
+describe('memory_recall — is_global is always included in a project-scoped search', () => {
   const P1 = 'recall-global-p1'
   const P2 = 'recall-global-p2'
   const QUERY = 'RECALL_GLOBAL_MARKER'
@@ -379,10 +382,10 @@ describe('memory_recall include_global — project scoping', () => {
     return { local, foreign, global }
   }
 
-  test('include_global=true + project_id includes global thoughts, excludes foreign project', async () => {
+  test('project_id includes global thoughts and excludes a foreign project', async () => {
     const { local, foreign, global } = seedWorld()
 
-    const { data, isError } = await recallSearch({ project_id: P1, include_global: true })
+    const { data, isError } = await recallSearch({ project_id: P1 })
     expect(isError).toBe(false)
     const ids = idsOf(data)
     expect(ids).toContain(local)
@@ -390,30 +393,20 @@ describe('memory_recall include_global — project scoping', () => {
     expect(ids).not.toContain(foreign)
   })
 
-  test('include_global omitted excludes global thoughts (backward compatible)', async () => {
-    const { local, global } = seedWorld()
+  test('a project-only thought does not leak into another project', async () => {
+    const { local, foreign } = seedWorld()
 
-    const { data, isError } = await recallSearch({ project_id: P1 })
+    const { data, isError } = await recallSearch({ project_id: P2 })
     expect(isError).toBe(false)
     const ids = idsOf(data)
-    expect(ids).toContain(local)
-    expect(ids).not.toContain(global)
+    expect(ids).toContain(foreign)
+    expect(ids).not.toContain(local)
   })
 
-  test('include_global=false excludes global thoughts', async () => {
-    const { local, global } = seedWorld()
-
-    const { data, isError } = await recallSearch({ project_id: P1, include_global: false })
-    expect(isError).toBe(false)
-    const ids = idsOf(data)
-    expect(ids).toContain(local)
-    expect(ids).not.toContain(global)
-  })
-
-  test('include_global=true without project_id returns every project\'s thoughts', async () => {
+  test('without project_id every project\'s thoughts are returned', async () => {
     const { local, foreign, global } = seedWorld()
 
-    const { data, isError } = await recallSearch({ include_global: true })
+    const { data, isError } = await recallSearch({})
     expect(isError).toBe(false)
     const ids = idsOf(data)
     expect(ids).toContain(local)
@@ -421,7 +414,7 @@ describe('memory_recall include_global — project scoping', () => {
     expect(ids).toContain(global)
   })
 
-  test('include_global also widens the clusters action', async () => {
+  test('the clusters action also includes global thoughts', async () => {
     const localCluster = seedThought({
       content: `${QUERY} local cluster`,
       project_id: P1,
@@ -443,24 +436,13 @@ describe('memory_recall include_global — project scoping', () => {
       })
     )
     expect(idsOf(scoped.data)).toContain(localCluster)
-    expect(idsOf(scoped.data)).not.toContain(globalCluster)
-
-    const widened = parseResult(
-      await client.callTool({
-        name: 'memory_recall',
-        arguments: { action: 'clusters', query: QUERY, top_k: 10, project_id: P1, include_global: true }
-      })
-    )
-    expect(idsOf(widened.data)).toContain(localCluster)
-    expect(idsOf(widened.data)).toContain(globalCluster)
+    expect(idsOf(scoped.data)).toContain(globalCluster)
   })
 
-  test('advertised schema exposes include_global as an optional boolean', async () => {
+  test('the advertised schema no longer exposes include_global', async () => {
     const { tools } = await client.listTools()
     const recallTool = tools.find(t => t.name === 'memory_recall')
     const props = (recallTool?.inputSchema as { properties?: Record<string, unknown> })?.properties
-    const g = props?.include_global as Record<string, unknown> | undefined
-    expect(g).toBeDefined()
-    expect(g?.type).toBe('boolean')
+    expect(props?.include_global).toBeUndefined()
   })
 })

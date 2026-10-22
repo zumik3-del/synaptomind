@@ -182,6 +182,54 @@ test('detects stale drafts', () => {
   expect(stale!.count).toBe(1)
 })
 
+/** The registered `duplicate_drafts` check from a health report. */
+function duplicateDraftCheck(report: ReturnType<typeof runHealthCheckService>) {
+  const contentCat = report.categories.find(c => c.name === 'content_quality')!
+  return contentCat.checks.find(c => c.name === 'duplicate_drafts')!
+}
+
+test('registers duplicate_drafts as a warning finding with the draft pair in details', () => {
+  const active = seedThought({ content: 'alpha beta gamma delta', status: 'active' })
+  const draft = seedThought({ content: 'alpha beta gamma delta epsilon', status: 'draft' })
+
+  const check = duplicateDraftCheck(runHealthCheckService())
+
+  expect(check.severity).toBe('warning')
+  expect(check.count).toBe(1)
+  expect(check.details).toEqual([
+    expect.objectContaining({ draft_id: draft, duplicate_of: active })
+  ])
+  // Read-only by design: the finding declares no repair hook.
+  expect(check.auto_fixable).toBeUndefined()
+})
+
+test('reports no duplicate_drafts on an empty DB', () => {
+  expect(duplicateDraftCheck(runHealthCheckService()).count).toBe(0)
+})
+
+test('fix mode does not repair duplicate_drafts', () => {
+  const db = getDb()
+  // Unprotected on purpose: a repair hook would really delete them, so the
+  // count assertion below pins the absence of a repair rather than a guard.
+  const active = seedThought({ content: 'alpha beta gamma delta', status: 'active', is_protected: 0 })
+  const draft = seedThought({ content: 'alpha beta gamma delta epsilon', status: 'draft', is_protected: 0 })
+
+  expect(duplicateDraftCheck(runHealthCheckService()).count).toBe(1)
+
+  runHealthCheckService({ fix: true })
+
+  // The count is unchanged and neither side was merged, archived or deleted:
+  // a duplicate draft needs a human decision.
+  expect(duplicateDraftCheck(runHealthCheckService()).count).toBe(1)
+  const rows = db.prepare('SELECT id, status FROM thoughts ORDER BY id').all() as Array<{ id: string; status: string }>
+  expect(rows).toEqual(
+    [
+      { id: active, status: 'active' },
+      { id: draft, status: 'draft' }
+    ].sort((a, b) => a.id.localeCompare(b.id))
+  )
+})
+
 test('detects circular parent chains', () => {
   const a = seedThought({ content: 'A' })
   const b = seedThought({ content: 'B' })

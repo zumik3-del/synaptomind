@@ -1,12 +1,11 @@
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
-import type { ProposalItemKind, ProposalState } from '../db/placement-proposals'
+import type { ProposalState, StoredProposalItemKind } from '../db/placement-proposals'
 import { ValidationError } from '../errors'
 import { PROPOSALS_LIMIT_DEFAULT, proposalsLimitSchema } from '../validation'
 import { formatZodIssues, jsonBodyOrDefault } from './utils'
 import { applyProposalService } from '../services/placement-apply.service'
 import { rollbackService } from '../services/placement-rollback.service'
-import { checkDryRunFirst, checkItemGuards, noteDryRun } from '../services/apply-run-guards'
 import { enqueueThoughtProposals, listPlacementProposalsService as listProposals, rejectPlacementProposalService as reject } from '../services/placement-proposals.service'
 
 const proposalsRouter = new Hono()
@@ -24,7 +23,9 @@ const applyBodySchema = z.object({ confirm: z.boolean().optional(), run_id: z.st
 // Read-only: list queued placement proposals (default state=pending).
 proposalsRouter.get('/', c => {
   const state = c.req.query('state') as ProposalState | undefined
-  const itemKind = c.req.query('item_kind') as ProposalItemKind | undefined
+  // A removed kind (`placement`/`lifecycle`/`triage_*`) still filters: rows of
+  // those kinds stay readable in older installs (tasks #1942, #1946).
+  const itemKind = c.req.query('item_kind') as StoredProposalItemKind | undefined
   const sourceThoughtId = c.req.query('source_thought_id')
   const createdAfter = c.req.query('created_after')
   const parsed = proposalsQuerySchema.safeParse({
@@ -35,11 +36,13 @@ proposalsRouter.get('/', c => {
 })
 
 // Write: propose a plan for a persisted thought and queue its confirmable items.
+// The response reports the queued rows AND the plan items that were skipped
+// because their kind is no longer supported (task #1942).
 proposalsRouter.post('/', async c => {
   const body = await jsonBodyOrDefault<{ thought_id?: string; project_id?: string; max_proposals?: number; max_items?: number; limit?: number }>(c, {}, enqueueBodySchema)
   if (!body.thought_id) throw new ValidationError('thought_id is required')
-  const rows = await enqueueThoughtProposals(body.thought_id, { projectId: body.project_id, maxProposals: body.max_proposals, maxItems: body.max_items, limit: body.limit })
-  return c.json(rows, 201)
+  const outcome = await enqueueThoughtProposals(body.thought_id, { projectId: body.project_id, maxProposals: body.max_proposals, maxItems: body.max_items, limit: body.limit })
+  return c.json(outcome, 201)
 })
 
 // Write: roll back every reversible mutation of one explicit run (ADR §2.8).
@@ -53,17 +56,9 @@ proposalsRouter.post('/rollback', async c => {
 proposalsRouter.post('/:id/apply', async c => {
   const body = await jsonBodyOrDefault<{ confirm?: boolean; run_id?: string }>(c, {}, applyBodySchema)
   const proposalId = c.req.param('id')!
-  const confirm = body.confirm === true
-  if (confirm) {
-    // Same envelope as the MCP surface: a prior preview of the run plus the
-    // per-run caps, so the single-item path cannot exceed a run's budget.
-    const refusal =
-      checkDryRunFirst([proposalId], body.run_id) ?? checkItemGuards(proposalId, { confirm, runId: body.run_id })
-    if (refusal) return c.json({ proposal_id: proposalId, status: 'refused', refusal })
-  }
-  const result = applyProposalService(proposalId, { confirm, runId: body.run_id, decidedBy: 'api' })
-  if (!confirm) noteDryRun([proposalId], body.run_id)
-  return c.json(result)
+  return c.json(
+    applyProposalService(proposalId, { confirm: body.confirm === true, runId: body.run_id, decidedBy: 'api' })
+  )
 })
 
 // Write: reject one pending proposal.

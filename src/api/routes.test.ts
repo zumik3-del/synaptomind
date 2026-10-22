@@ -9,12 +9,9 @@ import { getThoughtByIdService } from "../services/thoughts.service";
 import { createTestDb, seedEdge, seedThought } from "../test/helpers";
 import { createApp } from "./router";
 
-const restartEmbedderMock = mock(() => {});
-
 mock.module("../embedder/client", () => ({
 	generateEmbedding: () => new Float32Array(384),
 	generateEmbeddings: () => [new Float32Array(384)],
-	restartEmbedder: restartEmbedderMock,
 	isEmbedderReady: () => true,
 }));
 
@@ -60,21 +57,6 @@ test("GET /health returns version", async () => {
 	const body = (await res.json()) as Record<string, unknown>;
 	expect(body.version).toBeString();
 	expect(body.version).toMatch(/^\d+\.\d+\.\d+(-[a-z0-9.]+)?$/);
-});
-
-test("GET /api/stats returns thought counts", async () => {
-	seedThought({ content: "active one" });
-	seedThought({ content: "active two" });
-	seedThought({ content: "archived one", status: "archived" });
-	seedThought({ content: "cluster", is_cluster: 1 });
-
-	const res = await request("/api/stats");
-	expect(res.status).toBe(200);
-	const body = (await res.json()) as Record<string, unknown>;
-	expect(body.thoughts).toBe(4);
-	expect(body.active_thoughts).toBe(3);
-	expect(body.clusters).toBe(1);
-	expect(typeof body.db_size_bytes).toBe("number");
 });
 
 test("POST /api/thoughts creates a thought", async () => {
@@ -670,248 +652,6 @@ test("POST /api/thoughts/:targetId/merge returns 400 when source equals target",
 	expect(res.status).toBe(400);
 });
 
-// Settings routes
-test("GET /api/thought-settings returns defaults", async () => {
-	const res = await request("/api/thought-settings");
-	expect(res.status).toBe(200);
-	const body = (await res.json()) as Record<string, unknown>;
-	expect(body.softLimit).toBe(600);
-	expect(body.hardLimit).toBe(720);
-	expect(body.hardLimitBufferPercent).toBe(20);
-});
-
-test("PATCH /api/thought-settings updates limits", async () => {
-	const res = await request("/api/thought-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ softLimit: 50, hardLimitBufferPercent: 100 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(200);
-	const body = (await res.json()) as Record<string, unknown>;
-	expect(body.softLimit).toBe(50);
-	expect(body.hardLimit).toBe(100);
-	expect(body.hardLimitBufferPercent).toBe(100);
-
-	const again = await request("/api/thought-settings");
-	expect(await again.json()).toEqual({ softLimit: 50, hardLimit: 100, hardLimitBufferPercent: 100 });
-});
-
-test("PATCH /api/thought-settings rejects invalid limits", async () => {
-	const res = await request("/api/thought-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ softLimit: 0, hardLimitBufferPercent: 100 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(400);
-});
-
-test("PATCH /api/thought-settings rejects invalid hardLimitBufferPercent", async () => {
-	const res = await request("/api/thought-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ softLimit: 100, hardLimitBufferPercent: 0 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(400);
-});
-
-test("PATCH /api/thought-settings rejects missing fields", async () => {
-	const res = await request("/api/thought-settings", {
-		method: "PATCH",
-		body: JSON.stringify({}),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(400);
-});
-
-test("PATCH /api/thought-settings rejects non-integer limits", async () => {
-	const res = await request("/api/thought-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ softLimit: 1.5, hardLimitBufferPercent: 100 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(400);
-});
-
-test("PATCH /api/thought-settings updates only softLimit and recomputes hardLimit", async () => {
-	const res = await request("/api/thought-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ softLimit: 300 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(200);
-	expect(await res.json()).toEqual({
-		softLimit: 300,
-		hardLimit: 360,
-		hardLimitBufferPercent: 20,
-	});
-});
-
-test("PATCH /api/thought-settings updates only hardLimitBufferPercent and recomputes hardLimit", async () => {
-	const res = await request("/api/thought-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ hardLimitBufferPercent: 50 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(200);
-	expect(await res.json()).toEqual({
-		softLimit: 600,
-		hardLimit: 900,
-		hardLimitBufferPercent: 50,
-	});
-});
-
-test("PATCH /api/thought-settings partial updates compose across requests", async () => {
-	await request("/api/thought-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ softLimit: 100 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	const res = await request("/api/thought-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ hardLimitBufferPercent: 10 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(200);
-	expect(await res.json()).toEqual({
-		softLimit: 100,
-		hardLimit: 110,
-		hardLimitBufferPercent: 10,
-	});
-});
-
-test("PATCH /api/thought-settings rejects non-integer hardLimitBufferPercent", async () => {
-	const res = await request("/api/thought-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ hardLimitBufferPercent: 1.5 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(400);
-});
-
-test("PATCH /api/thought-settings rejects negative limits", async () => {
-	const res = await request("/api/thought-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ softLimit: -10, hardLimitBufferPercent: -5 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(400);
-});
-
-test("GET /api/embedder-settings returns default precache", async () => {
-	const res = await request("/api/embedder-settings");
-	expect(res.status).toBe(200);
-	expect(await res.json()).toEqual({ precache: false, idleTimeoutMs: 600000 });
-});
-
-test("PATCH /api/embedder-settings updates precache and restarts", async () => {
-	restartEmbedderMock.mockClear();
-	const res = await request("/api/embedder-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ precache: true }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(200);
-	expect(await res.json()).toEqual({ precache: true, idleTimeoutMs: 600000 });
-	expect(restartEmbedderMock).toHaveBeenCalled();
-
-	const again = await request("/api/embedder-settings");
-	expect(await again.json()).toEqual({ precache: true, idleTimeoutMs: 600000 });
-});
-
-test("PATCH /api/embedder-settings with same value skips restart", async () => {
-	await request("/api/embedder-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ precache: true }),
-		headers: { "Content-Type": "application/json" },
-	});
-	restartEmbedderMock.mockClear();
-	const res = await request("/api/embedder-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ precache: true }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(200);
-	expect(restartEmbedderMock).not.toHaveBeenCalled();
-});
-
-test("PATCH /api/embedder-settings rejects non-boolean precache", async () => {
-	const res = await request("/api/embedder-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ precache: "yes" }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(400);
-});
-
-test("PATCH /api/embedder-settings toggling back to false restarts", async () => {
-	await request("/api/embedder-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ precache: true }),
-		headers: { "Content-Type": "application/json" },
-	});
-	restartEmbedderMock.mockClear();
-	const res = await request("/api/embedder-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ precache: false }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(200);
-	expect(await res.json()).toEqual({ precache: false, idleTimeoutMs: 600000 });
-	expect(restartEmbedderMock).toHaveBeenCalled();
-});
-
-test("PATCH /api/embedder-settings updates idleTimeoutMs and restarts", async () => {
-	restartEmbedderMock.mockClear();
-	const res = await request("/api/embedder-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ idleTimeoutMs: 300000 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(200);
-	expect(await res.json()).toEqual({ precache: false, idleTimeoutMs: 300000 });
-	expect(restartEmbedderMock).toHaveBeenCalled();
-
-	const again = await request("/api/embedder-settings");
-	expect(await again.json()).toEqual({
-		precache: false,
-		idleTimeoutMs: 300000,
-	});
-});
-
-test("PATCH /api/embedder-settings with same idleTimeoutMs skips restart", async () => {
-	await request("/api/embedder-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ idleTimeoutMs: 300000 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	restartEmbedderMock.mockClear();
-	const res = await request("/api/embedder-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ idleTimeoutMs: 300000 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(200);
-	expect(restartEmbedderMock).not.toHaveBeenCalled();
-});
-
-test("PATCH /api/embedder-settings rejects idleTimeoutMs below minimum", async () => {
-	const res = await request("/api/embedder-settings", {
-		method: "PATCH",
-		body: JSON.stringify({ idleTimeoutMs: 500 }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(400);
-});
-
-test("PATCH /api/embedder-settings rejects empty body", async () => {
-	const res = await request("/api/embedder-settings", {
-		method: "PATCH",
-		body: JSON.stringify({}),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(400);
-});
-
 test("GET /api/thoughts/links/batch returns sparse map for many thoughts", async () => {
 	const db = getDb();
 	const a = seedThought({ content: "with links" });
@@ -964,9 +704,9 @@ test("POST /api/thought-verify/run is retired", async () => {
 });
 
 for (const value of ["true", "false"]) {
-	test(`GET /api/thoughts/search rejects exclude_flagged=${value}`, async () => {
+	test(`GET /api/thoughts/search ignores the retired exclude_flagged=${value} key`, async () => {
 		const res = await request(`/api/thoughts/search?q=marker&exclude_flagged=${value}`);
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(200);
 	});
 }
 
@@ -985,128 +725,82 @@ test("GET /api/primers returns empty list when no primers", async () => {
 	expect(body).toEqual([]);
 });
 
-test("POST /api/auto-cluster/trigger with no candidates returns empty run", async () => {
-	const res = await request("/api/auto-cluster/trigger", {
-		method: "POST",
-		body: JSON.stringify({}),
-	});
-	expect(res.status).toBe(200);
-	const body = (await res.json()) as Record<string, unknown>;
-	expect(body.candidates).toBe(0);
-	expect(body.groups).toEqual([]);
-	expect(body.clusters_created).toBe(0);
-});
+// Profile routes (issue #200) — retired: the surface is gone.
 
-test("POST /api/auto-cluster/trigger accepts body overrides", async () => {
-	const res = await request("/api/auto-cluster/trigger", {
-		method: "POST",
-		body: JSON.stringify({
-			min_age_days: 1,
-			min_similarity: 0.5,
-			min_members: 2,
-			dry_run: true,
-		}),
-	});
-	expect(res.status).toBe(200);
-	const body = (await res.json()) as Record<string, unknown>;
-	expect(body.dry_run).toBe(true);
-});
-
-test("GET /api/auto-cluster/status reflects last run", async () => {
-	await request("/api/auto-cluster/trigger", {
-		method: "POST",
-		body: JSON.stringify({}),
-	});
-	const res = await request("/api/auto-cluster/status");
-	expect(res.status).toBe(200);
-	const body = (await res.json()) as {
-		last_run: string | null;
-		result: unknown;
-	};
-	expect(body.last_run).not.toBeNull();
-	expect(body.result).not.toBeNull();
-});
-
-// Profile routes (issue #200)
-
-test("POST /api/thoughts accepts is_profile flag", async () => {
+test("POST /api/thoughts rejects the retired is_profile flag", async () => {
 	const res = await request("/api/thoughts", {
 		method: "POST",
 		body: JSON.stringify({ content: "persona fact", is_profile: true }),
 		headers: { "Content-Type": "application/json" },
 	});
-	expect(res.status).toBe(201);
-	const body = (await res.json()) as Record<string, unknown>;
-	expect(body.is_profile).toBe(1);
-
-	const t = getThoughtByIdService(String(body.id));
-	expect(t?.is_profile).toBe(1);
+	expect(res.status).toBe(400);
+	expect(((await res.json()) as Record<string, unknown>).error).toContain(
+		"is_profile is retired",
+	);
 });
 
-test("PUT /api/thoughts/:id can set and clear is_profile", async () => {
+test("PUT /api/thoughts/:id rejects the retired is_profile flag", async () => {
 	const id = seedThought({ content: "plain" });
-	const setRes = await request(`/api/thoughts/${id}`, {
+	const res = await request(`/api/thoughts/${id}`, {
 		method: "PUT",
 		body: JSON.stringify({ is_profile: true }),
 		headers: { "Content-Type": "application/json" },
 	});
-	expect(((await setRes.json()) as Record<string, unknown>).is_profile).toBe(1);
+	expect(res.status).toBe(400);
+	expect(getThoughtByIdService(id)?.is_profile).toBe(0);
+});
 
-	const clearRes = await request(`/api/thoughts/${id}`, {
-		method: "PUT",
-		body: JSON.stringify({ is_profile: false }),
+test("the retired profile endpoints are not mounted", async () => {
+	for (const path of [
+		"/api/profile/thoughts",
+		"/api/profile/stats",
+		"/api/profile/summarize",
+	]) {
+		const res = await request(path, { method: path.endsWith("summarize") ? "POST" : "GET" });
+		expect(res.status).toBe(404);
+	}
+});
+
+// Admin/duplicate endpoints retired by the pruning batch (task #1940): the
+// settings, stats, auto-cluster admin and search-hints surfaces are gone — a
+// clean removal, so they answer 404 and no shim keeps them alive.
+
+test("the retired admin, settings, stats and hint endpoints are not mounted", async () => {
+	for (const [method, path] of [
+		["POST", "/api/auto-cluster/trigger"],
+		["GET", "/api/auto-cluster/status"],
+		["GET", "/api/thought-settings"],
+		["GET", "/api/embedder-settings"],
+		["GET", "/api/stats"],
+		["GET", "/api/thoughts/search/hints"],
+	] as const) {
+		const res = await request(path, { method });
+		expect(res.status).toBe(404);
+	}
+});
+
+test("POST /api/thoughts/bulk ignores the retired is_profile field", async () => {
+	// Bulk has no per-item schema layer (`thoughts: z.array(z.unknown())`), so
+	// the retired flag is silently dropped instead of refusing the request.
+	const res = await request("/api/thoughts/bulk", {
+		method: "POST",
+		body: JSON.stringify({
+			thoughts: [
+				{ content: "bulk plain" },
+				{ content: "bulk with retired flag", is_profile: true },
+			],
+		}),
 		headers: { "Content-Type": "application/json" },
 	});
-	expect(((await clearRes.json()) as Record<string, unknown>).is_profile).toBe(
-		0,
-	);
-});
-
-test("GET /api/profile/thoughts and /stats reflect profile thoughts", async () => {
-	seedThought({
-		content: "p1",
-		tags: JSON.stringify(["@profile-style"]),
-		is_profile: 1,
-	});
-	seedThought({ content: "regular" });
-
-	const listRes = await request("/api/profile/thoughts");
-	expect(listRes.status).toBe(200);
-	const list = (await listRes.json()) as Record<string, unknown>[];
-	expect(list).toHaveLength(1);
-	expect(list[0].content).toBe("p1");
-
-	const statsRes = await request("/api/profile/stats");
-	const stats = (await statsRes.json()) as Record<string, unknown>;
-	expect(stats.profile_thoughts).toBe(1);
-	expect((stats.top_tags as Record<string, unknown>[])[0]?.name).toBe(
-		"@profile-style",
-	);
-});
-
-test("POST /api/profile/summarize creates summaries", async () => {
-	seedThought({
-		content: "one",
-		tags: JSON.stringify(["@profile-style"]),
-		is_profile: 1,
-	});
-	seedThought({
-		content: "two",
-		tags: JSON.stringify(["@profile-style"]),
-		is_profile: 1,
-	});
-
-	const res = await request("/api/profile/summarize", { method: "POST" });
-	expect(res.status).toBe(200);
-	const body = (await res.json()) as Record<string, unknown>;
-	const created = body.created as Record<string, unknown>[];
-	expect(created).toHaveLength(1);
-	expect(created[0].topic).toBe("style");
-
-	const list = (await (
-		await request("/api/profile/thoughts")
-	).json()) as Record<string, unknown>[];
-	expect(list).toHaveLength(3);
+	expect(res.status).toBe(201);
+	const body = (await res.json()) as {
+		created: number;
+		thoughts: Array<{ id: string }>;
+	};
+	expect(body.created).toBe(2);
+	for (const thought of body.thoughts) {
+		expect(getThoughtByIdService(thought.id)?.is_profile).toBe(0);
+	}
 });
 
 test("PUT /api/thoughts/:id archive rejected for profile thought", async () => {
@@ -1121,12 +815,11 @@ test("PUT /api/thoughts/:id archive rejected for profile thought", async () => {
 
 // Slots routes
 
-test("GET /api/slots returns all five canonical slots", async () => {
+test("GET /api/slots returns all four canonical slots", async () => {
 	const res = await request("/api/slots");
 	expect(res.status).toBe(200);
 	const body = (await res.json()) as { slots: Record<string, unknown>[] };
 	expect(body.slots.map((s) => s.name)).toEqual([
-		"persona",
 		"pending_items",
 		"architecture_decisions",
 		"project_context",
@@ -1152,6 +845,15 @@ test("PUT /api/slots/:name writes an explicit slot and GET reflects it", async (
 });
 
 test("PUT /api/slots/:name rejects virtual slots", async () => {
+	const res = await request("/api/slots/pending_items", {
+		method: "PUT",
+		body: JSON.stringify({ content: "nope" }),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(res.status).toBe(400);
+});
+
+test("PUT /api/slots/:name rejects the retired persona slot", async () => {
 	const res = await request("/api/slots/persona", {
 		method: "PUT",
 		body: JSON.stringify({ content: "nope" }),

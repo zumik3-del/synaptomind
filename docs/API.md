@@ -1,36 +1,21 @@
 # HTTP API Reference
 
-REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Package version at time of writing: **0.12.1**.
+REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Package version at time of writing: **0.15.0**.
 
-**Breaking 0.x change:** the `GET /api/telemetry/{patterns,frequency,orphan_writes,draft_lifecycle}`
-routes are no longer mounted, and the `memory_telemetry` MCP tool is removed with them. The
-self-improve subsystem is removed as well: `POST /api/thoughts/self-improve/run` and
-`GET /api/thoughts/self-improve/status` are no longer mounted, and with them the
-background job and the whole `selfImprove` config section. Promotion of frequently-hit
-thoughts to primers is not lost — it happens on the search path, at
-`primer.promoteThreshold`; use that knob instead of the removed
-`selfImprove.hitsThreshold`. The primer list/delete capability moves to the new
-`memory_primers` MCP tool (list, delete); its delete is preview-first and needs
-`confirm: true`. The HTTP `GET /api/primers` and `DELETE /api/primers/:id` routes are
-unchanged. The structured `logs` table and its rotation are unchanged; the historical
-`self_improve` log rows stay as history.
-
-**Breaking 0.x change:** `POST /api/crystals` and `POST /api/thought-verify/run`
-are no longer mounted. Existing crystal thoughts and `thought_verify` rows remain
-stored; there is no destructive migration. Graph/cluster MCP actions and `GET /health`
-remain available. Search no longer filters previously flagged thoughts by default.
+This page documents the mounted surface only; removals between releases are recorded in
+[CHANGELOG.md](../CHANGELOG.md).
 
 - **Auth:** all `/api/*` endpoints require `Authorization: Bearer <token>` (401 otherwise). The token is set via the `SYNAPTOMIND_SECRET` or `SYNAPTOMIND_SERVICE_TOKEN` environment variable. `GET /health` is the only public endpoint.
 - **Body limit:** request bodies over 5 MB are rejected with `413`.
 - **Errors:** handlers return `{"error": "..."}` with an appropriate HTTP status (400 validation, 401 auth, 404 not found, 409 conflict, 413 too large, 500 job failure).
-- **Thought object:** `id, content, status (draft|active|archived), tags: [{id, name}], source, project_id, project_name?, is_cluster, is_profile, is_protected, created_at, updated_at, archived_at`.
+- **Thought object:** `id, content, status (draft|active|archived), tags: [{id, name}], source, project_id, project_name?, is_cluster, is_protected, is_global, created_at, updated_at, archived_at`.
 - Curls are abbreviated: GET examples omit `-H "Authorization: Bearer $TOKEN"`; mutating examples additionally use `-X POST/PUT/PATCH/DELETE`, `-H "Content-Type: application/json"`, and `-d '<json>'`.
 
 ## Thoughts
 
 ### GET /api/thoughts/search
 
-Hybrid (vector + FTS5) search over thoughts. Results can be grouped by cluster and are post-processed to surface primers and profile thoughts.
+Hybrid (vector + FTS5) search over thoughts. Results can be grouped by cluster and are post-processed to hoist primers to the front.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
@@ -53,9 +38,9 @@ Hybrid (vector + FTS5) search over thoughts. Results can be grouped by cluster a
 
 curl `'http://127.0.0.1:3005/api/thoughts/search?q=auth+middleware&k=3&supersession_mode=flag'`
 
-Supplying `exclude_flagged` (including `false`) returns HTTP 400 with
-`{"error":"exclude_flagged is retired"}`. Previously flagged thoughts may appear
-in default search results; graph standing filters still apply independently.
+Unknown query parameters are ignored: `exclude_flagged` in particular is an ordinary
+ignored parameter (no 400), and search never filters on it. Graph standing filters apply
+independently.
 
 Response: `[{"thought": {"id": "...", "content": "...", ...}, "distance": 0.12, "similarity": 0.88, "standing": "current"}, ...]`
 
@@ -74,20 +59,6 @@ contradiction is symmetric and neither endpoint is authoritative. Results are th
 stably partitioned by standing (`current` first, then `contradicted`, then
 `superseded`), preserving the underlying relevance order within each group; deeper
 relevance re-scoring is out of scope.
-
-### GET /api/thoughts/search/hints
-
-Compact search hints for autocomplete UIs. Returns at most 10 items.
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| q | query | string | required | Search query |
-| k | query | int | 3 (clamped 1-10) | Max hints |
-| max_length | query | int | 80 (min 20) | Max `content_short` length |
-
-curl `'http://127.0.0.1:3005/api/thoughts/search/hints?q=slots'`
-
-Response: `[{"id": "...", "content_short": "...", "similarity": 0.9, "project_name": "...", "tags": [{"id": "...", "name": "..."}], "compact": true}]`
 
 ### GET /api/thoughts/timeline
 
@@ -118,7 +89,6 @@ Creates a thought. Optionally attaches it under a parent thought via an edge. Re
 | project_id | body | string | optional | Project scope |
 | parent_id | body | string | optional | Parent thought id |
 | relation | body | string | optional | Edge type to parent |
-| is_profile | body | bool | optional | Mark as profile thought |
 | is_protected | body | bool | optional | Protect from auto-deletion |
 
 curl `-d '{"content": "Deploy script uses bun", "tags": ["fact"]}' http://127.0.0.1:3005/api/thoughts`
@@ -153,7 +123,6 @@ Updates a thought. All body fields optional; only provided fields change. Provid
 | tags_mode | body | string | optional | `replace` (default) or `merge`: how `tags` is applied |
 | status | body | string | optional | draft/active/archived |
 | project_id | body | string | optional | Move to project |
-| is_profile | body | bool | optional | Profile flag |
 | is_protected | body | bool | optional | Protection flag |
 
 curl `-d '{"status": "archived"}' http://127.0.0.1:3005/api/thoughts/<id>`
@@ -236,35 +205,6 @@ Deletes a URL link by key. 404 if missing. Returns `{"success": true}`.
 
 curl `-X DELETE http://127.0.0.1:3005/api/thoughts/<id>/links/repo`
 
-### POST /api/thoughts/auto-link
-
-Runs the auto-link job: it finds active, low-connectivity thoughts, computes embedding-proximity pairs, and creates `related` edges between them.
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| dry_run | body | bool | false | Compute without writing |
-| max_edges | body | int | optional | Cap edges per run |
-
-curl `-d '{"dry_run": true}' http://127.0.0.1:3005/api/thoughts/auto-link`
-
-### POST /api/thoughts/edge-detect
-
-Proposes unconfirmed `related` candidate pairs among active, non-cluster thoughts. Read-only: it never creates or modifies an edge. Confirm a proposal by linking the pair (`POST /api/thoughts/:id/link`). Returns an empty proposal list (never an error) when there are fewer than two candidates or the embedder is unavailable (`degraded: true`).
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| project_id | body | string | optional | Scope detection to one project |
-| min_similarity | body | number | `edgeDetect.minSimilarity` (0.75) | Minimum embedding similarity for a neighbor pair |
-| max_proposals | body | number | `edgeDetect.maxProposals` (20) | Cap on returned proposals |
-
-`topK` and `maxCandidates` are read only from `edgeDetect.*` in config.
-
-curl `-d '{"project_id": "<id>", "min_similarity": 0.8}' http://127.0.0.1:3005/api/thoughts/edge-detect`
-
-Response: `{"proposals": [{"source_id": "...", "target_id": "...", "type": "related", "confidence": 0.86, "rationale": "embedding_similarity_only", "review_required": true, "signals": {"embeddingSimilarity": 0.86}}], "candidates": 120, "pairs_evaluated": 8, "degraded": false}`
-
-`type` is always emitted as `related` with `review_required: true`: the detector ranks by embedding similarity alone, which means the pair is about the same subject matter, not necessarily in conflict. Consumers must read both thoughts and decide the real type (`contradicts`/`supports`/other) themselves; never treat a proposal as a settled contradiction.
-
 ### POST /api/thoughts/propose
 
 Proposes a read-only placement/link plan for one thought: where it belongs (`placement`), which typed edges to add (`edges[]`), and which lifecycle move to make (`lifecycle`). Read-only: it never creates an edge or cluster and never changes a status. Provide at least one of `thought_id` (an existing thought) or `content` (an unpersisted draft) — otherwise 400; when both are passed, `thought_id` takes precedence. An unknown `thought_id` returns 404.
@@ -281,7 +221,7 @@ Response: `{"thought_id": "...", "placement": {...} | null, "edges": [...], "lif
 
 - `placement` — `{"kind": "cluster" | "parent", "target_id", "confidence", "rationale", "review_required"}`, or `null` when no cluster majority or parent/`develops` chain node applies.
 - `edges[]` — at most one proposal per unordered pair: `{"source_id", "target_id", "type", "direction", "confidence", "rationale", "review_required", "rule_id", "signals"}`. `type` is the `related` fallback (similarity-only) or a typed `contradicts`/`supports`/`develops`/`depends_on`/`replaces` when a non-embedding cue fired; `rule_id` names the fired rule and `signals` is the exact `PairSignals` input that produced it. Pairs that already carry any edge are excluded.
-- `lifecycle` — `{"action": "keep" | "link" | "merge" | "replaces+archive", "confidence", "rationale", "review_required", "blocked_by[]"}`. `blocked_by` lists the reasons a proposed move cannot be confirmed (e.g. `"source is profile"`).
+- `lifecycle` — `{"action": "keep" | "link" | "merge" | "replaces+archive", "confidence", "rationale", "review_required", "blocked_by[]"}`. `blocked_by` lists the reasons a proposed move cannot be confirmed (e.g. `"source is archived"`).
 - `degraded` — `true` when the embedder is unavailable: the plan falls back to lexical-only signals (no embedding-derived placement or edges) and still returns a `keep`/`merge` decision instead of failing.
 
 Example:
@@ -410,7 +350,7 @@ curl `-d '{"thought_ids": ["<id1>", "<id2>"], "title": "Auth notes"}' http://127
 
 The persisted placement-proposal queue. `POST /api/thoughts/propose` is read-only and persists nothing; the review queue stores its confirmable items so a reviewer can apply or reject them one at a time. The queue never re-runs the engine and never auto-applies: an apply is an explicit, per-item write gated by `confirm:true`. MCP parity: `memory_review` (actions `enqueue`/`list`/`apply`/`apply_batch`/`rollback`/`reject`); only `apply`/`apply_batch`/`rollback` execute a write, and no read tool can reach them.
 
-A queued item carries an `item_kind` (`edge` | `placement` | `lifecycle` | `triage_activate` | `triage_archive`) and a `state`: `pending` (live) → `accepted` | `rejected` | `expired` | `stale` | `rolled_back` (terminal). Enqueueing a non-active source is rejected: the thought must be persisted **and** `active`, because placement is the phase *after* a triage verdict activates a draft. The `triage_*` kinds are the deterministic draft-triage verdicts (ADR 2026-09-29): they mutate a *draft* source, require a `run_id`, and obey the per-run caps `triage.maxItemsPerRun` / `triage.maxArchivesPerRun`.
+A queued item carries an `item_kind` and a `state`: `pending` (live) → `accepted` | `rejected` | `expired` | `stale` | `rolled_back` (terminal). `edge` is the only kind the queue creates: a plan's `placement` and `lifecycle` items are not queued, and the enqueue response reports them as skipped. Rows of a retired kind (`placement`, `lifecycle`, `triage_activate`, `triage_archive`) may still exist in an upgraded install — they stay listable and filterable, but neither `apply` nor `rollback` can act on them. Enqueueing a non-active source is rejected: the thought must be persisted **and** `active`.
 
 ### GET /api/proposals
 
@@ -419,7 +359,7 @@ Lists queued proposals, newest first. Read-only; never applies anything. Default
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
 | state | query | string | pending | One of: `pending`, `accepted`, `rejected`, `expired`, `stale`, `rolled_back` |
-| item_kind | query | string | optional | Item-kind filter: `edge`, `placement`, `lifecycle`, `triage_activate`, `triage_archive` |
+| item_kind | query | string | optional | Item-kind filter: `edge`, `placement`, `lifecycle`, `triage_activate`, `triage_archive` (the last four match legacy rows only) |
 | project_id | query | string | optional | Project scope |
 | limit | query | int | 100 | Max rows (1-1000; 400 outside) |
 
@@ -429,23 +369,30 @@ Response: `[{"id": "...", "project_id": "...", "source_thought_id": "...", "item
 
 ### POST /api/proposals
 
-Proposes a plan for a persisted thought and queues its confirmable items (plan shape in §Propose above). Returns 201 with the enqueued/refreshed rows, or `[]` when the plan has no confirmable item. Re-enqueueing the same item refreshes its live `pending` row instead of inserting a duplicate. 400 without `thought_id`, 404 for an unknown thought, 400 when the source thought is not `active`, and 400 when the queue already holds `placement.maxPendingProposals` live rows and the plan would add a new item. The cap covers the whole queue: draft-triage rows share it, so triage backs off (skips, never throws) once the queue is full.
+Proposes a plan for a persisted thought and queues its confirmable items (plan shape in §Propose above). Returns **201** with an object, not an array:
+
+```json
+{ "proposals": [ /* queued/refreshed rows */ ], "skipped": 2, "skipped_kinds": { "placement": 1, "lifecycle": 1 } }
+```
+
+`proposals` holds the `edge` items the queue accepted; `skipped` counts the plan items whose kind the queue no longer stores, broken down per kind in `skipped_kinds` (absent kinds are not listed), so nothing is dropped silently. Re-enqueueing the same item refreshes its live `pending` row instead of inserting a duplicate. 400 without `thought_id`, 404 for an unknown thought, 400 when the source thought is not `active`, and 400 when the queue already holds `placement.maxPendingProposals` live rows and the plan would add a new item.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
 | thought_id | body | string | required | Persisted **active** thought to analyse (drafts and other non-active statuses are rejected) |
 | project_id | body | string | optional | Project scope |
+| max_proposals / max_items | body | int | `placement.maxProposalsPerEnqueue` | Cap on the proposals generated for this thought (`max_items` is an alias; `limit` is accepted too) |
 
 curl `-d '{"thought_id": "<id>"}' http://127.0.0.1:3005/api/proposals`
 
 ### POST /api/proposals/:id/apply
 
-Applies exactly one queued item. `confirm` is the dry-run switch: absent or `false` validates the item and reports the writer call **without touching the graph or the queue** (the row stays `pending`); `true` executes **exactly one** existing writer inside the same transaction as the queue-state update. The stored target/type is used as-is — a proposal cannot be redirected. A triage item (`triage_activate`/`triage_archive`) additionally requires `run_id`, and when `triage.requireDryRunFirst` is set (default true) it must be previewed with `confirm: false` before a confirm is accepted. The per-run caps apply here exactly as they do to a batch, and only against a caller-supplied `run_id`: they are cumulative over that run's already-accepted rows, so confirming items one at a time under one id cannot exceed them. An un-enveloped non-triage apply is given its own synthesized single-row `auto-` envelope, which the cap arithmetic never sees, so such a row is counted against no run budget. 404 for an unknown id.
+Applies exactly one queued item. `confirm` is the dry-run switch: absent or `false` validates the item and reports the writer call **without touching the graph or the queue** (the row stays `pending`); `true` executes **exactly one** existing writer inside the same transaction as the queue-state update. The stored target/type is used as-is — a proposal cannot be redirected. An apply is given its own synthesized `auto-` envelope unless the caller supplies one, so it is always rollback-addressable (see **Run envelope** below). 404 for an unknown id.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
 | confirm | body | bool | false | `true` executes the write; absent/`false` is a non-mutating dry-run |
-| run_id | body | string | optional | Run envelope; required for `triage_activate`/`triage_archive` items. An un-enveloped `edge`/`placement`/`lifecycle` item is given a synthesized `auto-…` envelope instead (see **Run envelope** below) |
+| run_id | body | string | optional | Run envelope to record on every row this call accepts; omitted → a synthesized `auto-…` envelope (see **Run envelope** below) |
 
 curl `-d '{"confirm": true}' http://127.0.0.1:3005/api/proposals/<id>/apply`
 
@@ -455,19 +402,19 @@ Response is a typed result, not a throw (only an unknown id errors):
 |---|---|---|
 | `dry_run` | Non-mutating: `{"proposal_id", "item_kind", "status": "dry_run", "calls": [{"writer", "args"}]}` — the existing-writer call `confirm:true` would run | stays `pending` |
 | `accepted` | Writer ran; `idempotent: true` when the requested state already held (no writer ran). Carries `calls[]`, `result` and the row's `run_id` envelope | `accepted` |
-| `stale` | Refused: the item is no longer a live decision (TTL passed — re-enqueue it), or the snapshot no longer matches (fingerprint change, archived/deleted endpoint, conflicting edge, project split, or a cluster already at `placement.maxClusterSize`) | `stale` (terminal; must be re-proposed, never auto-repaired) |
-| `failed` | Refused on a retryable precondition (e.g. profile merge, invalid edge type, cluster shape, a `triage_archive` row with no duplicate target) | stays `pending` (fix and retry) |
-| `refused` | Typed `{"refusal": {"code", "reason"}}` guard refusal (e.g. `run_id_required`, `dry_run_required`, `max_items_exceeded`); nothing ran | stays `pending` |
+| `stale` | Refused: the item is no longer a live decision (TTL passed — re-enqueue it), or the snapshot no longer matches (fingerprint change, archived/deleted endpoint, conflicting edge, project split, source/target not `active`, or a cluster already at `placement.maxClusterSize`) | `stale` (terminal; must be re-proposed, never auto-repaired) |
+| `failed` | Refused on a retryable precondition (e.g. invalid edge type, source is not a cluster thought) | stays `pending` (fix and retry) |
+| `refused` | Typed `{"refusal": {"code", "reason"}}` guard refusal; nothing ran. `unsupported_item_kind` is the one code on this path: the row's kind is no longer stored by the queue | stays `pending` |
 
 Every apply re-checks the staleness fingerprint and the state-dependent gates (`placement.maxClusterSize`, project isolation) against the live graph. The TTL is checked first and applies to dry-runs too, so an overdue row can never be confirmed — nor recorded as an idempotent accept, which would put a phantom entry in a run's rollback manifest. A dry-run of an already `stale`/`failed` row returns that same status and still leaves the row unchanged.
 
-**Run envelope (`run_id`).** Every row an apply accepts carries a run envelope, so a committed graph mutation is always reachable by `POST /api/proposals/rollback` with that id: the `accepted` result echoes it in `run_id` (`string | null`) and no second query is needed. The envelope is the caller's `run_id` verbatim, or — for an `edge`/`placement`/`lifecycle` item the caller left un-enveloped — one synthesized as `auto-` plus a UUIDv7. The `auto-` prefix is advisory, not a namespace: a caller-supplied id that happens to look like one works, and a synthesized id is accepted by `rollback` like any other. One id lands in four places — the row's `run_id` column (the rollback key), the stored `result` JSON, the `insertLog` context of the apply, and the response. Re-applying an already `accepted` row echoes the envelope the row was accepted under (`null` only when re-reading a row accepted before envelopes were recorded). Triage kinds are never synthesized: an un-enveloped `triage_activate`/`triage_archive` still comes back `refused` with `run_id_required`, because a triage run is a run the caller defines. A dry-run synthesizes nothing either, since a preview decides nothing. `apply_batch` mints **one** envelope for the whole batch — the batch *is* the run, so a single `rollback` reverts all of it — and returns it as the top-level `run_id`; that field is present only when at least one row actually joined the run and is absent when the batch accepted nothing that needs one (e.g. every item went `stale`). The operator's consequence: an apply made without a `run_id` is now rollback-addressable, but only inside the retention window below.
+**Run envelope (`run_id`).** Every row an apply accepts carries a run envelope, so a committed graph mutation is always reachable by `POST /api/proposals/rollback` with that id: the `accepted` result echoes it in `run_id` (`string | null`) and no second query is needed. The envelope is the caller's `run_id` verbatim, or one synthesized as `auto-` plus a UUIDv7. The `auto-` prefix is advisory, not a namespace: a caller-supplied id that happens to look like one works, and a synthesized id is accepted by `rollback` like any other. One id lands in four places — the row's `run_id` column (the rollback key), the stored `result` JSON, the `insertLog` context of the apply, and the response. Re-applying an already `accepted` row echoes the envelope the row was accepted under (`null` only when re-reading a row accepted before envelopes were recorded). A dry-run synthesizes nothing, since a preview decides nothing. `apply_batch` mints **one** envelope for the whole batch — the batch *is* the run, so a single `rollback` reverts all of it — and returns it as the top-level `run_id`; that field is present only when at least one row actually joined the run and is absent when the batch accepted nothing that needs one (e.g. every item went `stale`). The operator's consequence: an apply made without a `run_id` is rollback-addressable, but only inside the retention window below.
 
 ### POST /api/proposals/rollback
 
-Rolls back every reversible mutation of one explicit run (ADR 2026-09-29 §2.8). `confirm` is the dry-run switch: absent or `false` reports what would be reverted (`items[]`, `summary`) **without mutating anything**; `true` inverts each `accepted` row of the run in reverse **application** order (`applied_at` descending, not enqueue order) through existing writers only (re-draft the triage source, delete the edge the run created) and marks it `rolled_back`. A `lifecycle` merge is refused (not auto-rollbackable) and a row whose fingerprint drifted since apply is skipped with a warning. No thought is ever deleted.
+Rolls back every reversible mutation of one explicit run (ADR 2026-09-29 §2.8). `confirm` is the dry-run switch: absent or `false` reports what would be reverted (`items[]`, `summary`) **without mutating anything**; `true` inverts each `accepted` row of the run in reverse **application** order (`applied_at` descending, not enqueue order) through existing writers only (delete the edge the run created) and marks it `rolled_back`. Three verdicts are not reverted: a row of a retired kind is `refused` (no inverse writer survives), an accept that was `idempotent` is `skipped` (nothing was written), and a row whose fingerprint drifted since apply is `skipped` with a warning. No thought is ever deleted.
 
-**Rollback window.** A row is only revertible while it is still retained. `rollback` refuses, per row, any accepted row whose `decided_at` is older than the window `now - placement.proposalTtlDays` days (default 30) — the same setting the retention job prunes the queue with, so the guard is the read-time backstop for a retention job that has not run yet. The bound is inclusive at the boundary: a row decided exactly at the cutoff still reverts, one millisecond earlier is refused. The window is checked **first**, so it outranks the other verdicts — a row that is both out of window and drifted (or a merge) is refused *for the window*, and that reason names the window width and the concrete cutoff. The guard fails closed: a row with no or unparseable `decided_at` is refused rather than reverted. The window is measured against the **server's** clock — the route reads only `run_id` and `confirm` from the body and the MCP action forwards only `confirm` plus the audit label, so no public surface accepts a `now`; the service option exists purely as an internal/test seam, and an unparseable value reaching it would be reported as a refusal instead of throwing. A negative `placement.proposalTtlDays` disables retention and therefore this guard, so nothing is ever out of window. A refused row is never deleted: it stays `accepted` with its graph state intact. Every non-revert verdict is announced once per row as a `placement` warning, but only on `confirm: true` — the default dry-run report logs nothing. Past the window the retention job prunes the row itself, so an out-of-window apply eventually stops appearing in `items[]` altogether; the refusal is what a caller sees while the row is still retained.
+**Rollback window.** A row is only revertible while it is still retained. `rollback` refuses, per row, any accepted row whose `decided_at` is older than the window `now - placement.proposalTtlDays` days (default 30) — the same setting the retention job prunes the queue with, so the guard is the read-time backstop for a retention job that has not run yet. The bound is inclusive at the boundary: a row decided exactly at the cutoff still reverts, one millisecond earlier is refused. The window is checked **first**, so it outranks the other verdicts — a row that is both out of window and drifted is refused *for the window*, and that reason names the window width and the concrete cutoff. The guard fails closed: a row with no or unparseable `decided_at` is refused rather than reverted. The window is measured against the **server's** clock — the route reads only `run_id` and `confirm` from the body and the MCP action forwards only `confirm` plus the audit label, so no public surface accepts a `now`; the service option exists purely as an internal/test seam, and an unparseable value reaching it would be reported as a refusal instead of throwing. A negative `placement.proposalTtlDays` disables retention and therefore this guard, so nothing is ever out of window. A refused row is never deleted: it stays `accepted` with its graph state intact. Every non-revert verdict is announced once per row as a `placement` warning, but only on `confirm: true` — the default dry-run report logs nothing. Past the window the retention job prunes the row itself, so an out-of-window apply eventually stops appearing in `items[]` altogether; the refusal is what a caller sees while the row is still retained.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
@@ -488,14 +435,14 @@ MCP parity for the routes above, plus `apply_batch` (no HTTP equivalent).
 
 | Action | Kind | Inputs | Result |
 |---|---|---|---|
-| `enqueue` | queue write | `thought_id` | Rows queued/refreshed for the thought |
-| `list` | read | `state` (default `pending`), `item_kind`, `project_id`, `limit` | Queued rows |
-| `apply` | graph write | `proposal_id`, `confirm` (default false), `run_id` (required for triage kinds) | One `ApplyResult` (`dry_run`/`accepted`/`stale`/`failed`/`refused`); an `accepted` result carries the row's `run_id` envelope (the caller's, or a synthesized `auto-…` for an un-enveloped non-triage item) |
-| `apply_batch` | graph write | `proposal_ids[]` (non-empty), `confirm`, `run_id`, `limit` | `{"results": [ApplyResult], "errors": [{"proposal_id", "error"}]}`; each item applied independently, a partial batch is a valid outcome. When a run cap/`limit`/`run_id` guard trips, `{"results": [], "errors": [], "refused": {"code", "reason"}}` — the whole batch is refused, nothing applied. When at least one row joined the run, the outcome also carries the one shared `run_id` envelope — the caller's, or a synthesized `auto-…` for the whole batch (see **Run envelope** below) |
+| `enqueue` | queue write | `thought_id`, `max_proposals`/`max_items` | `{proposals, skipped, skipped_kinds}` — the queued/refreshed `edge` rows plus the plan items whose kind is no longer stored |
+| `list` | read | `state` (default `pending`), `item_kind`, `project_id`, `limit`, `source_thought_id`, `created_after` | Queued rows |
+| `apply` | graph write | `proposal_id`, `confirm` (default false), `run_id` | One `ApplyResult` (`dry_run`/`accepted`/`stale`/`failed`/`refused`); an `accepted` result carries the row's `run_id` envelope (the caller's, or a synthesized `auto-…`) |
+| `apply_batch` | graph write | `proposal_ids[]` (non-empty), `confirm`, `run_id`, `limit` | `{"results": [ApplyResult], "errors": [{"proposal_id", "error"}]}`; each item applied independently, a partial batch is a valid outcome. When the per-call `limit` trips, `{"results": [], "errors": [], "refused": {"code": "limit_exceeded", "reason"}}` — the whole batch is refused, nothing applied. When at least one row joined the run, the outcome also carries the one shared `run_id` envelope — the caller's, or a synthesized `auto-…` for the whole batch (see **Run envelope** above) |
 | `rollback` | graph write | `run_id`, `confirm` (default false) | `RollbackReport` (`run_id`, `confirm`, `items[]`, `summary`) |
 | `reject` | queue write | `proposal_id` | Updated row (`state: "rejected"`) |
 
-`enqueue` requires a persisted, `active` `thought_id`. `apply`/`apply_batch`/`rollback` default to a non-mutating dry-run and execute only on `confirm: true`. Triage applies require `run_id`, obey `triage.maxItemsPerRun`/`triage.maxArchivesPerRun` on the single-item `apply` path as well as on `apply_batch` (the caps are cumulative per **caller-supplied** `run_id`, so one-at-a-time confirms under one id cannot exceed them; an un-enveloped non-triage `apply`/`apply_batch` is handed a synthesized one-row `auto-` envelope instead and counts against no budget — the cap guards are evaluated for a declared run only), and — when `triage.requireDryRunFirst` (default true) — must be previewed before a confirm. `enqueue` and `reject` touch only the queue, never the graph; only `apply`/`apply_batch`/`rollback` call a writer. Apply is deliberately absent from every read tool — `memory_status` `propose`/`edge_suggestions` stay read-only, and `list` cannot reach `apply` (enforced by a static test in `src/mcp/tools/memory-review.contract.test.ts`). Both write surfaces share the same envelope and window rules as the HTTP routes above: an un-enveloped non-triage `apply`/`apply_batch` gets a synthesized `auto-…` `run_id` back so `rollback` can reach it without a second query, and that envelope reaches only the rows the call actually decided — a row that came back `stale`/`failed` joins no run, and a row that was already `accepted` keeps the envelope it was accepted under — while `rollback` refuses any row decided outside the `placement.proposalTtlDays` window.
+`enqueue` requires a persisted, `active` `thought_id`. `apply`/`apply_batch`/`rollback` default to a non-mutating dry-run and execute only on `confirm: true`. `enqueue` and `reject` touch only the queue, never the graph; only `apply`/`apply_batch`/`rollback` call a writer. Apply is deliberately absent from every read tool — `memory_status` `propose` stays read-only, and `list` cannot reach `apply` (enforced by a static test in `src/mcp/tools/memory-review.contract.test.ts`). Both write surfaces share the same envelope and window rules as the HTTP routes above: an un-enveloped `apply`/`apply_batch` gets a synthesized `auto-…` `run_id` back so `rollback` can reach it without a second query, and that envelope reaches only the rows the call actually decided — a row that came back `stale`/`failed` joins no run, and a row that was already `accepted` keeps the envelope it was accepted under — while `rollback` refuses any row decided outside the `placement.proposalTtlDays` window.
 
 ## Projects
 
@@ -571,83 +518,13 @@ Deletes a primer. 404 if missing. Returns `{"success": true}`.
 
 curl `-X DELETE http://127.0.0.1:3005/api/primers/<id>`
 
-## Settings
-
-Also see docs/CONFIG.md for file/environment configuration.
-
-### GET /api/thought-settings
-
-Returns current thought content limits. `hardLimit` is derived from `softLimit` and `hardLimitBufferPercent` and is read-only.
-
-curl `http://127.0.0.1:3005/api/thought-settings`
-
-Response: `{"softLimit": 600, "hardLimit": 720, "hardLimitBufferPercent": 20}`
-
-### PATCH /api/thought-settings
-
-Sets thought content limits. At least one field is required. Returns the updated limits.
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| softLimit | body | int | optional | Recommended content budget per thought, integer >= 1. At least one of `softLimit` or `hardLimitBufferPercent` is required |
-| hardLimitBufferPercent | body | int | optional | Percent buffer added to the soft limit to derive the enforced hard ceiling, integer >= 1 |
-
-The enforced hard ceiling is derived and read-only: `hardLimit = round(softLimit * (1 + hardLimitBufferPercent / 100))`. It is returned by GET and PATCH but cannot be set directly.
-
-curl `-d '{"softLimit": 600, "hardLimitBufferPercent": 20}' http://127.0.0.1:3005/api/thought-settings`
-
-### GET /api/embedder-settings
-
-Returns local embedding model settings.
-
-curl `http://127.0.0.1:3005/api/embedder-settings`
-
-Response: `{"precache": true, "idleTimeoutMs": 300000}`
-
-### PATCH /api/embedder-settings
-
-Updates embedder settings; restarts the embedder if a value changed. At least one field required; 500 if the restart fails after saving.
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| precache | body | bool | optional | Preload the model at startup |
-| idleTimeoutMs | body | int | optional | Idle unload timeout, integer >= 1000 |
-
-curl `-d '{"precache": true}' http://127.0.0.1:3005/api/embedder-settings`
-
-## Stats
-
-### GET /api/stats
-
-Returns database statistics plus the DB file size on disk.
-
-curl `http://127.0.0.1:3005/api/stats`
-
-Response: `{"thoughts": 120, "edges": 45, ..., "db_size_bytes": 1048576}`
-
-## Profile
-
-### GET /api/profile/thoughts
-
-Returns thoughts marked as profile (`is_profile`).
-
-curl `http://127.0.0.1:3005/api/profile/thoughts`
-
-### GET /api/profile/stats
-
-Returns profile statistics.
-
-curl `http://127.0.0.1:3005/api/profile/stats`
-
-### POST /api/profile/summarize
-
-Generates a profile summary from profile thoughts.
-
-curl `-X POST http://127.0.0.1:3005/api/profile/summarize`
-
 ## Slots
 
-Named context slots (persona, pending items, decisions, etc.).
+Named context slots. Four names survive: `pending_items` and `architecture_decisions` are
+composed on every read (virtual, never stored), `project_context` and `active_goals` are
+stored rows. Any other name is not a slot: `GET /api/slots` simply omits it, and
+`PUT /api/slots/<name>` is refused with 400 — only `project_context` and `active_goals`
+are writable.
 
 ### GET /api/slots
 
@@ -660,27 +537,33 @@ Returns context slots.
 | limit | query | int | optional | Max items for `pending_items` (1-1000); paginates the pending list |
 | offset | query | int | 0 | Offset for `pending_items` pagination |
 
-curl `'http://127.0.0.1:3005/api/slots?names=persona,pending_items'`
+curl `'http://127.0.0.1:3005/api/slots?names=pending_items,active_goals'`
 
-Response: `{"slots": [{"name": "persona", "content": "...", ...}]}`
+Response: `{"slots": [{"name": "pending_items", "content": "...", ...}]}`
 
-`pending_items` is virtual: it is built from the same due `pending` candidates the frontier surfaces.
+`pending_items` is virtual: it is built from the same due `pending` candidates the frontier
+surfaces. `architecture_decisions` is virtual too, rendered from the top `primer.topN`
+primers.
 
 Truncation: every slot's `content` is capped at `max_chars` (default `slots.defaultMaxChars`, 2000; hard limit 20000). When the stored/composed content exceeds the cap it is sliced to `max_chars` and `truncated: true` is set; the remainder is dropped from that response. Use `limit`/`offset` on `pending_items` to page through long queues without losing entries to the char cap. Explicit slots may raise their cap via `max_chars` on `PUT`.
 
 ### PUT /api/slots/:name
 
-Creates or updates a slot. All body fields optional; `content` defaults to empty string. 400/404 on validation/not-found errors.
+Creates or updates a slot. All body fields optional; `content` defaults to empty string.
+400 for a name that is not one of the two writable slots (a virtual slot such as
+`pending_items` is read-only, an unknown name is not a slot at all), for an invalid
+`max_chars`, and for `scope: "project"` without a `project_id`; 404 for an unknown
+project.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
-| name | path | string | required | Slot name |
+| name | path | string | required | Slot name: `project_context` or `active_goals` |
 | content | body | string | optional | Slot content |
-| max_chars | body | int | optional | Content cap (server default applies when omitted) |
+| max_chars | body | int | optional | Content cap, integer 100-8000 (server default applies when omitted) |
 | scope | body | string | optional | `project` or `global` |
-| project_id | body | string | optional | Project scope |
+| project_id | body | string | optional | Project scope; required when `scope` is `project` |
 
-curl `-d '{"content": "Prefers concise answers", "scope": "global"}' http://127.0.0.1:3005/api/slots/persona`
+curl `-d '{"content": "Prefers concise answers", "scope": "global"}' http://127.0.0.1:3005/api/slots/project_context`
 
 ### POST /api/slots/reflect
 
@@ -718,26 +601,12 @@ Response: `{"items": [{"thought_id": "...", "content_short": "...", "reason": "d
 
 `reason` is `directive` for `directive`/`todo` thoughts and `pending` for `pending` thoughts. `priority` is `min(1, 0.5·importance + 0.15·unblocked + age bonus)`, where the unblocked bonus is dropped when `blocked_by` is non-empty and the age bonus is `+0.1` (age ≤ 7d), `+0.05` (≤ 30d), else `0`. `blocked_by` lists the `depends_on` upstream thought ids.
 
-## Auto-cluster
+## No HTTP clustering trigger
 
-### POST /api/auto-cluster/trigger
-
-Runs the auto-clustering job over active thoughts. 500 on job failure.
-
-| Name | In | Type | Default | Description |
-|---|---|---|---|---|
-| min_age_days | body | number | optional | Only cluster thoughts older than this |
-| min_similarity | body | number | optional | Similarity threshold |
-| min_members | body | number | optional | Minimum cluster size |
-| dry_run | body | bool | optional | Compute without writing |
-
-curl `-d '{"dry_run": true, "min_similarity": 0.8}' http://127.0.0.1:3005/api/auto-cluster/trigger`
-
-### GET /api/auto-cluster/status
-
-Returns the result of the last auto-cluster run, or `{"last_run": null, "result": null}` if none.
-
-curl `http://127.0.0.1:3005/api/auto-cluster/status`
+Auto-clustering is MCP-only: `memory_crystallize action=auto_cluster` (with
+`dry_run: true` for a preview) is the single entry point, tuned by the
+`autoCluster.*` settings in [CONFIG.md](CONFIG.md). There is no HTTP route and no
+scheduled job for it.
 
 ## Health
 

@@ -26,11 +26,10 @@
 
 ```
 Agent boots → memory_status(action=slots) →
-  sees persona (from profile thoughts),
-  active_goals,
-  project_context (previous reflections),
   pending_items (due pending thoughts),
-  architecture_decisions (from examples)
+  architecture_decisions (from primers),
+  project_context (previous reflections),
+  active_goals
 → understands what was decided before and what's on the queue
 ```
 
@@ -80,7 +79,8 @@ What happens inside:
 memory_status(action=frontier)
   → candidates: active/draft thoughts tagged directive, todo or pending
     whose surface_after delay has elapsed (or is unset)
-  → excluded: clusters, historical crystal thoughts, profile summaries, replaced thoughts
+  → excluded: clusters, thoughts replaced by a `replaces` edge, and legacy
+    `profile-summary` sourced rows
   → priority = 0.5·importance + 0.15·unblocked + age bonus
     (age ≤ 7d: +0.1, ≤ 30d: +0.05, else 0)
   → depends_on: blocked items lose the 0.15 unblocked bonus but still surface with lower priority and blocked_by metadata
@@ -91,38 +91,36 @@ memory_status(action=frontier)
 ```
 memory_crystallize(action=auto_cluster) → similar thoughts grouped into clusters (Union-Find)
 memory_crystallize(action=graph) → inspect thoughts and edges
-memory_crystallize(action=cluster_remove, cluster_id="<cluster-id>", thought_id="<thought-id>")
-  → preview removing a member; repeat with confirm=true to apply
+memory_crystallize(action=cluster) → create a cluster thought from thought_ids
+
+contradiction_in_cluster remediation (memory_status(action=health)):
+  memory_store(action=unlink) on the contradicts edge — preview, then confirm=true
+  memory_store(action=retype, new_type="supports") — preview, then confirm=true
+  memory_supersede(action=archive) on the cluster thought — members are untouched
 ```
 
-Crystal generation (`action=crystallize`) is removed in this breaking 0.x release.
-Existing crystal thoughts remain stored and excluded from the frontier.
+Cluster membership needs no dedicated action: the `cluster` edges are ordinary edges,
+so `memory_store` `link`/`unlink` add and remove members.
 
-## Scenario 8: Profile (Persona)
-
-```
-memory_store(action=create, "Prefer TypeScript", is_profile=true, tags=["@profile", "@profile-preferences"])
-memory_store(action=create, "Work at night", is_profile=true, tags=["@profile", "@profile-work"])
-  → these thoughts are never archived
-  → summarizer groups by @profile-* subtags
-  → persona slot = profile summary → available to agent via memory_status(action=slots)
-```
-
-## Scenario 9: Self-Cleanup
+## Scenario 8: Self-Cleanup
 
 ```
 decay job → importance decreases by rate (0.95) every 24h
-  → importance < 0.1 + age > 30 days + active → auto-archive
+  → nothing else: decay never archives a thought
+
+archiving → explicit only (memory_supersede(action=archive) or status=archived)
+TTL cleanup → opt-in: deletes archived thoughts only when ttl.archivedTtlDays > 0
+  → default -1 disables deletion; 0 also disables it; protected thoughts are never deleted
 
 search path → promotes frequently-hit thoughts to primers once hit_count reaches
               primer.promoteThreshold (default 5)
 ```
 
-The standalone thought-verification job was removed; existing `thought_verify`
-rows remain stored. Do not use `exclude_flagged` in search calls: HTTP search
-rejects it with 400 and MCP recall search/clusters reject it with a validation
-error. Previously flagged thoughts may now appear in default search results.
-There is no destructive migration; `/health` remains available.
+`exclude_flagged` is an ordinary query parameter: HTTP search and MCP recall
+search/clusters ignore it (it is no longer part of the MCP schema), so previously
+flagged thoughts may appear in default search results. Removals from earlier
+releases, including the retired verification job and its data, are listed in
+[CHANGELOG.md](../CHANGELOG.md).
 
 ---
 

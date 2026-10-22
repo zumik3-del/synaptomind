@@ -164,13 +164,8 @@ test("PUT /api/thoughts/:id with invalid status yields 400", async () => {
 
 // ── Optional-body routes: absent body keeps defaults, malformed still 400 ───
 
-test("POST /api/thoughts/auto-link with no body uses defaults", async () => {
-	const res = await request("/api/thoughts/auto-link", { method: "POST" });
-	expect(res.status).toBe(200);
-});
-
-test("POST /api/thoughts/auto-link with malformed JSON yields 400", async () => {
-	const res = await postJson("/api/thoughts/auto-link", "{ not json");
+test("POST /api/thoughts/propose with malformed JSON yields 400", async () => {
+	const res = await postJson("/api/thoughts/propose", "{ not json");
 	expect(res.status).toBe(400);
 	expect(await errorOf(res)).toContain("Malformed JSON");
 });
@@ -235,9 +230,12 @@ test("GET /api/thoughts/timeline with limit 500 still succeeds", async () => {
 // same as an absent body — not dereference into a 500. Both red-prove against
 // the #1758 code, where `jsonBodyOrDefault` returned the bare `null`.
 
-test("POST /api/thoughts/auto-link with a JSON null body uses defaults (was 500)", async () => {
-	const res = await postJson("/api/thoughts/auto-link", "null");
-	expect(res.status).toBe(200);
+test("POST /api/thoughts/propose with a JSON null body keeps defaults (was 500)", async () => {
+	// A literal `null` payload must read as "no payload" (defaults applied), the
+	// same as an absent body — not dereference into a 500. The route then
+	// rejects the missing thought_id/content itself with a 400.
+	const res = await postJson("/api/thoughts/propose", "null");
+	expect(res.status).toBe(400);
 });
 
 test("POST /api/proposals/rollback with a JSON null body keeps defaults (was 500)", async () => {

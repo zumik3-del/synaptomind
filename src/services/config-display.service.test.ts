@@ -88,6 +88,48 @@ describe('buildConfigDisplay redaction', () => {
   })
 })
 
+// ── the reduced config surface (task #1951) ──────────────────────────────────
+
+describe('buildConfigDisplay removed sections', () => {
+  test('renders no Auto Link or Triage section', () => {
+    const out = buildConfigDisplay()
+
+    expect(out).not.toContain('--- Auto Link ---')
+    expect(out).not.toContain('--- Triage ---')
+    expect(out).not.toContain('autoLink.')
+    expect(out).not.toContain('triage.')
+  })
+
+  test('renders no decay auto-archive or placement alias knob', () => {
+    const out = buildConfigDisplay()
+
+    expect(out).not.toContain('decay.archiveThreshold')
+    expect(out).not.toContain('decay.archiveMinAgeDays')
+    expect(out).not.toContain('placement.maxProposals ')
+    expect(out).not.toContain('placement.maxItemsPerEnqueue')
+    // The surviving knobs of both sections are still advertised.
+    expect(out).toContain('decay.rate')
+    expect(out).toContain('placement.maxProposalsPerEnqueue')
+  })
+  test('an inert section copied from a legacy config.json is not advertised', () => {
+    // `deepMerge` copies an operator's file keys verbatim, so a config.json
+    // that still carries a removed block leaves it on the runtime object. No
+    // consumer reads it, and the rendered view must not advertise it either.
+    const mutable = config as unknown as Record<string, unknown>
+    mutable.autoLink = { minSimilarity: 0.5, maxEdgesPerRun: 7, dryRun: true }
+    mutable.triage = { enabled: false }
+    try {
+      const out = buildConfigDisplay()
+
+      expect(out).not.toContain('autoLink')
+      expect(out).not.toContain('triage')
+    } finally {
+      delete mutable.autoLink
+      delete mutable.triage
+    }
+  })
+})
+
 // ── Search confidence config (issue #155, task #884/885) ─────────────────────
 
 describe('buildConfigDisplay Search section', () => {

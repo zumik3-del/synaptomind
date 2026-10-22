@@ -17,8 +17,8 @@ function tagThought(id: string, tag: string): void {
   db.prepare('INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)').run(id, tagRow.id)
 }
 
-test('FRONTIER_EXCLUDED_SOURCES lists profile-summary and crystal', () => {
-  expect(FRONTIER_EXCLUDED_SOURCES).toEqual(['profile-summary', 'crystal'])
+test('FRONTIER_EXCLUDED_SOURCES keeps only the legacy profile-summary source', () => {
+  expect(FRONTIER_EXCLUDED_SOURCES).toEqual(['profile-summary'])
 })
 
 test('findFrontierCandidates returns directive-tagged active thoughts', () => {
@@ -46,13 +46,6 @@ test('findFrontierCandidates excludes clusters', () => {
 
 test('findFrontierCandidates excludes profile-summary source', () => {
   const id = seedThought({ content: 'profile', source: 'profile-summary' })
-  tagThought(id, 'directive')
-  const rows = findFrontierCandidates(getDb())
-  expect(rows).toHaveLength(0)
-})
-
-test('findFrontierCandidates excludes crystal source', () => {
-  const id = seedThought({ content: 'crystal', source: 'crystal' })
   tagThought(id, 'directive')
   const rows = findFrontierCandidates(getDb())
   expect(rows).toHaveLength(0)

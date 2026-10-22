@@ -37,12 +37,10 @@
   },
   "decay": {
     "rate": 0.95,
-    "archiveThreshold": 0.1,
-    "archiveMinAgeDays": 30,
     "intervalMs": 86400000
   },
   "ttl": {
-    "archivedTtlDays": 90,
+    "archivedTtlDays": -1,
     "cleanupIntervalMs": 86400000
   },
   "primer": {
@@ -53,11 +51,6 @@
     "minAgeDays": 3,
     "minSimilarity": 0.09,
     "minMembers": 3,
-    "dryRun": false
-  },
-  "autoLink": {
-    "minSimilarity": 0.65,
-    "maxEdgesPerRun": 20,
     "dryRun": false
   },
   "edgeDetect": {
@@ -77,14 +70,6 @@
     "maxClusterSize": 50,
     "proposalTtlDays": 30,
     "maxPendingProposals": 500
-  },
-  "triage": {
-    "enabled": true,
-    "maxItemsPerRun": 25,
-    "maxArchivesPerRun": 25,
-    "maxLinksPerRun": 20,
-    "requireDryRunFirst": true,
-    "backfillEnabled": true
   },
   "search": {
     "confidence": {

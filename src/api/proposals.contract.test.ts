@@ -115,7 +115,7 @@ describe('GET /api/proposals', () => {
 // ── POST /api/proposals (enqueue) ─────────────────────────────────────────────
 
 describe('POST /api/proposals', () => {
-  test('201 with proposal rows for a valid persisted thought_id', async () => {
+  test('201 with the enqueue outcome: queued proposal rows plus skip counters', async () => {
     const src = seedThought({ content: 'post-proposals subject marker here' })
     seedThought({ content: 'post-proposals related content elsewhere' })
 
@@ -125,8 +125,13 @@ describe('POST /api/proposals', () => {
       headers: { 'Content-Type': 'application/json' }
     })
     expect(res.status).toBe(201)
-    const body = await res.json() as unknown[]
-    expect(Array.isArray(body)).toBe(true)
+    const body = await res.json() as { proposals: unknown[]; skipped: number; skipped_kinds: Record<string, number> }
+    // Task #1942: the queue creates `edge` items only; the response reports the
+    // rows it queued AND how many plan items it skipped, so nothing is dropped
+    // silently.
+    expect(Array.isArray(body.proposals)).toBe(true)
+    expect(typeof body.skipped).toBe('number')
+    expect(typeof body.skipped_kinds).toBe('object')
   })
 
   test('400 when thought_id is missing', async () => {

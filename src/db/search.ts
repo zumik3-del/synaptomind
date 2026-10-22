@@ -21,8 +21,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     statusFilter,
     projectFilter,
     clusterFilter,
-    minImportance,
-    includeGlobal
+    minImportance
   } = options
   const pool = Math.min(1000, Math.max(topK * 10, topK))
 
@@ -56,8 +55,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     statusFilter,
     projectFilter,
     clusterFilter,
-    minImportance,
-    includeGlobal
+    minImportance
   })
 
   const vecIds = embedding.length > 0

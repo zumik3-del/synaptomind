@@ -4,8 +4,6 @@ import { ValidationError } from '../errors'
 import { parseTags } from '../utils'
 import { TIMELINE_LIMIT_DEFAULT, thoughtStatusSchema, timelineLimitSchema } from '../validation'
 import { formatZodIssues, jsonBodyOrDefault, requiredJsonBody } from './utils'
-import { runAutoLinkJob } from '../services/auto-link.service'
-import { detectEdgeProposals } from '../services/edge-detect.service'
 import { proposePlacementPlan } from '../services/placement/engine'
 import { getChainService } from '../services/graph.service'
 import {
@@ -43,7 +41,9 @@ const createThoughtBodySchema = z.object({
   project_id: z.string().optional(),
   parent_id: z.string().optional(),
   relation: z.string().optional(),
-  is_profile: z.boolean().optional(),
+  // Retired with the profile surface (task #1939): the flag is no longer a
+  // writer, so an explicit one is refused instead of silently ignored.
+  is_profile: z.never({ error: 'is_profile is retired' }).optional(),
   is_protected: z.boolean().optional()
 })
 
@@ -53,7 +53,7 @@ const updateThoughtBodySchema = z.object({
   tags_mode: z.enum(['replace', 'merge']).optional(),
   status: thoughtStatusSchema.optional(),
   project_id: z.string().optional(),
-  is_profile: z.boolean().optional(),
+  is_profile: z.never({ error: 'is_profile is retired' }).optional(),
   is_protected: z.boolean().optional()
 })
 
@@ -61,8 +61,6 @@ const bulkCreateBodySchema = z.object({
   thoughts: z.array(z.unknown()).optional(),
   project_id: z.string().optional()
 })
-const autoLinkBodySchema = z.object({ dry_run: z.boolean().optional(), max_edges: z.number().int().min(1).optional() })
-const edgeDetectBodySchema = z.object({ project_id: z.string().optional(), min_similarity: z.number().finite().min(0).max(1).optional(), max_proposals: z.number().int().min(1).optional() })
 const proposeBodySchema = z.object({ thought_id: z.string().optional(), content: z.string().optional(), project_id: z.string().optional() })
 
 thoughtsRouter.get('/timeline', c => {
@@ -82,27 +80,6 @@ thoughtsRouter.get('/timeline', c => {
     offset: parsed.data.offset
   })
   return c.json(thoughts)
-})
-
-thoughtsRouter.post('/auto-link', async c => {
-  const body = await jsonBodyOrDefault<{ dry_run?: boolean; max_edges?: number }>(c, {}, autoLinkBodySchema)
-  const result = await runAutoLinkJob({ dryRun: body.dry_run ?? false, maxEdgesPerRun: body.max_edges ?? undefined })
-  return c.json(result)
-})
-
-// Read-only: returns unconfirmed `related` candidate pairs (similarity-only); never writes edges.
-thoughtsRouter.post('/edge-detect', async c => {
-  const body = await jsonBodyOrDefault<{
-    project_id?: string
-    min_similarity?: number
-    max_proposals?: number
-  }>(c, {}, edgeDetectBodySchema)
-  const result = await detectEdgeProposals({
-    projectId: body.project_id,
-    minSimilarity: body.min_similarity,
-    maxProposals: body.max_proposals
-  })
-  return c.json(result)
 })
 
 // Read-only: returns one placement/link plan for a thought (or draft); never writes.
@@ -152,7 +129,7 @@ thoughtsRouter.post('/bulk', async c => {
 thoughtsRouter.post('/', async c => {
   const body = await requiredJsonBody(c, createThoughtBodySchema)
   const thought = createThoughtWithParentService(
-    { content: body.content, status: body.status, tags: body.tags, source: body.source, project_id: body.project_id, is_profile: body.is_profile, is_protected: body.is_protected },
+    { content: body.content, status: body.status, tags: body.tags, source: body.source, project_id: body.project_id, is_protected: body.is_protected },
     body.parent_id, body.relation
   )
   return c.json(thought, 201)
@@ -162,7 +139,7 @@ thoughtsRouter.put('/:id', async c => {
   const id = c.req.param('id')!
   const body = await requiredJsonBody(c, updateThoughtBodySchema)
   const thought = updateThoughtByIdService(id, {
-    content: body.content, tags: body.tags, tags_mode: body.tags_mode, status: body.status, project_id: body.project_id, is_profile: body.is_profile, is_protected: body.is_protected
+    content: body.content, tags: body.tags, tags_mode: body.tags_mode, status: body.status, project_id: body.project_id, is_protected: body.is_protected
   })
   if (!thought) return c.json({ error: 'Not found' }, 404)
   return c.json(thought)

@@ -2,7 +2,6 @@ import { config, DEFAULTS } from '../config'
 import { clampPrimerCount } from '../config.primer-bounds'
 import { getDb } from '../db'
 import { getPrimers } from '../db/primers'
-import { getProfileSummaryContents } from '../db/profile'
 import { projectExists } from '../db/projects'
 import { getSlotRow, upsertSlot } from '../db/slots'
 import { NotFoundError, ValidationError } from '../errors'
@@ -12,7 +11,6 @@ import type { Database } from 'bun:sqlite'
 
 // Canonical slot order — consumers (MCP digest, future UI) rely on it.
 export const SLOT_NAMES = [
-  'persona',
   'pending_items',
   'architecture_decisions',
   'project_context',
@@ -22,7 +20,7 @@ type SlotName = (typeof SLOT_NAMES)[number]
 
 // Virtual slots are composed from existing mechanisms on every read and are
 // never stored; explicit slots live in the `slots` table.
-const VIRTUAL_SLOT_NAMES = new Set<string>(['persona', 'pending_items', 'architecture_decisions'])
+const VIRTUAL_SLOT_NAMES = new Set<string>(['pending_items', 'architecture_decisions'])
 const EXPLICIT_SLOT_NAMES = new Set<string>(['project_context', 'active_goals'])
 
 interface SlotView {
@@ -38,11 +36,6 @@ interface SlotView {
 function truncate(content: string, maxChars: number): { content: string; truncated: boolean } {
   if (content.length <= maxChars) return { content, truncated: false }
   return { content: content.slice(0, maxChars), truncated: true }
-}
-
-// persona — auto-generated profile summaries (FI-08).
-function personaContent(db: Database): string {
-  return getProfileSummaryContents(db).join('\n\n')
 }
 
 // pending_items — due pending candidates, the same set the frontier surfaces (FI-03).
@@ -84,8 +77,7 @@ export function getSlots(opts?: { projectId?: string; names?: string[]; limit?: 
     if (VIRTUAL_SLOT_NAMES.has(name)) {
       const maxChars = config.slots.defaultMaxChars
       let content: string
-      if (name === 'persona') content = personaContent(d)
-      else if (name === 'architecture_decisions') content = architectureDecisionsContent(d)
+      if (name === 'architecture_decisions') content = architectureDecisionsContent(d)
       else content = pendingItemsContent(d, opts?.limit, opts?.offset)
       const { content: truncatedContent, truncated } = truncate(content, maxChars)
       views.push({ name, scope: 'global', virtual: true, content: truncatedContent, truncated, max_chars: maxChars, updated_at: null })
@@ -123,7 +115,7 @@ export function updateExplicitSlot(
 ): SlotView {
   if (!EXPLICIT_SLOT_NAMES.has(name)) {
     throw new ValidationError(
-      `Slot '${name}' is virtual (read-only). Writable slots: ${[...EXPLICIT_SLOT_NAMES].join(', ')}`
+      `Slot '${name}' is not writable (virtual/read-only or unknown). Writable slots: ${[...EXPLICIT_SLOT_NAMES].join(', ')}`
     )
   }
   if (typeof input.content !== 'string') {

@@ -5,6 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { setThoughtLimits } from '../../db/settings'
+import { createThought, getThought } from '../../db/thoughts'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
@@ -440,12 +441,12 @@ describe('memory_status', () => {
 // ── memory_crystallize ───────────────────────────────────────────────────────
 
 describe('memory_crystallize', () => {
-  test('advertises only the five surviving graph and cluster actions', async () => {
+  test('advertises only the three surviving graph and cluster actions', async () => {
     const { tools } = await client.listTools()
     const tool = tools.find(t => t.name === 'memory_crystallize')
     const schema = tool?.inputSchema as { properties?: { action?: { enum?: string[] } } } | undefined
     expect(schema?.properties?.action?.enum).toEqual([
-      'graph', 'cluster', 'auto_cluster', 'cluster_remove', 'cluster_dissolve'
+      'graph', 'cluster', 'auto_cluster'
     ])
   })
 
@@ -470,28 +471,18 @@ describe('memory_crystallize', () => {
     expect(Array.isArray(data.edges)).toBe(true)
   })
 
-  test('dispatches cluster creation, auto-cluster, member removal and dissolution', async () => {
+  test('dispatches cluster creation and auto-cluster', async () => {
     const member = seedThought({ content: 'retained cluster member' })
     const created = parseResult(await client.callTool({
       name: 'memory_crystallize', arguments: { action: 'cluster', thought_ids: [member], title: 'retained cluster' }
     }))
     expect(created.isError).toBe(false)
-    const clusterId = created.data.cluster.id as string
+    expect(created.data.cluster.id).toBeDefined()
 
     const auto = parseResult(await client.callTool({
       name: 'memory_crystallize', arguments: { action: 'auto_cluster', dry_run: true }
     }))
     expect(auto.isError).toBe(false)
-
-    const removal = parseResult(await client.callTool({
-      name: 'memory_crystallize', arguments: { action: 'cluster_remove', cluster_id: clusterId, thought_id: member }
-    }))
-    expect(removal.data.status).toBe('preview')
-
-    const dissolution = parseResult(await client.callTool({
-      name: 'memory_crystallize', arguments: { action: 'cluster_dissolve', cluster_id: clusterId }
-    }))
-    expect(dissolution.data.status).toBe('preview')
   })
 
   test('historical crystal-source thought remains accessible through get and search', async () => {
@@ -653,11 +644,10 @@ describe('merge edge cases', () => {
 
 describe('archive edge cases', () => {
   test('archive on profile thought returns error', async () => {
-    const c = await client.callTool({
-      name: 'memory_store',
-      arguments: { action: 'create', content: 'profile thought', is_profile: true }
-    })
-    const { data: thought } = parseResult(c)
+    // Legacy profile data still exists in deployed DBs even though the flag is
+    // no longer writable through the API/MCP surface (task #1939), so the
+    // archive guard is seeded at the db layer.
+    const thought = createThought(getDb(), { content: 'profile thought', status: 'active', is_profile: true })
 
     const result = await client.callTool({
       name: 'memory_supersede',
@@ -732,17 +722,12 @@ describe('memory_store link edge types', () => {
     expect(parseResult(result).isError).toBe(true)
   })
 
-  test('edge_suggestions action returns a detection result shape', async () => {
-    await createPair()
-    const result = await client.callTool({
-      name: 'memory_status',
-      arguments: { action: 'edge_suggestions' }
-    })
-    const { data, isError } = parseResult(result)
-    expect(isError).toBe(false)
-    expect(Array.isArray(data.proposals)).toBe(true)
-    expect(typeof data.candidates).toBe('number')
-    expect(typeof data.degraded).toBe('boolean')
+  test('the removed edge_suggestions action is no longer advertised', async () => {
+    const { tools } = await client.listTools()
+    const status = tools.find(t => t.name === 'memory_status')
+    expect(status).toBeDefined()
+    const schema = status!.inputSchema as Record<string, any>
+    expect(schema.properties.action.enum).not.toContain('edge_suggestions')
   })
 })
 
@@ -983,4 +968,61 @@ describe('memory_recall low_confidence + min_relevance', () => {
     const zeroIds = zeroData.map(r => r.thought.id).sort()
     expect(zeroIds).toEqual(defaultIds)
   })
+})
+
+// ── Retired surface (pruning batch) ──────────────────────────────────────────
+//
+// The pruning batch removed `is_profile`, the `profile` status action and the
+// `cluster_remove`/`cluster_dissolve` crystallize actions. The retired keys and
+// action names stay in the input schemas so the refusal is a readable message
+// rather than a silently ignored argument: the contract is "refused loudly",
+// not "accepted and dropped".
+
+describe('retired surface', () => {
+  test('memory_store create refuses is_profile and writes nothing', async () => {
+    const before = (getDb().query('select count(*) as n from thoughts').get() as { n: number }).n
+    const { data, isError } = parseResult(await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'retired profile flag', is_profile: true }
+    }))
+    expect(isError).toBe(true)
+    expect(String(data)).toContain('is_profile is retired')
+    const after = (getDb().query('select count(*) as n from thoughts').get() as { n: number }).n
+    expect(after).toBe(before)
+  })
+
+  test('memory_store update refuses is_profile and leaves the row untouched', async () => {
+    const created = parseResult(await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'plain thought' }
+    }))
+    const id = created.data.id as string
+    const { data, isError } = parseResult(await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'update', thought_id: id, is_profile: true }
+    }))
+    expect(isError).toBe(true)
+    expect(String(data)).toContain('is_profile is retired')
+    expect(getThought(getDb(), id)?.is_profile).toBe(0)
+  })
+
+  test('memory_status action=profile is no longer a valid action', async () => {
+    const { data, isError } = parseResult(await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'profile' }
+    }))
+    expect(isError).toBe(true)
+    expect(String(data)).toContain('Invalid option: expected one of')
+  })
+
+  for (const action of ['cluster_remove', 'cluster_dissolve']) {
+    test(`memory_crystallize ${action} is refused with the surviving action enum`, async () => {
+      const { data, isError } = parseResult(await client.callTool({
+        name: 'memory_crystallize',
+        arguments: { action }
+      }))
+      expect(isError).toBe(true)
+      expect(String(data)).toContain('expected one of "graph"|"cluster"|"auto_cluster"')
+    })
+  }
 })

@@ -3,9 +3,6 @@ import { closeDb } from "../db/init";
 import { createTestDb } from "../test/helpers";
 import { createApp } from "./router";
 
-const restartEmbedderMock = mock(() => {});
-const runAutoClusterJobMock = mock(async () => ({}));
-const runAutoLinkJobMock = mock(async () => ({ linked: 0 }));
 const enqueueThoughtProposalsMock = mock(async () => []);
 const rollbackServiceMock = mock(() => ({}));
 const applyProposalServiceMock = mock(() => ({}));
@@ -13,15 +10,9 @@ const applyProposalServiceMock = mock(() => ({}));
 mock.module("../embedder/client", () => ({
 	generateEmbedding: () => new Float32Array(384),
 	generateEmbeddings: () => [new Float32Array(384)],
-	restartEmbedder: restartEmbedderMock,
 	isEmbedderReady: () => true,
 }));
 
-mock.module("../services/auto-link.service", () => ({ runAutoLinkJob: runAutoLinkJobMock }));
-mock.module("../services/auto-cluster.service", () => ({
-	getLastAutoClusterStatus: () => null,
-	runAutoClusterJob: runAutoClusterJobMock,
-}));
 mock.module("../services/placement-proposals.service", () => ({
 	enqueueThoughtProposals: enqueueThoughtProposalsMock,
 	listPlacementProposalsService: () => [],
@@ -50,9 +41,6 @@ afterEach(closeDb);
 
 test("optional-body endpoints reject invalid payload types", async () => {
 	const cases = [
-		["/api/auto-cluster/trigger", { dry_run: "yes" }],
-		["/api/thoughts/auto-link", { dry_run: 1, max_edges: "many" }],
-		["/api/thoughts/edge-detect", { project_id: 7 }],
 		["/api/thoughts/propose", { content: false }],
 		["/api/proposals", { thought_id: 42 }],
 		["/api/proposals/rollback", { run_id: "run-1", confirm: "yes" }],
@@ -63,15 +51,8 @@ test("optional-body endpoints reject invalid payload types", async () => {
 	}
 });
 
-test("optional-body endpoints retain absent and null defaults and accept valid payloads", async () => {
-	const paths = ["/api/auto-cluster/trigger", "/api/thoughts/auto-link", "/api/thoughts/edge-detect"];
-	for (const path of paths) {
-		expect((await postWithoutBody(path)).status).not.toBe(400);
-		expect((await postJson(path, "null")).status).not.toBe(400);
-	}
+test("optional-body endpoints accept valid payloads", async () => {
 	const valid = [
-		["/api/thoughts/auto-link", { dry_run: true, max_edges: 5 }],
-		["/api/thoughts/edge-detect", { project_id: "test-project", min_similarity: 0.8, max_proposals: 5 }],
 		["/api/thoughts/propose", { content: "draft text" }],
 		["/api/proposals/rollback", { run_id: "run-1", confirm: false }],
 		["/api/proposals/test-id/apply", { confirm: false }],
@@ -81,16 +62,15 @@ test("optional-body endpoints retain absent and null defaults and accept valid p
 	}
 });
 
-test("invalid auto-link options are rejected before the job starts", async () => {
-	runAutoLinkJobMock.mockClear();
-	expect((await postJson("/api/thoughts/auto-link", JSON.stringify({ max_edges: "many" }))).status).toBe(400);
-	expect(runAutoLinkJobMock).not.toHaveBeenCalled();
+test("the removed auto-link and edge-detect routes are no longer mounted (404)", async () => {
+	for (const path of ["/api/thoughts/auto-link", "/api/thoughts/edge-detect"]) {
+		expect((await postWithoutBody(path)).status).toBe(404);
+		expect((await postJson(path, JSON.stringify({ dry_run: true }))).status).toBe(404);
+	}
 });
 
-test("invalid optional write bodies do not invoke their mutation services", async () => {
+test("invalid write bodies do not invoke their mutation services", async () => {
 	const cases = [
-		["/api/auto-cluster/trigger", { dry_run: "yes" }, runAutoClusterJobMock],
-		["/api/thoughts/auto-link", { dry_run: 1 }, runAutoLinkJobMock],
 		["/api/proposals", { thought_id: 42 }, enqueueThoughtProposalsMock],
 		["/api/proposals/rollback", { run_id: "run-1", confirm: "yes" }, rollbackServiceMock],
 		["/api/proposals/test-id/apply", { confirm: 1 }, applyProposalServiceMock],
@@ -99,23 +79,5 @@ test("invalid optional write bodies do not invoke their mutation services", asyn
 		service.mockClear();
 		expect((await postJson(path, JSON.stringify(payload))).status).toBe(400);
 		expect(service).not.toHaveBeenCalled();
-	}
-});
-
-test("auto-cluster min_age_days is bounded to 0 through 3650", async () => {
-	for (const min_age_days of [-1, 3651]) {
-		expect((await postJson("/api/auto-cluster/trigger", JSON.stringify({ min_age_days }))).status).toBe(400);
-	}
-	for (const min_age_days of [0, 3650]) {
-		expect((await postJson("/api/auto-cluster/trigger", JSON.stringify({ min_age_days, dry_run: true }))).status).not.toBe(400);
-	}
-});
-
-test("auto-cluster min_members is bounded to 1 through 1000", async () => {
-	for (const min_members of [0, 1001]) {
-		expect((await postJson("/api/auto-cluster/trigger", JSON.stringify({ min_members }))).status).toBe(400);
-	}
-	for (const min_members of [1, 1000]) {
-		expect((await postJson("/api/auto-cluster/trigger", JSON.stringify({ min_members, dry_run: true }))).status).not.toBe(400);
 	}
 });

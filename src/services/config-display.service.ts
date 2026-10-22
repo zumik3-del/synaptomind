@@ -22,9 +22,9 @@ const SECTION_LABELS: Record<string, string> = {
   contentLanguage: 'General', server: 'Server', mcp: 'MCP', db: 'Database',
   logDbPath: 'Database', embedder: 'Embedder', thoughts: 'Thoughts', decay: 'Decay',
   primer: 'Primer',
-  autoCluster: 'Auto Cluster', autoLink: 'Auto Link',
+  autoCluster: 'Auto Cluster',
   edgeDetect: 'Edge Detect', slots: 'Slots', git: 'Git', search: 'Search',
-  placement: 'Placement', triage: 'Triage'
+  placement: 'Placement'
 }
 
 // Filesystem layout must not leak to MCP clients: redact path-bearing settings.

@@ -5,7 +5,6 @@ import { closeDb } from './init'
 import {
   countLivePendingProposals,
   deleteExpired,
-  findUntriagedDrafts,
   getProposal,
   insertProposal,
   listAcceptedProposalsByRun,
@@ -158,7 +157,7 @@ test('listProposals returns pending rows', () => {
   const src1 = seedThought()
   const src2 = seedThought()
   insertProposal(db, makeInput({ source_thought_id: src1, payload: 'p1', item_kind: 'edge', edge_type: 'develops' }))
-  insertProposal(db, makeInput({ source_thought_id: src2, payload: 'p2', item_kind: 'placement' }))
+  insertProposal(db, makeInput({ source_thought_id: src2, payload: 'p2', item_kind: 'edge', edge_type: 'parent' }))
   const rows = listProposals(db)
   expect(rows).toHaveLength(2)
   expect(rows.every((r) => r.state === 'pending')).toBe(true)
@@ -169,7 +168,7 @@ test('listProposals defaults to pending state, excludes accepted rows', () => {
   const src1 = seedThought()
   const src2 = seedThought()
   const p1 = insertProposal(db, makeInput({ source_thought_id: src1, payload: 'pending-one', item_kind: 'edge', edge_type: 'parent' }))
-  insertProposal(db, makeInput({ source_thought_id: src2, payload: 'accepted-one', item_kind: 'placement' }))
+  insertProposal(db, makeInput({ source_thought_id: src2, payload: 'accepted-one', item_kind: 'edge', edge_type: 'parent' }))
   updateProposalState(db, p1.id, { state: 'accepted', decided_by: 'user' })
   // p1 is now accepted; src2's proposal is still pending
   const pending = listProposals(db)
@@ -228,7 +227,7 @@ test('listAcceptedProposalsByRun orders by applied_at, not created_at', () => {
   const db = getDb()
   const src = seedThought()
   const first = insertProposal(db, makeInput({ source_thought_id: src, run_id: 'run-1' }))
-  const second = insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'placement', run_id: 'run-1' }))
+  const second = insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'edge', edge_type: 'parent', run_id: 'run-1' }))
   // Applied in the opposite order to creation: the manifest must follow
   // `applied_at` (reverse application order), not `created_at`.
   updateProposalState(db, first.id, { state: 'accepted', decided_at: '2026-01-02T00:00:00.000Z', applied_at: '2026-01-03T00:00:00.000Z' })
@@ -307,14 +306,6 @@ test('double insert with different source_thought_id → two rows', () => {
   const src2 = seedThought()
   insertProposal(db, makeInput({ source_thought_id: src1, payload: 'src1' }))
   insertProposal(db, makeInput({ source_thought_id: src2, payload: 'src2' }))
-  expect(listProposals(db)).toHaveLength(2)
-})
-
-test('double insert with different item_kind → two rows', () => {
-  const db = getDb()
-  const src = seedThought()
-  insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'edge', payload: 'e' }))
-  insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'placement', payload: 'p' }))
   expect(listProposals(db)).toHaveLength(2)
 })
 
@@ -440,7 +431,7 @@ test('deleteExpired marks expired-past-pending rows as expired and deletes old t
   // Pending with expired-at in the past
   insertProposal(db, makeInput({ source_thought_id: src1, expires_at: twoDaysAgo, item_kind: 'edge', edge_type: 'develops' }))
   // Terminal row decided long ago (different source to avoid dedup)
-  const accepted = insertProposal(db, makeInput({ source_thought_id: src2, item_kind: 'placement' }))
+  const accepted = insertProposal(db, makeInput({ source_thought_id: src2, item_kind: 'edge', edge_type: 'parent' }))
   updateProposalState(db, accepted.id, {
     state: 'accepted',
     decided_at: tenDaysAgo,
@@ -514,107 +505,4 @@ test('idx_pp_dedup rejects a concurrent duplicate pending insert (UNIQUE violati
   const all = db.prepare('SELECT id FROM placement_proposals').all() as { id: string }[]
   expect(all).toHaveLength(1)
   expect(all[0].id).toBe(first.id)
-})
-
-// ── findUntriagedDrafts ───────────────────────────────────────────────────────
-//
-// db-layer pin for the backfill selector (task #1765, audit M4): the cluster/
-// profile exclusion, the `created_at DESC, id DESC` ordering and the LIMIT were
-// previously exercised only through the triage service.
-
-/** ids of the drafts returned, in query order. */
-function untriagedIds(db = getDb(), limit = 100): string[] {
-  return findUntriagedDrafts(db, limit).map((t) => t.id)
-}
-
-test('findUntriagedDrafts returns only draft thoughts', () => {
-  const db = getDb()
-  const draft = seedThought({ status: 'draft' })
-  seedThought({ status: 'active' })
-  seedThought({ status: 'archived' })
-  expect(untriagedIds()).toEqual([draft])
-})
-
-test('findUntriagedDrafts excludes cluster thoughts', () => {
-  const db = getDb()
-  const draft = seedThought({ status: 'draft' })
-  const cluster = seedThought({ status: 'draft', is_cluster: 1 })
-  void cluster
-  expect(untriagedIds()).toEqual([draft])
-})
-
-test('findUntriagedDrafts excludes profile thoughts', () => {
-  const db = getDb()
-  const draft = seedThought({ status: 'draft' })
-  const profile = seedThought({ status: 'draft', is_profile: 1 })
-  void profile
-  expect(untriagedIds()).toEqual([draft])
-})
-
-test('findUntriagedDrafts treats NULL is_cluster/is_profile as untriaged (COALESCE)', () => {
-  const db = getDb()
-  const draft = seedThought({ status: 'draft' })
-  // seedThought defaults the flags to 0; force NULL to exercise COALESCE(...,0).
-  db.prepare('UPDATE thoughts SET is_cluster = NULL, is_profile = NULL WHERE id = ?').run(draft)
-  expect(untriagedIds()).toEqual([draft])
-})
-
-test('findUntriagedDrafts orders by created_at DESC', () => {
-  const db = getDb()
-  const oldest = seedThought({ status: 'draft', created_at: '2026-01-01T00:00:00.000Z' })
-  const newest = seedThought({ status: 'draft', created_at: '2026-01-03T00:00:00.000Z' })
-  const middle = seedThought({ status: 'draft', created_at: '2026-01-02T00:00:00.000Z' })
-  expect(untriagedIds()).toEqual([newest, middle, oldest])
-})
-
-test('findUntriagedDrafts tie-breaks equal created_at by id DESC', () => {
-  const db = getDb()
-  const at = '2026-01-01T00:00:00.000Z'
-  const low = seedThought({ id: 'id-aaa', status: 'draft', created_at: at })
-  const high = seedThought({ id: 'id-zzz', status: 'draft', created_at: at })
-  // Same created_at, so the total order falls back to `id DESC`.
-  expect(untriagedIds()).toEqual([high, low])
-})
-
-test('findUntriagedDrafts respects LIMIT and truncates the oldest drafts', () => {
-  const db = getDb()
-  seedThought({ status: 'draft', created_at: '2026-01-01T00:00:00.000Z' })
-  seedThought({ status: 'draft', created_at: '2026-01-02T00:00:00.000Z' })
-  const newest = seedThought({ status: 'draft', created_at: '2026-01-03T00:00:00.000Z' })
-  // The LIMIT applies after ordering, so only the newest draft survives.
-  expect(untriagedIds(db, 1)).toEqual([newest])
-  expect(untriagedIds(db, 2)).toHaveLength(2)
-})
-
-test('findUntriagedDrafts excludes a draft with a pending triage proposal', () => {
-  const db = getDb()
-  const triaged = seedThought({ status: 'draft' })
-  const untriaged = seedThought({ status: 'draft' })
-  insertProposal(db, makeInput({ source_thought_id: triaged, item_kind: 'triage_activate' }))
-  expect(untriagedIds()).toEqual([untriaged])
-})
-
-test('findUntriagedDrafts excludes a draft with an accepted triage proposal', () => {
-  const db = getDb()
-  const triaged = seedThought({ status: 'draft' })
-  const row = insertProposal(db, makeInput({ source_thought_id: triaged, item_kind: 'triage_archive' }))
-  updateProposalState(db, row.id, { state: 'accepted', decided_by: 'user' })
-  expect(untriagedIds()).toEqual([])
-})
-
-test('findUntriagedDrafts does not exclude a draft whose triage proposal is terminal-rejected', () => {
-  const db = getDb()
-  const draft = seedThought({ status: 'draft' })
-  const row = insertProposal(db, makeInput({ source_thought_id: draft, item_kind: 'triage_activate' }))
-  updateProposalState(db, row.id, { state: 'rejected', decided_by: 'user' })
-  // Only pending/accepted triage rows suppress re-proposal; a rejected one keeps
-  // the draft eligible.
-  expect(untriagedIds()).toEqual([draft])
-})
-
-test('findUntriagedDrafts does not exclude a draft with a non-triage proposal', () => {
-  const db = getDb()
-  const draft = seedThought({ status: 'draft' })
-  insertProposal(db, makeInput({ source_thought_id: draft, item_kind: 'edge', edge_type: 'develops' }))
-  expect(untriagedIds()).toEqual([draft])
 })

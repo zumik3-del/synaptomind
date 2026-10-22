@@ -6,16 +6,25 @@
  * a propose-only `PlacementPlan` into the internal `MappedItem` shapes the
  * service inserts, and computes the sha1 staleness fingerprint (ADR §2.3).
  * Read-only with respect to the graph — it never calls a graph writer.
+ *
+ * Since task #1942 the queue only creates `edge` items. A plan's `placement`
+ * proposal and its queueable `lifecycle` action are reported as *skipped*
+ * instead of being mapped, so the caller can report them instead of dropping
+ * them silently.
  */
 
 import { createHash } from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { getEdgePairBetween } from '../db/edges'
-import type { PlacementProposalRow, ProposalItemKind } from '../db/placement-proposals'
+import type {
+  LegacyProposalItemKind,
+  PlacementProposalRow,
+  ProposalItemKind,
+  StoredProposalItemKind
+} from '../db/placement-proposals'
 import { getThoughtRow, type Thought } from '../db/thoughts'
-import { ValidationError } from '../errors'
-import type { EdgeProposal, LifecycleProposal, PlacementPlan, PlacementProposal } from './placement/types'
+import type { EdgeProposal, PlacementPlan } from './placement/types'
 
 /** The exact inputs an apply would touch — the staleness key (ADR §2.3). */
 export interface FingerprintInput {
@@ -43,6 +52,24 @@ export interface MappedItem {
 }
 
 /**
+ * A plan item the queue no longer creates (task #1942): its kind was removed
+ * from the queue, so it is reported as skipped instead of being mapped.
+ */
+export interface SkippedPlanItem {
+  kind: LegacyProposalItemKind
+  /** Why the item was skipped — reported back to the caller. */
+  reason: string
+}
+
+/** The result of mapping one plan: the queueable items plus the skipped ones. */
+export interface MappedPlan {
+  /** The items the queue can still create — `edge` items only (task #1942). */
+  items: MappedItem[]
+  /** The plan items that were not mapped because their kind is no longer supported. */
+  skipped: SkippedPlanItem[]
+}
+
+/**
  * sha1 over the canonical snapshot string (ADR §2.3):
  * `source.id:source.updated_at:source.status:target.id:target.updated_at:target.status:existingEdgeType`.
  * Pure, so the same graph snapshot always yields the same fingerprint.
@@ -63,7 +90,7 @@ export function computeFingerprint(input: FingerprintInput): string {
 /** Canonical dedup key matching the partial unique index `idx_pp_dedup`. */
 export function itemKey(parts: {
   sourceId: string
-  itemKind: ProposalItemKind
+  itemKind: StoredProposalItemKind
   targetId: string | null
   edgeType: string | null
   lifecycleAction: string | null
@@ -120,8 +147,8 @@ function assembleFingerprint(
 /**
  * Fingerprint of a (source, target) pair from the current DB snapshot (ADR
  * §2.3) — the one read-time derivation, shared by the queue's staleness check
- * (`isProposalStale`), the apply path's post-writer snapshot, and triage
- * enqueue. `targetId: null` fingerprints the source alone.
+ * (`isProposalStale`), the apply path's post-writer snapshot and the rollback
+ * gate. `targetId: null` fingerprints the source alone.
  */
 export function pairFingerprint(d: Database, sourceId: string, targetId: string | null): string {
   const source = getThoughtRow(d, sourceId)
@@ -155,85 +182,43 @@ function edgeItem(d: Database, source: Thought, edge: EdgeProposal): MappedItem 
   }
 }
 
-function placementItem(d: Database, source: Thought, placement: PlacementProposal): MappedItem | undefined {
-  const fingerprint = fingerprintPair(d, source, placement.target_id)
-  if (!fingerprint) return undefined
-  return {
-    itemKind: 'placement',
-    targetId: placement.target_id,
-    edgeType: placement.kind === 'cluster' ? 'cluster' : 'parent',
-    lifecycleAction: null,
-    direction: 'directed',
-    confidence: placement.confidence,
-    rationale: placement.rationale,
-    ruleId: null,
-    payload: JSON.stringify({ kind: placement.kind, review_required: placement.review_required }),
-    fingerprint
-  }
-}
-
 /**
- * The lifecycle item target: the superseded older target for
- * `replaces+archive` (ADR R1), the near-duplicate for `merge`. Falls back to
- * the owned `replaces` edge target when the plan predates `target_id`.
+ * Map one `PlacementPlan` to its persisted items (ADR §2.2). Since task #1942
+ * only the plan's `edge` proposals are mapped; the `placement` proposal and a
+ * queueable `lifecycle` action (`merge` / `replaces+archive`) are reported as
+ * skipped, so the caller can tell the user what was dropped.
+ *
+ * A `replaces+archive` lifecycle no longer owns its `replaces` edge — with the
+ * lifecycle kind gone the edge is an ordinary `edge` item again.
  */
-function lifecycleTarget(lifecycle: LifecycleProposal, replacesEdge: EdgeProposal | undefined): string | undefined {
-  if (lifecycle.target_id !== undefined) return lifecycle.target_id
-  if (lifecycle.action === 'replaces+archive') return replacesEdge?.target_id
-  return undefined
-}
-
-function lifecycleItem(
-  d: Database,
-  source: Thought,
-  lifecycle: LifecycleProposal,
-  replacesEdge: EdgeProposal | undefined
-): MappedItem | undefined {
-  if (lifecycle.action !== 'merge' && lifecycle.action !== 'replaces+archive') return undefined
-  const targetId = lifecycleTarget(lifecycle, replacesEdge)
-  if (targetId === undefined) {
-    throw new ValidationError(`lifecycle '${lifecycle.action}' proposal has no target to enqueue`)
+export function mapPlan(d: Database, source: Thought, plan: PlacementPlan): MappedPlan {
+  const skipped: SkippedPlanItem[] = []
+  if (plan.placement) {
+    skipped.push({
+      kind: 'placement',
+      reason: `placement proposal ('${plan.placement.kind}') is no longer queued`
+    })
   }
-  const fingerprint = fingerprintPair(d, source, targetId)
-  if (!fingerprint) return undefined
-  return {
-    itemKind: 'lifecycle',
-    targetId,
-    edgeType: lifecycle.action === 'replaces+archive' ? 'replaces' : null,
-    lifecycleAction: lifecycle.action,
-    direction: null,
-    confidence: lifecycle.confidence,
-    rationale: lifecycle.rationale,
-    ruleId: lifecycle.action === 'replaces+archive' ? (replacesEdge?.rule_id ?? null) : null,
-    payload: JSON.stringify({ review_required: lifecycle.review_required, blocked_by: lifecycle.blocked_by }),
-    fingerprint
+  if (plan.lifecycle.action === 'merge' || plan.lifecycle.action === 'replaces+archive') {
+    skipped.push({
+      kind: 'lifecycle',
+      reason: `lifecycle '${plan.lifecycle.action}' is no longer queued`
+    })
   }
-}
-
-/**
- * Map one `PlacementPlan` to its persisted items (ADR §2.2). `keep`/`link`
- * produce no lifecycle item; a `replaces+archive` lifecycle owns its pair, so
- * the corresponding `replaces` edge item is emitted only through the lifecycle.
- */
-export function mapPlan(d: Database, source: Thought, plan: PlacementPlan): MappedItem[] {
-  const replacesEdge = plan.edges.find(
-    e => e.type === 'replaces' && e.rule_id === 'supersede.newer_replaces_older'
-  )
-  const ownedTarget = plan.lifecycle.action === 'replaces+archive'
-    ? lifecycleTarget(plan.lifecycle, replacesEdge)
-    : undefined
 
   const items: MappedItem[] = []
   for (const edge of plan.edges) {
-    if (ownedTarget !== undefined && edge.type === 'replaces' && edge.target_id === ownedTarget) continue
     const item = edgeItem(d, source, edge)
     if (item) items.push(item)
   }
-  if (plan.placement) {
-    const item = placementItem(d, source, plan.placement)
-    if (item) items.push(item)
+  return { items, skipped }
+}
+
+/** The skipped plan items grouped by kind — the report the enqueue surfaces. */
+export function countSkippedKinds(skipped: SkippedPlanItem[]): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const item of skipped) {
+    counts[item.kind] = (counts[item.kind] ?? 0) + 1
   }
-  const lifecycle = lifecycleItem(d, source, plan.lifecycle, replacesEdge)
-  if (lifecycle) items.push(lifecycle)
-  return items
+  return counts
 }

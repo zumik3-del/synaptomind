@@ -81,6 +81,22 @@ function insertPendingEdge(src: string, tgt: string): PlacementProposalRow {
   })
 }
 
+/**
+ * Insert a stored row of a kind the queue no longer creates (task #1946), as an
+ * install upgraded from an older version still holds it: `pending`, no target
+ * resolution path — the queue only has to keep it readable.
+ */
+function insertRetiredRow(id: string, itemKind: 'triage_activate' | 'triage_archive', src: string): void {
+  getDb()
+    .prepare(`
+      INSERT INTO placement_proposals
+        (id, project_id, source_thought_id, item_kind, target_id, edge_type, lifecycle_action, direction,
+         confidence, rationale, rule_id, payload, fingerprint, state, created_at)
+      VALUES (?, 'default', ?, ?, null, null, null, null, 0.9, 'retired triage verdict', null, '{}', 'fp-old', 'pending', '2026-01-01T00:00:00.000Z')
+    `)
+    .run(id, src, itemKind)
+}
+
 function propState(db: Database, id: string): string {
   const row = db.prepare('SELECT state FROM placement_proposals WHERE id = ?').get(id) as { state: string } | undefined
   return row?.state ?? 'missing'
@@ -105,7 +121,7 @@ beforeAll(async () => {
 // ── enqueue ────────────────────────────────────────────────────────────────────
 
 describe('memory_review enqueue', () => {
-  test('valid thought_id → success, returns array (possibly empty if engine degrades)', async () => {
+  test('valid thought_id → success, returns the enqueue outcome (possibly empty if engine degrades)', async () => {
     const src = seedThought({ content: 'enqueue valid subject marker' })
     seedThought({ content: 'enqueue valid related content here' })
 
@@ -115,7 +131,11 @@ describe('memory_review enqueue', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
+    // Task #1942: the response reports the queued rows plus the skipped count.
+    const outcome = data as { proposals: unknown[]; skipped: number; skipped_kinds: Record<string, number> }
+    expect(Array.isArray(outcome.proposals)).toBe(true)
+    expect(typeof outcome.skipped).toBe('number')
+    expect(typeof outcome.skipped_kinds).toBe('object')
   })
 
   test('missing thought_id → error envelope with a clear message', async () => {
@@ -358,6 +378,42 @@ describe('memory_review reject', () => {
     const { isError, text } = parseResult(result)
     expect(isError).toBe(true)
     expect(text).toContain('proposal_id is required')
+  })
+})
+
+// ── stored triage_* rows (task #1962) ─────────────────────────────────────────
+
+describe('memory_review: stored triage_* rows from an older install', () => {
+  test('a stored triage_activate row stays listable', async () => {
+    const src = seedThought({ content: 'retired triage list source' })
+    insertRetiredRow('retired-list-activate', 'triage_activate', src)
+
+    const result = await client.callTool({ name: 'memory_review', arguments: { action: 'list' } })
+
+    const { data, isError } = parseResult(result)
+    expect(isError).toBe(false)
+    const row = (data ?? []).find((r: PlacementProposalRow) => r.id === 'retired-list-activate')
+    expect(row).toBeDefined()
+    expect(row.item_kind).toBe('triage_activate')
+    expect(row.state).toBe('pending')
+  })
+
+  test('a stored triage_archive row is refused with unsupported_item_kind, not downgraded to stale', async () => {
+    const src = seedThought({ content: 'retired triage apply source' })
+    insertRetiredRow('retired-apply-archive', 'triage_archive', src)
+
+    const result = await client.callTool({
+      name: 'memory_review',
+      arguments: { action: 'apply', proposal_id: 'retired-apply-archive', confirm: true }
+    })
+
+    const { data, isError } = parseResult(result)
+    expect(isError).toBe(false)
+    expect(data.status).toBe('refused')
+    expect(data.refusal.code).toBe('unsupported_item_kind')
+    expect(data.refusal.reason).toContain('triage_archive')
+    // A refused row was never decided.
+    expect(propState(getDb(), 'retired-apply-archive')).toBe('pending')
   })
 })
 

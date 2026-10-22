@@ -99,17 +99,9 @@ export function getEmbedderPrecache(db: Database): boolean {
   return val === 'true'
 }
 
-export function setEmbedderPrecache(db: Database, value: boolean): void {
-  writeMeta(db, EMBEDDER_PRECACHE_KEY, value ? 'true' : 'false')
-}
-
 export function getEmbedderIdleTimeoutMs(db: Database): number {
   const val = readMeta(db, EMBEDDER_IDLE_TIMEOUT_KEY)
   if (!val) return config.embedder.idleTimeoutMs
   const parsed = parseInt(val, 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : config.embedder.idleTimeoutMs
-}
-
-export function setEmbedderIdleTimeoutMs(db: Database, value: number): void {
-  writeMeta(db, EMBEDDER_IDLE_TIMEOUT_KEY, String(value))
 }

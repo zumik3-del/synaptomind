@@ -1,12 +1,18 @@
 import { beforeEach, afterEach, expect, test, describe } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
+import { config } from '../config'
 import { archiveThought, createThought, deleteThought, getThoughtRow, updateThought } from '../db/thoughts'
-import { archiveStaleLowImportance } from '../db/importance'
 import { cleanupArchivedThoughts } from '../services/ttl-cleanup.service'
 
 beforeEach(createTestDb)
 afterEach(() => { closeDb() })
+
+// Archived-thought deletion is opt-in (the shipped default is -1 = disabled);
+// the TTL case below enables it explicitly and restores it afterwards.
+let originalTtlDays = 0
+beforeEach(() => { originalTtlDays = config.ttl.archivedTtlDays })
+afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
 
 describe('is_protected', () => {
   test('new thought defaults to is_protected = 1', () => {
@@ -38,23 +44,9 @@ describe('is_protected', () => {
     expect(archived?.status).toBe('archived')
   })
 
-  test('decay skips protected thoughts', () => {
-    const d = getDb()
-    const protectedId = seedThought({ status: 'active', is_protected: 1 })
-    const unprotectedId = seedThought({ status: 'active', is_protected: 0 })
-    const oldDate = new Date(Date.now() - 30 * 86400000).toISOString()
-    d.prepare(`UPDATE thoughts SET created_at = ? WHERE id IN (?, ?)`).run(oldDate, protectedId, unprotectedId)
-    d.prepare(`UPDATE thought_importance SET importance = 0.01, created_at = ? WHERE thought_id IN (?, ?)`).run(oldDate, protectedId, unprotectedId)
-    const archived = archiveStaleLowImportance(d, 0.5, 7)
-    expect(archived).toBe(1)
-    const p = getThoughtRow(d, protectedId)
-    const u = getThoughtRow(d, unprotectedId)
-    expect(p?.status).toBe('active')
-    expect(u?.status).toBe('archived')
-  })
-
   test('TTL skips protected thoughts', () => {
     const d = getDb()
+    config.ttl.archivedTtlDays = 90
     const oldDate = new Date(Date.now() - 200 * 86400000).toISOString()
     const protectedId = seedThought({ status: 'archived', is_protected: 1 })
     const unprotectedId = seedThought({ status: 'archived', is_protected: 0 })
