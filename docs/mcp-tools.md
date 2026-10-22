@@ -141,25 +141,18 @@ self-loops, and only a cluster thought may carry a `cluster` edge.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `thought_id` | string | one of the two | The source thought (canonical name) |
-| `source_id` | string | one of the two | Alias for `thought_id` — the same spelling `memory_supersede action=merge` uses |
+| `source_id` | string | yes | The source thought |
 | `target_id` | string | yes | The target thought |
 | `edge_type` | enum | no | One of `related`, `parent`, `develops`, `replaces`, `cluster`, `references`, `depends_on`, `contradicts`, `supports`; default `related` |
 
 **Naming convention.** `source_id`/`target_id` name the pair in both writers: `memory_store`
-`action=link` and `memory_supersede` `action=merge`. `link` accepts either `source_id` or the
-legacy `thought_id` for the source side — the two names address the same thought, so an agent
-that learned the merge spelling does not have to switch vocabularies. If both are supplied,
-`source_id` wins. Existing `thought_id` calls are unchanged.
+`action=link` and `memory_supersede` `action=merge`. The link action requires `source_id` for
+the source side; its retired `thought_id` input is rejected with a hint to use `source_id`.
 
-Example (either form is equivalent):
+Example:
 
 ```json
 { "action": "link", "source_id": "thought-a", "target_id": "thought-b", "edge_type": "develops" }
-```
-
-```json
-{ "action": "link", "thought_id": "thought-a", "target_id": "thought-b", "edge_type": "develops" }
 ```
 
 ### `action=link_batch`
