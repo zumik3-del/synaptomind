@@ -10,7 +10,8 @@ import {
 } from '../../services/search-options'
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getChainService, getContextService } from '../../services/graph.service'
-import { getThoughtByIdService, listThoughtsPageService } from '../../services/thoughts.service'
+import { listThoughtsPageService } from '../../services/thoughts.service'
+import { getHandler as getRecallGetHandler } from './recall/get'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
@@ -30,14 +31,7 @@ function resolveClusterFilter(args: ActionArgs): 'only' | 'exclude' | undefined 
 }
 
 const handlers = {
-  get: {
-    input: z.object({ thought_id: requiredString('thought_id is required for get action') }),
-    run(args: ActionArgs) {
-      const thought = getThoughtByIdService(args.thought_id as string)
-      if (!thought) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-      return thought
-    }
-  },
+  get: getRecallGetHandler,
 
   search: {
     input: z.object({
@@ -173,6 +167,7 @@ export function registerMemoryRecall(server: McpServer) {
         .optional()
         .describe('Contradicted thoughts: off or flag (default). Contradicted endpoints are never suppressed'),
       thought_id: z.string().optional().describe('REQUIRED ONLY for "chain" and "get". IGNORED for "search", "context", "clusters", "list".'),
+      include_edges: z.boolean().optional().describe('get only: when true, return incident edges inline (upstream/downstream with type and created_at). Default false.'),
       direction: z.enum(['upstream', 'downstream', 'both']).optional().describe('Traversal direction (default: both)'),
       max_degree: z.coerce.number().int().min(1).max(200).optional().describe('Max edges to return for chain/context (default 50, 1-200)'),
       // The list page shares the timeline's page size (src/validation.ts) so the
