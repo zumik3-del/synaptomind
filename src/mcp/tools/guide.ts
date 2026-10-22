@@ -43,6 +43,7 @@ Tags: update merges by default; pass tags_mode=replace to overwrite the whole se
 ## Edges
 related (default, idempotent), parent, develops, replaces (target blocked in frontier), contradicts (symmetric), supports (directed), cluster, references, depends_on.
 No self-loops; one type per pair; cluster edges strict; a retype upgrades a related edge in place.
+link takes thought_id (alias source_id) + target_id; merge takes source_id + target_id — one source/target vocabulary across both tools.
 unlink and retype are dry-run first, then confirm=true. No cascade.
 
 ## Search
