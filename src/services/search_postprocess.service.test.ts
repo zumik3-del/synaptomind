@@ -98,7 +98,7 @@ test('prependPrimerResults preserves group structure when primer is in group', (
 test('prependPrimerResults preserves low_confidence on a hoisted primer', () => {
   const weakPrimer = makeSearchResult('weak-primer', {
     low_confidence: true,
-    match_source: ['vector'],
+    match_source: ['embedding'],
     similarity: 0.2
   })
   const strong = makeSearchResult('strong', {

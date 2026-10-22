@@ -30,12 +30,21 @@ export interface SearchOptions {
 }
 
 /** Search legs that can contribute a hit, in the fixed `match_source` order. */
-export type SearchMatchSource = 'vector' | 'bm25'
+export type SearchMatchSource = 'embedding' | 'bm25'
 
 export interface SearchResult {
   thought: Thought
-  distance: number
-  similarity: number
+  /**
+   * Cosine distance (1 - similarity) for the vector/embedding leg. Present only
+   * when the embedding leg matched (`match_source` contains `embedding`); omitted
+   * for BM25-only matches so a keyword hit is not misread as zero relevance.
+   */
+  distance?: number
+  /**
+   * Cosine similarity for the embedding leg. Present only when the embedding leg
+   * matched (`match_source` contains `embedding`); omitted for BM25-only matches.
+   */
+  similarity?: number
   /**
    * Reciprocal Rank Fusion score from the hybrid merge (higher = more
    * relevant). Present only when fusion ran — i.e. the hybrid path with a
@@ -50,7 +59,7 @@ export interface SearchResult {
   bm25_score?: number
   /**
    * Search legs that matched this thought, always present, in the fixed order
-   * `vector`, `bm25`. The vector-only path returns `['vector']`.
+   * `embedding`, `bm25`. The embedding-only path returns `['embedding']`.
    */
   match_source: SearchMatchSource[]
   /**
