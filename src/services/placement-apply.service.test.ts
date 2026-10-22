@@ -20,6 +20,7 @@ import { NotFoundError } from '../errors'
 import {
   applyBatchService,
   applyProposalService,
+  MAX_EDGE_ITEMS_PER_RUN,
 } from './placement-apply.service'
 import type { ApplyResult } from './placement-apply.types'
 import { computeFingerprint } from './placement-proposals.service'
@@ -84,7 +85,7 @@ function pendingEdgeRow(
  */
 function pendingLegacyRow(
   db: Database,
-  itemKind: 'placement' | 'lifecycle',
+  itemKind: 'placement' | 'lifecycle' | 'triage_activate' | 'triage_archive',
   sourceId: string,
   targetId: string | null,
   options: { edgeType?: string | null; lifecycleAction?: string | null } = {}
@@ -136,6 +137,22 @@ function storedRunId(db: Database, id: string): string | null {
     | undefined
   if (!row) throw new Error(`proposal '${id}' not found`)
   return row.run_id
+}
+
+/** Number of graph edges currently stored — proves a refusal wrote nothing. */
+function edgeCount(db: Database): number {
+  return (db.prepare('SELECT COUNT(*) AS n FROM edges').get() as { n: number }).n
+}
+
+/** `count` pending edge rows, each on its own fresh active pair. */
+function pendingEdgeRows(db: Database, count: number, prefix: string): PlacementProposalRow[] {
+  const rows: PlacementProposalRow[] = []
+  for (let i = 0; i < count; i++) {
+    const s = seedThought({ id: `${prefix}-s-${i}`, content: `${prefix} source ${i}`, created_at: NOW })
+    const t = seedThought({ id: `${prefix}-t-${i}`, content: `${prefix} target ${i}`, created_at: NOW_LATER })
+    rows.push(pendingEdgeRow(db, s, t, 'related'))
+  }
+  return rows
 }
 
 // ── conflict matrix (§2.6) ─────────────────────────────────────────────────────
@@ -239,6 +256,36 @@ describe('conflict matrix', () => {
     expect(refusal.reason).toContain('lifecycle')
     assertStillPending(db, row.id)
     expect(getThoughtRow(db, t)!.status).toBe('active')
+  })
+
+  test('a stored triage_activate row from an older install → typed refusal, not a downgrade to stale', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'cm-legacy-ta-s', content: 'legacy triage activate src', created_at: NOW })
+    const row = pendingLegacyRow(db, 'triage_activate', s, null)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
+    expect(out.status).toBe('refused')
+    const refusal = (out as { refusal: { code: string; reason: string } }).refusal
+    expect(refusal.code).toBe('unsupported_item_kind')
+    expect(refusal.reason).toContain('triage_activate')
+    // A refused row was never decided: it stays pending and nothing was written.
+    assertStillPending(db, row.id)
+    expect(edgeCount(db)).toBe(0)
+  })
+
+  test('a stored triage_archive row from an older install → typed refusal and no archive write', () => {
+    const db = getDb()
+    const s = seedThought({ id: 'cm-legacy-tar-s', content: 'legacy triage archive src', created_at: NOW })
+    const t = seedThought({ id: 'cm-legacy-tar-t', content: 'legacy triage archive tgt', created_at: NOW_LATER })
+    const row = pendingLegacyRow(db, 'triage_archive', s, t)
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
+    expect(out.status).toBe('refused')
+    const refusal = (out as { refusal: { code: string; reason: string } }).refusal
+    expect(refusal.code).toBe('unsupported_item_kind')
+    expect(refusal.reason).toContain('triage_archive')
+    assertStillPending(db, row.id)
+    expect(getThoughtRow(db, s)!.status).toBe('active')
+    expect(getThoughtRow(db, t)!.status).toBe('active')
+    expect(edgeCount(db)).toBe(0)
   })
 
   test('cluster edge whose source is not a cluster → failed', () => {
@@ -411,6 +458,94 @@ describe('applyBatchService: partial failure independence', () => {
     const out = applyBatchService([], { confirm: true, now: NOW }, getDb())
     expect(out.results).toEqual([])
     expect(out.errors).toEqual([])
+  })
+})
+
+// ── per-call limit and per-run edge cap ────────────────────────────────────────
+
+describe('applyBatchService: per-call limit (task #1962)', () => {
+  test('a batch over the caller limit is refused whole and applies nothing', () => {
+    const db = getDb()
+    const rows = pendingEdgeRows(db, 2, 'lim-over')
+
+    const out = applyBatchService(rows.map(r => r.id), { confirm: true, now: NOW, limit: 1 }, db)
+
+    expect(out.refused?.code).toBe('limit_exceeded')
+    expect(out.refused?.reason).toContain('limit is 1')
+    // Refused whole, not a prefix: no item ran and no edge was written.
+    expect(out.results).toEqual([])
+    expect(out.errors).toEqual([])
+    for (const row of rows) assertStillPending(db, row.id)
+    expect(edgeCount(db)).toBe(0)
+  })
+
+  test('a batch exactly at the caller limit applies every item', () => {
+    const db = getDb()
+    const rows = pendingEdgeRows(db, 2, 'lim-at')
+
+    const out = applyBatchService(rows.map(r => r.id), { confirm: true, now: NOW, limit: 2 }, db)
+
+    expect(out.refused).toBeUndefined()
+    expect(out.results).toHaveLength(2)
+    expect(out.results.every(r => r.status === 'accepted')).toBe(true)
+    expect(edgeCount(db)).toBe(2)
+  })
+})
+
+describe('applyBatchService: per-run edge cap (task #1962)', () => {
+  test('a run of exactly MAX_EDGE_ITEMS_PER_RUN edge items applies', () => {
+    const db = getDb()
+    const rows = pendingEdgeRows(db, MAX_EDGE_ITEMS_PER_RUN, 'cap-at')
+
+    const out = applyBatchService(rows.map(r => r.id), { confirm: true, now: NOW }, db)
+
+    expect(out.refused).toBeUndefined()
+    expect(out.results).toHaveLength(MAX_EDGE_ITEMS_PER_RUN)
+    expect(out.results.every(r => r.status === 'accepted')).toBe(true)
+    expect(edgeCount(db)).toBe(MAX_EDGE_ITEMS_PER_RUN)
+  })
+
+  test('a run one past MAX_EDGE_ITEMS_PER_RUN is refused whole and writes nothing', () => {
+    const db = getDb()
+    const rows = pendingEdgeRows(db, MAX_EDGE_ITEMS_PER_RUN + 1, 'cap-over')
+
+    const out = applyBatchService(rows.map(r => r.id), { confirm: true, now: NOW }, db)
+
+    expect(out.refused?.code).toBe('limit_exceeded')
+    expect(out.refused?.reason).toContain('per-run cap')
+    expect(out.results).toEqual([])
+    expect(out.errors).toEqual([])
+    for (const row of rows) assertStillPending(db, row.id)
+    expect(edgeCount(db)).toBe(0)
+  })
+
+  test('an explicit limit above the cap does not lift it, and a dry-run reports the same verdict', () => {
+    const db = getDb()
+    const ids = pendingEdgeRows(db, MAX_EDGE_ITEMS_PER_RUN + 1, 'cap-limit').map(r => r.id)
+
+    const preview = applyBatchService(ids, { now: NOW, limit: 100 }, db)
+    expect(preview.refused?.code).toBe('limit_exceeded')
+    expect(preview.refused?.reason).toContain('per-run cap')
+
+    const confirmed = applyBatchService(ids, { confirm: true, now: NOW, limit: 100 }, db)
+    expect(confirmed.refused?.reason).toBe(preview.refused?.reason)
+    expect(confirmed.results).toEqual([])
+    expect(edgeCount(db)).toBe(0)
+  })
+
+  test('rows that write no edge do not count toward the cap', () => {
+    const db = getDb()
+    const rows = pendingEdgeRows(db, MAX_EDGE_ITEMS_PER_RUN, 'cap-free')
+    // An already-accepted row from an earlier run: it re-reads idempotently.
+    const extra = pendingEdgeRows(db, 1, 'cap-free-extra')[0]
+    expect(applyProposalService(extra.id, { confirm: true, now: NOW }, db).status).toBe('accepted')
+
+    const out = applyBatchService([...rows.map(r => r.id), extra.id], { confirm: true, now: NOW }, db)
+
+    expect(out.refused).toBeUndefined()
+    expect(out.results).toHaveLength(MAX_EDGE_ITEMS_PER_RUN + 1)
+    expect(out.results.find(r => r.proposal_id === extra.id)).toMatchObject({ status: 'accepted', idempotent: true })
+    expect(out.results.filter(r => r.proposal_id !== extra.id).every(r => r.status === 'accepted')).toBe(true)
   })
 })
 
