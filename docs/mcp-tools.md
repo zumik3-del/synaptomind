@@ -26,15 +26,14 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Dry-run / confirm pattern
 
-Every destructive action — `memory_store` `unlink` and `retype`, `memory_supersede` `archive`
-and `merge`, `memory_manage action=delete`, `memory_review` (`apply`/`apply_batch`/`rollback`),
+Every destructive action — `memory_store` `unlink` and `retype`, `memory_supersede` `archive`,
+`archive_batch` and `merge`, `memory_manage action=delete`, `memory_review` (`apply`/`apply_batch`/`rollback`),
 `memory_primers action=delete`, `memory_status action=cleanup`, and
 `memory_crystallize action=auto_cluster` — follows the same two-step
 pattern:
 
-- **Preview (default).** `confirm` is absent or `false`. The tool validates the target and
-  returns a non-mutating preview with `status: "preview"` and a human-readable `consequence`.
-  Nothing is written.
+- **Preview (default).** `confirm` is absent or `false`. The tool returns its action-specific,
+  non-mutating preview payload (where applicable, `status: "preview"`). Nothing is written.
 - **Execute.** `confirm: true` performs the write and returns a status-specific result.
 
 Retired MCP inputs are validation errors with replacement hints: recall `top_k` → `limit`,
@@ -276,25 +275,39 @@ Example:
 
 ## `memory_supersede` — archiving and merging
 
-`action=archive` archives one thought (`thought_id`) and is idempotent: an already-archived
-thought is returned unchanged rather than re-stamped. Profile thoughts are refused
-(`Profile thoughts cannot be archived`).
+All three actions preview when `confirm` is omitted or `false`; only `confirm: true` executes.
+Execution re-reads/revalidates current state, so previews can become stale; no preview token or
+transactional reservation is implied.
+
+### `action=archive`
+
+Archives one thought (`thought_id`). Already-archived thoughts are idempotent: execution returns
+the existing thought without re-stamping it. Profile thoughts are protected and cannot be archived.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `thought_id` | string | yes | Thought to archive |
+| `confirm` | boolean | no | Absent/`false` = preview; `true` = execute |
+
+Preview returns `{ "status": "preview", "action": "archive", "thought_id": "thought-a", "current_status": "active", "outcome": "would_archive" }`. `outcome` is `not_found`, `already_archived`, `protected`, or `would_archive`. Execution returns `{ "status": "executed", "action": "archive", "result": <thought> }`; missing or protected thoughts fail with an error.
 
 ### `action=archive_batch`
 
-Archive up to 1000 thoughts in one call, in a **single transaction**. Same writer and same
-guards as `archive`: already-archived thoughts count as archived without being re-stamped, and
-profile thoughts fail per item instead of aborting the batch.
+Preview or archive 1–1000 thoughts per call. Preview reports each requested ID in input order,
+including duplicates. Outcomes are `not_found`, `already_archived`, `protected`, or `would_archive`;
+repeated non-profile IDs after their first occurrence preview as `already_archived`.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `thought_ids` | string[] | yes | Thoughts to archive (1–1000 items) |
+| `confirm` | boolean | no | Absent/`false` = preview; `true` = execute |
 
-Result: `{ "archived": 2, "failed": 1, "errors": [{ "thought_id": "missing-id", "error": "Thought 'missing-id' not found" }] }`
+Preview envelope: `{ "status": "preview", "action": "archive_batch", "requested_count": 2, "items": [{ "thought_id": "thought-a", "outcome": "would_archive" }] }`. The `items` array has one entry per requested occurrence, in input order (including duplicate IDs). Confirmed execution wraps the existing aggregate result: `{ "status": "executed", "action": "archive_batch", "result": { "archived": 2, "failed": 1, "errors": [{ "thought_id": "missing-id", "error": "Thought 'missing-id' not found" }] } }`. Execution does not return per-item success records.
 
-`failed` always equals `errors.length`; an unknown id or a profile thought lands in `errors`
-while the other items commit. An empty or over-long array is refused with an `isError` envelope
-before anything runs.
+`failed` equals `errors.length`; unknown IDs and protected profiles appear in `errors` in input
+order, while successful items contribute to the aggregate `archived` count. Items are processed in
+input order; duplicate IDs are idempotent.
+An empty or over-long array is refused with an `isError` envelope before anything runs.
 
 Example:
 
@@ -307,7 +320,9 @@ Example:
 Consolidates a source thought into a target: the source's edges are recreated on the target,
 the target's content/tags are replaced when supplied, the source is archived, and a `replaces`
 edge target → source records the consolidation. Merging an archived source or a profile thought
-is refused.
+is refused. Preview checks current eligibility and reports source/target status; it includes at
+most 50 source-edge descriptors plus the full `source_edge_count` and a `truncated` flag. This
+bounded list does not promise every edge will transfer.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -317,14 +332,15 @@ is refused.
 | `merged_tags` | string[] | no | Resulting tag set of the target |
 | `project_id` | string | no | Resulting project (defaults to the target's, then the source's) |
 
-Result: `{ "target": { ... }, "edges_transferred": 2 }` — `edges_transferred` is the number of
+Preview returns `{ "status": "preview", "action": "merge", "outcome": "would_merge", "source": { "id", "status", "edges": [], "source_edge_count": 0, "truncated": false }, "target": { "id", "status" }, "proposed": { "merged_content", "merged_tags", "project_id" }, "effects": { "source_archived": true, "target_updated": false, "replaces_edge_created": true } }`. Missing IDs report `outcome: "not_found"`; an ineligible merge reports `outcome: "ineligible"` and `reason`. `proposed` reflects supplied values; `effects` describes the prospective updates. Execution returns `{ "status": "executed", "action": "merge", "result": { "target": { ... }, "edges_transferred": 2 } }` — `edges_transferred` is the number of
 source edges the target now holds, so a caller can verify the consolidation. Not every source
 edge contributes: one that would collapse into a self-loop (it joined the target to the source),
 a duplicate of a non-symmetric edge the target already has, and a cluster edge the cluster rule
 rejects are dropped and left out of the count. An existing symmetric pair (`related`,
 `contradicts`) does count — the target owns that relation after the merge. The HTTP twin
-(`POST /api/thoughts/:targetId/merge`) reports the same number under its long-standing name
-`transferredEdges`.
+(`POST /api/thoughts/:targetId/merge`) is unchanged: it executes immediately without preview or
+confirmation and reports the count under its long-standing name `transferredEdges`. The
+confirmation-first contract applies to MCP only; it does not imply an HTTP API change.
 
 ```json
 { "action": "merge", "source_id": "thought-a", "target_id": "thought-b", "merged_content": "merged claim" }
