@@ -134,6 +134,30 @@ describe('POST /api/proposals', () => {
     expect(typeof body.skipped_kinds).toBe('object')
   })
 
+  test('canonical max_proposals is accepted', async () => {
+    const src = seedThought({ content: 'post-proposals canonical cap source marker' })
+    seedThought({ content: 'post-proposals canonical cap related content' })
+
+    const res = await request('/api/proposals', {
+      method: 'POST',
+      body: JSON.stringify({ thought_id: src, max_proposals: 1 }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    expect(res.status).toBe(201)
+  })
+
+  test.each(['max_items', 'limit'])('400 with a max_proposals migration hint for retired %s', async key => {
+    const src = seedThought({ content: `post-proposals retired ${key} source marker` })
+    const res = await request('/api/proposals', {
+      method: 'POST',
+      body: JSON.stringify({ thought_id: src, [key]: 1 }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: string }
+    expect(body.error).toContain('max_proposals')
+  })
+
   test('400 when thought_id is missing', async () => {
     const res = await request('/api/proposals', {
       method: 'POST',
