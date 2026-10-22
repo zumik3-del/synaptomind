@@ -9,7 +9,6 @@ import { frontierRouter } from './frontier'
 import { graphRouter } from './graph'
 import { linksRouter } from './links'
 import { primersRouter } from './primers'
-import { profileRouter } from './profile'
 import { proposalsRouter } from './proposals'
 import { projectsRouter } from './projects'
 import { settingsRouter } from './settings'
@@ -43,7 +42,6 @@ export function createApp(): Hono {
   app.route('/api/primers', primersRouter)
   app.route('/api', settingsRouter)
   app.route('/api', statsRouter)
-  app.route('/api/profile', profileRouter)
   app.route('/api/slots', slotsRouter)
   app.route('/api/frontier', frontierRouter)
   app.route('/api', autoClusterRouter)

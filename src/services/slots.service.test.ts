@@ -10,17 +10,17 @@ afterEach(closeDb)
 
 // ── getSlots ─────────────────────────────────────────────────────────────────
 
-test('getSlots returns all 5 slot views', () => {
+test('getSlots returns all 4 slot views', () => {
   const slots = getSlots()
-  expect(slots).toHaveLength(5)
+  expect(slots).toHaveLength(4)
   expect(slots.map(s => s.name)).toEqual([...SLOT_NAMES])
 })
 
 test('getSlots virtual slots have virtual=true', () => {
   const slots = getSlots()
-  const persona = slots.find(s => s.name === 'persona')
-  expect(persona?.virtual).toBeTrue()
-  expect(persona?.scope).toBe('global')
+  const pending = slots.find(s => s.name === 'pending_items')
+  expect(pending?.virtual).toBeTrue()
+  expect(pending?.scope).toBe('global')
 })
 
 test('getSlots explicit slots have virtual=false', () => {
@@ -30,14 +30,12 @@ test('getSlots explicit slots have virtual=false', () => {
 })
 
 test('getSlots filters by names', () => {
-  const slots = getSlots({ names: ['persona', 'active_goals'] })
+  const slots = getSlots({ names: ['pending_items', 'active_goals'] })
   expect(slots).toHaveLength(2)
 })
 
-test('getSlots persona content from profile thoughts', () => {
-  seedThought({ content: 'user prefers concise answers', source: 'profile-summary' })
-  const slots = getSlots({ names: ['persona'] })
-  expect(slots[0].content).toContain('user prefers concise answers')
+test('getSlots treats an unknown name as no slot (persona is not a slot anymore)', () => {
+  expect(getSlots({ names: ['persona'] })).toHaveLength(0)
 })
 
 test('getSlots architecture_decisions content from primers', () => {
@@ -159,7 +157,7 @@ test('updateExplicitSlot updates project_context', () => {
 })
 
 test('updateExplicitSlot rejects virtual slots', () => {
-  expect(() => updateExplicitSlot('persona', { content: 'test' }, 2000)).toThrow(ValidationError)
+  expect(() => updateExplicitSlot('pending_items', { content: 'test' }, 2000)).toThrow(ValidationError)
 })
 
 test('updateExplicitSlot validates max_chars range', () => {

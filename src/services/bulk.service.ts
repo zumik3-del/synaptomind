@@ -13,7 +13,6 @@ export interface BulkCreateItem {
   project_id?: string
   parent_id?: string
   relation?: string
-  is_profile?: boolean
   is_protected?: boolean
 }
 
@@ -48,7 +47,6 @@ export function bulkCreateThoughtsService(
             tags: t.tags,
             source: t.source,
             project_id: t.project_id ?? defaultProjectId,
-            is_profile: t.is_profile,
             is_protected: t.is_protected
           },
           t.parent_id,

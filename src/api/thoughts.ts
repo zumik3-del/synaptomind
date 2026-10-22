@@ -41,7 +41,9 @@ const createThoughtBodySchema = z.object({
   project_id: z.string().optional(),
   parent_id: z.string().optional(),
   relation: z.string().optional(),
-  is_profile: z.boolean().optional(),
+  // Retired with the profile surface (task #1939): the flag is no longer a
+  // writer, so an explicit one is refused instead of silently ignored.
+  is_profile: z.never({ error: 'is_profile is retired' }).optional(),
   is_protected: z.boolean().optional()
 })
 
@@ -51,7 +53,7 @@ const updateThoughtBodySchema = z.object({
   tags_mode: z.enum(['replace', 'merge']).optional(),
   status: thoughtStatusSchema.optional(),
   project_id: z.string().optional(),
-  is_profile: z.boolean().optional(),
+  is_profile: z.never({ error: 'is_profile is retired' }).optional(),
   is_protected: z.boolean().optional()
 })
 
@@ -127,7 +129,7 @@ thoughtsRouter.post('/bulk', async c => {
 thoughtsRouter.post('/', async c => {
   const body = await requiredJsonBody(c, createThoughtBodySchema)
   const thought = createThoughtWithParentService(
-    { content: body.content, status: body.status, tags: body.tags, source: body.source, project_id: body.project_id, is_profile: body.is_profile, is_protected: body.is_protected },
+    { content: body.content, status: body.status, tags: body.tags, source: body.source, project_id: body.project_id, is_protected: body.is_protected },
     body.parent_id, body.relation
   )
   return c.json(thought, 201)
@@ -137,7 +139,7 @@ thoughtsRouter.put('/:id', async c => {
   const id = c.req.param('id')!
   const body = await requiredJsonBody(c, updateThoughtBodySchema)
   const thought = updateThoughtByIdService(id, {
-    content: body.content, tags: body.tags, tags_mode: body.tags_mode, status: body.status, project_id: body.project_id, is_profile: body.is_profile, is_protected: body.is_protected
+    content: body.content, tags: body.tags, tags_mode: body.tags_mode, status: body.status, project_id: body.project_id, is_protected: body.is_protected
   })
   if (!thought) return c.json({ error: 'Not found' }, 404)
   return c.json(thought)
