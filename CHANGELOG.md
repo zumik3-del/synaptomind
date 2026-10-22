@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.16.1
+
+> October 22, 2026
+
+- [`f010636`](https://github.com/zumik3-del/synaptomind/commit/f010636659c70c702b9480718b5924292309010f): chore: retrigger ci after pr title fix
+- [`000a261`](https://github.com/zumik3-del/synaptomind/commit/000a261283a0b18205f4e312b88f0cda9a71bf70): docs+feat(reflect): document and tag reflect-created thoughts (#1969)
+- [`c786e9a`](https://github.com/zumik3-del/synaptomind/commit/c786e9ae482d8e8c486a2672d0151c4f971d2065): feat(mcp): report transferred edge count on merge (#1968)
+- [`56570da`](https://github.com/zumik3-del/synaptomind/commit/56570daad05a88e27ce439aa932b2c3a30066781): fix(health): don't score island thoughts (#1967)
+- [`92531fa`](https://github.com/zumik3-del/synaptomind/commit/92531fa5c471873c2df555ada57c8b8b302a31fa): feat(mcp): add list thoughts action with filters and pagination (#1965)
+- [`0e75fab`](https://github.com/zumik3-del/synaptomind/commit/0e75fab08d0d914949e0b4ef92cddae6b80e0f4c): fix(mcp): accept source_id alias for link (#1966)
+- [`ae65359`](https://github.com/zumik3-del/synaptomind/commit/ae653597bee3885311c544a1876e576069953d54): feat(mcp): add batch archive and link operations (#1964)
+
 ## v0.16.0
 
 > October 22, 2026
