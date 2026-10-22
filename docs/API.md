@@ -15,7 +15,7 @@ thoughts to primers is not lost — it happens on the search path, at
 unchanged. The structured `logs` table and its rotation are unchanged; the historical
 `self_improve` log rows stay as history.
 
-**Breaking 0.x change:** `POST /api/crystals/` and `POST /api/thought-verify/run`
+**Breaking 0.x change:** `POST /api/crystals` and `POST /api/thought-verify/run`
 are no longer mounted. Existing crystal thoughts and `thought_verify` rows remain
 stored; there is no destructive migration. Graph/cluster MCP actions and `GET /health`
 remain available. Search no longer filters previously flagged thoughts by default.
@@ -105,7 +105,7 @@ curl `'http://127.0.0.1:3005/api/thoughts/timeline?limit=5&status=active'`
 
 Response: `[{"id": "...", "content": "...", "status": "active", ...}]`
 
-### POST /api/thoughts/
+### POST /api/thoughts
 
 Creates a thought. Optionally attaches it under a parent thought via an edge. Returns 201.
 
@@ -121,7 +121,7 @@ Creates a thought. Optionally attaches it under a parent thought via an edge. Re
 | is_profile | body | bool | optional | Mark as profile thought |
 | is_protected | body | bool | optional | Protect from auto-deletion |
 
-curl `-d '{"content": "Deploy script uses bun", "tags": ["fact"]}' http://127.0.0.1:3005/api/thoughts/`
+curl `-d '{"content": "Deploy script uses bun", "tags": ["fact"]}' http://127.0.0.1:3005/api/thoughts`
 
 ### POST /api/thoughts/bulk
 
@@ -129,7 +129,7 @@ Creates up to 10000 thoughts in a single transaction; per-item failures are repo
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
-| thoughts | body | array | required | Items with the same fields as POST /api/thoughts/ plus per-item `project_id`, `parent_id`, `relation` (max 10000) |
+| thoughts | body | array | required | Items with the same fields as POST /api/thoughts plus per-item `project_id`, `parent_id`, `relation` (max 10000) |
 | project_id | body | string | optional | Fallback project for items without their own |
 
 curl `-d '{"thoughts": [{"content": "a"}, {"content": "b"}]}' http://127.0.0.1:3005/api/thoughts/bulk`
@@ -311,7 +311,7 @@ Typed edge proposals require a non-embedding cue (negation, evidential, evolutio
 
 ## Tags
 
-### GET /api/tags/
+### GET /api/tags
 
 Lists all tags, optionally filtered by substring.
 
@@ -319,7 +319,7 @@ Lists all tags, optionally filtered by substring.
 |---|---|---|---|---|
 | q | query | string | optional | Substring filter |
 
-curl `'http://127.0.0.1:3005/api/tags/?q=dec'`
+curl `'http://127.0.0.1:3005/api/tags?q=dec'`
 
 Response: `[{"id": "...", "name": "decision"}]`
 
@@ -499,11 +499,11 @@ MCP parity for the routes above, plus `apply_batch` (no HTTP equivalent).
 
 ## Projects
 
-### GET /api/projects/
+### GET /api/projects
 
 Lists all projects.
 
-curl `http://127.0.0.1:3005/api/projects/`
+curl `http://127.0.0.1:3005/api/projects`
 
 Response: `[{"id": "...", "name": "synaptomind", "description": "...", "local_path": "/path", ...}]`
 
@@ -519,7 +519,7 @@ curl `'http://127.0.0.1:3005/api/projects/resolve?path=/work/foo'`
 
 Response: `{"id": "...", "name": "foo", "local_path": "/work/foo"}`
 
-### POST /api/projects/
+### POST /api/projects
 
 Creates a project. Returns 201; 400 on validation error.
 
@@ -529,7 +529,7 @@ Creates a project. Returns 201; 400 on validation error.
 | description | body | string | optional | Description |
 | local_path | body | string | optional/null | Associated filesystem path |
 
-curl `-d '{"name": "foo", "local_path": "/work/foo"}' http://127.0.0.1:3005/api/projects/`
+curl `-d '{"name": "foo", "local_path": "/work/foo"}' http://127.0.0.1:3005/api/projects`
 
 ### PATCH /api/projects/:id
 
@@ -559,11 +559,11 @@ curl `-X DELETE http://127.0.0.1:3005/api/projects/<id>`
 
 Primers are thoughts auto-injected at the top of search results (high-frequency hits).
 
-### GET /api/primers/
+### GET /api/primers
 
 Lists all primers.
 
-curl `http://127.0.0.1:3005/api/primers/`
+curl `http://127.0.0.1:3005/api/primers`
 
 ### DELETE /api/primers/:id
 
@@ -649,7 +649,7 @@ curl `-X POST http://127.0.0.1:3005/api/profile/summarize`
 
 Named context slots (persona, pending items, decisions, etc.).
 
-### GET /api/slots/
+### GET /api/slots
 
 Returns context slots.
 
@@ -660,7 +660,7 @@ Returns context slots.
 | limit | query | int | optional | Max items for `pending_items` (1-1000); paginates the pending list |
 | offset | query | int | 0 | Offset for `pending_items` pagination |
 
-curl `'http://127.0.0.1:3005/api/slots/?names=persona,pending_items'`
+curl `'http://127.0.0.1:3005/api/slots?names=persona,pending_items'`
 
 Response: `{"slots": [{"name": "persona", "content": "...", ...}]}`
 
@@ -703,7 +703,7 @@ Response: `{"ok": true, "applied": {"summary_appended": true, "goals_added": 0, 
 
 ## Frontier
 
-### GET /api/frontier/
+### GET /api/frontier
 
 Ranks candidate thoughts by "what to work on next". Candidates are `directive`/`todo`/`pending`-tagged thoughts in status active or draft (non-cluster); replaced thoughts are dropped and `depends_on` upstreams block their dependents.
 
@@ -712,7 +712,7 @@ Ranks candidate thoughts by "what to work on next". Candidates are `directive`/`
 | project_id | query | string | optional | Scope to a project |
 | k | query | int | 10 (clamped 1-50) | Max items |
 
-curl `'http://127.0.0.1:3005/api/frontier/?k=3'`
+curl `'http://127.0.0.1:3005/api/frontier?k=3'`
 
 Response: `{"items": [{"thought_id": "...", "content_short": "...", "reason": "directive", "priority": 0.65, "blocked_by": []}]}`
 
