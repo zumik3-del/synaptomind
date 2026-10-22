@@ -114,12 +114,11 @@ function acceptedTriageRow(
 }
 
 type GraphRowInput = {
-  item_kind: 'edge' | 'placement' | 'lifecycle'
+  item_kind: 'edge'
   sourceId: string
   targetId: string
   edgeType: string
   direction: 'symmetric' | 'directed' | null
-  lifecycleAction?: string
 }
 
 /** Enqueue a graph-mutating row whose fingerprint matches the live pair, then accept it. */
@@ -130,7 +129,7 @@ function acceptedGraphRow(db: Database, input: GraphRowInput): string {
     item_kind: input.item_kind,
     target_id: input.targetId,
     edge_type: input.edgeType,
-    lifecycle_action: input.lifecycleAction ?? null,
+    lifecycle_action: null,
     direction: input.direction,
     confidence: 0.8,
     rationale: 'F-14 regression matrix',
@@ -408,46 +407,38 @@ describe('F-14 AC-8: in-window behaviour is unchanged', () => {
     const edgeRow = acceptedGraphRow(db, {
       item_kind: 'edge', sourceId: edgeSource, targetId: edgeTarget, edgeType: 'related', direction: 'symmetric'
     })
-    const placeSource = seedThought({ id: 'f14-8-place-s', content: 'matrix placement src', status: 'active', created_at: NOW })
-    const placeTarget = seedThought({ id: 'f14-8-place-t', content: 'matrix placement tgt', status: 'active', created_at: PAST })
-    const placeRow = acceptedGraphRow(db, {
-      item_kind: 'placement', sourceId: placeSource, targetId: placeTarget, edgeType: 'parent', direction: 'directed'
+    const edgeSource2 = seedThought({ id: 'f14-8-edge2-s', content: 'matrix edge2 src', status: 'active', created_at: NOW })
+    const edgeTarget2 = seedThought({ id: 'f14-8-edge2-t', content: 'matrix edge2 tgt', status: 'active', created_at: PAST })
+    const edgeRow2 = acceptedGraphRow(db, {
+      item_kind: 'edge', sourceId: edgeSource2, targetId: edgeTarget2, edgeType: 'supports', direction: 'directed'
     })
-    const lifeSource = seedThought({ id: 'f14-8-life-s', content: 'matrix supersede src', status: 'active', created_at: NOW })
-    const lifeTarget = seedThought({ id: 'f14-8-life-t', content: 'matrix supersede tgt', status: 'active', created_at: PAST })
-    const lifeRow = acceptedGraphRow(db, {
-      item_kind: 'lifecycle', sourceId: lifeSource, targetId: lifeTarget, edgeType: 'replaces',
-      direction: null, lifecycleAction: 'replaces+archive'
-    })
-    const rows = [activateRow, archiveRow, edgeRow, placeRow, lifeRow]
+    const rows = [activateRow, archiveRow, edgeRow, edgeRow2]
 
     // post-apply graph: the run activated, archived and linked
     expect(getThoughtRow(db, activateSource)!.status).toBe('active')
     expect(getThoughtRow(db, archiveSource)!.status).toBe('archived')
-    expect(getThoughtRow(db, lifeTarget)!.status).toBe('archived')
-    for (const [source, target] of [[edgeSource, edgeTarget], [placeSource, placeTarget], [lifeSource, lifeTarget]] as const) {
+    for (const [source, target] of [[edgeSource, edgeTarget], [edgeSource2, edgeTarget2]] as const) {
       expect(getEdgePairBetween(db, source, target)).not.toBeNull()
     }
     const edgesAfterApply = graphCounts(db).edges
 
     const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
-    expect(report.summary).toEqual({ reverted: 5, skipped: 0, refused: 0 })
+    expect(report.summary).toEqual({ reverted: 4, skipped: 0, refused: 0 })
     for (const id of rows) expect(itemFor(report, id).action).toBe('reverted')
-    // graph inverses: activate/archive back to draft, supersede target back to active
+    // graph inverses: activate/archive back to draft
     expect(getThoughtRow(db, activateSource)!.status).toBe('draft')
     expect(getThoughtRow(db, archiveSource)!.status).toBe('draft')
-    expect(getThoughtRow(db, lifeTarget)!.status).toBe('active')
-    // only the three edges this run created are gone, nothing else
-    expect(graphCounts(db).edges).toBe(edgesAfterApply - 3)
+    // only the two edges this run created are gone, nothing else
+    expect(graphCounts(db).edges).toBe(edgesAfterApply - 2)
     for (const id of rows) assertRolledBack(db, id)
   })
 
-  test('lifecycle/merge is still refused, and the window does not shadow that reason', () => {
+  test('a removed-kind row is refused with a typed reason, and the window does not shadow it', () => {
     const db = getDb()
     const source = seedThought({ id: 'f14-8-merge-s', content: 'matrix merge src', status: 'active', created_at: NOW })
     const target = seedThought({ id: 'f14-8-merge-t', content: 'matrix merge tgt', status: 'active', created_at: PAST })
-    // In-window on purpose: the refusal must come from the merge guard, not the window.
+    // In-window on purpose: the refusal must come from the removed-kind guard, not the window.
     const mergeRowId = 'row-f14-8-merge'
     db.prepare(`
       INSERT INTO placement_proposals
@@ -462,7 +453,7 @@ describe('F-14 AC-8: in-window behaviour is unchanged', () => {
 
     expect(report.summary).toEqual({ reverted: 0, skipped: 0, refused: 1 })
     expect(itemFor(report, mergeRowId).action).toBe('refused')
-    expect(itemFor(report, mergeRowId).reason).toContain('merge')
+    expect(itemFor(report, mergeRowId).reason).toContain('no longer supported')
     expect(itemFor(report, mergeRowId).reason).not.toContain('rollback window')
     // graph untouched
     expect(getThoughtRow(db, source)!.status).toBe('active')

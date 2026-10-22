@@ -2,10 +2,29 @@ import type { Database } from 'bun:sqlite'
 import { getThoughtRow, type Thought } from './thoughts'
 
 /**
- * Item classes a placement plan maps to (ADR §2.1). `triage_activate` /
+ * Item classes the queue creates and applies (ADR §2.1). `triage_activate` /
  * `triage_archive` are the deterministic draft-triage verdicts (ADR 2026-09-29 §2.2).
+ *
+ * `placement` and `lifecycle` were removed in task #1942: they never occurred
+ * in production, so the queue now handles `edge` proposals (plus the triage
+ * verdicts) only.
  */
-export type ProposalItemKind = 'edge' | 'placement' | 'lifecycle' | 'triage_activate' | 'triage_archive'
+export type ProposalItemKind = 'edge' | 'triage_activate' | 'triage_archive'
+
+/**
+ * Item kinds the queue no longer creates (task #1942). Rows of these kinds may
+ * still exist in installs upgraded from an older version: they stay readable
+ * (their state is shown in `list`) but can never be applied or rolled back.
+ */
+export type LegacyProposalItemKind = 'placement' | 'lifecycle'
+
+/** Every kind a stored row can carry — the live kinds plus the removed ones. */
+export type StoredProposalItemKind = ProposalItemKind | LegacyProposalItemKind
+
+/** Is this a kind the queue no longer supports (task #1942)? */
+export function isLegacyItemKind(kind: string): kind is LegacyProposalItemKind {
+  return kind === 'placement' || kind === 'lifecycle'
+}
 
 /**
  * Queue lifecycle: `pending` is live, every other state is terminal (ADR §2.2).
@@ -17,7 +36,8 @@ export interface PlacementProposalRow {
   id: string
   project_id: string | null
   source_thought_id: string
-  item_kind: ProposalItemKind
+  /** The stored kind — a removed kind is possible in older installs (task #1942). */
+  item_kind: StoredProposalItemKind
   target_id: string | null
   edge_type: string | null
   lifecycle_action: string | null
@@ -59,8 +79,8 @@ export interface InsertProposalInput {
 export interface ListProposalsOptions {
   state?: ProposalState
   project_id?: string
-  /** Optional item-kind filter (ADR 2026-09-29 §2.7). */
-  item_kind?: ProposalItemKind
+  /** Optional item-kind filter (ADR 2026-09-29 §2.7); a removed kind still filters. */
+  item_kind?: StoredProposalItemKind
   /** Optional source-thought filter (queued proposals of one source thought). */
   source_thought_id?: string
   sourceThoughtId?: string

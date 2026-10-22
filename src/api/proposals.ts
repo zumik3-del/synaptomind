@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
-import type { ProposalItemKind, ProposalState } from '../db/placement-proposals'
+import type { ProposalState, StoredProposalItemKind } from '../db/placement-proposals'
 import { ValidationError } from '../errors'
 import { PROPOSALS_LIMIT_DEFAULT, proposalsLimitSchema } from '../validation'
 import { formatZodIssues, jsonBodyOrDefault } from './utils'
@@ -24,7 +24,9 @@ const applyBodySchema = z.object({ confirm: z.boolean().optional(), run_id: z.st
 // Read-only: list queued placement proposals (default state=pending).
 proposalsRouter.get('/', c => {
   const state = c.req.query('state') as ProposalState | undefined
-  const itemKind = c.req.query('item_kind') as ProposalItemKind | undefined
+  // A removed kind (`placement`/`lifecycle`) still filters: rows of those
+  // kinds stay readable in older installs (task #1942).
+  const itemKind = c.req.query('item_kind') as StoredProposalItemKind | undefined
   const sourceThoughtId = c.req.query('source_thought_id')
   const createdAfter = c.req.query('created_after')
   const parsed = proposalsQuerySchema.safeParse({
@@ -35,11 +37,13 @@ proposalsRouter.get('/', c => {
 })
 
 // Write: propose a plan for a persisted thought and queue its confirmable items.
+// The response reports the queued rows AND the plan items that were skipped
+// because their kind is no longer supported (task #1942).
 proposalsRouter.post('/', async c => {
   const body = await jsonBodyOrDefault<{ thought_id?: string; project_id?: string; max_proposals?: number; max_items?: number; limit?: number }>(c, {}, enqueueBodySchema)
   if (!body.thought_id) throw new ValidationError('thought_id is required')
-  const rows = await enqueueThoughtProposals(body.thought_id, { projectId: body.project_id, maxProposals: body.max_proposals, maxItems: body.max_items, limit: body.limit })
-  return c.json(rows, 201)
+  const outcome = await enqueueThoughtProposals(body.thought_id, { projectId: body.project_id, maxProposals: body.max_proposals, maxItems: body.max_items, limit: body.limit })
+  return c.json(outcome, 201)
 })
 
 // Write: roll back every reversible mutation of one explicit run (ADR §2.8).

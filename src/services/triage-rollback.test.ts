@@ -141,9 +141,9 @@ describe('rollbackService: fingerprint drift', () => {
   })
 })
 
-// ── merge rows are refused ─────────────────────────────────────────────────────
+// ── removed-kind rows are refused ─────────────────────────────────────────────
 
-describe('rollbackService: merge refusal', () => {
+describe('rollbackService: removed-kind refusal', () => {
   test('a lifecycle/merge row in the same run is refused, other items still revert', () => {
     const db = getDb()
     const s = seedThought({ id: 'rb-merge-s', content: 'merge src', status: 'draft', created_at: NOW })
@@ -163,7 +163,7 @@ describe('rollbackService: merge refusal', () => {
     const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
     expect(report.summary.refused).toBe(1)
     expect(report.summary.reverted).toBe(1)
-    expect(report.items.some(i => i.action === 'refused' && i.reason?.includes('merge'))).toBe(true)
+    expect(report.items.some(i => i.action === 'refused' && i.reason?.includes('no longer supported'))).toBe(true)
     // The activate row was still reverted.
     expect(getThoughtRow(db, s)!.status).toBe('draft')
     assertRolledBack(db, actRowId)
@@ -184,10 +184,10 @@ describe('rollbackService: row state after revert', () => {
 
 // ── Mixed run: activate + archive ──────────────────────────────────────────────
 
-// ── lifecycle/replaces+archive: the target returns to active ───────────────────
+// ── removed kinds: apply is refused, so there is nothing to roll back ─────────
 
-describe('rollbackService: lifecycle replaces+archive round-trip', () => {
-  test('target returns to active (not draft) after rollbackService', () => {
+describe('rollbackService: a lifecycle row from an older install', () => {
+  test('apply refuses it and rollback reports it as refused, not reverted', () => {
     const db = getDb()
     const source = seedThought({ id: 'rb-sup-s', content: 'newer thought', status: 'active', created_at: NOW })
     const target = seedThought({ id: 'rb-sup-t', content: 'older thought', status: 'active', created_at: PAST })
@@ -200,16 +200,11 @@ describe('rollbackService: lifecycle replaces+archive round-trip', () => {
               0.9, 'supersede older', null, '{}', ?, 'pending', ?, ?)
     `).run(rowId, source, target, pairFingerprint(db, source, target), NOW, RUN_ID)
 
+    // Task #1942 removed the kind: the row stays readable but cannot be applied,
+    // so the target is never archived and there is no mutation to revert.
     const applied = applyProposalService(rowId, { confirm: true, now: NOW, runId: RUN_ID, decidedBy: 'test' }, db)
-    expect(applied.status).toBe('accepted')
-    expect(getThoughtRow(db, target)!.status).toBe('archived')
-
-    const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
-    expect(report.summary.reverted).toBe(1)
-    // The apply-time gate only admits an `active` target, so the inverse must
-    // restore `active` — restoring `draft` would drop it out of active recall.
+    expect(applied.status).toBe('refused')
     expect(getThoughtRow(db, target)!.status).toBe('active')
-    assertRolledBack(db, rowId)
   })
 })
 

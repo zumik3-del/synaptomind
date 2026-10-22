@@ -32,22 +32,11 @@ export interface PlannedEdge {
 export type Gate = { kind: 'ok' } | { kind: 'already_applied' } | { kind: 'stale'; reason: string } | { kind: 'failed'; reason: string }
 
 /** Resolve the edge a proposal would create (ADR §2.5 / §2.6). */
-export function plannedEdge(row: PlacementProposalRow, options: ApplyOptions): PlannedEdge | undefined {
+export function plannedEdge(row: PlacementProposalRow): PlannedEdge | undefined {
   const targetId = row.target_id
   if (!targetId) return undefined
   if (row.item_kind === 'edge' && row.edge_type) {
     return { sourceId: row.source_thought_id, targetId, type: row.edge_type }
-  }
-  if (row.item_kind === 'placement') {
-    // Cluster direction is FROM the cluster TO the member; a parent edge is
-    // FROM the parent TO the analysed thought.
-    if (row.edge_type === 'cluster') {
-      return { sourceId: targetId, targetId: row.source_thought_id, type: 'cluster' }
-    }
-    return { sourceId: targetId, targetId: row.source_thought_id, type: options.edgeType ?? row.edge_type ?? 'parent' }
-  }
-  if (row.item_kind === 'lifecycle' && row.lifecycle_action === 'replaces+archive') {
-    return { sourceId: row.source_thought_id, targetId, type: 'replaces' }
   }
   return undefined
 }
@@ -98,7 +87,7 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
     return { kind: 'ok' }
   }
 
-  const edge = plannedEdge(row, options)
+  const edge = plannedEdge(row)
   if (edge && !isValidEdgeType(edge.type)) return { kind: 'failed', reason: `invalid edge type '${edge.type}'` }
 
   // Already-applied / conflict detection for edge-creating items (ADR §2.6).
@@ -126,23 +115,18 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
     return { kind: 'stale', reason: 'source and target belong to different projects' }
   }
 
-  // Cluster placement: re-check the live cap (#934/#928) and cluster shape.
-  if (row.item_kind === 'placement' && row.edge_type === 'cluster' && row.target_id) {
-    if (!getClusterThought(d, row.target_id)) {
-      return { kind: 'failed', reason: `target '${row.target_id}' is not a cluster thought` }
+  // Cluster membership: re-check the live cap (#934/#928) and the cluster
+  // shape. A `cluster` edge item adds a member to the cluster it originates
+  // from, so the source must be that cluster (task #1942: the `placement` kind
+  // is gone, the gate now guards the `edge` items that carry a cluster edge).
+  if (row.item_kind === 'edge' && row.edge_type === 'cluster' && row.target_id) {
+    if (!getClusterThought(d, row.source_thought_id)) {
+      return { kind: 'failed', reason: `source '${row.source_thought_id}' is not a cluster thought` }
     }
-    const members = getClusterMembers(d, row.target_id).length
+    const members = getClusterMembers(d, row.source_thought_id).length
     if (members >= config.placement.maxClusterSize) {
-      return { kind: 'stale', reason: `cluster '${row.target_id}' has ${members} members >= maxClusterSize ${config.placement.maxClusterSize}` }
+      return { kind: 'stale', reason: `cluster '${row.source_thought_id}' has ${members} members >= maxClusterSize ${config.placement.maxClusterSize}` }
     }
-  }
-
-  // Profile thoughts are persona material and must survive (issue #200).
-  if (row.item_kind === 'lifecycle' && row.lifecycle_action === 'merge' && source.is_profile) {
-    return { kind: 'failed', reason: 'cannot merge a profile thought away' }
-  }
-  if (row.item_kind === 'lifecycle' && row.lifecycle_action === 'replaces+archive' && target?.is_profile) {
-    return { kind: 'failed', reason: 'profile thoughts cannot be archived' }
   }
 
   // Fingerprint: the snapshot changed in a way nothing above handled (ADR §2.3).

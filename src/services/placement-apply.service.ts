@@ -30,7 +30,12 @@
 
 import type { Database } from 'bun:sqlite'
 import { getDb } from '../db'
-import { getProposal, updateProposalState, type PlacementProposalRow } from '../db/placement-proposals'
+import {
+  getProposal,
+  isLegacyItemKind,
+  updateProposalState,
+  type PlacementProposalRow
+} from '../db/placement-proposals'
 import {
   ClusterEdgeValidationError,
   EdgeAlreadyExistsError,
@@ -48,7 +53,6 @@ import { createEdgeService } from './edges.service'
 import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriterCall } from './placement-apply.types'
 import { pairFingerprint } from './placement-proposals.service'
 import { archiveThoughtByIdService, updateThoughtByIdService } from './thoughts.service'
-import { mergeThoughtsService } from './merge.service'
 import { type ApplyWriterCall, planWriterCalls, type WriterCall } from './writer-calls'
 
 export type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriter, PlannedWriterCall, RefusedApplyResult, RunRefusal } from './placement-apply.types'
@@ -59,8 +63,8 @@ function isApplyWriterCall(call: WriterCall): call is ApplyWriterCall {
 }
 
 /** The existing-writer call(s) `confirm:true` would execute (never mutates). */
-function plannedCalls(row: PlacementProposalRow, options: ApplyOptions): ApplyWriterCall[] {
-  return (planWriterCalls(row, 'apply', options, plannedEdge(row, options)) ?? []).filter(isApplyWriterCall)
+function plannedCalls(row: PlacementProposalRow): ApplyWriterCall[] {
+  return (planWriterCalls(row, 'apply', plannedEdge(row)) ?? []).filter(isApplyWriterCall)
 }
 
 interface WriterRun {
@@ -73,8 +77,8 @@ interface WriterRun {
  * (ADR §2.5): one dispatch produces both the plan reported back to the caller
  * and the execution result stored on the row.
  */
-function executeWriter(row: PlacementProposalRow, options: ApplyOptions, d: Database): WriterRun {
-  const calls = plannedCalls(row, options)
+function executeWriter(row: PlacementProposalRow, d: Database): WriterRun {
+  const calls = plannedCalls(row)
   if (calls.length === 0) throw new ValidationError('proposal has no supported apply action')
 
   const result: Record<string, unknown> = {}
@@ -91,9 +95,6 @@ function executeWriter(row: PlacementProposalRow, options: ApplyOptions, d: Data
         result.edge_id = created.id
         break
       }
-      case 'mergeThoughtsService':
-        result.transferred_edges = mergeThoughtsService(call.args, d).transferredEdges
-        break
     }
   }
   // A triage accept records its before/after provenance envelope (ADR §2.3.4).
@@ -133,7 +134,6 @@ function acceptIdempotent(
   row: PlacementProposalRow,
   now: string,
   decidedBy: string | null,
-  options: ApplyOptions,
   runId: string,
   d: Database
 ): AcceptedApplyResult {
@@ -145,7 +145,7 @@ function acceptIdempotent(
     agent: decidedBy,
     run_id: runId
   })
-  return { proposal_id: row.id, item_kind: row.item_kind, status: 'accepted', idempotent: true, calls: plannedCalls(row, options), result, run_id: runId }
+  return { proposal_id: row.id, item_kind: row.item_kind, status: 'accepted', idempotent: true, calls: plannedCalls(row), result, run_id: runId }
 }
 
 /**
@@ -179,6 +179,20 @@ export function applyProposalService(proposalId: string, options: ApplyOptions =
 
   const base = { proposal_id: proposalId, item_kind: row.item_kind }
 
+  // A row of a removed kind (task #1942) stays readable but can never be
+  // applied: the queue no longer knows how to write it. Refuse it with a typed
+  // refusal instead of letting it reach a writer.
+  if (isLegacyItemKind(row.item_kind)) {
+    return {
+      ...base,
+      status: 'refused',
+      refusal: {
+        code: 'unsupported_item_kind',
+        reason: `item kind '${row.item_kind}' is no longer supported; it cannot be applied`
+      }
+    }
+  }
+
   // Re-applying an accepted row is idempotent: the queue row is the guard and
   // no writer is called (ADR §2.7). The run it was accepted under is echoed
   // back, so this stays a faithful report of the row.
@@ -205,7 +219,7 @@ export function applyProposalService(proposalId: string, options: ApplyOptions =
   if (options.confirm !== true) {
     if (gate.kind === 'stale') return { ...base, status: 'stale', reason: gate.reason }
     if (gate.kind === 'failed') return { ...base, status: 'failed', reason: gate.reason }
-    return { ...base, status: 'dry_run', calls: plannedCalls(row, options) }
+    return { ...base, status: 'dry_run', calls: plannedCalls(row) }
   }
 
   const now = options.now ?? new Date().toISOString()
@@ -226,14 +240,14 @@ export function applyProposalService(proposalId: string, options: ApplyOptions =
   // never satisfy `run_id_required` (triage kinds keep requiring the caller's).
   const runId = resolveApplyRunId(options)
 
-  if (gate.kind === 'already_applied') return acceptIdempotent(row, now, decidedBy, options, runId, d)
+  if (gate.kind === 'already_applied') return acceptIdempotent(row, now, decidedBy, runId, d)
 
   try {
     // One item = one transaction: the existing writer and the queue-state
     // update commit together (ADR §2.7). Nested writer transactions are
     // savepoints, so a writer failure rolls both back.
     const run = d.transaction(() => {
-      const executed = executeWriter(row, options, d)
+      const executed = executeWriter(row, d)
       // The column is the rollback key; the id is echoed into the stored JSON
       // and the log purely for audit (`result` stays opaque JSON elsewhere).
       const result = JSON.stringify({ ...executed.result, run_id: runId })
@@ -279,7 +293,7 @@ export function applyProposalService(proposalId: string, options: ApplyOptions =
       return { ...base, status: 'failed', reason: mapped.reason }
     }
     // already_applied: the writer signalled the requested state already held.
-    return acceptIdempotent(row, now, decidedBy, options, runId, d)
+    return acceptIdempotent(row, now, decidedBy, runId, d)
   }
 }
 
