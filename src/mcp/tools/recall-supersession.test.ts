@@ -61,7 +61,7 @@ function seedSupersededPair(): { oldThought: string; newThought: string } {
 async function recallSupersession(extra: Record<string, unknown> = {}) {
   const result = await client.callTool({
     name: 'memory_recall',
-    arguments: { action: 'search', query: QUERY, top_k: 10, ...extra }
+    arguments: { action: 'search', query: QUERY, limit: 10, ...extra }
   })
   return parseResult(result)
 }

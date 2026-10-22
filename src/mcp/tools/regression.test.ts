@@ -94,7 +94,7 @@ describe('memory_status cleanup dry-run default', () => {
   })
   afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
 
-  test('cleanup without dry_run previews and does not delete', async () => {
+  test('cleanup confirm omitted previews and does not delete', async () => {
     const id = seedExpiredArchived()
 
     const result = await client.callTool({ name: 'memory_status', arguments: { action: 'cleanup' } })
@@ -107,12 +107,12 @@ describe('memory_status cleanup dry-run default', () => {
     expect(thoughtExists(id)).toBe(true)
   })
 
-  test('cleanup with dry_run=true previews and does not delete', async () => {
+  test('cleanup with confirm=false previews and does not delete', async () => {
     const id = seedExpiredArchived()
 
     const result = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'cleanup', dry_run: true }
+      arguments: { action: 'cleanup', confirm: false }
     })
     const { data, isError } = parseResult(result)
 
@@ -121,12 +121,12 @@ describe('memory_status cleanup dry-run default', () => {
     expect(thoughtExists(id)).toBe(true)
   })
 
-  test('cleanup with dry_run=false deletes the expired thought', async () => {
+  test('cleanup with confirm=true deletes the expired thought', async () => {
     const id = seedExpiredArchived()
 
     const result = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'cleanup', dry_run: false }
+      arguments: { action: 'cleanup', confirm: true }
     })
     const { data, isError } = parseResult(result)
 
@@ -153,12 +153,12 @@ describe('memory_status cleanup with the TTL disabled (shipped default)', () => 
   })
   afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
 
-  test('cleanup with dry_run=false deletes nothing and keeps the expired thought', async () => {
+  test('cleanup with confirm=true deletes nothing when TTL is disabled', async () => {
     const id = seedExpiredArchived()
 
     const result = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'cleanup', dry_run: false }
+      arguments: { action: 'cleanup', confirm: true }
     })
     const { data, isError } = parseResult(result)
 
@@ -169,12 +169,20 @@ describe('memory_status cleanup with the TTL disabled (shipped default)', () => 
   })
 })
 
+test('cleanup rejects retired dry_run with migration hint', async () => {
+  const result = await client.callTool({ name: 'memory_status', arguments: { action: 'cleanup', dry_run: false } })
+  const { data, isError } = parseResult(result)
+  expect(isError).toBe(true)
+  expect(String(data)).toContain('dry_run')
+  expect(String(data)).toContain('confirm')
+})
+
 // ── Numeric schema validation ───────────────────────────────────────────────
 
 const invalidNumericCases: Array<{ label: string; name: string; args: Record<string, unknown>; param: string }> = [
-  { label: 'negative top_k', name: 'memory_recall', args: { action: 'search', query: 'x', top_k: -1 }, param: 'top_k' },
-  { label: 'non-integer top_k', name: 'memory_recall', args: { action: 'search', query: 'x', top_k: 1.5 }, param: 'top_k' },
-  { label: 'zero top_k', name: 'memory_recall', args: { action: 'search', query: 'x', top_k: 0 }, param: 'top_k' },
+  { label: 'negative limit', name: 'memory_recall', args: { action: 'search', query: 'x', limit: -1 }, param: 'limit' },
+  { label: 'non-integer limit', name: 'memory_recall', args: { action: 'search', query: 'x', limit: 1.5 }, param: 'limit' },
+  { label: 'zero limit', name: 'memory_recall', args: { action: 'search', query: 'x', limit: 0 }, param: 'limit' },
   { label: 'negative max_degree', name: 'memory_recall', args: { action: 'chain', thought_id: 'x', max_degree: -2 }, param: 'max_degree' },
   { label: 'non-integer max_degree', name: 'memory_recall', args: { action: 'context', query: 'x', max_degree: 2.5 }, param: 'max_degree' },
   { label: 'negative timeline limit', name: 'memory_reflect', args: { action: 'timeline', limit: -5 }, param: 'limit' },
@@ -352,7 +360,7 @@ describe('structuredContent mirrors the text payload', () => {
     })
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: 'structured recall marker', top_k: 5 }
+      arguments: { action: 'search', query: 'structured recall marker', limit: 5 }
     })
     assertStructuredMatchesText(result)
   })

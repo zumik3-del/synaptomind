@@ -129,7 +129,7 @@ describe('memory_store', () => {
 
     const link = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'link', thought_id: da.id, target_id: db.id, edge_type: 'develops' }
+      arguments: { action: 'link', source_id: da.id, target_id: db.id, edge_type: 'develops' }
     })
     const { data: edge, isError } = parseResult(link)
     expect(isError).toBe(false)
@@ -168,7 +168,7 @@ describe('memory_recall', () => {
 
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: 'MCP_CONTRACT_MARKER', top_k: 5 }
+      arguments: { action: 'search', query: 'MCP_CONTRACT_MARKER', limit: 5 }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -219,7 +219,7 @@ describe('memory_recall', () => {
 
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'clusters', query: 'cluster', top_k: 5 }
+      arguments: { action: 'clusters', query: 'cluster', limit: 5 }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -479,7 +479,7 @@ describe('memory_crystallize', () => {
     expect(created.data.cluster.id).toBeDefined()
 
     const auto = parseResult(await client.callTool({
-      name: 'memory_crystallize', arguments: { action: 'auto_cluster', dry_run: true }
+      name: 'memory_crystallize', arguments: { action: 'auto_cluster', confirm: true }
     }))
     expect(auto.isError).toBe(false)
   })
@@ -677,7 +677,7 @@ describe('memory_store link edge types', () => {
 
     const forward = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'link', thought_id: a, target_id: b, edge_type: 'contradicts' }
+      arguments: { action: 'link', source_id: a, target_id: b, edge_type: 'contradicts' }
     })
     const { data: edge, isError } = parseResult(forward)
     expect(isError).toBe(false)
@@ -687,7 +687,7 @@ describe('memory_store link edge types', () => {
 
     const reverse = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'link', thought_id: b, target_id: a, edge_type: 'contradicts' }
+      arguments: { action: 'link', source_id: b, target_id: a, edge_type: 'contradicts' }
     })
     expect(parseResult(reverse).isError).toBe(false)
     expect(parseResult(reverse).data.id).toBe(edge.id)
@@ -698,7 +698,7 @@ describe('memory_store link edge types', () => {
 
     const forward = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'link', thought_id: a, target_id: b, edge_type: 'supports' }
+      arguments: { action: 'link', source_id: a, target_id: b, edge_type: 'supports' }
     })
     const { data: edge, isError } = parseResult(forward)
     expect(isError).toBe(false)
@@ -707,7 +707,7 @@ describe('memory_store link edge types', () => {
 
     const reverse = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'link', thought_id: b, target_id: a, edge_type: 'supports' }
+      arguments: { action: 'link', source_id: b, target_id: a, edge_type: 'supports' }
     })
     expect(parseResult(reverse).isError).toBe(true)
   })
@@ -716,7 +716,7 @@ describe('memory_store link edge types', () => {
     const { a, b } = await createPair()
     const result = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'link', thought_id: a, target_id: b, edge_type: 'frobnicates' }
+      arguments: { action: 'link', source_id: a, target_id: b, edge_type: 'frobnicates' }
     })
     expect(parseResult(result).isError).toBe(true)
   })
@@ -749,7 +749,7 @@ describe('search with project scope', () => {
 
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: 'SCOPED_MARKER', top_k: 10, project_id: project.id }
+      arguments: { action: 'search', query: 'SCOPED_MARKER', limit: 10, project_id: project.id }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -764,7 +764,7 @@ describe('memory_recall ranking signals', () => {
   async function searchWithSignals(query: string, extra?: Record<string, unknown>) {
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query, top_k: 10, ...extra }
+      arguments: { action: 'search', query, limit: 10, ...extra }
     })
     return parseResult(result)
   }
@@ -827,7 +827,7 @@ describe('memory_recall recency boost', () => {
   async function searchWithRecency(query: string, extra?: Record<string, unknown>) {
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query, top_k: 10, ...extra }
+      arguments: { action: 'search', query, limit: 10, ...extra }
     })
     return parseResult(result)
   }
