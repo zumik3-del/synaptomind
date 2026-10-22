@@ -94,3 +94,27 @@ describe('cleanupArchivedThoughts', () => {
     expect(result.ids).toHaveLength(0)
   })
 })
+
+// A non-positive TTL disables deletion entirely: the cutoff must never be
+// computed for it, otherwise TTL 0 expires every archived thought.
+describe('non-positive TTL disables deletion', () => {
+  test('TTL 0 deletes nothing, even a very old archived thought', () => {
+    config.ttl.archivedTtlDays = 0
+    const id = insertArchived(200 * 86400000) // 200 days ago
+    const result = cleanupArchivedThoughts()
+    expect(result).toEqual({ deleted: 0, ids: [] })
+    const d = getDb()
+    const row = d.prepare(`SELECT id FROM thoughts WHERE id = ?`).get(id)
+    expect(row != null).toBe(true)
+  })
+
+  test('TTL -1 deletes nothing, even a very old archived thought', () => {
+    config.ttl.archivedTtlDays = -1
+    const id = insertArchived(200 * 86400000)
+    const result = cleanupArchivedThoughts()
+    expect(result).toEqual({ deleted: 0, ids: [] })
+    const d = getDb()
+    const row = d.prepare(`SELECT id FROM thoughts WHERE id = ?`).get(id)
+    expect(row != null).toBe(true)
+  })
+})
