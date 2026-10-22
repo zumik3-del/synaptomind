@@ -102,8 +102,11 @@ describe('retired memory_recall input migration hints', () => {
     expect(props).toHaveProperty('limit')
     expect(props).toHaveProperty('is_cluster')
     // Retired keys remain advertised as never-valued migration errors.
-    expect(props).toHaveProperty('top_k')
-    expect(props).toHaveProperty('cluster')
+    for (const [key, description] of [['top_k', 'Removed; use limit.'], ['cluster', 'Removed; use is_cluster.']]) {
+      const tombstone = props?.[key] as { description?: string; not?: unknown }
+      expect(tombstone.description).toBe(description)
+      expect(tombstone.not).toEqual({})
+    }
   })
 })
 
