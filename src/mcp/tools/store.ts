@@ -39,8 +39,8 @@ export function registerMemoryStore(server: McpServer) {
       is_protected: z.boolean().optional().describe('Protect from auto-deletion'),
       is_global: z.boolean().optional().describe('Mark as global thought (appears in all project-scoped searches)'),
       url_links: z.array(z.object({ text: z.string(), url: z.string() })).optional().describe('URL links (for create)'),
-      thought_id: z.string().optional().describe('REQUIRED for "update" and "link" (on "link", source_id is an accepted alias). IGNORED for "create", "unlink", "retype".'),
-      source_id: z.string().optional().describe('link only: alias for thought_id (same spelling as memory_supersede merge). IGNORED for all other actions.'),
+      thought_id: z.string().optional().describe('REQUIRED for "update". IGNORED for "create", "link", "unlink", "retype".'),
+      source_id: z.string().optional().describe('REQUIRED ONLY for "link" (source endpoint, same spelling as memory_supersede merge). IGNORED for all other actions.'),
       target_id: z.string().optional().describe('REQUIRED ONLY for "link" (target side, same spelling as memory_supersede merge). IGNORED for all other actions.'),
       links: z
         .array(z.object({ source: z.string(), target: z.string(), type: z.enum(EDGE_TYPES).optional() }))
