@@ -8,13 +8,15 @@ import { pruneThoughtUrlLinks } from '../db/thought_url_links'
 import {
   type CreateThoughtInput,
   archiveThought as dbArchiveThought,
+  countThoughts,
   createThought as dbCreateThought,
   getThought as dbGetThought,
   listThoughts as dbListThoughts,
   updateThought as dbUpdateThought,
   type ListThoughtsOptions,
   type Thought,
-  type UpdateThoughtInput
+  type UpdateThoughtInput,
+  THOUGHTS_PAGE_LIMIT_DEFAULT
 } from '../db/thoughts'
 import { insertLog } from '../logging/log'
 import { validateContentLength, validateStatus } from '../validation'
@@ -98,6 +100,27 @@ export function archiveThoughtByIdService(id: string, d: Database = getDb()): Th
 
 export function listThoughtsService(options?: ListThoughtsOptions, d: Database = getDb()): Thought[] {
   return dbListThoughts(d, options)
+}
+
+/** One page of thoughts plus the total matching the same filters. */
+export interface ThoughtPage {
+  thoughts: Thought[]
+  /** Number of thoughts matching the filters, ignoring `limit`/`offset`. */
+  total: number
+  /** Page size applied (`null` = no limit). */
+  limit: number | null
+  offset: number
+}
+
+/**
+ * Paginated thought inventory: the page (newest first) together with the total
+ * count for the same filters, so a caller can page without a second request.
+ */
+export function listThoughtsPageService(options: ListThoughtsOptions = {}, d: Database = getDb()): ThoughtPage {
+  const limit = options.limit === undefined ? THOUGHTS_PAGE_LIMIT_DEFAULT : options.limit
+  const offset = options.offset ?? 0
+  const thoughts = dbListThoughts(d, { ...options, limit, offset })
+  return { thoughts, total: countThoughts(d, options), limit, offset }
 }
 
 export function getClusterMembersService(clusterId: string, d: Database = getDb()): { cluster: Thought; members: Thought[] } {

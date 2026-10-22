@@ -24,7 +24,7 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 ## Tools
 | Tool | Actions |
 |---|---|
-| memory_recall | search, get, context, chain, clusters |
+| memory_recall | search, get, context, chain, clusters, list |
 | memory_store | create, update, link, unlink, retype |
 | memory_supersede | archive, merge |
 | memory_status | slots, frontier, config, health, propose, cleanup |

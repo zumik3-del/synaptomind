@@ -13,7 +13,7 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 
 | Tool | Actions | Purpose |
 |---|---|---|
-| `memory_recall` | search, get, context, chain, clusters | Find and retrieve thoughts |
+| `memory_recall` | search, get, context, chain, clusters, list | Find and retrieve thoughts (list = paginated inventory) |
 | `memory_store` | create, update, link, unlink, retype | Write, connect and edit thoughts |
 | `memory_supersede` | archive, merge | Version and supersede thoughts |
 | `memory_status` | slots, frontier, config, health, propose, cleanup | Query system state |
