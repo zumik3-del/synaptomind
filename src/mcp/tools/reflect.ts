@@ -53,7 +53,7 @@ export function registerMemoryReflect(server: McpServer) {
       offset: z.number().int().min(0).max(1_000_000).optional().describe('Offset for pagination (timeline only)'),
       // Tombstone for the retired goals argument: only goals_add /
       // goals_remove are advertised.
-      goals_delta: z.never({ error: 'goals_delta was removed; use goals_add / goals_remove' }).optional()
+      goals_delta: z.never({ error: 'goals_delta was removed; use goals_add / goals_remove' }).optional().describe('Removed; use goals_add / goals_remove.'),
     },
     handlers
   })

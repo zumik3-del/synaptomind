@@ -7,7 +7,7 @@ import { requiredString, type ActionArgs, type ActionHandler } from '../action-t
 export const createHandler: ActionHandler = {
   input: z.object({
     content: requiredString('content is required for create action'),
-    is_profile: z.never({ error: 'is_profile is retired' }).optional()
+    is_profile: z.never({ error: 'is_profile is retired; remove this field. There is no replacement.' }).optional()
   }),
   run(args: ActionArgs) {
     return createThoughtWithUrlLinksService(
