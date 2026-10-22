@@ -578,8 +578,8 @@ Records a session outcome: appends a summary, adjusts goals, creates decision an
 | project_id | body | string | optional/null | Project scope |
 | summary | body | string | optional | Session summary |
 | goals_delta | body | string[] | optional | Goals to add; prefix `closed:` to remove |
-| decisions | body | string[] | optional | Decisions made — each created as an active thought tagged `decision` |
-| pending | body | string[] | optional | Pending tasks — each created as a draft thought tagged `pending` |
+| decisions | body | string[] | optional | Decisions made — each created as an active thought tagged `decision` and `reflect` |
+| pending | body | string[] | optional | Pending tasks — each created as a draft thought tagged `pending` and `reflect` |
 | wake_days | body | int | optional | Days before the newly created `pending` thoughts join the frontier (default 7, 1-365) |
 
 curl `-d '{"summary": "Added API docs", "decisions": ["Use manual API reference"]}' http://127.0.0.1:3005/api/slots/reflect`
@@ -587,6 +587,11 @@ curl `-d '{"summary": "Added API docs", "decisions": ["Use manual API reference"
 Response: `{"ok": true, "applied": {"summary_appended": true, "goals_added": 0, "goals_removed": 0, "decisions_created": 1, "pending_created": 0}}`
 
 `pending` items are stored with `surface_after = now + wake_days`; they enter the frontier (reason `pending`) and the `pending_items` slot once due, and stay drafts until the agent activates or archives them.
+
+Every thought this endpoint creates carries the tag `reflect` in addition to its semantic tag
+(`decision` / `pending`), so reflect output can be filtered (`GET /api/thoughts/timeline?tag=reflect`,
+or `memory_recall` with `tag: "reflect"`) or cleaned up without touching hand-created thoughts. The
+tag is additive: dedup, statuses and the scheduled surface time are unchanged.
 
 ## Frontier
 

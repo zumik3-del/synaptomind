@@ -27,6 +27,14 @@ export interface ReflectResult {
 
 const CLOSED_PREFIXES = ['closed:']
 
+/**
+ * Stamped on every thought `reflect` creates, next to the semantic tag
+ * (`decision` / `pending`). It makes reflect output identifiable, so it can be
+ * filtered or cleaned up without touching hand-created thoughts. Tag-based,
+ * additive: nothing in the read paths keys off it.
+ */
+export const REFLECT_TAG = 'reflect'
+
 function reflectTimestamp(): string {
   return new Date().toISOString()
 }
@@ -142,7 +150,7 @@ export function reflectSessionService(input: ReflectInput, d: Database = getDb()
         content: decision.trim(),
         status: 'active',
         source: 'session-reflection',
-        tags: ['decision'],
+        tags: ['decision', REFLECT_TAG],
         ...(input.project_id ? { project_id: input.project_id } : {})
       })
       result.decisions_created++
@@ -163,7 +171,7 @@ export function reflectSessionService(input: ReflectInput, d: Database = getDb()
         content: item.trim(),
         status: 'draft',
         source: 'session-reflection',
-        tags: ['pending'],
+        tags: ['pending', REFLECT_TAG],
         surface_after: surfaceAfter,
         ...(input.project_id ? { project_id: input.project_id } : {})
       })

@@ -46,7 +46,7 @@ Agent boots → memory_status(action=slots) →
 
 ```
 memory_reflect(action=reflect, pending=["write auth tests", "update docs"], wake_days=7)
-  → each pending thought is created as a draft tagged `pending`
+  → each pending thought is created as a draft tagged `pending` + `reflect`
     with surface_after = now + 7 days
   → nothing surfaces for 7 days...
   → once due, the thought appears in the frontier (reason `pending`)
@@ -70,8 +70,11 @@ memory_reflect(
 What happens inside:
 - `summary` → appended to `project_context` slot (with timestamp)
 - `goals_delta` → updates `active_goals` (new ones added, `closed:` — removed)
-- `decisions` → creates **active** thoughts with tag `decision` (knowledge graph, not in frontier — frontier only surfaces `directive`/`todo`/`pending` thoughts)
-- `pending` → creates **draft** thoughts with tag `pending` and `surface_after = now + wake_days` (they join the frontier once due)
+- `decisions` → creates **active** thoughts with tags `decision` + `reflect` (knowledge graph, not in frontier — frontier only surfaces `directive`/`todo`/`pending` thoughts)
+- `pending` → creates **draft** thoughts with tags `pending` + `reflect` and `surface_after = now + wake_days` (they join the frontier once due)
+
+The `reflect` tag marks every thought reflect created, so reflect output can be filtered or
+cleaned up without touching hand-created thoughts.
 
 ## Scenario 6: Frontier — What to Do Next
 
