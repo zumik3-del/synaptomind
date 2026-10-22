@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { config } from "../config";
+import { LogStore } from "./log";
 
-function freshLog(): typeof import("./log") {
-	config.logDbPath = ":memory:";
-	delete require.cache[require.resolve("./log")];
-	const log = require("./log");
+/**
+ * A throwaway store per test. `LogStore` takes its path through the constructor,
+ * so these unit tests never touch the global `config.logDbPath` — mutating it
+ * here used to leak into every later suite in the same `bun test` process
+ * (module-level `defaultStore` singleton) and made the full-suite result depend
+ * on file order (task #1932).
+ */
+function freshLog(): LogStore {
+	const log = new LogStore({ logDbPath: ":memory:" });
 	log.closeLogDb();
 	return log;
 }
