@@ -20,14 +20,12 @@ const handlers = {
     input: z.object({ thought_id: requiredString('thought_id is required for enqueue action') }),
     run(args: ActionArgs) {
       const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      // `max_proposals` is the only enqueue cap this tool advertises: the
+      // `max_items` alias is gone, so the canonical value is forwarded as-is
+      // instead of through a precedence rule between several accepted names.
       return enqueueThoughtProposals(args.thought_id as string, {
         projectId,
-        maxProposals: args.max_proposals as number | undefined,
-        max_proposals: args.max_proposals as number | undefined,
-        maxItems: args.max_items as number | undefined,
-        max_items: args.max_items as number | undefined,
-        maxItemsPerEnqueue: args.max_items as number | undefined,
-        limit: args.limit as number | undefined
+        maxProposals: args.max_proposals as number | undefined
       })
     }
   },
@@ -80,8 +78,7 @@ export function registerMemoryReview(server: McpServer) {
         .enum(['enqueue', 'list', 'apply', 'apply_batch', 'rollback', 'reject'])
         .describe('Action'),
       thought_id: z.string().optional().describe('REQUIRED for "enqueue": persisted thought whose proposals are queued (create the thought first; drafts are not enqueued)'),
-      max_proposals: z.number().int().min(1).optional().describe('enqueue: cap on the number of proposals generated for this thought (default placement.maxProposalsPerEnqueue)'),
-      max_items: z.number().int().min(1).optional().describe('enqueue: alias for max_proposals'),
+      max_proposals: z.number().int().min(1).optional().describe('enqueue: cap on the number of proposals generated for this thought (the only enqueue cap; default placement.maxProposalsPerEnqueue)'),
       proposal_id: z.string().optional().describe('REQUIRED for "apply"/"reject": queued proposal id'),
       proposal_ids: z.array(z.string()).optional().describe('REQUIRED for "apply_batch": queued proposal ids'),
       run_id: z.string().optional().describe('Run envelope: REQUIRED for "rollback". It groups the rows one rollback can reverse. An un-enveloped apply/apply_batch gets a synthesized "auto-" + UUIDv7 envelope, returned as run_id on the accepted result (apply) and on the batch outcome (apply_batch), so it is rollback-addressable. "rollback" refuses any row decided more than placement.proposalTtlDays (default 30) days before the server\'s own clock; no public surface accepts a caller-supplied clock. The cutoff is inclusive: a row decided exactly at the boundary is still reversible, and a negative proposalTtlDays disables the window entirely'),
