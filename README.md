@@ -422,7 +422,7 @@ lost — it happens on the search path and is tuned by `primer.promoteThreshold`
 as history and rotate out with the 5000-row cap.
 
 **Breaking 0.x change:** crystal generation (`memory_crystallize action=crystallize`,
-`POST /api/crystals/`) and standalone thought verification
+`POST /api/crystals`) and standalone thought verification
 (`POST /api/thought-verify/run` and `verify` configuration) are removed. Supplying
 `exclude_flagged` to HTTP search or MCP `memory_recall` search/clusters is rejected;
 previously flagged thoughts may now appear in default search results. Existing crystal
