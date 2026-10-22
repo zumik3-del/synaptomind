@@ -7,16 +7,6 @@ import { cleanupArchivedThoughts } from './ttl-cleanup.service'
 beforeEach(createTestDb)
 afterEach(() => { closeDb() })
 
-// Archived-thought deletion is opt-in (the shipped default is -1 = disabled).
-// These cases pin the EXPLICIT path, so the TTL is enabled here instead of
-// relying on the default.
-let originalTtlDays = 0
-beforeEach(() => {
-  originalTtlDays = config.ttl.archivedTtlDays
-  config.ttl.archivedTtlDays = 90
-})
-afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
-
 function insertArchived(archivedAtAgo: number): string {
   const d = getDb()
   const id = seedThought({ status: 'active', is_protected: 0 })
@@ -26,6 +16,16 @@ function insertArchived(archivedAtAgo: number): string {
 }
 
 describe('cleanupArchivedThoughts', () => {
+  // Archived-thought deletion is opt-in (the shipped default is -1 = disabled).
+  // These cases pin the EXPLICIT path, so the TTL is enabled here instead of
+  // relying on the default.
+  let originalTtlDays = 0
+  beforeEach(() => {
+    originalTtlDays = config.ttl.archivedTtlDays
+    config.ttl.archivedTtlDays = 90
+  })
+  afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
+
   test('deletes archived thoughts older than TTL', () => {
     const id = insertArchived(100 * 86400000) // 100 days ago
     const result = cleanupArchivedThoughts()
@@ -113,6 +113,43 @@ describe('non-positive TTL disables deletion', () => {
     const id = insertArchived(200 * 86400000)
     const result = cleanupArchivedThoughts()
     expect(result).toEqual({ deleted: 0, ids: [] })
+    const d = getDb()
+    const row = d.prepare(`SELECT id FROM thoughts WHERE id = ?`).get(id)
+    expect(row != null).toBe(true)
+  })
+})
+
+// ── disabled direction: the shipped default deletes nothing ─────────────────
+//
+// Archived-thought deletion is opt-in: `ttl.archivedTtlDays` ships as -1 and a
+// negative TTL makes the cleanup a no-op. These cases pin the DISABLED
+// direction — a change that re-enables an implicit TTL (or drops the
+// negative-TTL guard) has to fail here instead of silently deleting archived
+// memory on a default install.
+
+describe('cleanupArchivedThoughts — TTL disabled (shipped default)', () => {
+  let originalTtlDays = 0
+  beforeEach(() => {
+    originalTtlDays = config.ttl.archivedTtlDays
+    config.ttl.archivedTtlDays = -1
+  })
+  afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
+
+  test('deletes nothing and keeps a long-expired archived thought', () => {
+    const id = insertArchived(200 * 86400000) // 200 days ago — past any positive TTL
+    const result = cleanupArchivedThoughts(false)
+    expect(result.deleted).toBe(0)
+    expect(result.ids).toEqual([])
+    const d = getDb()
+    const row = d.prepare(`SELECT id FROM thoughts WHERE id = ?`).get(id)
+    expect(row != null).toBe(true)
+  })
+
+  test('dry_run also reports nothing to delete', () => {
+    const id = insertArchived(200 * 86400000)
+    const result = cleanupArchivedThoughts(true)
+    expect(result.deleted).toBe(0)
+    expect(result.ids).toEqual([])
     const d = getDb()
     const row = d.prepare(`SELECT id FROM thoughts WHERE id = ?`).get(id)
     expect(row != null).toBe(true)

@@ -137,6 +137,38 @@ describe('memory_status cleanup dry-run default', () => {
   })
 })
 
+// ── memory_status cleanup with the TTL disabled (shipped default) ────────────
+//
+// The archived-thought TTL is opt-in and ships as -1 (disabled), so a default
+// install must delete nothing even when the caller asks for the real thing
+// (`dry_run=false`). This pins the DISABLED direction of the MCP surface: a
+// future flip back to an implicit TTL has to fail here instead of deleting
+// archived memory silently.
+
+describe('memory_status cleanup with the TTL disabled (shipped default)', () => {
+  let originalTtlDays = 0
+  beforeEach(() => {
+    originalTtlDays = config.ttl.archivedTtlDays
+    config.ttl.archivedTtlDays = -1
+  })
+  afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
+
+  test('cleanup with dry_run=false deletes nothing and keeps the expired thought', async () => {
+    const id = seedExpiredArchived()
+
+    const result = await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'cleanup', dry_run: false }
+    })
+    const { data, isError } = parseResult(result)
+
+    expect(isError).toBe(false)
+    expect(data.deleted).toBe(0)
+    expect(data.ids).toEqual([])
+    expect(thoughtExists(id)).toBe(true)
+  })
+})
+
 // ── Numeric schema validation ───────────────────────────────────────────────
 
 const invalidNumericCases: Array<{ label: string; name: string; args: Record<string, unknown>; param: string }> = [
