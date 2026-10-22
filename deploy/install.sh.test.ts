@@ -2000,12 +2000,15 @@ describe('install.sh — DIST=binary tarball install', () => {
     // mktemp -d render directory install.sh stages the unit through. Nothing
     // else: /etc/systemd/system is the path this assertion exists to exclude,
     // and a stray absolute path is the way that would be reached.
-    // mktemp -d renders the unit to /tmp/tmp.XXXXXXXXXX/ before it is staged, so
-    // the render directory itself and the file inside it are both legitimate.
-    const renderDir = /^\/tmp\/tmp\.[A-Za-z0-9]+(\/|$)/
+    // mktemp -d renders the unit to $TMPDIR/tmp.XXXXXXXXXX/ before it is
+    // staged, so the render directory itself and the file inside it are both
+    // legitimate. The root comes from `tmpdir()`, not from a hardcoded /tmp:
+    // `mktemp` honours $TMPDIR, and a CI runner (or any run with TMPDIR set)
+    // renders somewhere else, which a literal /tmp prefix would reject.
+    const renderRoot = join(tmpdir(), 'tmp.')
     for (const p of privPaths(tree.sudoLog)) {
       expect(
-        p.startsWith(`${ROOT}/`) || renderDir.test(p),
+        p.startsWith(`${ROOT}/`) || p.startsWith(renderRoot),
         `privileged call touched a path outside the fixture: ${p}`,
       ).toBe(true)
     }

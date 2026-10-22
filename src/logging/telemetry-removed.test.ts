@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
@@ -26,7 +27,6 @@ import { closeLogDb, getLogDb } from './log'
 // The structured `logs` table is the survivor: it must keep receiving its rows
 // on the very same calls.
 
-const TMP_ROOT = '/tmp/opencode'
 const THOUGHT_TELEMETRY_DDL = `
   CREATE TABLE IF NOT EXISTS thought_telemetry (
     id            TEXT PRIMARY KEY,
@@ -49,6 +49,8 @@ const THOUGHT_TELEMETRY_DDL = `
 const LONG_CONTENT = 'a'.repeat(50)
 
 let tmpRoot = ''
+/** Every scratch dir this suite created: one per test, removed together in afterAll. */
+const tmpRoots: string[] = []
 let originalLogDbPath = ''
 let dbCounter = 0
 
@@ -85,8 +87,10 @@ beforeEach(() => {
   // soft-limit warning into the logs table — the surviving log stream.
   setThoughtLimits(getDb(), 10, 1000)
 
-  mkdirSync(TMP_ROOT, { recursive: true })
-  tmpRoot = mkdtempSync(join(TMP_ROOT, 'synaptomind-telemetry-'))
+  // The system temp root (TMPDIR on POSIX), never a hardcoded host path: a CI
+  // runner has no /tmp/opencode, and this scratch dir follows the temp root.
+  tmpRoot = mkdtempSync(join(tmpdir(), 'synaptomind-telemetry-'))
+  tmpRoots.push(tmpRoot)
   originalLogDbPath = config.logDbPath
   config.logDbPath = join(tmpRoot, `logs-${dbCounter++}.db`)
   // Drop any handle a previous suite opened on the default path.
@@ -100,7 +104,7 @@ afterEach(() => {
 })
 
 afterAll(() => {
-  rmSync(tmpRoot, { recursive: true, force: true })
+  for (const root of tmpRoots) rmSync(root, { recursive: true, force: true })
 })
 
 // ── the schema ───────────────────────────────────────────────────────────────
