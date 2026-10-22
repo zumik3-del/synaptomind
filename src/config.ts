@@ -127,11 +127,11 @@ export const DEFAULTS: Config = {
   // reads `DEFAULTS.search.confidence.vectorFloor` directly — keep them in sync).
   search: { confidence: { vectorFloor: 0.9 } },
   rateLimit: { max: 200, windowMs: 60_000, trustProxy: false },
-  // Archived-thought TTL deletion is opt-in: a negative TTL disables the
-  // cleanup job (`guard: config.ttl.archivedTtlDays >= 0`) and makes
-  // `cleanupArchivedThoughts` a no-op. Only an explicit positive
-  // `ttl.archivedTtlDays` (config.json or SYNAPTOMIND_ARCHIVED_TTL_DAYS)
-  // turns the irreversible deletion on.
+  // Archived-thought TTL deletion is opt-in: only an explicitly positive TTL
+  // (`ttl.archivedTtlDays` via config.json or SYNAPTOMIND_ARCHIVED_TTL_DAYS)
+  // turns the irreversible deletion on. Zero and negative values both disable
+  // it — the cleanup job's guard (`> 0`) keeps it from starting and
+  // `cleanupArchivedThoughts` returns a no-op.
   ttl: { archivedTtlDays: -1, cleanupIntervalMs: 86400000 }
 }
 

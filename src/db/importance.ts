@@ -68,8 +68,10 @@ export function boostImportanceBatch(db: Database, ids: string[], delta: number)
  *
  * The decay job used to have a second half — archiving active, unprotected
  * thoughts whose importance fell below `decay.archiveThreshold` and whose age
- * exceeded `decay.archiveMinAgeDays`. That branch was removed in task #1943:
- * thoughts are created with `is_protected = 1`, so it could not fire for them.
+ * exceeded `decay.archiveMinAgeDays`. That branch was removed in task #1943.
+ * It could still fire outside the `is_protected = 1` default: for rows written
+ * before that default, and for cluster thoughts, which `cluster.service.ts`
+ * creates with `is_protected = false`.
  */
 export function decayImportance(db: Database, rate: number): void {
   const oneDayAgo = new Date(Date.now() - 86400000).toISOString()
