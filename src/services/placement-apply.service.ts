@@ -47,6 +47,17 @@ import { type ApplyWriterCall, planWriterCalls, type WriterCall } from './writer
 
 export type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriter, PlannedWriterCall, RefusedApplyResult, RunRefusal } from './placement-apply.types'
 
+/**
+ * Per-run cap on the edge items one apply run may write (task #1961).
+ *
+ * The deleted `apply-run-guards.ts` bounded the same `edge` items with
+ * `triage.maxLinksPerRun`; that config key left with the triage subsystem
+ * (task #1951), but `edge` is now the only kind the queue creates, so the
+ * surviving apply path keeps the bound. Deliberately a constant: no config key
+ * and no env var — the guard is a safety ceiling, not a tuning knob.
+ */
+export const MAX_EDGE_ITEMS_PER_RUN = 20
+
 /** The apply direction never plans the rollback-only `deleteEdgeService`. */
 function isApplyWriterCall(call: WriterCall): call is ApplyWriterCall {
   return call.writer !== 'deleteEdgeService'
@@ -291,9 +302,29 @@ export function applyBatchService(
     }
   }
 
+  const rows = proposalIds.map(id => getProposal(d, id))
+
+  // The batch *is* the run (ADR 2026-09-29 §2.7, §2.8), so the per-run edge cap
+  // is evaluated here over the rows this call would write — the same point as
+  // the caller's `limit`: an over-long run is refused whole instead of applying
+  // a prefix, and the reason names the cap so a caller can split the run (task
+  // #1961). Rows that write no edge (already accepted → idempotent re-read,
+  // stale, failed, a retired kind) do not count. A dry-run is refused too, so a
+  // preview and the confirm that follows report the same verdict.
+  const pendingEdges = rows.filter(row => row !== undefined && row.item_kind === 'edge' && row.state === 'pending').length
+  if (pendingEdges > MAX_EDGE_ITEMS_PER_RUN) {
+    return {
+      results: [],
+      errors: [],
+      refused: {
+        code: 'limit_exceeded',
+        reason: `run has ${pendingEdges} edge items but the per-run cap is ${MAX_EDGE_ITEMS_PER_RUN}; split the run`
+      }
+    }
+  }
+
   // One envelope for the whole batch, not one per item: the batch *is* the run
   // (ADR 2026-09-29 §2.7, §2.8).
-  const rows = proposalIds.map(id => getProposal(d, id))
   const batchRunId = resolveBatchRunId(rows, options)
 
   const results: ApplyResult[] = []
