@@ -35,6 +35,15 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 | memory_primers | list, delete |
 | memory_guide | (no action) |
 
+## Tool responsibilities
+- memory_manage = CRUD for projects (list, create, update, delete, resolve) and project resolution from a path (resolve from cwd). It is the only tool that writes project rows.
+- memory_status = read-only system state: slots, frontier, config, health, propose (read-only plan), cleanup (TTL; dry-run default). It never writes thoughts or projects.
+- memory_store / memory_supersede = thought and edge writes; memory_recall = reads/search.
+
+## Destructive operations (preview by default)
+memory_store unlink/retype, memory_supersede archive/merge, memory_manage delete, memory_review apply/apply_batch/rollback, memory_primers delete, and memory_status cleanup are destructive: with confirm absent or false (or dry_run: true for cleanup) they return a non-mutating status: "preview" with a consequence and an instruction to re-issue with confirm: true; nothing is written. memory_primers delete and the HTTP DELETE /api/primers/:id differ: HTTP is immediate.
+Slots (memory_status action=slots) are read-only: pending_items is derived from thoughts tagged pending, architecture_decisions from primers, and only project_context/active_goals are stored rows. To change slot content, update or archive the underlying thoughts (virtual slots) or use memory_reflect (summary, goals_delta) for the explicit slots; memory_status never writes.
+
 ## Thoughts
 Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_global, is_protected, source.
 Status: draft (wip), active (live), archived (hidden). Default draft on create; pass status=active to publish. Archive is idempotent.
@@ -45,12 +54,12 @@ related (default, idempotent), parent, develops, replaces (target blocked in fro
 No self-loops; one type per pair; cluster edges strict; a retype upgrades a related edge in place.
 link takes thought_id (alias source_id) + target_id; merge takes source_id + target_id — one source/target vocabulary across both tools.
 merge archives the source onto the target and returns {target, edges_transferred}: the count of source edges the target now holds. Dropped — and not counted — are a self-loop the merge would create, a duplicate non-symmetric edge, and a cluster edge the cluster rule rejects; an existing related/contradicts pair still counts, since the target now owns that relation.
-unlink and retype are dry-run first, then confirm=true. No cascade.
+unlink, retype, archive and merge are preview-first: dry-run returns status "preview" and requires confirm: true to execute. No cascade.
 link_batch creates up to 1000 edges in one transaction and reports per item as {linked, failed, errors[]}; unlink_batch deletes/previews up to 1000 edges in one transaction, validates all ids exist before deleting any, and reports per edge as {deleted, preview, failed} with counts; archive_batch (memory_supersede) reports {archived, failed, errors[]}.
 
 ## Search
 Modes: hybrid (default, RRF), vector, BM25. Filters: status, project, tag, cluster (only/exclude), min importance.
-memory_recall action=list returns a paginated inventory without a query (status, project_id, tag, is_cluster filters; limit/offset; total).
+memory_recall action=list returns a paginated inventory without a query: filters status (draft/active/archived), project_id, tag, is_cluster (true=clusters only, false=non-clusters); paging limit (1-500, default 50) and offset; result {thoughts[], total, limit, offset} with total the un-paged count. Ordering is fixed (created_at desc); there is no sort parameter. Example: {"action":"list","status":"draft","limit":50,"offset":0}.
 BM25 hits are immediate; vector/hybrid hits appear only after the embedder stores the vector in vec_thoughts (polls pending_embeddings every embedder.pollIntervalMs, default 7000 ms; visible ~10-15 s).
 low_confidence: no BM25 anchor, or vector below search.confidence.vectorFloor. min_relevance gates weak vector-only hits (default 0 = all).
 recency_weight (default 0) + recency_half_life_days (default 30) add recency_score/final_score when >0. supersession_mode (off/flag/suppress, default suppress) + contradiction_mode (off/flag, default flag).

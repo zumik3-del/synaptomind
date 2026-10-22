@@ -20,7 +20,7 @@ const handlers = {
 export function registerMemoryStatus(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_status',
-    description: `Query system state. Actions: slots (pending_items w/ limit/offset, architecture_decisions, project_context, active_goals), frontier, config, health, propose (read-only plan), cleanup (TTL; dry-run default).`,
+    description: `Query system state (read-only except cleanup). Actions: slots (read-only; pending_items derived from pending thoughts, architecture_decisions from primers; limit/offset paging), frontier, config, health, propose (read-only plan), cleanup (TTL; dry-run default).`,
     inputSchema: {
       action: z.enum(['slots', 'frontier', 'config', 'health', 'propose', 'cleanup']).describe('Action'),
       names: z.array(z.string()).optional().describe('Filter by slot names (slots only)'),

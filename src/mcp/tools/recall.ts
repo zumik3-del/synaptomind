@@ -128,7 +128,7 @@ const handlers = {
 export function registerMemoryRecall(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_recall',
-    description: `Search and retrieve thoughts. Actions: search (hybrid/vector/BM25; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory: status/project/tag/is_cluster filters plus total count; no query).`,
+    description: `Search and retrieve thoughts. Actions: search (hybrid/vector/BM25; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/project_id/tag/is_cluster filters, limit/offset paging, total count).`,
     inputSchema: {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters', 'list']).describe('Action'),
       query: z.string().optional().describe('Search query (required for search/context/clusters, not for chain/list)'),
