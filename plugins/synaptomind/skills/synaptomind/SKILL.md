@@ -12,7 +12,9 @@ description: >-
 
 SynaptoMind is a thought-graph engine that remembers decisions, context,
 architecture choices, and unresolved work across sessions. It is available as
-an MCP server with 10 tools. This skill routes you to the right tools.
+an MCP server (tools: memory_status, memory_recall, memory_store,
+memory_supersede, memory_primers, and others). This skill routes you to the
+right tools.
 
 ## When to use this skill
 
@@ -74,4 +76,6 @@ unsure what comes next, use `memory_status` (action=frontier).
   Do not treat a missing server as empty memory.
 - If you find duplicate or outdated thoughts, merge them with
   `memory_supersede` (action=merge).
+- Primers (the always-at-hand set) are listed/deleted via `memory_primers`;
+  `memory_telemetry` is no longer part of the surface.
 - If a thought's content has changed, update it with `memory_store` (action=update).
