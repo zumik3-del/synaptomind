@@ -36,10 +36,16 @@ pattern:
   non-mutating preview payload (where applicable, `status: "preview"`). Nothing is written.
 - **Execute.** `confirm: true` performs the write and returns a status-specific result.
 
-Retired MCP inputs are validation errors with replacement hints: recall `top_k` → `limit`,
-`cluster` → `is_cluster`, frontier `k` → `limit`; crystallize `dry_run` → `confirm`;
+Retired inputs may remain visible in the advertised tool schema as never-valued tombstones.
+Some MCP clients validate arguments against that schema before sending a call, and may reject a
+tombstone at the client schema boundary; such a client-side validation error is not a server
+response and does not necessarily contain the server's migration text. When a call containing a
+retired input reaches the server, invocation validation returns a migration error. Tool
+descriptions identify the supported replacements: recall `top_k` → `limit`, `cluster` →
+`is_cluster`; status `k` → `limit`, `dry_run` → `confirm`; crystallize `dry_run` → `confirm`;
 store link `thought_id` → `source_id`; reflect `goals_delta` → `goals_add` / `goals_remove`;
-review enqueue `max_items` → `max_proposals`. These names are not accepted aliases.
+review enqueue `max_items` → `max_proposals`. `memory_store.is_profile` has no replacement:
+remove the field from requests. Retired names are not accepted aliases.
 
 ## Result and error envelopes
 
@@ -277,7 +283,8 @@ Example:
 
 All three actions preview when `confirm` is omitted or `false`; only `confirm: true` executes.
 Execution re-reads/revalidates current state, so previews can become stale; no preview token or
-transactional reservation is implied.
+transactional reservation is implied. `archive` and `archive_batch` identify thoughts by ID and
+do not accept a project scope; `project_id` and `cwd` apply only to `merge`.
 
 ### `action=archive`
 
@@ -440,6 +447,11 @@ Example:
 
 ## `memory_status` — system state
 
+For this tool, retired `k` is replaced by `limit` (the frontier page/result limit), and retired
+`dry_run` is replaced by `confirm` (cleanup execution is opt-in). Depending on the MCP client,
+never-valued retired arguments may be rejected by local schema validation before a request reaches
+the server; if the request is sent, invocation validation returns the migration error.
+
 ### `action=slots` (read-only)
 
 Slots are **read-only** through this tool: it never writes. `pending_items` is derived from
@@ -452,8 +464,7 @@ content, update or archive the underlying thoughts (virtual slots) or use `memor
 ### `action=cleanup`
 
 TTL cleanup of archived thoughts. It previews by default; set `confirm: true` to actually delete.
-The retired `dry_run` input is rejected with a hint to use `confirm`. Protected thoughts are never
-deleted.
+Protected thoughts are never deleted.
 
 ### `action=propose`
 

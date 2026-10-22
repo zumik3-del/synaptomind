@@ -9,7 +9,7 @@ const THOUGHT_ID_RETIRED = 'thought_id is retired for link action; use source_id
 export const linkHandler: ActionHandler = {
   input: z
     .object({
-      thought_id: z.never({ error: THOUGHT_ID_RETIRED }).optional(),
+      thought_id: z.never({ error: THOUGHT_ID_RETIRED }).optional().describe('Retired; use source_id instead.'),
       source_id: z.string({ error: SOURCE_REQUIRED }).min(1, SOURCE_REQUIRED).optional(),
       target_id: z.string({ error: TARGET_REQUIRED }).optional()
     })

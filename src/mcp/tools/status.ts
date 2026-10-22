@@ -35,8 +35,8 @@ export function registerMemoryStatus(server: McpServer) {
       confirm: z.boolean().optional().describe('Execute cleanup deletion (cleanup only). Defaults to false; set true to delete.'),
       // Tombstones for retired parameters: supplying one fails input validation
       // with the canonical replacement instead of a silent strip.
-      k: z.never({ error: 'k was removed; use limit' }).optional(),
-      dry_run: z.never({ error: 'dry_run was removed; use confirm' }).optional()
+      k: z.never({ error: 'k was removed; use limit' }).optional().describe('Removed; use limit.'),
+      dry_run: z.never({ error: 'dry_run was removed; use confirm' }).optional().describe('Removed; use confirm.'),
     },
     handlers
   })

@@ -91,7 +91,7 @@ export function registerMemoryReview(server: McpServer) {
       cwd: z.string().optional().describe('Working directory — auto-resolves project'),
       limit: proposalsLimitSchema.optional().describe('list: max rows (default 100, 1-1000); apply_batch: max items this call may apply'),
       // Tombstone for the retired enqueue cap: only max_proposals is advertised.
-      max_items: z.never({ error: 'max_items was removed; use max_proposals' }).optional()
+      max_items: z.never({ error: 'max_items was removed; use max_proposals' }).optional().describe('Removed; use max_proposals.'),
     },
     handlers
   })

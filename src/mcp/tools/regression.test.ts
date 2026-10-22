@@ -239,6 +239,20 @@ describe('shared request contract parity (audit M8)', () => {
     expect(schema.properties.limit.maximum).toBe(2000)
   })
 
+  test('memory_status advertises precise retired-parameter tombstones', async () => {
+    const schema = await inputSchemaOf('memory_status')
+    for (const [key, description] of [['k', 'Removed; use limit.'], ['dry_run', 'Removed; use confirm.']]) {
+      expect(schema.properties[key].description).toBe(description)
+      expect(schema.properties[key].not).toEqual({})
+    }
+  })
+
+  test('memory_crystallize advertises the retired preview-flag tombstone', async () => {
+    const schema = await inputSchemaOf('memory_crystallize')
+    expect(schema.properties.dry_run.description).toBe('Removed; use confirm.')
+    expect(schema.properties.dry_run.not).toEqual({})
+  })
+
   test('memory_reflect advertises the shared timeline limit range', async () => {
     const schema = await inputSchemaOf('memory_reflect')
     expect(schema.properties.limit.minimum).toBe(1)
