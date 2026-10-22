@@ -45,7 +45,17 @@ const handlers = {
     }),
     run(args: ActionArgs) {
       const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
-      return mergeThoughtsService({ targetId: args.target_id as string, sourceId: args.source_id as string, mergedContent: args.merged_content as string | undefined, mergedTags: args.merged_tags as string[] | undefined, projectId: projectFilter })
+      const result = mergeThoughtsService({
+        targetId: args.target_id as string,
+        sourceId: args.source_id as string,
+        mergedContent: args.merged_content as string | undefined,
+        mergedTags: args.merged_tags as string[] | undefined,
+        projectId: projectFilter
+      })
+      // The MCP surface reports the consolidation in snake_case (`edges_transferred`);
+      // the HTTP twin keeps its long-standing `transferredEdges` field, so the service
+      // result is renamed here instead of at the writer.
+      return { target: result.target, edges_transferred: result.transferredEdges }
     }
   }
 }
@@ -53,7 +63,7 @@ const handlers = {
 export function registerMemorySupersede(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_supersede',
-    description: `Version and supersede thoughts. Actions: archive (idempotent), archive_batch (one transaction, per-item results), merge (source→target).`,
+    description: `Version and supersede thoughts. Actions: archive (idempotent), archive_batch (one transaction, per-item results), merge (source→target; reports edges_transferred).`,
     inputSchema: {
       action: z.enum(['archive', 'archive_batch', 'merge']).describe('Action'),
       thought_id: z.string().optional().describe('Thought ID (required for archive)'),

@@ -44,6 +44,7 @@ Tags: update merges by default; pass tags_mode=replace to overwrite the whole se
 related (default, idempotent), parent, develops, replaces (target blocked in frontier), contradicts (symmetric), supports (directed), cluster, references, depends_on.
 No self-loops; one type per pair; cluster edges strict; a retype upgrades a related edge in place.
 link takes thought_id (alias source_id) + target_id; merge takes source_id + target_id — one source/target vocabulary across both tools.
+merge archives the source onto the target and returns {target, edges_transferred}: the count of source edges the target now holds. Dropped — and not counted — are a self-loop the merge would create, a duplicate non-symmetric edge, and a cluster edge the cluster rule rejects; an existing related/contradicts pair still counts, since the target now owns that relation.
 unlink and retype are dry-run first, then confirm=true. No cascade.
 link_batch creates up to 1000 edges in one transaction and reports per item as {linked, failed, errors[]}; archive_batch (memory_supersede) reports {archived, failed, errors[]}.
 

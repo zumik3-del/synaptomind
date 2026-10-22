@@ -148,6 +148,10 @@ curl `-d '{"source_id": "<source>"}' http://127.0.0.1:3005/api/thoughts/<targetI
 
 Preview response: `{"mode": "preview", "source": {"id": "...", "edges": [...]}, "target": {...}}`
 
+Executed response: `{"target": {...}, "transferredEdges": 2}` — `transferredEdges` counts the
+source edges the target now holds (dropped self-loops and duplicate non-symmetric edges are not
+counted). The MCP `memory_supersede` `action=merge` reports the same number as `edges_transferred`.
+
 ### GET /api/thoughts/:id/edges
 
 Returns the edge chain around a thought (its graph neighborhood). 404 if not found.
