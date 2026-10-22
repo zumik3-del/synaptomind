@@ -4,6 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { closeDb } from '../../db/init'
 import { getDb } from '../../db/container'
+import { config } from '../../config'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
@@ -60,7 +61,7 @@ function assertStructuredMatchesText(result: unknown): void {
   expect(r.structuredContent?.result).toEqual(expected)
 }
 
-/** Seed an archived thought whose retention age exceeds the TTL (default 90d). */
+/** Seed an archived thought whose retention age exceeds the TTL (the explicit 90d set below). */
 function seedExpiredArchived(): string {
   const d = getDb()
   const id = seedThought({ status: 'active', is_protected: 0 })
@@ -83,6 +84,16 @@ beforeAll(async () => {
 // ── memory_status cleanup: dry-run is the default ───────────────────────────
 
 describe('memory_status cleanup dry-run default', () => {
+  // Archived-thought deletion is opt-in (the shipped default is -1 = disabled).
+  // These cases pin the EXPLICIT path, so the TTL is enabled here instead of
+  // relying on the default.
+  let originalTtlDays = 0
+  beforeEach(() => {
+    originalTtlDays = config.ttl.archivedTtlDays
+    config.ttl.archivedTtlDays = 90
+  })
+  afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
+
   test('cleanup without dry_run previews and does not delete', async () => {
     const id = seedExpiredArchived()
 
