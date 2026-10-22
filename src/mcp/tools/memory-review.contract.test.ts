@@ -27,7 +27,7 @@ import { registerAllMemoryTools } from '.'
 
 mock.module('../../embedder/client', () => ({
   generateEmbedding: () => new Float32Array(384),
-  generateEmbeddings: () => [new Float32Array(384)],
+  generateEmbeddings: (texts: string[]) => texts.map(() => new Float32Array(384)),
   restartEmbedder: () => {},
   isEmbedderReady: () => true
 }))
@@ -136,6 +136,25 @@ describe('memory_review enqueue', () => {
     expect(Array.isArray(outcome.proposals)).toBe(true)
     expect(typeof outcome.skipped).toBe('number')
     expect(typeof outcome.skipped_kinds).toBe('object')
+  })
+
+  test('canonical max_proposals is accepted and max_items is rejected with migration hint', async () => {
+    const src = seedThought({ content: 'enqueue canonical cap source marker' })
+
+    const accepted = await client.callTool({
+      name: 'memory_review',
+      arguments: { action: 'enqueue', thought_id: src, max_proposals: 1 }
+    })
+    const acceptedResult = parseResult(accepted)
+    expect(acceptedResult.isError).toBe(false)
+
+    const retired = await client.callTool({
+      name: 'memory_review',
+      arguments: { action: 'enqueue', thought_id: src, max_items: 1 }
+    })
+    const { isError, text } = parseResult(retired)
+    expect(isError).toBe(true)
+    expect(text).toContain('max_proposals')
   })
 
   test('missing thought_id → error envelope with a clear message', async () => {

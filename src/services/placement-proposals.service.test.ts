@@ -497,6 +497,26 @@ describe('isProposalStale', () => {
 // ── maxPendingProposals cap ───────────────────────────────────────────────────
 
 describe('enqueuePlanService: maxPendingProposals cap', () => {
+  test('maxProposals limits a multi-edge plan to one enqueued row', () => {
+    const db = getDb()
+    const src = seedThought({ id: 'enqueue-cap-src', content: 'enqueue cap source', created_at: T_SRC })
+    const t1 = seedThought({ id: 'enqueue-cap-t1', content: 'enqueue cap target one', created_at: T_TGT })
+    const t2 = seedThought({ id: 'enqueue-cap-t2', content: 'enqueue cap target two', created_at: T_TGT })
+    const plan: PlacementPlan = {
+      thought_id: src,
+      placement: null,
+      edges: [makeEdge(src, t1), makeEdge(src, t2, { type: 'contradicts' })],
+      lifecycle: makeLifecycle('keep'),
+      degraded: false,
+      generated_at: NOW,
+    }
+
+    const rows = enqueueProposals(plan, { now: NOW, maxProposals: 1 }, db)
+
+    expect(rows).toHaveLength(1)
+    expect(queueRowCount(db)).toBe(1)
+  })
+
   test('a new item beyond the live cap throws and the whole enqueue rolls back', () => {
     const db = getDb()
     const src = seedThought({ id: 'cap-src', content: 'cap source', created_at: T_SRC })
