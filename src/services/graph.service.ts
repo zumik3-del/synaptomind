@@ -2,7 +2,7 @@ import { getAllActiveEdges, getThoughtEdges, type EdgeView } from '../db/edges'
 import { getDb } from '../db'
 import { config } from '../config'
 import { searchThoughts } from '../db/search'
-import { listThoughts, type Thought } from '../db/thoughts'
+import { countThoughts, listThoughts, type Thought } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
 
 interface GraphNode {
@@ -27,6 +27,9 @@ interface GraphEdge {
 interface GraphData {
   nodes: GraphNode[]
   edges: GraphEdge[]
+  total: number
+  limit: number
+  offset: number
 }
 
 function resolveCategory(source: string | null, tags: string[], isCluster: number): string {
@@ -49,20 +52,46 @@ function resolveGraphLimit(limit: number | null | undefined): number {
   return Math.min(Math.max(Math.floor(limit), 1), GRAPH_MAX_LIMIT)
 }
 
+const GRAPH_DEFAULT_OFFSET = 0
+const GRAPH_MAX_OFFSET = 1_000_000
+
+function resolveGraphOffset(offset: number | null | undefined): number {
+  if (offset === null || offset === undefined) return GRAPH_DEFAULT_OFFSET
+  if (!Number.isFinite(offset)) return GRAPH_DEFAULT_OFFSET
+  return Math.min(Math.max(Math.floor(offset), 0), GRAPH_MAX_OFFSET)
+}
+
 export function getGraphDataService(
   projectId?: string | null,
   status: string = 'active',
   limit: number | null = null,
+  offsetOrDb?: number | Database | null,
   d: Database = getDb()
 ): GraphData {
+  // Backward-compatible: a Database passed as the 4th arg (legacy DI style) is
+  // treated as the db handle with offset 0.
+  let offset: number | null = null
+  let db: Database = d
+  if (offsetOrDb !== null && offsetOrDb !== undefined && typeof offsetOrDb === 'object' && 'prepare' in (offsetOrDb as object)) {
+    db = offsetOrDb as Database
+  } else {
+    offset = offsetOrDb as number | null
+  }
+
   const effectiveLimit = resolveGraphLimit(limit)
-  const thoughts = listThoughts(d, {
+  const effectiveOffset = resolveGraphOffset(offset)
+  const filters = {
     status: status === 'all' ? undefined : status,
-    project_id: projectId ?? undefined,
-    limit: effectiveLimit
+    project_id: projectId ?? undefined
+  }
+  const thoughts = listThoughts(db, {
+    ...filters,
+    limit: effectiveLimit,
+    offset: effectiveOffset
   })
+  const total = countThoughts(db, filters)
   const thoughtIds = new Set(thoughts.map(t => t.id))
-  const edges = getAllActiveEdges(d).filter(e => thoughtIds.has(e.source_id) && thoughtIds.has(e.target_id))
+  const edges = getAllActiveEdges(db).filter(e => thoughtIds.has(e.source_id) && thoughtIds.has(e.target_id))
 
   return {
     nodes: thoughts.map(t => {
@@ -84,7 +113,10 @@ export function getGraphDataService(
       source: e.source_id,
       target: e.target_id,
       type: e.type
-    }))
+    })),
+    total,
+    limit: effectiveLimit,
+    offset: effectiveOffset
   }
 }
 

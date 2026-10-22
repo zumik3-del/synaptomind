@@ -23,6 +23,12 @@ export const GRAPH_LIMIT_MIN = 1
 export const GRAPH_LIMIT_MAX = 2000
 export const graphLimitSchema = z.coerce.number().int().min(GRAPH_LIMIT_MIN).max(GRAPH_LIMIT_MAX)
 
+/** Page offset for the graph surface (`GET /api/graph`, `memory_crystallize graph`). */
+export const GRAPH_OFFSET_DEFAULT = 0
+export const GRAPH_OFFSET_MIN = 0
+export const GRAPH_OFFSET_MAX = 1_000_000
+export const graphOffsetSchema = z.coerce.number().int().min(GRAPH_OFFSET_MIN).max(GRAPH_OFFSET_MAX)
+
 /** Page size for the timeline surface (`GET /api/thoughts/timeline`, `memory_reflect timeline`). */
 export const TIMELINE_LIMIT_DEFAULT = 50
 export const TIMELINE_LIMIT_MIN = 1

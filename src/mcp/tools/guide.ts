@@ -30,7 +30,7 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 | memory_status | slots, frontier, config, health, propose, cleanup |
 | memory_manage | list, create, update, delete, resolve |
 | memory_review | enqueue, list, apply, apply_batch, rollback, reject |
-| memory_crystallize | graph, cluster, auto_cluster |
+| memory_crystallize | graph (offset/limit/total), cluster, auto_cluster |
 | memory_reflect | reflect, timeline |
 | memory_primers | list, delete |
 | memory_guide | (no action) |
@@ -64,7 +64,7 @@ Started in src/index.ts when the process owns background jobs: decay, ttl-cleanu
 
 ## Projects and clusters
 One project per thought. A cluster is a thought with is_cluster=1 whose cluster edges point at its members; cluster thoughts never enter the frontier.
-
+memory_crystallize action=graph paginates nodes: offset (default 0), limit (default 500, max 2000); the response includes total (node count for the filters) alongside nodes/edges.
 ## Primers
 A recalled thought whose hit count reaches primer.promoteThreshold (default 5) becomes a primer on the search path. memory_primers delete is preview-first (confirm=true); the HTTP DELETE is immediate.
 

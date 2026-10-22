@@ -1,6 +1,6 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { graphLimitSchema, graphStatusSchema } from '../../validation'
+import { graphLimitSchema, graphOffsetSchema, graphStatusSchema } from '../../validation'
 import { registerActionTool } from './action-tool'
 import { graphHandler } from './crystallize/graph'
 import { clusterHandler } from './crystallize/cluster'
@@ -23,6 +23,7 @@ export function registerMemoryCrystallize(server: McpServer) {
       cwd: z.string().optional().describe('Working directory — auto-resolves project (graph/cluster only; auto_cluster operates globally)'),
       status: graphStatusSchema.optional().describe('Filter by status (default: active, graph only)'),
       limit: graphLimitSchema.optional().describe('Max nodes to return (default 500, 1-2000; graph only)'),
+      offset: graphOffsetSchema.optional().describe('Offset for pagination (default 0, 0-1000000; graph only)'),
       title: z.string().optional().describe('Cluster title (cluster only)'),
       tags: z.array(z.string()).optional().describe('Tags (cluster only)'),
       min_age_days: z.coerce.number().int().min(0).max(3650).optional().describe('Min age in days (auto_cluster only)'),
