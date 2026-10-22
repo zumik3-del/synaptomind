@@ -41,8 +41,8 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 - memory_store / memory_supersede = thought and edge writes; memory_recall = reads/search.
 
 ## Destructive operations (preview by default)
-memory_store unlink/retype, memory_supersede archive/merge, memory_manage delete, memory_review apply/apply_batch/rollback, memory_primers delete, and memory_status cleanup are destructive: with confirm absent or false (or dry_run: true for cleanup) they return a non-mutating status: "preview" with a consequence and an instruction to re-issue with confirm: true; nothing is written. memory_primers delete and the HTTP DELETE /api/primers/:id differ: HTTP is immediate.
-Slots (memory_status action=slots) are read-only: pending_items is derived from thoughts tagged pending, architecture_decisions from primers, and only project_context/active_goals are stored rows. To change slot content, update or archive the underlying thoughts (virtual slots) or use memory_reflect (summary, goals_delta) for the explicit slots; memory_status never writes.
+memory_store unlink/retype, memory_supersede archive/merge, memory_manage delete, memory_review apply/apply_batch/rollback, memory_primers delete, memory_status cleanup, and memory_crystallize auto_cluster are preview-first. confirm absent/false previews; confirm:true executes (cleanup uses dry_run instead). Retired argument names are rejected with an error hint naming the replacement.
+Slots (memory_status action=slots) are read-only: pending_items is derived from thoughts tagged pending, architecture_decisions from primers, and only project_context/active_goals are stored rows. To change slot content, update or archive the underlying thoughts (virtual slots) or use memory_reflect (summary, goals_add, goals_remove) for the explicit slots; memory_status never writes.
 
 ## Thoughts
 Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_global, is_protected, source.
@@ -52,13 +52,13 @@ Tags: update merges by default; pass tags_mode=replace to overwrite the whole se
 ## Edges
 related (default, idempotent), parent, develops, replaces (target blocked in frontier), contradicts (symmetric), supports (directed), cluster, references, depends_on.
 No self-loops; one type per pair; cluster edges strict; a retype upgrades a related edge in place.
-link takes thought_id (alias source_id) + target_id; merge takes source_id + target_id — one source/target vocabulary across both tools.
+link takes source_id + target_id; thought_id is a retired alias and errors with a replacement hint. merge takes source_id + target_id.
 merge archives the source onto the target and returns {target, edges_transferred}: the count of source edges the target now holds. Dropped — and not counted — are a self-loop the merge would create, a duplicate non-symmetric edge, and a cluster edge the cluster rule rejects; an existing related/contradicts pair still counts, since the target now owns that relation.
-unlink, retype, archive and merge are preview-first: dry-run returns status "preview" and requires confirm: true to execute. No cascade.
+unlink, retype, archive and merge are preview-first: confirm absent/false returns status "preview" and requires confirm:true to execute. No cascade.
 link_batch creates up to 1000 edges in one transaction and reports per item as {linked, failed, errors[]}; unlink_batch deletes/previews up to 1000 edges in one transaction, validates all ids exist before deleting any, and reports per edge as {deleted, preview, failed} with counts; archive_batch (memory_supersede) reports {archived, failed, errors[]}.
 
 ## Search
-Modes: hybrid (default, RRF), vector, BM25. Filters: status, project, tag, cluster (only/exclude), min importance.
+Modes: hybrid (default, RRF), vector, BM25. Filters: status, project, tag, is_cluster, min importance. limit sets search result count; max_degree bounds chain/context traversal, not result count. Retired top_k and cluster inputs fail with hints to use limit and is_cluster.
 memory_recall action=list returns a paginated inventory without a query: filters status (draft/active/archived), project_id, tag, is_cluster (true=clusters only, false=non-clusters); paging limit (1-500, default 50) and offset; result {thoughts[], total, limit, offset} with total the un-paged count. Ordering is fixed (created_at desc); there is no sort parameter. Example: {"action":"list","status":"draft","limit":50,"offset":0}.
 memory_recall action=get accepts include_edges (default false) to return incident edges inline (upstream/downstream with type and created_at).
 BM25 hits are immediate; vector/hybrid hits appear only after the embedder stores the vector in vec_thoughts (polls pending_embeddings every embedder.pollIntervalMs, default 7000 ms; visible ~10-15 s).
@@ -76,7 +76,7 @@ Started in src/index.ts when the process owns background jobs: decay, ttl-cleanu
 
 ## Projects and clusters
 One project per thought. A cluster is a thought with is_cluster=1 whose cluster edges point at its members; cluster thoughts never enter the frontier.
-memory_crystallize action=graph paginates nodes: offset (default 0), limit (default 500, max 2000); the response includes total (node count for the filters) alongside nodes/edges.
+memory_crystallize action=graph paginates nodes: offset (default 0), limit (default 500, max 2000); the response includes total (node count for the filters) alongside nodes/edges. auto_cluster previews unless confirm:true; retired dry_run fails with a hint to use confirm.
 ## Primers
 A recalled thought whose hit count reaches primer.promoteThreshold (default 5) becomes a primer on the search path. memory_primers delete is preview-first (confirm=true); the HTTP DELETE is immediate.
 
@@ -88,7 +88,7 @@ contradiction_in_cluster remediation: memory_store action=unlink on the contradi
 memory_status action=propose returns a read-only plan (placement, edges[], lifecycle) and never writes. memory_review enqueue/list/apply/apply_batch/rollback/reject; apply is dry-run unless confirm=true and re-checks staleness. The queue holds edge items only: a plan's placement and lifecycle items are reported as skipped.
 
 ## Session reflection
-memory_reflect reflect writes thoughts, it is not read-only: decisions create active thoughts tagged decision + reflect; pending create draft thoughts tagged pending + reflect (surface after wake_days, default 7). The reflect tag marks every thought reflect created, so they can be filtered (search tag=reflect) or cleaned up without touching hand-created ones. summary appends to project_context; goals_delta adds/removes goals.`
+memory_reflect reflect writes thoughts, it is not read-only: decisions create active thoughts tagged decision + reflect; pending create draft thoughts tagged pending + reflect (surface after wake_days, default 7). The reflect tag marks every thought reflect created, so they can be filtered (search tag=reflect) or cleaned up without touching hand-created ones. summary appends to project_context; goals_add adds goals and goals_remove removes stored goal lines using case-insensitive substring matching. Retired goals_delta fails with a hint to use goals_add/goals_remove.`
 }
 
 export function registerMemoryGuide(server: McpServer) {
