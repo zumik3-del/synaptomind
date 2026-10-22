@@ -60,6 +60,7 @@ link_batch creates up to 1000 edges in one transaction and reports per item as {
 ## Search
 Modes: hybrid (default, RRF), vector, BM25. Filters: status, project, tag, cluster (only/exclude), min importance.
 memory_recall action=list returns a paginated inventory without a query: filters status (draft/active/archived), project_id, tag, is_cluster (true=clusters only, false=non-clusters); paging limit (1-500, default 50) and offset; result {thoughts[], total, limit, offset} with total the un-paged count. Ordering is fixed (created_at desc); there is no sort parameter. Example: {"action":"list","status":"draft","limit":50,"offset":0}.
+memory_recall action=get accepts include_edges (default false) to return incident edges inline (upstream/downstream with type and created_at).
 BM25 hits are immediate; vector/hybrid hits appear only after the embedder stores the vector in vec_thoughts (polls pending_embeddings every embedder.pollIntervalMs, default 7000 ms; visible ~10-15 s).
 low_confidence: no BM25 anchor, or vector below search.confidence.vectorFloor. min_relevance gates weak vector-only hits (default 0 = all).
 recency_weight (default 0) + recency_half_life_days (default 30) add recency_score/final_score when >0. supersession_mode (off/flag/suppress, default suppress) + contradiction_mode (off/flag, default flag).

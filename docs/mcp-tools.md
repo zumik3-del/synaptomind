@@ -108,7 +108,7 @@ Returns hits with `similarity`, `distance`, `match_source`, `low_confidence`.
 
 ### `action=get`
 
-Fetch one thought by `thought_id` (full content, tags, project, importance, edges).
+Fetch one thought by `thought_id` (full content, tags, project, importance, edges). Pass `include_edges: true` to return incident edges inline (upstream/downstream with type and created_at).
 
 ### `action=context` / `action=chain` / `action=clusters`
 
