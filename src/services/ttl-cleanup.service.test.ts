@@ -1,10 +1,21 @@
 import { beforeEach, afterEach, expect, test, describe } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
+import { config } from '../config'
 import { cleanupArchivedThoughts } from './ttl-cleanup.service'
 
 beforeEach(createTestDb)
 afterEach(() => { closeDb() })
+
+// Archived-thought deletion is opt-in (the shipped default is -1 = disabled).
+// These cases pin the EXPLICIT path, so the TTL is enabled here instead of
+// relying on the default.
+let originalTtlDays = 0
+beforeEach(() => {
+  originalTtlDays = config.ttl.archivedTtlDays
+  config.ttl.archivedTtlDays = 90
+})
+afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
 
 function insertArchived(archivedAtAgo: number): string {
   const d = getDb()

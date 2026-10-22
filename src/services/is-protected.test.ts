@@ -1,12 +1,19 @@
 import { beforeEach, afterEach, expect, test, describe } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
+import { config } from '../config'
 import { archiveThought, createThought, deleteThought, getThoughtRow, updateThought } from '../db/thoughts'
 import { archiveStaleLowImportance } from '../db/importance'
 import { cleanupArchivedThoughts } from '../services/ttl-cleanup.service'
 
 beforeEach(createTestDb)
 afterEach(() => { closeDb() })
+
+// Archived-thought deletion is opt-in (the shipped default is -1 = disabled);
+// the TTL case below enables it explicitly and restores it afterwards.
+let originalTtlDays = 0
+beforeEach(() => { originalTtlDays = config.ttl.archivedTtlDays })
+afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
 
 describe('is_protected', () => {
   test('new thought defaults to is_protected = 1', () => {
@@ -55,6 +62,7 @@ describe('is_protected', () => {
 
   test('TTL skips protected thoughts', () => {
     const d = getDb()
+    config.ttl.archivedTtlDays = 90
     const oldDate = new Date(Date.now() - 200 * 86400000).toISOString()
     const protectedId = seedThought({ status: 'archived', is_protected: 1 })
     const unprotectedId = seedThought({ status: 'archived', is_protected: 0 })
