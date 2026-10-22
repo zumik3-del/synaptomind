@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Database } from 'bun:sqlite'
 
@@ -92,7 +93,9 @@ interface BootedServer {
  * listener answers. The caller stops it through the returned handle.
  */
 async function bootService(): Promise<BootedServer> {
-  scratch = mkdtempSync('/tmp/opencode/synaptomind-boot-')
+  // The system temp root (TMPDIR on POSIX), never a hardcoded host path: a CI
+  // runner has no /tmp/opencode, and mkdtempSync does not create its parent.
+  scratch = mkdtempSync(join(tmpdir(), 'synaptomind-boot-'))
   const logDbPath = join(scratch, 'logs.db')
 
   const child = spawn('bun', ['run', INDEX_TS, '--no-embedder'], {

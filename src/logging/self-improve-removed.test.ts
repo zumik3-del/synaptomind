@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { config } from '../config'
 import { closeDb } from '../db/init'
@@ -17,13 +18,14 @@ import { closeLogDb, getLogDb, insertLog } from './log'
 // The type name is assembled from parts on purpose: this file must not contain
 // the very string it forbids, so a repo-wide grep over src/ stays empty.
 
-const TMP_ROOT = '/tmp/opencode'
 const STEM = 'self'
 const REMOVED_TYPE = `${STEM}_improve`
 /** The message the removed job wrote on every server start. */
 const HISTORIC_MESSAGE = `${STEM[0].toUpperCase()}${STEM.slice(1)}-improve job started`
 
 let tmpRoot = ''
+/** Every scratch dir this suite created: one per test, removed together in afterAll. */
+const tmpRoots: string[] = []
 let originalLogDbPath = ''
 let dbCounter = 0
 
@@ -38,8 +40,9 @@ function countRows(type: string): number {
 
 beforeEach(() => {
   createTestDb()
-  mkdirSync(TMP_ROOT, { recursive: true })
-  tmpRoot = mkdtempSync(join(TMP_ROOT, 'synaptomind-removed-log-'))
+  // The system temp root (TMPDIR on POSIX), never a hardcoded host path.
+  tmpRoot = mkdtempSync(join(tmpdir(), 'synaptomind-removed-log-'))
+  tmpRoots.push(tmpRoot)
   originalLogDbPath = config.logDbPath
   config.logDbPath = join(tmpRoot, `logs-${dbCounter++}.db`)
   closeLogDb()
@@ -52,7 +55,7 @@ afterEach(() => {
 })
 
 afterAll(() => {
-  rmSync(tmpRoot, { recursive: true, force: true })
+  for (const root of tmpRoots) rmSync(root, { recursive: true, force: true })
 })
 
 test('an HTTP request writes no row of the removed type', async () => {

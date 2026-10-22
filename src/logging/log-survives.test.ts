@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { config } from '../config'
 import { closeDb } from '../db/init'
@@ -15,16 +16,18 @@ import { closeLogDb, getLogDb, insertLog, LogStore } from './log'
 // The rotation was never covered by a test; it is pinned here because the cut
 // touches the very migration that owns the log-db schema.
 
-const TMP_ROOT = '/tmp/opencode'
 const LOG_TYPES = ['embedding', 'embedder', 'placement']
 
 let tmpRoot = ''
+/** Every scratch dir this suite created: one per test, removed together in afterAll. */
+const tmpRoots: string[] = []
 let originalLogDbPath = ''
 
 beforeEach(() => {
   createTestDb()
-  mkdirSync(TMP_ROOT, { recursive: true })
-  tmpRoot = mkdtempSync(join(TMP_ROOT, 'synaptomind-logs-'))
+  // The system temp root (TMPDIR on POSIX), never a hardcoded host path.
+  tmpRoot = mkdtempSync(join(tmpdir(), 'synaptomind-logs-'))
+  tmpRoots.push(tmpRoot)
   originalLogDbPath = config.logDbPath
   config.logDbPath = join(tmpRoot, 'logs.db')
   closeLogDb()
@@ -37,7 +40,7 @@ afterEach(() => {
 })
 
 afterAll(() => {
-  rmSync(tmpRoot, { recursive: true, force: true })
+  for (const root of tmpRoots) rmSync(root, { recursive: true, force: true })
 })
 
 test('the logs table still receives the embedding, embedder and placement rows', () => {
