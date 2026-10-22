@@ -441,12 +441,12 @@ describe('memory_status', () => {
 // ── memory_crystallize ───────────────────────────────────────────────────────
 
 describe('memory_crystallize', () => {
-  test('advertises only the five surviving graph and cluster actions', async () => {
+  test('advertises only the three surviving graph and cluster actions', async () => {
     const { tools } = await client.listTools()
     const tool = tools.find(t => t.name === 'memory_crystallize')
     const schema = tool?.inputSchema as { properties?: { action?: { enum?: string[] } } } | undefined
     expect(schema?.properties?.action?.enum).toEqual([
-      'graph', 'cluster', 'auto_cluster', 'cluster_remove', 'cluster_dissolve'
+      'graph', 'cluster', 'auto_cluster'
     ])
   })
 
@@ -471,28 +471,18 @@ describe('memory_crystallize', () => {
     expect(Array.isArray(data.edges)).toBe(true)
   })
 
-  test('dispatches cluster creation, auto-cluster, member removal and dissolution', async () => {
+  test('dispatches cluster creation and auto-cluster', async () => {
     const member = seedThought({ content: 'retained cluster member' })
     const created = parseResult(await client.callTool({
       name: 'memory_crystallize', arguments: { action: 'cluster', thought_ids: [member], title: 'retained cluster' }
     }))
     expect(created.isError).toBe(false)
-    const clusterId = created.data.cluster.id as string
+    expect(created.data.cluster.id).toBeDefined()
 
     const auto = parseResult(await client.callTool({
       name: 'memory_crystallize', arguments: { action: 'auto_cluster', dry_run: true }
     }))
     expect(auto.isError).toBe(false)
-
-    const removal = parseResult(await client.callTool({
-      name: 'memory_crystallize', arguments: { action: 'cluster_remove', cluster_id: clusterId, thought_id: member }
-    }))
-    expect(removal.data.status).toBe('preview')
-
-    const dissolution = parseResult(await client.callTool({
-      name: 'memory_crystallize', arguments: { action: 'cluster_dissolve', cluster_id: clusterId }
-    }))
-    expect(dissolution.data.status).toBe('preview')
   })
 
   test('historical crystal-source thought remains accessible through get and search', async () => {
