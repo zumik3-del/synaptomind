@@ -1062,47 +1062,33 @@ itVec("low_confidence: floor=0 makes all vector hits confident", (db) => {
 
 // ── is_global filter SQL (epic #1489) ────────────────────────────────────────
 
-describe("buildFilterSQL includeGlobal", () => {
+describe("buildFilterSQL project scope (is_global always included)", () => {
   const P = "project-a";
 
-  test("projectFilter alone emits the project-only clause", () => {
+  test("projectFilter emits the project-OR-global clause", () => {
     const { sql, params } = buildFilterSQL({ projectFilter: P });
-    expect(sql).toBe("AND t.project_id = ? ");
-    expect(params).toEqual([P]);
-  });
-
-  test("includeGlobal=false emits the project-only clause (backward compatible)", () => {
-    const { sql, params } = buildFilterSQL({ projectFilter: P, includeGlobal: false });
-    expect(sql).toBe("AND t.project_id = ? ");
-    expect(params).toEqual([P]);
-  });
-
-  test("includeGlobal=true with projectFilter emits the project-OR-global clause", () => {
-    const { sql, params } = buildFilterSQL({ projectFilter: P, includeGlobal: true });
     expect(sql).toBe("AND (t.project_id = ? OR t.is_global = 1) ");
     expect(params).toEqual([P]);
   });
 
-  test("includeGlobal=true without projectFilter is a no-op (no global clause)", () => {
-    const { sql, params } = buildFilterSQL({ includeGlobal: true });
+  test("without projectFilter there is no project/global clause", () => {
+    const { sql, params } = buildFilterSQL({});
     expect(sql).toBe("");
     expect(params).toEqual([]);
   });
 
-  test("includeGlobal composes with statusFilter and keeps parameter order", () => {
+  test("composes with statusFilter and keeps parameter order", () => {
     const { sql, params } = buildFilterSQL({
       statusFilter: "active",
       projectFilter: P,
-      includeGlobal: true,
     });
     expect(sql).toBe("AND t.status = ? AND (t.project_id = ? OR t.is_global = 1) ");
     expect(params).toEqual(["active", P]);
   });
 
-  test("includeGlobal composes with clusterFilter=exclude", () => {
+  test("composes with clusterFilter=exclude", () => {
     const { sql, params } = buildFilterSQL({
       projectFilter: P,
-      includeGlobal: true,
       clusterFilter: "exclude",
     });
     expect(sql).toBe(
@@ -1111,10 +1097,9 @@ describe("buildFilterSQL includeGlobal", () => {
     expect(params).toEqual([P]);
   });
 
-  test("includeGlobal composes with minImportance", () => {
+  test("composes with minImportance", () => {
     const { sql, params } = buildFilterSQL({
       projectFilter: P,
-      includeGlobal: true,
       minImportance: 0.5,
     });
     expect(sql).toBe("AND (t.project_id = ? OR t.is_global = 1) AND ti.importance >= ? ");

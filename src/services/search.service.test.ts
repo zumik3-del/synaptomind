@@ -670,7 +670,7 @@ describe("low_confidence + min_relevance — service layer", () => {
 
 // ── is_global project scoping (epic #1489) ───────────────────────────────────
 
-describe("searchThoughts includeGlobal — project scoping", () => {
+describe("searchThoughts — is_global is always included in a project-scoped search", () => {
   const P1 = "proj-global-1";
   const P2 = "proj-global-2";
   const QUERY = "GLOBAL_SEARCH marker";
@@ -707,43 +707,54 @@ describe("searchThoughts includeGlobal — project scoping", () => {
     return { local, foreign, global };
   }
 
-  test("includeGlobal=true + projectFilter returns project + global, excludes foreign", async () => {
+  test("projectFilter returns project + global, excludes foreign", async () => {
     const { local, foreign, global } = seedWorld();
 
-    const results = await searchThoughts(
-      bm25Options({ projectFilter: P1, includeGlobal: true }),
-    );
+    const results = await searchThoughts(bm25Options({ projectFilter: P1 }));
     const ids = results.map((r) => r.thought.id);
     expect(ids).toContain(local);
     expect(ids).toContain(global);
     expect(ids).not.toContain(foreign);
   });
 
-  test("includeGlobal omitted excludes global thoughts (backward compatible)", async () => {
-    const { local, foreign, global } = seedWorld();
+  test("a project-only thought does not leak into another project", async () => {
+    const { local, foreign } = seedWorld();
 
-    const results = await searchThoughts(bm25Options({ projectFilter: P1 }));
+    const results = await searchThoughts(bm25Options({ projectFilter: P2 }));
     const ids = results.map((r) => r.thought.id);
-    expect(ids).toContain(local);
-    expect(ids).not.toContain(global);
-    expect(ids).not.toContain(foreign);
+    expect(ids).toContain(foreign);
+    expect(ids).not.toContain(local);
   });
 
-  test("includeGlobal=false excludes global thoughts (explicit backward compatible)", async () => {
-    const { local, global } = seedWorld();
+  test("a direct project match outranks an unrelated global row", async () => {
+    // The local row carries the query's second token, the global row does not,
+    // so BM25 must rank the project match first. Sanity assertion on the order,
+    // never on an exact score.
+    const local = seedThought({
+      content: `${QUERY} PROJECT_ONLY_TOKEN`,
+      project_id: P1,
+      status: "active",
+    });
+    const globalRow = seedThought({
+      content: `${QUERY} unrelated global filler`,
+      project_id: P2,
+      is_global: 1,
+      status: "active",
+    });
 
     const results = await searchThoughts(
-      bm25Options({ projectFilter: P1, includeGlobal: false }),
+      bm25Options({ query: `GLOBAL_SEARCH PROJECT_ONLY_TOKEN`, projectFilter: P1 }),
     );
     const ids = results.map((r) => r.thought.id);
     expect(ids).toContain(local);
-    expect(ids).not.toContain(global);
+    expect(ids).toContain(globalRow);
+    expect(ids.indexOf(local)).toBeLessThan(ids.indexOf(globalRow));
   });
 
-  test("includeGlobal=true without projectFilter returns every project's thoughts", async () => {
+  test("without projectFilter returns every project's thoughts", async () => {
     const { local, foreign, global } = seedWorld();
 
-    const results = await searchThoughts(bm25Options({ includeGlobal: true }));
+    const results = await searchThoughts(bm25Options({}));
     const ids = results.map((r) => r.thought.id);
     expect(ids).toContain(local);
     expect(ids).toContain(foreign);
@@ -758,9 +769,7 @@ describe("searchThoughts includeGlobal — project scoping", () => {
       status: "active",
     });
 
-    const results = await searchThoughts(
-      bm25Options({ projectFilter: P1, includeGlobal: true }),
-    );
+    const results = await searchThoughts(bm25Options({ projectFilter: P1 }));
     expect(results.map((r) => r.thought.id)).toContain(global);
   });
 });
