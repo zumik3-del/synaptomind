@@ -10,7 +10,8 @@ import {
 } from '../../services/search-options'
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getChainService, getContextService } from '../../services/graph.service'
-import { listThoughtsPageService } from '../../services/thoughts.service'
+import { contextHandler } from './recall/context'
+import { getThoughtByIdService, listThoughtsPageService } from '../../services/thoughts.service'
 import { getHandler as getRecallGetHandler } from './recall/get'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
@@ -59,15 +60,7 @@ const handlers = {
     }
   },
 
-  context: {
-    input: z.object({ query: requiredString('query is required for context action') }),
-    run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      const context = getContextService(args.query as string, args.max_degree as number | undefined, projectFilter)
-      if (!context) throw new NotFoundError(`No context found for query '${args.query}'`)
-      return context
-    }
-  },
+  context: contextHandler,
 
   chain: {
     input: z.object({ thought_id: requiredString('thought_id is required for chain action') }),
@@ -125,8 +118,7 @@ export function registerMemoryRecall(server: McpServer) {
     description: `Search and retrieve thoughts. Actions: search (hybrid/vector/BM25; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/project_id/tag/is_cluster filters, limit/offset paging, total count).`,
     inputSchema: {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters', 'list']).describe('Action'),
-      query: z.string().optional().describe('Search query (required for search/context/clusters, not for chain/list)'),
-      top_k: z.coerce.number().int().min(1).max(100).optional().describe('Max results (default 10, 1-100)'),
+      query: z.string().optional().describe('Search query (required for search/clusters; for context either query or thought_id)'),      top_k: z.coerce.number().int().min(1).max(100).optional().describe('Max results (default 10, 1-100)'),
       status: thoughtStatusSchema.optional().describe('Filter by status (search default: active; list default: all)'),
       project_id: z.string().optional().describe('Filter by project (prefer cwd instead)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. Always pass this.'),
@@ -166,7 +158,7 @@ export function registerMemoryRecall(server: McpServer) {
         .enum(['off', 'flag'])
         .optional()
         .describe('Contradicted thoughts: off or flag (default). Contradicted endpoints are never suppressed'),
-      thought_id: z.string().optional().describe('REQUIRED ONLY for "chain" and "get". IGNORED for "search", "context", "clusters", "list".'),
+      thought_id: z.string().optional().describe('REQUIRED for "get" and "chain"; also accepted by "context" (alternative to query). IGNORED for "search", "clusters", "list".'),
       include_edges: z.boolean().optional().describe('get only: when true, return incident edges inline (upstream/downstream with type and created_at). Default false.'),
       direction: z.enum(['upstream', 'downstream', 'both']).optional().describe('Traversal direction (default: both)'),
       max_degree: z.coerce.number().int().min(1).max(200).optional().describe('Max edges to return for chain/context (default 50, 1-200)'),
