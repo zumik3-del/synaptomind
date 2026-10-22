@@ -29,6 +29,17 @@ export const TIMELINE_LIMIT_MIN = 1
 export const TIMELINE_LIMIT_MAX = 500
 export const timelineLimitSchema = z.coerce.number().int().min(TIMELINE_LIMIT_MIN).max(TIMELINE_LIMIT_MAX)
 
+/**
+ * Item ceiling for the batch write actions (`memory_supersede action=archive_batch`,
+ * `memory_store action=link_batch`, task #1964).
+ *
+ * Like `bulkCreateThoughtsService`'s 10000-thought ceiling: a safety bound on one
+ * transaction, not a tuning knob, and no config key or env var. An over-long batch
+ * is refused whole (never a silent prefix) at the MCP action schema and again in the
+ * service, so a future HTTP surface cannot inherit an unbounded write.
+ */
+export const BATCH_ITEMS_MAX = 1000
+
 /** Page size for the proposal queue (`GET /api/proposals`, `memory_review action=list`). */
 export const PROPOSALS_LIMIT_DEFAULT = 100
 export const PROPOSALS_LIMIT_MIN = 1
