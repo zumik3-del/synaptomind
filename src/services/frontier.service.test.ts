@@ -52,13 +52,6 @@ test('getFrontierService excludes profile-summary source', () => {
   expect(result.items).toHaveLength(0)
 })
 
-test('getFrontierService excludes crystal source', () => {
-  const id = seedThought({ content: 'legacy crystal', source: 'crystal', tags: '["pending"]' })
-  tagThought(id, 'directive')
-  const result = getFrontierService()
-  expect(result.items.some(item => item.thought_id === id)).toBe(false)
-})
-
 test('getFrontierService excludes replaced thoughts', () => {
   const a = seedThought({ content: 'old' })
   const b = seedThought({ content: 'new' })

@@ -13,6 +13,9 @@ test("retired verifier migration remains replayable and retains existing rows", 
 	const db = getDb();
 	const id = seedThought({ content: "legacy verified thought" });
 	const legacy = "2024-01-01 12:00:00";
+	// v043 dropped the table from the live schema; replaying the historical
+	// migration on a legacy DB must still recreate it and keep its rows.
+	v019.apply(db);
 	db.prepare(`INSERT INTO thought_verify (id, thought_id, flagged, created_at, last_checked)
 		VALUES (?, ?, 1, ?, ?)`).run(Bun.randomUUIDv7(), id, legacy, legacy);
 

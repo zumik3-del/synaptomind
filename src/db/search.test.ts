@@ -92,25 +92,6 @@ itVec("searchThoughts with minImportance=0 returns all", (db) => {
 	expect(results.map((r) => r.thought.id)).toContain(t);
 });
 
-itVec("searchThoughts retains legacy flagged thoughts by default", (db) => {
-	const clean = seedThought({ content: "clean thought" });
-	const flagged = seedThought({ content: "flagged thought" });
-	seedEmbedding(clean);
-	seedEmbedding(flagged);
-	db.prepare(
-		`INSERT INTO thought_verify (id, thought_id, flagged, created_at) VALUES (?, ?, 1, ?)`,
-	).run(Bun.randomUUIDv7(), flagged, new Date().toISOString());
-
-	const keeping = searchThoughts(db, {
-		embedding: new Float32Array(384),
-		topK: 10,
-		statusFilter: "active",
-	});
-
-	expect(keeping.map((r) => r.thought.id)).toContain(clean);
-	expect(keeping.map((r) => r.thought.id)).toContain(flagged);
-});
-
 // FTS5 / BM25 + RRF (no vector needed)
 
 test("bm25SearchIds finds thoughts by exact keyword", () => {

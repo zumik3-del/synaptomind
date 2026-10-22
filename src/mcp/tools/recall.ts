@@ -26,8 +26,7 @@ const handlers = {
 
   search: {
     input: z.object({
-      query: requiredString('query is required for search action'),
-      exclude_flagged: z.never({ error: 'exclude_flagged is retired' }).optional()
+      query: requiredString('query is required for search action')
     }),
     async run(args: ActionArgs) {
       const topK = (args.top_k as number) ?? 10
@@ -73,8 +72,7 @@ const handlers = {
 
   clusters: {
     input: z.object({
-      query: requiredString('query is required for clusters action'),
-      exclude_flagged: z.never({ error: 'exclude_flagged is retired' }).optional()
+      query: requiredString('query is required for clusters action')
     }),
     async run(args: ActionArgs) {
       const topK = (args.top_k as number) ?? 10
@@ -109,7 +107,6 @@ export function registerMemoryRecall(server: McpServer) {
       cluster: z.enum(['only', 'exclude']).optional().describe('Cluster filter: only (clusters only), exclude (exclude clusters)'),
       group_by_cluster: z.boolean().optional().describe('Group results by cluster'),
       min_importance: z.coerce.number().min(0).max(1).optional().describe('Minimum importance (0-1)'),
-      exclude_flagged: z.boolean().optional().describe('Retired; supplying this option to search or clusters returns an error'),
       include_global: z.boolean().optional().describe('When true and project_id is set, include global thoughts in results'),
       hybrid: z.boolean().optional().describe('Use hybrid search'),
       recency_weight: z
