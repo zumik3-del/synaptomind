@@ -9,7 +9,6 @@ export interface SearchOptions {
   projectFilter?: string
   clusterFilter?: 'only' | 'exclude'
   minImportance?: number
-  includeGlobal?: boolean
   hybrid?: boolean
   /**
    * Opt-in recency boost weight in `[0, 1]`. `<= 0` or non-finite disables the

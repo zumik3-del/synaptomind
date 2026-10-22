@@ -5,7 +5,6 @@ export interface FilterOptions {
   projectFilter?: string
   clusterFilter?: 'only' | 'exclude'
   minImportance?: number
-  includeGlobal?: boolean
 }
 
 function getClusterFilterSQL(filter: 'only' | 'exclude'): { sql: string; params: SQLQueryBindings[] } {
@@ -25,12 +24,10 @@ export function buildFilterSQL(options: FilterOptions): { sql: string; params: S
     sql += 'AND t.status = ? '
     params.push(options.statusFilter)
   }
+  // Global thoughts (is_global = 1) are always visible from a project-scoped
+  // search: the flag is a widening mechanism, never a narrowing one.
   if (options.projectFilter) {
-    if (options.includeGlobal) {
-      sql += 'AND (t.project_id = ? OR t.is_global = 1) '
-    } else {
-      sql += 'AND t.project_id = ? '
-    }
+    sql += 'AND (t.project_id = ? OR t.is_global = 1) '
     params.push(options.projectFilter)
   }
   if (options.clusterFilter) {
