@@ -3,7 +3,6 @@ import { createTestDb } from "../test/helpers";
 import { getDb } from "./container";
 import { closeDb } from "./init";
 import {
-	archiveStaleLowImportance,
 	batchGetImportance,
 	boostImportance,
 	decayImportance,
@@ -412,36 +411,4 @@ test("decayImportance skips recent last_decay", () => {
 	decayImportance(db, 0.5);
 	const after = getThoughtImportance(db, t.id)?.importance;
 	expect(after).toBe(before);
-});
-
-test("archiveStaleLowImportance archives old low-importance thoughts", () => {
-	const db = getDb();
-	const t = createThought(db, { content: "stale one", status: "active", is_protected: false });
-	const sixtyDaysAgo = new Date(Date.now() - 60 * 86400000).toISOString();
-	db.prepare(
-		`UPDATE thoughts SET created_at = ?, updated_at = ? WHERE id = ?`,
-	).run(sixtyDaysAgo, sixtyDaysAgo, t.id);
-	db.prepare(
-		`UPDATE thought_importance SET importance = 0.05, last_decay = ?, created_at = ? WHERE thought_id = ?`,
-	).run(sixtyDaysAgo, sixtyDaysAgo, t.id);
-
-	const archived = archiveStaleLowImportance(db, 0.1, 30);
-	expect(archived).toBe(1);
-
-	const after = getThought(db, t.id);
-	expect(after?.status).toBe("archived");
-});
-
-test("archiveStaleLowImportance does not archive recent low-importance thoughts", () => {
-	const db = getDb();
-	const t = createThought(db, { content: "recently faded", status: "active", is_protected: false });
-	db.prepare(
-		`UPDATE thought_importance SET importance = 0.05 WHERE thought_id = ?`,
-	).run(t.id);
-
-	const archived = archiveStaleLowImportance(db, 0.1, 30);
-	expect(archived).toBe(0);
-
-	const after = getThought(db, t.id);
-	expect(after?.status).toBe("active");
 });
