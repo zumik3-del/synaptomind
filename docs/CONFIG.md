@@ -120,11 +120,10 @@ Automatic importance decay for old thoughts.
 | `decay.rate` | `SYNAPTOMIND_DECAY_RATE` | `0.95` | Daily decay multiplier. 0.95 = importance × 0.95 per day |
 | `decay.intervalMs` | `SYNAPTOMIND_DECAY_INTERVAL_MS` | `86400000` | How often to run decay (ms). Default: 24h |
 
-**Note:** Decay only lowers importance. The former auto-archive half
-(`decay.archiveThreshold` / `decay.archiveMinAgeDays`, env
-`SYNAPTOMIND_ARCHIVE_THRESHOLD` / `SYNAPTOMIND_ARCHIVE_MIN_AGE_DAYS`) is retired:
-no thought is archived by the decay job (task #1943). An existing configuration
-that still carries those keys loads unchanged and simply ignores them.
+**Note:** Decay only lowers importance — it never archives, deletes or otherwise
+changes a thought's status. Archiving is explicit (`memory_supersede action=archive`
+or `status=archived`), and deletion of archived thoughts is the separate, opt-in
+[TTL cleanup](#ttl-cleanup) job.
 
 ---
 
@@ -153,13 +152,14 @@ Compact project summary for quick context injection.
 
 ---
 
-## Retired verification settings (breaking 0.x change)
+## Retired settings (breaking 0.x change)
 
-The standalone thought-verification job and its `verify` settings/environment
-variables are retired. Remove the old `verify` object from existing configuration;
-the example below omits it. Existing `thought_verify` rows are retained, but they
-are no longer updated by a verification job. Search no longer excludes thoughts
-flagged in those rows; there is no destructive migration.
+The standalone verification subsystem and its settings are retired, together with
+its data: migration `v043` drops the table that held the per-thought results. Search
+no longer excludes anything on that basis, so previously flagged thoughts may appear
+in default results; `exclude_flagged` is an ordinary, ignored query parameter. A
+configuration file that still carries the retired section loads unchanged and
+ignores it. [CHANGELOG.md](../CHANGELOG.md) lists every removal per release.
 
 ---
 
@@ -176,16 +176,25 @@ Batch grouping by embedding proximity.
 
 ---
 
-## Edge Detect
+## Neighbour search (edge detection bounds)
 
-Read-only proposal of unconfirmed `related` candidates (used by `POST /api/thoughts/edge-detect` and `memory_status action=edge_suggestions`). Detection never writes edges. It ranks neighbor pairs by embedding similarity alone, so every proposal has `type: related`, `rationale: embedding_similarity_only`, and `review_required: true` — similarity means "same subject matter", not conflict. Confirm a proposal explicitly with a link (e.g. `POST /api/thoughts/:id/link`).
+These four keys bound the neighbour search behind edge proposals. The placement
+engine (`memory_status action=propose`, `POST /api/thoughts/propose`) reads all four:
+`minSimilarity` sets the recall floor for embedding neighbours, `topK` the neighbour
+width, `maxCandidates` the candidate pool loaded for one run, and `maxProposals`
+the cap on emitted edge proposals. The draft health check reuses the candidate-pool
+bound only.
+
+No standalone detection route or `memory_status` action exists any more: a candidate
+is only ever a proposal, produced by the read-only placement engine, and an edge
+appears only when it is confirmed with `memory_store action=link`.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `edgeDetect.minSimilarity` | `SYNAPTOMIND_EDGE_DETECT_MIN_SIMILARITY` | `0.75` | Min embedding similarity for a neighbor pair to be proposed |
-| `edgeDetect.topK` | `SYNAPTOMIND_EDGE_DETECT_TOP_K` | `10` | Max nearest neighbors considered per thought |
-| `edgeDetect.maxCandidates` | `SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES` | `100` | Max candidate thoughts loaded for detection |
-| `edgeDetect.maxProposals` | `SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS` | `20` | Cap on returned proposals |
+| `edgeDetect.minSimilarity` | `SYNAPTOMIND_EDGE_DETECT_MIN_SIMILARITY` | `0.75` | Min embedding similarity for a neighbour pair to become a candidate |
+| `edgeDetect.topK` | `SYNAPTOMIND_EDGE_DETECT_TOP_K` | `10` | Max nearest neighbours considered per thought |
+| `edgeDetect.maxCandidates` | `SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES` | `100` | Max candidate thoughts loaded for one run |
+| `edgeDetect.maxProposals` | `SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS` | `20` | Cap on emitted edge proposals; the review queue applies `placement.maxProposalsPerEnqueue` on top |
 
 ---
 
@@ -200,10 +209,11 @@ Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory
 | `placement.maxPendingProposals` | `SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS` | `500` | Cap on live `pending` proposals. Enqueueing a *new* item at the cap throws a validation error; refreshing an existing live row is unaffected |
 | `placement.maxProposalsPerEnqueue` | `SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS_PER_ENQUEUE` | `5` | Cap on the number of proposals generated for one thought (enqueue/propose). A caller-supplied `max_proposals` overrides it |
 
-**Note:** The deterministic draft-triage subsystem and its `triage.*` knobs
-(env `SYNAPTOMIND_TRIAGE_*`) are retired (task #1946). Already-queued
-`triage_*` rows stay listable, but no run is produced any more; a configuration
-that still carries the block loads unchanged and ignores it.
+**Note:** The review queue stores `edge` items only. A plan's `placement` and
+`lifecycle` items are not queued; `POST /api/proposals` and
+`memory_review action=enqueue` return them in `skipped` / `skipped_kinds`. Rows
+written by retired subsystems may still exist in an upgraded install — they stay
+listable and filterable, but neither apply nor rollback can act on them.
 
 ---
 

@@ -138,7 +138,7 @@ sequenceDiagram
 | Concept | What it does |
 |---------|-------------|
 | **Thoughts** | Individual notes/ideas. Each gets an embedding for semantic search and links to other thoughts. |
-| **Slots** | Context windows summarizing your state: persona, goals, architecture decisions. Agents read these on startup. |
+| **Slots** | Context windows summarizing your state: pending items, project context, active goals and architecture decisions. Agents read these on startup. |
 | **Frontier** | Ranks "what to do next" over `directive`/`todo`/`pending` thoughts. Deferred pending items join once their `wake_days` delay has elapsed. |
 | **Primer** | Compact project summary for quick context injection. Promotes the most relevant thoughts into one document. |
 | **Clusters** | Group related thoughts; inspect and maintain their graph membership. |
@@ -153,7 +153,7 @@ sequenceDiagram
 - **Local embeddings** — `@huggingface/transformers`, no API keys
 - **MCP server** — stdio + HTTP transport
 - **Auto-clustering** — batch grouping by embedding proximity
-- **Background jobs** — decay, TTL cleanup
+- **Background jobs** — decay, TTL cleanup, proposal retention
 
 </details>
 
@@ -249,7 +249,7 @@ For clients that prefer stdio:
 
 By default the stdio process is a **single-owner client**: it opens an MCP
 session against the shared database but does **not** start its own embedder
-child process or the decay / TTL-cleanup jobs. Those
+child process or the decay / TTL-cleanup / proposal-retention jobs. Those
 are owned by the standalone HTTP server, so N stdio clients no longer spawn N
 embedders and N schedulers against one DB.
 
@@ -397,9 +397,9 @@ curl http://127.0.0.1:3005/health
 | Recall | `memory_recall` (search, get, context, chain, clusters) |
 | Store | `memory_store` (create, update, link, unlink, retype) |
 | Supersede | `memory_supersede` (archive, merge) |
-| Status | `memory_status` (slots, frontier, profile, config, health, edge_suggestions, propose, cleanup) |
+| Status | `memory_status` (slots, frontier, config, health, propose, cleanup) |
 | Projects | `memory_manage` (list, create, update, delete, resolve) |
-| Consolidate | `memory_crystallize` (graph, cluster, auto_cluster, cluster_remove, cluster_dissolve) |
+| Consolidate | `memory_crystallize` (graph, cluster, auto_cluster) |
 | Reflect | `memory_reflect` (reflect, timeline) |
 | Primers | `memory_primers` (list, delete) |
 | Review | `memory_review` (enqueue, list, apply, apply_batch, rollback, reject) |
@@ -407,28 +407,10 @@ curl http://127.0.0.1:3005/health
 
 For action-level detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
 
-**Breaking 0.x change:** the `memory_telemetry` tool is removed, together with the
-`GET /api/telemetry/{patterns,frequency,orphan_writes,draft_lifecycle}` routes. The whole
-self-improve subsystem goes with it: the `POST /api/thoughts/self-improve/run` and
-`GET /api/thoughts/self-improve/status` routes, the background job, and the entire
-`selfImprove` config section (`enabled`, `intervalMs`, `orphanThreshold`,
-`activationThreshold`, `hitsThreshold`, `maxMergesPerRun`, `maxPromotesPerRun`,
-`maxPrimerPromotesPerRun`). Promotion of frequently-hit thoughts to primers is **not**
-lost — it happens on the search path and is tuned by `primer.promoteThreshold`
-(`SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD`); `selfImprove.hitsThreshold` is gone, use the
-`primer` one. The primer list/delete capability moves to the new `memory_primers` tool
-(list, delete); its delete is preview-first and needs `confirm: true`. The structured
-`logs` table and its rotation are unchanged; the historical `self_improve` log rows stay
-as history and rotate out with the 5000-row cap.
-
-**Breaking 0.x change:** crystal generation (`memory_crystallize action=crystallize`,
-`POST /api/crystals`) and standalone thought verification
-(`POST /api/thought-verify/run` and `verify` configuration) are removed. Supplying
-`exclude_flagged` to HTTP search or MCP `memory_recall` search/clusters is rejected;
-previously flagged thoughts may now appear in default search results. Existing crystal
-thoughts and `thought_verify` rows are retained; graph/cluster actions and `/health`
-remain available. No destructive migration is included. See [API](docs/API.md) and
-[configuration](docs/CONFIG.md) for details.
+**Breaking 0.x changes:** this release prunes several 0.x subsystems from the MCP tools,
+the HTTP API and the configuration surface. [CHANGELOG.md](CHANGELOG.md) records every
+removal per release; the pages linked here document only the surface that still exists, and
+a configuration file that still carries retired keys loads unchanged and ignores them.
 
 </details>
 
