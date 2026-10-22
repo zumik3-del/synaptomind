@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { setThoughtLimits } from '../../db/settings'
-import { createThought } from '../../db/thoughts'
+import { createThought, getThought } from '../../db/thoughts'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
@@ -968,4 +968,61 @@ describe('memory_recall low_confidence + min_relevance', () => {
     const zeroIds = zeroData.map(r => r.thought.id).sort()
     expect(zeroIds).toEqual(defaultIds)
   })
+})
+
+// ── Retired surface (pruning batch) ──────────────────────────────────────────
+//
+// The pruning batch removed `is_profile`, the `profile` status action and the
+// `cluster_remove`/`cluster_dissolve` crystallize actions. The retired keys and
+// action names stay in the input schemas so the refusal is a readable message
+// rather than a silently ignored argument: the contract is "refused loudly",
+// not "accepted and dropped".
+
+describe('retired surface', () => {
+  test('memory_store create refuses is_profile and writes nothing', async () => {
+    const before = (getDb().query('select count(*) as n from thoughts').get() as { n: number }).n
+    const { data, isError } = parseResult(await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'retired profile flag', is_profile: true }
+    }))
+    expect(isError).toBe(true)
+    expect(String(data)).toContain('is_profile is retired')
+    const after = (getDb().query('select count(*) as n from thoughts').get() as { n: number }).n
+    expect(after).toBe(before)
+  })
+
+  test('memory_store update refuses is_profile and leaves the row untouched', async () => {
+    const created = parseResult(await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'plain thought' }
+    }))
+    const id = created.data.id as string
+    const { data, isError } = parseResult(await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'update', thought_id: id, is_profile: true }
+    }))
+    expect(isError).toBe(true)
+    expect(String(data)).toContain('is_profile is retired')
+    expect(getThought(getDb(), id)?.is_profile).toBe(0)
+  })
+
+  test('memory_status action=profile is no longer a valid action', async () => {
+    const { data, isError } = parseResult(await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'profile' }
+    }))
+    expect(isError).toBe(true)
+    expect(String(data)).toContain('Invalid option: expected one of')
+  })
+
+  for (const action of ['cluster_remove', 'cluster_dissolve']) {
+    test(`memory_crystallize ${action} is refused with the surviving action enum`, async () => {
+      const { data, isError } = parseResult(await client.callTool({
+        name: 'memory_crystallize',
+        arguments: { action }
+      }))
+      expect(isError).toBe(true)
+      expect(String(data)).toContain('expected one of "graph"|"cluster"|"auto_cluster"')
+    })
+  }
 })

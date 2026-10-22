@@ -761,6 +761,48 @@ test("the retired profile endpoints are not mounted", async () => {
 	}
 });
 
+// Admin/duplicate endpoints retired by the pruning batch (task #1940): the
+// settings, stats, auto-cluster admin and search-hints surfaces are gone — a
+// clean removal, so they answer 404 and no shim keeps them alive.
+
+test("the retired admin, settings, stats and hint endpoints are not mounted", async () => {
+	for (const [method, path] of [
+		["POST", "/api/auto-cluster/trigger"],
+		["GET", "/api/auto-cluster/status"],
+		["GET", "/api/thought-settings"],
+		["GET", "/api/embedder-settings"],
+		["GET", "/api/stats"],
+		["GET", "/api/thoughts/search/hints"],
+	] as const) {
+		const res = await request(path, { method });
+		expect(res.status).toBe(404);
+	}
+});
+
+test("POST /api/thoughts/bulk ignores the retired is_profile field", async () => {
+	// Bulk has no per-item schema layer (`thoughts: z.array(z.unknown())`), so
+	// the retired flag is silently dropped instead of refusing the request.
+	const res = await request("/api/thoughts/bulk", {
+		method: "POST",
+		body: JSON.stringify({
+			thoughts: [
+				{ content: "bulk plain" },
+				{ content: "bulk with retired flag", is_profile: true },
+			],
+		}),
+		headers: { "Content-Type": "application/json" },
+	});
+	expect(res.status).toBe(201);
+	const body = (await res.json()) as {
+		created: number;
+		thoughts: Array<{ id: string }>;
+	};
+	expect(body.created).toBe(2);
+	for (const thought of body.thoughts) {
+		expect(getThoughtByIdService(thought.id)?.is_profile).toBe(0);
+	}
+});
+
 test("PUT /api/thoughts/:id archive rejected for profile thought", async () => {
 	const id = seedThought({ content: "persona", is_profile: 1 });
 	const res = await request(`/api/thoughts/${id}`, {

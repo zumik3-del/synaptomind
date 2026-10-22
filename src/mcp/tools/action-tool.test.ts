@@ -34,8 +34,7 @@ mock.module('../../services/auto-cluster.service', () => ({
   runAutoClusterJob: async (options: Record<string, unknown>) => {
     capturedAutoClusterOptions = options
     return { dry_run: true, candidates: 0, groups: [], clusters_created: 0 }
-  },
-  getLastAutoClusterStatus: () => ({ last_run: null, result: null })
+  }
 }))
 
 type ToolResult = {
