@@ -44,7 +44,8 @@ retired input reaches the server, invocation validation returns a migration erro
 descriptions identify the supported replacements: recall `top_k` → `limit`, `cluster` →
 `is_cluster`; status `k` → `limit`, `dry_run` → `confirm`; crystallize `dry_run` → `confirm`;
 store link `thought_id` → `source_id`; reflect `goals_delta` → `goals_add` / `goals_remove`;
-review enqueue `max_items` → `max_proposals`. Retired names are not accepted aliases.
+review enqueue `max_items` → `max_proposals`. `memory_store.is_profile` has no replacement:
+remove the field from requests. Retired names are not accepted aliases.
 
 ## Result and error envelopes
 
