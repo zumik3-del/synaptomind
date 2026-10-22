@@ -269,11 +269,11 @@ describe('memory_supersede', () => {
 
     const result = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id }
+      arguments: { action: 'archive', thought_id: thought.id, confirm: true }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.status).toBe('archived')
+    expect(data).toMatchObject({ status: 'executed', action: 'archive', result: { id: thought.id, status: 'archived' } })
   })
 
   test('double archive is idempotent (regression #76)', async () => {
@@ -285,16 +285,15 @@ describe('memory_supersede', () => {
 
     await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id }
+      arguments: { action: 'archive', thought_id: thought.id, confirm: true }
     })
     const second = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id }
+      arguments: { action: 'archive', thought_id: thought.id, confirm: true }
     })
     const { data, isError } = parseResult(second)
     expect(isError).toBe(false)
-    expect(data.status).toBe('archived')
-    expect(data.id).toBe(thought.id)
+    expect(data).toMatchObject({ status: 'executed', action: 'archive', result: { id: thought.id, status: 'archived' } })
   })
 
   test('merge archives source and updates target (regression #76)', async () => {
@@ -315,11 +314,13 @@ describe('memory_supersede', () => {
         action: 'merge',
         source_id: source.id,
         target_id: target.id,
-        merged_content: 'merged result'
+        merged_content: 'merged result',
+        confirm: true
       }
     })
-    const { isError } = parseResult(result)
+    const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
+    expect(data).toMatchObject({ status: 'executed', action: 'merge', result: { target: { id: target.id, content: 'merged result' } } })
 
     const srcCheck = await client.callTool({
       name: 'memory_recall',
@@ -609,10 +610,13 @@ describe('merge edge cases', () => {
 
     const result = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged', project_id: target.project_id }
+      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged', project_id: target.project_id, confirm: true }
     })
-    const { isError } = parseResult(result)
+    const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
+    expect(data).toMatchObject({ status: 'executed', action: 'merge', result: { target: { id: target.id, content: 'merged' } } })
+    const targetCheck = await client.callTool({ name: 'memory_recall', arguments: { action: 'get', thought_id: target.id } })
+    expect(parseResult(targetCheck).data.content).toBe('merged')
   })
 
   test('merge with archived source returns error', async () => {
@@ -623,7 +627,7 @@ describe('merge edge cases', () => {
     const { data: source } = parseResult(a)
     await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: source.id }
+      arguments: { action: 'archive', thought_id: source.id, confirm: true }
     })
 
     const b = await client.callTool({
@@ -634,7 +638,7 @@ describe('merge edge cases', () => {
 
     const result = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'merge', source_id: source.id, target_id: target.id }
+      arguments: { action: 'merge', source_id: source.id, target_id: target.id, confirm: true }
     })
     const { isError } = parseResult(result)
     expect(isError).toBe(true)
@@ -650,7 +654,7 @@ describe('archive edge cases', () => {
 
     const result = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id }
+      arguments: { action: 'archive', thought_id: thought.id, confirm: true }
     })
     const { isError } = parseResult(result)
     expect(isError).toBe(true)
