@@ -232,6 +232,35 @@ and `tags`), and `auto_cluster` (Union-Find grouping over active thoughts, tuned
 `autoCluster.*` settings in [CONFIG.md](CONFIG.md) and previewable with `dry_run: true`;
 `project_id`/`cwd` do not apply — the run is global).
 
+## `memory_reflect` — session reflection
+
+`action=reflect` is **not read-only**: it writes slots and thoughts.
+
+- `summary` is appended (with a timestamp) to the `project_context` slot.
+- `goals_delta` adds goals to `active_goals`; an entry prefixed with `closed:` removes a
+  matching goal instead.
+- `decisions` creates one **active** thought each, tagged `decision` + `reflect`. Entries
+  sufficiently similar to an existing non-archived `decision` thought are skipped
+  (Jaccard ≥ 0.6 on normalised text), so re-reflecting the same decision is a no-op.
+- `pending` creates one **draft** thought each, tagged `pending` + `reflect`, with
+  `surface_after = now + wake_days` (default 7, range 1–365). A pending thought is invisible
+  to the frontier until that time, then surfaces with reason `pending` and in the
+  `pending_items` slot.
+
+Returns the applied counts:
+
+```json
+{ "summary_appended": true, "goals_added": 1, "goals_removed": 0, "decisions_created": 2, "pending_created": 1 }
+```
+
+The `reflect` tag marks **every** thought `reflect` created (next to the semantic tag), so the
+output is identifiable and can be filtered (`memory_recall` with `tag: "reflect"`) or cleaned up
+without touching hand-created thoughts. It is additive: statuses, dedup and the scheduled
+surface time are unchanged, and no read path keys off it.
+
+`action=timeline` is the plain paginated thought list (`status`, `project_id`, `limit`,
+`offset`).
+
 ## `memory_primers` — the always-at-hand set
 
 ### `action=list`

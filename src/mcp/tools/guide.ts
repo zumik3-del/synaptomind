@@ -38,7 +38,7 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 ## Thoughts
 Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_global, is_protected, source.
 Status: draft (wip), active (live), archived (hidden). Default draft on create; pass status=active to publish. Archive is idempotent.
-Tags: update merges by default; pass tags_mode=replace to overwrite the whole set. Common tags: decision, pending, todo, directive, gotcha, cluster.
+Tags: update merges by default; pass tags_mode=replace to overwrite the whole set. Common tags: decision, pending, todo, directive, gotcha, cluster, reflect.
 
 ## Edges
 related (default, idempotent), parent, develops, replaces (target blocked in frontier), contradicts (symmetric), supports (directed), cluster, references, depends_on.
@@ -74,7 +74,7 @@ contradiction_in_cluster remediation: memory_store action=unlink on the contradi
 memory_status action=propose returns a read-only plan (placement, edges[], lifecycle) and never writes. memory_review enqueue/list/apply/apply_batch/rollback/reject; apply is dry-run unless confirm=true and re-checks staleness. The queue holds edge items only: a plan's placement and lifecycle items are reported as skipped.
 
 ## Session reflection
-memory_reflect reflect: summary appends to project_context; goals_delta adds/removes goals; decisions create active thoughts tagged decision; pending create draft thoughts tagged pending (surface after wake_days, default 7).`
+memory_reflect reflect writes thoughts, it is not read-only: decisions create active thoughts tagged decision + reflect; pending create draft thoughts tagged pending + reflect (surface after wake_days, default 7). The reflect tag marks every thought reflect created, so they can be filtered (search tag=reflect) or cleaned up without touching hand-created ones. summary appends to project_context; goals_delta adds/removes goals.`
 }
 
 export function registerMemoryGuide(server: McpServer) {
