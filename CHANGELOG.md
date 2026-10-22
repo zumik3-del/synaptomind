@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.15.0
+
+> October 22, 2026
+
+- [`2f5cc28`](https://github.com/zumik3-del/synaptomind/commit/2f5cc28421fcf51e289097960720ab9a4bd25da7): test: isolate the projects.service mock and the log store singleton (task #1932)
+- [`224c0cb`](https://github.com/zumik3-del/synaptomind/commit/224c0cb4cf80626753cb79f8faf076f0735ad3fd): refactor: delete the caller-less src/services/utils.ts (task #1929)
+- [`ec6efc8`](https://github.com/zumik3-del/synaptomind/commit/ec6efc809c8f4a339140a806c042d77135811f3e): docs: drop trailing slashes from collection routes in docs/API.md and README (task #1928)
+- [`6026eae`](https://github.com/zumik3-del/synaptomind/commit/6026eae87d55e0ca022bb717a3a333e972a21b64): feat(api)!: remove the self-improve subsystem (routes, job, config) (task #1918)
+- [`11a9043`](https://github.com/zumik3-del/synaptomind/commit/11a9043b05f3a4c0fe22c9ba3c4f712f5bc7813e): feat(mcp)!: remove the telemetry analytics subsystem (task #1905)
+- [`9a148a7`](https://github.com/zumik3-del/synaptomind/commit/9a148a74bb20aab0b7b7afa20c0db55b18c43776): test: pin the primer knob bounds (task #1902)
+- [`a92142c`](https://github.com/zumik3-del/synaptomind/commit/a92142ce9fca407c6b4d107590d18ca97294be74): fix(config): clamp the primer knobs so a negative value cannot mean unlimited (task #1901)
+- [`67beec7`](https://github.com/zumik3-del/synaptomind/commit/67beec728bc188a41e9b4df849067276adaa5875): fix(health-check): do not flag archived short content in findTooShort
+- [`5a1e742`](https://github.com/zumik3-del/synaptomind/commit/5a1e742bae1073aea199a58969a6ef776bb48c25): fix(search): honour primer config thresholds instead of the hardcoded 5
+- [`2320a0b`](https://github.com/zumik3-del/synaptomind/commit/2320a0b25becd0f3511aca1e22d214324dc80f39): feat(mcp): default tags merge, add created_after filter, condense guide
+
 ## v0.14.1
 
 > October 20, 2026

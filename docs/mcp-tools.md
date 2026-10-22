@@ -20,8 +20,22 @@ For the HTTP equivalents, see [docs/API.md](API.md). For end-to-end usage, see
 | `memory_review` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
 | `memory_crystallize` | graph, cluster, auto_cluster, cluster_remove, cluster_dissolve | Visualize and reorganize clusters |
 | `memory_reflect` | reflect, timeline | Session management |
-| `memory_telemetry` | query, analyze, primers | Analytics and self-improvement |
+| `memory_primers` | list, delete | Manage the always-at-hand set (primers) |
 | `memory_guide` | (no action) | In-band reference text |
+
+**Breaking 0.x change:** the `memory_telemetry` tool is removed, together with the
+`GET /api/telemetry/{patterns,frequency,orphan_writes,draft_lifecycle}` routes. The whole
+self-improve subsystem goes with it: the `POST /api/thoughts/self-improve/run` and
+`GET /api/thoughts/self-improve/status` routes, the background job, and the entire
+`selfImprove` config section (`enabled`, `intervalMs`, `orphanThreshold`,
+`activationThreshold`, `hitsThreshold`, `maxMergesPerRun`, `maxPromotesPerRun`,
+`maxPrimerPromotesPerRun`). Promotion of frequently-hit thoughts to primers is **not**
+lost — it happens on the search path and is tuned by `primer.promoteThreshold`
+(`SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD`); `selfImprove.hitsThreshold` is gone, use the
+`primer` one. The primer list/delete capability moves to the new `memory_primers` tool
+(list, delete); its delete is preview-first and needs `confirm: true`. The structured
+`logs` table and its rotation are unchanged; the historical `self_improve` log rows stay
+as history and rotate out with the 5000-row cap.
 
 **Breaking 0.x change:** `memory_crystallize action=crystallize` is removed;
 graph and cluster actions still work. Standalone thought verification is removed,
@@ -201,6 +215,58 @@ Example:
 ```json
 { "action": "cluster_dissolve", "cluster_id": "cluster-1", "confirm": true }
 ```
+
+## `memory_primers` — the always-at-hand set
+
+### `action=list`
+
+Lists the primers, most-hit first. A primer is a pointer to a thought that was promoted after
+repeated recalls, so an agent can inject project context without a search. The list is capped
+(500 rows by default).
+
+No arguments. Returns the primer rows:
+
+```json
+[
+  { "id": "primer-1", "thought_id": "thought-a", "hit_count": 12, "promoted_at": "2026-10-01T12:00:00.000Z", "created_at": "2026-10-01T12:00:00.000Z" }
+]
+```
+
+### `action=delete`
+
+Removes one primer from the always-at-hand set. The **thought itself is not deleted** — only the
+primer row. Deletion is **idempotent**: a missing primer is reported as `not_found`, not an error.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `primer_id` | string | yes | The primer to delete |
+| `confirm` | boolean | no | Absent/`false` = preview; `true` = delete |
+
+**Preview** (`confirm` absent/`false`):
+
+```json
+{
+  "status": "preview",
+  "primer_id": "primer-1",
+  "primer": { "id": "primer-1", "thought_id": "thought-a", "hit_count": 12, "promoted_at": "2026-10-01T12:00:00.000Z", "created_at": "2026-10-01T12:00:00.000Z" },
+  "consequence": "Removes the primer for thought 'thought-a' from the always-at-hand set.",
+  "instruction": "Call memory_primers again with action=delete, primer_id=primer-1, confirm=true to proceed."
+}
+```
+
+A missing primer in preview returns `{ "status": "not_found", "primer_id": "primer-1" }`.
+
+**Execute** (`confirm: true`): `{ "status": "deleted", "primer_id": "primer-1" }`, or
+`{ "status": "not_found", "primer_id": "primer-1" }` if it was already gone.
+
+Example:
+
+```json
+{ "action": "delete", "primer_id": "primer-1", "confirm": true }
+```
+
+> **HTTP parity.** The HTTP routes `GET /api/primers` and `DELETE /api/primers/:id` keep their
+> previous semantics: the HTTP delete is immediate and takes no `confirm`.
 
 ## Health-check remediation: `contradiction_in_cluster`
 

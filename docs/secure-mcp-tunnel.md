@@ -121,7 +121,7 @@ time this integration was written, it consists of:
 - `memory_manage`
 - `memory_crystallize`
 - `memory_reflect`
-- `memory_telemetry`
+- `memory_primers`
 - `memory_review`
 - `memory_guide`
 

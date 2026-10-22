@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
-import { withTelemetry } from '../logging'
 import { requiredJsonBody } from './utils'
 import { getMergePreviewService, mergeThoughtsService } from '../services/merge.service'
 
@@ -16,19 +15,17 @@ const mergeBodySchema = z.object({
 })
 
 mergeRouter.post('/:targetId/merge', async c => {
-  return withTelemetry(c, { action: 'link', toolName: 'merge_thoughts' }, async c2 => {
-    const targetId = c2.req.param('targetId')!
-    const body = await requiredJsonBody(c2, mergeBodySchema)
+  const targetId = c.req.param('targetId')!
+  const body = await requiredJsonBody(c, mergeBodySchema)
 
-    if (!body.merged_content && body.merged_tags === undefined && body.project_id === undefined) {
-      const preview = getMergePreviewService(body.source_id, targetId)
-      if (!preview) return c2.json({ error: 'Thought not found' }, 404)
-      return c2.json(preview)
-    }
+  if (!body.merged_content && body.merged_tags === undefined && body.project_id === undefined) {
+    const preview = getMergePreviewService(body.source_id, targetId)
+    if (!preview) return c.json({ error: 'Thought not found' }, 404)
+    return c.json(preview)
+  }
 
-    const result = mergeThoughtsService({ targetId, sourceId: body.source_id, mergedContent: body.merged_content, mergedTags: body.merged_tags, projectId: body.project_id })
-    return c2.json(result)
-  })
+  const result = mergeThoughtsService({ targetId, sourceId: body.source_id, mergedContent: body.merged_content, mergedTags: body.merged_tags, projectId: body.project_id })
+  return c.json(result)
 })
 
 export { mergeRouter }

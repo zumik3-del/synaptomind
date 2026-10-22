@@ -1,4 +1,5 @@
-import { config } from '../config'
+import { config, DEFAULTS } from '../config'
+import { clampPrimerCount } from '../config.primer-bounds'
 import { getDb } from '../db'
 import { getPrimers } from '../db/primers'
 import { getProfileSummaryContents } from '../db/profile'
@@ -58,9 +59,14 @@ function pendingItemsContent(db: Database, limit?: number, offset?: number): str
 }
 
 // architecture_decisions — primers, most-hit first (FI-07).
+// Only the top `primer.topN` primers are rendered: the slot content is
+// truncated to `slots.defaultMaxChars` anyway, so reading 500 primers'
+// text first just paid for content that was thrown away. The configured topN
+// is clamped, so a negative one renders a single primer instead of all of them.
 function architectureDecisionsContent(db: Database): string {
   const bullets: string[] = []
-  for (const primer of getPrimers(db)) {
+  const topN = clampPrimerCount(config.primer.topN, DEFAULTS.primer.topN)
+  for (const primer of getPrimers(db, topN)) {
     const thought = getThoughtByIdService(primer.thought_id, db)
     if (!thought) continue
     bullets.push(`- ${thought.content.replace(/\s+/g, ' ').trim()}`)

@@ -89,6 +89,9 @@ export interface ListOptions {
   /** Optional source-thought filter (queued proposals of one source thought). */
   sourceThoughtId?: string
   source_thought_id?: string
+  /** Optional lower bound on created_at (ISO; inclusive). */
+  createdAfter?: string
+  created_after?: string
   limit?: number
   /** Clock override for the expired-row filter (default now). */
   now?: string
@@ -263,11 +266,13 @@ export function listPlacementProposalsService(options: ListOptions = {}, d: Data
   const state = options.state ?? 'pending'
   const now = options.now ?? new Date().toISOString()
   const sourceThoughtId = options.sourceThoughtId ?? options.source_thought_id
+  const createdAfter = options.createdAfter ?? options.created_after
   const rows = listProposals(d, {
     state,
     project_id: options.projectId,
     item_kind: options.itemKind,
     source_thought_id: sourceThoughtId,
+    created_after: createdAfter,
     limit: clampListLimit(options.limit)
   })
   if (state !== 'pending') return rows

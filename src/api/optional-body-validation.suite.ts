@@ -6,7 +6,6 @@ import { createApp } from "./router";
 const restartEmbedderMock = mock(() => {});
 const runAutoClusterJobMock = mock(async () => ({}));
 const runAutoLinkJobMock = mock(async () => ({ linked: 0 }));
-const runSelfImproveJobMock = mock(async () => ({}));
 const enqueueThoughtProposalsMock = mock(async () => []);
 const rollbackServiceMock = mock(() => ({}));
 const applyProposalServiceMock = mock(() => ({}));
@@ -22,10 +21,6 @@ mock.module("../services/auto-link.service", () => ({ runAutoLinkJob: runAutoLin
 mock.module("../services/auto-cluster.service", () => ({
 	getLastAutoClusterStatus: () => null,
 	runAutoClusterJob: runAutoClusterJobMock,
-}));
-mock.module("../services/self-improve.service", () => ({
-	getLastSelfImproveStatus: () => null,
-	runSelfImproveJob: runSelfImproveJobMock,
 }));
 mock.module("../services/placement-proposals.service", () => ({
 	enqueueThoughtProposals: enqueueThoughtProposalsMock,
@@ -59,7 +54,6 @@ test("optional-body endpoints reject invalid payload types", async () => {
 		["/api/thoughts/auto-link", { dry_run: 1, max_edges: "many" }],
 		["/api/thoughts/edge-detect", { project_id: 7 }],
 		["/api/thoughts/propose", { content: false }],
-		["/api/thoughts/self-improve/run", { dry_run: "true" }],
 		["/api/proposals", { thought_id: 42 }],
 		["/api/proposals/rollback", { run_id: "run-1", confirm: "yes" }],
 		["/api/proposals/test-id/apply", { confirm: 1 }],
@@ -70,7 +64,7 @@ test("optional-body endpoints reject invalid payload types", async () => {
 });
 
 test("optional-body endpoints retain absent and null defaults and accept valid payloads", async () => {
-	const paths = ["/api/auto-cluster/trigger", "/api/thoughts/auto-link", "/api/thoughts/edge-detect", "/api/thoughts/self-improve/run"];
+	const paths = ["/api/auto-cluster/trigger", "/api/thoughts/auto-link", "/api/thoughts/edge-detect"];
 	for (const path of paths) {
 		expect((await postWithoutBody(path)).status).not.toBe(400);
 		expect((await postJson(path, "null")).status).not.toBe(400);
@@ -79,7 +73,6 @@ test("optional-body endpoints retain absent and null defaults and accept valid p
 		["/api/thoughts/auto-link", { dry_run: true, max_edges: 5 }],
 		["/api/thoughts/edge-detect", { project_id: "test-project", min_similarity: 0.8, max_proposals: 5 }],
 		["/api/thoughts/propose", { content: "draft text" }],
-		["/api/thoughts/self-improve/run", { dry_run: true }],
 		["/api/proposals/rollback", { run_id: "run-1", confirm: false }],
 		["/api/proposals/test-id/apply", { confirm: false }],
 	] as const;
@@ -98,7 +91,6 @@ test("invalid optional write bodies do not invoke their mutation services", asyn
 	const cases = [
 		["/api/auto-cluster/trigger", { dry_run: "yes" }, runAutoClusterJobMock],
 		["/api/thoughts/auto-link", { dry_run: 1 }, runAutoLinkJobMock],
-		["/api/thoughts/self-improve/run", { dry_run: "true" }, runSelfImproveJobMock],
 		["/api/proposals", { thought_id: 42 }, enqueueThoughtProposalsMock],
 		["/api/proposals/rollback", { run_id: "run-1", confirm: "yes" }, rollbackServiceMock],
 		["/api/proposals/test-id/apply", { confirm: 1 }, applyProposalServiceMock],

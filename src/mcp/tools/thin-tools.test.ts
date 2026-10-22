@@ -70,7 +70,7 @@ describe('tool-layer layering guard', () => {
     const files = productionToolFiles()
     expect(files).toContain('store.ts')
     expect(files).toContain('guide.ts')
-    expect(files).toContain('telemetry.ts')
+    expect(files).toContain('primers.ts')
     expect(files).toContain('status.ts')
   })
 })

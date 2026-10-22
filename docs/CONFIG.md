@@ -46,7 +46,7 @@ cp .env.example .env
 
 A stdio MCP client talks to the same SQLite database as the HTTP server. By
 default (`mcp.stdioStandalone=false`) the stdio process does **not** start the
-embedder child process, decay, self-improve, or TTL-cleanup jobs — the
+embedder child process, decay, or TTL-cleanup jobs — the
 shared HTTP server is their single owner. This avoids every client spawning its
 own embedder and schedulers against one DB.
 
@@ -223,23 +223,6 @@ Deterministic draft triage (ADR 2026-09-29). A triage run turns plain drafts int
 
 ---
 
-## Self-Improve
-
-Automatic graph maintenance (disabled by default).
-
-| Setting | Env Var | Default | Description |
-|---------|---------|---------|-------------|
-| `selfImprove.enabled` | `SYNAPTOMIND_SELF_IMPROVE_ENABLED` | `false` | Enable self-improvement jobs |
-| `selfImprove.intervalMs` | `SYNAPTOMIND_SELF_IMPROVE_INTERVAL_MS` | `86400000` | How often to run (ms). Default: 24h |
-| `selfImprove.orphanThreshold` | `SYNAPTOMIND_SELF_IMPROVE_ORPHAN_THRESHOLD` | `0.5` | Similarity threshold for orphan detection |
-| `selfImprove.activationThreshold` | `SYNAPTOMIND_SELF_IMPROVE_ACTIVATION_THRESHOLD` | `0.3` | Min activation score to consider promoting |
-| `selfImprove.hitsThreshold` | `SYNAPTOMIND_SELF_IMPROVE_HITS_THRESHOLD` | `5` | Min recall hits before promoting |
-| `selfImprove.maxMergesPerRun` | `SYNAPTOMIND_SELF_IMPROVE_MAX_MERGES` | `3` | Max duplicate merges per run |
-| `selfImprove.maxPromotesPerRun` | `SYNAPTOMIND_SELF_IMPROVE_MAX_PROMOTES` | `5` | Max thought promotions per run |
-| `selfImprove.maxPrimerPromotesPerRun` | `SYNAPTOMIND_SELF_IMPROVE_MAX_PRIMER_PROMOTES` | `3` | Max primer promotions per run |
-
----
-
 ## Slots
 
 Context windows for agent startup.
@@ -366,12 +349,6 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
   "triage": {
     "enabled": true, "maxItemsPerRun": 25, "maxArchivesPerRun": 25,
     "maxLinksPerRun": 20, "requireDryRunFirst": true, "backfillEnabled": true
-  },
-  "selfImprove": {
-    "enabled": false, "intervalMs": 86400000,
-    "orphanThreshold": 0.5, "activationThreshold": 0.3,
-    "hitsThreshold": 5, "maxMergesPerRun": 3,
-    "maxPromotesPerRun": 5, "maxPrimerPromotesPerRun": 3
   },
   "slots": { "defaultMaxChars": 2000, "hardLimit": 20000 },
   "graph": { "maxDegree": 50 },

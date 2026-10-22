@@ -125,34 +125,3 @@ test("POST /api/thoughts/propose is read-only: no mutable table changes", async 
 	// No new archives created by propose (only the initial seed's archived count)
 	expect(after.archived).toBe(before.archived);
 });
-
-test("POST /api/thoughts/propose writes telemetry row with action=read, toolName=propose_placement", async () => {
-	// Verify via log DB that a propose call produces the correct telemetry row.
-	const { closeLogDb, getLogDb } = await import("../logging");
-	const { config } = await import("../config");
-	const origPath = config.logDbPath;
-	closeLogDb();
-	config.logDbPath = ":memory:";
-
-	try {
-		const id = seedThought({ content: "telemetry propose marker" });
-		const res = await request("/api/thoughts/propose", {
-			method: "POST",
-			body: JSON.stringify({ thought_id: id }),
-			headers: { "Content-Type": "application/json" },
-		});
-		expect(res.status).toBe(200);
-
-		const db = getLogDb();
-		expect(db).toBeTruthy();
-		const row = db!.query("SELECT action, tool_name FROM thought_telemetry ORDER BY rowid DESC LIMIT 1").get() as
-			| { action: string; tool_name: string }
-			| undefined;
-		expect(row).toBeTruthy();
-		expect(row!.action).toBe("read");
-		expect(row!.tool_name).toBe("propose_placement");
-	} finally {
-		closeLogDb();
-		config.logDbPath = origPath;
-	}
-});

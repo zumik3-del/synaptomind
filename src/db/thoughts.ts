@@ -169,10 +169,10 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
       values.push(data.content)
     }
     if (data.tags !== undefined) {
-      if (data.tags_mode === 'merge') {
-        mergeThoughtTags(db, id, data.tags)
-      } else {
+      if (data.tags_mode === 'replace') {
         setThoughtTags(db, id, data.tags)
+      } else {
+        mergeThoughtTags(db, id, data.tags)
       }
     }
     if (data.status !== undefined) {

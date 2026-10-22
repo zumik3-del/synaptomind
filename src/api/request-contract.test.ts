@@ -34,7 +34,7 @@
  * the process-wide API rate-limit singleton (`src/middleware/rate-limit.ts`),
  * shared with every other `createApp()` in a `bun test` run, and this file's
  * request count would otherwise consume the 200/min quota of unrelated suites
- * (see `telemetry.test.ts` for the same setup). One `createApp()` request below
+ * (see `routes.test.ts` for the same setup). One `createApp()` request below
  * still proves the production mount path.
  */
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";

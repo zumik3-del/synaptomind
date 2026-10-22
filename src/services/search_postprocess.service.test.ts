@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
+import { config } from '../config'
 import { extractResultIds, prependPrimerResults, prependProfileResults, updatePrimerHits } from './search_postprocess.service'
 import type { SearchResult } from '../db/search'
 import type { GroupedResult } from './search.service'
@@ -148,4 +149,64 @@ test('updatePrimerHits increments hit counts', () => {
 
 test('updatePrimerHits handles empty results', () => {
   expect(() => updatePrimerHits([])).not.toThrow()
+})
+
+// ── primer promotion threshold (config.primer.promoteThreshold) ─────────────
+
+/** Run the post-processing pipeline `times` times for one thought. */
+function hitThought(thoughtId: string, times: number): void {
+  const results = [makeSearchResult(thoughtId)]
+  for (let i = 0; i < times; i++) updatePrimerHits(results)
+}
+
+/** The primer row of a thought, or null when it was never promoted. */
+function primerRow(thoughtId: string): { hit_count: number } | null {
+  return getDb()
+    .prepare('SELECT hit_count FROM primers WHERE thought_id = ?')
+    .get(thoughtId) as { hit_count: number } | null
+}
+
+test('updatePrimerHits does not promote a thought below the configured threshold', () => {
+  const original = config.primer.promoteThreshold
+  config.primer.promoteThreshold = 15
+  try {
+    const id = seedThought({ content: 'below the promotion threshold' })
+    hitThought(id, 7)
+    // 7 hits < 15 → no primer row at all.
+    expect(primerRow(id)).toBeNull()
+  } finally {
+    config.primer.promoteThreshold = original
+  }
+})
+
+test('updatePrimerHits promotes a thought once it reaches the configured threshold', () => {
+  const original = config.primer.promoteThreshold
+  config.primer.promoteThreshold = 15
+  try {
+    const id = seedThought({ content: 'reaching the promotion threshold' })
+    hitThought(id, 15)
+    // 15 hits >= 15 → promoted, carrying the accumulated hit count.
+    expect(primerRow(id)?.hit_count).toBe(15)
+  } finally {
+    config.primer.promoteThreshold = original
+  }
+})
+
+test('updatePrimerHits reads the threshold from the config, not from a literal', () => {
+  const original = config.primer.promoteThreshold
+  try {
+    // A high threshold must NOT promote, a low one MUST — the two cases only
+    // differ in the configured value, so a hard-coded threshold fails one.
+    config.primer.promoteThreshold = 99
+    const quiet = seedThought({ content: 'quiet thought' })
+    hitThought(quiet, 5)
+    expect(primerRow(quiet)).toBeNull()
+
+    config.primer.promoteThreshold = 2
+    const loud = seedThought({ content: 'loud thought' })
+    hitThought(loud, 2)
+    expect(primerRow(loud)).not.toBeNull()
+  } finally {
+    config.primer.promoteThreshold = original
+  }
 })

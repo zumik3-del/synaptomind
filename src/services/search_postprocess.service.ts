@@ -1,3 +1,4 @@
+import { config } from '../config'
 import { attemptPromote, getPrimerByThoughtId, getPrimerIds, promoteThoughtToPrimer } from '../db/primers'
 import { getDb } from '../db'
 import type { SearchResult } from '../db/search'
@@ -46,7 +47,9 @@ export function updatePrimerHits(results: SearchResult[] | GroupedResult[], d: D
       // was never enforced — every searched thought with an importance row
       // became a primer on its first hit and architecture_decisions refilled
       // immediately after any cleanup.
-      attemptPromote(d, id, imp.hit_count, 5)
+      // The threshold comes from the config (SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD);
+      // a literal here silently ignored the configured value.
+      attemptPromote(d, id, imp.hit_count, config.primer.promoteThreshold)
     }
   }
 }

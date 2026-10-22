@@ -136,7 +136,6 @@ const invalidNumericCases: Array<{ label: string; name: string; args: Record<str
   { label: 'non-integer max_degree', name: 'memory_recall', args: { action: 'context', query: 'x', max_degree: 2.5 }, param: 'max_degree' },
   { label: 'negative timeline limit', name: 'memory_reflect', args: { action: 'timeline', limit: -5 }, param: 'limit' },
   { label: 'non-integer timeline limit', name: 'memory_reflect', args: { action: 'timeline', limit: 1.5 }, param: 'limit' },
-  { label: 'negative telemetry limit', name: 'memory_telemetry', args: { action: 'query', metric: 'patterns', limit: -1 }, param: 'limit' },
   { label: 'negative graph limit', name: 'memory_crystallize', args: { action: 'graph', limit: -1 }, param: 'limit' },
   { label: 'negative frontier k', name: 'memory_status', args: { action: 'frontier', k: -3 }, param: 'k' }
 ]

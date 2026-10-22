@@ -10,7 +10,6 @@ const SENSITIVE_SUBSTRINGS = ['token', 'key', 'secret', 'password', 'auth']
 const SAFE_SUBSTRINGS = ['token_count', 'tokenizer', 'tokenize', 'keyboard', 'keyring']
 
 const DEBUG_CACHE_TTL = 5000
-const TELEMETRY_CLEANUP_INTERVAL = 100
 
 type LogLevel = 'debug' | 'info' | 'warning' | 'error'
 
@@ -62,6 +61,16 @@ const LOG_MIGRATIONS: LogMigration[] = [
         )
       `)
     }
+  },
+  {
+    // The telemetry collection is gone (ADR 2026-10-21): after the detection
+    // signal layer was collapsed, `thought_telemetry` had no reader left. The
+    // table is dropped here rather than left orphaned, so every deployed
+    // logs.db is cleaned by the same forward-only path. `logs` is untouched.
+    version: 2,
+    apply: db => {
+      db.exec(`DROP TABLE IF EXISTS thought_telemetry`)
+    }
   }
 ]
 
@@ -81,24 +90,9 @@ function setSchemaVersion(db: Database, version: number): void {
   ).run(SCHEMA_VERSION_KEY, String(version))
 }
 
-export interface TelemetryInsertOpts {
-  correlationId?: string
-  userId?: string
-  action: 'read' | 'write' | 'link' | 'explore'
-  toolName: string
-  prevTool?: string
-  query?: string
-  thoughtId?: string
-  responseSize?: number
-  latencyMs?: number
-  sessionId?: string
-  meta?: Record<string, unknown>
-}
-
 export class LogStore {
   private db: Database | null = null
   private cleanupCounter = 0
-  private telemetryCleanupCounter = 0
   private showDebugCache: boolean | null = null
   private debugCacheTime = 0
 
@@ -232,56 +226,6 @@ export class LogStore {
   getLogDb(): Database | null {
     return this.ensureDb()
   }
-
-  // ── Thought telemetry ──────────────────────────────────────────────────────
-
-  private telemetryAutoCleanup(): void {
-    this.telemetryCleanupCounter++
-    if (this.telemetryCleanupCounter % TELEMETRY_CLEANUP_INTERVAL !== 0) return
-    if (!this.db) return
-    try {
-      const maxRows = 50000
-      this.db.run(
-        `DELETE FROM thought_telemetry WHERE id NOT IN (
-          SELECT id FROM thought_telemetry ORDER BY created_at DESC LIMIT ?
-        )`,
-        [maxRows]
-      )
-    } catch (e) {
-      console.debug('[telemetry] Cleanup skipped:', e)
-    }
-  }
-
-  insertTelemetry(opts: TelemetryInsertOpts): void {
-    const d = this.ensureDb()
-    if (!d) return
-    try {
-      const now = new Date().toISOString()
-      d.run(
-        `INSERT INTO thought_telemetry
-           (id, correlation_id, user_id, action, tool_name, prev_tool, query, thought_id, response_size, latency_ms, session_id, meta, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          Bun.randomUUIDv7(),
-          opts.correlationId ?? null,
-          opts.userId ?? null,
-          opts.action,
-          opts.toolName,
-          opts.prevTool ?? null,
-          opts.query ?? null,
-          opts.thoughtId ?? null,
-          opts.responseSize ?? null,
-          opts.latencyMs ?? null,
-          opts.sessionId ?? null,
-          opts.meta ? JSON.stringify(opts.meta) : null,
-          now
-        ]
-      )
-      this.telemetryAutoCleanup()
-    } catch (e) {
-      console.debug('[telemetry] Insert skipped:', e)
-    }
-  }
 }
 
 const defaultStore = new LogStore()
@@ -302,8 +246,4 @@ export function closeLogDb(): void {
 
 export function getLogDb(): Database | null {
   return defaultStore.getLogDb()
-}
-
-export function insertTelemetry(opts: TelemetryInsertOpts): void {
-  defaultStore.insertTelemetry(opts)
 }

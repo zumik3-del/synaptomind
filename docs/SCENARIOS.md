@@ -114,11 +114,8 @@ memory_store(action=create, "Work at night", is_profile=true, tags=["@profile", 
 decay job → importance decreases by rate (0.95) every 24h
   → importance < 0.1 + age > 30 days + active → auto-archive
 
-self-improve → detects:
-  orphan_writes → thoughts created without project binding (advisory only)
-  low_activation_rate → many drafts, few promotions (auto-promotes old drafts)
-  zero_clusters → no clusters with a large thought count (auto-triggers clustering)
-  → some checks auto-fix, others recommend manual review
+search path → promotes frequently-hit thoughts to primers once hit_count reaches
+              primer.promoteThreshold (default 5)
 ```
 
 The standalone thought-verification job was removed; existing `thought_verify`

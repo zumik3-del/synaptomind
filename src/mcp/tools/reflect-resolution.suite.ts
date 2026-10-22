@@ -7,6 +7,12 @@ import { registerMemoryReflect } from './reflect'
 // Regression coverage for task #169 (audit F9): the reflect action must resolve
 // the project *inside* the dispatch try/catch, so a projects.service resolution
 // failure becomes an isError envelope instead of escaping the tool call.
+//
+// This suite mocks.module('../../services/projects.service') globally — a
+// singleton every MCP tool shares — and bun cannot unmock a module, so it must
+// run in a child bun process with a clean module registry (task #1932: the leak
+// made the full suite's memory_manage / project-scoped recall tests fail
+// depending on file order). The wrapper is reflect-resolution.contract.test.ts.
 
 mock.module('../../embedder/client', () => ({
   generateEmbedding: () => new Float32Array(384),

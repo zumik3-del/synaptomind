@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
+import { sanitizePrimerBounds } from './config.primer-bounds'
 
 // ONNX precision of the local embedder model. `q8` downloads the quantized
 // ONNX (~118 MB) instead of the fp32 one (~449 MB); transformers.js picks the
@@ -59,12 +60,6 @@ interface Config {
     enabled: boolean; maxItemsPerRun: number; maxArchivesPerRun: number;
     maxLinksPerRun: number; requireDryRunFirst: boolean; backfillEnabled: boolean
   }
-  selfImprove: {
-    enabled: boolean; intervalMs: number; orphanThreshold: number;
-    activationThreshold: number; hitsThreshold: number;
-    maxMergesPerRun: number; maxPromotesPerRun: number;
-    maxPrimerPromotesPerRun: number
-  }
   slots: { defaultMaxChars: number; hardLimit: number }
   graph: { maxDegree: number }
   search: { confidence: { vectorFloor: number } }
@@ -122,12 +117,6 @@ export const DEFAULTS: Config = {
   triage: {
     enabled: true, maxItemsPerRun: 25, maxArchivesPerRun: 25,
     maxLinksPerRun: 20, requireDryRunFirst: true, backfillEnabled: true
-  },
-  selfImprove: {
-    enabled: false, intervalMs: 86400000, orphanThreshold: 0.5,
-    activationThreshold: 0.3, hitsThreshold: 5,
-    maxMergesPerRun: 3, maxPromotesPerRun: 5,
-    maxPrimerPromotesPerRun: 3
   },
   slots: { defaultMaxChars: 2000, hardLimit: 20000 },
   graph: { maxDegree: 50 },
@@ -219,15 +208,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_TRIAGE_MAX_LINKS_PER_RUN', 'triage.maxLinksPerRun', 'int'),
   M('SYNAPTOMIND_TRIAGE_REQUIRE_DRY_RUN_FIRST', 'triage.requireDryRunFirst', 'bool'),
   M('SYNAPTOMIND_TRIAGE_BACKFILL_ENABLED', 'triage.backfillEnabled', 'bool'),
-
-  M('SYNAPTOMIND_SELF_IMPROVE_ENABLED', 'selfImprove.enabled', 'bool'),
-  M('SYNAPTOMIND_SELF_IMPROVE_INTERVAL_MS', 'selfImprove.intervalMs', 'int'),
-  M('SYNAPTOMIND_SELF_IMPROVE_ORPHAN_THRESHOLD', 'selfImprove.orphanThreshold', 'float'),
-  M('SYNAPTOMIND_SELF_IMPROVE_ACTIVATION_THRESHOLD', 'selfImprove.activationThreshold', 'float'),
-  M('SYNAPTOMIND_SELF_IMPROVE_HITS_THRESHOLD', 'selfImprove.hitsThreshold', 'int'),
-  M('SYNAPTOMIND_SELF_IMPROVE_MAX_MERGES', 'selfImprove.maxMergesPerRun', 'int'),
-  M('SYNAPTOMIND_SELF_IMPROVE_MAX_PROMOTES', 'selfImprove.maxPromotesPerRun', 'int'),
-  M('SYNAPTOMIND_SELF_IMPROVE_MAX_PRIMER_PROMOTES', 'selfImprove.maxPrimerPromotesPerRun', 'int'),
 
   M('SYNAPTOMIND_SLOTS_MAX_CHARS', 'slots.defaultMaxChars', 'int'),
   M('SYNAPTOMIND_SLOTS_HARD_LIMIT', 'slots.hardLimit', 'int'),
@@ -328,6 +308,11 @@ function applyEnvOverrides(fileConfig: Partial<Config>): Config {
 
   const embedder = merged.embedder as { dtype?: unknown } | undefined
   assertEmbedderDtype(embedder?.dtype, embedderDtypeSource())
+
+  // The primer knobs are sanitized LAST, on the final merged config: the env
+  // override is applied after the config.json merge, so sanitizing earlier
+  // would be bypassed by it.
+  merged.primer = sanitizePrimerBounds(merged.primer, DEFAULTS.primer)
 
   return merged as unknown as Config
 }
