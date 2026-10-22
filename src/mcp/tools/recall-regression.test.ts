@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getDb } from '../../db/container'
 import { createEdge } from '../../db/edges'
 import { closeDb } from '../../db/init'
-import { createTestDb, seedThought } from '../../test/helpers'
+import { createTestDb, seedThought, withVecDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
 // Regression coverage for #926:
@@ -80,13 +80,40 @@ describe('memory_recall schema after exclude_flagged retirement', () => {
   }
 })
 
+describe('retired memory_recall input migration hints', () => {
+  for (const [field, hint] of [['top_k', 'limit'], ['cluster', 'is_cluster']] as const) {
+    test(`search rejects retired ${field} and points to ${hint}`, async () => {
+      const result = await client.callTool({ name: 'memory_recall', arguments: { action: 'search', query: 'x', [field]: 3 } })
+      const parsed = parseResult(result)
+      expect(parsed.isError).toBe(true)
+      expect(String(parsed.data)).toContain(hint)
+    })
+  }
+  test('list rejects retired cluster filter and points to is_cluster', async () => {
+    const result = await client.callTool({ name: 'memory_recall', arguments: { action: 'list', cluster: true } })
+    const parsed = parseResult(result)
+    expect(parsed.isError).toBe(true)
+    expect(String(parsed.data)).toContain('is_cluster')
+  })
+
+  test('schema exposes canonical limit and is_cluster but not retired aliases', async () => {
+    const { tools } = await client.listTools()
+    const props = (tools.find(t => t.name === 'memory_recall')?.inputSchema as { properties?: Record<string, unknown> })?.properties
+    expect(props).toHaveProperty('limit')
+    expect(props).toHaveProperty('is_cluster')
+    // Retired keys remain advertised as never-valued migration errors.
+    expect(props).toHaveProperty('top_k')
+    expect(props).toHaveProperty('cluster')
+  })
+})
+
 // ── String-numeric coercion (task #926) ───────────────────────────────────────
 
 describe('memory_recall string-numeric coercion', () => {
   // Each case: param name, a valid string value, an out-of-range string value,
   // and the corresponding numeric-value out-of-range for cross-check.
   const numericParams = [
-    { name: 'top_k', validStr: '5', invalidHigh: '101', invalidLow: '0', intOnly: true },
+    { name: 'limit', validStr: '5', invalidHigh: '501', invalidLow: '0', intOnly: true },
     { name: 'min_importance', validStr: '0.5', invalidHigh: '1.5', invalidLow: '-0.1', intOnly: false },
     { name: 'recency_weight', validStr: '0.5', invalidHigh: '1.5', invalidLow: '-0.1', intOnly: false },
     {
@@ -159,7 +186,7 @@ describe('memory_recall string-numeric coercion', () => {
     // With min_relevance=0 (default) both should appear.
     const defaultResult = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: 'GATE_MIN_REL', top_k: 10 }
+      arguments: { action: 'search', query: 'GATE_MIN_REL', limit: 10 }
     })
     const defaultData = parseResult(defaultResult).data as Array<{ thought: { content: string } }>
     expect(defaultData.length).toBeGreaterThanOrEqual(1)
@@ -167,7 +194,7 @@ describe('memory_recall string-numeric coercion', () => {
     // With min_relevance="0.9" (string) only the BM25-exact hit should remain.
     const gatedResult = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: 'GATE_MIN_REL', top_k: 10, min_relevance: '0.9' }
+      arguments: { action: 'search', query: 'GATE_MIN_REL', limit: 10, min_relevance: '0.9' }
     })
     const gatedData = parseResult(gatedResult).data as Array<{ thought: { content: string } }>
     // At least the exact-marker hit survives; the vague one may be dropped by the gate.
@@ -199,7 +226,7 @@ describe('memory_recall standing per-axis off semantics', () => {
   async function recall(extra: Record<string, unknown> = {}) {
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: QUERY, top_k: 10, ...extra }
+      arguments: { action: 'search', query: QUERY, limit: 10, ...extra }
     })
     return parseResult(result)
   }
@@ -274,17 +301,17 @@ describe('memory_recall standing per-axis off semantics', () => {
 // ── Advertised JSON Schema preserves numeric bounds despite z.coerce ─────────
 
 describe('memory_recall advertised schema retains numeric bounds with z.coerce', () => {
-  test('top_k schema carries type:integer, minimum and maximum', async () => {
+  test('limit schema carries type:integer, minimum and maximum', async () => {
     const { tools } = await client.listTools()
     const recallTool = tools.find(t => t.name === 'memory_recall')
     expect(recallTool).toBeDefined()
     const props = (recallTool?.inputSchema as { properties?: Record<string, unknown> })?.properties
     expect(props).toBeDefined()
-    const topK = props?.top_k as Record<string, unknown> | undefined
-    expect(topK).toBeDefined()
-    expect(topK?.type).toBe('integer')
-    expect(topK?.minimum).toBe(1)
-    expect(topK?.maximum).toBe(100)
+    const limit = props?.limit as Record<string, unknown> | undefined
+    expect(limit).toBeDefined()
+    expect(limit?.type).toBe('integer')
+    expect(limit?.minimum).toBe(1)
+    expect(limit?.maximum).toBe(500)
   })
 
   test('min_importance schema carries type:number, minimum and maximum', async () => {
@@ -348,7 +375,7 @@ describe('memory_recall advertised schema retains numeric bounds with z.coerce',
     })
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: 'SCHEMA_COERCE_MARKER', min_relevance: '0.5', top_k: '3' }
+      arguments: { action: 'search', query: 'SCHEMA_COERCE_MARKER', min_relevance: '0.5', limit: '3' }
     })
     const { isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -365,7 +392,7 @@ describe('memory_recall — is_global is always included in a project-scoped sea
   async function recallSearch(extra: Record<string, unknown>) {
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: QUERY, top_k: 10, ...extra }
+      arguments: { action: 'search', query: QUERY, limit: 10, ...extra }
     })
     return parseResult(result)
   }
@@ -432,7 +459,7 @@ describe('memory_recall — is_global is always included in a project-scoped sea
     const scoped = parseResult(
       await client.callTool({
         name: 'memory_recall',
-        arguments: { action: 'clusters', query: QUERY, top_k: 10, project_id: P1 }
+        arguments: { action: 'clusters', query: QUERY, limit: 10, project_id: P1 }
       })
     )
     expect(idsOf(scoped.data)).toContain(localCluster)
@@ -444,5 +471,62 @@ describe('memory_recall — is_global is always included in a project-scoped sea
     const recallTool = tools.find(t => t.name === 'memory_recall')
     const props = (recallTool?.inputSchema as { properties?: Record<string, unknown> })?.properties
     expect(props?.include_global).toBeUndefined()
+  })
+})
+
+describe('memory_recall is_cluster filtering', () => {
+  function idsOf(data: unknown): string[] {
+    return (data as Array<{ thought: { id: string } }>).map(row => row.thought.id)
+  }
+
+  test('list true returns only clusters and false excludes clusters', async () => {
+    const regular = seedThought({ content: 'filter marker regular' })
+    const cluster = seedThought({ content: 'filter marker cluster', is_cluster: 1 })
+    for (const [value, expected, excluded] of [[true, cluster, regular], [false, regular, cluster]] as const) {
+      const { data, isError } = parseResult(await client.callTool({
+        name: 'memory_recall', arguments: { action: 'list', is_cluster: value, limit: 100 }
+      }))
+      expect(isError).toBe(false)
+      const ids = (data.thoughts as Array<{ id: string }>).map(row => row.id)
+      expect(ids).toContain(expected)
+      expect(ids).not.toContain(excluded)
+    }
+  })
+
+  test('search filters clusters using a file-backed vec0 database', async () => {
+    await withVecDb(async () => {
+      const regular = seedThought({ content: 'VECTOR_CLUSTER_FILTER_MCP regular thought' })
+      const cluster = seedThought({ content: 'VECTOR_CLUSTER_FILTER_MCP cluster thought', is_cluster: 1 })
+      for (const [value, expected, excluded] of [[true, cluster, regular], [false, regular, cluster]] as const) {
+        const { data, isError } = parseResult(await client.callTool({
+          name: 'memory_recall', arguments: { action: 'search', query: 'VECTOR_CLUSTER_FILTER_MCP', limit: 10, is_cluster: value }
+        }))
+        expect(isError).toBe(false)
+        expect(idsOf(data)).toContain(expected)
+        expect(idsOf(data)).not.toContain(excluded)
+      }
+    })
+  })
+
+  test('chain max_degree controls traversal depth through the MCP field', async () => {
+    const root = seedThought({ content: 'CHAIN_DEGREE root' })
+    const first = seedThought({ content: 'CHAIN_DEGREE first' })
+    const second = seedThought({ content: 'CHAIN_DEGREE second' })
+    createEdge(getDb(), root, first, 'related')
+    createEdge(getDb(), root, second, 'related')
+
+    async function downstream(max_degree: number) {
+      const { data, isError } = parseResult(await client.callTool({
+        name: 'memory_recall',
+        arguments: { action: 'chain', thought_id: root, direction: 'downstream', max_degree }
+      }))
+      expect(isError).toBe(false)
+      return data as { downstream: unknown[] }
+    }
+
+    const shallow = await downstream(1)
+    const deeper = await downstream(2)
+    expect(shallow.downstream).toHaveLength(1)
+    expect(deeper.downstream).toHaveLength(2)
   })
 })
