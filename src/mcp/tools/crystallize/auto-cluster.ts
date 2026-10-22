@@ -13,23 +13,37 @@ function optionalNumber(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
-/** Normalize an optional boolean argument, tolerating `'true'`/`'false'` strings. */
-function optionalBoolean(value: unknown): boolean | undefined {
-  if (value === undefined || value === null) return undefined
-  if (typeof value === 'boolean') return value
-  if (value === 'true') return true
-  if (value === 'false') return false
-  return undefined
-}
-
 export const autoClusterHandler: ActionHandler = {
   // auto_cluster is a global operation and must not resolve or warn about a project.
   async run(args: ActionArgs) {
-    return runAutoClusterJob({
+    // Confirm semantics: without confirm the run is a non-mutating preview
+    // (service dryRun mode); clusters are created only with confirm: true.
+    const confirm = args.confirm === true
+    // Confirmation is explicit authorization to write; service config only
+    // supplies defaults and does not override it.
+    const dryRun = !confirm
+    const result = await runAutoClusterJob({
       minAgeDays: optionalNumber(args.min_age_days),
       minSimilarity: optionalNumber(args.min_similarity),
       minMembers: optionalNumber(args.min_members),
-      dryRun: optionalBoolean(args.dry_run)
+      dryRun
     })
+    if (dryRun) {
+      return {
+        status: 'preview',
+        candidates: result.candidates,
+        groups: result.groups,
+        consequence: result.groups.length > 0
+          ? `Creates ${result.groups.length} cluster(s) from ${result.candidates} candidate thought(s).`
+          : 'No clusters meet the criteria — confirming creates nothing.',
+        instruction: 'Call memory_crystallize again with action=auto_cluster, confirm=true to proceed.'
+      }
+    }
+    return {
+      status: 'executed',
+      candidates: result.candidates,
+      groups: result.groups,
+      clusters_created: result.clusters_created
+    }
   }
 }

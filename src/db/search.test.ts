@@ -386,12 +386,12 @@ itVec("hybrid overlap hit lists both vector and bm25 in match_source", (db) => {
 
   const hit = results.find((r) => r.thought.id === "sig-overlap");
   expect(hit).toBeDefined();
-  expect(hit!.match_source).toEqual(["vector", "bm25"]);
+  expect(hit!.match_source).toEqual(["embedding", "bm25"]);
   expect(hit!.rrf_score).toBeDefined();
   expect(hit!.bm25_score).toBeGreaterThan(0);
 });
 
-itVec("vector-only hit has match_source=['vector'] with no bm25_score", (db) => {
+itVec("embedding-only hit has match_source=['embedding'] with no bm25_score", (db) => {
   seedThoughtRow(db, "sig-vec-only", "semantic similarity content");
   seedVecEmbedding(db, "sig-vec-only");
 
@@ -403,7 +403,7 @@ itVec("vector-only hit has match_source=['vector'] with no bm25_score", (db) => 
 
   const hit = results.find((r) => r.thought.id === "sig-vec-only");
   expect(hit).toBeDefined();
-  expect(hit!.match_source).toEqual(["vector"]);
+  expect(hit!.match_source).toEqual(["embedding"]);
   expect(hit!.bm25_score).toBeUndefined();
   expect(hit!.rrf_score).toBeUndefined();
 });
@@ -420,7 +420,7 @@ itVec("no-query path (hybrid=true, no query) is vector-only: rrf_score absent", 
 
   const hit = results.find((r) => r.thought.id === "sig-noquery");
   expect(hit).toBeDefined();
-  expect(hit!.match_source).toEqual(["vector"]);
+  expect(hit!.match_source).toEqual(["embedding"]);
   expect(hit!.rrf_score).toBeUndefined();
   expect(hit!.bm25_score).toBeUndefined();
 });
@@ -575,7 +575,7 @@ itVec("recency vector-only path: recency applies via similarity, fields present"
   expect(newerR).toBeDefined();
   expect(olderR!.recency_score).toBeDefined();
   expect(newerR!.final_score).toBeDefined();
-  expect(newerR!.match_source).toEqual(["vector"]);
+  expect(newerR!.match_source).toEqual(["embedding"]);
   // Newer ranks first (same similarity, recency breaks tie).
   const ids = results.map((r) => r.thought.id);
   expect(ids.indexOf("rec-vec-new")).toBeLessThan(ids.indexOf("rec-vec-old"));
@@ -837,21 +837,21 @@ test("mixed Russian-English query filters both language stopwords", () => {
 test("isStrongMatch: bm25 hit always passes regardless of similarity", () => {
   expect(isStrongMatch({ match_source: ["bm25"], similarity: 0 }, 0.9)).toBe(true);
   expect(isStrongMatch({ match_source: ["bm25"], similarity: 0.5 }, 0.9)).toBe(true);
-  expect(isStrongMatch({ match_source: ["vector", "bm25"], similarity: 0.8 }, 0.9)).toBe(true);
+  expect(isStrongMatch({ match_source: ["embedding", "bm25"], similarity: 0.8 }, 0.9)).toBe(true);
 });
 
 test("isStrongMatch: vector-only below floor → false", () => {
-  expect(isStrongMatch({ match_source: ["vector"], similarity: 0.85 }, 0.9)).toBe(false);
-  expect(isStrongMatch({ match_source: ["vector"], similarity: 0.0 }, 0.9)).toBe(false);
+  expect(isStrongMatch({ match_source: ["embedding"], similarity: 0.85 }, 0.9)).toBe(false);
+  expect(isStrongMatch({ match_source: ["embedding"], similarity: 0.0 }, 0.9)).toBe(false);
 });
 
 test("isStrongMatch: vector-only at exact floor → true", () => {
-  expect(isStrongMatch({ match_source: ["vector"], similarity: 0.9 }, 0.9)).toBe(true);
+  expect(isStrongMatch({ match_source: ["embedding"], similarity: 0.9 }, 0.9)).toBe(true);
 });
 
 test("isStrongMatch: vector-only above floor → true", () => {
-  expect(isStrongMatch({ match_source: ["vector"], similarity: 0.95 }, 0.9)).toBe(true);
-  expect(isStrongMatch({ match_source: ["vector"], similarity: 1.0 }, 0.9)).toBe(true);
+  expect(isStrongMatch({ match_source: ["embedding"], similarity: 0.95 }, 0.9)).toBe(true);
+  expect(isStrongMatch({ match_source: ["embedding"], similarity: 1.0 }, 0.9)).toBe(true);
 });
 
 test("isStrongMatch: no legs → false", () => {
@@ -879,7 +879,7 @@ itVec("low_confidence: vector-only sim < floor ⇒ true", (db) => {
   const hit = results.find((r) => r.thought.id === "lc-vec-low");
   expect(hit).toBeDefined();
   expect(hit!.low_confidence).toBe(true);
-  expect(hit!.match_source).toEqual(["vector"]);
+  expect(hit!.match_source).toEqual(["embedding"]);
 });
 
 // Vector-only path, sim exactly at the floor → low_confidence=false (confident).
@@ -906,7 +906,7 @@ itVec("low_confidence: sim == floor exactly ⇒ false; just above ⇒ true", (db
   expect(measured).toBeDefined();
   expect(measured!.similarity).toBeGreaterThan(0);
   expect(measured!.similarity).toBeLessThan(1);
-  const sim = measured!.similarity;
+  const sim = measured!.similarity ?? 0;
 
   const atFloor = searchThoughts(db, {
     embedding: query,
@@ -917,7 +917,7 @@ itVec("low_confidence: sim == floor exactly ⇒ false; just above ⇒ true", (db
   const atFloorHit = atFloor.find((r) => r.thought.id === "lc-vec-boundary");
   expect(atFloorHit).toBeDefined();
   expect(atFloorHit!.low_confidence).toBe(false);
-  expect(atFloorHit!.match_source).toEqual(["vector"]);
+  expect(atFloorHit!.match_source).toEqual(["embedding"]);
 
   const aboveFloor = searchThoughts(db, {
     embedding: query,

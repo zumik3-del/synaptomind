@@ -82,7 +82,8 @@ export function isStrongMatch(
   floor: number
 ): boolean {
   if (result.match_source.includes('bm25')) return true
-  return result.match_source.includes('vector') && result.similarity >= floor
+  const sim = result.similarity ?? 0
+  return result.match_source.includes('embedding') && sim >= floor
 }
 
 /**
@@ -94,7 +95,7 @@ export function isStrongMatch(
 function applyRecencyScoring(results: SearchResult[], scores: SearchRecencyContext): void {
   if (!scores.recencyActive) return
   for (const result of results) {
-    const relevant = result.rrf_score !== undefined ? result.rrf_score / scores.rrfMax : result.similarity
+    const relevant = result.rrf_score !== undefined ? result.rrf_score / scores.rrfMax : (result.similarity ?? 0)
     const recency = recencyDecay(result.thought.created_at, scores.nowMs, scores.recencyHalfLifeDays)
     result.recency_score = recency
     result.final_score = relevant + scores.recencyWeight * recency
@@ -140,20 +141,24 @@ export function fetchThoughtsByIds(
     const thought = rowToThought(r as unknown as Record<string, unknown>)
     thought.tags = tagMap.get(r.id) ?? []
 
-    // Fixed leg order: vector, bm25.
+    // Fixed leg order: embedding, bm25.
     const matchSource: SearchMatchSource[] = []
-    if (sim !== undefined) matchSource.push('vector')
+    if (sim !== undefined) matchSource.push('embedding')
     if (bm25 !== undefined) matchSource.push('bm25')
 
     const result: SearchResult = {
       thought,
-      distance: sim !== undefined ? 1 - sim : 0,
-      similarity: sim !== undefined ? sim : 0,
       match_source: matchSource,
       low_confidence: !isStrongMatch(
-        { match_source: matchSource, similarity: sim !== undefined ? sim : 0 },
+        { match_source: matchSource, similarity: sim },
         hydration.confidenceFloor
       )
+    }
+    // Cosine signals only when the embedding leg matched; BM25-only hits omit
+    // them so a keyword match is not misread as zero relevance.
+    if (sim !== undefined) {
+      result.distance = 1 - sim
+      result.similarity = sim
     }
     if (rrf !== undefined) result.rrf_score = rrf
     if (bm25 !== undefined) result.bm25_score = bm25

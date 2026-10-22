@@ -55,7 +55,7 @@ function indexLookup(projectId: string): SearchNeighborsFn {
 			statusFilter: 'active',
 			projectFilter: projectId,
 			hybrid: false
-		}).map(r => ({ id: r.thought.id, similarity: r.similarity }))
+		}).map(r => ({ id: r.thought.id, similarity: r.similarity ?? 0 }))
 }
 
 describe('#1574 pin probes', () => {

@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { createEdge, getEdgesForThought, toEdgeView, type EdgeView } from '../db/edges'
+import { createEdge, getEdgesForThought, getSourceEdgesForThoughtBounded, toEdgeView, type EdgeView } from '../db/edges'
 import { getDb } from '../db'
 import {
   archiveThought as dbArchiveThought,
@@ -40,6 +40,19 @@ export function getMergePreviewService(sourceId: string, targetId: string, d: Da
     source: { ...source, edges: getEdgesForThought(d, sourceId).map(toEdgeView) },
     target
   }
+}
+
+export function getBoundedMergePreviewService(
+  sourceId: string,
+  targetId: string,
+  edgeLimit: number,
+  d: Database = getDb()
+): (Omit<MergePreview, 'source'> & { source: Omit<MergePreview['source'], 'edges'> & { edges: EdgeView[] }; sourceEdgeCount: number }) | null {
+  const source = getThoughtByIdService(sourceId, d)
+  const target = getThoughtByIdService(targetId, d)
+  if (!source || !target) return null
+  const { edges, count } = getSourceEdgesForThoughtBounded(d, sourceId, edgeLimit)
+  return { mode: 'preview', source: { ...source, edges: edges.map(toEdgeView) }, target, sourceEdgeCount: count }
 }
 
 export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database = getDb()): MergeResult {

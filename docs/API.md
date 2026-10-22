@@ -385,7 +385,7 @@ Proposes a plan for a persisted thought and queues its confirmable items (plan s
 |---|---|---|---|---|
 | thought_id | body | string | required | Persisted **active** thought to analyse (drafts and other non-active statuses are rejected) |
 | project_id | body | string | optional | Project scope |
-| max_proposals / max_items | body | int | `placement.maxProposalsPerEnqueue` | Cap on the proposals generated for this thought (`max_items` is an alias; `limit` is accepted too) |
+| max_proposals | body | int | `placement.maxProposalsPerEnqueue` | Cap on the proposals generated for this thought |
 
 curl `-d '{"thought_id": "<id>"}' http://127.0.0.1:3005/api/proposals`
 
@@ -439,7 +439,7 @@ MCP parity for the routes above, plus `apply_batch` (no HTTP equivalent).
 
 | Action | Kind | Inputs | Result |
 |---|---|---|---|
-| `enqueue` | queue write | `thought_id`, `max_proposals`/`max_items` | `{proposals, skipped, skipped_kinds}` — the queued/refreshed `edge` rows plus the plan items whose kind is no longer stored |
+| `enqueue` | queue write | `thought_id`, `max_proposals` | `{proposals, skipped, skipped_kinds}` — the queued/refreshed `edge` rows plus the plan items whose kind is no longer stored; retired `max_items` and `limit` inputs return 400 with a hint to use `max_proposals` |
 | `list` | read | `state` (default `pending`), `item_kind`, `project_id`, `limit`, `source_thought_id`, `created_after` | Queued rows |
 | `apply` | graph write | `proposal_id`, `confirm` (default false), `run_id` | One `ApplyResult` (`dry_run`/`accepted`/`stale`/`failed`/`refused`); an `accepted` result carries the row's `run_id` envelope (the caller's, or a synthesized `auto-…`) |
 | `apply_batch` | graph write | `proposal_ids[]` (non-empty), `confirm`, `run_id`, `limit` | `{"results": [ApplyResult], "errors": [{"proposal_id", "error"}]}`; each item applied independently, a partial batch is a valid outcome. When the per-call `limit` trips, `{"results": [], "errors": [], "refused": {"code": "limit_exceeded", "reason"}}` — the whole batch is refused, nothing applied. When at least one row joined the run, the outcome also carries the one shared `run_id` envelope — the caller's, or a synthesized `auto-…` for the whole batch (see **Run envelope** above) |
@@ -577,10 +577,14 @@ Records a session outcome: appends a summary, adjusts goals, creates decision an
 |---|---|---|---|---|
 | project_id | body | string | optional/null | Project scope |
 | summary | body | string | optional | Session summary |
-| goals_delta | body | string[] | optional | Goals to add; prefix `closed:` to remove |
+| goals_add | body | string[] | optional | Goals to add to `active_goals` |
+| goals_remove | body | string[] | optional | Remove stored goal lines matching each supplied string case-insensitively by substring |
 | decisions | body | string[] | optional | Decisions made — each created as an active thought tagged `decision` and `reflect` |
 | pending | body | string[] | optional | Pending tasks — each created as a draft thought tagged `pending` and `reflect` |
 | wake_days | body | int | optional | Days before the newly created `pending` thoughts join the frontier (default 7, 1-365) |
+
+The retired `goals_delta` body field is rejected with HTTP 400; use `goals_add` and
+`goals_remove` instead.
 
 curl `-d '{"summary": "Added API docs", "decisions": ["Use manual API reference"]}' http://127.0.0.1:3005/api/slots/reflect`
 
@@ -612,8 +616,8 @@ Response: `{"items": [{"thought_id": "...", "content_short": "...", "reason": "d
 
 ## No HTTP clustering trigger
 
-Auto-clustering is MCP-only: `memory_crystallize action=auto_cluster` (with
-`dry_run: true` for a preview) is the single entry point, tuned by the
+Auto-clustering is MCP-only: `memory_crystallize action=auto_cluster` (without `confirm` or with
+`confirm: false` for a preview; `confirm: true` executes) is the single entry point, tuned by the
 `autoCluster.*` settings in [CONFIG.md](CONFIG.md). There is no HTTP route and no
 scheduled job for it.
 

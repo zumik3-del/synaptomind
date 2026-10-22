@@ -22,10 +22,14 @@ const updateSlotBodySchema = z.object({
 export const reflectBodySchema = z.object({
   project_id: z.string().nullable().optional(),
   summary: z.string().optional(),
-  goals_delta: z.array(z.string()).optional(),
+  goals_add: z.array(z.string()).optional(),
+  goals_remove: z.array(z.string()).optional(),
   decisions: z.array(z.string()).optional(),
   pending: z.array(z.string()).optional(),
-  wake_days: z.number().int().min(1).max(365).optional()
+  wake_days: z.number().int().min(1).max(365).optional(),
+  // Tombstone for the retired goals argument: a supplied value becomes a 400
+  // naming the canonical replacements instead of a silent drop.
+  goals_delta: z.never({ error: 'goals_delta was removed; use goals_add / goals_remove' }).optional()
 })
 
 const slotsQuerySchema = z.object({

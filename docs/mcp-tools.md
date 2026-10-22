@@ -14,7 +14,7 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 | Tool | Actions | Purpose |
 |---|---|---|
 | `memory_recall` | search, get, context, chain, clusters, list | Find and retrieve thoughts (list = paginated inventory) |
-| `memory_store` | create, update, link, link_batch, unlink, retype | Write, connect and edit thoughts |
+| `memory_store` | create, update, link, link_batch, unlink, unlink_batch, retype | Write, connect and edit thoughts |
 | `memory_supersede` | archive, archive_batch, merge | Version and supersede thoughts |
 | `memory_status` | slots, frontier, config, health, propose, cleanup | Query system state |
 | `memory_manage` | list, create, update, delete, resolve | Project management |
@@ -26,14 +26,20 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Dry-run / confirm pattern
 
-Every mutating action added for graph maintenance — `memory_store` `unlink` and `retype`,
-plus `memory_review` (`apply`/`apply_batch`/`rollback`) and `memory_manage action=delete` —
-follows the same two-step pattern:
+Every destructive action — `memory_store` `unlink` and `retype`, `memory_supersede` `archive`,
+`archive_batch` and `merge`, `memory_manage action=delete`, `memory_review` (`apply`/`apply_batch`/`rollback`),
+`memory_primers action=delete`, `memory_status action=cleanup`, and
+`memory_crystallize action=auto_cluster` — follows the same two-step
+pattern:
 
-- **Preview (default).** `confirm` is absent or `false`. The tool validates the target and
-  returns a non-mutating preview with `status: "preview"` and a human-readable `consequence`.
-  Nothing is written.
+- **Preview (default).** `confirm` is absent or `false`. The tool returns its action-specific,
+  non-mutating preview payload (where applicable, `status: "preview"`). Nothing is written.
 - **Execute.** `confirm: true` performs the write and returns a status-specific result.
+
+Retired MCP inputs are validation errors with replacement hints: recall `top_k` → `limit`,
+`cluster` → `is_cluster`, frontier `k` → `limit`; crystallize `dry_run` → `confirm`;
+store link `thought_id` → `source_id`; reflect `goals_delta` → `goals_add` / `goals_remove`;
+review enqueue `max_items` → `max_proposals`. These names are not accepted aliases.
 
 ## Result and error envelopes
 
@@ -101,24 +107,27 @@ Example:
 ### `action=search`
 
 Hybrid (RRF) / vector / BM25 search. Key arguments: `query` (required), `mode` (`hybrid`/`vector`/`bm25`),
-`status`, `project`, `tag`, `cluster` (only/exclude), `min_importance`, `top_k`, `min_relevance`,
+`status`, `project`, `tag`, `is_cluster`, `min_importance`, `limit`, `min_relevance`,
 `recency_weight`, `recency_half_life_days`, `supersession_mode`, `contradiction_mode`.
-Returns hits with `similarity`, `distance`, `match_source`, `low_confidence`.
+Returns hits with `similarity`/`distance` (embedding leg only), `match_source` (`embedding`/`bm25`/both), `low_confidence`.
 
 ### `action=get`
 
-Fetch one thought by `thought_id` (full content, tags, project, importance, edges).
+Fetch one thought by `thought_id` (full content, tags, project, importance, edges). Pass `include_edges: true` to return incident edges inline (upstream/downstream with type and created_at).
 
 ### `action=context` / `action=chain` / `action=clusters`
 
-`context` returns a thought plus its neighbours up to `max_degree`; `chain` walks a parent/develops
-chain; `clusters` lists cluster thoughts and their members.
+`context` returns a thought plus its neighbours up to `max_degree` (accepts a text `query` or a
+`thought_id`); `chain` walks a parent/develops chain. `max_degree` bounds chain/context traversal;
+it is distinct from `limit`, which caps returned results. `clusters` lists cluster thoughts and their
+members.
 
 ## `memory_store` — edges
 
 ### `action=link`
 
-Create an edge between two thoughts. A pair carries **one** edge: re-linking the same pair with
+Create an edge between two thoughts. Use canonical endpoint parameters `source_id` and `target_id`;
+the retired `thought_id` alias is rejected with a hint to use `source_id`. A pair carries **one** edge: re-linking the same pair with
 the same type is idempotent for the symmetric types (`related`, `contradicts`), while a directed
 duplicate or a second, different type on the pair is reported as an error — except that a
 `related` placeholder edge is upgraded in place to the specific type you ask for. Constraints: no
@@ -209,6 +218,31 @@ Example:
 { "action": "unlink", "edge_id": "edge-123", "confirm": true }
 ```
 
+### `action=unlink_batch`
+
+Delete or preview up to 1000 edges in one call. The batch runs in a **single
+transaction** and reuses the `unlink` writer. In `confirm` mode every `edge_id`
+is validated to exist **before** any deletion happens, so a missing id aborts
+the whole batch instead of leaving a partial prune behind. Preview mode
+(`confirm` absent/`false`) never mutates.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `edge_ids` | string[] | yes | Edge IDs to delete/preview (1–1000 items) |
+| `confirm` | boolean | no | Absent/`false` = preview; `true` = delete |
+
+Result: `{ "deleted": 2, "preview": 0, "failed": 1, "results": [{ "edge_id": "edge-1", "status": "deleted" }, { "edge_id": "edge-2", "status": "deleted" }, { "edge_id": "missing", "status": "failed", "error": "Edge not found: missing" }] }`
+
+In preview mode each result carries `status: "preview"` plus the edge details and
+`consequence` (mirroring single `unlink`). `failed` always equals the number of
+entries in `errors`.
+
+Example:
+
+```json
+{ "action": "unlink_batch", "edge_ids": ["edge-1", "edge-2"], "confirm": true }
+```
+
 ### `action=retype`
 
 Change an edge's type in a single transaction. The original `created_at` is preserved. The
@@ -241,25 +275,39 @@ Example:
 
 ## `memory_supersede` — archiving and merging
 
-`action=archive` archives one thought (`thought_id`) and is idempotent: an already-archived
-thought is returned unchanged rather than re-stamped. Profile thoughts are refused
-(`Profile thoughts cannot be archived`).
+All three actions preview when `confirm` is omitted or `false`; only `confirm: true` executes.
+Execution re-reads/revalidates current state, so previews can become stale; no preview token or
+transactional reservation is implied.
+
+### `action=archive`
+
+Archives one thought (`thought_id`). Already-archived thoughts are idempotent: execution returns
+the existing thought without re-stamping it. Profile thoughts are protected and cannot be archived.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `thought_id` | string | yes | Thought to archive |
+| `confirm` | boolean | no | Absent/`false` = preview; `true` = execute |
+
+Preview returns `{ "status": "preview", "action": "archive", "thought_id": "thought-a", "current_status": "active", "outcome": "would_archive" }`. `outcome` is `not_found`, `already_archived`, `protected`, or `would_archive`. Execution returns `{ "status": "executed", "action": "archive", "result": <thought> }`; missing or protected thoughts fail with an error.
 
 ### `action=archive_batch`
 
-Archive up to 1000 thoughts in one call, in a **single transaction**. Same writer and same
-guards as `archive`: already-archived thoughts count as archived without being re-stamped, and
-profile thoughts fail per item instead of aborting the batch.
+Preview or archive 1–1000 thoughts per call. Preview reports each requested ID in input order,
+including duplicates. Outcomes are `not_found`, `already_archived`, `protected`, or `would_archive`;
+repeated non-profile IDs after their first occurrence preview as `already_archived`.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `thought_ids` | string[] | yes | Thoughts to archive (1–1000 items) |
+| `confirm` | boolean | no | Absent/`false` = preview; `true` = execute |
 
-Result: `{ "archived": 2, "failed": 1, "errors": [{ "thought_id": "missing-id", "error": "Thought 'missing-id' not found" }] }`
+Preview envelope: `{ "status": "preview", "action": "archive_batch", "requested_count": 2, "items": [{ "thought_id": "thought-a", "outcome": "would_archive" }] }`. The `items` array has one entry per requested occurrence, in input order (including duplicate IDs). Confirmed execution wraps the existing aggregate result: `{ "status": "executed", "action": "archive_batch", "result": { "archived": 2, "failed": 1, "errors": [{ "thought_id": "missing-id", "error": "Thought 'missing-id' not found" }] } }`. Execution does not return per-item success records.
 
-`failed` always equals `errors.length`; an unknown id or a profile thought lands in `errors`
-while the other items commit. An empty or over-long array is refused with an `isError` envelope
-before anything runs.
+`failed` equals `errors.length`; unknown IDs and protected profiles appear in `errors` in input
+order, while successful items contribute to the aggregate `archived` count. Items are processed in
+input order; duplicate IDs are idempotent.
+An empty or over-long array is refused with an `isError` envelope before anything runs.
 
 Example:
 
@@ -272,7 +320,9 @@ Example:
 Consolidates a source thought into a target: the source's edges are recreated on the target,
 the target's content/tags are replaced when supplied, the source is archived, and a `replaces`
 edge target → source records the consolidation. Merging an archived source or a profile thought
-is refused.
+is refused. Preview checks current eligibility and reports source/target status; it includes at
+most 50 source-edge descriptors plus the full `source_edge_count` and a `truncated` flag. This
+bounded list does not promise every edge will transfer.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -282,14 +332,15 @@ is refused.
 | `merged_tags` | string[] | no | Resulting tag set of the target |
 | `project_id` | string | no | Resulting project (defaults to the target's, then the source's) |
 
-Result: `{ "target": { ... }, "edges_transferred": 2 }` — `edges_transferred` is the number of
+Preview returns `{ "status": "preview", "action": "merge", "outcome": "would_merge", "source": { "id", "status", "edges": [], "source_edge_count": 0, "truncated": false }, "target": { "id", "status" }, "proposed": { "merged_content", "merged_tags", "project_id" }, "effects": { "source_archived": true, "target_updated": false, "replaces_edge_created": true } }`. Missing IDs report `outcome: "not_found"`; an ineligible merge reports `outcome: "ineligible"` and `reason`. `proposed` reflects supplied values; `effects` describes the prospective updates. Execution returns `{ "status": "executed", "action": "merge", "result": { "target": { ... }, "edges_transferred": 2 } }` — `edges_transferred` is the number of
 source edges the target now holds, so a caller can verify the consolidation. Not every source
 edge contributes: one that would collapse into a self-loop (it joined the target to the source),
 a duplicate of a non-symmetric edge the target already has, and a cluster edge the cluster rule
 rejects are dropped and left out of the count. An existing symmetric pair (`related`,
 `contradicts`) does count — the target owns that relation after the merge. The HTTP twin
-(`POST /api/thoughts/:targetId/merge`) reports the same number under its long-standing name
-`transferredEdges`.
+(`POST /api/thoughts/:targetId/merge`) is unchanged: it executes immediately without preview or
+confirmation and reports the count under its long-standing name `transferredEdges`. The
+confirmation-first contract applies to MCP only; it does not imply an HTTP API change.
 
 ```json
 { "action": "merge", "source_id": "thought-a", "target_id": "thought-b", "merged_content": "merged claim" }
@@ -300,7 +351,9 @@ rejects are dropped and left out of the count. An existing symmetric pair (`rela
 Three actions, all read-mostly: `graph` (nodes + edges for a project, `status` and `limit`
 filters), `cluster` (create a cluster thought from `thought_ids` with an optional `title`
 and `tags`), and `auto_cluster` (Union-Find grouping over active thoughts, tuned by the
-`autoCluster.*` settings in [CONFIG.md](CONFIG.md) and previewable with `dry_run: true`;
+`autoCluster.*` settings in [CONFIG.md](CONFIG.md). It previews when `confirm` is absent or false;
+`confirm: true` executes, even when the configured `autoCluster.dryRun` default is true. The retired
+`dry_run` input is rejected with a hint to use `confirm`;
 `project_id`/`cwd` do not apply — the run is global).
 
 ## `memory_reflect` — session reflection
@@ -308,8 +361,9 @@ and `tags`), and `auto_cluster` (Union-Find grouping over active thoughts, tuned
 `action=reflect` is **not read-only**: it writes slots and thoughts.
 
 - `summary` is appended (with a timestamp) to the `project_context` slot.
-- `goals_delta` adds goals to `active_goals`; an entry prefixed with `closed:` removes a
-  matching goal instead.
+- `goals_add` adds goals to `active_goals`; `goals_remove` removes stored goal lines when the
+  supplied text matches as a case-insensitive substring. The retired `goals_delta` parameter is
+  rejected with a hint to use `goals_add` / `goals_remove`.
 - `decisions` creates one **active** thought each, tagged `decision` + `reflect`. Entries
   sufficiently similar to an existing non-archived `decision` thought are skipped
   (Jaccard ≥ 0.6 on normalised text), so re-reflecting the same decision is a no-op.
@@ -383,6 +437,34 @@ Example:
 
 > **HTTP parity.** The HTTP routes `GET /api/primers` and `DELETE /api/primers/:id` keep their
 > previous semantics: the HTTP delete is immediate and takes no `confirm`.
+
+## `memory_status` — system state
+
+### `action=slots` (read-only)
+
+Slots are **read-only** through this tool: it never writes. `pending_items` is derived from
+thoughts tagged `pending` (the same set the frontier surfaces); `architecture_decisions` from
+primers (most-hit first); `project_context` and `active_goals` are stored rows. To change slot
+content, update or archive the underlying thoughts (virtual slots) or use `memory_reflect`
+(`summary` appends to `project_context`; `goals_add` and `goals_remove` edit `active_goals`). Paging applies to
+`pending_items` via `limit`/`offset`.
+
+### `action=cleanup`
+
+TTL cleanup of archived thoughts. It previews by default; set `confirm: true` to actually delete.
+The retired `dry_run` input is rejected with a hint to use `confirm`. Protected thoughts are never
+deleted.
+
+### `action=propose`
+
+Read-only placement plan (placement, edges, lifecycle); never writes.
+
+## `memory_manage` — projects
+
+CRUD over projects plus resolution from a path.
+
+- `list`, `create`, `update`, `delete (preview→confirm)`, `resolve` (resolve project from `cwd`).
+- `delete` is preview-first: returns `action: "preview"` unless `confirm: true`.
 
 ## Health-check remediation: `contradiction_in_cluster`
 

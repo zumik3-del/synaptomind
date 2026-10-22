@@ -5,6 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { closeDb } from '../../db/init'
+import { config } from '../../config'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 import { type ActionToolConfig, registerActionTool, requiredString } from './action-tool'
@@ -254,12 +255,11 @@ describe('unknown action returns a structured error on every action tool', () =>
 const REQUIRED_FIELD_CASES: Array<{ label: string; tool: string; args: Record<string, unknown>; message: string }> = [
   { label: 'recall get', tool: 'memory_recall', args: { action: 'get' }, message: 'thought_id is required for get action' },
   { label: 'recall search', tool: 'memory_recall', args: { action: 'search' }, message: 'query is required for search action' },
-  { label: 'recall context', tool: 'memory_recall', args: { action: 'context' }, message: 'query is required for context action' },
-  { label: 'recall chain', tool: 'memory_recall', args: { action: 'chain' }, message: 'thought_id is required for chain action' },
+  { label: 'recall context', tool: 'memory_recall', args: { action: 'context' }, message: 'query or thought_id is required for context action' },  { label: 'recall chain', tool: 'memory_recall', args: { action: 'chain' }, message: 'thought_id is required for chain action' },
   { label: 'recall clusters', tool: 'memory_recall', args: { action: 'clusters' }, message: 'query is required for clusters action' },
   { label: 'store create', tool: 'memory_store', args: { action: 'create' }, message: 'content is required for create action' },
   { label: 'store update', tool: 'memory_store', args: { action: 'update' }, message: 'thought_id is required for update action' },
-  { label: 'store link', tool: 'memory_store', args: { action: 'link' }, message: 'thought_id is required for link action (source)' },
+  { label: 'store link', tool: 'memory_store', args: { action: 'link' }, message: 'source_id is required for link action' },
   {
     label: 'supersede archive',
     tool: 'memory_supersede',
@@ -363,7 +363,7 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
         min_similarity: '0.68',
         min_members: '5',
         min_age_days: '1',
-        dry_run: true
+        confirm: true
       }
     })
     const { isError } = parseResult(result)
@@ -372,7 +372,7 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
       minSimilarity: 0.68,
       minMembers: 5,
       minAgeDays: 1,
-      dryRun: true
+      dryRun: false
     })
   })
 
@@ -384,7 +384,7 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
         min_similarity: 0.68,
         min_members: 5,
         min_age_days: 1,
-        dry_run: true
+        confirm: true
       }
     })
     const { isError } = parseResult(result)
@@ -393,8 +393,23 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
       minSimilarity: 0.68,
       minMembers: 5,
       minAgeDays: 1,
-      dryRun: true
+      dryRun: false
     })
+  })
+
+  test('confirm overrides configured dryRun=true', async () => {
+    const originalDryRun = config.autoCluster.dryRun
+    try {
+      config.autoCluster.dryRun = true
+      const result = await mockClient.callTool({
+        name: 'memory_crystallize',
+        arguments: { action: 'auto_cluster', confirm: true }
+      })
+      expect(parseResult(result).isError).toBe(false)
+      expect(capturedAutoClusterOptions?.dryRun).toBe(false)
+    } finally {
+      config.autoCluster.dryRun = originalDryRun
+    }
   })
 
   test('omitted optional fields fall back to undefined (service uses config defaults)', async () => {
@@ -408,7 +423,7 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
       minAgeDays: undefined,
       minSimilarity: undefined,
       minMembers: undefined,
-      dryRun: undefined
+      dryRun: true
     })
   })
 })

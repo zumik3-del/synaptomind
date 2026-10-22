@@ -172,7 +172,7 @@ Batch grouping by embedding proximity.
 | `autoCluster.minAgeDays` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_AGE_DAYS` | `3` | Don't cluster thoughts younger than this |
 | `autoCluster.minSimilarity` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_SIMILARITY` | `0.09` | Max cosine **distance** between neighbours (lower = tighter; 0.3 chains the whole graph into one mega-cluster) |
 | `autoCluster.minMembers` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_MEMBERS` | `3` | Min thoughts to form a cluster |
-| `autoCluster.dryRun` | `SYNAPTOMIND_AUTO_CLUSTER_DRY_RUN` | `false` | Preview without creating clusters |
+| `autoCluster.dryRun` | `SYNAPTOMIND_AUTO_CLUSTER_DRY_RUN` | `false` | Service-level default preview flag. MCP auto-cluster always previews when `confirm` is absent/false; explicit `confirm: true` authorizes execution even when this setting is true |
 
 ---
 
