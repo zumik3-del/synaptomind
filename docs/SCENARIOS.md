@@ -13,7 +13,7 @@
 3. memory_reflect(
       action=reflect,
       summary: "Project created. Stack chosen, core modules defined.",
-      goals_delta: ["MVP API", "IDE plugin", "CLI utility"],
+      goals_add: ["MVP API", "IDE plugin", "CLI utility"],
       decisions: ["PostgreSQL for storage", "Fastify as HTTP framework"],
       cwd="/path/to/project"
     )
@@ -60,7 +60,8 @@ memory_reflect(action=reflect, pending=["write auth tests", "update docs"], wake
 memory_reflect(
   action=reflect,
   summary: "Auth module refactoring complete. JWT replaced with sessions.",
-  goals_delta: ["closed:auth refactoring", "migrate to sessions"],
+  goals_remove: ["auth refactoring"],
+  goals_add: ["migrate to sessions"],
   decisions: ["Use server-side sessions instead of JWT", "Redis for session storage"],
   pending: ["Load test sessions", "Update API docs"],
   wake_days: 14
@@ -69,7 +70,8 @@ memory_reflect(
 
 What happens inside:
 - `summary` → appended to `project_context` slot (with timestamp)
-- `goals_delta` → updates `active_goals` (new ones added, `closed:` — removed)
+- `goals_add` → adds entries to `active_goals`; `goals_remove` removes stored goal lines
+  matching case-insensitively by substring
 - `decisions` → creates **active** thoughts with tags `decision` + `reflect` (knowledge graph, not in frontier — frontier only surfaces `directive`/`todo`/`pending` thoughts)
 - `pending` → creates **draft** thoughts with tags `pending` + `reflect` and `surface_after = now + wake_days` (they join the frontier once due)
 

@@ -28,13 +28,19 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 
 Every destructive action — `memory_store` `unlink` and `retype`, `memory_supersede` `archive`
 and `merge`, `memory_manage action=delete`, `memory_review` (`apply`/`apply_batch`/`rollback`),
-`memory_primers action=delete`, and `memory_status action=cleanup` — follows the same two-step
+`memory_primers action=delete`, `memory_status action=cleanup`, and
+`memory_crystallize action=auto_cluster` — follows the same two-step
 pattern:
 
 - **Preview (default).** `confirm` is absent or `false`. The tool validates the target and
   returns a non-mutating preview with `status: "preview"` and a human-readable `consequence`.
   Nothing is written.
 - **Execute.** `confirm: true` performs the write and returns a status-specific result.
+
+Retired MCP inputs are validation errors with replacement hints: recall `top_k` → `limit`,
+`cluster` → `is_cluster`, frontier `k` → `limit`; crystallize `dry_run` → `confirm`;
+store link `thought_id` → `source_id`; reflect `goals_delta` → `goals_add` / `goals_remove`;
+review enqueue `max_items` → `max_proposals`. These names are not accepted aliases.
 
 ## Result and error envelopes
 
@@ -102,7 +108,7 @@ Example:
 ### `action=search`
 
 Hybrid (RRF) / vector / BM25 search. Key arguments: `query` (required), `mode` (`hybrid`/`vector`/`bm25`),
-`status`, `project`, `tag`, `cluster` (only/exclude), `min_importance`, `top_k`, `min_relevance`,
+`status`, `project`, `tag`, `is_cluster`, `min_importance`, `limit`, `min_relevance`,
 `recency_weight`, `recency_half_life_days`, `supersession_mode`, `contradiction_mode`.
 Returns hits with `similarity`/`distance` (embedding leg only), `match_source` (`embedding`/`bm25`/both), `low_confidence`.
 
@@ -113,14 +119,16 @@ Fetch one thought by `thought_id` (full content, tags, project, importance, edge
 ### `action=context` / `action=chain` / `action=clusters`
 
 `context` returns a thought plus its neighbours up to `max_degree` (accepts a text `query` or a
-`thought_id`); `chain` walks a parent/develops chain; `clusters` lists cluster thoughts and their
+`thought_id`); `chain` walks a parent/develops chain. `max_degree` bounds chain/context traversal;
+it is distinct from `limit`, which caps returned results. `clusters` lists cluster thoughts and their
 members.
 
 ## `memory_store` — edges
 
 ### `action=link`
 
-Create an edge between two thoughts. A pair carries **one** edge: re-linking the same pair with
+Create an edge between two thoughts. Use canonical endpoint parameters `source_id` and `target_id`;
+the retired `thought_id` alias is rejected with a hint to use `source_id`. A pair carries **one** edge: re-linking the same pair with
 the same type is idempotent for the symmetric types (`related`, `contradicts`), while a directed
 duplicate or a second, different type on the pair is reported as an error — except that a
 `related` placeholder edge is upgraded in place to the specific type you ask for. Constraints: no
@@ -327,7 +335,9 @@ rejects are dropped and left out of the count. An existing symmetric pair (`rela
 Three actions, all read-mostly: `graph` (nodes + edges for a project, `status` and `limit`
 filters), `cluster` (create a cluster thought from `thought_ids` with an optional `title`
 and `tags`), and `auto_cluster` (Union-Find grouping over active thoughts, tuned by the
-`autoCluster.*` settings in [CONFIG.md](CONFIG.md) and previewable with `dry_run: true`;
+`autoCluster.*` settings in [CONFIG.md](CONFIG.md). It previews when `confirm` is absent or false;
+`confirm: true` executes, even when the configured `autoCluster.dryRun` default is true. The retired
+`dry_run` input is rejected with a hint to use `confirm`;
 `project_id`/`cwd` do not apply — the run is global).
 
 ## `memory_reflect` — session reflection
@@ -335,8 +345,9 @@ and `tags`), and `auto_cluster` (Union-Find grouping over active thoughts, tuned
 `action=reflect` is **not read-only**: it writes slots and thoughts.
 
 - `summary` is appended (with a timestamp) to the `project_context` slot.
-- `goals_delta` adds goals to `active_goals`; an entry prefixed with `closed:` removes a
-  matching goal instead.
+- `goals_add` adds goals to `active_goals`; `goals_remove` removes stored goal lines when the
+  supplied text matches as a case-insensitive substring. The retired `goals_delta` parameter is
+  rejected with a hint to use `goals_add` / `goals_remove`.
 - `decisions` creates one **active** thought each, tagged `decision` + `reflect`. Entries
   sufficiently similar to an existing non-archived `decision` thought are skipped
   (Jaccard ≥ 0.6 on normalised text), so re-reflecting the same decision is a no-op.
@@ -419,13 +430,14 @@ Slots are **read-only** through this tool: it never writes. `pending_items` is d
 thoughts tagged `pending` (the same set the frontier surfaces); `architecture_decisions` from
 primers (most-hit first); `project_context` and `active_goals` are stored rows. To change slot
 content, update or archive the underlying thoughts (virtual slots) or use `memory_reflect`
-(`summary` appends to `project_context`; `goals_delta` edits `active_goals`). Paging applies to
+(`summary` appends to `project_context`; `goals_add` and `goals_remove` edit `active_goals`). Paging applies to
 `pending_items` via `limit`/`offset`.
 
 ### `action=cleanup`
 
-TTL cleanup of archived thoughts. `dry_run` defaults to `true` (preview); set `dry_run: false`
-to actually delete. Protected thoughts are never deleted.
+TTL cleanup of archived thoughts. It previews by default; set `confirm: true` to actually delete.
+The retired `dry_run` input is rejected with a hint to use `confirm`. Protected thoughts are never
+deleted.
 
 ### `action=propose`
 
