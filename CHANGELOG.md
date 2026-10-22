@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.16.2
+
+> October 22, 2026
+
+- [`398fc5e`](https://github.com/zumik3-del/synaptomind/commit/398fc5e15bf10517d289297b3a3a1dd063c5c8c1): test(mcp): verify bounded merge preview retrieval
+- [`0a332a6`](https://github.com/zumik3-del/synaptomind/commit/0a332a68eb990bba049ab76c54dd0857366bc724): perf(mcp): bound merge preview edge retrieval
+- [`51342d5`](https://github.com/zumik3-del/synaptomind/commit/51342d50ad852add2c3394dd2047c4ba984b4f15): test(mcp): cover supersede confirmation contract
+- [`94e1958`](https://github.com/zumik3-del/synaptomind/commit/94e1958ba1dd6362384c32c48b6beeb749fce8b0): docs(mcp): document supersede confirmation contract
+- [`c23245f`](https://github.com/zumik3-del/synaptomind/commit/c23245f43befee1cca47e9e431c3ef38884f1d13): fix(mcp): require confirmation for supersede writes
+- [`a3fc395`](https://github.com/zumik3-del/synaptomind/commit/a3fc395de33ed816da72f6bb66588de75b0237b9): test(review): cover proposal enqueue contracts
+- [`ac704ac`](https://github.com/zumik3-del/synaptomind/commit/ac704ac57fe0b0a8ab237184cad9dfec389c70ff): test(mcp): cover canonical recall and confirmation contracts
+- [`442551f`](https://github.com/zumik3-del/synaptomind/commit/442551f3db169931685c542334d96214d7fade35): test(reflect): cover canonical goal parameters
+- [`f87ad06`](https://github.com/zumik3-del/synaptomind/commit/f87ad06ccb5cfa13e2ae5d58b3a52d53a4468ec3): test(mcp): cover link and frontier validation fixes
+- [`78c4977`](https://github.com/zumik3-del/synaptomind/commit/78c4977a02c6eb42c734530674229cf70302f23a): fix(mcp): validate retired link alias and frontier limit
+- [`2c09c99`](https://github.com/zumik3-del/synaptomind/commit/2c09c99c0bf652900c4f09323d8034bbd714ee9a): docs(mcp): correct cleanup confirmation guide
+- [`5535b16`](https://github.com/zumik3-del/synaptomind/commit/5535b168fde245d7b4536dead91d50be10caa5f2): docs(mcp): document canonical tool parameters
+- [`596f8f8`](https://github.com/zumik3-del/synaptomind/commit/596f8f884f8d2830546dc8264fe1e1027021cc04): refactor(mcp)!: reject retired parameters with migration hints
+- [`42f9904`](https://github.com/zumik3-del/synaptomind/commit/42f990449ef92b2947f1570e1746c7e558cef9cb): refactor(mcp)!: crystallize auto_cluster gated behind confirm
+- [`6bef0f7`](https://github.com/zumik3-del/synaptomind/commit/6bef0f78023f21f04a8dbb4a758c266d32eb2865): refactor(mcp)!: review enqueue capped by max_proposals only
+- [`c83ab08`](https://github.com/zumik3-del/synaptomind/commit/c83ab08eb4ea200a037673cd28f16e8e2a8e088e): refactor(reflect)!: explicit goals_add/goals_remove replace goals_delta
+- [`9f61ca5`](https://github.com/zumik3-del/synaptomind/commit/9f61ca5796cb7c756e06284a2c0d0ab96980b543): refactor(mcp)!: store link requires source_id and target_id
+- [`5c7612e`](https://github.com/zumik3-del/synaptomind/commit/5c7612ef1a1eadcbf8cff06099a4efc206f02435): refactor(mcp)!: status frontier limit and confirm-gated cleanup
+- [`df992e2`](https://github.com/zumik3-del/synaptomind/commit/df992e25b3afaa2ef5fceae5d813cd0fbc807a5c): refactor(mcp)!: recall limits and cluster filter: canonical names only
+- [`77a729f`](https://github.com/zumik3-del/synaptomind/commit/77a729f6071700467f848d7097702340bcdb32b6): docs(synaptomind): refresh skill for current MCP surface
+- [`7083cc4`](https://github.com/zumik3-del/synaptomind/commit/7083cc4a24645bd934beaa482e2510dc5a61d9cf): chore: remove leftover _repro.test.ts debug file
+- [`6f815ee`](https://github.com/zumik3-del/synaptomind/commit/6f815ee5580492386934fffa08552d26d29dfa51): feat(mcp): context accepts thought_id (task #1978)
+- [`1d18af8`](https://github.com/zumik3-del/synaptomind/commit/1d18af894b45b1b0eb4495439d25c224b795b009): feat(search): rename vector->embedding in match_source, omit similarity for BM25-only (task #1977)
+- [`1509570`](https://github.com/zumik3-del/synaptomind/commit/150957035b2b8400c936061ed7ba89d09d92062c): feat(mcp): add include_edges to memory_recall get (task #1976)
+- [`283290e`](https://github.com/zumik3-del/synaptomind/commit/283290ed6805f47adf50c062b78ba33ce0b4d53d): docs(mcp): document confirm, slots, manage vs status, list params (tasks #1975,#1979,#1980,#1981)
+- [`b2d6572`](https://github.com/zumik3-del/synaptomind/commit/b2d65722d0e0c4a69ba2d09ad360d61b26326772): feat(mcp): add pagination to memory_crystallize graph (task #1973)
+- [`9d19b54`](https://github.com/zumik3-del/synaptomind/commit/9d19b54c4f3ff8287813ef709edc242ee6e040f6): feat(mcp): add unlink_batch action to memory_store (task #1972)
+- [`addd8f8`](https://github.com/zumik3-del/synaptomind/commit/addd8f8aaad41dc3ef93bf18080d7c5261bb9b18): test(embedder): pin backoff isolation and mutation matrix of the batch loop (task #1970)
+- [`88c61be`](https://github.com/zumik3-del/synaptomind/commit/88c61be9df3837fba949e0ae411dc7dc184d6bc1): docs(mcp): document memory_recall actions and list example
+
 ## v0.16.1
 
 > October 22, 2026
