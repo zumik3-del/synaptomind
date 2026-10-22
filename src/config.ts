@@ -36,17 +36,11 @@ interface Config {
     resetDeadLetters: boolean
   }
   thoughts: { softLimit: number; hardLimitBufferPercent: number }
-  decay: {
-    rate: number; archiveThreshold: number;
-    archiveMinAgeDays: number; intervalMs: number
-  }
+  decay: { rate: number; intervalMs: number }
   primer: { promoteThreshold: number; topN: number }
   autoCluster: {
     minAgeDays: number; minSimilarity: number;
     minMembers: number; dryRun: boolean
-  }
-  autoLink: {
-    minSimilarity: number; maxEdgesPerRun: number; dryRun: boolean
   }
   edgeDetect: {
     minSimilarity: number; topK: number; maxCandidates: number;
@@ -54,11 +48,7 @@ interface Config {
   }
   placement: {
     maxClusterSize: number; proposalTtlDays: number; maxPendingProposals: number;
-    maxProposalsPerEnqueue: number; maxProposals: number; maxItemsPerEnqueue: number
-  }
-  triage: {
-    enabled: boolean; maxItemsPerRun: number; maxArchivesPerRun: number;
-    maxLinksPerRun: number; requireDryRunFirst: boolean; backfillEnabled: boolean
+    maxProposalsPerEnqueue: number
   }
   slots: { defaultMaxChars: number; hardLimit: number }
   graph: { maxDegree: number }
@@ -83,10 +73,7 @@ export const DEFAULTS: Config = {
     resetDeadLetters: false
   },
   thoughts: { softLimit: 600, hardLimitBufferPercent: 20 },
-  decay: {
-    rate: 0.95, archiveThreshold: 0.1,
-    archiveMinAgeDays: 30, intervalMs: 86400000
-  },
+  decay: { rate: 0.95, intervalMs: 86400000 },
   primer: { promoteThreshold: 5, topN: 3 },
   // `minSimilarity` is a cosine DISTANCE (see auto-cluster.service.ts
   // `r.distance < minSimilarity`), so lower = tighter. The distance is now
@@ -98,9 +85,6 @@ export const DEFAULTS: Config = {
     minAgeDays: 3, minSimilarity: 0.09,
     minMembers: 3, dryRun: false
   },
-  autoLink: {
-    minSimilarity: 0.65, maxEdgesPerRun: 20, dryRun: false
-  },
   edgeDetect: {
     minSimilarity: 0.75, topK: 10, maxCandidates: 100,
     maxProposals: 20
@@ -110,14 +94,7 @@ export const DEFAULTS: Config = {
   // proposer — the cap only suppresses the suggestion, it never mutates.
   // `proposalTtlDays` bounds the review queue (ADR §2.4): terminal rows are
   // pruned after the TTL and live `pending` rows use `expires_at`.
-  placement: { maxClusterSize: 50, proposalTtlDays: 30, maxPendingProposals: 500, maxProposalsPerEnqueue: 5, maxProposals: 5, maxItemsPerEnqueue: 5 },
-  // Draft-triage per-run caps (ADR 2026-09-29 §2.7/§2.8). `maxLinksPerRun`
-  // mirrors `autoLink.maxEdgesPerRun` (phase-2 link proposals), and
-  // `requireDryRunFirst` forces a preview before a run may confirm.
-  triage: {
-    enabled: true, maxItemsPerRun: 25, maxArchivesPerRun: 25,
-    maxLinksPerRun: 20, requireDryRunFirst: true, backfillEnabled: true
-  },
+  placement: { maxClusterSize: 50, proposalTtlDays: 30, maxPendingProposals: 500, maxProposalsPerEnqueue: 5 },
   slots: { defaultMaxChars: 2000, hardLimit: 20000 },
   graph: { maxDegree: 50 },
   // Conservative placeholder pending issue #156 calibration: above the observed
@@ -179,8 +156,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_THOUGHT_HARD_LIMIT_BUFFER_PERCENT', 'thoughts.hardLimitBufferPercent', 'int'),
 
   M('SYNAPTOMIND_DECAY_RATE', 'decay.rate', 'float'),
-  M('SYNAPTOMIND_ARCHIVE_THRESHOLD', 'decay.archiveThreshold', 'float'),
-  M('SYNAPTOMIND_ARCHIVE_MIN_AGE_DAYS', 'decay.archiveMinAgeDays', 'int'),
   M('SYNAPTOMIND_DECAY_INTERVAL_MS', 'decay.intervalMs', 'int'),
 
   M('SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD', 'primer.promoteThreshold', 'int'),
@@ -191,10 +166,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_AUTO_CLUSTER_MIN_MEMBERS', 'autoCluster.minMembers', 'int'),
   M('SYNAPTOMIND_AUTO_CLUSTER_DRY_RUN', 'autoCluster.dryRun', 'bool'),
 
-  M('SYNAPTOMIND_AUTO_LINK_MIN_SIMILARITY', 'autoLink.minSimilarity', 'float'),
-  M('SYNAPTOMIND_AUTO_LINK_MAX_EDGES', 'autoLink.maxEdgesPerRun', 'int'),
-  M('SYNAPTOMIND_AUTO_LINK_DRY_RUN', 'autoLink.dryRun', 'bool'),
-
   M('SYNAPTOMIND_EDGE_DETECT_MIN_SIMILARITY', 'edgeDetect.minSimilarity', 'float'),
   M('SYNAPTOMIND_EDGE_DETECT_TOP_K', 'edgeDetect.topK', 'int'),
   M('SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES', 'edgeDetect.maxCandidates', 'int'),
@@ -204,15 +175,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS', 'placement.proposalTtlDays', 'int'),
   M('SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS', 'placement.maxPendingProposals', 'int'),
   M('SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS_PER_ENQUEUE', 'placement.maxProposalsPerEnqueue', 'int'),
-  M('SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS', 'placement.maxProposals', 'int'),
-  M('SYNAPTOMIND_PLACEMENT_MAX_ITEMS_PER_ENQUEUE', 'placement.maxItemsPerEnqueue', 'int'),
-
-  M('SYNAPTOMIND_TRIAGE_ENABLED', 'triage.enabled', 'bool'),
-  M('SYNAPTOMIND_TRIAGE_MAX_ITEMS_PER_RUN', 'triage.maxItemsPerRun', 'int'),
-  M('SYNAPTOMIND_TRIAGE_MAX_ARCHIVES_PER_RUN', 'triage.maxArchivesPerRun', 'int'),
-  M('SYNAPTOMIND_TRIAGE_MAX_LINKS_PER_RUN', 'triage.maxLinksPerRun', 'int'),
-  M('SYNAPTOMIND_TRIAGE_REQUIRE_DRY_RUN_FIRST', 'triage.requireDryRunFirst', 'bool'),
-  M('SYNAPTOMIND_TRIAGE_BACKFILL_ENABLED', 'triage.backfillEnabled', 'bool'),
 
   M('SYNAPTOMIND_SLOTS_MAX_CHARS', 'slots.defaultMaxChars', 'int'),
   M('SYNAPTOMIND_SLOTS_HARD_LIMIT', 'slots.hardLimit', 'int'),
