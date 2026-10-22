@@ -9,6 +9,7 @@ afterEach(closeDb)
 
 test('reflectSessionService throws when nothing provided', () => {
   expect(() => reflectSessionService({})).toThrow(ValidationError)
+  expect(() => reflectSessionService({})).toThrow(/goals_add, goals_remove/)
 })
 
 test('reflectSessionService appends summary to project_context', () => {
@@ -20,7 +21,7 @@ test('reflectSessionService appends summary to project_context', () => {
 })
 
 test('reflectSessionService adds goals', () => {
-  const result = reflectSessionService({ goals_delta: ['Goal A', 'Goal B'] })
+  const result = reflectSessionService({ goals_add: ['Goal A', 'Goal B'] })
   expect(result.goals_added).toBe(2)
   const db = getDb()
   const row = db.prepare("SELECT content FROM slots WHERE name = 'active_goals'").get() as { content: string }
@@ -28,16 +29,22 @@ test('reflectSessionService adds goals', () => {
   expect(row.content).toContain('Goal B')
 })
 
-test('reflectSessionService removes goals with closed: prefix', () => {
-  reflectSessionService({ goals_delta: ['Goal A', 'Goal B'] })
-  const result = reflectSessionService({ goals_delta: ['closed: Goal A'] })
+test('reflectSessionService removes goals via goals_remove', () => {
+  reflectSessionService({ goals_add: ['Goal A', 'Goal B'] })
+  const result = reflectSessionService({ goals_remove: ['Goal A'] })
   expect(result.goals_removed).toBe(1)
   expect(result.goals_added).toBe(0)
 })
 
+test('reflectSessionService matches goals_remove case-insensitively', () => {
+  reflectSessionService({ goals_add: ['Goal A'] })
+  const result = reflectSessionService({ goals_remove: ['goal a'] })
+  expect(result.goals_removed).toBe(1)
+})
+
 test('reflectSessionService deduplicates goals', () => {
-  reflectSessionService({ goals_delta: ['Goal A'] })
-  const result = reflectSessionService({ goals_delta: ['Goal A'] })
+  reflectSessionService({ goals_add: ['Goal A'] })
+  const result = reflectSessionService({ goals_add: ['Goal A'] })
   expect(result.goals_added).toBe(0)
 })
 
@@ -106,9 +113,11 @@ test('reflectSessionService validates summary is non-empty string', () => {
   expect(() => reflectSessionService({ summary: '   ' })).toThrow(ValidationError)
 })
 
-test('reflectSessionService validates goals_delta entries', () => {
-  expect(() => reflectSessionService({ goals_delta: [''] })).toThrow(ValidationError)
-  expect(() => reflectSessionService({ goals_delta: ['  '] })).toThrow(ValidationError)
+test('reflectSessionService validates goals_add and goals_remove entries', () => {
+  expect(() => reflectSessionService({ goals_add: [''] })).toThrow(ValidationError)
+  expect(() => reflectSessionService({ goals_add: ['  '] })).toThrow(ValidationError)
+  expect(() => reflectSessionService({ goals_remove: [''] })).toThrow(ValidationError)
+  expect(() => reflectSessionService({ goals_remove: ['  '] })).toThrow(ValidationError)
 })
 
 test('reflectSessionService validates wake_days range', () => {
@@ -132,7 +141,7 @@ test('reflectSessionService works with project scope', () => {
 test('reflectSessionService combines multiple inputs in one call', () => {
   const result = reflectSessionService({
     summary: 'did stuff',
-    goals_delta: ['new goal'],
+    goals_add: ['new goal'],
     decisions: ['made a call'],
     pending: ['todo item']
   })

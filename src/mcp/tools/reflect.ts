@@ -13,8 +13,11 @@ const handlers = {
       // isError envelope like every other action (audit F9).
       const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
       return reflectSessionService({
-        summary: args.summary as string | undefined, goals_delta: args.goals_delta as string[] | undefined,
-        decisions: args.decisions as string[] | undefined, pending: args.pending as string[] | undefined,
+        summary: args.summary as string | undefined,
+        goals_add: args.goals_add as string[] | undefined,
+        goals_remove: args.goals_remove as string[] | undefined,
+        decisions: args.decisions as string[] | undefined,
+        pending: args.pending as string[] | undefined,
         wake_days: args.wake_days as number | undefined, project_id: projectFilter
       })
     }
@@ -38,7 +41,8 @@ export function registerMemoryReflect(server: McpServer) {
     inputSchema: {
       action: z.enum(['reflect', 'timeline']).describe('Action'),
       summary: z.string().optional().describe('Brief summary of what was accomplished (reflect only)'),
-      goals_delta: z.array(z.string()).optional().describe('Goals to add or remove. Prefix "closed:" to remove. (reflect only)'),
+      goals_add: z.array(z.string()).optional().describe('Goals to add to active_goals — a goal already stored is not added twice (reflect only)'),
+      goals_remove: z.array(z.string()).optional().describe('Goals to remove from active_goals — matched case-insensitively against the stored goals (reflect only)'),
       decisions: z.array(z.string()).optional().describe('Decisions made — each creates an active thought tagged "decision" and "reflect" (reflect only)'),
       pending: z.array(z.string()).optional().describe('Pending tasks — each creates a draft thought tagged "pending" and "reflect" that surfaces in the frontier after wake_days (reflect only)'),
       wake_days: z.number().int().min(1).max(365).optional().describe('Days before pending items surface in the frontier (default 7, 1-365, reflect only)'),

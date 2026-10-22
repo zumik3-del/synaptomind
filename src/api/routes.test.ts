@@ -895,7 +895,7 @@ test("POST /api/slots/reflect folds session outcome into slots", async () => {
 		method: "POST",
 		body: JSON.stringify({
 			summary: "did the thing",
-			goals_delta: ["next step"],
+			goals_add: ["next step"],
 			decisions: ["picked A"],
 		}),
 		headers: { "Content-Type": "application/json" },

@@ -11,7 +11,8 @@ import type { Database } from 'bun:sqlite'
 export interface ReflectInput {
   project_id?: string | null
   summary?: string
-  goals_delta?: string[]
+  goals_add?: string[]
+  goals_remove?: string[]
   decisions?: string[]
   pending?: string[]
   wake_days?: number
@@ -24,8 +25,6 @@ export interface ReflectResult {
   decisions_created: number
   pending_created: number
 }
-
-const CLOSED_PREFIXES = ['closed:']
 
 /**
  * Stamped on every thought `reflect` creates, next to the semantic tag
@@ -48,6 +47,24 @@ function assertProjectExists(projectId: string, db: Database): void {
 }
 
 /**
+ * Validates one goal input array and returns its trimmed entries. A blank or
+ * non-string entry is a validation error rather than a silent skip: the caller
+ * would otherwise believe the goal was applied.
+ */
+function parseGoalEntries(
+  entries: readonly unknown[] | undefined,
+  field: 'goals_add' | 'goals_remove'
+): string[] {
+  if (!entries) return []
+  return entries.map(entry => {
+    if (typeof entry !== 'string' || !entry.trim()) {
+      throw new ValidationError(`${field} entries must be non-empty strings`)
+    }
+    return entry.trim()
+  })
+}
+
+/**
  * Returns true if `decision` is sufficiently similar to any existing
  * non-archived decision-tagged thought (Jaccard >= 0.6 or exact normalised match).
  */
@@ -62,13 +79,19 @@ function hasDuplicateDecision(db: Database, decision: string): boolean {
 }
 
 export function reflectSessionService(input: ReflectInput, d: Database = getDb()): ReflectResult {
+  const goalsToAdd = parseGoalEntries(input.goals_add, 'goals_add')
+  const goalsToRemove = parseGoalEntries(input.goals_remove, 'goals_remove')
+
   const hasAny =
     input.summary !== undefined ||
-    (input.goals_delta?.length ?? 0) > 0 ||
+    goalsToAdd.length > 0 ||
+    goalsToRemove.length > 0 ||
     (input.decisions?.length ?? 0) > 0 ||
     (input.pending?.length ?? 0) > 0
   if (!hasAny) {
-    throw new ValidationError('nothing to reflect: provide summary, goals_delta, decisions or pending')
+    throw new ValidationError(
+      'nothing to reflect: provide summary, goals_add, goals_remove, decisions or pending'
+    )
   }
 
   const result: ReflectResult = {
@@ -101,35 +124,34 @@ export function reflectSessionService(input: ReflectInput, d: Database = getDb()
       result.summary_appended = true
     }
 
-    if ((input.goals_delta?.length ?? 0) > 0) {
-      for (const delta of input.goals_delta as unknown[]) {
-        if (typeof delta !== 'string' || !delta.trim()) {
-          throw new ValidationError('goals_delta entries must be non-empty strings')
-        }
-      }
+    if (goalsToAdd.length > 0 || goalsToRemove.length > 0) {
       const row = getSlotRow(d, 'active_goals', scope, scopeId)
       const maxChars = row?.max_chars ?? config.slots.defaultMaxChars
       const lines = (row?.content ?? '')
         .split('\n')
         .map(l => l.trim())
         .filter(Boolean)
-      for (const raw of input.goals_delta as string[]) {
-        const lower = raw.trim().toLowerCase()
-        const prefix = CLOSED_PREFIXES.find(p => lower.startsWith(p))
-        if (prefix) {
-          const target = raw.trim().slice(prefix.length).trim().toLowerCase()
-          if (!target) continue
-          for (let i = lines.length - 1; i >= 0; i--) {
-            if (lines[i].toLowerCase().includes(target)) {
-              lines.splice(i, 1)
-              result.goals_removed++
-            }
+
+      // Removals run before additions: a removal target is matched against the
+      // goals that were already stored, so a goal added in the same call is
+      // never dropped by a stale removal entry.
+      for (const target of goalsToRemove) {
+        const lower = target.toLowerCase()
+        for (let i = lines.length - 1; i >= 0; i--) {
+          if (lines[i].toLowerCase().includes(lower)) {
+            lines.splice(i, 1)
+            result.goals_removed++
           }
-        } else if (!lines.some(l => l.toLowerCase() === lower)) {
-          lines.push(raw.trim())
+        }
+      }
+
+      for (const goal of goalsToAdd) {
+        if (!lines.some(l => l.toLowerCase() === goal.toLowerCase())) {
+          lines.push(goal)
           result.goals_added++
         }
       }
+
       upsertSlot(d, {
         name: 'active_goals',
         scope,
