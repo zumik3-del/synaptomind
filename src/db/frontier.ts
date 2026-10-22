@@ -9,14 +9,14 @@ export interface FrontierCandidateRow {
 }
 
 /**
- * Sources that never enter the frontier (profile summaries and crystals).
+ * Sources that never enter the frontier (legacy profile summaries).
  * Exported so any other candidate query applies the same exclusion.
  */
-export const FRONTIER_EXCLUDED_SOURCES = ['profile-summary', 'crystal']
+export const FRONTIER_EXCLUDED_SOURCES = ['profile-summary']
 
 /**
  * Frontier candidates tagged `directive`, `todo` or `pending` that are still
- * actionable: active or draft, not a cluster, not a derived summary/crystal,
+ * actionable: active or draft, not a cluster, not a derived profile summary,
  * and whose pending delay (if any) is already due. Optionally scoped to one
  * project (pushed into SQL to avoid an N+1 filter in the service).
  */

@@ -52,29 +52,32 @@ beforeAll(async () => {
   client = await setupClient()
 })
 
-describe('retired exclude_flagged option', () => {
-  for (const action of ['search', 'clusters'] as const) {
-    for (const excluded of [true, false]) {
-      test(`${action} rejects explicit exclude_flagged=${excluded}`, async () => {
-        const result = await client.callTool({
-          name: 'memory_recall',
-          arguments: { action, query: 'legacy', exclude_flagged: excluded }
-        })
-        expect(parseResult(result).isError).toBe(true)
-      })
-    }
-  }
-
-  test('search without retired option still returns matching thoughts with status filter', async () => {
-    const id = seedThought({ content: 'RECALL_RETIRED_MARKER unique content', status: 'active' })
-    const result = await client.callTool({
-      name: 'memory_recall',
-      arguments: { action: 'search', query: 'RECALL_RETIRED_MARKER', status: 'active', hybrid: true }
-    })
-    const parsed = parseResult(result)
-    expect(parsed.isError).toBe(false)
-    expect(JSON.stringify(parsed.data)).toContain(id)
+describe('memory_recall schema after exclude_flagged retirement', () => {
+  test('the advertised schema no longer exposes exclude_flagged', async () => {
+    const { tools } = await client.listTools()
+    const recallTool = tools.find(t => t.name === 'memory_recall')
+    expect(recallTool).toBeDefined()
+    const props = (recallTool?.inputSchema as { properties?: Record<string, unknown> })?.properties
+    expect(props).toBeDefined()
+    expect(props).not.toHaveProperty('exclude_flagged')
   })
+
+  for (const action of ['search', 'clusters'] as const) {
+    test(`${action} treats the retired exclude_flagged argument as an unknown key`, async () => {
+      const id = seedThought({
+        content: 'RECALL_RETIRED_MARKER unique content',
+        status: 'active',
+        ...(action === 'clusters' ? { is_cluster: 1 } : {})
+      })
+      const result = await client.callTool({
+        name: 'memory_recall',
+        arguments: { action, query: 'RECALL_RETIRED_MARKER', exclude_flagged: true, status: 'active' }
+      })
+      const parsed = parseResult(result)
+      expect(parsed.isError).toBe(false)
+      expect(JSON.stringify(parsed.data)).toContain(id)
+    })
+  }
 })
 
 // ── String-numeric coercion (task #926) ───────────────────────────────────────
