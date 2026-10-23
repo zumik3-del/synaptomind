@@ -7,9 +7,9 @@ import { RetentionReviewIneligibleError } from '../errors'
 import {
   compactRetentionReviewCandidatesService,
   deleteRetentionReviewCandidateService,
-  listRetentionReviewCandidatesService,
   protectRetentionReviewCandidateService
-} from './retention-review.service'
+} from './retention-review-actions.service'
+import { listRetentionReviewCandidatesService } from './retention-review.service'
 
 const now = '2026-10-23T00:00:00.000Z'
 const old = '2026-09-01T00:00:00.000Z'
