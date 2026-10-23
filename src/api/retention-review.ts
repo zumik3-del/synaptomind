@@ -1,12 +1,12 @@
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
 import { ValidationError } from '../errors'
+import { listRetentionReviewCandidatesService } from '../services/retention-review.service'
 import {
   compactRetentionReviewCandidatesService,
   deleteRetentionReviewCandidateService,
-  listRetentionReviewCandidatesService,
   protectRetentionReviewCandidateService
-} from '../services/retention-review.service'
+} from '../services/retention-review-actions.service'
 import { formatZodIssues, requiredJsonBody } from './utils'
 
 const retentionReviewRouter = new Hono()

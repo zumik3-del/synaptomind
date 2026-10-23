@@ -1,11 +1,11 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { listRetentionReviewCandidatesService } from '../../services/retention-review.service'
 import {
   compactRetentionReviewCandidatesService,
   deleteRetentionReviewCandidateService,
-  listRetentionReviewCandidatesService,
   protectRetentionReviewCandidateService
-} from '../../services/retention-review.service'
+} from '../../services/retention-review-actions.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
 const handlers = {
