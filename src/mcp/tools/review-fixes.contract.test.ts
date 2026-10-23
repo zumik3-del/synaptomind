@@ -76,13 +76,12 @@ test('memory_status frontier accepts limit 1 and rejects 51 with its range', asy
     name: 'memory_status', arguments: { action: 'frontier', limit: 51 }
   }))
   expect(over.isError).toBe(true)
-  expect(String(over.data)).toContain('at most')
   expect(String(over.data)).toContain('50')
 })
 
 test('memory_status slots accepts a limit above the frontier maximum', async () => {
   const result = toolResult(await client.callTool({
-    name: 'memory_status', arguments: { action: 'slots', limit: 51 }
+    name: 'memory_status', arguments: { action: 'slots', slots_limit: 51 }
   }))
 
   expect(result.isError).toBe(false)

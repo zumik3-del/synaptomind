@@ -20,11 +20,12 @@ const handlers = {
 export function registerMemoryStatus(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_status',
-    description: `Query system state (read-only except cleanup). Actions: slots (read-only; pending_items derived from pending thoughts, architecture_decisions from primers; limit/offset paging), frontier (limit result count), config, health, propose (read-only plan), cleanup (TTL; confirm to execute, otherwise preview).`,
+    description: `Query system state (read-only except cleanup). Actions: slots (read-only; pending_items derived from pending thoughts, architecture_decisions from primers; slots_limit/offset paging), frontier (limit result count, 1-50), config, health, propose (read-only plan), cleanup (TTL; confirm to execute, otherwise preview).`,
     inputSchema: {
       action: z.enum(['slots', 'frontier', 'config', 'health', 'propose', 'cleanup']).describe('Action'),
       names: z.array(z.string()).optional().describe('Filter by slot names (slots only)'),
-      limit: z.number().int().min(1).max(1000).optional().describe('Max items (slots pending_items pagination; frontier max results 1-50, default 10)'),
+      limit: z.number().int().min(1).max(50).optional().describe('Max frontier results (1-50, default 10; frontier only)'),
+      slots_limit: z.number().int().min(1).max(1000).optional().describe('Max pending_items for slots paging (1-1000; slots only)'),
       offset: z.number().int().min(0).max(1_000_000).optional().describe('Offset for pagination (slots only, pending_items)'),
       project_id: z.string().optional().describe('Filter by project (slots/frontier/propose only)'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project (slots/frontier/propose only)'),
