@@ -10,8 +10,9 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { getDb } from '../db'
+import { deleteThought, updateThought } from '../db/thoughts'
 import { getThoughtTagsBatch, type Tag } from '../db/tags'
-import { ValidationError } from '../errors'
+import { ValidationError, NotFoundError } from '../errors'
 
 export interface RetentionReviewCandidate {
   id: string
@@ -222,5 +223,412 @@ export const getRetentionReviewCandidateQuery = listRetentionReviewCandidatesSer
 export const listRetentionReviewCandidateQuery = listRetentionReviewCandidatesService
 export const queryRetentionReviewCandidates = listRetentionReviewCandidatesService
 export const retentionReviewQuery = listRetentionReviewCandidatesService
+
+// ---------------------------------------------------------------------------
+// Retention-review actions: hard delete (cascade, preview-first) and protect.
+// ---------------------------------------------------------------------------
+
+export class RetentionReviewIneligibleError extends Error {
+  readonly statusCode = 409
+  constructor(msg = 'Thought is not an eligible retention-review candidate') {
+    super(msg)
+    this.name = 'RetentionReviewIneligibleError'
+  }
+}
+
+export interface RetentionReviewDeleteOptions extends RetentionReviewQueryOptions {
+  confirm?: boolean
+  minAgeDays?: number
+  min_age_days?: number
+  importanceFloor?: number
+  importance_floor?: number
+  now?: string
+  clock?: string
+}
+
+export interface RetentionReviewProtectOptions {
+  now?: string
+  clock?: string
+}
+
+interface ResolvedDeleteArgs {
+  confirm: boolean
+  opts: RetentionReviewDeleteOptions
+  d: Database
+}
+
+function resolveDeleteArgs(_id: string, a?: unknown, b?: unknown): ResolvedDeleteArgs {
+  let confirm = false
+  let opts: RetentionReviewDeleteOptions = {}
+  let d: Database | undefined
+
+  const applyValue = (value: unknown) => {
+    if (!value) return
+    if (typeof value === 'boolean') {
+      confirm = value
+      return
+    }
+    if (typeof value === 'object') {
+      if ('prepare' in (value as object)) {
+        d = value as Database
+        return
+      }
+      const o = value as RetentionReviewDeleteOptions
+      opts = { ...opts, ...o }
+      if (typeof o.confirm === 'boolean') confirm = o.confirm
+    }
+  }
+
+  applyValue(a)
+  applyValue(b)
+
+  if (!d) d = getDb()
+  return { confirm, opts, d }
+}
+
+function resolveProtectArgs(_id: string, a?: unknown, b?: unknown): { opts: RetentionReviewProtectOptions; d: Database } {
+  let opts: RetentionReviewProtectOptions = {}
+  let d: Database | undefined
+
+  const applyValue = (value: unknown) => {
+    if (!value) return
+    if (typeof value === 'object') {
+      if ('prepare' in (value as object)) {
+        d = value as Database
+        return
+      }
+      opts = { ...opts, ...(value as RetentionReviewProtectOptions) }
+    }
+  }
+
+  applyValue(a)
+  applyValue(b)
+  if (!d) d = getDb()
+  return { opts, d }
+}
+
+function resolveNow(opts: { now?: string; clock?: string }): string {
+  return (opts.now ?? opts.clock ?? new Date().toISOString()) as string
+}
+
+function resolveMinAge(opts: RetentionReviewDeleteOptions): number {
+  const v = asNumber(opts.minAgeDays ?? opts.min_age_days)
+  const resolved = v === undefined ? config.retentionReview.minAgeDays : v
+  if (!Number.isFinite(resolved) || resolved <= 0) {
+    throw new ValidationError('minAgeDays must be a positive number')
+  }
+  return resolved
+}
+
+function resolveFloor(opts: RetentionReviewDeleteOptions): number {
+  const v = asNumber(opts.importanceFloor ?? opts.importance_floor)
+  const resolved = v === undefined ? config.retentionReview.importanceFloor : v
+  if (!Number.isFinite(resolved) || resolved < 0 || resolved > 1) {
+    throw new ValidationError('importanceFloor must be in [0, 1]')
+  }
+  return resolved
+}
+
+interface EligibilityDetail {
+  eligible: boolean
+  reasons: string[]
+  thought: {
+    id: string
+    content: string
+    status: string
+    project_id: string
+    is_protected: number
+    is_global: number
+    created_at: string
+    archived_at: string | null
+    surface_after: string | null
+    importance: number
+    hit_count: number
+  }
+  incomingActiveEdges: number
+}
+
+function evaluateEligibility(id: string, d: Database, opts: RetentionReviewDeleteOptions, now: string): EligibilityDetail {
+  const row = d
+    .prepare(
+      `SELECT t.id, t.content, t.status, t.project_id, t.is_protected, t.is_global,
+              t.created_at, t.archived_at, t.surface_after,
+              COALESCE(ti.importance, 1.0) AS importance,
+              COALESCE(ti.hit_count, 0) AS hit_count
+       FROM thoughts t
+       LEFT JOIN thought_importance ti ON ti.thought_id = t.id
+       WHERE t.id = ?`
+    )
+    .get(id) as
+    | {
+        id: string
+        content: string
+        status: string
+        project_id: string
+        is_protected: number
+        is_global: number
+        created_at: string
+        archived_at: string | null
+        surface_after: string | null
+        importance: number
+        hit_count: number
+      }
+    | undefined
+
+  if (!row) throw new NotFoundError(`Thought not found: ${id}`)
+
+  const reasons: string[] = []
+  const minAgeDays = resolveMinAge(opts)
+  const floor = resolveFloor(opts)
+  const nowMs = Date.parse(now)
+
+  if (!['archived', 'draft'].includes(row.status)) reasons.push('status not archived/draft')
+  if (row.is_protected) reasons.push('protected')
+  if (row.is_global) reasons.push('is_global')
+
+  const anchor = row.archived_at ?? row.created_at
+  const cutoffMs = nowMs - minAgeDays * 86400000
+  if (!(Date.parse(anchor) < cutoffMs)) reasons.push('age < minAgeDays')
+
+  if (!(row.importance < floor)) reasons.push('importance >= floor')
+  if (row.hit_count !== 0) reasons.push('hit_count != 0')
+
+  const incomingRow = d
+    .prepare(
+      `SELECT COUNT(*) AS c FROM edges e JOIN thoughts s ON s.id = e.source_id
+       WHERE e.target_id = ? AND s.status = 'active'`
+    )
+    .get(id) as { c: number }
+  const incomingActiveEdges = incomingRow?.c ?? 0
+  if (incomingActiveEdges > 0) reasons.push('incoming active edges')
+
+  if (row.surface_after && Date.parse(row.surface_after) > nowMs) reasons.push('surface_after in future')
+
+  return {
+    eligible: reasons.length === 0,
+    reasons,
+    thought: row,
+    incomingActiveEdges
+  }
+}
+
+function countDependents(id: string, d: Database): {
+  edges: number
+  importance: number
+  url_links: number
+  pending_embeddings: number
+  primers: number
+  thought_tags: number
+  total: number
+} {
+  const safeCount = (sql: string): number => {
+    try {
+      const r = d.prepare(sql).get(id) as { c: number } | undefined
+      return r?.c ?? 0
+    } catch {
+      return 0
+    }
+  }
+  let edgesCount = 0
+  try {
+    const r = d.prepare(`SELECT COUNT(*) AS c FROM edges WHERE source_id = ? OR target_id = ?`).get(id, id) as { c: number } | undefined
+    edgesCount = r?.c ?? 0
+  } catch {
+    edgesCount = 0
+  }
+  const importance = safeCount(`SELECT COUNT(*) AS c FROM thought_importance WHERE thought_id = ?`)
+  const url_links = safeCount(`SELECT COUNT(*) AS c FROM thought_url_links WHERE thought_id = ?`)
+  const pending_embeddings = safeCount(`SELECT COUNT(*) AS c FROM pending_embeddings WHERE thought_id = ?`)
+  const primers = safeCount(`SELECT COUNT(*) AS c FROM primers WHERE thought_id = ?`)
+  const thought_tags = safeCount(`SELECT COUNT(*) AS c FROM thought_tags WHERE thought_id = ?`)
+
+  const total = edgesCount + importance + url_links + pending_embeddings + primers + thought_tags
+  return {
+    edges: edgesCount,
+    importance,
+    url_links,
+    pending_embeddings,
+    primers,
+    thought_tags,
+    total
+  }
+}
+
+function tableExists(d: Database, name: string): boolean {
+  try {
+    const r = d.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(name)
+    return !!r
+  } catch {
+    return false
+  }
+}
+
+function cascadeDelete(id: string, d: Database): void {
+  if (tableExists(d, 'edges')) {
+    d.prepare(`DELETE FROM edges WHERE source_id = ? OR target_id = ?`).run(id, id)
+  }
+  if (tableExists(d, 'thought_importance')) {
+    d.prepare(`DELETE FROM thought_importance WHERE thought_id = ?`).run(id)
+  }
+  if (tableExists(d, 'thought_url_links')) {
+    d.prepare(`DELETE FROM thought_url_links WHERE thought_id = ?`).run(id)
+  }
+  if (tableExists(d, 'pending_embeddings')) {
+    d.prepare(`DELETE FROM pending_embeddings WHERE thought_id = ?`).run(id)
+  }
+  if (tableExists(d, 'primers')) {
+    d.prepare(`DELETE FROM primers WHERE thought_id = ?`).run(id)
+  }
+  if (tableExists(d, 'thought_tags')) {
+    d.prepare(`DELETE FROM thought_tags WHERE thought_id = ?`).run(id)
+  }
+  // vec_thoughts handled by deleteThought
+  deleteThought(d, id)
+}
+
+export function deleteRetentionReviewCandidateService(
+  id: string,
+  a?: unknown,
+  b?: unknown
+): {
+  status: string
+  action: string
+  deleted: boolean
+  preview: boolean
+  confirm: boolean
+  thought_id: string
+  dependents?: ReturnType<typeof countDependents>
+  instruction?: string
+} {
+  const { confirm, opts, d } = resolveDeleteArgs(id, a, b)
+  const now = resolveNow(opts)
+
+  const elig = evaluateEligibility(id, d, opts, now)
+  if (!elig.eligible) {
+    throw new RetentionReviewIneligibleError(
+      `Thought ${id} is not an eligible retention-review candidate: ${elig.reasons.join(', ')}`
+    )
+  }
+
+  const dependents = countDependents(id, d)
+
+  if (!confirm) {
+    return {
+      status: 'preview',
+      action: 'preview',
+      deleted: false,
+      preview: true,
+      confirm: false,
+      thought_id: id,
+      dependents,
+      instruction: `Call again with confirm: true to permanently delete thought ${id}.`
+    }
+  }
+
+  d.transaction(() => {
+    const elig2 = evaluateEligibility(id, d, opts, now)
+    if (!elig2.eligible) {
+      throw new RetentionReviewIneligibleError(
+        `Thought ${id} is not an eligible retention-review candidate: ${elig2.reasons.join(', ')}`
+      )
+    }
+    cascadeDelete(id, d)
+  })()
+
+  return {
+    status: 'deleted',
+    action: 'deleted',
+    deleted: true,
+    preview: false,
+    confirm: true,
+    thought_id: id,
+    dependents
+  }
+}
+
+export function protectRetentionReviewCandidateService(
+  id: string,
+  a?: unknown,
+  b?: unknown
+): {
+  status: string
+  action: string
+  protected: boolean
+  thought_id: string
+} {
+  const { d } = resolveProtectArgs(id, a, b)
+  const row = d.prepare(`SELECT id FROM thoughts WHERE id = ?`).get(id) as { id: string } | undefined
+  if (!row) throw new NotFoundError(`Thought not found: ${id}`)
+
+  d.transaction(() => {
+    updateThought(d, id, { is_protected: true })
+  })()
+
+  return {
+    status: 'protected',
+    action: 'protected',
+    protected: true,
+    thought_id: id
+  }
+}
+
+// Aliases for discoverability / compatibility with callers and tests.
+export const deleteRetentionReview = deleteRetentionReviewCandidateService
+export const deleteRetentionReviewService = deleteRetentionReviewCandidateService
+export const deleteRetentionReviewCandidate = deleteRetentionReviewCandidateService
+export const hardDeleteRetentionReview = deleteRetentionReviewCandidateService
+export const hardDeleteRetentionReviewService = deleteRetentionReviewCandidateService
+export const hardDeleteRetentionReviewCandidate = deleteRetentionReviewCandidateService
+export const hardDeleteRetentionReviewCandidateService = deleteRetentionReviewCandidateService
+
+export const protectRetentionReview = protectRetentionReviewCandidateService
+export const protectRetentionReviewService = protectRetentionReviewCandidateService
+export const protectRetentionReviewCandidate = protectRetentionReviewCandidateService
+
+// Eligibility helpers (exported for reuse/testing).
+export function isRetentionReviewCandidate(id: string, a?: unknown, b?: unknown): boolean {
+  const { opts, d } = ((): { opts: RetentionReviewDeleteOptions; d: Database } => {
+    // allow flexible db/options
+    let o: RetentionReviewDeleteOptions = {}
+    let db: Database | undefined
+    const apply = (v: unknown) => {
+      if (!v) return
+      if (typeof v === 'object') {
+        if ('prepare' in (v as object)) db = v as Database
+        else o = { ...o, ...(v as RetentionReviewDeleteOptions) }
+      }
+    }
+    apply(a)
+    apply(b)
+    if (!db) db = getDb()
+    return { opts: o, d: db }
+  })()
+  const now = resolveNow(opts)
+  try {
+    return evaluateEligibility(id, d, opts, now).eligible
+  } catch {
+    return false
+  }
+}
+
+export function validateRetentionReviewCandidate(id: string, a?: unknown, b?: unknown): EligibilityDetail {
+  const { opts, d } = ((): { opts: RetentionReviewDeleteOptions; d: Database } => {
+    let o: RetentionReviewDeleteOptions = {}
+    let db: Database | undefined
+    const apply = (v: unknown) => {
+      if (!v) return
+      if (typeof v === 'object') {
+        if ('prepare' in (v as object)) db = v as Database
+        else o = { ...o, ...(v as RetentionReviewDeleteOptions) }
+      }
+    }
+    apply(a)
+    apply(b)
+    if (!db) db = getDb()
+    return { opts: o, d: db }
+  })()
+  const now = resolveNow(opts)
+  return evaluateEligibility(id, d, opts, now)
+}
 
 export default listRetentionReviewCandidatesService
