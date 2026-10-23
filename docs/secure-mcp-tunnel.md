@@ -61,7 +61,7 @@ tunnel-client init \
   --tunnel-id "$TUNNEL_ID" \
   --control-plane-api-key-ref "file:$TUNNEL_PROFILE_DIR/secrets/synaptomind-runtime-key" \
   --health-listen-addr 127.0.0.1:8080 \
-  --mcp-command "/usr/bin/env SYNAPTOMIND_DB_PATH=$SYNAPTOMIND_DIR/data/synaptomind.db SYNAPTOMIND_LOG_DB_PATH=$SYNAPTOMIND_DIR/data/logs.db SYNAPTOMIND_EMBEDDER_CACHE_DIR=$SYNAPTOMIND_DIR/data/huggingface $BUN_BIN run $SYNAPTOMIND_DIR/src/index.ts --stdio"
+  --mcp-command "/usr/bin/env SYNAPTOMIND_DB_PATH=$SYNAPTOMIND_DIR/data/synaptomind.db SYNAPTOMIND_EMBEDDER_CACHE_DIR=$SYNAPTOMIND_DIR/data/huggingface $BUN_BIN run $SYNAPTOMIND_DIR/src/index.ts --stdio"
 ```
 
 Review `$TUNNEL_PROFILE_DIR/synaptomind.yaml`. Keep the health/admin listener on

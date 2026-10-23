@@ -42,7 +42,16 @@ resolve_db_paths() {
     logp="$(grep -o '"logDbPath": *"[^"]*"' "$cfg" 2>/dev/null | head -1 | sed 's/.*"logDbPath": *"//;s/"//' || true)"
   fi
   printf '%s\n' "$main"
-  [ -n "$logp" ] && printf '%s\n' "$logp"
+  # Back up logs.db only when it is actually present on disk: the legacy store
+  # is optional (deprecated) and most installs have no logs.db at all.
+  if [ -n "$logp" ]; then
+    case "$logp" in
+      /*) [ -f "$logp" ] && printf '%s\n' "$logp" ;;
+      *)  [ -f "${INSTALL_DIR}/${logp}" ] && printf '%s\n' "$logp" ;;
+    esac
+  elif [ -f "${INSTALL_DIR}/data/logs.db" ]; then
+    printf '%s\n' "./data/logs.db"
+  fi
 }
 
 # ── Back up a single DB ────────────────────────────────────────────────────

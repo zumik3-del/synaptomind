@@ -21,7 +21,6 @@ LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
 
 ENV NODE_ENV=production
 ENV SYNAPTOMIND_DB_PATH=/app/data/synaptomind.db
-ENV SYNAPTOMIND_LOG_DB_PATH=/app/data/logs.db
 ENV SYNAPTOMIND_EMBEDDER_CACHE_DIR=/app/data/huggingface
 
 # Run as a dedicated non-root user (uid/gid 10001).
