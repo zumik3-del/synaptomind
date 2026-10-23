@@ -1,18 +1,10 @@
 import { beforeEach, afterEach, expect, test, describe } from 'bun:test'
-import { createTestDb, seedThought } from '../test/helpers'
+import { createTestDb } from '../test/helpers'
 import { closeDb, getDb } from '../db'
-import { config } from '../config'
 import { archiveThought, createThought, deleteThought, getThoughtRow, updateThought } from '../db/thoughts'
-import { cleanupArchivedThoughts } from '../services/ttl-cleanup.service'
 
 beforeEach(createTestDb)
 afterEach(() => { closeDb() })
-
-// Archived-thought deletion is opt-in (the shipped default is -1 = disabled);
-// the TTL case below enables it explicitly and restores it afterwards.
-let originalTtlDays = 0
-beforeEach(() => { originalTtlDays = config.ttl.archivedTtlDays })
-afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
 
 describe('is_protected', () => {
   test('new thought defaults to is_protected = 1', () => {
@@ -42,21 +34,6 @@ describe('is_protected', () => {
     const archived = archiveThought(d, thought.id)
     expect(archived?.is_protected).toBe(0)
     expect(archived?.status).toBe('archived')
-  })
-
-  test('TTL skips protected thoughts', () => {
-    const d = getDb()
-    config.ttl.archivedTtlDays = 90
-    const oldDate = new Date(Date.now() - 200 * 86400000).toISOString()
-    const protectedId = seedThought({ status: 'archived', is_protected: 1 })
-    const unprotectedId = seedThought({ status: 'archived', is_protected: 0 })
-    d.prepare(`UPDATE thoughts SET archived_at = ? WHERE id IN (?, ?)`).run(oldDate, protectedId, unprotectedId)
-    const result = cleanupArchivedThoughts()
-    expect(result.deleted).toBe(1)
-    expect(result.ids).toContain(unprotectedId)
-    expect(result.ids).not.toContain(protectedId)
-    expect(getThoughtRow(d, protectedId)).toBeDefined()
-    expect(getThoughtRow(d, unprotectedId)).toBeUndefined()
   })
 
   test('explicit deleteThought works on protected thoughts', () => {

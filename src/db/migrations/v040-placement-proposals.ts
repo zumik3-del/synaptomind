@@ -6,7 +6,7 @@ export default {
     // Persisted, advisory review queue for placement proposals (ADR §2.1).
     // Not the graph and not authoritative: a durable worklist whose rows are
     // re-validated (fingerprint) before any apply. `ON DELETE CASCADE` mirrors
-    // `edges` so TTL cleanup of a thought cannot orphan proposals.
+    // `edges` so deletion of a thought cannot orphan proposals.
     db.run(`
       CREATE TABLE IF NOT EXISTS placement_proposals (
         id                TEXT PRIMARY KEY,

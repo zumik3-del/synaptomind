@@ -114,8 +114,7 @@ decay job → importance decreases by rate (0.95) every 24h
   → nothing else: decay never archives a thought
 
 archiving → explicit only (memory_supersede(action=archive) or status=archived)
-TTL cleanup → opt-in: deletes archived thoughts only when ttl.archivedTtlDays > 0
-  → default -1 disables deletion; 0 also disables it; protected thoughts are never deleted
+  → deletion of archived thoughts is handled by retention-review (sole deletion path)
 
 search path → promotes frequently-hit thoughts to primers once hit_count reaches
               primer.promoteThreshold (default 5)

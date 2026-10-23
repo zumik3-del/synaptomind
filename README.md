@@ -153,7 +153,7 @@ sequenceDiagram
 - **Local embeddings** — `@huggingface/transformers`, no API keys
 - **MCP server** — stdio + HTTP transport
 - **Auto-clustering** — batch grouping by embedding proximity
-- **Background jobs** — decay, TTL cleanup, proposal retention
+- **Background jobs** — decay, proposal retention
 
 </details>
 
@@ -249,7 +249,7 @@ For clients that prefer stdio:
 
 By default the stdio process is a **single-owner client**: it opens an MCP
 session against the shared database but does **not** start its own embedder
-child process or the decay / TTL-cleanup / proposal-retention jobs. Those
+child process or the decay / proposal-retention jobs. Those
 are owned by the standalone HTTP server, so N stdio clients no longer spawn N
 embedders and N schedulers against one DB.
 

@@ -103,7 +103,7 @@ function assertPureJsonRpcLines(stdout: string): void {
     expect(parsed.jsonrpc).toBe('2.0')
   }
   // Named log prefixes must never appear on the wire.
-  for (const marker of ['[synaptomind]', '[embedder]', '[ttl-cleanup]', '[search]', '[logs]']) {
+  for (const marker of ['[synaptomind]', '[embedder]', '[search]', '[logs]']) {
     expect(stdout).not.toContain(marker)
   }
   expect(stdout).toContain('"id":1')

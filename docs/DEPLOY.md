@@ -169,6 +169,11 @@ not already root.
 > no `deploy/`, so the updater aborts with an explicit message rather than
 > falling back to a branch or prerelease.
 
+### Data retention
+
+Archived thoughts are retained until the retention-review process removes them;
+retention-review is the sole deletion path. There is no TTL-based cleanup.
+
 ### Advanced: direct `update.sh`
 
 The installed `update.sh` stays available and is required on hosts that track a
