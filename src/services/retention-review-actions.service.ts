@@ -4,7 +4,7 @@ import { countIncomingActiveRetentionReviewEdges, countRetentionReviewDependents
 import { config } from '../config'
 import { getDb } from '../db'
 import { createThought as dbCreateThought, deleteThought, updateThought } from '../db/thoughts'
-import { getThoughtTags, type Tag } from '../db/tags'
+import { getThoughtTags } from '../db/tags'
 import { RetentionReviewIneligibleError, ValidationError, NotFoundError } from '../errors'
 import { mergeThoughtsService } from './merge.service'
 import { computeContentHash } from '../utils'

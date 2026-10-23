@@ -147,3 +147,40 @@ export interface AggregateMetrics {
   hitRate: number
   queries: number
 }
+
+export type EvalMode = 'deterministic' | 'real'
+
+export interface QueryRun {
+  query: string
+  relevant: string[]
+  hits: RetrievedHit[]
+  metrics: QueryMetrics
+}
+
+export interface ScenarioRun {
+  name: string
+  category: string
+  outcome: 'pass' | 'xfail'
+  status: 'pass' | 'fail' | 'xfail' | 'xpass'
+  measureOnly?: boolean
+  metrics: AggregateMetrics
+  queries: QueryRun[]
+  checkErrors: string[]
+}
+
+export interface Regression {
+  scope: string
+  metric: string
+  actual: number
+  threshold: number
+  detail?: string
+}
+
+export interface RunResult {
+  mode: EvalMode
+  generatedAt: string
+  topK: number
+  scenarios: ScenarioRun[]
+  overall: AggregateMetrics
+  categories: Record<string, AggregateMetrics>
+}

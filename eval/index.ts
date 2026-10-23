@@ -4,18 +4,9 @@
 
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  buildThresholdEntry,
-  collectGatingRegressions,
-  type EvalMode,
-  loadThresholds,
-  type Regression,
-  type RunResult,
-  runEval,
-  type ThresholdFile,
-  upsertThresholdEntry,
-  writeThresholds
-} from './runner'
+import { runEval } from './runner'
+import { buildThresholdEntry, collectGatingRegressions, loadThresholds, upsertThresholdEntry, writeThresholds, type ThresholdFile } from './thresholds'
+import type { EvalMode, Regression, RunResult } from './types'
 
 interface CliOptions {
   mode: EvalMode

@@ -57,26 +57,6 @@ function seedNoDeployRepo(): string {
   return dir
 }
 
-function seedMixedTagsRepo(): string {
-  const dir = mkTempTree('synapto-mixed-')
-  spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
-  spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: dir, encoding: 'utf8' })
-  spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, encoding: 'utf8' })
-  // v0.7.3 (stable) first
-  writeFileSync(join(dir, 'package.json'), '{"name":"synaptomind","version":"0.7.3"}')
-  spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf8' })
-  spawnSync('git', ['commit', '-q', '-m', 'stable'], { cwd: dir, encoding: 'utf8' })
-  spawnSync('git', ['tag', 'v0.7.3'], { cwd: dir, encoding: 'utf8' })
-  // v0.8.0-beta.2 (prerelease) on a branch, then merge
-  spawnSync('git', ['checkout', '-q', '-b', 'beta'], { cwd: dir, encoding: 'utf8' })
-  writeFileSync(join(dir, 'package.json'), '{"name":"synaptomind","version":"0.8.0-beta.2"}')
-  spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf8' })
-  spawnSync('git', ['commit', '-q', '-m', 'beta'], { cwd: dir, encoding: 'utf8' })
-  spawnSync('git', ['tag', 'v0.8.0-beta.2'], { cwd: dir, encoding: 'utf8' })
-  spawnSync('git', ['checkout', '-q', 'master'], { cwd: dir, encoding: 'utf8' })
-  return dir
-}
-
 /** Repo with two stable tags; latest-first sort yields the newer one. */
 function seedTwoStableTagsRepo(
   olderTag: string,
@@ -404,13 +384,11 @@ describe('MINIMAL_COMMON_SH — the fixture ships helpers, not copies of them', 
 
 let FIXTURE_DIR = ''
 let INSTALL_DIR = ''
-let RUN_DIR = ''
 let BOOTSTRAP_DIR = '' // <tmp>/bootstrap/scripts/ — mirrors installed layout
 
 beforeEach(() => {
   FIXTURE_DIR = mkTempTree('synapto-updater-fix-')
   INSTALL_DIR = mkTempTree('synapto-install-')
-  RUN_DIR = join(FIXTURE_DIR, 'run')
   BOOTSTRAP_DIR = join(FIXTURE_DIR, 'bootstrap', 'scripts')
   mkdirSync(join(BOOTSTRAP_DIR, 'lib'), { recursive: true })
 
@@ -941,7 +919,6 @@ describe('release_resolve_tag — both payload shapes, every channel', () => {
  * copy — while every other call still runs.
  */
 function makeGuardedSudo(
-  privLog: string,
   guard: string,
   opts: { refuse?: string[]; refuseUnder?: string } = {},
 ): string {
@@ -1171,7 +1148,7 @@ function seedBinaryUpdateShape(opts: {
     `"${root}"/*|"${root}"/*`,
     `"${tmpdir()}"/*|"${tmpdir()}"/*`,
   ].join('|')
-  writeFileSync(join(stubsDir, 'sudo'), makeGuardedSudo(privLog, guard))
+  writeFileSync(join(stubsDir, 'sudo'), makeGuardedSudo(guard))
   writeFileSync(join(stubsDir, 'systemctl'), SYSTEMCTL_STUB)
   for (const s of ['sudo', 'systemctl']) chmodSync(join(stubsDir, s), 0o755)
 
@@ -2159,7 +2136,7 @@ describe('update.sh — a failed unit refresh is fatal in binary mode', () => {
       // the payload's .prev copy is a privileged write too (write_file_atomically,
       // task #1079 F7), so refusing every write primitive would abort the run at
       // step 6 and never reach refresh_unit at all.
-      rewriteStub(fx, 'sudo', makeGuardedSudo(fx.privLog, fx.guard, { refuseUnder: dirname(fx.unitFile) }))
+      rewriteStub(fx, 'sudo', makeGuardedSudo(fx.guard, { refuseUnder: dirname(fx.unitFile) }))
       const res = runUpdate(fx, ['--yes'])
       expect(res.status, `stdout:\n${res.stdout}\nstderr:\n${res.stderr}`).toBe(1)
       expect(res.stdout).not.toContain('Done.')
@@ -2367,7 +2344,7 @@ function seedSourceUpdate() {
   cpSync(join(import.meta.dir, 'lib', 'common.sh'), join(runDir, 'scripts', 'common.sh'))
 
   const guard = [`"${root}"/*|"${root}"/*`, `"${tmpdir()}"/*|"${tmpdir()}"/*`].join('|')
-  writeFileSync(join(stubsDir, 'sudo'), makeGuardedSudo(privLog, guard))
+  writeFileSync(join(stubsDir, 'sudo'), makeGuardedSudo(guard))
   writeFileSync(join(stubsDir, 'systemctl'), SYSTEMCTL_STUB)
   for (const s of ['sudo', 'systemctl']) chmodSync(join(stubsDir, s), 0o755)
   const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
@@ -2526,7 +2503,7 @@ describe('update.sh — source mode delivers the restart policy surgically', () 
       writeFileSync(fx.unitFile, HAND_EDITED)
       writeFileSync(
         join(fx.stubsDir, 'sudo'),
-        makeGuardedSudo(fx.privLog, fx.guard, { refuse: ['cp'] }),
+        makeGuardedSudo(fx.guard, { refuse: ['cp'] }),
       )
       chmodSync(join(fx.stubsDir, 'sudo'), 0o755)
       const res = runUpdate(fx, ['--yes'])
