@@ -9,6 +9,7 @@ import { RetentionReviewIneligibleError, ValidationError, NotFoundError } from '
 import { mergeThoughtsService } from './merge.service'
 import { computeContentHash } from '../utils'
 import { BATCH_ITEMS_MAX } from '../validation'
+import { insertLog } from '../logging/log'
 import type { RetentionReviewQueryOptions } from './retention-review.service'
 function asNumber(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined
@@ -167,6 +168,8 @@ export function deleteRetentionReviewCandidateService(
     deleteThought(d, id)
   })()
 
+  insertLog('info', 'retention-review', `Deleted retention-review thought ${id}`, { thought_id: id })
+
   return {
     status: 'deleted',
     action: 'deleted',
@@ -206,6 +209,8 @@ export function protectRetentionReviewCandidateService(
     }
     updateThought(d, id, { is_protected: true })
   })()
+
+  insertLog('info', 'retention-review', `Protected retention-review thought ${id}`, { thought_id: id })
 
   return {
     status: 'protected',
@@ -288,5 +293,10 @@ export function compactRetentionReviewCandidatesService(
     }
     return created
   })
-  return { status: 'compacted', preview: false, confirm: true, source_ids, summary: run() }
+  const created = run()
+  insertLog('info', 'retention-review', `Compacted retention-review sources into ${created.id}`, {
+    summary_id: created.id,
+    source_ids
+  })
+  return { status: 'compacted', preview: false, confirm: true, source_ids, summary: created }
 }
