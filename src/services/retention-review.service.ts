@@ -250,6 +250,10 @@ export interface RetentionReviewDeleteOptions extends RetentionReviewQueryOption
 }
 
 export interface RetentionReviewProtectOptions {
+  minAgeDays?: number
+  min_age_days?: number
+  importanceFloor?: number
+  importance_floor?: number
   now?: string
   clock?: string
 }
@@ -559,11 +563,22 @@ export function protectRetentionReviewCandidateService(
   protected: boolean
   thought_id: string
 } {
-  const { d } = resolveProtectArgs(id, a, b)
-  const row = d.prepare(`SELECT id FROM thoughts WHERE id = ?`).get(id) as { id: string } | undefined
-  if (!row) throw new NotFoundError(`Thought not found: ${id}`)
+  const { d, opts } = resolveProtectArgs(id, a, b)
+  const now = resolveNow(opts)
+  const eligibility = evaluateEligibility(id, d, opts, now)
+  if (!eligibility.eligible) {
+    throw new RetentionReviewIneligibleError(
+      `Thought ${id} is not an eligible retention-review candidate: ${eligibility.reasons.join(', ')}`
+    )
+  }
 
   d.transaction(() => {
+    const latest = evaluateEligibility(id, d, opts, now)
+    if (!latest.eligible) {
+      throw new RetentionReviewIneligibleError(
+        `Thought ${id} is no longer an eligible retention-review candidate: ${latest.reasons.join(', ')}`
+      )
+    }
     updateThought(d, id, { is_protected: true })
   })()
 
