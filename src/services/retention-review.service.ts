@@ -196,62 +196,6 @@ export interface RetentionReviewProtectOptions {
   clock?: string
 }
 
-interface ResolvedDeleteArgs {
-  confirm: boolean
-  opts: RetentionReviewDeleteOptions
-  d: Database
-}
-
-function resolveDeleteArgs(_id: string, a?: unknown, b?: unknown): ResolvedDeleteArgs {
-  let confirm = false
-  let opts: RetentionReviewDeleteOptions = {}
-  let d: Database | undefined
-
-  const applyValue = (value: unknown) => {
-    if (!value) return
-    if (typeof value === 'boolean') {
-      confirm = value
-      return
-    }
-    if (typeof value === 'object') {
-      if ('prepare' in (value as object)) {
-        d = value as Database
-        return
-      }
-      const o = value as RetentionReviewDeleteOptions
-      opts = { ...opts, ...o }
-      if (typeof o.confirm === 'boolean') confirm = o.confirm
-    }
-  }
-
-  applyValue(a)
-  applyValue(b)
-
-  if (!d) d = getDb()
-  return { confirm, opts, d }
-}
-
-function resolveProtectArgs(_id: string, a?: unknown, b?: unknown): { opts: RetentionReviewProtectOptions; d: Database } {
-  let opts: RetentionReviewProtectOptions = {}
-  let d: Database | undefined
-
-  const applyValue = (value: unknown) => {
-    if (!value) return
-    if (typeof value === 'object') {
-      if ('prepare' in (value as object)) {
-        d = value as Database
-        return
-      }
-      opts = { ...opts, ...(value as RetentionReviewProtectOptions) }
-    }
-  }
-
-  applyValue(a)
-  applyValue(b)
-  if (!d) d = getDb()
-  return { opts, d }
-}
-
 function resolveNow(opts: { now?: string; clock?: string }): string {
   return (opts.now ?? opts.clock ?? new Date().toISOString()) as string
 }
@@ -361,8 +305,8 @@ function cascadeDelete(id: string, d: Database): void {
 
 export function deleteRetentionReviewCandidateService(
   id: string,
-  a?: unknown,
-  b?: unknown
+  opts: RetentionReviewDeleteOptions = {},
+  d: Database = getDb()
 ): {
   status: string
   action: string
@@ -373,7 +317,7 @@ export function deleteRetentionReviewCandidateService(
   dependents?: RetentionReviewDependentCounts
   instruction?: string
 } {
-  const { confirm, opts, d } = resolveDeleteArgs(id, a, b)
+  const confirm = opts.confirm ?? false
   const now = resolveNow(opts)
 
   const elig = evaluateEligibility(id, d, opts, now)
@@ -421,17 +365,17 @@ export function deleteRetentionReviewCandidateService(
 
 export function protectRetentionReviewCandidateService(
   id: string,
-  a?: unknown,
-  b?: unknown
+  opts: RetentionReviewProtectOptions = {},
+  d: Database = getDb()
 ): {
   status: string
   action: string
   protected: boolean
   thought_id: string
 } {
-  const { d, opts } = resolveProtectArgs(id, a, b)
+  const deleteOptions: RetentionReviewDeleteOptions = opts
   const now = resolveNow(opts)
-  const eligibility = evaluateEligibility(id, d, opts, now)
+  const eligibility = evaluateEligibility(id, d, deleteOptions, now)
   if (!eligibility.eligible) {
     throw new RetentionReviewIneligibleError(
       `Thought ${id} is not an eligible retention-review candidate: ${eligibility.reasons.join(', ')}`
@@ -439,7 +383,7 @@ export function protectRetentionReviewCandidateService(
   }
 
   d.transaction(() => {
-    const latest = evaluateEligibility(id, d, opts, now)
+    const latest = evaluateEligibility(id, d, deleteOptions, now)
     if (!latest.eligible) {
       throw new RetentionReviewIneligibleError(
         `Thought ${id} is no longer an eligible retention-review candidate: ${latest.reasons.join(', ')}`
