@@ -17,6 +17,7 @@ import {
 import { bulkCreateThoughtsService, type BulkCreateItem } from '../services/bulk.service'
 import { thoughtLinksRouter } from './thoughts-links'
 import { mergeRouter } from './thoughts-merge'
+import { retentionReviewRouter } from './retention-review'
 import { searchRouter } from './thoughts-search'
 
 const thoughtsRouter = new Hono()
@@ -24,6 +25,7 @@ const thoughtsRouter = new Hono()
 thoughtsRouter.route('/', searchRouter)
 thoughtsRouter.route('/', thoughtLinksRouter)
 thoughtsRouter.route('/', mergeRouter)
+thoughtsRouter.route('/', retentionReviewRouter)
 
 // Request contract for the thought surface (audit M8). The status enum and the
 // timeline limit range come from `src/validation.ts`, shared with MCP.
