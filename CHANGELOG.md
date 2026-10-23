@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.17.0
+
+> October 23, 2026
+
+- [`a9e47c0`](https://github.com/zumik3-del/synaptomind/commit/a9e47c013b20d63ffa7d970224379d7770643587): chore(logging): clean up stale logs.db references and config example
+- [`e88a03f`](https://github.com/zumik3-del/synaptomind/commit/e88a03f25b96bf5ef92a40e0abc3d615d2a3da3a): refactor(logging): remove logs.db and finalise stdout/stderr logging (#2059)
+- [`f656fd7`](https://github.com/zumik3-del/synaptomind/commit/f656fd789cb565a959c901ff4ea41bcfb61b3b24): chore(logging): export Logger sinks and types from logging barrel (#2058)
+- [`02f352f`](https://github.com/zumik3-del/synaptomind/commit/02f352fee4c3bb12c4d62b55525737751f113c68): docs(deploy): route logs to stdout/stderr and make logs.db optional (#2057)
+- [`ad40fa7`](https://github.com/zumik3-del/synaptomind/commit/ad40fa74aca3a794f3b93fbe2167d91e86e11179): feat(logging): add forward-only legacy logs.db migration (#2056)
+- [`9fadbc4`](https://github.com/zumik3-del/synaptomind/commit/9fadbc4b0134c233112ad45986758ac384d76cf1): feat(config): add log.* settings and deprecated logDbPath alias (#2055)
+- [`ddb76eb`](https://github.com/zumik3-del/synaptomind/commit/ddb76ebe88a1aa908980dcf81a7d5718432c5617): feat(logging): introduce sink-based Logger with stdout/stderr/file sinks (#2054)
+- [`350befb`](https://github.com/zumik3-del/synaptomind/commit/350befb906571689af7fac9de552a7f723663998): docs(mcp): standardize action-specific MCP input requirement labels (#2051)
+- [`00a555f`](https://github.com/zumik3-del/synaptomind/commit/00a555f39403a985084597343d175bac413e36d4): style(mcp): restore trailing newline in store.ts
+- [`68ff555`](https://github.com/zumik3-del/synaptomind/commit/68ff55574cf122e592d46eda12aed0e0e5558da7): fix(mcp): validate ISO datetime MCP parameters consistently (#2050)
+- [`fd2bb43`](https://github.com/zumik3-del/synaptomind/commit/fd2bb43c29a3d835b6e041d309650a4fef412b9f): fix(mcp): clarify memory_recall action-specific parameter behavior (#2047)
+- [`677f233`](https://github.com/zumik3-del/synaptomind/commit/677f23387461f20c60556b80d46a0ca41482b188): docs(mcp): clarify memory_store parameter action scopes (#2049)
+- [`51fd6f2`](https://github.com/zumik3-del/synaptomind/commit/51fd6f2e18aac6b8209d2853061634e4ec579e19): fix(mcp): align memory_status limit schema with frontier cap (#2048)
+- [`60d9ecc`](https://github.com/zumik3-del/synaptomind/commit/60d9ecc63af0cd5e18649ab156a0f2d342b6dcaa): fix(mcp): align MCP search mode contract and documentation (#2046)
+- [`208ec3c`](https://github.com/zumik3-del/synaptomind/commit/208ec3c72f798f0d96e377c0603333eba4b9398d): feat(thoughts): allow clearing surface_after via memory_store update
+- [`423a954`](https://github.com/zumik3-del/synaptomind/commit/423a954b4a8deac4082fa290f90710bb430ec7d0): docs(mcp): correct link thought_id guidance
+- [`942d6f5`](https://github.com/zumik3-del/synaptomind/commit/942d6f59007f8c6803552e706c8bee1734dcb551): test(mcp): cover retired input schema contracts
+- [`1073603`](https://github.com/zumik3-del/synaptomind/commit/1073603276c7f468b83ae25f42fb001cbcda80b2): docs(mcp): document is_profile removal without replacement
+- [`beab0f0`](https://github.com/zumik3-del/synaptomind/commit/beab0f07c10810d6597749c998c583fa6355c477): test(mcp): assert retired-argument tombstones carry precise hints
+- [`b2d51cf`](https://github.com/zumik3-del/synaptomind/commit/b2d51cf7e928d1b8ebbfa9abd7f0bd5b4443a734): docs(mcp): document retired-argument tombstones and client validation
+- [`c049291`](https://github.com/zumik3-del/synaptomind/commit/c0492916a377744b3428b9a3bbe6d3ae2a798b6d): fix(mcp): reject retired is_profile at validation and scope thought_id
+- [`30de4e8`](https://github.com/zumik3-del/synaptomind/commit/30de4e817ee0867135a4dd6bbfccc8d936c6a5b3): docs(mcp): describe retired parameters with removal guidance
+
 ## v0.16.3
 
 > October 22, 2026
