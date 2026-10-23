@@ -101,7 +101,7 @@ const handlers = {
 export function registerMemoryRecall(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_recall',
-    description: `Search and retrieve thoughts. Actions: search (hybrid/vector/BM25; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/project_id/tag/is_cluster filters, limit/offset paging, total count).`,
+    description: `Search and retrieve thoughts. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/project_id/tag/is_cluster filters, limit/offset paging, total count).`,
     inputSchema: {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters', 'list']).describe('Action'),
       query: z.string().optional().describe('Search query (required for search/clusters; for context either query or thought_id)'),
@@ -112,7 +112,8 @@ export function registerMemoryRecall(server: McpServer) {
       is_cluster: z.boolean().optional().describe('Cluster filter: true = cluster thoughts only, false = exclude cluster thoughts (search/list)'),
       group_by_cluster: z.boolean().optional().describe('Group results by cluster'),
       min_importance: z.coerce.number().min(0).max(1).optional().describe('Minimum importance (0-1)'),
-      hybrid: z.boolean().optional().describe('Use hybrid search'),
+      hybrid: z.boolean().optional().describe('Hybrid search: true (default) fuses the vector and BM25 legs via RRF; false restricts results to the vector (embedding) leg only.'),
+      mode: z.never({ error: 'mode was removed; use hybrid' }).optional().describe('Removed; use hybrid.'),
       recency_weight: z
         .coerce.number()
         .min(0)
