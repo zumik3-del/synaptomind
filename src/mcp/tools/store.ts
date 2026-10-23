@@ -38,9 +38,10 @@ export function registerMemoryStore(server: McpServer) {
       is_profile: z.never({ error: 'is_profile is retired; remove this field (there is no replacement)' }).optional().describe('Retired: remove this field; there is no replacement.'),
       is_protected: z.boolean().optional().describe('Protect from auto-deletion. OPTIONAL for "create" and "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'),
       is_global: z.boolean().optional().describe('Mark as global thought (appears in all project-scoped searches). OPTIONAL for "create" and "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'),
-      surface_after: z.string().nullable().optional().describe('update only: pending surfacing delay as an ISO timestamp; pass null to clear. IGNORED for all other actions.'),
+      surface_after: z.iso.datetime().nullable().optional().describe('update only: pending surfacing delay as an ISO timestamp (UTC, e.g. 2026-01-01T00:00:00.000Z); pass null to clear. IGNORED for all other actions.'),
       url_links: z.array(z.object({ text: z.string(), url: z.string() })).optional().describe('URL links. OPTIONAL for "create". IGNORED for all other actions.'),
       thought_id: z.string().optional().describe('REQUIRED for "update". REJECTED for "link" (use source_id). IGNORED for "create", "link_batch", "unlink", "unlink_batch", "retype".'),
+
       source_id: z.string().optional().describe('REQUIRED ONLY for "link" (source endpoint, same spelling as memory_supersede merge). IGNORED for all other actions.'),
       target_id: z.string().optional().describe('REQUIRED ONLY for "link" (target side, same spelling as memory_supersede merge). IGNORED for all other actions.'),
       links: z

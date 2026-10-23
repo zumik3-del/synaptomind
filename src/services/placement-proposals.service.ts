@@ -33,6 +33,7 @@ import {
 } from '../db/placement-proposals'
 import { getThoughtRow } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
+import { isoDateTimeSchema } from '../validation'
 import { DRAFT_THOUGHT_ID, proposePlacementPlan } from './placement/engine'
 import type { PlacementPlan } from './placement/types'
 import {
@@ -287,6 +288,9 @@ export function listPlacementProposalsService(options: ListOptions = {}, d: Data
   const now = options.now ?? new Date().toISOString()
   const sourceThoughtId = options.sourceThoughtId ?? options.source_thought_id
   const createdAfter = options.createdAfter ?? options.created_after
+  if (createdAfter !== undefined && !isoDateTimeSchema.safeParse(createdAfter).success) {
+    throw new ValidationError(`Invalid created_after: ${String(createdAfter)}. Must be a valid ISO timestamp.`)
+  }
   const rows = listProposals(d, {
     state,
     project_id: options.projectId,

@@ -9,7 +9,7 @@ export const updateHandler: ActionHandler = {
   input: z.object({
     thought_id: requiredString('thought_id is required for update action'),
     is_profile: z.never({ error: 'is_profile is retired; remove this field. There is no replacement.' }).optional(),
-    surface_after: z.string().nullable().optional()
+    surface_after: z.iso.datetime().nullable().optional()
   }),
   run(args: ActionArgs) {
     const updated = updateThoughtByIdService(args.thought_id as string, {

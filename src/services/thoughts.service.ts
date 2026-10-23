@@ -19,7 +19,7 @@ import {
   THOUGHTS_PAGE_LIMIT_DEFAULT
 } from '../db/thoughts'
 import { insertLog } from '../logging/log'
-import { validateContentLength, validateStatus, BATCH_ITEMS_MAX } from '../validation'
+import { validateContentLength, validateStatus, BATCH_ITEMS_MAX, isoDateTimeSchema } from '../validation'
 import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from '../errors'
 
 export function getThoughtByIdService(id: string, d: Database = getDb()): Thought | null {
@@ -74,7 +74,7 @@ export function updateThoughtByIdService(id: string, data: UpdateThoughtInput, d
     validateContentLength(data.content, getThoughtLimitsDB(d), id)
   }
   if (data.surface_after !== undefined && data.surface_after !== null) {
-    if (typeof data.surface_after !== 'string' || Number.isNaN(Date.parse(data.surface_after))) {
+    if (typeof data.surface_after !== 'string' || !isoDateTimeSchema.safeParse(data.surface_after).success) {
       throw new ValidationError(`Invalid surface_after: ${String(data.surface_after)}. Must be a valid ISO timestamp or null.`)
     }
   }
