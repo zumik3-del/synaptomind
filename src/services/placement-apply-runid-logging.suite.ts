@@ -8,11 +8,9 @@
  * the audit line, so a committed mutation that is reachable by
  * `rollback(run_id)` is also *visible* under that id in the log.
  *
- * `insertLog` is not observable through the DB in a test: `config.logDbPath`
- * defaults to `''`, so `ensureDb()` returns null and the writer is a silent
- * no-op, and overriding the global config would leak into every suite sharing
- * this process. The writer is therefore spied with `mock.module`, and the
- * service is imported *after* the mock so it binds the spy.
+ * `insertLog` now routes to stdout/stderr sinks; spying it keeps the suite
+ * deterministic and silent. The writer is therefore spied with `mock.module`,
+ * and the service is imported *after* the mock so it binds the spy.
  *
  * bun cannot unmock a module, so this file carries no `.test` suffix (the main
  * glob would leak the spy through `export *` re-exports — AGENTS.md §8). It is
@@ -111,8 +109,8 @@ function logFor(proposalId: string): LogCall {
 
 /**
  * Prove the spy is live in THIS test before asserting that nothing was logged.
- * A silently unmocked writer (or a real writer pointed at a no-op `logDbPath`
- * with no spy) would make every "no line" assertion pass for the wrong reason;
+ * A silently unmocked writer (with no spy) would make every "no line"
+ * assertion pass for the wrong reason;
  * a confirming apply must file a run-id line first. The witness clears the
  * record so the caller then observes only its own scenario.
  */

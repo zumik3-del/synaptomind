@@ -1,4 +1,4 @@
-import { Database } from 'bun:sqlite'
+import type { Database } from 'bun:sqlite'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -185,7 +185,7 @@ interface LogRow {
 }
 
 /**
- * The worker's log store writes to the temp `logs.db`; read it back as an
+ * The worker's logger writes to the temp JSONL file; read it back as an
  * operator would. One shared read connection: the probes below poll this in a
  * tight loop while the worker polls at 5 ms, and re-opening per probe would
  * stretch the wait past the row's retry budget.

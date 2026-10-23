@@ -273,7 +273,7 @@ describe('ensureModelFiles — a q8 fetch never asks for onnx/model.onnx', () =>
 // deploy guide names, so `ensureModelFiles` reports it. Four properties of that
 // report are silent by nature and therefore easy to break without noticing:
 // it goes to stderr (`console.warn`; `embedder-client` records a child's stderr
-// at logs.db level `warning` while stdout only reaches `info`), it is emitted
+// at level `warning` while stdout only reaches `info`), it is emitted
 // exactly once per call, it comes BEFORE any download (on an offline host the
 // fetch is what fails, and this line is the operator's only hint), and it never
 // touches the file.
@@ -445,7 +445,7 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
     expect(fetches()).toHaveLength(1)
   })
 
-  test('the line reaches the real stderr stream (the one logs.db records as `warning`), never stdout', async () => {
+  test('the line reaches the real stderr stream (recorded as `warning`), never stdout', async () => {
     await writeTokenizerFiles()
     await writeModelFile('onnx/model_quantized.onnx', ONNX_BYTES)
     const staleBytes = 2 * MIB
