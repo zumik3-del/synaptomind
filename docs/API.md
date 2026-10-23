@@ -131,6 +131,8 @@ curl `-d '{"status": "archived"}' http://127.0.0.1:3005/api/thoughts/<id>`
 
 Archives a thought (soft delete). Idempotent: archiving an already-archived thought returns it unchanged. Returns the archived thought.
 
+Deletion of archived thoughts is handled by the retention-review process (the sole deletion path); there is no TTL-based cleanup.
+
 curl `-X DELETE http://127.0.0.1:3005/api/thoughts/<id>`
 
 ### POST /api/thoughts/:targetId/merge

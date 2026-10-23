@@ -3,9 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { closeDb } from '../../db/init'
-import { getDb } from '../../db/container'
-import { config } from '../../config'
-import { createTestDb, seedThought } from '../../test/helpers'
+import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
 // Regression coverage for the MCP stdio/dispatch batch (tasks #127-#134):
@@ -61,120 +59,11 @@ function assertStructuredMatchesText(result: unknown): void {
   expect(r.structuredContent?.result).toEqual(expected)
 }
 
-/** Seed an archived thought whose retention age exceeds the TTL (the explicit 90d set below). */
-function seedExpiredArchived(): string {
-  const d = getDb()
-  const id = seedThought({ status: 'active', is_protected: 0 })
-  const archivedAt = new Date(Date.now() - 100 * 86400000).toISOString()
-  d.prepare(`UPDATE thoughts SET status = 'archived', archived_at = ? WHERE id = ?`).run(archivedAt, id)
-  return id
-}
-
-function thoughtExists(id: string): boolean {
-  return getDb().prepare(`SELECT id FROM thoughts WHERE id = ?`).get(id) != null
-}
-
 beforeEach(createTestDb)
 afterEach(closeDb)
 
 beforeAll(async () => {
   client = await setupClient()
-})
-
-// ── memory_status cleanup: dry-run is the default ───────────────────────────
-
-describe('memory_status cleanup dry-run default', () => {
-  // Archived-thought deletion is opt-in (the shipped default is -1 = disabled).
-  // These cases pin the EXPLICIT path, so the TTL is enabled here instead of
-  // relying on the default.
-  let originalTtlDays = 0
-  beforeEach(() => {
-    originalTtlDays = config.ttl.archivedTtlDays
-    config.ttl.archivedTtlDays = 90
-  })
-  afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
-
-  test('cleanup confirm omitted previews and does not delete', async () => {
-    const id = seedExpiredArchived()
-
-    const result = await client.callTool({ name: 'memory_status', arguments: { action: 'cleanup' } })
-    const { data, isError } = parseResult(result)
-
-    expect(isError).toBe(false)
-    expect(data.deleted).toBeGreaterThanOrEqual(1)
-    expect(data.ids).toContain(id)
-    // Preview only: the archived thought is still present.
-    expect(thoughtExists(id)).toBe(true)
-  })
-
-  test('cleanup with confirm=false previews and does not delete', async () => {
-    const id = seedExpiredArchived()
-
-    const result = await client.callTool({
-      name: 'memory_status',
-      arguments: { action: 'cleanup', confirm: false }
-    })
-    const { data, isError } = parseResult(result)
-
-    expect(isError).toBe(false)
-    expect(data.deleted).toBeGreaterThanOrEqual(1)
-    expect(thoughtExists(id)).toBe(true)
-  })
-
-  test('cleanup with confirm=true deletes the expired thought', async () => {
-    const id = seedExpiredArchived()
-
-    const result = await client.callTool({
-      name: 'memory_status',
-      arguments: { action: 'cleanup', confirm: true }
-    })
-    const { data, isError } = parseResult(result)
-
-    expect(isError).toBe(false)
-    expect(data.deleted).toBeGreaterThanOrEqual(1)
-    expect(data.ids).toContain(id)
-    expect(thoughtExists(id)).toBe(false)
-  })
-})
-
-// ── memory_status cleanup with the TTL disabled (shipped default) ────────────
-//
-// The archived-thought TTL is opt-in and ships as -1 (disabled), so a default
-// install must delete nothing even when the caller asks for the real thing
-// (`dry_run=false`). This pins the DISABLED direction of the MCP surface: a
-// future flip back to an implicit TTL has to fail here instead of deleting
-// archived memory silently.
-
-describe('memory_status cleanup with the TTL disabled (shipped default)', () => {
-  let originalTtlDays = 0
-  beforeEach(() => {
-    originalTtlDays = config.ttl.archivedTtlDays
-    config.ttl.archivedTtlDays = -1
-  })
-  afterEach(() => { config.ttl.archivedTtlDays = originalTtlDays })
-
-  test('cleanup with confirm=true deletes nothing when TTL is disabled', async () => {
-    const id = seedExpiredArchived()
-
-    const result = await client.callTool({
-      name: 'memory_status',
-      arguments: { action: 'cleanup', confirm: true }
-    })
-    const { data, isError } = parseResult(result)
-
-    expect(isError).toBe(false)
-    expect(data.deleted).toBe(0)
-    expect(data.ids).toEqual([])
-    expect(thoughtExists(id)).toBe(true)
-  })
-})
-
-test('cleanup rejects retired dry_run with migration hint', async () => {
-  const result = await client.callTool({ name: 'memory_status', arguments: { action: 'cleanup', dry_run: false } })
-  const { data, isError } = parseResult(result)
-  expect(isError).toBe(true)
-  expect(String(data)).toContain('dry_run')
-  expect(String(data)).toContain('confirm')
 })
 
 // ── Numeric schema validation ───────────────────────────────────────────────
@@ -241,7 +130,7 @@ describe('shared request contract parity (audit M8)', () => {
 
   test('memory_status advertises precise retired-parameter tombstones', async () => {
     const schema = await inputSchemaOf('memory_status')
-    for (const [key, description] of [['k', 'Removed; use limit.'], ['dry_run', 'Removed; use confirm.']]) {
+    for (const [key, description] of [['k', 'Removed; use limit.']]) {
       expect(schema.properties[key].description).toBe(description)
       expect(schema.properties[key].not).toEqual({})
     }

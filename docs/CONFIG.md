@@ -46,7 +46,7 @@ cp .env.example .env
 
 A stdio MCP client talks to the same SQLite database as the HTTP server. By
 default (`mcp.stdioStandalone=false`) the stdio process does **not** start the
-embedder child process, decay, or TTL-cleanup jobs — the
+embedder child process, or decay job — the
 shared HTTP server is their single owner. This avoids every client spawning its
 own embedder and schedulers against one DB.
 
@@ -121,22 +121,8 @@ Automatic importance decay for old thoughts.
 
 **Note:** Decay only lowers importance — it never archives, deletes or otherwise
 changes a thought's status. Archiving is explicit (`memory_supersede action=archive`
-or `status=archived`), and deletion of archived thoughts is the separate, opt-in
-[TTL cleanup](#ttl-cleanup) job.
-
----
-
-## TTL Cleanup
-
-Auto-delete archived thoughts after TTL. Deletion is **opt-in**: the shipped
-default is `-1` (disabled), so a default install never deletes archived memory.
-
-| Setting | Env Var | Default | Description |
-|---------|---------|---------|-------------|
-| `ttl.archivedTtlDays` | `SYNAPTOMIND_ARCHIVED_TTL_DAYS` | `-1` | Days before archived thoughts are deleted. A positive value opts in; `0` and negative values both disable the job |
-| `ttl.cleanupIntervalMs` | `SYNAPTOMIND_CLEANUP_INTERVAL_MS` | `86400000` | How often to run cleanup (ms). Default: 24h |
-
-**Note:** Thoughts with `is_protected: true` are never deleted by TTL cleanup.
+or `status=archived`), and deletion of archived thoughts is handled by the
+retention-review process (the sole deletion path).
 
 ---
 
@@ -318,7 +304,6 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
   },
   "thoughts": { "softLimit": 600, "hardLimitBufferPercent": 20 },
   "decay": { "rate": 0.95, "intervalMs": 86400000 },
-  "ttl": { "archivedTtlDays": -1, "cleanupIntervalMs": 86400000 },
   "primer": { "promoteThreshold": 5, "topN": 3 },
   "autoCluster": {
     "minAgeDays": 3, "minSimilarity": 0.09,

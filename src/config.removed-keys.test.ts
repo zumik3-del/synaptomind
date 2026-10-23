@@ -21,7 +21,7 @@ import { DEFAULTS, ENV_MAPPINGS } from './config'
  */
 
 /** Top-level sections and dotted paths that must not come back. */
-const REMOVED_SECTIONS = ['autoLink', 'triage']
+const REMOVED_SECTIONS = ['autoLink', 'triage', 'ttl']
 const REMOVED_PATHS = [
   'decay.archiveThreshold',
   'decay.archiveMinAgeDays',
@@ -41,7 +41,9 @@ const REMOVED_ENV_VARS = [
   'SYNAPTOMIND_ARCHIVE_THRESHOLD',
   'SYNAPTOMIND_ARCHIVE_MIN_AGE_DAYS',
   'SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS',
-  'SYNAPTOMIND_PLACEMENT_MAX_ITEMS_PER_ENQUEUE'
+  'SYNAPTOMIND_PLACEMENT_MAX_ITEMS_PER_ENQUEUE',
+  'SYNAPTOMIND_ARCHIVED_TTL_DAYS',
+  'SYNAPTOMIND_CLEANUP_INTERVAL_MS'
 ]
 
 /** Read a dotted path out of an object tree (`undefined` when it is absent). */
@@ -183,10 +185,6 @@ describe('config surface — every mapping targets a real default', () => {
     }
   })
 
-  test('ttl.archivedTtlDays keeps the opt-in default', () => {
-    expect(DEFAULTS.ttl.archivedTtlDays).toBe(-1)
-    expect(DEFAULTS.ttl.cleanupIntervalMs).toBe(86400000)
-  })
 })
 
 // ── a legacy config.json ─────────────────────────────────────────────────────

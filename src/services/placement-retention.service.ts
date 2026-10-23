@@ -7,8 +7,8 @@ import type { Database } from 'bun:sqlite'
 
 /**
  * Expire `pending` placement proposals whose `expires_at` has passed and prune
- * terminal rows decided before the TTL cutoff (ADR §2.4). Reuses the existing
- * TTL-cleanup pattern and the `placement_proposals.deleteExpired` DB helper.
+ * terminal rows decided before the TTL cutoff (ADR §2.4). Uses the
+ * `placement_proposals.deleteExpired` DB helper.
  * Returns the number of rows expired + pruned.
  */
 export function cleanupPlacementProposals(d: Database = getDb()): number {
@@ -29,7 +29,7 @@ export function cleanupPlacementProposals(d: Database = getDb()): number {
 
 const job = createIntervalJob({
   name: 'placement-retention',
-  intervalMs: config.ttl.cleanupIntervalMs,
+  intervalMs: 86400000,
   guard: () => config.placement.proposalTtlDays >= 0,
   onError: err => insertLog('warning', 'placement-retention', 'Placement retention job failed', { error: String(err) })
 }, () => {
