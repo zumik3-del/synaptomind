@@ -19,6 +19,10 @@ afterEach(closeDb)
 test('retention-review HTTP validates list query and maps validation to 400', async () => {
   const response = await request('/api/thoughts/retention-review?limit=0')
   expect(response.status).toBe(400)
+  for (const query of ['minAgeDays=0', 'importanceFloor=2']) {
+    const invalid = await request(`/api/thoughts/retention-review?${query}`)
+    expect(invalid.status).toBe(400)
+  }
 })
 
 test('retention-review HTTP lists candidates successfully', async () => {
