@@ -29,6 +29,7 @@ export interface MergeThoughtsOptions {
   mergedContent?: string
   mergedTags?: string[]
   projectId?: string
+  allowArchivedSource?: boolean
 }
 
 export function getMergePreviewService(sourceId: string, targetId: string, d: Database = getDb()): MergePreview | null {
@@ -56,7 +57,7 @@ export function getBoundedMergePreviewService(
 }
 
 export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database = getDb()): MergeResult {
-  const { targetId, sourceId, mergedContent, mergedTags, projectId } = options
+  const { targetId, sourceId, mergedContent, mergedTags, projectId, allowArchivedSource = false } = options
   if (sourceId === targetId) {
     throw new ValidationError('source_id and target_id must be different')
   }
@@ -67,7 +68,7 @@ export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database 
   const target = getThoughtByIdService(targetId, d)
   if (!target) throw new NotFoundError(`Target thought '${targetId}' not found`)
 
-  validateMergePreconditions(source)
+  validateMergePreconditions(source, allowArchivedSource)
 
   const finalProjectId = projectId ?? target.project_id ?? source.project_id ?? undefined
 
@@ -77,6 +78,10 @@ export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database 
   if (finalProjectId !== undefined) updateData.project_id = finalProjectId
 
   const run = d.transaction(() => {
+    const currentSource = getThoughtByIdService(sourceId, d)
+    if (!currentSource) throw new NotFoundError(`Source thought '${sourceId}' not found during merge`)
+    validateMergePreconditions(currentSource, allowArchivedSource)
+
     if (Object.keys(updateData).length > 0) {
       const updated = dbUpdateThought(d, targetId, updateData)
       if (!updated) throw new NotFoundError(`Target thought '${targetId}' not found during update`)

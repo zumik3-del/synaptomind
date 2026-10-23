@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-SynaptoMind exposes its graph operations as 10 MCP tools, over both the stdio and HTTP
+SynaptoMind exposes its graph operations as 11 MCP tools, over both the stdio and HTTP
 transports. Each tool multiplexes several actions behind an `action` argument. This page is
 the detailed companion to the in-band `memory_guide` tool (`src/mcp/tools/guide.ts`), which
 returns a short quick map plus a pointer here at runtime.
@@ -16,9 +16,10 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 | `memory_recall` | search, get, context, chain, clusters, list | Find and retrieve thoughts (list = paginated inventory) |
 | `memory_store` | create, update, link, link_batch, unlink, unlink_batch, retype | Write, connect and edit thoughts |
 | `memory_supersede` | archive, archive_batch, merge | Version and supersede thoughts |
-| `memory_status` | slots, frontier, config, health, propose, cleanup | Query system state |
+| `memory_status` | slots, frontier, config, health, propose | Query system state |
 | `memory_manage` | list, create, update, delete, resolve | Project management |
-| `memory_review` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
+| `edge_review` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
+| `retention_review` | list, protect, delete, compact | Review retention candidates and take explicit retention actions |
 | `memory_crystallize` | graph, cluster, auto_cluster | Visualize and reorganize clusters |
 | `memory_reflect` | reflect, timeline | Session management |
 | `memory_primers` | list, delete | Manage the always-at-hand set (primers) |
@@ -27,8 +28,8 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 ## Dry-run / confirm pattern
 
 Every destructive action — `memory_store` `unlink` and `retype`, `memory_supersede` `archive`,
-`archive_batch` and `merge`, `memory_manage action=delete`, `memory_review` (`apply`/`apply_batch`/`rollback`),
-`memory_primers action=delete`, `memory_status action=cleanup`, and
+`archive_batch` and `merge`, `memory_manage action=delete`, `edge_review` (`apply`/`apply_batch`/`rollback`),
+`memory_primers action=delete`, and
 `memory_crystallize action=auto_cluster` — follows the same two-step
 pattern:
 
@@ -440,8 +441,7 @@ Example:
 
 ## `memory_status` — system state
 
-For this tool, retired `k` is replaced by `limit` (the frontier page/result limit), and retired
-`dry_run` is replaced by `confirm` (cleanup execution is opt-in). Depending on the MCP client,
+For this tool, retired `k` is replaced by `limit` (the frontier page/result limit). Depending on the MCP client,
 never-valued retired arguments may be rejected by local schema validation before a request reaches
 the server; if the request is sent, invocation validation returns the migration error.
 
@@ -453,11 +453,6 @@ primers (most-hit first); `project_context` and `active_goals` are stored rows. 
 content, update or archive the underlying thoughts (virtual slots) or use `memory_reflect`
 (`summary` appends to `project_context`; `goals_add` and `goals_remove` edit `active_goals`). Paging applies to
 `pending_items` via `limit`/`offset`.
-
-### `action=cleanup`
-
-TTL cleanup of archived thoughts. It previews by default; set `confirm: true` to actually delete.
-Protected thoughts are never deleted.
 
 ### `action=propose`
 

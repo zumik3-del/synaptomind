@@ -5,8 +5,8 @@ import { getThoughtRow, type Thought } from '../db/thoughts'
 import { insertLog } from '../logging/log'
 import { EdgeAlreadyExistsError, ValidationError } from '../errors'
 
-export function validateMergePreconditions(source: Thought): void {
-  if (source.status === 'archived') {
+export function validateMergePreconditions(source: Thought, allowArchivedSource = false): void {
+  if (source.status === 'archived' && !allowArchivedSource) {
     throw new ValidationError('Source thought is already archived')
   }
 

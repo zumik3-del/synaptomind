@@ -7,8 +7,9 @@ import { registerMemoryManage } from './manage'
 import { registerMemoryCrystallize } from './crystallize'
 import { registerMemoryReflect } from './reflect'
 import { registerMemoryPrimers } from './primers'
-import { registerMemoryReview } from './review'
+import { registerEdgeReview } from './review'
 import { registerMemoryGuide } from './guide'
+import { registerRetentionReview } from './retention-review'
 
 export function registerAllMemoryTools(server: McpServer): void {
   registerMemoryRecall(server)
@@ -19,6 +20,7 @@ export function registerAllMemoryTools(server: McpServer): void {
   registerMemoryCrystallize(server)
   registerMemoryReflect(server)
   registerMemoryPrimers(server)
-  registerMemoryReview(server)
+  registerEdgeReview(server)
+  registerRetentionReview(server)
   registerMemoryGuide(server)
 }

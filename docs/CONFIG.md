@@ -46,7 +46,7 @@ cp .env.example .env
 
 A stdio MCP client talks to the same SQLite database as the HTTP server. By
 default (`mcp.stdioStandalone=false`) the stdio process does **not** start the
-embedder child process, decay, or TTL-cleanup jobs — the
+embedder child process, or decay job — the
 shared HTTP server is their single owner. This avoids every client spawning its
 own embedder and schedulers against one DB.
 
@@ -110,6 +110,30 @@ that file and its size — it is never deleted, because a switch back reuses it.
 
 ---
 
+## Retention review
+
+Archived and draft thoughts are not deleted by an age-based background cleanup. This
+statement concerns thought deletion; the separate placement-proposal queue has its own
+scheduled expiry and pruning job (see [Placement](#placement)). The
+retention-review API lists eligible candidates; an operator must explicitly protect,
+delete, or compact them. Candidate defaults are:
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `retentionReview.minAgeDays` | `SYNAPTOMIND_RETENTION_REVIEW_MIN_AGE_DAYS` | `30` | Minimum age, measured from `archived_at` or (when absent) `created_at` |
+| `retentionReview.importanceFloor` | `SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR` | `0.2` | Candidate importance must be below this threshold |
+| `retentionReview.pageSize` | `SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE` | `20` | Default candidate page size (API limit is 1–100) |
+
+Configuration loading normalizes `pageSize` to an integer in the range 1–100 and
+clamps `importanceFloor` to 0–1. A non-positive or non-numeric `minAgeDays` uses
+the 30-day default. These settings govern the manual retention-review workflow;
+they do not enable age-based thought TTL cleanup.
+
+See [API.md](./API.md#retention-review) for candidate eligibility and the
+preview-first delete/compact routes.
+
+---
+
 ## Decay
 
 Automatic importance decay for old thoughts.
@@ -121,22 +145,8 @@ Automatic importance decay for old thoughts.
 
 **Note:** Decay only lowers importance — it never archives, deletes or otherwise
 changes a thought's status. Archiving is explicit (`memory_supersede action=archive`
-or `status=archived`), and deletion of archived thoughts is the separate, opt-in
-[TTL cleanup](#ttl-cleanup) job.
-
----
-
-## TTL Cleanup
-
-Auto-delete archived thoughts after TTL. Deletion is **opt-in**: the shipped
-default is `-1` (disabled), so a default install never deletes archived memory.
-
-| Setting | Env Var | Default | Description |
-|---------|---------|---------|-------------|
-| `ttl.archivedTtlDays` | `SYNAPTOMIND_ARCHIVED_TTL_DAYS` | `-1` | Days before archived thoughts are deleted. A positive value opts in; `0` and negative values both disable the job |
-| `ttl.cleanupIntervalMs` | `SYNAPTOMIND_CLEANUP_INTERVAL_MS` | `86400000` | How often to run cleanup (ms). Default: 24h |
-
-**Note:** Thoughts with `is_protected: true` are never deleted by TTL cleanup.
+or `status=archived`), and deletion of archived thoughts is handled by the
+retention-review process (the sole deletion path).
 
 ---
 
@@ -199,18 +209,18 @@ appears only when it is confirmed with `memory_store action=link`.
 
 ## Placement
 
-Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory_status action=propose` (see ADR 2026-09-28), plus the persisted review queue they feed (`memory_review`, `GET/POST /api/proposals` — see [API.md](./API.md) §Review). The engine never writes the graph: `maxClusterSize` only suppresses a proposal, it never mutates; queued proposals are applied only on an explicit `confirm:true`. `proposalTtlDays` does double duty — it prunes the queue *and* bounds the rollback window, so there is one retention number and no separate rollback key.
+Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory_status action=propose` (see ADR 2026-09-28), plus the persisted review queue they feed (`edge_review`, `GET/POST /api/proposals` — see [API.md](./API.md) §Review). The engine never writes the graph: `maxClusterSize` only suppresses a proposal, it never mutates; queued proposals are applied only on an explicit `confirm:true`. `proposalTtlDays` sets proposal expiry, controls the daily placement-retention job that expires/prunes queue rows, and bounds the rollback window. This job prunes proposal records, not thoughts.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | `placement.maxClusterSize` | `SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE` | `50` | Skip a cluster placement proposal when the target cluster already holds this many members (`>=`). Re-checked against the live count at apply time. Prevents routing new thoughts into an oversized mega-cluster (lessons #934/#928) |
-| `placement.proposalTtlDays` | `SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS` | `30` | Review-queue TTL in days. A newly enqueued (or refreshed) `pending` proposal gets `expires_at = now + this`; the retention job expires overdue `pending` rows and prunes terminal rows this long after they were decided. The same value is the **rollback window**: `POST /api/proposals/rollback` refuses an accepted row decided more than this many days before the server's own clock (neither the route nor the MCP action accepts a caller-supplied clock), inclusively at the boundary (see [API.md](./API.md) §Review). `0` expires immediately; a negative value disables expiry (`expires_at = null`), the retention job, and the rollback-window guard |
+| `placement.proposalTtlDays` | `SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS` | `30` | Proposal expiry interval and rollback window. Newly enqueued/refreshed `pending` rows receive `expires_at`; apply rejects expired rows. The daily placement-retention job marks overdue pending rows expired and prunes terminal proposal rows after this interval; rollback also refuses accepted rows decided outside this window. This retention applies to proposal-queue rows, not thoughts. `0` expires immediately and the job prunes terminal rows at the current cutoff; a negative value disables proposal expiry, the job, and the rollback-window guard |
 | `placement.maxPendingProposals` | `SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS` | `500` | Cap on live `pending` proposals. Enqueueing a *new* item at the cap throws a validation error; refreshing an existing live row is unaffected |
 | `placement.maxProposalsPerEnqueue` | `SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS_PER_ENQUEUE` | `5` | Cap on the number of proposals generated for one thought (enqueue/propose). A caller-supplied `max_proposals` overrides it |
 
 **Note:** The review queue stores `edge` items only. A plan's `placement` and
 `lifecycle` items are not queued; `POST /api/proposals` and
-`memory_review action=enqueue` return them in `skipped` / `skipped_kinds`. Rows
+`edge_review action=enqueue` return them in `skipped` / `skipped_kinds`. Rows
 written by retired subsystems may still exist in an upgraded install — they stay
 listable and filterable, but neither apply nor rollback can act on them.
 
@@ -318,7 +328,6 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
   },
   "thoughts": { "softLimit": 600, "hardLimitBufferPercent": 20 },
   "decay": { "rate": 0.95, "intervalMs": 86400000 },
-  "ttl": { "archivedTtlDays": -1, "cleanupIntervalMs": 86400000 },
   "primer": { "promoteThreshold": 5, "topN": 3 },
   "autoCluster": {
     "minAgeDays": 3, "minSimilarity": 0.09,

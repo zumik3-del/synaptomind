@@ -180,6 +180,9 @@ curl -s http://127.0.0.1:3005/health | jq -r .version
 
 ## Data Volumes
 
+Archived thoughts are retained until the retention-review process removes them;
+retention-review is the sole deletion path. There is no TTL-based cleanup.
+
 | Container path | Host mount | Description |
 |----------------|------------|-------------|
 | `/app/data` | `./data` | Database + embeddings cache |

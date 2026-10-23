@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { sanitizePrimerBounds } from './config.primer-bounds'
+import { sanitizeRetentionReviewBounds } from './config.retention-review-bounds'
 
 // ONNX precision of the local embedder model. `q8` downloads the quantized
 // ONNX (~118 MB) instead of the fp32 one (~449 MB); transformers.js picks the
@@ -54,7 +55,7 @@ interface Config {
   graph: { maxDegree: number }
   search: { confidence: { vectorFloor: number } }
   rateLimit: { max: number; windowMs: number; trustProxy: boolean }
-  ttl: { archivedTtlDays: number; cleanupIntervalMs: number }
+  retentionReview: { minAgeDays: number; importanceFloor: number; pageSize: number }
 }
 
 export const DEFAULTS: Config = {
@@ -104,12 +105,7 @@ export const DEFAULTS: Config = {
   // reads `DEFAULTS.search.confidence.vectorFloor` directly — keep them in sync).
   search: { confidence: { vectorFloor: 0.9 } },
   rateLimit: { max: 200, windowMs: 60_000, trustProxy: false },
-  // Archived-thought TTL deletion is opt-in: only an explicitly positive TTL
-  // (`ttl.archivedTtlDays` via config.json or SYNAPTOMIND_ARCHIVED_TTL_DAYS)
-  // turns the irreversible deletion on. Zero and negative values both disable
-  // it — the cleanup job's guard (`> 0`) keeps it from starting and
-  // `cleanupArchivedThoughts` returns a no-op.
-  ttl: { archivedTtlDays: -1, cleanupIntervalMs: 86400000 }
+  retentionReview: { minAgeDays: 30, importanceFloor: 0.2, pageSize: 20 }
 }
 
 type EnvType = 'string' | 'int' | 'float' | 'bool' | 'list'
@@ -191,8 +187,10 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_RATE_LIMIT_WINDOW_MS', 'rateLimit.windowMs', 'int'),
   M('SYNAPTOMIND_TRUST_PROXY', 'rateLimit.trustProxy', 'bool'),
 
-  M('SYNAPTOMIND_ARCHIVED_TTL_DAYS', 'ttl.archivedTtlDays', 'int'),
-  M('SYNAPTOMIND_CLEANUP_INTERVAL_MS', 'ttl.cleanupIntervalMs', 'int')
+  M('SYNAPTOMIND_RETENTION_REVIEW_MIN_AGE_DAYS', 'retentionReview.minAgeDays', 'int'),
+  M('SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR', 'retentionReview.importanceFloor', 'float'),
+  M('SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE', 'retentionReview.pageSize', 'int'),
+
 ]
 
 function parseValue(raw: string, type: EnvType): string | number | boolean | string[] {
@@ -284,6 +282,7 @@ function applyEnvOverrides(fileConfig: Partial<Config>): Config {
   // override is applied after the config.json merge, so sanitizing earlier
   // would be bypassed by it.
   merged.primer = sanitizePrimerBounds(merged.primer, DEFAULTS.primer)
+  merged.retentionReview = sanitizeRetentionReviewBounds(merged.retentionReview, DEFAULTS.retentionReview)
 
   return merged as unknown as Config
 }

@@ -42,7 +42,6 @@ const { createMcpServer } = await import('./mcp/server')
 const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js')
 const { McpHttpPortInUseError } = await import('./errors')
 const { startDecayJob, stopDecayJob } = await import('./services/decay.service')
-const { startTtlCleanupJob, stopTtlCleanupJob } = await import('./services/ttl-cleanup.service')
 const { startPlacementRetentionJob, stopPlacementRetentionJob } = await import('./services/placement-retention.service')
 
 const isStdio = process.argv.includes('--stdio')
@@ -91,7 +90,6 @@ if (!ownsBackgroundJobs) {
     })
   }
   startDecayJob()
-  startTtlCleanupJob()
   startPlacementRetentionJob()
 }
 
@@ -102,7 +100,6 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   shutdownStarted = true
   console.error('\n[synaptomind] shutting down...')
   stopDecayJob()
-  stopTtlCleanupJob()
   stopPlacementRetentionJob()
   await stopEmbedderProcess()
   closeLogDb()

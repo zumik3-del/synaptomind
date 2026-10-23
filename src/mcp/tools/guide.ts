@@ -27,9 +27,9 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 | memory_recall | search, get, context, chain, clusters, list |
 | memory_store | create, update, link, link_batch, unlink, unlink_batch, retype |
 | memory_supersede | archive, archive_batch, merge |
-| memory_status | slots, frontier, config, health, propose, cleanup |
+| memory_status | slots, frontier, config, health, propose |
 | memory_manage | list, create, update, delete, resolve |
-| memory_review | enqueue, list, apply, apply_batch, rollback, reject |
+| edge_review | enqueue, list, apply, apply_batch, rollback, reject |
 | memory_crystallize | graph (offset/limit/total), cluster, auto_cluster |
 | memory_reflect | reflect, timeline |
 | memory_primers | list, delete |
@@ -37,11 +37,11 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 
 ## Tool responsibilities
 - memory_manage = CRUD for projects (list, create, update, delete, resolve) and project resolution from a path (resolve from cwd). It is the only tool that writes project rows.
-- memory_status = read-only system state: slots, frontier, config, health, propose (read-only plan), cleanup (TTL; dry-run default). It never writes thoughts or projects.
+- memory_status = read-only system state: slots, frontier, config, health, propose (read-only plan). It never writes thoughts or projects.
 - memory_store / memory_supersede = thought and edge writes; memory_recall = reads/search.
 
 ## Destructive operations (preview by default)
-memory_store unlink/retype, memory_supersede archive/archive_batch/merge, memory_manage delete, memory_review apply/apply_batch/rollback, memory_primers delete, memory_status cleanup, and memory_crystallize auto_cluster are preview-first. confirm absent/false previews; confirm:true executes. Execution revalidates current state: previews can become stale, and there is no preview token or reservation. memory_supersede archive previews outcome (including missing, already archived, and protected); archive_batch preview returns ordered per-occurrence items, while confirmed execution returns the aggregate {archived, failed, errors} (errors are ordered), not per-item success records; merge previews eligibility, proposed values/effects, and at most 50 source edges with a count/truncation flag. This is an MCP contract only; HTTP merge remains immediate and unchanged. Retired argument names are rejected with an error hint naming the replacement.
+memory_store unlink/retype, memory_supersede archive/archive_batch/merge, memory_manage delete, edge_review apply/apply_batch/rollback, memory_primers delete, and memory_crystallize auto_cluster are preview-first. confirm absent/false previews; confirm:true executes. Execution revalidates current state: previews can become stale, and there is no preview token or reservation. memory_supersede archive previews outcome (including missing, already archived, and protected); archive_batch preview returns ordered per-occurrence items, while confirmed execution returns the aggregate {archived, failed, errors} (errors are ordered), not per-item success records; merge previews eligibility, proposed values/effects, and at most 50 source edges with a count/truncation flag. This is an MCP contract only; HTTP merge remains immediate and unchanged. Retired argument names are rejected with an error hint naming the replacement.
 Slots (memory_status action=slots) are read-only: pending_items is derived from thoughts tagged pending, architecture_decisions from primers, and only project_context/active_goals are stored rows. To change slot content, update or archive the underlying thoughts (virtual slots) or use memory_reflect (summary, goals_add, goals_remove) for the explicit slots; memory_status never writes.
 
 ## Thoughts
@@ -69,10 +69,10 @@ recency_weight (default 0) + recency_half_life_days (default 30) add recency_sco
 
 ## Lifecycle
 Importance decays by decay.rate (default 0.95) per decay.intervalMs (default 24 h). Decay only lowers importance — it never archives.
-Archiving is explicit (memory_supersede archive, or status=archived). TTL deletion is opt-in: only a positive ttl.archivedTtlDays deletes anything (default -1; 0 and negative values both disable it). Protected thoughts are never deleted.
+Archiving is explicit (memory_supersede archive, or status=archived). Deletion of archived thoughts is handled by the retention-review process (the sole deletion path).
 
 ## Scheduled jobs
-Started in src/index.ts when the process owns background jobs: decay, ttl-cleanup, placement-retention. auto_cluster is on demand (memory_crystallize action=auto_cluster) and never scheduled.
+Started in src/index.ts when the process owns background jobs: decay, placement-retention. auto_cluster is on demand (memory_crystallize action=auto_cluster) and never scheduled.
 
 ## Projects and clusters
 One project per thought. A cluster is a thought with is_cluster=1 whose cluster edges point at its members; cluster thoughts never enter the frontier.
@@ -85,7 +85,7 @@ memory_status action=health; severity restricts reported findings, fix=true auto
 contradiction_in_cluster remediation: memory_store action=unlink on the contradicts edge, or retype it to supports/related, or archive the cluster thought. Dry-run first, then confirm=true.
 
 ## Placement proposal and review
-memory_status action=propose returns a read-only plan (placement, edges[], lifecycle) and never writes. memory_review enqueue/list/apply/apply_batch/rollback/reject; apply is dry-run unless confirm=true and re-checks staleness. The queue holds edge items only: a plan's placement and lifecycle items are reported as skipped.
+memory_status action=propose returns a read-only plan (placement, edges[], lifecycle) and never writes. edge_review enqueue/list/apply/apply_batch/rollback/reject; apply is dry-run unless confirm=true and re-checks staleness. The queue holds edge items only: a plan's placement and lifecycle items are reported as skipped.
 
 ## Session reflection
 memory_reflect reflect writes thoughts, it is not read-only: decisions create active thoughts tagged decision + reflect; pending create draft thoughts tagged pending + reflect (surface after wake_days, default 7). The reflect tag marks every thought reflect created, so they can be filtered (search tag=reflect) or cleaned up without touching hand-created ones. summary appends to project_context; goals_add adds goals and goals_remove removes stored goal lines using case-insensitive substring matching. Retired goals_delta fails with a hint to use goals_add/goals_remove.`

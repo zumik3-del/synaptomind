@@ -169,6 +169,15 @@ not already root.
 > no `deploy/`, so the updater aborts with an explicit message rather than
 > falling back to a branch or prerelease.
 
+### Data retention
+
+There is no automatic age-based deletion of thoughts. Retention review is an
+operator-driven workflow: inspect candidates through the API, then explicitly
+protect, delete (with confirmation), or compact them. Configure candidate age,
+importance threshold, and page size with `retentionReview.*` settings; see
+[CONFIG.md](CONFIG.md#retention-review) and [API.md](API.md#retention-review).
+The database migration installs indexes used by candidate lookup.
+
 ### Advanced: direct `update.sh`
 
 The installed `update.sh` stays available and is required on hosts that track a
