@@ -54,6 +54,7 @@ interface Config {
   graph: { maxDegree: number }
   search: { confidence: { vectorFloor: number } }
   rateLimit: { max: number; windowMs: number; trustProxy: boolean }
+  retentionReview: { minAgeDays: number; importanceFloor: number; pageSize: number }
 }
 
 export const DEFAULTS: Config = {
@@ -102,7 +103,8 @@ export const DEFAULTS: Config = {
   // Single source of truth for the DB-layer fallback in `src/db/search.ts` (which
   // reads `DEFAULTS.search.confidence.vectorFloor` directly — keep them in sync).
   search: { confidence: { vectorFloor: 0.9 } },
-  rateLimit: { max: 200, windowMs: 60_000, trustProxy: false }
+  rateLimit: { max: 200, windowMs: 60_000, trustProxy: false },
+  retentionReview: { minAgeDays: 30, importanceFloor: 0.2, pageSize: 20 }
 }
 
 type EnvType = 'string' | 'int' | 'float' | 'bool' | 'list'
@@ -183,6 +185,10 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_RATE_LIMIT', 'rateLimit.max', 'int'),
   M('SYNAPTOMIND_RATE_LIMIT_WINDOW_MS', 'rateLimit.windowMs', 'int'),
   M('SYNAPTOMIND_TRUST_PROXY', 'rateLimit.trustProxy', 'bool'),
+
+  M('SYNAPTOMIND_RETENTION_REVIEW_MIN_AGE_DAYS', 'retentionReview.minAgeDays', 'int'),
+  M('SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR', 'retentionReview.importanceFloor', 'float'),
+  M('SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE', 'retentionReview.pageSize', 'int'),
 
 ]
 
