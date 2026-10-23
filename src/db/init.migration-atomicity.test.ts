@@ -84,6 +84,9 @@ function dropStampFailureTrigger(): void {
 function rewindToV35(): void {
   openRaw(db => {
     db.exec(`DROP INDEX IF EXISTS idx_thoughts_status_surface_after`)
+    db.exec(`DROP INDEX IF EXISTS idx_thoughts_status_protected_created`)
+    db.exec(`DROP INDEX IF EXISTS idx_thoughts_status_protected_archived`)
+    db.exec(`DROP INDEX IF EXISTS idx_thought_importance_importance_hit`)
     db.exec(`ALTER TABLE thoughts DROP COLUMN archived_at`)
     db.exec(`ALTER TABLE thoughts DROP COLUMN is_protected`)
     db.exec(`ALTER TABLE thoughts DROP COLUMN surface_after`)
@@ -99,7 +102,7 @@ function rewindToV35(): void {
 test('a crash after v036 apply but before its stamp rolls back; the next boot replays cleanly (#1751)', () => {
   // Build a real schema, then rewind it to v035.
   initDb({ dbPath, runMigrations: true })
-  expect(schemaVersion()).toBe('43')
+  expect(schemaVersion()).toBe('44')
   closeDb()
   rewindToV35()
   installStampFailureTrigger()
@@ -117,7 +120,7 @@ test('a crash after v036 apply but before its stamp rolls back; the next boot re
   // v036 would throw "duplicate column name: archived_at" and block startup.
   dropStampFailureTrigger()
   initDb({ dbPath, runMigrations: true })
-  expect(schemaVersion()).toBe('43')
+  expect(schemaVersion()).toBe('44')
   const cols = thoughtColumns()
   expect(cols).toContain('archived_at')
   expect(cols).toContain('is_protected')
