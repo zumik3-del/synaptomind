@@ -10,9 +10,12 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { getDb } from '../db'
-import { deleteThought, updateThought } from '../db/thoughts'
+import { createThought as dbCreateThought, deleteThought, updateThought } from '../db/thoughts'
 import { getThoughtTagsBatch, type Tag } from '../db/tags'
 import { ValidationError, NotFoundError } from '../errors'
+import { mergeThoughtsService } from './merge.service'
+import { getThoughtTags } from '../db/tags'
+import { computeContentHash } from '../utils'
 
 export interface RetentionReviewCandidate {
   id: string
@@ -570,6 +573,71 @@ export function protectRetentionReviewCandidateService(
     protected: true,
     thought_id: id
   }
+}
+
+export interface RetentionReviewCompactOptions extends RetentionReviewDeleteOptions {
+  source_ids: string[]
+  summary: string
+  force?: boolean
+}
+
+/** Preview or atomically consolidate selected retention candidates into a protected summary. */
+export function compactRetentionReviewCandidatesService(
+  options: RetentionReviewCompactOptions,
+  d: Database = getDb()
+): { status: 'preview' | 'compacted'; preview: boolean; confirm: boolean; source_ids: string[]; summary?: ReturnType<typeof dbCreateThought>; instruction?: string } {
+  const { source_ids, summary, force = false, confirm = false } = options
+  if (!Array.isArray(source_ids) || source_ids.length === 0 || source_ids.some(id => typeof id !== 'string' || !id.trim())) {
+    throw new ValidationError('source_ids must be a non-empty array of thought IDs')
+  }
+  if (new Set(source_ids).size !== source_ids.length) throw new ValidationError('source_ids must be distinct')
+  if (typeof summary !== 'string' || !summary.trim()) throw new ValidationError('summary must be non-empty')
+
+  const now = resolveNow(options)
+  const sources = source_ids.map(id => {
+    const eligibility = evaluateEligibility(id, d, options, now)
+    if (eligibility.thought.is_protected) throw new RetentionReviewIneligibleError(`Thought ${id} is protected`)
+    if (!force && !eligibility.eligible) {
+      throw new RetentionReviewIneligibleError(`Thought ${id} is not a current retention-review candidate: ${eligibility.reasons.join(', ')}`)
+    }
+    return eligibility.thought
+  })
+  const projectIds = new Set(sources.map(source => source.project_id))
+  if (projectIds.size !== 1) throw new ValidationError('source_ids must belong to the same project')
+  if (!confirm) return { status: 'preview', preview: true, confirm: false, source_ids, instruction: 'Confirm this exact source group and summary by calling again with confirm: true.' }
+
+  const run = d.transaction(() => {
+    // Revalidate in the write transaction so previewed candidates cannot become stale.
+    const latest = sources.map(({ id }) => {
+      const eligibility = evaluateEligibility(id, d, options, now)
+      if (eligibility.thought.is_protected || (!force && !eligibility.eligible)) {
+        throw new RetentionReviewIneligibleError(`Thought ${id} is no longer an eligible retention-review candidate: ${eligibility.reasons.join(', ')}`)
+      }
+      return eligibility.thought
+    })
+    if (new Set(latest.map(source => source.project_id)).size !== 1) {
+      throw new RetentionReviewIneligibleError('Sources no longer belong to the same project')
+    }
+    const tags = [...new Set(latest.flatMap(source => getThoughtTags(d, source.id).map(tag => tag.name)))]
+    const matchingThought = d.prepare(
+      `SELECT id FROM thoughts WHERE content_hash = ? AND project_id = ? AND status IN ('draft', 'active') LIMIT 1`
+    ).get(computeContentHash(summary.trim(), latest[0].project_id), latest[0].project_id)
+    if (matchingThought) {
+      throw new RetentionReviewIneligibleError('Summary content matches an existing draft or active thought')
+    }
+    const created = dbCreateThought(d, { content: summary.trim(), status: 'active', project_id: latest[0].project_id, tags, is_protected: true })
+    const summaryRow = d.prepare('SELECT status, is_protected FROM thoughts WHERE id = ?').get(created.id) as
+      | { status: string; is_protected: number }
+      | undefined
+    if (!summaryRow || summaryRow.status !== 'active' || !summaryRow.is_protected) {
+      throw new RetentionReviewIneligibleError('Summary content matches an existing draft or unprotected thought')
+    }
+    for (const source of latest) {
+      mergeThoughtsService({ targetId: created.id, sourceId: source.id, mergedContent: summary.trim(), mergedTags: tags }, d)
+    }
+    return created
+  })
+  return { status: 'compacted', preview: false, confirm: true, source_ids, summary: run() }
 }
 
 // Aliases for discoverability / compatibility with callers and tests.
