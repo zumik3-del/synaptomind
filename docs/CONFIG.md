@@ -124,6 +124,11 @@ delete, or compact them. Candidate defaults are:
 | `retentionReview.importanceFloor` | `SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR` | `0.2` | Candidate importance must be below this threshold |
 | `retentionReview.pageSize` | `SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE` | `20` | Default candidate page size (API limit is 1–100) |
 
+Configuration loading normalizes `pageSize` to an integer in the range 1–100 and
+clamps `importanceFloor` to 0–1. A non-positive or non-numeric `minAgeDays` uses
+the 30-day default. These settings govern the manual retention-review workflow;
+they do not enable age-based thought TTL cleanup.
+
 See [API.md](./API.md#retention-review) for candidate eligibility and the
 preview-first delete/compact routes.
 
