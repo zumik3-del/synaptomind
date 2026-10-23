@@ -8,6 +8,7 @@ import { getThoughtTags, type Tag } from '../db/tags'
 import { RetentionReviewIneligibleError, ValidationError, NotFoundError } from '../errors'
 import { mergeThoughtsService } from './merge.service'
 import { computeContentHash } from '../utils'
+import { BATCH_ITEMS_MAX } from '../validation'
 import type { RetentionReviewQueryOptions } from './retention-review.service'
 function asNumber(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined
@@ -228,6 +229,9 @@ export function compactRetentionReviewCandidatesService(
   const { source_ids, summary: summaryInput, force = false, confirm = false } = options
   if (!Array.isArray(source_ids) || source_ids.length === 0 || source_ids.some(id => typeof id !== 'string' || !id.trim())) {
     throw new ValidationError('source_ids must be a non-empty array of thought IDs')
+  }
+  if (source_ids.length > BATCH_ITEMS_MAX) {
+    throw new ValidationError(`source_ids accepts at most ${BATCH_ITEMS_MAX} ids per call (got ${source_ids.length})`)
   }
   if (new Set(source_ids).size !== source_ids.length) throw new ValidationError('source_ids must be distinct')
   const summaryObject = typeof summaryInput === 'string' ? { content: summaryInput } : summaryInput

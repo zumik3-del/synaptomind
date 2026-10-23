@@ -7,7 +7,8 @@ import {
   deleteRetentionReviewCandidateService,
   protectRetentionReviewCandidateService
 } from '../services/retention-review-actions.service'
-import { formatZodIssues, requiredJsonBody } from './utils'
+import { formatZodIssues, jsonBodyOrDefault, requiredJsonBody } from './utils'
+import { BATCH_ITEMS_MAX } from '../validation'
 
 const retentionReviewRouter = new Hono()
 
@@ -19,7 +20,7 @@ const querySchema = z.object({
 })
 const confirmBodySchema = z.object({ confirm: z.boolean().optional() })
 const compactBodySchema = z.object({
-  source_ids: z.array(z.string().min(1)).min(1),
+  source_ids: z.array(z.string().min(1)).min(1).max(BATCH_ITEMS_MAX, `source_ids accepts at most ${BATCH_ITEMS_MAX} ids per call`),
   summary: z.object({
     content: z.string().min(1),
     tags: z.array(z.string()).optional(),
@@ -49,7 +50,7 @@ retentionReviewRouter.post('/:id/retention-review/protect', c => {
 })
 
 retentionReviewRouter.post('/:id/retention-review/delete', async c => {
-  const body = await requiredJsonBody(c, confirmBodySchema)
+  const body = await jsonBodyOrDefault(c, {}, confirmBodySchema)
   return c.json(deleteRetentionReviewCandidateService(c.req.param('id')!, body))
 })
 
