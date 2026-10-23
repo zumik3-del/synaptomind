@@ -150,8 +150,6 @@ export function listRetentionReviewCandidatesService(
 // Retention-review actions: hard delete (cascade, preview-first) and protect.
 // ---------------------------------------------------------------------------
 
-export { RetentionReviewIneligibleError }
-
 export interface RetentionReviewDeleteOptions extends RetentionReviewQueryOptions {
   confirm?: boolean
   minAgeDays?: number
