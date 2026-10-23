@@ -78,7 +78,6 @@ interface HealthReport {
 
 interface HealthCheckOptions {
   severity?: Severity
-  project_id?: string
   fix?: boolean
 }
 

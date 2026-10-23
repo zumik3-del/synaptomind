@@ -17,6 +17,7 @@ const STUB_EMBEDDER = join(EVAL_DIR, '__fixtures__', 'stub-embedder-384.ts')
 const SOURCE_FILES = [
   'index.ts',
   'runner.ts',
+  'thresholds.ts',
   'metrics.ts',
   'embedding.ts',
   'seed.ts',

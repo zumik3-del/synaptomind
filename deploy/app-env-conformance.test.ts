@@ -38,10 +38,11 @@
 
 import { describe, expect, test, afterEach } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync as fsExistsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { checkCoverage, guardProductionPaths, readAppEnvValues, resolveTargets, sandboxAppEnvText } from './app-targets'
+import { readAppEnvValues, sandboxAppEnvText } from './app-env-targets'
+import { checkCoverage, guardProductionPaths, resolveTargets } from './app-targets'
 import { guardRealStateDir, installCleanup, isolatedEnv, mkTempTree } from './tmp-fixtures'
 
 installCleanup()
@@ -132,7 +133,7 @@ function seedTarget(target: { label: string; appEnvPath: string }, opts: { env?:
   const deployDir = join(root, 'deploy')
   cpSync(DEPLOY_DIR, deployDir, {
     recursive: true,
-    filter: (src) => !src.endsWith('.test.ts') && !src.endsWith('app-targets.ts'),
+    filter: (src) => !src.endsWith('.test.ts') && !src.endsWith('app-targets.ts') && !src.endsWith('app-env-targets.ts'),
   })
   const installDir = join(root, 'opt')
   const dataDir = join(root, 'data')
@@ -1373,10 +1374,6 @@ function existsSyncSafe(path: string): boolean {
   } catch {
     return false
   }
-}
-
-function sourceTag(): string {
-  return 'v9.9.9-test'
 }
 
 /**
