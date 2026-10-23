@@ -43,6 +43,35 @@ export interface RetentionReviewDependentCounts {
   total: number
 }
 
+export interface RetentionReviewExistingThought {
+  id: string
+}
+
+export interface RetentionReviewCreatedSummaryState {
+  status: string
+  is_protected: number
+}
+
+export function findActiveOrDraftRetentionReviewThoughtByHash(
+  db: Database,
+  contentHash: string,
+  projectId: string
+): RetentionReviewExistingThought | undefined {
+  return db.prepare(`
+    SELECT id FROM thoughts
+    WHERE content_hash = ? AND project_id = ? AND status IN ('draft', 'active')
+    LIMIT 1
+  `).get(contentHash, projectId) as RetentionReviewExistingThought | undefined
+}
+
+export function getRetentionReviewCreatedSummaryState(
+  db: Database,
+  thoughtId: string
+): RetentionReviewCreatedSummaryState | undefined {
+  return db.prepare('SELECT status, is_protected FROM thoughts WHERE id = ?')
+    .get(thoughtId) as RetentionReviewCreatedSummaryState | undefined
+}
+
 export function countRetentionReviewDependents(db: Database, thoughtId: string): RetentionReviewDependentCounts {
   const count = (sql: string): number => {
     const row = db.prepare(sql).get(thoughtId) as { count: number }

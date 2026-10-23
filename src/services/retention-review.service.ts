@@ -8,7 +8,7 @@
  */
 
 import type { Database } from 'bun:sqlite'
-import { countIncomingActiveRetentionReviewEdges, countRetentionReviewDependents, getRetentionReviewEligibilityThought, type RetentionReviewDependentCounts } from '../db/retention-review'
+import { countIncomingActiveRetentionReviewEdges, countRetentionReviewDependents, findActiveOrDraftRetentionReviewThoughtByHash, getRetentionReviewCreatedSummaryState, getRetentionReviewEligibilityThought, type RetentionReviewDependentCounts } from '../db/retention-review'
 import { config } from '../config'
 import { getDb } from '../db'
 import { createThought as dbCreateThought, deleteThought, updateThought } from '../db/thoughts'
@@ -528,16 +528,12 @@ export function compactRetentionReviewCandidatesService(
       ? [...new Set(latest.flatMap(source => getThoughtTags(d, source.id).map(tag => tag.name)))]
       : [...new Set(summaryObject.tags)]
     const projectId = summaryObject.project_id ?? latest[0].project_id
-    const matchingThought = d.prepare(
-      `SELECT id FROM thoughts WHERE content_hash = ? AND project_id = ? AND status IN ('draft', 'active') LIMIT 1`
-    ).get(computeContentHash(summary.trim(), projectId), projectId)
+    const matchingThought = findActiveOrDraftRetentionReviewThoughtByHash(d, computeContentHash(summary.trim(), projectId), projectId)
     if (matchingThought) {
       throw new RetentionReviewIneligibleError('Summary content matches an existing draft or active thought')
     }
     const created = dbCreateThought(d, { content: summary.trim(), status: 'active', project_id: projectId, tags, is_protected: true })
-    const summaryRow = d.prepare('SELECT status, is_protected FROM thoughts WHERE id = ?').get(created.id) as
-      | { status: string; is_protected: number }
-      | undefined
+    const summaryRow = getRetentionReviewCreatedSummaryState(d, created.id)
     if (!summaryRow || summaryRow.status !== 'active' || !summaryRow.is_protected) {
       throw new RetentionReviewIneligibleError('Summary content matches an existing draft or unprotected thought')
     }
