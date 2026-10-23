@@ -8,6 +8,7 @@
  */
 
 import type { Database } from 'bun:sqlite'
+import { countIncomingActiveRetentionReviewEdges, getRetentionReviewEligibilityThought } from '../db/retention-review'
 import { config } from '../config'
 import { getDb } from '../db'
 import { createThought as dbCreateThought, deleteThought, updateThought } from '../db/thoughts'
@@ -310,31 +311,7 @@ interface EligibilityDetail {
 }
 
 function evaluateEligibility(id: string, d: Database, opts: RetentionReviewDeleteOptions, now: string): EligibilityDetail {
-  const row = d
-    .prepare(
-      `SELECT t.id, t.content, t.status, t.project_id, t.is_protected, t.is_global,
-              t.created_at, t.archived_at, t.surface_after,
-              COALESCE(ti.importance, 1.0) AS importance,
-              COALESCE(ti.hit_count, 0) AS hit_count
-       FROM thoughts t
-       LEFT JOIN thought_importance ti ON ti.thought_id = t.id
-       WHERE t.id = ?`
-    )
-    .get(id) as
-    | {
-        id: string
-        content: string
-        status: string
-        project_id: string
-        is_protected: number
-        is_global: number
-        created_at: string
-        archived_at: string | null
-        surface_after: string | null
-        importance: number
-        hit_count: number
-      }
-    | undefined
+  const row = getRetentionReviewEligibilityThought(d, id)
 
   if (!row) throw new NotFoundError(`Thought not found: ${id}`)
 
@@ -354,13 +331,7 @@ function evaluateEligibility(id: string, d: Database, opts: RetentionReviewDelet
   if (!(row.importance < floor)) reasons.push('importance >= floor')
   if (row.hit_count !== 0) reasons.push('hit_count != 0')
 
-  const incomingRow = d
-    .prepare(
-      `SELECT COUNT(*) AS c FROM edges e JOIN thoughts s ON s.id = e.source_id
-       WHERE e.target_id = ? AND s.status = 'active'`
-    )
-    .get(id) as { c: number }
-  const incomingActiveEdges = incomingRow?.c ?? 0
+  const incomingActiveEdges = countIncomingActiveRetentionReviewEdges(d, id)
   if (incomingActiveEdges > 0) reasons.push('incoming active edges')
 
   if (row.surface_after && Date.parse(row.surface_after) > nowMs) reasons.push('surface_after in future')
