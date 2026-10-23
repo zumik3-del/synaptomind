@@ -130,7 +130,7 @@ describe('MCP stdio runtime', () => {
 
     expect(exitCode).toBe(0)
     assertPureJsonRpcLines(stdout)
-    expect(toolsFrom(stdout).length).toBe(10)
+    expect(toolsFrom(stdout).length).toBe(11)
     // Default stdio does NOT own the embedder or schedulers.
     expect(stderr).toContain('background jobs delegated to the shared server')
   }, 30_000)
@@ -140,7 +140,7 @@ describe('MCP stdio runtime', () => {
 
     expect(exitCode).toBe(0)
     assertPureJsonRpcLines(stdout)
-    expect(toolsFrom(stdout).length).toBe(10)
+    expect(toolsFrom(stdout).length).toBe(11)
     // Standalone opts into local job ownership — no delegation message.
     expect(stderr).not.toContain('background jobs delegated to the shared server')
   }, 30_000)
