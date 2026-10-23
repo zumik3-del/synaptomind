@@ -46,8 +46,8 @@ export function registerMemoryPrimers(server: McpServer) {
     description: `Manage primers (the always-at-hand set). Actions: list, delete (preview→confirm).`,
     inputSchema: {
       action: z.enum(['list', 'delete']).describe('Action'),
-      primer_id: z.string().optional().describe('REQUIRED for "delete".'),
-      confirm: z.boolean().optional().describe('delete: set true to actually delete. Set to false to preview first.')
+      primer_id: z.string().optional().describe('REQUIRED for "delete". Primer ID. IGNORED for "list".'),
+      confirm: z.boolean().optional().describe('CONSUMED by "delete" (true executes; false/omitted previews). IGNORED for "list".')
     },
     handlers
   })
