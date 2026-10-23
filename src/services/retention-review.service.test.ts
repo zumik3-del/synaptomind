@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db/container'
-import { closeDb } from '../db/init'
+import { closeDb, initDb } from '../db/init'
 import { seedEdge, seedThought, createTestDb } from '../test/helpers'
 import { computeContentHash } from '../utils'
 import { RetentionReviewIneligibleError } from '../errors'
@@ -75,6 +75,60 @@ test('delete previews without mutation, then confirms hard deletion and dependen
   expect(deleted.deleted).toBe(true)
   expect(getDb().prepare('SELECT id FROM thoughts WHERE id = ?').get(id)).toBeNull()
   expect(getDb().prepare('SELECT id FROM edges WHERE source_id = ? OR target_id = ?').all(id, id)).toEqual([])
+})
+
+test('confirmed delete cascades every retention-review child row and reports the preview count', () => {
+  const db = getDb()
+  const id = candidate('full cascade')
+  const other = seedThought({ content: 'edge peer', status: 'archived', is_protected: 0 })
+  seedEdge(id, other)
+  seedEdge(other, id)
+  db.prepare('INSERT INTO thought_url_links (id, thought_id, key, url, label, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(crypto.randomUUID(), id, 'docs', 'https://example.test', 'docs', now)
+  db.prepare('INSERT INTO primers (id, thought_id, created_at) VALUES (?, ?, ?)').run(crypto.randomUUID(), id, now)
+  db.prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)').run('cascade-tag', 'cascade-tag', now)
+  db.prepare('INSERT INTO thought_tags (thought_id, tag_id) VALUES (?, ?)').run(id, 'cascade-tag')
+  const preview = deleteRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1 }, db)
+  expect(preview.dependents).toEqual({ edges: 2, importance: 1, url_links: 1, pending_embeddings: 1, primers: 1, thought_tags: 1, total: 7 })
+  const deleted = deleteRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1, confirm: true }, db)
+  expect(deleted.dependents).toEqual(preview.dependents)
+  for (const table of ['edges', 'thought_importance', 'thought_url_links', 'pending_embeddings', 'primers', 'thought_tags']) {
+    expect(db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${table === 'edges' ? 'source_id = ? OR target_id = ?' : 'thought_id = ?'}`).get(...(table === 'edges' ? [id, id] : [id]))).toEqual({ count: 0 })
+  }
+  expect(db.prepare('SELECT id FROM thoughts WHERE id = ?').get(id)).toBeNull()
+  expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+})
+
+test('retention-review schema declares cascades for all child tables', () => {
+  const db = getDb()
+  const expected: Record<string, string[]> = {
+    edges: ['source_id', 'target_id'], thought_importance: ['thought_id'], thought_url_links: ['thought_id'],
+    pending_embeddings: ['thought_id'], primers: ['thought_id'], thought_tags: ['thought_id']
+  }
+  for (const [table, columns] of Object.entries(expected)) {
+    const foreignKeys = db.prepare(`PRAGMA foreign_key_list(${table})`).all() as Array<{ from: string; table: string; on_delete: string }>
+    for (const column of columns) {
+      expect(foreignKeys.some(key => key.from === column && key.table === 'thoughts' && key.on_delete === 'CASCADE')).toBe(true)
+    }
+  }
+})
+
+test('delete uses an explicitly injected database and omitted database resolves the configured default', () => {
+  const injectedDb = getDb()
+  const injectedId = candidate('injected connection')
+  try {
+    initDb({ dbPath: ':memory:', runMigrations: true })
+    const defaultId = candidate('configured default')
+    const options = { now, minAgeDays: 30, importanceFloor: 1 }
+
+    expect(deleteRetentionReviewCandidateService(injectedId, { ...options, confirm: true }, injectedDb).deleted).toBe(true)
+    expect(injectedDb.prepare('SELECT id FROM thoughts WHERE id = ?').get(injectedId)).toBeNull()
+    expect(getDb().prepare('SELECT id FROM thoughts WHERE id = ?').get(injectedId)).toBeNull()
+    expect(getDb().prepare('SELECT id FROM thoughts WHERE id = ?').get(defaultId)).toBeTruthy()
+    expect(deleteRetentionReviewCandidateService(defaultId, options).preview).toBe(true)
+  } finally {
+    injectedDb.close()
+  }
 })
 
 test('delete rejects missing, protected and no-longer-eligible thoughts', () => {
