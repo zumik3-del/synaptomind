@@ -9,6 +9,7 @@ import { registerMemoryReflect } from './reflect'
 import { registerMemoryPrimers } from './primers'
 import { registerEdgeReview } from './review'
 import { registerMemoryGuide } from './guide'
+import { registerRetentionReview } from './retention-review'
 
 export function registerAllMemoryTools(server: McpServer): void {
   registerMemoryRecall(server)
@@ -20,5 +21,6 @@ export function registerAllMemoryTools(server: McpServer): void {
   registerMemoryReflect(server)
   registerMemoryPrimers(server)
   registerEdgeReview(server)
+  registerRetentionReview(server)
   registerMemoryGuide(server)
 }
