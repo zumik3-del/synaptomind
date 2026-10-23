@@ -402,7 +402,7 @@ curl http://127.0.0.1:3005/health
 | Consolidate | `memory_crystallize` (graph, cluster, auto_cluster) |
 | Reflect | `memory_reflect` (reflect, timeline) |
 | Primers | `memory_primers` (list, delete) |
-| Review | `memory_review` (enqueue, list, apply, apply_batch, rollback, reject) |
+| Review | `edge_review` (enqueue, list, apply, apply_batch, rollback, reject) |
 | Guide | `memory_guide` |
 
 For action-level detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).

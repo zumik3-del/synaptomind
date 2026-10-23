@@ -352,7 +352,7 @@ curl `-d '{"thought_ids": ["<id1>", "<id2>"], "title": "Auth notes"}' http://127
 
 ## Review
 
-The persisted placement-proposal queue. `POST /api/thoughts/propose` is read-only and persists nothing; the review queue stores its confirmable items so a reviewer can apply or reject them one at a time. The queue never re-runs the engine and never auto-applies: an apply is an explicit, per-item write gated by `confirm:true`. MCP parity: `memory_review` (actions `enqueue`/`list`/`apply`/`apply_batch`/`rollback`/`reject`); only `apply`/`apply_batch`/`rollback` execute a write, and no read tool can reach them.
+The persisted placement-proposal queue. `POST /api/thoughts/propose` is read-only and persists nothing; the review queue stores its confirmable items so a reviewer can apply or reject them one at a time. The queue never re-runs the engine and never auto-applies: an apply is an explicit, per-item write gated by `confirm:true`. MCP parity: `edge_review` (actions `enqueue`/`list`/`apply`/`apply_batch`/`rollback`/`reject`); only `apply`/`apply_batch`/`rollback` execute a write, and no read tool can reach them.
 
 A queued item carries an `item_kind` and a `state`: `pending` (live) → `accepted` | `rejected` | `expired` | `stale` | `rolled_back` (terminal). `edge` is the only kind the queue creates: a plan's `placement` and `lifecycle` items are not queued, and the enqueue response reports them as skipped. Rows of a retired kind (`placement`, `lifecycle`, `triage_activate`, `triage_archive`) may still exist in an upgraded install — they stay listable and filterable, but neither `apply` nor `rollback` can act on them. Enqueueing a non-active source is rejected: the thought must be persisted **and** `active`.
 
@@ -433,7 +433,7 @@ Rejects one live `pending` item (no graph write). Returns the updated row with `
 
 curl -X POST http://127.0.0.1:3005/api/proposals/<id>/reject
 
-### memory_review (MCP)
+### edge_review (MCP)
 
 MCP parity for the routes above, plus `apply_batch` (no HTTP equivalent).
 
@@ -446,7 +446,7 @@ MCP parity for the routes above, plus `apply_batch` (no HTTP equivalent).
 | `rollback` | graph write | `run_id`, `confirm` (default false) | `RollbackReport` (`run_id`, `confirm`, `items[]`, `summary`) |
 | `reject` | queue write | `proposal_id` | Updated row (`state: "rejected"`) |
 
-`enqueue` requires a persisted, `active` `thought_id`. `apply`/`apply_batch`/`rollback` default to a non-mutating dry-run and execute only on `confirm: true`. `enqueue` and `reject` touch only the queue, never the graph; only `apply`/`apply_batch`/`rollback` call a writer. Apply is deliberately absent from every read tool — `memory_status` `propose` stays read-only, and `list` cannot reach `apply` (enforced by a static test in `src/mcp/tools/memory-review.contract.test.ts`). Both write surfaces share the same envelope and window rules as the HTTP routes above: an un-enveloped `apply`/`apply_batch` gets a synthesized `auto-…` `run_id` back so `rollback` can reach it without a second query, and that envelope reaches only the rows the call actually decided — a row that came back `stale`/`failed` joins no run, and a row that was already `accepted` keeps the envelope it was accepted under — while `rollback` refuses any row decided outside the `placement.proposalTtlDays` window.
+`enqueue` requires a persisted, `active` `thought_id`. `apply`/`apply_batch`/`rollback` default to a non-mutating dry-run and execute only on `confirm: true`. `enqueue` and `reject` touch only the queue, never the graph; only `apply`/`apply_batch`/`rollback` call a writer. Apply is deliberately absent from every read tool — `memory_status` `propose` stays read-only, and `list` cannot reach `apply` (enforced by a static test in `src/mcp/tools/edge-review.contract.test.ts`). Both write surfaces share the same envelope and window rules as the HTTP routes above: an un-enveloped `apply`/`apply_batch` gets a synthesized `auto-…` `run_id` back so `rollback` can reach it without a second query, and that envelope reaches only the rows the call actually decided — a row that came back `stale`/`failed` joins no run, and a row that was already `accepted` keeps the envelope it was accepted under — while `rollback` refuses any row decided outside the `placement.proposalTtlDays` window.
 
 ## Projects
 

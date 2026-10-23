@@ -59,7 +59,7 @@ describe('tool registration', () => {
     expect(names).toContain('memory_crystallize')
     expect(names).toContain('memory_reflect')
     expect(names).toContain('memory_primers')
-    expect(names).toContain('memory_review')
+    expect(names).toContain('edge_review')
     expect(names).toContain('memory_guide')
     expect(tools.length).toBe(10)
   })

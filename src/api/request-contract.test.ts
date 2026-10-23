@@ -28,7 +28,7 @@
  *   - `PUT /api/slots/:name` did the same (malformed body → 500); and
  *   - `GET /api/proposals?limit=` had no range check (0 / 1001 reached the
  *     service as-is instead of a typed 400), now bound to the same
- *     `proposalsLimitSchema` the `memory_review` tool advertises.
+ *     `proposalsLimitSchema` the `edge_review` tool advertises.
  *
  * The behaviour suite mounts the three routers directly: `createApp()` installs
  * the process-wide API rate-limit singleton (`src/middleware/rate-limit.ts`),

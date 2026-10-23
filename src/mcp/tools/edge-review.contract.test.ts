@@ -1,7 +1,7 @@
 /**
  * Contract tests for the R5 MCP surface (task #978, epic #964).
  *
- * Covers `memory_review` actions (`enqueue`/`list`/`apply`/`apply_batch`/`reject`):
+ * Covers `edge_review` actions (`enqueue`/`list`/`apply`/`apply_batch`/`reject`):
  * valid, missing param, unknown id, error envelopes, draft guard, read-only
  * list, and a static assertion that
  * no read handler in review.ts reaches `applyProposalService` / `applyBatchService`.
@@ -111,13 +111,13 @@ beforeAll(async () => {
 
 // ── enqueue ────────────────────────────────────────────────────────────────────
 
-describe('memory_review enqueue', () => {
+describe('edge_review enqueue', () => {
   test('valid thought_id → success, returns the enqueue outcome (possibly empty if engine degrades)', async () => {
     const src = seedThought({ content: 'enqueue valid subject marker' })
     seedThought({ content: 'enqueue valid related content here' })
 
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'enqueue', thought_id: src }
     })
     const { data, isError } = parseResult(result)
@@ -133,14 +133,14 @@ describe('memory_review enqueue', () => {
     const src = seedThought({ content: 'enqueue canonical cap source marker' })
 
     const accepted = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'enqueue', thought_id: src, max_proposals: 1 }
     })
     const acceptedResult = parseResult(accepted)
     expect(acceptedResult.isError).toBe(false)
 
     const retired = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'enqueue', thought_id: src, max_items: 1 }
     })
     const { isError, text } = parseResult(retired)
@@ -150,7 +150,7 @@ describe('memory_review enqueue', () => {
 
   test('missing thought_id → error envelope with a clear message', async () => {
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'enqueue' }
     })
     const { isError, text } = parseResult(result)
@@ -160,7 +160,7 @@ describe('memory_review enqueue', () => {
 
   test('draft sentinel id is rejected (error envelope)', async () => {
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'enqueue', thought_id: '(draft)' }
     })
     const { isError, text } = parseResult(result)
@@ -171,7 +171,7 @@ describe('memory_review enqueue', () => {
 
   test('unknown thought_id → error envelope', async () => {
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'enqueue', thought_id: 'does-not-exist' }
     })
     const { isError, text } = parseResult(result)
@@ -182,14 +182,14 @@ describe('memory_review enqueue', () => {
 
 // ── list ───────────────────────────────────────────────────────────────────────
 
-describe('memory_review list', () => {
+describe('edge_review list', () => {
   test('returns an array; seeded pending rows appear', async () => {
     const src = seedThought({ content: 'list-read-only source' })
     const tgt = seedThought({ content: 'list-read-only target' })
     insertPendingEdge(src, tgt)
 
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'list' }
     })
     const { data, isError } = parseResult(result)
@@ -205,7 +205,7 @@ describe('memory_review list', () => {
     const row = insertPendingEdge(src, tgt)
 
     const beforeCount = (db.prepare('SELECT COUNT(*) AS n FROM placement_proposals').get() as { n: number }).n
-    await client.callTool({ name: 'memory_review', arguments: { action: 'list' } })
+    await client.callTool({ name: 'edge_review', arguments: { action: 'list' } })
     const afterCount = (db.prepare('SELECT COUNT(*) AS n FROM placement_proposals').get() as { n: number }).n
 
     expect(afterCount).toBe(beforeCount)
@@ -219,11 +219,11 @@ describe('memory_review list', () => {
     const row = insertPendingEdge(src, tgt)
 
     // Reject one so it becomes terminal.
-    await client.callTool({ name: 'memory_review', arguments: { action: 'reject', proposal_id: row.id } })
+    await client.callTool({ name: 'edge_review', arguments: { action: 'reject', proposal_id: row.id } })
     expect(propState(db, row.id)).toBe('rejected')
 
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'list', state: 'rejected' }
     })
     const { data, isError } = parseResult(result)
@@ -234,7 +234,7 @@ describe('memory_review list', () => {
 
 // ── apply ──────────────────────────────────────────────────────────────────────
 
-describe('memory_review apply', () => {
+describe('edge_review apply', () => {
   test('dry-run (no confirm) → returns dry_run status, no mutation', async () => {
     const db = getDb()
     const src = seedThought({ content: 'apply-dry source' })
@@ -242,7 +242,7 @@ describe('memory_review apply', () => {
     const row = insertPendingEdge(src, tgt)
 
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'apply', proposal_id: row.id }
     })
     const { data, isError } = parseResult(result)
@@ -259,7 +259,7 @@ describe('memory_review apply', () => {
     const row = insertPendingEdge(src, tgt)
 
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'apply', proposal_id: row.id, confirm: true }
     })
     const { data, isError } = parseResult(result)
@@ -270,7 +270,7 @@ describe('memory_review apply', () => {
 
   test('unknown proposal_id → error envelope', async () => {
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'apply', proposal_id: 'no-such-id' }
     })
     const { isError, text } = parseResult(result)
@@ -280,7 +280,7 @@ describe('memory_review apply', () => {
 
   test('missing proposal_id → error envelope', async () => {
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'apply' }
     })
     const { isError, text } = parseResult(result)
@@ -291,7 +291,7 @@ describe('memory_review apply', () => {
 
 // ── apply_batch ────────────────────────────────────────────────────────────────
 
-describe('memory_review apply_batch', () => {
+describe('edge_review apply_batch', () => {
   test('applies multiple proposals independently, returns results and errors', async () => {
     const s1 = seedThought({ content: 'batch-1 source' })
     const t1 = seedThought({ content: 'batch-1 target' })
@@ -301,7 +301,7 @@ describe('memory_review apply_batch', () => {
     insertPendingEdge(s2, t2)
 
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: {
         action: 'apply_batch',
         proposal_ids: [okRow.id, 'missing-id']
@@ -317,7 +317,7 @@ describe('memory_review apply_batch', () => {
 
   test('empty proposal_ids → error envelope', async () => {
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'apply_batch', proposal_ids: [] }
     })
     const { isError, text } = parseResult(result)
@@ -327,7 +327,7 @@ describe('memory_review apply_batch', () => {
 
   test('missing proposal_ids → error envelope', async () => {
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'apply_batch' }
     })
     const { isError } = parseResult(result)
@@ -337,7 +337,7 @@ describe('memory_review apply_batch', () => {
 
 // ── reject ─────────────────────────────────────────────────────────────────────
 
-describe('memory_review reject', () => {
+describe('edge_review reject', () => {
   test('pending → rejected; returns state and decided_by', async () => {
     const db = getDb()
     const src = seedThought({ content: 'reject-source' })
@@ -345,7 +345,7 @@ describe('memory_review reject', () => {
     const row = insertPendingEdge(src, tgt)
 
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'reject', proposal_id: row.id }
     })
     const { data, isError } = parseResult(result)
@@ -360,9 +360,9 @@ describe('memory_review reject', () => {
     const tgt = seedThought({ content: 'double-reject target' })
     const row = insertPendingEdge(src, tgt)
 
-    await client.callTool({ name: 'memory_review', arguments: { action: 'reject', proposal_id: row.id } })
+    await client.callTool({ name: 'edge_review', arguments: { action: 'reject', proposal_id: row.id } })
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'reject', proposal_id: row.id }
     })
     const { isError, text } = parseResult(result)
@@ -372,7 +372,7 @@ describe('memory_review reject', () => {
 
   test('unknown proposal_id → error envelope', async () => {
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'reject', proposal_id: 'no-such-id' }
     })
     const { isError, text } = parseResult(result)
@@ -382,7 +382,7 @@ describe('memory_review reject', () => {
 
   test('missing proposal_id → error envelope', async () => {
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'reject' }
     })
     const { isError, text } = parseResult(result)
@@ -393,12 +393,12 @@ describe('memory_review reject', () => {
 
 // ── stored triage_* rows (task #1962) ─────────────────────────────────────────
 
-describe('memory_review: stored triage_* rows from an older install', () => {
+describe('edge_review: stored triage_* rows from an older install', () => {
   test('a stored triage_activate row stays listable', async () => {
     const src = seedThought({ content: 'retired triage list source' })
     insertRetiredRow('retired-list-activate', 'triage_activate', src)
 
-    const result = await client.callTool({ name: 'memory_review', arguments: { action: 'list' } })
+    const result = await client.callTool({ name: 'edge_review', arguments: { action: 'list' } })
 
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -413,7 +413,7 @@ describe('memory_review: stored triage_* rows from an older install', () => {
     insertRetiredRow('retired-apply-archive', 'triage_archive', src)
 
     const result = await client.callTool({
-      name: 'memory_review',
+      name: 'edge_review',
       arguments: { action: 'apply', proposal_id: 'retired-apply-archive', confirm: true }
     })
 

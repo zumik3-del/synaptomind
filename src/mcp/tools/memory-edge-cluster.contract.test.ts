@@ -5,7 +5,7 @@
  * - `memory_store action=unlink` — dry-run preview, confirm delete, idempotent not_found
  * - `memory_store action=retype` — dry-run preview, confirm retype
  *
- * Follows the pattern from memory-review.contract.test.ts.
+ * Follows the pattern from edge-review.contract.test.ts.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/sdk/client'

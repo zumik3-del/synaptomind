@@ -199,7 +199,7 @@ appears only when it is confirmed with `memory_store action=link`.
 
 ## Placement
 
-Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory_status action=propose` (see ADR 2026-09-28), plus the persisted review queue they feed (`memory_review`, `GET/POST /api/proposals` — see [API.md](./API.md) §Review). The engine never writes the graph: `maxClusterSize` only suppresses a proposal, it never mutates; queued proposals are applied only on an explicit `confirm:true`. `proposalTtlDays` does double duty — it prunes the queue *and* bounds the rollback window, so there is one retention number and no separate rollback key.
+Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory_status action=propose` (see ADR 2026-09-28), plus the persisted review queue they feed (`edge_review`, `GET/POST /api/proposals` — see [API.md](./API.md) §Review). The engine never writes the graph: `maxClusterSize` only suppresses a proposal, it never mutates; queued proposals are applied only on an explicit `confirm:true`. `proposalTtlDays` does double duty — it prunes the queue *and* bounds the rollback window, so there is one retention number and no separate rollback key.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
@@ -210,7 +210,7 @@ Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory
 
 **Note:** The review queue stores `edge` items only. A plan's `placement` and
 `lifecycle` items are not queued; `POST /api/proposals` and
-`memory_review action=enqueue` return them in `skipped` / `skipped_kinds`. Rows
+`edge_review action=enqueue` return them in `skipped` / `skipped_kinds`. Rows
 written by retired subsystems may still exist in an upgraded install — they stay
 listable and filterable, but neither apply nor rollback can act on them.
 

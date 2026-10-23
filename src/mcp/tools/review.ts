@@ -69,9 +69,9 @@ const handlers = {
   }
 }
 
-export function registerMemoryReview(server: McpServer) {
+export function registerEdgeReview(server: McpServer) {
   registerActionTool(server, {
-    name: 'memory_review',
+    name: 'edge_review',
     description: `Review and apply placement proposals. Actions: enqueue (persisted thought only; queues the plan's edge items and reports the skipped ones), list (default pending), apply (dry-run unless confirm=true), apply_batch (per-call cap), rollback (dry-run), reject. Rows of a retired item kind (triage_*) stay listable but cannot be applied.`,
     inputSchema: {
       action: z

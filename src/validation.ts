@@ -46,7 +46,7 @@ export const timelineLimitSchema = z.coerce.number().int().min(TIMELINE_LIMIT_MI
  */
 export const BATCH_ITEMS_MAX = 1000
 
-/** Page size for the proposal queue (`GET /api/proposals`, `memory_review action=list`). */
+/** Page size for the proposal queue (`GET /api/proposals`, `edge_review action=list`). */
 export const PROPOSALS_LIMIT_DEFAULT = 100
 export const PROPOSALS_LIMIT_MIN = 1
 export const PROPOSALS_LIMIT_MAX = 1000
