@@ -7,6 +7,7 @@ import {
   protectRetentionReviewCandidateService
 } from '../../services/retention-review-actions.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import { BATCH_ITEMS_MAX } from '../../validation'
 
 const handlers = {
   list: {
@@ -29,7 +30,7 @@ const handlers = {
   },
   compact: {
     input: z.object({
-      source_ids: z.array(z.string().min(1)).min(1, 'source_ids must be a non-empty array of thought IDs'),
+      source_ids: z.array(z.string().min(1)).min(1, 'source_ids must be a non-empty array of thought IDs').max(BATCH_ITEMS_MAX, `source_ids accepts at most ${BATCH_ITEMS_MAX} ids per call`),
       summary: z.object({ content: z.string().min(1), tags: z.array(z.string()).optional(), project_id: z.string().min(1).optional() })
     }),
     run(args: ActionArgs) {
@@ -53,7 +54,7 @@ export function registerRetentionReview(server: McpServer): void {
        limit: z.number().int().min(1).max(100).optional().describe('Maximum candidates to return. Optional for list.'),
       offset: z.number().int().min(0).optional().describe('Candidate pagination offset. Optional for list.'),
       thought_id: z.string().optional().describe('Thought ID. Required for protect and delete.'),
-      source_ids: z.array(z.string()).optional().describe('Source thought IDs. Required for compact.'),
+       source_ids: z.array(z.string()).max(BATCH_ITEMS_MAX, `source_ids accepts at most ${BATCH_ITEMS_MAX} ids per call`).optional().describe('Source thought IDs. Required for compact.'),
       summary: z.object({ content: z.string(), tags: z.array(z.string()).optional(), project_id: z.string().optional() }).optional().describe('Summary thought input. Required for compact.'),
       confirm: z.boolean().optional().describe('When true, authorizes delete or compact; false or omitted previews. Ignored otherwise.')
     },
