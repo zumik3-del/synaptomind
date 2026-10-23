@@ -3,12 +3,12 @@ import { getDb } from '../db/container'
 import { closeDb } from '../db/init'
 import { seedEdge, seedThought, createTestDb } from '../test/helpers'
 import { computeContentHash } from '../utils'
+import { RetentionReviewIneligibleError } from '../errors'
 import {
   compactRetentionReviewCandidatesService,
   deleteRetentionReviewCandidateService,
   listRetentionReviewCandidatesService,
-  protectRetentionReviewCandidateService,
-  RetentionReviewIneligibleError
+  protectRetentionReviewCandidateService
 } from './retention-review.service'
 
 const now = '2026-10-23T00:00:00.000Z'
