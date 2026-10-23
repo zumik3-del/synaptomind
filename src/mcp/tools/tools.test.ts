@@ -48,7 +48,7 @@ beforeAll(async () => {
 // ── Tool registration ────────────────────────────────────────────────────────
 
 describe('tool registration', () => {
-  test('registers all 10 tools', async () => {
+  test('registers all 11 tools', async () => {
     const { tools } = await client.listTools()
     const names = tools.map(t => t.name)
     expect(names).toContain('memory_recall')
@@ -60,8 +60,9 @@ describe('tool registration', () => {
     expect(names).toContain('memory_reflect')
     expect(names).toContain('memory_primers')
     expect(names).toContain('edge_review')
+    expect(names).toContain('retention_review')
     expect(names).toContain('memory_guide')
-    expect(tools.length).toBe(10)
+    expect(tools.length).toBe(11)
   })
 
   test('memory_store advertises the effective soft limit at registration', async () => {
@@ -71,6 +72,47 @@ describe('tool registration', () => {
     const { tools: freshTools } = await fresh.listTools()
     const storeTool = freshTools.find(t => t.name === 'memory_store')
     expect(JSON.stringify(storeTool?.inputSchema ?? {})).toContain('321')
+  })
+})
+
+describe('retention_review MCP', () => {
+  test('maps list pagination and summarizes protection candidates', async () => {
+    const id = seedThought({ content: 'MCP retention candidate', status: 'archived', is_protected: 0, importance: 0.1, created_at: '2026-09-01T00:00:00.000Z' })
+    getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
+    getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
+    const listed = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'list', min_age_days: 1, importance_floor: 1, limit: 1, offset: 0 } }))
+    expect(listed.isError).toBe(false)
+    expect(listed.data.candidates.map((row: { id: string }) => row.id)).toContain(id)
+    const protectedResult = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'protect', thought_id: id } }))
+    expect(protectedResult.isError).toBe(false)
+    expect(getDb().prepare('SELECT is_protected FROM thoughts WHERE id = ?').get(id)).toEqual({ is_protected: 1 })
+  })
+
+  test('previews delete/compact by default and maps confirmation, validation errors, and summary fields', async () => {
+    const id = seedThought({ content: 'MCP retention delete', status: 'archived', is_protected: 0, importance: 0.1, created_at: '2026-09-01T00:00:00.000Z' })
+    getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
+    getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
+    const preview = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
+    expect(preview.data.preview).toBe(true)
+    expect(getDb().prepare('SELECT id FROM thoughts WHERE id = ?').get(id)).toBeTruthy()
+    const deleted = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id, confirm: true } }))
+    expect(deleted.data.deleted).toBe(true)
+
+    const source = seedThought({ content: 'MCP retention compact source', status: 'archived', is_protected: 0, importance: 0.1, created_at: '2026-09-01T00:00:00.000Z' })
+    getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', source)
+    getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(source)
+    const args = { action: 'compact', source_ids: [source], summary: { content: 'MCP retention compact summary', tags: ['mcp-tag'], project_id: 'default' } }
+    const compactPreview = parseResult(await client.callTool({ name: 'retention_review', arguments: args }))
+    expect(compactPreview.data.status).toBe('preview')
+    expect(getDb().prepare("SELECT id FROM thoughts WHERE content = 'MCP retention compact summary'").get()).toBeNull()
+    const compacted = parseResult(await client.callTool({ name: 'retention_review', arguments: { ...args, confirm: true } }))
+    expect(compacted.isError).toBe(false)
+    expect(compacted.data.summary.project_id).toBe('default')
+    expect(compacted.data.summary.tags.map((tag: { name: string }) => tag.name)).toContain('mcp-tag')
+    const invalid = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'compact', source_ids: [], summary: { content: 'invalid' } } }))
+    expect(invalid.isError).toBe(true)
+    const edgeTools = (await client.listTools()).tools.filter(tool => tool.name === 'edge_review')
+    expect(edgeTools).toHaveLength(1)
   })
 })
 
