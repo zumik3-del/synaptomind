@@ -8,16 +8,14 @@
  */
 
 import type { Database } from 'bun:sqlite'
-import { countIncomingActiveRetentionReviewEdges, countRetentionReviewDependents, findActiveOrDraftRetentionReviewThoughtByHash, getRetentionReviewCreatedSummaryState, getRetentionReviewEligibilityThought, type RetentionReviewDependentCounts } from '../db/retention-review'
+import { countIncomingActiveRetentionReviewEdges, countRetentionReviewCandidates, countRetentionReviewDependents, findActiveOrDraftRetentionReviewThoughtByHash, getRetentionReviewCreatedSummaryState, getRetentionReviewEligibilityThought, listRetentionReviewCandidates as queryRetentionReviewCandidateRows, type RetentionReviewDependentCounts } from '../db/retention-review'
 import { config } from '../config'
 import { getDb } from '../db'
 import { createThought as dbCreateThought, deleteThought, updateThought } from '../db/thoughts'
-import { getThoughtTagsBatch, type Tag } from '../db/tags'
-import { ValidationError, NotFoundError } from '../errors'
+import { getThoughtTags, getThoughtTagsBatch, type Tag } from '../db/tags'
+import { RetentionReviewIneligibleError, ValidationError, NotFoundError } from '../errors'
 import { mergeThoughtsService } from './merge.service'
-import { getThoughtTags } from '../db/tags'
 import { computeContentHash } from '../utils'
-import { countRetentionReviewCandidates, listRetentionReviewCandidates as queryRetentionReviewCandidateRows } from '../db/retention-review'
 
 export interface RetentionReviewCandidate {
   id: string
@@ -148,34 +146,11 @@ export function listRetentionReviewCandidatesService(
   return { total, limit: resolvedLimit, offset: resolvedOffset, candidates }
 }
 
-// Aliases for discoverability / compatibility with callers and tests.
-export const listRetentionReviewCandidates = listRetentionReviewCandidatesService
-export const getRetentionReviewCandidates = listRetentionReviewCandidatesService
-export const getRetentionReviewCandidatesService = listRetentionReviewCandidatesService
-export const listRetentionReview = listRetentionReviewCandidatesService
-export const listRetentionReviewService = listRetentionReviewCandidatesService
-export const findRetentionReviewCandidates = listRetentionReviewCandidatesService
-export const findRetentionReviewCandidatesService = listRetentionReviewCandidatesService
-export const retentionReviewCandidates = listRetentionReviewCandidatesService
-
-export const retentionReviewCandidatesService = listRetentionReviewCandidatesService
-export const retentionReviewCandidateQuery = listRetentionReviewCandidatesService
-export const getRetentionReviewCandidateQuery = listRetentionReviewCandidatesService
-export const listRetentionReviewCandidateQuery = listRetentionReviewCandidatesService
-export const queryRetentionReviewCandidates = listRetentionReviewCandidatesService
-export const retentionReviewQuery = listRetentionReviewCandidatesService
-
 // ---------------------------------------------------------------------------
 // Retention-review actions: hard delete (cascade, preview-first) and protect.
 // ---------------------------------------------------------------------------
 
-export class RetentionReviewIneligibleError extends Error {
-  readonly statusCode = 409
-  constructor(msg = 'Thought is not an eligible retention-review candidate') {
-    super(msg)
-    this.name = 'RetentionReviewIneligibleError'
-  }
-}
+export { RetentionReviewIneligibleError }
 
 export interface RetentionReviewDeleteOptions extends RetentionReviewQueryOptions {
   confirm?: boolean
@@ -471,64 +446,3 @@ export function compactRetentionReviewCandidatesService(
   })
   return { status: 'compacted', preview: false, confirm: true, source_ids, summary: run() }
 }
-
-// Aliases for discoverability / compatibility with callers and tests.
-export const deleteRetentionReview = deleteRetentionReviewCandidateService
-export const deleteRetentionReviewService = deleteRetentionReviewCandidateService
-export const deleteRetentionReviewCandidate = deleteRetentionReviewCandidateService
-export const hardDeleteRetentionReview = deleteRetentionReviewCandidateService
-export const hardDeleteRetentionReviewService = deleteRetentionReviewCandidateService
-export const hardDeleteRetentionReviewCandidate = deleteRetentionReviewCandidateService
-export const hardDeleteRetentionReviewCandidateService = deleteRetentionReviewCandidateService
-
-export const protectRetentionReview = protectRetentionReviewCandidateService
-export const protectRetentionReviewService = protectRetentionReviewCandidateService
-export const protectRetentionReviewCandidate = protectRetentionReviewCandidateService
-
-// Eligibility helpers (exported for reuse/testing).
-export function isRetentionReviewCandidate(id: string, a?: unknown, b?: unknown): boolean {
-  const { opts, d } = ((): { opts: RetentionReviewDeleteOptions; d: Database } => {
-    // allow flexible db/options
-    let o: RetentionReviewDeleteOptions = {}
-    let db: Database | undefined
-    const apply = (v: unknown) => {
-      if (!v) return
-      if (typeof v === 'object') {
-        if ('prepare' in (v as object)) db = v as Database
-        else o = { ...o, ...(v as RetentionReviewDeleteOptions) }
-      }
-    }
-    apply(a)
-    apply(b)
-    if (!db) db = getDb()
-    return { opts: o, d: db }
-  })()
-  const now = resolveNow(opts)
-  try {
-    return evaluateEligibility(id, d, opts, now).eligible
-  } catch {
-    return false
-  }
-}
-
-export function validateRetentionReviewCandidate(id: string, a?: unknown, b?: unknown): EligibilityDetail {
-  const { opts, d } = ((): { opts: RetentionReviewDeleteOptions; d: Database } => {
-    let o: RetentionReviewDeleteOptions = {}
-    let db: Database | undefined
-    const apply = (v: unknown) => {
-      if (!v) return
-      if (typeof v === 'object') {
-        if ('prepare' in (v as object)) db = v as Database
-        else o = { ...o, ...(v as RetentionReviewDeleteOptions) }
-      }
-    }
-    apply(a)
-    apply(b)
-    if (!db) db = getDb()
-    return { opts: o, d: db }
-  })()
-  const now = resolveNow(opts)
-  return evaluateEligibility(id, d, opts, now)
-}
-
-export default listRetentionReviewCandidatesService

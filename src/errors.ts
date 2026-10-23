@@ -22,6 +22,14 @@ export class ValidationError extends Error {
   }
 }
 
+export class RetentionReviewIneligibleError extends Error {
+  readonly statusCode = 409
+  constructor(msg = 'Thought is not an eligible retention-review candidate') {
+    super(msg)
+    this.name = 'RetentionReviewIneligibleError'
+  }
+}
+
 export class EmbedderNotReadyError extends Error {
   readonly statusCode = 503
   constructor(msg = 'Embedder model is not ready') {
