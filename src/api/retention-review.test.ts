@@ -32,6 +32,31 @@ test('retention-review HTTP lists candidates successfully', async () => {
   expect(body.total).toBe(1)
 })
 
+test('retention-review HTTP excludes profile thoughts from candidates and total', async () => {
+  const candidate = seedThought({ status: 'archived', is_profile: 0, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
+  const profile = seedThought({ status: 'archived', is_profile: 1, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
+  for (const id of [candidate, profile]) {
+    getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
+    getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
+  }
+  const response = await request('/api/thoughts/retention-review')
+  const body = await response.json() as { candidates: Array<{ id: string }>; total: number }
+  expect(body.candidates.map(row => row.id)).toContain(candidate)
+  expect(body.candidates.map(row => row.id)).not.toContain(profile)
+  expect(body.total).toBe(1)
+})
+
+test('retention-review HTTP refuses delete, protect, and compact for profiles', async () => {
+  const id = seedThought({ status: 'archived', is_profile: 1, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
+  const deleted = await request(`/api/thoughts/${id}/retention-review/delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) })
+  const protectedResponse = await request(`/api/thoughts/${id}/retention-review/protect`, { method: 'POST' })
+  const compacted = await request('/api/thoughts/retention-review/compact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_ids: [id], summary: { content: 'summary' }, confirm: true }) })
+  for (const response of [deleted, protectedResponse, compacted]) {
+    expect(response.status).toBe(409)
+    expect(JSON.stringify(await response.json()).toLowerCase()).toContain('profile')
+  }
+})
+
 test('retention-review delete preview and confirmation preserve the preview-first contract', async () => {
   const id = seedThought({ status: 'archived', is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
   getDb().prepare('UPDATE thoughts SET archived_at = ?, created_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z', id)
@@ -80,6 +105,14 @@ test('retention-review compact rejects more than 1000 source IDs over HTTP', asy
     body: JSON.stringify({ source_ids: Array.from({ length: 1001 }, (_, i) => `id-${i}`), summary: { content: 'summary' } })
   })
   expect(response.status).toBe(400)
+})
+
+test('retention-review compact accepts 1000 source IDs through HTTP validation', async () => {
+  const response = await request('/api/thoughts/retention-review/compact', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_ids: Array.from({ length: 1000 }, (_, i) => `missing-${i}`), summary: { content: 'summary' } })
+  })
+  expect(response.status).not.toBe(400)
 })
 
 test('retention-review protect rejects an ineligible thought and missing delete maps to 404', async () => {

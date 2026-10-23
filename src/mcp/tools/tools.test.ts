@@ -121,6 +121,40 @@ describe('retention_review MCP', () => {
     } })
     expect(result.isError).toBe(true)
   })
+
+  test('retention-review list excludes profile thoughts and totals', async () => {
+    const candidate = seedThought({ content: 'candidate', status: 'archived', is_profile: 0, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
+    const profile = seedThought({ content: 'profile', status: 'archived', is_profile: 1, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
+    for (const id of [candidate, profile]) {
+      getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
+      getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
+    }
+    const listed = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'list' } }))
+    expect(listed.data.candidates.map((row: { id: string }) => row.id)).toContain(candidate)
+    expect(listed.data.candidates.map((row: { id: string }) => row.id)).not.toContain(profile)
+    expect(listed.data.total).toBe(1)
+  })
+
+  test('retention-review delete, protect, and compact refuse profile thoughts', async () => {
+    const id = seedThought({ status: 'archived', is_profile: 1, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
+    for (const args of [
+      { action: 'delete', thought_id: id, confirm: true },
+      { action: 'protect', thought_id: id },
+      { action: 'compact', source_ids: [id], summary: { content: 'summary' }, confirm: true }
+    ]) {
+      const result = parseResult(await client.callTool({ name: 'retention_review', arguments: args }))
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result).toLowerCase()).toContain('profile')
+    }
+  })
+
+  test('retention-review compact accepts 1000 source IDs through MCP schema validation', async () => {
+    const result = parseResult(await client.callTool({ name: 'retention_review', arguments: {
+      action: 'compact', source_ids: Array.from({ length: 1000 }, (_, i) => `missing-${i}`), summary: { content: 'summary' }
+    } }))
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result).toLowerCase()).not.toContain('at most 1000')
+  })
 })
 
 // ── memory_store ─────────────────────────────────────────────────────────────
