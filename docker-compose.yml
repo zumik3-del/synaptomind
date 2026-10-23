@@ -22,7 +22,6 @@ services:
     environment:
       - SYNAPTOMIND_HOST=0.0.0.0
       - SYNAPTOMIND_DB_PATH=/app/data/synaptomind.db
-      - SYNAPTOMIND_LOG_DB_PATH=/app/data/logs.db
       - SYNAPTOMIND_EMBEDDER_CACHE_DIR=/app/data/huggingface
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:3005/health"]

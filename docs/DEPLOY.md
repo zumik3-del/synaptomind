@@ -230,9 +230,21 @@ recovery block.
 database file is `/var/lib/synaptomind/synaptomind.db` — there is no `data/`
 under `/var/lib/synaptomind`.
 
-### Log database (`logs.db`) schema
+### Logging
 
-`logs.db` is a separate SQLite file with its own schema and its own
+Application logs now route to stdout/stderr (info/debug to stdout, warning/error
+to stderr) and, when configured, an optional size-rotated file via
+`log.file`/`SYNAPTOMIND_LOG_FILE` (with `log.fileMaxBytes`/`SYNAPTOMIND_LOG_FILE_MAX_BYTES`
+and `log.fileMaxFiles`/`SYNAPTOMIND_LOG_FILE_MAX_FILES`). There is no `logs.db`
+by default.
+
+The legacy `logs.db` SQLite store is retained as a deprecated compatibility
+alias: it is only opened when `logDbPath`/`SYNAPTOMIND_LOG_DB_PATH` is set, and
+the env var emits a deprecation warning. New deployments should leave it empty.
+
+#### Legacy `logs.db` schema (only when enabled)
+
+When enabled, `logs.db` is a separate SQLite file with its own schema and its own
 `schema_version` stored in its `_meta` table. Its schema is evolved by
 **versioned micro-migrations** (`src/logging/log.ts`, `LOG_MIGRATIONS`), reusing
 the same forward-only, one-transaction-per-migration runner as the main
@@ -244,8 +256,8 @@ no-ops there — so schema changes (new columns, indexes) are appended as new
 
 A `logs.db` created before this policy has no `_meta`/`schema_version` row; it is
 treated as version `0` and evolved to the current version on first open. The
-updater backs up `logs.db` alongside the main database, so the restore-on-rollback
-procedure above applies to it too.
+updater backs up `logs.db` only when the file is present, alongside the main
+database, so the restore-on-rollback procedure above applies to it too.
 
 ---
 
