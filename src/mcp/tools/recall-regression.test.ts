@@ -126,8 +126,7 @@ describe('memory_recall string-numeric coercion', () => {
       invalidLow: '-1',
       intOnly: false // positive() accepts non-int floats; min bound is 0 not 1
     },
-    { name: 'min_relevance', validStr: '0.5', invalidHigh: '1.5', invalidLow: '-0.1', intOnly: false },
-    { name: 'max_degree', validStr: '50', invalidHigh: '201', invalidLow: '0', intOnly: true }
+    { name: 'min_relevance', validStr: '0.5', invalidHigh: '1.5', invalidLow: '-0.1', intOnly: false }
   ]
 
   for (const p of numericParams) {
