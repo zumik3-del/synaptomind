@@ -114,6 +114,13 @@ describe('retention_review MCP', () => {
     const edgeTools = (await client.listTools()).tools.filter(tool => tool.name === 'edge_review')
     expect(edgeTools).toHaveLength(1)
   })
+
+  test('retention-review compact rejects more than 1000 IDs through MCP validation', async () => {
+    const result = await client.callTool({ name: 'retention_review', arguments: {
+      action: 'compact', source_ids: Array.from({ length: 1001 }, (_, i) => `id-${i}`), summary: { content: 'summary' }
+    } })
+    expect(result.isError).toBe(true)
+  })
 })
 
 // ── memory_store ─────────────────────────────────────────────────────────────

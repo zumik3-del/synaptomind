@@ -164,6 +164,16 @@ test('compact refuses mixed projects and matching existing active content withou
   expect(getDb().prepare('SELECT status FROM thoughts WHERE id = ?').get(single)).toEqual({ status: 'archived' })
 })
 
+test('compact rejects more than 1000 IDs before mutating any thoughts', () => {
+  const source = candidate('limit source')
+  const sourceIds = [source, ...Array.from({ length: 1000 }, (_, i) => `missing-${i}`)]
+  expect(() => compactRetentionReviewCandidatesService({
+    source_ids: sourceIds, summary: { content: 'limit summary' }, now, minAgeDays: 30, importanceFloor: 1, confirm: true
+  }, getDb())).toThrow('1000')
+  expect(getDb().prepare('SELECT status FROM thoughts WHERE id = ?').get(source)).toEqual({ status: 'archived' })
+  expect(getDb().prepare("SELECT id FROM thoughts WHERE content = 'limit summary'").get()).toBeNull()
+})
+
 test('compact transfers source edges and records summary-to-source replacement edges', () => {
   const source = candidate('edge source')
   const related = seedThought({ content: 'related thought', status: 'active', is_protected: 0 })
