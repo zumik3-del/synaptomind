@@ -644,7 +644,7 @@ export function compactRetentionReviewCandidatesService(
       throw new RetentionReviewIneligibleError('Summary content matches an existing draft or unprotected thought')
     }
     for (const source of latest) {
-      mergeThoughtsService({ targetId: created.id, sourceId: source.id, mergedContent: summary.trim(), mergedTags: tags }, d)
+      mergeThoughtsService({ targetId: created.id, sourceId: source.id, mergedContent: summary.trim(), mergedTags: tags, allowArchivedSource: true }, d)
     }
     return created
   })
