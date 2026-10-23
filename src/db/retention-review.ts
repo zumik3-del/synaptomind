@@ -19,6 +19,44 @@ export interface RetentionReviewCandidateRow {
   hit_count: number
 }
 
+export interface RetentionReviewEligibilityThought {
+  id: string
+  content: string
+  status: string
+  project_id: string
+  is_protected: number
+  is_global: number
+  created_at: string
+  archived_at: string | null
+  surface_after: string | null
+  importance: number
+  hit_count: number
+}
+
+export function getRetentionReviewEligibilityThought(
+  db: Database,
+  thoughtId: string
+): RetentionReviewEligibilityThought | undefined {
+  return db.prepare(`
+    SELECT t.id, t.content, t.status, t.project_id, t.is_protected, t.is_global,
+           t.created_at, t.archived_at, t.surface_after,
+           COALESCE(ti.importance, 1.0) AS importance,
+           COALESCE(ti.hit_count, 0) AS hit_count
+    FROM thoughts t
+    LEFT JOIN thought_importance ti ON ti.thought_id = t.id
+    WHERE t.id = ?
+  `).get(thoughtId) as RetentionReviewEligibilityThought | undefined
+}
+
+export function countIncomingActiveRetentionReviewEdges(db: Database, thoughtId: string): number {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS count FROM edges e
+    JOIN thoughts s ON s.id = e.source_id
+    WHERE e.target_id = ? AND s.status = 'active'
+  `).get(thoughtId) as { count: number }
+  return row.count
+}
+
 const where = `
   WHERE t.status IN ('archived', 'draft')
     AND COALESCE(t.archived_at, t.created_at) < ?
