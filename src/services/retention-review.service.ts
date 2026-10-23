@@ -56,8 +56,6 @@ export interface RetentionReviewResult {
   candidates: RetentionReviewCandidate[]
 }
 
-type LooseOptions = RetentionReviewQueryOptions & Record<string, unknown>
-
 function asNumber(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined
   if (typeof value === 'number') return value
@@ -66,18 +64,6 @@ function asNumber(value: unknown): number | undefined {
     return Number.isFinite(n) ? n : undefined
   }
   return undefined
-}
-
-function resolveDb(a: unknown, b: unknown): Database {
-  if (a && typeof a === 'object' && 'prepare' in (a as object)) return a as Database
-  if (b && typeof b === 'object' && 'prepare' in (b as object)) return b as Database
-  return getDb()
-}
-
-function resolveOptions(a: unknown, b: unknown): LooseOptions {
-  if (a && typeof a === 'object' && !('prepare' in (a as object))) return a as LooseOptions
-  if (b && typeof b === 'object' && !('prepare' in (b as object))) return b as LooseOptions
-  return {}
 }
 
 const CONTENT_TRUNCATE = 200
@@ -103,34 +89,31 @@ function truncate(content: string): string {
  * (same filters, ignoring paging), `limit`, `offset` and `candidates`.
  */
 export function listRetentionReviewCandidatesService(
-  optionsOrDb?: RetentionReviewQueryOptions | Database,
-  dbOrOptions?: Database | RetentionReviewQueryOptions
+  options: RetentionReviewQueryOptions = {},
+  d: Database = getDb()
 ): RetentionReviewResult {
-  const d = resolveDb(optionsOrDb, dbOrOptions)
-  const opts = resolveOptions(optionsOrDb, dbOrOptions)
-
-  const now = (opts.now ?? opts.clock ?? new Date().toISOString()) as string
+  const now = (options.now ?? options.clock ?? new Date().toISOString()) as string
   const nowMs = Date.parse(now)
 
-  const minAgeDays = asNumber(opts.minAgeDays ?? opts.min_age_days)
+  const minAgeDays = asNumber(options.minAgeDays ?? options.min_age_days)
   const resolvedMinAge = minAgeDays === undefined ? config.retentionReview.minAgeDays : minAgeDays
   if (!Number.isFinite(resolvedMinAge) || resolvedMinAge <= 0) {
     throw new ValidationError('minAgeDays must be a positive number')
   }
 
-  const importanceFloor = asNumber(opts.importanceFloor ?? opts.importance_floor)
+  const importanceFloor = asNumber(options.importanceFloor ?? options.importance_floor)
   const resolvedFloor = importanceFloor === undefined ? config.retentionReview.importanceFloor : importanceFloor
   if (!Number.isFinite(resolvedFloor) || resolvedFloor < 0 || resolvedFloor > 1) {
     throw new ValidationError('importanceFloor must be in [0, 1]')
   }
 
-  const limitRaw = asNumber(opts.limit ?? opts.pageSize ?? opts.page_size)
+  const limitRaw = asNumber(options.limit ?? options.pageSize ?? options.page_size)
   const resolvedLimit = limitRaw === undefined ? config.retentionReview.pageSize : Math.floor(limitRaw)
   if (!Number.isFinite(resolvedLimit) || resolvedLimit < 1 || resolvedLimit > 100) {
     throw new ValidationError('limit must be between 1 and 100')
   }
 
-  const offsetRaw = asNumber(opts.offset)
+  const offsetRaw = asNumber(options.offset)
   const resolvedOffset = offsetRaw === undefined ? 0 : Math.floor(offsetRaw)
   if (!Number.isFinite(resolvedOffset) || resolvedOffset < 0) {
     throw new ValidationError('offset must be >= 0')
