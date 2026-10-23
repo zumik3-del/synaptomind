@@ -15,13 +15,6 @@ import { getDb } from '../db'
 import { getThoughtTagsBatch, type Tag } from '../db/tags'
 import { ValidationError } from '../errors'
 
-// Temporary compatibility exports; removed after test imports migrate in #2100.
-export {
-  deleteRetentionReviewCandidateService,
-  protectRetentionReviewCandidateService,
-  compactRetentionReviewCandidatesService
-} from './retention-review-actions.service'
-
 export interface RetentionReviewCandidate {
   id: string
   /** Content truncated to 200 characters. */
