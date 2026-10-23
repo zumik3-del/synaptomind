@@ -577,7 +577,7 @@ export function protectRetentionReviewCandidateService(
 
 export interface RetentionReviewCompactOptions extends RetentionReviewDeleteOptions {
   source_ids: string[]
-  summary: string
+  summary: string | { content: string; tags?: string[]; project_id?: string }
   force?: boolean
 }
 
@@ -586,12 +586,20 @@ export function compactRetentionReviewCandidatesService(
   options: RetentionReviewCompactOptions,
   d: Database = getDb()
 ): { status: 'preview' | 'compacted'; preview: boolean; confirm: boolean; source_ids: string[]; summary?: ReturnType<typeof dbCreateThought>; instruction?: string } {
-  const { source_ids, summary, force = false, confirm = false } = options
+  const { source_ids, summary: summaryInput, force = false, confirm = false } = options
   if (!Array.isArray(source_ids) || source_ids.length === 0 || source_ids.some(id => typeof id !== 'string' || !id.trim())) {
     throw new ValidationError('source_ids must be a non-empty array of thought IDs')
   }
   if (new Set(source_ids).size !== source_ids.length) throw new ValidationError('source_ids must be distinct')
-  if (typeof summary !== 'string' || !summary.trim()) throw new ValidationError('summary must be non-empty')
+  const summaryObject = typeof summaryInput === 'string' ? { content: summaryInput } : summaryInput
+  const summary = summaryObject?.content
+  if (typeof summary !== 'string' || !summary.trim()) throw new ValidationError('summary.content must be non-empty')
+  if (summaryObject.tags !== undefined && (!Array.isArray(summaryObject.tags) || summaryObject.tags.some(tag => typeof tag !== 'string'))) {
+    throw new ValidationError('summary.tags must be an array of strings')
+  }
+  if (summaryObject.project_id !== undefined && (typeof summaryObject.project_id !== 'string' || !summaryObject.project_id.trim())) {
+    throw new ValidationError('summary.project_id must be non-empty')
+  }
 
   const now = resolveNow(options)
   const sources = source_ids.map(id => {
@@ -618,14 +626,17 @@ export function compactRetentionReviewCandidatesService(
     if (new Set(latest.map(source => source.project_id)).size !== 1) {
       throw new RetentionReviewIneligibleError('Sources no longer belong to the same project')
     }
-    const tags = [...new Set(latest.flatMap(source => getThoughtTags(d, source.id).map(tag => tag.name)))]
+    const tags = summaryObject.tags === undefined
+      ? [...new Set(latest.flatMap(source => getThoughtTags(d, source.id).map(tag => tag.name)))]
+      : [...new Set(summaryObject.tags)]
+    const projectId = summaryObject.project_id ?? latest[0].project_id
     const matchingThought = d.prepare(
       `SELECT id FROM thoughts WHERE content_hash = ? AND project_id = ? AND status IN ('draft', 'active') LIMIT 1`
-    ).get(computeContentHash(summary.trim(), latest[0].project_id), latest[0].project_id)
+    ).get(computeContentHash(summary.trim(), projectId), projectId)
     if (matchingThought) {
       throw new RetentionReviewIneligibleError('Summary content matches an existing draft or active thought')
     }
-    const created = dbCreateThought(d, { content: summary.trim(), status: 'active', project_id: latest[0].project_id, tags, is_protected: true })
+    const created = dbCreateThought(d, { content: summary.trim(), status: 'active', project_id: projectId, tags, is_protected: true })
     const summaryRow = d.prepare('SELECT status, is_protected FROM thoughts WHERE id = ?').get(created.id) as
       | { status: string; is_protected: number }
       | undefined
