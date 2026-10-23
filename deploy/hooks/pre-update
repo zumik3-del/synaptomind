@@ -29,29 +29,17 @@ load_common() {
 load_common
 
 # ── Resolve configured DB paths from config.json ────────────────────────────
-# Mirrors the retired scripts/update.sh resolve_db_paths (now inline in
-# logDbPath.  Paths in config.json are relative to INSTALL_DIR (the systemd
+# Paths in config.json are relative to INSTALL_DIR (the systemd
 # WorkingDirectory); absolute paths are used as-is.
 resolve_db_paths() {
-  local main="./data/synaptomind.db" logp="" cfg=""
+  local main="./data/synaptomind.db" cfg=""
   cfg="${INSTALL_DIR:-}/config.json"
   if [ -f "$cfg" ]; then
     local cfg_main
     cfg_main="$(grep -o '"path": *"[^"]*"' "$cfg" 2>/dev/null | head -1 | sed 's/.*"path": *"//;s/"//' || true)"
     [ -n "$cfg_main" ] && main="$cfg_main"
-    logp="$(grep -o '"logDbPath": *"[^"]*"' "$cfg" 2>/dev/null | head -1 | sed 's/.*"logDbPath": *"//;s/"//' || true)"
   fi
   printf '%s\n' "$main"
-  # Back up logs.db only when it is actually present on disk: the legacy store
-  # is optional (deprecated) and most installs have no logs.db at all.
-  if [ -n "$logp" ]; then
-    case "$logp" in
-      /*) [ -f "$logp" ] && printf '%s\n' "$logp" ;;
-      *)  [ -f "${INSTALL_DIR}/${logp}" ] && printf '%s\n' "$logp" ;;
-    esac
-  elif [ -f "${INSTALL_DIR}/data/logs.db" ]; then
-    printf '%s\n' "./data/logs.db"
-  fi
 }
 
 # ── Back up a single DB ────────────────────────────────────────────────────

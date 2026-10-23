@@ -1,9 +1,7 @@
 export {
   closeLogDb,
-  getLogDb,
   insertLog,
   Logger,
-  LogStore,
   StreamSink,
   FileSink,
   CompositeSink
@@ -14,5 +12,3 @@ export type {
   LogSink,
   LoggerConfig
 } from './log'
-export { migrateLogsDb } from './migrate'
-export type { MigrateOpts, MigrateResult } from './migrate'

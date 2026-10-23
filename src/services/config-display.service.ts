@@ -20,7 +20,7 @@ function getVal(obj: Record<string, unknown>, path: string): unknown {
 
 const SECTION_LABELS: Record<string, string> = {
   contentLanguage: 'General', server: 'Server', mcp: 'MCP', db: 'Database',
-  logDbPath: 'Database', log: 'Logging', embedder: 'Embedder', thoughts: 'Thoughts', decay: 'Decay',
+  log: 'Logging', embedder: 'Embedder', thoughts: 'Thoughts', decay: 'Decay',
   primer: 'Primer',
   autoCluster: 'Auto Cluster',
   edgeDetect: 'Edge Detect', slots: 'Slots', git: 'Git', search: 'Search',
@@ -28,7 +28,7 @@ const SECTION_LABELS: Record<string, string> = {
 }
 
 // Filesystem layout must not leak to MCP clients: redact path-bearing settings.
-const SENSITIVE_PATH_KEYS = new Set(['db.path', 'logDbPath', 'log.file', 'embedder.cacheDir', 'mcp.instructionsFile'])
+const SENSITIVE_PATH_KEYS = new Set(['db.path', 'log.file', 'embedder.cacheDir', 'mcp.instructionsFile'])
 
 function displayValue(path: string, val: unknown): string {
   if (SENSITIVE_PATH_KEYS.has(path)) {
