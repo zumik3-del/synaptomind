@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-SynaptoMind exposes its graph operations as 10 MCP tools, over both the stdio and HTTP
+SynaptoMind exposes its graph operations as 11 MCP tools, over both the stdio and HTTP
 transports. Each tool multiplexes several actions behind an `action` argument. This page is
 the detailed companion to the in-band `memory_guide` tool (`src/mcp/tools/guide.ts`), which
 returns a short quick map plus a pointer here at runtime.
@@ -19,6 +19,7 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 | `memory_status` | slots, frontier, config, health, propose | Query system state |
 | `memory_manage` | list, create, update, delete, resolve | Project management |
 | `edge_review` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
+| `retention_review` | list, protect, delete, compact | Review retention candidates and take explicit retention actions |
 | `memory_crystallize` | graph, cluster, auto_cluster | Visualize and reorganize clusters |
 | `memory_reflect` | reflect, timeline | Session management |
 | `memory_primers` | list, delete | Manage the always-at-hand set (primers) |

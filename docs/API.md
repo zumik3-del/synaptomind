@@ -131,9 +131,52 @@ curl `-d '{"status": "archived"}' http://127.0.0.1:3005/api/thoughts/<id>`
 
 Archives a thought (soft delete). Idempotent: archiving an already-archived thought returns it unchanged. Returns the archived thought.
 
-Deletion of archived thoughts is handled by the retention-review process (the sole deletion path); there is no TTL-based cleanup.
+Deletion of archived thoughts is handled by the retention-review process (the sole deletion path); there is no TTL-based cleanup of thoughts. This is separate from the scheduled placement-proposal retention job, which expires and prunes proposal-queue rows (see [Review](#review)).
 
 curl `-X DELETE http://127.0.0.1:3005/api/thoughts/<id>`
+
+## Retention review
+
+Retention review is a manual workflow, not a scheduled deletion policy. Candidate
+listing includes archived or draft, non-global thoughts that meet the age and
+importance thresholds, have no recorded hits, are not protected, are due to surface,
+and have no incoming edge from an active thought. Missing importance defaults to
+`1.0`; missing hit count defaults to `0`. The age anchor is `archived_at`, falling
+back to `created_at`. Defaults are configured by `retentionReview.*` (see
+[CONFIG.md](CONFIG.md#retention-review)).
+
+### GET /api/thoughts/retention-review
+
+Lists candidates ordered by age anchor (oldest first), then id. Response contains
+`total`, `limit`, `offset`, and `candidates`; candidate content is truncated to 200
+characters.
+
+| Name | In | Type | Default | Description |
+|---|---|---|---|---|
+| minAgeDays | query | number | config | Minimum age in days (positive) |
+| importanceFloor | query | number | config | Candidate importance must be below this value (0–1) |
+| limit | query | int | config | Page size (1–100) |
+| offset | query | int | 0 | Pagination offset |
+
+### POST /api/thoughts/:id/retention-review/protect
+
+Protects a thought from retention-review deletion. No request body is required.
+
+### POST /api/thoughts/:id/retention-review/delete
+
+Preview-first hard deletion. The body is `{"confirm": true}` to execute; omitted or
+false returns a preview without deleting. An ineligible or no-longer-eligible thought
+is refused.
+
+### POST /api/thoughts/retention-review/compact
+
+Preview-first compaction of candidates into a summary thought. Supply a non-empty
+`source_ids` array and `summary` object (`content` required; `tags` and `project_id`
+optional). Set `confirm: true` to execute; omitted or false previews the operation.
+
+The index migration adds `idx_thoughts_status_protected_created`,
+`idx_thoughts_status_protected_archived`, and
+`idx_thought_importance_importance_hit` to support candidate lookup.
 
 ### POST /api/thoughts/:targetId/merge
 
@@ -354,7 +397,7 @@ curl `-d '{"thought_ids": ["<id1>", "<id2>"], "title": "Auth notes"}' http://127
 
 ## Review
 
-The persisted placement-proposal queue. `POST /api/thoughts/propose` is read-only and persists nothing; the review queue stores its confirmable items so a reviewer can apply or reject them one at a time. The queue never re-runs the engine and never auto-applies: an apply is an explicit, per-item write gated by `confirm:true`. MCP parity: `edge_review` (actions `enqueue`/`list`/`apply`/`apply_batch`/`rollback`/`reject`); only `apply`/`apply_batch`/`rollback` execute a write, and no read tool can reach them.
+The persisted placement-proposal queue. `POST /api/thoughts/propose` is read-only and persists nothing; the review queue stores its confirmable items so a reviewer can apply or reject them one at a time. The queue never re-runs the engine and never auto-applies: an apply is an explicit, per-item write gated by `confirm:true`. MCP parity uses the renamed `edge_review` tool (actions `enqueue`/`list`/`apply`/`apply_batch`/`rollback`/`reject`); only `apply`/`apply_batch`/`rollback` execute a graph write, and no read tool can reach them. Thought retention actions are exposed separately as `retention_review`.
 
 A queued item carries an `item_kind` and a `state`: `pending` (live) → `accepted` | `rejected` | `expired` | `stale` | `rolled_back` (terminal). `edge` is the only kind the queue creates: a plan's `placement` and `lifecycle` items are not queued, and the enqueue response reports them as skipped. Rows of a retired kind (`placement`, `lifecycle`, `triage_activate`, `triage_archive`) may still exist in an upgraded install — they stay listable and filterable, but neither `apply` nor `rollback` can act on them. Enqueueing a non-active source is rejected: the thought must be persisted **and** `active`.
 
@@ -420,7 +463,7 @@ Every apply re-checks the staleness fingerprint and the state-dependent gates (`
 
 Rolls back every reversible mutation of one explicit run (ADR 2026-09-29 §2.8). `confirm` is the dry-run switch: absent or `false` reports what would be reverted (`items[]`, `summary`) **without mutating anything**; `true` inverts each `accepted` row of the run in reverse **application** order (`applied_at` descending, not enqueue order) through existing writers only (delete the edge the run created) and marks it `rolled_back`. Three verdicts are not reverted: a row of a retired kind is `refused` (no inverse writer survives), an accept that was `idempotent` is `skipped` (nothing was written), and a row whose fingerprint drifted since apply is `skipped` with a warning. No thought is ever deleted.
 
-**Rollback window.** A row is only revertible while it is still retained. `rollback` refuses, per row, any accepted row whose `decided_at` is older than the window `now - placement.proposalTtlDays` days (default 30) — the same setting the retention job prunes the queue with, so the guard is the read-time backstop for a retention job that has not run yet. The bound is inclusive at the boundary: a row decided exactly at the cutoff still reverts, one millisecond earlier is refused. The window is checked **first**, so it outranks the other verdicts — a row that is both out of window and drifted is refused *for the window*, and that reason names the window width and the concrete cutoff. The guard fails closed: a row with no or unparseable `decided_at` is refused rather than reverted. The window is measured against the **server's** clock — the route reads only `run_id` and `confirm` from the body and the MCP action forwards only `confirm` plus the audit label, so no public surface accepts a `now`; the service option exists purely as an internal/test seam, and an unparseable value reaching it would be reported as a refusal instead of throwing. A negative `placement.proposalTtlDays` disables retention and therefore this guard, so nothing is ever out of window. A refused row is never deleted: it stays `accepted` with its graph state intact. Every non-revert verdict is announced once per row as a `placement` warning, but only on `confirm: true` — the default dry-run report logs nothing. Past the window the retention job prunes the row itself, so an out-of-window apply eventually stops appearing in `items[]` altogether; the refusal is what a caller sees while the row is still retained.
+**Proposal expiry, pruning, and rollback window.** The scheduled placement-retention job runs daily. It marks `pending` proposal rows expired after their `expires_at` and prunes terminal queue rows whose `decided_at` is older than the `placement.proposalTtlDays` cutoff. This job only changes proposal-queue records; it does not delete thoughts. Independently, `rollback` refuses, per row, any accepted row whose `decided_at` is older than `now - placement.proposalTtlDays` days (default 30). The bound is inclusive at the boundary: a row decided exactly at the cutoff still reverts, one millisecond earlier is refused. The window is checked first; the guard fails closed for missing or unparseable `decided_at`. The window uses the server clock; no public surface accepts a caller-supplied `now`. A negative `placement.proposalTtlDays` disables the job and this guard. A refused row stays `accepted` with its graph state intact until proposal retention prunes it. Every non-revert verdict is announced once per row as a `placement` warning only on `confirm: true`; the default dry-run report logs nothing.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|

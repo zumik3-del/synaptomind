@@ -171,8 +171,12 @@ not already root.
 
 ### Data retention
 
-Archived thoughts are retained until the retention-review process removes them;
-retention-review is the sole deletion path. There is no TTL-based cleanup.
+There is no automatic age-based deletion of thoughts. Retention review is an
+operator-driven workflow: inspect candidates through the API, then explicitly
+protect, delete (with confirmation), or compact them. Configure candidate age,
+importance threshold, and page size with `retentionReview.*` settings; see
+[CONFIG.md](CONFIG.md#retention-review) and [API.md](API.md#retention-review).
+The database migration installs indexes used by candidate lookup.
 
 ### Advanced: direct `update.sh`
 
