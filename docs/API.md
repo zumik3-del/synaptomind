@@ -166,13 +166,18 @@ Protects a thought from retention-review deletion. No request body is required.
 
 Preview-first hard deletion. The body is `{"confirm": true}` to execute; omitted or
 false returns a preview without deleting. An ineligible or no-longer-eligible thought
-is refused.
+is refused with HTTP 409 (`profile` for a profile thought). Profile thoughts are
+excluded from the candidate list and cannot be protected, deleted, or compacted; a
+profile cannot be archived or used as the source of a merge either. Clear its
+`is_profile` flag before using those lifecycle operations.
 
 ### POST /api/thoughts/retention-review/compact
 
 Preview-first compaction of candidates into a summary thought. Supply a non-empty
 `source_ids` array and `summary` object (`content` required; `tags` and `project_id`
 optional). Set `confirm: true` to execute; omitted or false previews the operation.
+At most 1000 source IDs are accepted per call. Profile thoughts are not candidates and
+are refused for compaction with HTTP 409 (`profile`).
 
 The index migration adds `idx_thoughts_status_protected_created`,
 `idx_thoughts_status_protected_archived`, and
