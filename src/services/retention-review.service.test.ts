@@ -31,7 +31,7 @@ test('candidate query includes aged archived and draft thoughts and supplies mis
   const missingImportance = candidate('missing importance')
   getDb().prepare('DELETE FROM thought_importance WHERE thought_id = ?').run(missingImportance)
 
-  const result = listRetentionReviewCandidatesService({ now, minAgeDays: 30, importanceFloor: 1 })
+  const result = listRetentionReviewCandidatesService({ now, minAgeDays: 30, importanceFloor: 1 }, getDb())
   expect(result.candidates.map(row => row.id)).toEqual([archived, draft])
   expect(result.total).toBe(2)
 })
@@ -50,7 +50,7 @@ test('candidate query excludes each ineligible signal and respects age and impor
   const source = seedThought({ status: 'active', is_protected: 0 })
   seedEdge(source, target)
   seedThought({ status: 'active', is_protected: 0, importance: 0.1, created_at: old })
-  const result = listRetentionReviewCandidatesService({ now, minAgeDays: 30, importanceFloor: 0.5 })
+  const result = listRetentionReviewCandidatesService({ now, minAgeDays: 30, importanceFloor: 0.5 }, getDb())
   expect(result.candidates.map(row => row.id)).toEqual([keep])
   expect(result.candidates.map(row => row.id)).not.toContain(globallyShared)
   expect(result.candidates.map(row => row.id)).not.toContain(future)
@@ -59,7 +59,7 @@ test('candidate query excludes each ineligible signal and respects age and impor
 
 test('candidate pagination preserves stable order and returns unpaged total', () => {
   const ids = [candidate('a'), candidate('b'), candidate('c')]
-  const page = listRetentionReviewCandidatesService({ now, minAgeDays: 30, importanceFloor: 1, limit: 1, offset: 1 })
+  const page = listRetentionReviewCandidatesService({ now, minAgeDays: 30, importanceFloor: 1, limit: 1, offset: 1 }, getDb())
   expect(page.total).toBe(3)
   expect(page.candidates.map(row => row.id)).toEqual([ids[1]])
 })
@@ -68,10 +68,10 @@ test('delete previews without mutation, then confirms hard deletion and dependen
   const id = candidate('delete me')
   const related = seedThought({ is_protected: 0 })
   seedEdge(id, related)
-  const preview = deleteRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1 })
+  const preview = deleteRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1 }, getDb())
   expect(preview.preview).toBe(true)
   expect(getDb().prepare('SELECT id FROM thoughts WHERE id = ?').get(id)).toBeTruthy()
-  const deleted = deleteRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1, confirm: true })
+  const deleted = deleteRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1, confirm: true }, getDb())
   expect(deleted.deleted).toBe(true)
   expect(getDb().prepare('SELECT id FROM thoughts WHERE id = ?').get(id)).toBeNull()
   expect(getDb().prepare('SELECT id FROM edges WHERE source_id = ? OR target_id = ?').all(id, id)).toEqual([])
@@ -79,20 +79,20 @@ test('delete previews without mutation, then confirms hard deletion and dependen
 
 test('delete rejects missing, protected and no-longer-eligible thoughts', () => {
   const id = candidate('protect')
-  expect(() => deleteRetentionReviewCandidateService('missing', { now, minAgeDays: 30, importanceFloor: 1 })).toThrow()
-  protectRetentionReviewCandidateService(id)
-  expect(() => deleteRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1 })).toThrow(RetentionReviewIneligibleError)
+  expect(() => deleteRetentionReviewCandidateService('missing', { now, minAgeDays: 30, importanceFloor: 1 }, getDb())).toThrow()
+  protectRetentionReviewCandidateService(id, {}, getDb())
+  expect(() => deleteRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1 }, getDb())).toThrow(RetentionReviewIneligibleError)
   const other = candidate('became active')
   getDb().prepare("UPDATE thoughts SET status = 'active' WHERE id = ?").run(other)
-  expect(() => deleteRetentionReviewCandidateService(other, { now, minAgeDays: 30, importanceFloor: 1 })).toThrow(RetentionReviewIneligibleError)
+  expect(() => deleteRetentionReviewCandidateService(other, { now, minAgeDays: 30, importanceFloor: 1 }, getDb())).toThrow(RetentionReviewIneligibleError)
 })
 
 test('compact preview is read-only; confirmation creates protected summary and archives source', () => {
   const id = candidate('compact source')
   const input = { source_ids: [id], summary: { content: 'durable summary' }, now, minAgeDays: 30, importanceFloor: 1 }
-  expect(compactRetentionReviewCandidatesService(input).status).toBe('preview')
+  expect(compactRetentionReviewCandidatesService(input, getDb()).status).toBe('preview')
   expect(getDb().prepare("SELECT id FROM thoughts WHERE content = 'durable summary'").get()).toBeNull()
-  const result = compactRetentionReviewCandidatesService({ ...input, confirm: true })
+  const result = compactRetentionReviewCandidatesService({ ...input, confirm: true }, getDb())
   expect(result.status).toBe('compacted')
   expect(result.summary).toBeTruthy()
   expect(getDb().prepare('SELECT status FROM thoughts WHERE id = ?').get(id)).toEqual({ status: 'archived' })
@@ -102,11 +102,11 @@ test('compact refuses mixed projects and matching existing active content withou
   const a = candidate('source a', 'default')
   const b = candidate('source b', 'second')
   const options = { source_ids: [a, b], summary: { content: 'new summary' }, now, minAgeDays: 30, importanceFloor: 1 }
-  expect(() => compactRetentionReviewCandidatesService({ ...options, confirm: true })).toThrow('same project')
+  expect(() => compactRetentionReviewCandidatesService({ ...options, confirm: true }, getDb())).toThrow('same project')
   const single = candidate('source c')
   const existing = seedThought({ content: 'duplicate summary', status: 'active', is_protected: 0 })
   getDb().prepare('UPDATE thoughts SET content_hash = ? WHERE id = ?').run(computeContentHash('duplicate summary', 'default'), existing)
-  expect(() => compactRetentionReviewCandidatesService({ source_ids: [single], summary: { content: 'duplicate summary' }, now, minAgeDays: 30, importanceFloor: 1, confirm: true })).toThrow('matches an existing')
+  expect(() => compactRetentionReviewCandidatesService({ source_ids: [single], summary: { content: 'duplicate summary' }, now, minAgeDays: 30, importanceFloor: 1, confirm: true }, getDb())).toThrow('matches an existing')
   expect(getDb().prepare('SELECT status FROM thoughts WHERE id = ?').get(single)).toEqual({ status: 'archived' })
 })
 
@@ -117,7 +117,7 @@ test('compact transfers source edges and records summary-to-source replacement e
 
   const result = compactRetentionReviewCandidatesService({
     source_ids: [source], summary: { content: 'edge summary' }, now, minAgeDays: 30, importanceFloor: 1, confirm: true
-  })
+  }, getDb())
 
   const summaryId = result.summary?.id
   expect(summaryId).toBeTruthy()
@@ -135,7 +135,7 @@ test('compact confirmation rolls back summary and earlier source mutations when 
 
   expect(() => compactRetentionReviewCandidatesService({
     source_ids: [first, second], summary: { content: 'rollback summary' }, now, minAgeDays: 30, importanceFloor: 1, confirm: true
-  })).toThrow('forced compact failure')
+  }, getDb())).toThrow('forced compact failure')
   expect(getDb().prepare('SELECT status FROM thoughts WHERE id = ?').get(first)).toEqual({ status: 'archived' })
   expect(getDb().prepare('SELECT status FROM thoughts WHERE id = ?').get(second)).toEqual({ status: 'archived' })
   expect(getDb().prepare("SELECT id FROM thoughts WHERE content = 'rollback summary'").all()).toEqual([])
@@ -144,6 +144,6 @@ test('compact confirmation rolls back summary and earlier source mutations when 
 test('protect rejects thoughts that are no longer retention-review candidates', () => {
   const id = candidate('not eligible for protection')
   getDb().prepare('UPDATE thought_importance SET hit_count = 1 WHERE thought_id = ?').run(id)
-  expect(() => protectRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1 })).toThrow(RetentionReviewIneligibleError)
+  expect(() => protectRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1 }, getDb())).toThrow(RetentionReviewIneligibleError)
   expect(getDb().prepare('SELECT is_protected FROM thoughts WHERE id = ?').get(id)).toEqual({ is_protected: 0 })
 })
