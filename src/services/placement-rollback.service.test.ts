@@ -294,7 +294,7 @@ describe('F-14 AC-5: unmeasurable decided_at', () => {
   test('an unparseable rollback clock fails closed instead of throwing', () => {
     // `now` is a test seam, not a public surface: RollbackOptions calls it a
     // deterministic clock override (placement-apply.types.ts:118) and neither
-    // POST /proposals/rollback nor memory_review forwards one, so this suite is
+    // POST /proposals/rollback nor edge_review forwards one, so this suite is
     // the only way in — and windowRefusal must still refuse a malformed clock
     // (placement-rollback.service.ts:56) rather than raise a RangeError/500.
     const db = getDb()

@@ -18,7 +18,7 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 | `memory_supersede` | archive, archive_batch, merge | Version and supersede thoughts |
 | `memory_status` | slots, frontier, config, health, propose | Query system state |
 | `memory_manage` | list, create, update, delete, resolve | Project management |
-| `memory_review` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
+| `edge_review` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
 | `memory_crystallize` | graph, cluster, auto_cluster | Visualize and reorganize clusters |
 | `memory_reflect` | reflect, timeline | Session management |
 | `memory_primers` | list, delete | Manage the always-at-hand set (primers) |
@@ -27,7 +27,7 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 ## Dry-run / confirm pattern
 
 Every destructive action — `memory_store` `unlink` and `retype`, `memory_supersede` `archive`,
-`archive_batch` and `merge`, `memory_manage action=delete`, `memory_review` (`apply`/`apply_batch`/`rollback`),
+`archive_batch` and `merge`, `memory_manage action=delete`, `edge_review` (`apply`/`apply_batch`/`rollback`),
 `memory_primers action=delete`, and
 `memory_crystallize action=auto_cluster` — follows the same two-step
 pattern:

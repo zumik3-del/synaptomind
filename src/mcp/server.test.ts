@@ -17,7 +17,7 @@ const EXPECTED_TOOLS = [
   'memory_crystallize',
   'memory_reflect',
   'memory_primers',
-  'memory_review',
+  'edge_review',
   'memory_guide'
 ]
 

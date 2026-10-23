@@ -11,7 +11,7 @@ import { enqueueThoughtProposals, listPlacementProposalsService as listProposals
 const proposalsRouter = new Hono()
 
 // Shared request contract (audit M8): the `limit` range comes from
-// `src/validation.ts`, the same schema `memory_review action=list` advertises, so
+// `src/validation.ts`, the same schema `edge_review action=list` advertises, so
 // an out-of-range value is a typed 400 instead of a silent service-side clamp.
 const proposalsQuerySchema = z.object({
   limit: proposalsLimitSchema.default(PROPOSALS_LIMIT_DEFAULT)

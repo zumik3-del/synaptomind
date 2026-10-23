@@ -29,7 +29,7 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 | memory_supersede | archive, archive_batch, merge |
 | memory_status | slots, frontier, config, health, propose |
 | memory_manage | list, create, update, delete, resolve |
-| memory_review | enqueue, list, apply, apply_batch, rollback, reject |
+| edge_review | enqueue, list, apply, apply_batch, rollback, reject |
 | memory_crystallize | graph (offset/limit/total), cluster, auto_cluster |
 | memory_reflect | reflect, timeline |
 | memory_primers | list, delete |
@@ -41,7 +41,7 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 - memory_store / memory_supersede = thought and edge writes; memory_recall = reads/search.
 
 ## Destructive operations (preview by default)
-memory_store unlink/retype, memory_supersede archive/archive_batch/merge, memory_manage delete, memory_review apply/apply_batch/rollback, memory_primers delete, and memory_crystallize auto_cluster are preview-first. confirm absent/false previews; confirm:true executes. Execution revalidates current state: previews can become stale, and there is no preview token or reservation. memory_supersede archive previews outcome (including missing, already archived, and protected); archive_batch preview returns ordered per-occurrence items, while confirmed execution returns the aggregate {archived, failed, errors} (errors are ordered), not per-item success records; merge previews eligibility, proposed values/effects, and at most 50 source edges with a count/truncation flag. This is an MCP contract only; HTTP merge remains immediate and unchanged. Retired argument names are rejected with an error hint naming the replacement.
+memory_store unlink/retype, memory_supersede archive/archive_batch/merge, memory_manage delete, edge_review apply/apply_batch/rollback, memory_primers delete, and memory_crystallize auto_cluster are preview-first. confirm absent/false previews; confirm:true executes. Execution revalidates current state: previews can become stale, and there is no preview token or reservation. memory_supersede archive previews outcome (including missing, already archived, and protected); archive_batch preview returns ordered per-occurrence items, while confirmed execution returns the aggregate {archived, failed, errors} (errors are ordered), not per-item success records; merge previews eligibility, proposed values/effects, and at most 50 source edges with a count/truncation flag. This is an MCP contract only; HTTP merge remains immediate and unchanged. Retired argument names are rejected with an error hint naming the replacement.
 Slots (memory_status action=slots) are read-only: pending_items is derived from thoughts tagged pending, architecture_decisions from primers, and only project_context/active_goals are stored rows. To change slot content, update or archive the underlying thoughts (virtual slots) or use memory_reflect (summary, goals_add, goals_remove) for the explicit slots; memory_status never writes.
 
 ## Thoughts
@@ -85,7 +85,7 @@ memory_status action=health; severity restricts reported findings, fix=true auto
 contradiction_in_cluster remediation: memory_store action=unlink on the contradicts edge, or retype it to supports/related, or archive the cluster thought. Dry-run first, then confirm=true.
 
 ## Placement proposal and review
-memory_status action=propose returns a read-only plan (placement, edges[], lifecycle) and never writes. memory_review enqueue/list/apply/apply_batch/rollback/reject; apply is dry-run unless confirm=true and re-checks staleness. The queue holds edge items only: a plan's placement and lifecycle items are reported as skipped.
+memory_status action=propose returns a read-only plan (placement, edges[], lifecycle) and never writes. edge_review enqueue/list/apply/apply_batch/rollback/reject; apply is dry-run unless confirm=true and re-checks staleness. The queue holds edge items only: a plan's placement and lifecycle items are reported as skipped.
 
 ## Session reflection
 memory_reflect reflect writes thoughts, it is not read-only: decisions create active thoughts tagged decision + reflect; pending create draft thoughts tagged pending + reflect (surface after wake_days, default 7). The reflect tag marks every thought reflect created, so they can be filtered (search tag=reflect) or cleaned up without touching hand-created ones. summary appends to project_context; goals_add adds goals and goals_remove removes stored goal lines using case-insensitive substring matching. Retired goals_delta fails with a hint to use goals_add/goals_remove.`
