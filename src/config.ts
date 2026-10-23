@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { sanitizePrimerBounds } from './config.primer-bounds'
+import { sanitizeRetentionReviewBounds } from './config.retention-review-bounds'
 
 // ONNX precision of the local embedder model. `q8` downloads the quantized
 // ONNX (~118 MB) instead of the fp32 one (~449 MB); transformers.js picks the
@@ -281,6 +282,7 @@ function applyEnvOverrides(fileConfig: Partial<Config>): Config {
   // override is applied after the config.json merge, so sanitizing earlier
   // would be bypassed by it.
   merged.primer = sanitizePrimerBounds(merged.primer, DEFAULTS.primer)
+  merged.retentionReview = sanitizeRetentionReviewBounds(merged.retentionReview, DEFAULTS.retentionReview)
 
   return merged as unknown as Config
 }
