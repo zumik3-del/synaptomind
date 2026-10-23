@@ -8,7 +8,7 @@ export const slotsHandler: ActionHandler = {
     return getSlots({
       names: args.names as string[] | undefined,
       projectId: projectFilter,
-      limit: args.limit as number | undefined,
+      limit: (args.slots_limit ?? args.limit) as number | undefined,
       offset: args.offset as number | undefined
     })
   }

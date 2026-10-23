@@ -65,7 +65,6 @@ ownership with either:
 |---------|---------|---------|-------------|
 | `db.path` | `SYNAPTOMIND_DB_PATH` | `./data/synaptomind.db` | Main SQLite database path |
 | `db.busyTimeout` | `SYNAPTOMIND_DB_BUSY_TIMEOUT` | `5000` | SQLite busy timeout in ms. Increase if you see `SQLITE_BUSY` errors |
-| `logDbPath` | `SYNAPTOMIND_LOG_DB_PATH` | `""` | Session logs database path. Empty = disabled |
 
 ---
 
@@ -305,7 +304,6 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
     "keepAliveMs": 10000, "maxEventsPerSession": 1000
   },
   "db": { "path": "./data/synaptomind.db", "busyTimeout": 5000 },
-  "logDbPath": "",
   "embedder": {
     "enabled": true,
     "model": "Xenova/multilingual-e5-small",

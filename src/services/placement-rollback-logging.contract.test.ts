@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 
 // The placement-rollback logging suite (placement-rollback-logging.suite.ts)
 // mock.module('../logging/log') globally so `insertLog` can be spied —
-// config.logDbPath is '' in tests, so the writer is a silent no-op. bun cannot
+// insertLog routes to stdout/stderr sinks in tests. bun cannot
 // unmock modules, so this suite must run in a child bun process with a clean
 // module registry (AGENTS.md §8; same recipe as client.suite.ts /
 // propose-degraded.suite.ts, PR #114 b2e5cd5).

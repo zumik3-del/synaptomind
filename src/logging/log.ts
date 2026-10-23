@@ -1,166 +1,173 @@
-import { Database } from 'bun:sqlite'
-import { mkdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { config as appConfig } from '../config'
-
-const MAX_LOG_ROWS = 5000
-const CLEANUP_INTERVAL = 100
 
 const SENSITIVE_SUBSTRINGS = ['token', 'key', 'secret', 'password', 'auth']
 const SAFE_SUBSTRINGS = ['token_count', 'tokenizer', 'tokenize', 'keyboard', 'keyring']
 
 const DEBUG_CACHE_TTL = 5000
 
-type LogLevel = 'debug' | 'info' | 'warning' | 'error'
+export type LogLevel = 'debug' | 'info' | 'warning' | 'error'
 
-// ── logs.db schema policy (audit M2) ────────────────────────────────────────
-//
-// logs.db is a separate SQLite file from the main synaptomind.db, so it carries
-// its own `schema_version` in its own `_meta` table. Evolve it the same way as
-// the main DB (src/db/init.ts): APPEND a migration to LOG_MIGRATIONS, never edit
-// an applied one, and let `ensureSchema` apply the pending ones forward-only
-// inside one transaction each. `CREATE TABLE IF NOT EXISTS` on its own is not an
-// evolution path: on an already-deployed logs.db it is a silent no-op, which is
-// exactly the drift this policy removes.
-interface LogMigration {
-  version: number
-  apply: (db: Database) => void
+export interface LogEntry {
+  timestamp: string
+  level: LogLevel
+  type: string
+  source: string
+  message: string
+  metadata?: Record<string, unknown>
+  error?: string
 }
 
-const LOG_MIGRATIONS: LogMigration[] = [
-  {
-    version: 1,
-    apply: db => {
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS logs (
-          id         TEXT PRIMARY KEY,
-          level      TEXT NOT NULL,
-          type       TEXT NOT NULL,
-          message    TEXT NOT NULL,
-          metadata   TEXT,
-          source     TEXT,
-          error      TEXT,
-          created_at TEXT NOT NULL
-        )
-      `)
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS thought_telemetry (
-          id            TEXT PRIMARY KEY,
-          correlation_id TEXT,
-          user_id       TEXT,
-          action        TEXT NOT NULL,
-          tool_name     TEXT NOT NULL,
-          prev_tool     TEXT,
-          query         TEXT,
-          thought_id    TEXT,
-          response_size INTEGER,
-          latency_ms    INTEGER,
-          session_id    TEXT,
-          meta          TEXT,
-          created_at    TEXT NOT NULL
-        )
-      `)
+export interface LogSink {
+  write(entry: LogEntry): void
+  close(): void
+}
+
+type WritableLike = { write(chunk: string): boolean }
+
+function envStr(name: string): string | undefined {
+  const v = process.env[name]
+  return v === undefined ? undefined : v
+}
+
+function envInt(name: string, fallback: number): number {
+  const v = process.env[name]
+  if (v === undefined) return fallback
+  const n = parseInt(v, 10)
+  return Number.isFinite(n) ? n : fallback
+}
+
+const LEVEL_RANK: Record<LogLevel, number> = { debug: 0, info: 1, warning: 2, error: 3 }
+
+function isWarnOrError(level: LogLevel): boolean {
+  return level === 'warning' || level === 'error'
+}
+
+export interface LoggerConfig {
+  level?: LogLevel
+  file?: string
+  format?: 'text' | 'json'
+  fileMaxBytes?: number
+  fileMaxFiles?: number
+  stdio?: boolean
+  stdout?: WritableLike
+  stderr?: WritableLike
+  log?: { level?: LogLevel; file?: string; format?: 'text' | 'json'; fileMaxBytes?: number; fileMaxFiles?: number }
+}
+
+function formatEntry(entry: LogEntry, format: 'text' | 'json'): string {
+  if (format === 'json') {
+    const obj: Record<string, unknown> = {
+      ts: entry.timestamp,
+      level: entry.level,
+      type: entry.type,
+      source: entry.source,
+      msg: entry.message
     }
-  },
-  {
-    // The telemetry collection is gone (ADR 2026-10-21): after the detection
-    // signal layer was collapsed, `thought_telemetry` had no reader left. The
-    // table is dropped here rather than left orphaned, so every deployed
-    // logs.db is cleaned by the same forward-only path. `logs` is untouched.
-    version: 2,
-    apply: db => {
-      db.exec(`DROP TABLE IF EXISTS thought_telemetry`)
+    if (entry.metadata) obj.meta = entry.metadata
+    if (entry.error) obj.error = entry.error
+    return JSON.stringify(obj)
+  }
+  const meta = entry.metadata ? ' ' + JSON.stringify(entry.metadata) : ''
+  return `${entry.timestamp} ${entry.level} [${entry.type}] [${entry.source}] ${entry.message}${meta}`
+}
+
+export class StreamSink implements LogSink {
+  constructor(private opts: { stdout: WritableLike; stderr: WritableLike; stdio: boolean; format: 'text' | 'json' }) {}
+  write(entry: LogEntry): void {
+    const stream = this.opts.stdio || isWarnOrError(entry.level) ? this.opts.stderr : this.opts.stdout
+    try { stream.write(formatEntry(entry, this.opts.format) + '\n') } catch { /* ignore */ }
+  }
+  close(): void {}
+}
+
+export class FileSink implements LogSink {
+  private disabled = false
+  constructor(private path: string, private maxBytes: number, private maxFiles: number, private format: 'text' | 'json') {}
+  write(entry: LogEntry): void {
+    if (this.disabled || !this.path) return
+    try {
+      const line = formatEntry(entry, this.format) + '\n'
+      const dir = join(this.path, '..')
+      try { mkdirSync(dir, { recursive: true }) } catch { /* ignore */ }
+      if (existsSync(this.path)) {
+        try {
+          const st = statSync(this.path)
+          if (st.size + Buffer.byteLength(line) > this.maxBytes) this.rotate()
+        } catch { /* ignore */ }
+      }
+      appendFileSync(this.path, line)
+    } catch (e) {
+      this.disabled = true
+      try { process.stderr.write(`[logs] file sink disabled: ${e}\n`) } catch { /* ignore */ }
     }
   }
-]
-
-const SCHEMA_VERSION_KEY = 'schema_version'
-
-function getSchemaVersion(db: Database): number {
-  const row = db.prepare(`SELECT value FROM _meta WHERE key = ?`).get(SCHEMA_VERSION_KEY) as
-    | { value: string }
-    | undefined
-  return row ? parseInt(row.value, 10) : 0
+  private rotate(): void {
+    try {
+      const oldest = `${this.path}.${this.maxFiles}`
+      if (existsSync(oldest)) try { unlinkSync(oldest) } catch { /* ignore */ }
+      for (let i = this.maxFiles - 1; i >= 1; i--) {
+        const from = `${this.path}.${i}`
+        const to = `${this.path}.${i + 1}`
+        if (existsSync(from)) try { renameSync(from, to) } catch { /* ignore */ }
+      }
+      if (existsSync(this.path)) try { renameSync(this.path, `${this.path}.1`) } catch { /* ignore */ }
+    } catch (e) {
+      this.disabled = true
+      try { process.stderr.write(`[logs] rotation failed: ${e}\n`) } catch { /* ignore */ }
+    }
+  }
+  close(): void {}
 }
 
-function setSchemaVersion(db: Database, version: number): void {
-  db.prepare(
-    `INSERT INTO _meta (key, value) VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-  ).run(SCHEMA_VERSION_KEY, String(version))
+export class CompositeSink implements LogSink {
+  constructor(private sinks: LogSink[]) {}
+  write(entry: LogEntry): void {
+    for (const s of this.sinks) try { s.write(entry) } catch { /* ignore */ }
+  }
+  close(): void {
+    for (const s of this.sinks) try { s.close() } catch { /* ignore */ }
+  }
 }
 
-export class LogStore {
-  private db: Database | null = null
-  private cleanupCounter = 0
+export class Logger {
   private showDebugCache: boolean | null = null
   private debugCacheTime = 0
 
-  constructor(private config: { logDbPath: string } = appConfig) {}
+  private level: LogLevel
+  private file: string
+  private format: 'text' | 'json'
+  private fileMaxBytes: number
+  private fileMaxFiles: number
+  private stdio: boolean
+  private stdout: WritableLike
+  private stderr: WritableLike
+  private sinks: LogSink[]
 
-  private ensureSchema(db: Database): void {
-    db.exec(`CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)`)
-    let current = getSchemaVersion(db)
-    for (const migration of LOG_MIGRATIONS) {
-      if (current >= migration.version) continue
-      // Apply the DDL and stamp its schema_version in one transaction, so a crash
-      // between the two cannot leave a non-idempotent migration half-applied.
-      const run = db.transaction(() => {
-        migration.apply(db)
-        setSchemaVersion(db, migration.version)
-      })
-      run()
-      current = migration.version
-    }
-  }
+  constructor(config: LoggerConfig | Record<string, unknown> = appConfig as unknown as LoggerConfig) {
+    const c = (config ?? {}) as LoggerConfig
+    const log = c.log ?? {}
+    this.level = (c.level ?? log.level ?? envStr('SYNAPTOMIND_LOG_LEVEL') ?? 'info') as LogLevel
+    if (!['debug', 'info', 'warning', 'error'].includes(this.level)) this.level = 'info'
+    this.file = c.file ?? log.file ?? envStr('SYNAPTOMIND_LOG_FILE') ?? ''
+    const fmt = c.format ?? log.format ?? envStr('SYNAPTOMIND_LOG_FORMAT') ?? 'text'
+    this.format = fmt === 'json' ? 'json' : 'text'
+    this.fileMaxBytes = c.fileMaxBytes ?? log.fileMaxBytes ?? envInt('SYNAPTOMIND_LOG_FILE_MAX_BYTES', 10485760)
+    this.fileMaxFiles = c.fileMaxFiles ?? log.fileMaxFiles ?? envInt('SYNAPTOMIND_LOG_FILE_MAX_FILES', 3)
+    this.stdio = c.stdio ?? process.argv.includes('--stdio')
+    this.stdout = c.stdout ?? process.stdout
+    this.stderr = c.stderr ?? process.stderr
 
-  private ensureDb(): Database | null {
-    if (this.db) return this.db
-    const path = this.config.logDbPath
-    if (!path) return null
-    try {
-      mkdirSync(join(path, '..'), { recursive: true })
-      this.db = new Database(path)
-      this.db.run('PRAGMA journal_mode = WAL')
-      this.db.run('PRAGMA synchronous = FULL')
-      this.db.run('PRAGMA busy_timeout = 3000')
-      this.ensureSchema(this.db)
-      return this.db
-    } catch (e) {
-      console.warn('[logs] Failed to open logs.db:', e)
-      // Do not leave a half-initialized handle behind: without this reset the next
-      // getLogDb() would return the poisoned connection instead of retrying.
-      try {
-        this.db?.close()
-      } catch {
-        /* ignore */
-      }
-      this.db = null
-      return null
-    }
-  }
-
-  private autoCleanup(): void {
-    this.cleanupCounter++
-    if (this.cleanupCounter % CLEANUP_INTERVAL !== 0) return
-    if (!this.db) return
-    try {
-      this.db.run(
-        `DELETE FROM logs WHERE id NOT IN (
-          SELECT id FROM logs ORDER BY created_at DESC LIMIT ?
-        )`,
-        [MAX_LOG_ROWS]
-      )
-    } catch (e) {
-      console.debug('[logs] Cleanup skipped:', e)
-    }
+    const sinks: LogSink[] = []
+    sinks.push(new StreamSink({ stdout: this.stdout, stderr: this.stderr, stdio: this.stdio, format: this.format }))
+    if (this.file) sinks.push(new FileSink(this.file, this.fileMaxBytes, this.fileMaxFiles, this.format))
+    this.sinks = sinks
   }
 
   private showDebugEnabled(): boolean {
     const now = Date.now()
-    if (this.showDebugCache !== null && now - this.debugCacheTime < DEBUG_CACHE_TTL) {
-      return this.showDebugCache
-    }
+    if (this.showDebugCache !== null && now - this.debugCacheTime < DEBUG_CACHE_TTL) return this.showDebugCache
     this.showDebugCache = process.env.SYNAPTOMIND_DEBUG === 'true'
     this.debugCacheTime = now
     return this.showDebugCache
@@ -171,79 +178,43 @@ export class LogStore {
     const cleaned: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(metadata)) {
       const kl = k.toLowerCase()
-      if (SENSITIVE_SUBSTRINGS.some(sub => kl.includes(sub)) && !SAFE_SUBSTRINGS.some(sub => kl.includes(sub))) {
-        cleaned[k] = '***'
-      } else {
-        cleaned[k] = v
-      }
+      if (SENSITIVE_SUBSTRINGS.some(sub => kl.includes(sub)) && !SAFE_SUBSTRINGS.some(sub => kl.includes(sub))) cleaned[k] = '***'
+      else cleaned[k] = v
     }
     return cleaned
   }
 
-  insertLog(
-    level: LogLevel,
-    type_: string,
-    message: string,
-    metadata?: Record<string, unknown>,
-    source = 'synaptomind'
-  ): void {
+  insertLog(level: LogLevel, type_: string, message: string, metadata?: Record<string, unknown>, source = 'synaptomind', timestamp?: string): void {
     if (level === 'debug' && !this.showDebugEnabled()) return
-    const d = this.ensureDb()
-    if (!d) return
-    try {
-      const metaCopy = metadata ? { ...metadata } : undefined
-      let errorVal: string | null = null
-      if (metaCopy && 'error' in metaCopy) {
-        errorVal = String(metaCopy.error)
-        delete metaCopy.error
-      }
+    if (LEVEL_RANK[level] < LEVEL_RANK[this.level]) return
 
-      const sanitized = this.sanitizeMetadata(metaCopy)
-      const now = new Date().toISOString()
-      d.run(
-        'INSERT INTO logs (id, level, type, message, metadata, source, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [Bun.randomUUIDv7(), level, type_, message, sanitized ? JSON.stringify(sanitized) : null, source, errorVal, now]
-      )
-      this.autoCleanup()
-    } catch (e) {
-      console.warn('[logs] Failed to insert log:', e)
+    const metaCopy = metadata ? { ...metadata } : undefined
+    let errorVal: string | null = null
+    if (metaCopy && 'error' in metaCopy) {
+      errorVal = String(metaCopy.error)
+      delete metaCopy.error
     }
+    const sanitized = this.sanitizeMetadata(metaCopy)
+    const now = timestamp ?? new Date().toISOString()
+
+    const entry: LogEntry = { timestamp: now, level, type: type_, source, message, metadata: sanitized, error: errorVal ?? undefined }
+
+    for (const s of this.sinks) try { s.write(entry) } catch { /* ignore */ }
   }
 
   closeLogDb(): void {
-    if (this.db) {
-      try {
-        this.db.close()
-      } catch {
-        /* ignore */
-      }
-      this.db = null
-    }
+    for (const s of this.sinks) try { s.close() } catch { /* ignore */ }
     this.showDebugCache = null
     this.debugCacheTime = 0
   }
-
-  getLogDb(): Database | null {
-    return this.ensureDb()
-  }
 }
 
-const defaultStore = new LogStore()
+const defaultStore = new Logger()
 
-export function insertLog(
-  level: LogLevel,
-  type_: string,
-  message: string,
-  metadata?: Record<string, unknown>,
-  source = 'synaptomind'
-): void {
-  defaultStore.insertLog(level, type_, message, metadata, source)
+export function insertLog(level: LogLevel, type_: string, message: string, metadata?: Record<string, unknown>, source = 'synaptomind', timestamp?: string): void {
+  defaultStore.insertLog(level, type_, message, metadata, source, timestamp)
 }
 
 export function closeLogDb(): void {
   defaultStore.closeLogDb()
-}
-
-export function getLogDb(): Database | null {
-  return defaultStore.getLogDb()
 }

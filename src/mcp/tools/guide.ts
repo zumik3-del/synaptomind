@@ -45,7 +45,7 @@ memory_store unlink/retype, memory_supersede archive/archive_batch/merge, memory
 Slots (memory_status action=slots) are read-only: pending_items is derived from thoughts tagged pending, architecture_decisions from primers, and only project_context/active_goals are stored rows. To change slot content, update or archive the underlying thoughts (virtual slots) or use memory_reflect (summary, goals_add, goals_remove) for the explicit slots; memory_status never writes.
 
 ## Thoughts
-Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_global, is_protected, source.
+Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_global, is_protected, surface_after, source.
 Status: draft (wip), active (live), archived (hidden). Default draft on create; pass status=active to publish. Archive is idempotent.
 Tags: update merges by default; pass tags_mode=replace to overwrite the whole set. Common tags: decision, pending, todo, directive, gotcha, cluster, reflect.
 
@@ -58,7 +58,7 @@ unlink, retype, archive, archive_batch and merge are preview-first: confirm abse
 link_batch creates up to 1000 edges in one transaction and reports per item as {linked, failed, errors[]}; unlink_batch deletes/previews up to 1000 edges in one transaction, validates all ids exist before deleting any, and reports per edge as {deleted, preview, failed} with counts.
 
 ## Search
-Modes: hybrid (default, RRF), vector, BM25. Filters: status, project, tag, is_cluster, min importance. limit sets search result count; max_degree bounds chain/context traversal, not result count. Retired top_k and cluster inputs fail with hints to use limit and is_cluster.
+Modes: hybrid (default true, RRF fusion of vector + BM25), vector (hybrid=false). There is no standalone BM25 mode; BM25 contributes inside hybrid. Filters: status, project, tag, is_cluster, min importance. limit sets search result count; max_degree bounds chain/context traversal, not result count. Retired top_k, cluster, and mode inputs fail with hints to use limit, is_cluster, and hybrid.
 memory_recall action=list returns a paginated inventory without a query: filters status (draft/active/archived), project_id, tag, is_cluster (true=clusters only, false=non-clusters); paging limit (1-500, default 50) and offset; result {thoughts[], total, limit, offset} with total the un-paged count. Ordering is fixed (created_at desc); there is no sort parameter. Example: {"action":"list","status":"draft","limit":50,"offset":0}.
 memory_recall action=get accepts include_edges (default false) to return incident edges inline (upstream/downstream with type and created_at).
 BM25 hits are immediate; vector/hybrid hits appear only after the embedder stores the vector in vec_thoughts (polls pending_embeddings every embedder.pollIntervalMs, default 7000 ms; visible ~10-15 s).

@@ -188,7 +188,6 @@ curl -s http://127.0.0.1:3005/health | jq -r .version
 ### Database files
 
 - `data/synaptomind.db` — main database (thoughts, edges, projects)
-- `data/logs.db` — session logs
 - `data/huggingface/` — cached embedding models (~113 MB with the default `q8` dtype, ~449 MB with `fp32`, after first run)
 
 ---
@@ -239,6 +238,10 @@ Docker health check is configured — container shows `(healthy)` in `docker com
 ---
 
 ## Logs
+
+Application logs are written to stdout/stderr (warning and error to stderr,
+info/debug to stdout) and, when configured, an optional size-rotated file via
+`log.file`/`SYNAPTOMIND_LOG_FILE`.
 
 ```bash
 # Follow logs
@@ -319,7 +322,6 @@ services:
       - .env
     environment:
       - SYNAPTOMIND_DB_PATH=/app/data/synaptomind.db
-      - SYNAPTOMIND_LOG_DB_PATH=/app/data/logs.db
       - SYNAPTOMIND_EMBEDDER_CACHE_DIR=/app/data/huggingface
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:3005/health"]

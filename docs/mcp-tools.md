@@ -112,7 +112,7 @@ Example:
 
 ### `action=search`
 
-Hybrid (RRF) / vector / BM25 search. Key arguments: `query` (required), `mode` (`hybrid`/`vector`/`bm25`),
+Hybrid (RRF) / vector search. Key arguments: `query` (required), `hybrid` (boolean, default true: RRF fusion of the vector and BM25 legs; false = vector leg only),
 `status`, `project`, `tag`, `is_cluster`, `min_importance`, `limit`, `min_relevance`,
 `recency_weight`, `recency_half_life_days`, `supersession_mode`, `contradiction_mode`.
 Returns hits with `similarity`/`distance` (embedding leg only), `match_source` (`embedding`/`bm25`/both), `low_confidence`.

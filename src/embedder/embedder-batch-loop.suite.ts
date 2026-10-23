@@ -1,5 +1,5 @@
-import { Database } from 'bun:sqlite'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import type { Database } from 'bun:sqlite'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, expect, mock, test } from 'bun:test'
@@ -29,8 +29,9 @@ import { afterAll, expect, mock, test } from 'bun:test'
 // ── environment: `config` is read at import time, so every knob must be set
 // before the first dynamic import ────────────────────────────────────────────
 const scratch = mkdtempSync(join(tmpdir(), 'synaptomind-batch-loop-'))
-const logDbPath = join(scratch, 'logs.db')
-process.env.SYNAPTOMIND_LOG_DB_PATH = logDbPath
+const logFile = join(scratch, 'logs.jsonl')
+process.env.SYNAPTOMIND_LOG_FILE = logFile
+process.env.SYNAPTOMIND_LOG_FORMAT = 'json'
 // A 5 ms poll makes "six consecutive batches" observable in milliseconds; the
 // production interval (7 s) would make this suite take minutes.
 process.env.SYNAPTOMIND_EMBEDDER_POLL_INTERVAL = '5'
@@ -184,16 +185,31 @@ interface LogRow {
 }
 
 /**
- * The worker's log store writes to the temp `logs.db`; read it back as an
+ * The worker's logger writes to the temp JSONL file; read it back as an
  * operator would. One shared read connection: the probes below poll this in a
  * tight loop while the worker polls at 5 ms, and re-opening per probe would
  * stretch the wait past the row's retry budget.
  */
-let logReader: Database | null = null
 function logRows(): LogRow[] {
-  if (!existsSync(logDbPath)) return []
-  logReader ??= new Database(logDbPath)
-  return logReader.prepare('SELECT level, type, message, metadata FROM logs ORDER BY created_at, id').all() as LogRow[]
+  if (!existsSync(logFile)) return []
+  const raw = readFileSync(logFile, 'utf8')
+  const rows: LogRow[] = []
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      const obj = JSON.parse(trimmed) as { level?: string; type?: string; msg?: string; meta?: unknown }
+      rows.push({
+        level: obj.level ?? '',
+        type: obj.type ?? '',
+        message: obj.msg ?? '',
+        metadata: obj.meta === undefined ? null : JSON.stringify(obj.meta)
+      })
+    } catch {
+      /* ignore malformed lines */
+    }
+  }
+  return rows
 }
 
 const skipLogs = (): LogRow[] => logRows().filter(r => r.type === 'embedding' && r.message.includes('mid-batch'))
@@ -216,7 +232,6 @@ await import('./embedder-process')
 
 afterAll(() => {
   for (const timer of timers) clearInterval(timer)
-  logReader?.close()
   realInitFns.closeDb()
   rmSync(scratch, { recursive: true, force: true })
 })

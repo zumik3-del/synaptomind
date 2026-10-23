@@ -54,7 +54,8 @@ const updateThoughtBodySchema = z.object({
   status: thoughtStatusSchema.optional(),
   project_id: z.string().optional(),
   is_profile: z.never({ error: 'is_profile is retired' }).optional(),
-  is_protected: z.boolean().optional()
+  is_protected: z.boolean().optional(),
+  surface_after: z.string().nullable().optional()
 })
 
 const bulkCreateBodySchema = z.object({
@@ -139,7 +140,7 @@ thoughtsRouter.put('/:id', async c => {
   const id = c.req.param('id')!
   const body = await requiredJsonBody(c, updateThoughtBodySchema)
   const thought = updateThoughtByIdService(id, {
-    content: body.content, tags: body.tags, tags_mode: body.tags_mode, status: body.status, project_id: body.project_id, is_protected: body.is_protected
+    content: body.content, tags: body.tags, tags_mode: body.tags_mode, status: body.status, project_id: body.project_id, is_protected: body.is_protected, surface_after: body.surface_after
   })
   if (!thought) return c.json({ error: 'Not found' }, 404)
   return c.json(thought)

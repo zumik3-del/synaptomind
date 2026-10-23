@@ -118,15 +118,15 @@ export function registerMemorySupersede(server: McpServer) {
     description: `Version and supersede thoughts. All actions preview by default; set confirm=true to execute. Actions: archive (idempotent), archive_batch (per-item partial results), merge (source→target; reports edges_transferred).`,
     inputSchema: {
       action: z.enum(['archive', 'archive_batch', 'merge']).describe('Action'),
-      confirm: z.boolean().optional().describe('Omit or false to preview; true to execute'),
-      thought_id: z.string().optional().describe('Thought ID (required for archive)'),
+      confirm: z.boolean().optional().describe('CONSUMED by all actions (true executes; false/omitted previews).'),
+      thought_id: z.string().optional().describe('REQUIRED for "archive". Thought ID. IGNORED for "archive_batch" and "merge".'),
       thought_ids: z.array(z.string()).optional().describe('REQUIRED ONLY for "archive_batch". Thought IDs to archive in one call (1-1000); partial failures are reported per item. Rejected for other actions.'),
       source_id: z.string().optional().describe('REQUIRED ONLY for "merge". Source thought ID — will be archived. Rejected for other actions.'),
       target_id: z.string().optional().describe('REQUIRED ONLY for "merge". Target thought ID — will be updated. Rejected for other actions.'),
-      merged_content: z.string().optional().describe('Replacement content for merge; rejected for other actions.'),
-      merged_tags: z.array(z.string()).optional().describe('Merged tags (merge only)'),
-      project_id: z.string().optional().describe('Project ID (merge only)'),
-      cwd: z.string().optional().describe('Working directory — auto-resolves project (merge only)')
+      merged_content: z.string().optional().describe('Replacement content for merge. OPTIONAL for "merge". REJECTED for "archive" and "archive_batch".'),
+      merged_tags: z.array(z.string()).optional().describe('Merged tags. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
+      project_id: z.string().optional().describe('Project ID. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
+      cwd: z.string().optional().describe('Working directory — auto-resolves project. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".')
     },
     handlers: Object.fromEntries(Object.entries(handlers).map(([action, handler]) => [action, {
       ...handler,

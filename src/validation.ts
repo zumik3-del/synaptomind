@@ -52,6 +52,9 @@ export const PROPOSALS_LIMIT_MIN = 1
 export const PROPOSALS_LIMIT_MAX = 1000
 export const proposalsLimitSchema = z.coerce.number().int().min(PROPOSALS_LIMIT_MIN).max(PROPOSALS_LIMIT_MAX)
 
+/** ISO-8601 UTC datetime (the format stored timestamps use). */
+export const isoDateTimeSchema = z.iso.datetime()
+
 export function validateStatus(status: string | undefined): void {
   if (status !== undefined && !isThoughtStatus(status)) {
     throw new ValidationError(`Invalid status: ${status}. Must be one of: draft, active, archived`)

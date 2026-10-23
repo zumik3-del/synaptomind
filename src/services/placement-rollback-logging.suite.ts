@@ -2,10 +2,10 @@
  * F-14 AC-7 — a confirm-time rollback-window refusal is announced exactly once
  * and the refusal path never hard-deletes a thought (task #1049).
  *
- * `insertLog` is not observable through the DB in a test: `config.logDbPath`
- * defaults to `''`, so `ensureDb()` returns null and the writer is a silent
- * no-op, and overriding the global config would leak into every suite that
- * shares this process. The writer is therefore spied with `mock.module`, and
+ * `insertLog` now routes to stdout/stderr sinks; spying it keeps the suite
+ * deterministic and silent. Overriding the global config would leak into every
+ * suite that shares this process. The writer is therefore spied with
+ * `mock.module`, and
  * the service is imported *after* the mock so it binds the spy.
  *
  * bun cannot unmock a module, so this file carries no `.test` suffix (the main

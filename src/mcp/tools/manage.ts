@@ -87,10 +87,10 @@ export function registerMemoryManage(server: McpServer) {
       action: z.enum(['list', 'create', 'update', 'delete', 'resolve']).describe('Action'),
       project_id: z.string().optional().describe('REQUIRED ONLY for "update" and "delete". IGNORED for "list", "create", "resolve".'),
       name: z.string().optional().describe('REQUIRED for "create". OPTIONAL for "update". IGNORED for "list", "delete", "resolve".'),
-      description: z.string().optional().describe('Project description (for create/update)'),
-      local_path: z.string().optional().describe('Local filesystem path (for create/update)'),
-      confirm: z.boolean().optional().describe('Set to true to actually delete. Set to false to preview first.'),
-      cwd: z.string().optional().describe('REQUIRED ONLY for "resolve". Working directory path to resolve project from.')
+      description: z.string().optional().describe('Project description. OPTIONAL for "create" and "update". IGNORED for "list", "delete", "resolve".'),
+      local_path: z.string().optional().describe('Local filesystem path. OPTIONAL for "create" and "update". IGNORED for "list", "delete", "resolve".'),
+      confirm: z.boolean().optional().describe('CONSUMED by "delete" (true executes; false/omitted previews). IGNORED for all other actions.'),
+      cwd: z.string().optional().describe('REQUIRED for "resolve". Working directory path to resolve project from. IGNORED for all other actions.')
     },
     handlers
   })

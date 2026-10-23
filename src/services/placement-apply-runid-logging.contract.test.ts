@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 
 // The F-28 run-envelope logging suite (placement-apply-runid-logging.suite.ts)
 // mock.module('../logging/log') globally so `insertLog` can be spied —
-// config.logDbPath is '' in tests, so the writer is a silent no-op. bun cannot
+// insertLog routes to stdout/stderr sinks in tests. bun cannot
 // unmock modules, so this suite must run in a child bun process with a clean
 // module registry (AGENTS.md §8; same recipe as
 // placement-rollback-logging.contract.test.ts, PR #114 b2e5cd5).
