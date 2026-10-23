@@ -66,23 +66,6 @@ if (isStdio) {
 
 console.error(`[synaptomind] v${VERSION} — starting...`)
 
-// Forward-only migration of legacy logs.db (gated by env and --migrate-logs).
-const migrateLogsFlag = process.argv.includes('--migrate-logs')
-const migrateLogsPathArg = migrateLogsFlag
-  ? (process.argv[process.argv.indexOf('--migrate-logs') + 1] ?? '')
-  : ''
-const envMigrateEnabled =
-  process.env.SYNAPTOMIND_MIGRATE_LOGS_DB === undefined ||
-  !['false', '0', 'no', 'off'].includes(process.env.SYNAPTOMIND_MIGRATE_LOGS_DB.trim().toLowerCase())
-if (migrateLogsFlag || envMigrateEnabled) {
-  try {
-    const { migrateLogsDb } = await import('./logging/migrate')
-    migrateLogsDb({ source: migrateLogsPathArg || config.logDbPath || undefined, force: migrateLogsFlag })
-  } catch (err) {
-    console.error(`[synaptomind] logs migration failed: ${err}`)
-  }
-}
-
 try {
   mkdirSync(dirname(config.db.path), { recursive: true })
 } catch {}

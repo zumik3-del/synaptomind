@@ -15,11 +15,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { config } from '../../config'
 import { getDb, closeDb } from '../../db'
 import { getEdgePairBetween } from '../../db/edges'
 import { getThoughtRow } from '../../db/thoughts'
-import { closeLogDb } from '../../logging'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { insertProposal, type PlacementProposalRow } from '../../db/placement-proposals'
 import { computeFingerprint } from '../../services/placement-proposals.service'
@@ -102,15 +100,8 @@ function propState(db: Database, id: string): string {
   return row?.state ?? 'missing'
 }
 
-function useMemoryLogDb(): void {
-  closeLogDb()
-  config.logDbPath = ':memory:'
-}
-
 beforeEach(createTestDb)
-beforeEach(useMemoryLogDb)
 afterEach(() => {
-  closeLogDb()
   closeDb()
 })
 

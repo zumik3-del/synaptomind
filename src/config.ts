@@ -29,7 +29,6 @@ interface Config {
     maxSessions: number; sessionTtlMs: number; keepAliveMs: number; maxEventsPerSession: number
   }
   db: { path: string; busyTimeout: number }
-  logDbPath: string
   log: { level: string; file: string; format: string; fileMaxBytes: number; fileMaxFiles: number }
   embedder: {
     enabled: boolean; model: string; dtype: EmbedderDtype; dimensions: number; pollIntervalMs: number;
@@ -66,7 +65,6 @@ export const DEFAULTS: Config = {
     maxSessions: 100, sessionTtlMs: 3600_000, keepAliveMs: 10_000, maxEventsPerSession: 1000
   },
   db: { path: './data/synaptomind.db', busyTimeout: 5000 },
-  logDbPath: '',
   log: { level: 'info', file: '', format: 'text', fileMaxBytes: 10485760, fileMaxFiles: 3 },
   embedder: {
     enabled: true, model: 'Xenova/multilingual-e5-small', dtype: 'q8', dimensions: 384,
@@ -141,9 +139,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
 
   M('SYNAPTOMIND_DB_PATH', 'db.path', 'string'),
   M('SYNAPTOMIND_DB_BUSY_TIMEOUT', 'db.busyTimeout', 'int'),
-  M('SYNAPTOMIND_LOG_DB_PATH', 'logDbPath', 'string'),
-  // Deprecated compatibility alias (see applyEnvOverrides): SYNAPTOMIND_LOG_DB_PATH
-  // is retained for one release; new code should prefer the log.* settings.
   M('SYNAPTOMIND_LOG_LEVEL', 'log.level', 'string'),
   M('SYNAPTOMIND_LOG_FILE', 'log.file', 'string'),
   M('SYNAPTOMIND_LOG_FORMAT', 'log.format', 'string'),
@@ -266,10 +261,6 @@ function embedderDtypeSource(): string {
 }
 
 function applyEnvOverrides(fileConfig: Partial<Config>): Config {
-  if (process.env.SYNAPTOMIND_LOG_DB_PATH !== undefined) {
-    console.warn('[config] SYNAPTOMIND_LOG_DB_PATH is deprecated: retained as a compatibility alias during migration. Prefer the log.* settings (SYNAPTOMIND_LOG_LEVEL, SYNAPTOMIND_LOG_FILE, ...).')
-  }
-
   const merged = deepMerge(
     DEFAULTS as unknown as Record<string, unknown>,
     fileConfig as unknown as Record<string, unknown>

@@ -18,7 +18,7 @@
     "path": "./data/synaptomind.db",
     "busyTimeout": 5000
   },
-  "logDbPath": "",
+
   "embedder": {
     "enabled": true,
     "model": "Xenova/multilingual-e5-small",

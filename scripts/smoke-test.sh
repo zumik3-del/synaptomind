@@ -15,7 +15,6 @@ trap cleanup EXIT
 cd "$SMOKE_DIR"
 
 SYNAPTOMIND_DB_PATH="$TMP/synaptomind.db" \
-SYNAPTOMIND_LOG_DB_PATH="$TMP/logs.db" \
 SYNAPTOMIND_EMBEDDER_ENABLED=false \
 SYNAPTOMIND_EMBEDDER_CACHE_DIR="$TMP/huggingface" \
 bun run scripts/smoke-test.ts

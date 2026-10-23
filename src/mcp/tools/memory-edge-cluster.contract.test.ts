@@ -11,10 +11,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from '
 import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { config } from '../../config'
 import { getDb, closeDb } from '../../db'
 import { getEdgePairBetween } from '../../db/edges'
-import { closeLogDb } from '../../logging'
 import { createTestDb, seedThought, seedEdge } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
@@ -45,15 +43,8 @@ function parseResult(result: unknown): { data: any; isError: boolean; text: stri
   return { data: parsed, isError: r.isError === true, text }
 }
 
-function useMemoryLogDb(): void {
-  closeLogDb()
-  config.logDbPath = ':memory:'
-}
-
 beforeEach(createTestDb)
-beforeEach(useMemoryLogDb)
 afterEach(() => {
-  closeLogDb()
   closeDb()
 })
 

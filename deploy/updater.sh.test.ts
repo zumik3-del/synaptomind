@@ -1758,28 +1758,24 @@ describe('update.sh — the recovery block names the real database backups (F6)'
     })
     try {
       const db = join(fx.installDir, 'data', 'synaptomind.db')
-      const logDb = join(fx.installDir, 'data', 'logs.db')
       writeFileSync(
         join(fx.installDir, 'config.json'),
-        JSON.stringify({ server: { port: 3999 }, database: { path: './data/synaptomind.db' }, logDbPath: './data/logs.db' }),
+        JSON.stringify({ server: { port: 3999 }, database: { path: './data/synaptomind.db' } }),
       )
-      spawnSync('sqlite3', [logDb, 'create table l(x int);'], { encoding: 'utf8' })
       fx.healthBody = JSON.stringify({ status: 'ok', version: '0.0.1' })
 
       const res = runUpdate(fx, ['--yes'])
       expect(res.status, res.stdout + res.stderr).toBe(1)
 
-      // Both databases were really backed up…
+      // The database was really backed up…
       const mainBackups = readdirSync(`${db}.backup`)
-      const logBackups = readdirSync(`${logDb}.backup`)
       expect(mainBackups).toHaveLength(1)
-      expect(logBackups).toHaveLength(1)
 
-      // …and the block names both, by their real file names, in a form that can
+      // …and the block names it, by its real file name, in a form that can
       // be pasted: the backup path and the database it restores.
       const restores = res.stderr.split('\n').filter((l) => l.includes('sudo cp -p'))
-      expect(restores).toHaveLength(2)
-      for (const name of [...mainBackups, ...logBackups]) {
+      expect(restores).toHaveLength(1)
+      for (const name of mainBackups) {
         const line = restores.find((l) => l.includes(name))
         expect(line, `the recovery block must name the real backup ${name}`).toBeDefined()
         // Single-quoted operands, so a path with a space survives being pasted.
@@ -1789,7 +1785,7 @@ describe('update.sh — the recovery block names the real database backups (F6)'
       expect(res.stderr).not.toContain('<timestamp>')
       // The WAL pair is named per database, next to its own cp.
       const rms = res.stderr.split('\n').filter((l) => l.includes('sudo rm -f'))
-      expect(rms).toHaveLength(2)
+      expect(rms).toHaveLength(1)
       expect(res.stderr).toContain('Restoring the DB is mandatory')
     } finally {
       rmSync(fx.root, { recursive: true, force: true })
