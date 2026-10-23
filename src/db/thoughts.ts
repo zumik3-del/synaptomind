@@ -52,6 +52,7 @@ export interface UpdateThoughtInput {
   is_protected?: boolean
   is_global?: boolean
   archived_at?: string | null
+  surface_after?: string | null
 }
 
 /** Filters shared by the list and count queries (everything except paging). */
@@ -211,6 +212,10 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
     if (data.archived_at !== undefined) {
       sets.push('archived_at = ?')
       values.push(data.archived_at)
+    }
+    if (data.surface_after !== undefined) {
+      sets.push('surface_after = ?')
+      values.push(data.surface_after)
     }
 
     if (sets.length === 0) {

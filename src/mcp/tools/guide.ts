@@ -45,7 +45,7 @@ memory_store unlink/retype, memory_supersede archive/archive_batch/merge, memory
 Slots (memory_status action=slots) are read-only: pending_items is derived from thoughts tagged pending, architecture_decisions from primers, and only project_context/active_goals are stored rows. To change slot content, update or archive the underlying thoughts (virtual slots) or use memory_reflect (summary, goals_add, goals_remove) for the explicit slots; memory_status never writes.
 
 ## Thoughts
-Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_global, is_protected, source.
+Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_global, is_protected, surface_after, source.
 Status: draft (wip), active (live), archived (hidden). Default draft on create; pass status=active to publish. Archive is idempotent.
 Tags: update merges by default; pass tags_mode=replace to overwrite the whole set. Common tags: decision, pending, todo, directive, gotcha, cluster, reflect.
 

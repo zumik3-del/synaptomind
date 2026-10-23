@@ -38,6 +38,7 @@ export function registerMemoryStore(server: McpServer) {
       is_profile: z.never({ error: 'is_profile is retired; remove this field (there is no replacement)' }).optional().describe('Retired: remove this field; there is no replacement.'),
       is_protected: z.boolean().optional().describe('Protect from auto-deletion'),
       is_global: z.boolean().optional().describe('Mark as global thought (appears in all project-scoped searches)'),
+      surface_after: z.string().nullable().optional().describe('update only: pending surfacing delay as an ISO timestamp; pass null to clear'),
       url_links: z.array(z.object({ text: z.string(), url: z.string() })).optional().describe('URL links (for create)'),
       thought_id: z.string().optional().describe('REQUIRED for "update". REJECTED for "link" (use source_id). IGNORED for "create", "unlink", "retype".'),
       source_id: z.string().optional().describe('REQUIRED ONLY for "link" (source endpoint, same spelling as memory_supersede merge). IGNORED for all other actions.'),

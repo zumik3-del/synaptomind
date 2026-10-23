@@ -73,6 +73,11 @@ export function updateThoughtByIdService(id: string, data: UpdateThoughtInput, d
   if (data.content !== undefined) {
     validateContentLength(data.content, getThoughtLimitsDB(d), id)
   }
+  if (data.surface_after !== undefined && data.surface_after !== null) {
+    if (typeof data.surface_after !== 'string' || Number.isNaN(Date.parse(data.surface_after))) {
+      throw new ValidationError(`Invalid surface_after: ${String(data.surface_after)}. Must be a valid ISO timestamp or null.`)
+    }
+  }
   if (data.status === 'archived') {
     assertNotProfileArchive(dbGetThought(d, id))
   }
