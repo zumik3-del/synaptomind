@@ -8,7 +8,7 @@
  */
 
 import type { Database } from 'bun:sqlite'
-import { countIncomingActiveRetentionReviewEdges, getRetentionReviewEligibilityThought } from '../db/retention-review'
+import { countIncomingActiveRetentionReviewEdges, countRetentionReviewDependents, getRetentionReviewEligibilityThought, type RetentionReviewDependentCounts } from '../db/retention-review'
 import { config } from '../config'
 import { getDb } from '../db'
 import { createThought as dbCreateThought, deleteThought, updateThought } from '../db/thoughts'
@@ -344,48 +344,6 @@ function evaluateEligibility(id: string, d: Database, opts: RetentionReviewDelet
   }
 }
 
-function countDependents(id: string, d: Database): {
-  edges: number
-  importance: number
-  url_links: number
-  pending_embeddings: number
-  primers: number
-  thought_tags: number
-  total: number
-} {
-  const safeCount = (sql: string): number => {
-    try {
-      const r = d.prepare(sql).get(id) as { c: number } | undefined
-      return r?.c ?? 0
-    } catch {
-      return 0
-    }
-  }
-  let edgesCount = 0
-  try {
-    const r = d.prepare(`SELECT COUNT(*) AS c FROM edges WHERE source_id = ? OR target_id = ?`).get(id, id) as { c: number } | undefined
-    edgesCount = r?.c ?? 0
-  } catch {
-    edgesCount = 0
-  }
-  const importance = safeCount(`SELECT COUNT(*) AS c FROM thought_importance WHERE thought_id = ?`)
-  const url_links = safeCount(`SELECT COUNT(*) AS c FROM thought_url_links WHERE thought_id = ?`)
-  const pending_embeddings = safeCount(`SELECT COUNT(*) AS c FROM pending_embeddings WHERE thought_id = ?`)
-  const primers = safeCount(`SELECT COUNT(*) AS c FROM primers WHERE thought_id = ?`)
-  const thought_tags = safeCount(`SELECT COUNT(*) AS c FROM thought_tags WHERE thought_id = ?`)
-
-  const total = edgesCount + importance + url_links + pending_embeddings + primers + thought_tags
-  return {
-    edges: edgesCount,
-    importance,
-    url_links,
-    pending_embeddings,
-    primers,
-    thought_tags,
-    total
-  }
-}
-
 function tableExists(d: Database, name: string): boolean {
   try {
     const r = d.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(name)
@@ -429,7 +387,7 @@ export function deleteRetentionReviewCandidateService(
   preview: boolean
   confirm: boolean
   thought_id: string
-  dependents?: ReturnType<typeof countDependents>
+  dependents?: RetentionReviewDependentCounts
   instruction?: string
 } {
   const { confirm, opts, d } = resolveDeleteArgs(id, a, b)
@@ -442,7 +400,7 @@ export function deleteRetentionReviewCandidateService(
     )
   }
 
-  const dependents = countDependents(id, d)
+  const dependents = countRetentionReviewDependents(d, id)
 
   if (!confirm) {
     return {

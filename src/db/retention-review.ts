@@ -33,6 +33,33 @@ export interface RetentionReviewEligibilityThought {
   hit_count: number
 }
 
+export interface RetentionReviewDependentCounts {
+  edges: number
+  importance: number
+  url_links: number
+  pending_embeddings: number
+  primers: number
+  thought_tags: number
+  total: number
+}
+
+export function countRetentionReviewDependents(db: Database, thoughtId: string): RetentionReviewDependentCounts {
+  const count = (sql: string): number => {
+    const row = db.prepare(sql).get(thoughtId) as { count: number }
+    return row.count
+  }
+  const edgeRow = db.prepare(`SELECT COUNT(*) AS count FROM edges WHERE source_id = ? OR target_id = ?`)
+    .get(thoughtId, thoughtId) as { count: number }
+  const edgeCount = edgeRow.count
+  const importance = count(`SELECT COUNT(*) AS count FROM thought_importance WHERE thought_id = ?`)
+  const url_links = count(`SELECT COUNT(*) AS count FROM thought_url_links WHERE thought_id = ?`)
+  const pending_embeddings = count(`SELECT COUNT(*) AS count FROM pending_embeddings WHERE thought_id = ?`)
+  const primers = count(`SELECT COUNT(*) AS count FROM primers WHERE thought_id = ?`)
+  const thought_tags = count(`SELECT COUNT(*) AS count FROM thought_tags WHERE thought_id = ?`)
+  const total = edgeCount + importance + url_links + pending_embeddings + primers + thought_tags
+  return { edges: edgeCount, importance, url_links, pending_embeddings, primers, thought_tags, total }
+}
+
 export function getRetentionReviewEligibilityThought(
   db: Database,
   thoughtId: string
