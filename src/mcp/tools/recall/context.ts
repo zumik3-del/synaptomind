@@ -25,7 +25,7 @@ export const contextHandler: ActionHandler = {
   run(args: ActionArgs) {
     const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
     const maxDegree = args.max_degree as number | undefined
-    const compact = args.compact === true
+    const compact = args.compact !== false
     const fields = args.fields
 
     const transformChain = (chain: any) => {
