@@ -1,5 +1,5 @@
 import { getSlots } from '../../../services/slots.service'
-import { pickFields, resolveProjectId } from '../utils'
+import { projectFields, resolveProjectId } from '../utils'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
 export const slotsHandler: ActionHandler = {
@@ -13,7 +13,7 @@ export const slotsHandler: ActionHandler = {
     })
     const fields = args.fields
     if (Array.isArray(fields) && fields.length > 0) {
-      return slots.map((s: any) => pickFields(s, { fields }))
+      return slots.map((s: any) => projectFields(s, { fields }))
     }
     return slots
   }

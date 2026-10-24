@@ -67,18 +67,26 @@ export function resolveProjectId(projectId?: string, cwd?: string): string | und
   return undefined
 }
 
-// ── Compact output mode plumbing (task #2122) ─────────────────────────────────
+// ── Compact output mode plumbing ─────────────────────────────────────────────
 // Shared, side-effect-free helpers for the opt-in `compact` + `fields` output
-// controls. No tool currently consumes them (task #2131 wires them into read
-// tools); this module only parses/validates/intersects so callers stay thin.
+// controls. One resolveFields normalizes a field selection; one shapeThought
+// transforms a thought; one projectFields projects an arbitrary object.
 
 /** Minimal field set selected by `compact: true`. */
 export const COMPACT_FIELDS = ['id', 'content', 'status', 'tags', 'project'] as const
-export const DEFAULT_COMPACT_FIELDS = [...COMPACT_FIELDS]
-export const COMPACT_OUTPUT_FIELDS = [...COMPACT_FIELDS]
-export const MINIMAL_FIELDS = [...COMPACT_FIELDS]
-export const compactDefaults = [...COMPACT_FIELDS]
-export const compactDefaultFields = [...COMPACT_FIELDS]
+
+/** A single value accepted anywhere a field selection may appear. */
+export type FieldSelectionInput =
+  | boolean
+  | string
+  | string[]
+  | Record<string, unknown>
+
+interface ParsedFieldSelection {
+  compact: boolean
+  fields: string[] | undefined
+  available: string[] | undefined
+}
 
 function toStringArray(value: unknown): string[] {
   if (value === undefined || value === null) return []
@@ -92,13 +100,7 @@ function toStringArray(value: unknown): string[] {
   return [String(value).trim()].filter((v) => v.length > 0)
 }
 
-interface ParsedFieldSelection {
-  compact: boolean
-  fields: string[] | undefined
-  available: string[] | undefined
-}
-
-function parseFieldSelectionArgs(args: unknown[]): ParsedFieldSelection {
+function parseFieldSelectionArgs(args: FieldSelectionInput[]): ParsedFieldSelection {
   let compact = false
   let fields: string[] | undefined
   let available: string[] | undefined
@@ -115,9 +117,6 @@ function parseFieldSelectionArgs(args: unknown[]): ParsedFieldSelection {
       continue
     }
     if (typeof arg === 'string') {
-      // A bare string is treated as a field list only if it contains a comma
-      // or matches a known field-ish token; otherwise leave it as a single field.
-      // We keep it simple: bare strings become a one-element field request.
       fields = fields ?? [arg.trim()].filter(Boolean)
       continue
     }
@@ -130,16 +129,14 @@ function parseFieldSelectionArgs(args: unknown[]): ParsedFieldSelection {
       if (obj.requested !== undefined && fields === undefined) fields = toStringArray(obj.requested)
       if (obj.requestedFields !== undefined && fields === undefined) fields = toStringArray(obj.requestedFields)
       if (obj.selected !== undefined && fields === undefined) fields = toStringArray(obj.selected)
-      // available columns
       for (const key of ['available', 'availableFields', 'availableColumns', 'columns', 'all', 'allFields', 'valid', 'validFields']) {
         if (obj[key] !== undefined) {
           available = toStringArray(obj[key])
           break
         }
       }
-      // nested options
-      if (obj.options && typeof obj.options === 'object') {
-        const nested = parseFieldSelectionArgs([obj.options])
+      if (obj.options !== undefined && obj.options !== null) {
+        const nested = parseFieldSelectionArgs([obj.options as FieldSelectionInput])
         if (nested.compact) compact = true
         if (nested.fields !== undefined) fields = nested.fields
         if (nested.available !== undefined) available = nested.available
@@ -147,17 +144,14 @@ function parseFieldSelectionArgs(args: unknown[]): ParsedFieldSelection {
     }
   }
 
-  // Resolve array ambiguity: two arrays => fields, available.
   if (arrays.length >= 2) {
     if (fields === undefined) fields = arrays[0]
     if (available === undefined) available = arrays[1]
   } else if (arrays.length === 1) {
-    const hasObject = args.some((a) => a && typeof a === 'object' && !Array.isArray(a))
+    const hasObject = args.some((a) => a !== null && typeof a === 'object' && !Array.isArray(a))
     if (hasObject) {
       if (fields === undefined) fields = arrays[0]
     } else {
-      // No object: treat a lone array as the requested fields when compact is on,
-      // otherwise as available columns. Default to requested fields.
       if (fields === undefined) fields = arrays[0]
     }
   }
@@ -165,16 +159,12 @@ function parseFieldSelectionArgs(args: unknown[]): ParsedFieldSelection {
   return { compact, fields, available }
 }
 
-export function resolveFields(...args: unknown[]): string[] {
+export function resolveFields(...args: FieldSelectionInput[]): string[] {
   const { compact, fields: rawFields, available } = parseFieldSelectionArgs(args)
   let fields = rawFields
   if (!fields || fields.length === 0) {
     fields = compact ? [...COMPACT_FIELDS] : available ? [...available] : []
   }
-  if (compact && rawFields && rawFields.length > 0) {
-    // compact is a hint; explicit fields win. Keep as-is.
-  }
-  // intersect with available columns when provided
   if (available && available.length > 0) {
     const availSet = new Set(available)
     const out: string[] = []
@@ -187,7 +177,6 @@ export function resolveFields(...args: unknown[]): string[] {
     }
     return out
   }
-  // dedupe
   const out: string[] = []
   const seen = new Set<string>()
   for (const f of fields) {
@@ -199,11 +188,10 @@ export function resolveFields(...args: unknown[]): string[] {
   return out
 }
 
-export function intersectFields(...args: unknown[]): string[] {
+export function intersectFields(...args: FieldSelectionInput[]): string[] {
   const { fields: rawFields, available } = parseFieldSelectionArgs(args)
   const requested = rawFields ?? []
   if (!available || available.length === 0) {
-    // dedupe requested
     const out: string[] = []
     const seen = new Set<string>()
     for (const f of requested) if (!seen.has(f)) { out.push(f); seen.add(f) }
@@ -221,7 +209,7 @@ export function intersectFields(...args: unknown[]): string[] {
   return out
 }
 
-export function partitionFields(...args: unknown[]): { fields: string[]; unknown: string[]; valid: string[]; invalid: string[] } {
+export function partitionFields(...args: FieldSelectionInput[]): { fields: string[]; unknown: string[]; valid: string[]; invalid: string[] } {
   const { fields: rawFields, available } = parseFieldSelectionArgs(args)
   const requested = rawFields ?? []
   if (!available || available.length === 0) {
@@ -241,28 +229,39 @@ export function partitionFields(...args: unknown[]): { fields: string[]; unknown
   return { fields, unknown, valid: [...fields], invalid: [...unknown] }
 }
 
-export function unknownFields(...args: unknown[]): string[] {
+export function unknownFields(...args: FieldSelectionInput[]): string[] {
   return partitionFields(...args).unknown
 }
 
-export function pickFields(value: unknown, ...rest: unknown[]): unknown {
-  // Determine fields list
+export function projectFields(...args: FieldSelectionInput[]): unknown {
+  // Support projectFields(data, fields) and projectFields(fields, data).
+  if (args.length >= 2) {
+    const second = args[1]
+    if (Array.isArray(second) || typeof second === 'string' || (second !== null && typeof second === 'object' && ('fields' in (second as Record<string, unknown>) || 'compact' in (second as Record<string, unknown>)))) {
+      return projectFieldsImpl(args[0], args[1], ...args.slice(2))
+    }
+    if (Array.isArray(args[0]) || typeof args[0] === 'string') {
+      return projectFieldsImpl(args[1], args[0], ...args.slice(2))
+    }
+  }
+  return projectFieldsImpl(args[0])
+}
+
+function projectFieldsImpl(value: unknown, ...rest: FieldSelectionInput[]): unknown {
   let fields: string[] = []
   if (rest.length > 0) {
     const first = rest[0]
-    if (Array.isArray(first) || typeof first === 'string' || (first && typeof first === 'object')) {
-      fields = resolveFields(first as any, ...rest.slice(1))
+    if (Array.isArray(first) || typeof first === 'string' || (first !== null && typeof first === 'object')) {
+      fields = resolveFields(first as FieldSelectionInput, ...rest.slice(1))
     }
-  } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+  } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>
     if (obj.fields !== undefined || obj.compact !== undefined) {
-      fields = resolveFields(obj)
-      // value might actually be data with a fields property; ambiguous. Prefer data projection only if rest provided.
+      fields = resolveFields(obj as FieldSelectionInput)
     }
   }
   if (fields.length === 0 && rest.length === 0) {
-    // try value.fields
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
       const obj = value as Record<string, unknown>
       if (Array.isArray(obj.fields)) fields = toStringArray(obj.fields)
     }
@@ -280,30 +279,6 @@ export function pickFields(value: unknown, ...rest: unknown[]): unknown {
 
   if (Array.isArray(value)) return value.map(projectOne)
   return projectOne(value)
-}
-
-export function projectFields(...args: unknown[]): unknown {
-  // Support projectFields(data, fields) and projectFields(fields, data)
-  if (args.length >= 2 && (Array.isArray(args[1]) || typeof args[1] === 'string' || (args[1] && typeof args[1] === 'object' && ('fields' in (args[1] as object) || 'compact' in (args[1] as object))))) {
-    return pickFields(args[0], args[1], ...args.slice(2))
-  }
-  if (args.length >= 2 && (Array.isArray(args[0]) || typeof args[0] === 'string')) {
-    // fields first, data second
-    return pickFields(args[1], args[0], ...args.slice(2))
-  }
-  return pickFields(args[0])
-}
-
-export function applyFields(...args: unknown[]): unknown {
-  return projectFields(...args)
-}
-
-export function selectFields(...args: unknown[]): unknown {
-  return projectFields(...args)
-}
-
-export function filterFields(...args: unknown[]): unknown {
-  return projectFields(...args)
 }
 
 function stringifyTags(tags: unknown): string[] {
@@ -332,19 +307,6 @@ export function compactThought(thought: unknown): Record<string, unknown> {
   }
 }
 
-/**
- * Apply the opt-in `compact` / `fields` controls to a single thought-like object.
- *
- * - `compact: true` with no `fields` selects the minimal field set
- *   (`COMPACT_FIELDS`: id, content, status, tags-as-strings, project).
- * - `fields` (array or comma string) selects an explicit subset; `compact` is
- *   treated as a hint and only affects tag stringification.
- * - With neither flag the original object is returned unchanged (backward
- *   compatible).
- *
- * `project` is mapped from `project_name`/`project`/`project_id` when the
- * requested field is not a direct property of the thought.
- */
 export function shapeThought(thought: unknown, compact?: boolean, fields?: unknown): unknown {
   if (!thought || typeof thought !== 'object' || Array.isArray(thought)) return thought
   const t = thought as Record<string, unknown>
@@ -372,49 +334,7 @@ export function shapeThought(thought: unknown, compact?: boolean, fields?: unkno
   return out
 }
 
-export function toCompact(...args: unknown[]): unknown {
-  // toCompact(data, options?) 
-  const data = args[0]
+export function toCompact(data: unknown, _options?: FieldSelectionInput): unknown {
   if (Array.isArray(data)) return data.map((d) => compactThought(d))
   return compactThought(data)
 }
-
-export function compactOutput(...args: unknown[]): unknown {
-  return toCompact(...args)
-}
-
-// Aliases for field-name resolution
-export {
-  resolveFields as applyCompact,
-  resolveFields as applyCompactAndFields,
-  resolveFields as applyFieldSelection,
-  resolveFields as buildFields,
-  resolveFields as buildFieldSet,
-  resolveFields as computeFields,
-  resolveFields as fieldSelection,
-  resolveFields as fieldsFor,
-  resolveFields as getFields,
-  resolveFields as normalizeFields,
-  resolveFields as outputFields,
-  resolveFields as parseCompact,
-  resolveFields as parseFields,
-  resolveFields as pickFieldsList,
-  resolveFields as projectFieldsList,
-  resolveFields as resolveOutputFields,
-  resolveFields as selectFieldsList,
-  resolveFields as selectedFields,
-  intersectFields as intersect,
-  intersectFields as intersectColumns,
-  intersectFields as intersectAvailable,
-  intersectFields as filterAvailable,
-  partitionFields as splitFields,
-  partitionFields as validateFields,
-  partitionFields as fieldsPartition,
-  projectFields as project,
-  projectFields as pick,
-  projectFields as select,
-  projectFields as filter,
-  projectFields as apply,
-  projectFields as pluck,
-}
-

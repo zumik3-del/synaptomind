@@ -12,7 +12,7 @@ import {
   DEFAULT_PROJECT_DELETE_MESSAGE
 } from '../../services/projects.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
-import { pickFields } from './utils'
+import { projectFields } from './utils'
 import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 
 const handlers = {
@@ -21,7 +21,7 @@ const handlers = {
       const projects = listProjectsService()
       const fields = args.fields
       if (Array.isArray(fields) && fields.length > 0) {
-        return projects.map((p: any) => pickFields(p, { fields }))
+        return projects.map((p: any) => projectFields(p, { fields }))
       }
       return projects
     }

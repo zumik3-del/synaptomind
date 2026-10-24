@@ -1,5 +1,5 @@
 import { getGraphDataService } from '../../../services/graph.service'
-import { pickFields, resolveProjectId } from '../utils'
+import { projectFields, resolveProjectId } from '../utils'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
 export const graphHandler: ActionHandler = {
@@ -8,8 +8,8 @@ export const graphHandler: ActionHandler = {
     const data = getGraphDataService(projectId, args.status as string | undefined, args.limit as number | undefined, args.offset as number | undefined)
     const fields = args.fields
     if (Array.isArray(fields) && fields.length > 0) {
-      data.nodes = data.nodes.map((n: any) => pickFields(n, { fields })) as any
-      data.edges = data.edges.map((e: any) => pickFields(e, { fields })) as any
+      data.nodes = data.nodes.map((n: any) => projectFields(n, { fields })) as any
+      data.edges = data.edges.map((e: any) => projectFields(e, { fields })) as any
     }
     return data
   }
