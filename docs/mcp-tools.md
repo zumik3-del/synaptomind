@@ -491,7 +491,7 @@ content, update or archive the underlying thoughts (virtual slots) or use `memor
 
 ### `action=propose`
 
-Read-only placement plan (placement, edges, lifecycle); never writes.
+Read-only placement plan (placement, edges, lifecycle); never writes. Default output is slim (top 3 edges, no signals); pass `include_signals=true` or `compact=false` for full output.
 
 ## `memory_manage` — projects
 

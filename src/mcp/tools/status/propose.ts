@@ -18,7 +18,10 @@ export const proposeHandler: ActionHandler = {
     }),
   async run(args: ActionArgs) {
     const projectFilter = resolveProjectId(args.cwd as string | undefined)
-    const compact = args.compact === true
+    // Slim is now the default (top-3 edges, no signals). Full output is
+    // restored by include_signals=true or compact=false.
+    const full = args.compact === false || args.include_signals === true
+    const compact = !full
     const maxEdges =
       typeof args.max_edges === 'number'
         ? args.max_edges
@@ -43,9 +46,9 @@ export const proposeHandler: ActionHandler = {
     if (!includeSignals) {
       plan.edges = plan.edges.map(({ signals: _signals, ...rest }) => rest as typeof plan.edges[number])
     }
-    // compact is a shorthand for top-3 + no signals; enforce the top-3 cap
-    // even when max_edges was not explicitly provided.
-    if (compact && plan.edges.length > 3) {
+    // Slim is a shorthand for top-3; enforce the cap when no explicit
+    // max_edges was provided.
+    if (compact && typeof args.max_edges !== 'number' && plan.edges.length > 3) {
       plan.edges = plan.edges.slice(0, 3)
     }
     return plan
