@@ -1,6 +1,6 @@
 # HTTP API Reference
 
-REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Package version at time of writing: **0.15.0**.
+REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Package version at time of writing: **0.18.0**.
 
 This page documents the mounted surface only; removals between releases are recorded in
 [CHANGELOG.md](../CHANGELOG.md).
@@ -710,3 +710,21 @@ Public liveness/readiness probe (no auth). Returns 200 when healthy, 503 when de
 curl `http://127.0.0.1:3005/health`
 
 Response: `{"status": "ok", "version": "0.9.0", "checks": {"database": "ok", "embedder": "ok"}}`
+
+## Migration notes (v0.19 MCP UX cleanup)
+
+The HTTP API is unchanged by this release. The following breaking changes apply to the
+**MCP surface only** (see `docs/mcp-tools.md`):
+
+1. **`project_id` MCP argument removed** — MCP tools resolve the project from `cwd`.
+   HTTP routes still accept `project_id` as before.
+2. **Compact defaults (MCP)** — `memory_recall` defaults to compact output and
+   `memory_status` `propose` defaults to the slim plan. HTTP responses are unaffected.
+3. **Preview tokens (MCP)** — destructive MCP actions now require a `preview_token`
+   from the preview step on `confirm: true`. HTTP routes remain immediate (no preview
+   token) and keep their existing semantics.
+4. **`edge_review` list canonical keys (MCP)** — `{ items, total, returned,
+   retired_count, all_total }`; retired aliases removed. The HTTP
+   `GET /api/proposals` route is unchanged.
+5. **Retired MCP inputs** — see `docs/mcp-tools.md` migration notes for the full
+   replacement table. HTTP parameter names are unchanged.
