@@ -60,7 +60,7 @@ const handlers = {
         ? await searchThoughtsGrouped(baseOptions)
         : await searchThoughts(baseOptions)
       const processed = postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
-      const compact = args.compact === true
+      const compact = args.compact !== false
       const fields = args.fields
       if (compact || (Array.isArray(fields) && fields.length > 0)) {
         return (Array.isArray(processed) ? processed : []).map((r: any) => {
@@ -81,7 +81,7 @@ const handlers = {
     run(args: ActionArgs) {
       const chain = getChainService(args.thought_id as string, args.direction as 'upstream' | 'downstream' | 'both' | undefined, args.max_degree as number | undefined)
       if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-      const compact = args.compact === true
+      const compact = args.compact !== false
       const fields = args.fields
       return {
         ...chain,
@@ -115,7 +115,7 @@ const handlers = {
         minRelevance: args.min_relevance as number | undefined
       }))
       const processed = postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
-      const compact = args.compact === true
+      const compact = args.compact !== false
       const fields = args.fields
       if (compact || (Array.isArray(fields) && fields.length > 0)) {
         return (Array.isArray(processed) ? processed : []).map((r: any) => {
@@ -144,7 +144,7 @@ const handlers = {
         limit: args.limit as number | undefined,
         offset: args.offset as number | undefined
       })
-      const compact = args.compact === true
+      const compact = args.compact !== false
       const fields = args.fields
       if (compact || (Array.isArray(fields) && fields.length > 0)) {
         page.thoughts = page.thoughts.map((t: any) => shapeThought(t, compact, fields)) as any
@@ -209,7 +209,7 @@ export function registerMemoryRecall(server: McpServer) {
       // two paginated thought surfaces cannot drift apart.
       limit: timelineLimitSchema.optional().describe('Max results for search/clusters (default 10) or list page size (default 50). IGNORED for get/context/chain.'),
       offset: z.number().int().min(0).max(1_000_000).optional().describe('list only: offset for pagination. IGNORED for all other actions.'),
-      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). OPTIONAL for all actions.'),
+      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). Default true for all actions; pass false for full output.'),
       fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for all actions.'),
       // Tombstones for retired parameters: a supplied value fails the advertised
       // input validation with the canonical replacement (the same pattern as

@@ -112,7 +112,7 @@ Examples:
 { "action": "search", "query": "marker", "compact": true }
 ```
 
-Defaults are unchanged (full output) when neither flag is supplied.
+Defaults are now compact (trimmed to the minimal field set) unless `compact: false` is supplied; explicit `fields` still take precedence.
 
 ## `memory_recall` — finding and retrieving thoughts
 

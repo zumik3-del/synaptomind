@@ -22,7 +22,7 @@ export const getHandler: ActionHandler = {
     const id = args.thought_id as string
     const thought = getThoughtByIdService(id)
     if (!thought) throw new NotFoundError(`Thought '${id}' not found`)
-    const compact = args.compact === true
+    const compact = args.compact !== false
     const fields = args.fields
     if (!args.include_edges) return shapeThought(thought, compact, fields)
     const chain = getChainService(id, 'both', args.max_degree as number | undefined)
