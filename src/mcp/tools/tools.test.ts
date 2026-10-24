@@ -143,7 +143,7 @@ describe('retention_review MCP', () => {
       { action: 'protect', thought_id: id },
       { action: 'compact', source_ids: [id], summary: { content: 'summary' }, confirm: true }
     ]) {
-      let result
+      let result: { isError?: boolean }
       if (args.action === 'delete') {
         const pv = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
         if (pv.isError) {
