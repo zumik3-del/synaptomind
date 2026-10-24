@@ -11,6 +11,7 @@ interface SearchRow {
   status: string
   source: string | null
   project_id: string
+  project_name: string | null
   is_cluster: number
   is_profile: number
   created_at: string
@@ -122,8 +123,9 @@ export function fetchThoughtsByIds(
 
   const rows = db
     .prepare(`
-      SELECT t.*, ti.importance as _importance
+      SELECT t.*, p.name as project_name, ti.importance as _importance
       FROM thoughts t
+      LEFT JOIN projects p ON t.project_id = p.id
       LEFT JOIN thought_importance ti ON t.id = ti.thought_id
       WHERE t.id IN (${ph}) ${filterSql}
     `)
