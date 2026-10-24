@@ -32,28 +32,15 @@ export const unlinkHandler: ActionHandler = {
     }
 
     const edge = findEdgeService(edgeId)
-    let warning: string | undefined
     if (edge) {
       const currentFingerprint = edgeFingerprint(edge)
-      if (previewToken) {
-        const verification = verifyPreviewTokenService(previewToken, 'unlink', edgeId, currentFingerprint)
-        if (verification.valid) {
-          consumePreviewTokenService(previewToken)
-        } else {
-          warning = `preview token ${verification.reason ?? 'invalid'}; revalidated by fingerprint`
-        }
-      } else {
-        warning = 'preview token missing; revalidated by fingerprint'
-      }
-    } else if (previewToken) {
-      warning = 'preview token not applicable; revalidated by fingerprint'
-    } else {
-      warning = 'preview token missing; revalidated by fingerprint'
+      if (!previewToken) throw new Error('preview_token is required')
+      const verification = verifyPreviewTokenService(previewToken, 'unlink', edgeId, currentFingerprint)
+      if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
+      consumePreviewTokenService(previewToken)
     }
 
     const deleted = deleteEdgeService(edgeId)
-    const result: Record<string, unknown> = { status: deleted ? 'deleted' : 'not_found', edge_id: edgeId }
-    if (warning) result.warning = warning
-    return result
+    return { status: deleted ? 'deleted' : 'not_found', edge_id: edgeId }
   }
 }

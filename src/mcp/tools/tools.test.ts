@@ -95,7 +95,8 @@ describe('retention_review MCP', () => {
     const preview = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
     expect(preview.data.preview).toBe(true)
     expect(getDb().prepare('SELECT id FROM thoughts WHERE id = ?').get(id)).toBeTruthy()
-    const deleted = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id, confirm: true } }))
+    const deletePreview = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
+    const deleted = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id, confirm: true, preview_token: deletePreview.data.preview_token } }))
     expect(deleted.data.deleted).toBe(true)
 
     const source = seedThought({ content: 'MCP retention compact source', status: 'archived', is_protected: 0, importance: 0.1, created_at: '2026-09-01T00:00:00.000Z' })
@@ -142,7 +143,17 @@ describe('retention_review MCP', () => {
       { action: 'protect', thought_id: id },
       { action: 'compact', source_ids: [id], summary: { content: 'summary' }, confirm: true }
     ]) {
-      const result = parseResult(await client.callTool({ name: 'retention_review', arguments: args }))
+      let result
+      if (args.action === 'delete') {
+        const pv = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
+        if (pv.isError) {
+          result = pv
+        } else {
+          result = parseResult(await client.callTool({ name: 'retention_review', arguments: { ...args, preview_token: pv.data?.preview_token } }))
+        }
+      } else {
+        result = parseResult(await client.callTool({ name: 'retention_review', arguments: args }))
+      }
       expect(result.isError).toBe(true)
       expect(JSON.stringify(result).toLowerCase()).toContain('profile')
     }
@@ -350,9 +361,14 @@ describe('memory_supersede', () => {
     })
     const { data: thought } = parseResult(create)
 
+    const preview = await client.callTool({
+      name: 'memory_supersede',
+      arguments: { action: 'archive', thought_id: thought.id }
+    })
+    const token = parseResult(preview).data.preview_token
     const result = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id, confirm: true }
+      arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: token }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -366,13 +382,21 @@ describe('memory_supersede', () => {
     })
     const { data: thought } = parseResult(create)
 
+    const preview1 = await client.callTool({
+      name: 'memory_supersede',
+      arguments: { action: 'archive', thought_id: thought.id }
+    })
     await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id, confirm: true }
+      arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: parseResult(preview1).data.preview_token }
+    })
+    const preview2 = await client.callTool({
+      name: 'memory_supersede',
+      arguments: { action: 'archive', thought_id: thought.id }
     })
     const second = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id, confirm: true }
+      arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: parseResult(preview2).data.preview_token }
     })
     const { data, isError } = parseResult(second)
     expect(isError).toBe(false)
@@ -391,6 +415,15 @@ describe('memory_supersede', () => {
     const { data: source } = parseResult(a)
     const { data: target } = parseResult(b)
 
+    const mergePreview = await client.callTool({
+      name: 'memory_supersede',
+      arguments: {
+        action: 'merge',
+        source_id: source.id,
+        target_id: target.id,
+        merged_content: 'merged result'
+      }
+    })
     const result = await client.callTool({
       name: 'memory_supersede',
       arguments: {
@@ -398,7 +431,8 @@ describe('memory_supersede', () => {
         source_id: source.id,
         target_id: target.id,
         merged_content: 'merged result',
-        confirm: true
+        confirm: true,
+        preview_token: parseResult(mergePreview).data.preview_token
       }
     })
     const { data, isError } = parseResult(result)
@@ -562,8 +596,11 @@ describe('memory_crystallize', () => {
     expect(created.isError).toBe(false)
     expect(created.data.cluster.id).toBeDefined()
 
+    const autoPreview = parseResult(await client.callTool({
+      name: 'memory_crystallize', arguments: { action: 'auto_cluster' }
+    }))
     const auto = parseResult(await client.callTool({
-      name: 'memory_crystallize', arguments: { action: 'auto_cluster', confirm: true }
+      name: 'memory_crystallize', arguments: { action: 'auto_cluster', confirm: true, preview_token: autoPreview.data.preview_token }
     }))
     expect(auto.isError).toBe(false)
   })
@@ -691,9 +728,13 @@ describe('merge edge cases', () => {
     const { data: source } = parseResult(a)
     const { data: target } = parseResult(b)
 
+    const mergePreview = await client.callTool({
+      name: 'memory_supersede',
+      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged', project_id: target.project_id }
+    })
     const result = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged', project_id: target.project_id, confirm: true }
+      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged', project_id: target.project_id, confirm: true, preview_token: parseResult(mergePreview).data.preview_token }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -708,9 +749,13 @@ describe('merge edge cases', () => {
       arguments: { action: 'create', content: 'archived source' }
     })
     const { data: source } = parseResult(a)
+    const archPreview = await client.callTool({
+      name: 'memory_supersede',
+      arguments: { action: 'archive', thought_id: source.id }
+    })
     await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: source.id, confirm: true }
+      arguments: { action: 'archive', thought_id: source.id, confirm: true, preview_token: parseResult(archPreview).data.preview_token }
     })
 
     const b = await client.callTool({
@@ -719,9 +764,13 @@ describe('merge edge cases', () => {
     })
     const { data: target } = parseResult(b)
 
+    const mergePreview2 = await client.callTool({
+      name: 'memory_supersede',
+      arguments: { action: 'merge', source_id: source.id, target_id: target.id }
+    })
     const result = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'merge', source_id: source.id, target_id: target.id, confirm: true }
+      arguments: { action: 'merge', source_id: source.id, target_id: target.id, confirm: true, preview_token: parseResult(mergePreview2).data.preview_token }
     })
     const { isError } = parseResult(result)
     expect(isError).toBe(true)
@@ -735,9 +784,13 @@ describe('archive edge cases', () => {
     // archive guard is seeded at the db layer.
     const thought = createThought(getDb(), { content: 'profile thought', status: 'active', is_profile: true })
 
+    const archPreview = await client.callTool({
+      name: 'memory_supersede',
+      arguments: { action: 'archive', thought_id: thought.id }
+    })
     const result = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id, confirm: true }
+      arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: parseResult(archPreview).data.preview_token }
     })
     const { isError } = parseResult(result)
     expect(isError).toBe(true)
