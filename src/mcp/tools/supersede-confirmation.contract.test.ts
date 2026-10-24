@@ -107,7 +107,8 @@ describe('memory_supersede confirmation contract', () => {
       edgeIds.push(seedEdge(source, node, 'develops'))
     }
     const beforeEdges = (getDb().query('select count(*) as n from edges').get() as { n: number }).n
-    const preview = await call({ action: 'merge', source_id: source, target_id: target, merged_content: 'proposed replacement', merged_tags: ['proposed'], project_id: 'project-x' })
+    getDb().prepare(`INSERT OR IGNORE INTO projects (id, name, created_at, local_path) VALUES ('project-x', 'Project X', ?, '/tmp/project-x')`).run(new Date().toISOString())
+    const preview = await call({ action: 'merge', source_id: source, target_id: target, merged_content: 'proposed replacement', merged_tags: ['proposed'], cwd: '/tmp/project-x' })
     expect(preview.isError).toBe(false)
     expect(preview.data).toMatchObject({ status: 'preview', action: 'merge', outcome: 'would_merge',
       proposed: { merged_content: 'proposed replacement', merged_tags: ['proposed'], project_id: 'project-x' },

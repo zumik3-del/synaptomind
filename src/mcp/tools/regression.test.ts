@@ -218,7 +218,7 @@ describe('memory_recall context honors project_id', () => {
 
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'context', query: MARKER, project_id: project.id }
+      arguments: { action: 'context', query: MARKER, cwd: '/tmp/context-scope-empty', compact: false }
     })
     const { isError } = parseResult(result)
 
@@ -241,12 +241,12 @@ describe('memory_recall context honors project_id', () => {
     })
     await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'create', content: `${MARKER} inside target`, status: 'active', project_id: project.id }
+      arguments: { action: 'create', content: `${MARKER} inside target`, status: 'active', cwd: '/tmp/context-scope-hit' }
     })
 
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'context', query: MARKER, project_id: project.id }
+      arguments: { action: 'context', query: MARKER, cwd: '/tmp/context-scope-hit', compact: false }
     })
     const { data, isError } = parseResult(result)
 

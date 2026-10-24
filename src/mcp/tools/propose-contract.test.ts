@@ -120,12 +120,12 @@ describe('memory_status propose — content (draft) path', () => {
   test('draft content uses cwd/project scope when provided', async () => {
     // Seed a thought in a named project so we can assert project resolution works.
     const db = getDb()
-    db.prepare(`INSERT OR IGNORE INTO projects (id, name, created_at) VALUES ('proj-contract', 'Contract Project', ?)`).run(new Date().toISOString())
+    db.prepare(`INSERT OR IGNORE INTO projects (id, name, created_at, local_path) VALUES ('proj-contract', 'Contract Project', ?, '/tmp/proj-contract')`).run(new Date().toISOString())
     seedThought({ content: 'scoped thought', project_id: 'proj-contract' })
 
     const result = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'propose', content: 'scoped draft', project_id: 'proj-contract' }
+      arguments: { action: 'propose', content: 'scoped draft', cwd: '/tmp/proj-contract' }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)

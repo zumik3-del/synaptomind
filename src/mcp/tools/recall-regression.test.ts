@@ -408,13 +408,16 @@ describe('memory_recall — is_global is always included in a project-scoped sea
     const foreign = seedThought({ content: `${QUERY} foreign`, project_id: P2, status: 'active' })
     // Global thought owned by P2 — must surface in a P1-scoped recall.
     const global = seedThought({ content: `${QUERY} global`, project_id: P2, is_global: 1, status: 'active' })
+    const db = getDb()
+    db.prepare(`UPDATE projects SET local_path = ? WHERE id = ?`).run(`/tmp/${P1}`, P1)
+    db.prepare(`UPDATE projects SET local_path = ? WHERE id = ?`).run(`/tmp/${P2}`, P2)
     return { local, foreign, global }
   }
 
   test('project_id includes global thoughts and excludes a foreign project', async () => {
     const { local, foreign, global } = seedWorld()
 
-    const { data, isError } = await recallSearch({ project_id: P1 })
+    const { data, isError } = await recallSearch({ cwd: `/tmp/${P1}` })
     expect(isError).toBe(false)
     const ids = idsOf(data)
     expect(ids).toContain(local)
@@ -425,7 +428,7 @@ describe('memory_recall — is_global is always included in a project-scoped sea
   test('a project-only thought does not leak into another project', async () => {
     const { local, foreign } = seedWorld()
 
-    const { data, isError } = await recallSearch({ project_id: P2 })
+    const { data, isError } = await recallSearch({ cwd: `/tmp/${P2}` })
     expect(isError).toBe(false)
     const ids = idsOf(data)
     expect(ids).toContain(foreign)
@@ -457,11 +460,14 @@ describe('memory_recall — is_global is always included in a project-scoped sea
       is_global: 1,
       status: 'active'
     })
+    const db = getDb()
+    db.prepare(`UPDATE projects SET local_path = ? WHERE id = ?`).run(`/tmp/${P1}`, P1)
+    db.prepare(`UPDATE projects SET local_path = ? WHERE id = ?`).run(`/tmp/${P2}`, P2)
 
     const scoped = parseResult(
       await client.callTool({
         name: 'memory_recall',
-        arguments: { action: 'clusters', query: QUERY, limit: 10, project_id: P1 }
+        arguments: { action: 'clusters', query: QUERY, limit: 10, cwd: `/tmp/${P1}` }
       })
     )
     expect(idsOf(scoped.data)).toContain(localCluster)
