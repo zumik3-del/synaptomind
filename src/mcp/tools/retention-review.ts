@@ -9,17 +9,24 @@ import {
 } from '../../services/retention-review-actions.service'
 import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import { shapeThought } from './utils'
 import { BATCH_ITEMS_MAX } from '../../validation'
 
 const handlers = {
   list: {
     run(args: ActionArgs) {
-      return listRetentionReviewCandidatesService({
+      const result = listRetentionReviewCandidatesService({
         minAgeDays: args.min_age_days as number | undefined,
         importanceFloor: args.importance_floor as number | undefined,
         limit: args.limit as number | undefined,
         offset: args.offset as number | undefined
       })
+      const compact = args.compact === true
+      const fields = args.fields
+      if (compact || (Array.isArray(fields) && fields.length > 0)) {
+        result.candidates = result.candidates.map((c: unknown) => shapeThought(c, compact, fields)) as any
+      }
+      return result
     }
   },
   protect: {
@@ -76,6 +83,8 @@ export function registerRetentionReview(server: McpServer): void {
       importance_floor: z.number().finite().min(0).max(1).optional().describe('Maximum importance threshold. Optional for list.'),
        limit: z.number().int().min(1).max(100).optional().describe('Maximum candidates to return. Optional for list.'),
       offset: z.number().int().min(0).optional().describe('Candidate pagination offset. Optional for list.'),
+      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). OPTIONAL for "list". IGNORED for all other actions.'),
+      fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for "list". IGNORED for all other actions.'),
       thought_id: z.string().optional().describe('Thought ID. Required for protect and delete.'),
       preview_token: z.string().optional().describe('OPTIONAL preview token returned by a prior preview. CONSUMED by "delete" (true executes with token validation; missing/stale fails). IGNORED for all other actions.'),
        source_ids: z.array(z.string()).max(BATCH_ITEMS_MAX, `source_ids accepts at most ${BATCH_ITEMS_MAX} ids per call`).optional().describe('Source thought IDs. Required for compact.'),
