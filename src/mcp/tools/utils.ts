@@ -332,6 +332,46 @@ export function compactThought(thought: unknown): Record<string, unknown> {
   }
 }
 
+/**
+ * Apply the opt-in `compact` / `fields` controls to a single thought-like object.
+ *
+ * - `compact: true` with no `fields` selects the minimal field set
+ *   (`COMPACT_FIELDS`: id, content, status, tags-as-strings, project).
+ * - `fields` (array or comma string) selects an explicit subset; `compact` is
+ *   treated as a hint and only affects tag stringification.
+ * - With neither flag the original object is returned unchanged (backward
+ *   compatible).
+ *
+ * `project` is mapped from `project_name`/`project`/`project_id` when the
+ * requested field is not a direct property of the thought.
+ */
+export function shapeThought(thought: unknown, compact?: boolean, fields?: unknown): unknown {
+  if (!thought || typeof thought !== 'object' || Array.isArray(thought)) return thought
+  const t = thought as Record<string, unknown>
+  const compactFlag = compact === true
+  const requested = Array.isArray(fields)
+    ? fields.map((v) => String(v).trim()).filter(Boolean)
+    : (typeof fields === 'string'
+        ? fields.split(',').map((v) => v.trim()).filter(Boolean)
+        : [])
+  let fieldList: string[] = requested.length > 0 ? [...requested] : (compactFlag ? [...COMPACT_FIELDS] : [])
+  if (fieldList.length === 0) return thought
+  const out: Record<string, unknown> = {}
+  const seen = new Set<string>()
+  for (const f of fieldList) {
+    if (seen.has(f)) continue
+    seen.add(f)
+    if (f === 'project') {
+      out.project = t.project_name ?? t.project ?? t.project_id
+    } else if (Object.hasOwn(t, f)) {
+      let v = t[f]
+      if (compactFlag && f === 'tags') v = stringifyTags(v)
+      out[f] = v
+    }
+  }
+  return out
+}
+
 export function toCompact(...args: unknown[]): unknown {
   // toCompact(data, options?) 
   const data = args[0]

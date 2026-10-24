@@ -30,6 +30,8 @@ export function registerMemoryCrystallize(server: McpServer) {
       min_similarity: z.coerce.number().min(0).max(1).optional().describe('Min similarity threshold 0-1 (default from config). OPTIONAL for "auto_cluster". IGNORED for "graph" and "cluster".'),
       min_members: z.coerce.number().int().min(1).max(1000).optional().describe('Min members per cluster (default from config). OPTIONAL for "auto_cluster". IGNORED for "graph" and "cluster".'),
       confirm: z.boolean().optional().describe('CONSUMED by "auto_cluster" (true creates clusters; false/omitted previews). IGNORED for "graph" and "cluster".'),
+      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). OPTIONAL for "graph". IGNORED for "cluster" and "auto_cluster".'),
+      fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for "graph". IGNORED for "cluster" and "auto_cluster".'),
       // Tombstone for the retired preview flag: only confirm is advertised.
       dry_run: z.never({ error: 'dry_run was removed; use confirm' }).optional().describe('Removed; use confirm.'),
     },

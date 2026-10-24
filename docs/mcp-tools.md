@@ -93,6 +93,27 @@ the failure carries a domain status code, the classification is additionally mir
 A client should re-issue the identical request only when `retryable` is `true`; otherwise the
 failure is a bad request and repeating it will not help.
 
+## Compact output and field selection
+
+Read tools (`memory_recall`, `memory_status`, `memory_crystallize`, `memory_manage`)
+accept two opt-in output controls:
+
+- `compact: true` — trims each thought to the minimal field set
+  `{ id, content, status, tags (as strings), project }`.
+- `fields: ["id", "content", ...]` — returns only the requested fields (intersected
+  with the available columns). Explicit `fields` take precedence over `compact`.
+
+Examples:
+
+```json
+{ "action": "list", "compact": true }
+{ "action": "list", "fields": ["id", "content"] }
+{ "action": "get", "thought_id": "thought-a", "compact": true }
+{ "action": "search", "query": "marker", "compact": true }
+```
+
+Defaults are unchanged (full output) when neither flag is supplied.
+
 ## `memory_recall` — finding and retrieving thoughts
 
 ### `action=list`
