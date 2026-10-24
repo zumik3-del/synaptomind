@@ -354,7 +354,7 @@ export function shapeThought(thought: unknown, compact?: boolean, fields?: unkno
     : (typeof fields === 'string'
         ? fields.split(',').map((v) => v.trim()).filter(Boolean)
         : [])
-  let fieldList: string[] = requested.length > 0 ? [...requested] : (compactFlag ? [...COMPACT_FIELDS] : [])
+  const fieldList: string[] = requested.length > 0 ? [...requested] : (compactFlag ? [...COMPACT_FIELDS] : [])
   if (fieldList.length === 0) return thought
   const out: Record<string, unknown> = {}
   const seen = new Set<string>()

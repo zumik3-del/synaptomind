@@ -285,7 +285,7 @@ export function compactRetentionReviewCandidatesService(
     }
     const created = dbCreateThought(d, { content: summary.trim(), status: 'active', project_id: projectId, tags, is_protected: true })
     const summaryRow = getRetentionReviewCreatedSummaryState(d, created.id)
-    if (!summaryRow || summaryRow.status !== 'active' || !summaryRow.is_protected) {
+    if (summaryRow?.status !== 'active' || !summaryRow?.is_protected) {
       throw new RetentionReviewIneligibleError('Summary content matches an existing draft or unprotected thought')
     }
     for (const source of latest) {
