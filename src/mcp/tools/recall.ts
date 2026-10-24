@@ -17,12 +17,12 @@ import { resolveProjectId, shapeThought } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
 const ACTION_FIELDS: Record<string, string[]> = {
-  search: ['query', 'status', 'project_id', 'cwd', 'tag', 'is_cluster', 'group_by_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'supersession_mode', 'contradiction_mode', 'limit', 'compact', 'fields'],
-  clusters: ['query', 'status', 'project_id', 'cwd', 'tag', 'is_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'limit', 'compact', 'fields'],
-  context: ['query', 'thought_id', 'project_id', 'cwd', 'direction', 'max_degree', 'compact', 'fields'],
+  search: ['query', 'status', 'cwd', 'tag', 'is_cluster', 'group_by_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'supersession_mode', 'contradiction_mode', 'limit', 'compact', 'fields'],
+  clusters: ['query', 'status', 'cwd', 'tag', 'is_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'limit', 'compact', 'fields'],
+  context: ['query', 'thought_id', 'cwd', 'direction', 'max_degree', 'compact', 'fields'],
   chain: ['thought_id', 'direction', 'max_degree', 'compact', 'fields'],
   get: ['thought_id', 'include_edges', 'max_degree', 'compact', 'fields'],
-  list: ['status', 'project_id', 'cwd', 'tag', 'is_cluster', 'limit', 'offset', 'compact', 'fields']
+  list: ['status', 'cwd', 'tag', 'is_cluster', 'limit', 'offset', 'compact', 'fields']
 }
 const ACTION_FIELDS_ALL = new Set(Object.values(ACTION_FIELDS).flat())
 
@@ -42,7 +42,7 @@ const handlers = {
     }),
     async run(args: ActionArgs) {
       const limit = (args.limit as number) ?? 10
-      const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
+      const projectFilter = resolveProjectId(args.cwd as string)
       const baseOptions = buildSearchOptions({
         query: args.query as string, topK: limit, status: args.status as string | undefined,
         projectFilter, tagFilter: args.tag as string | undefined,
@@ -99,7 +99,7 @@ const handlers = {
     }),
     async run(args: ActionArgs) {
       const limit = (args.limit as number) ?? 10
-      const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
+      const projectFilter = resolveProjectId(args.cwd as string)
       // This action lists cluster thoughts by definition, so an explicit
       // `is_cluster=false` contradicts it.
       if (args.is_cluster === false) {
@@ -135,7 +135,7 @@ const handlers = {
       status: z.enum(['draft', 'active', 'archived', 'all']).default('all')
     }),
     run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      const projectFilter = resolveProjectId(args.cwd as string | undefined)
       const page = listThoughtsPageService({
         status: args.status as string | undefined,
         project_id: projectFilter,
@@ -157,12 +157,12 @@ const handlers = {
 export function registerMemoryRecall(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_recall',
-    description: `Search and retrieve thoughts. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/project_id/tag/is_cluster filters, limit/offset paging, total count). Status defaults: search/clusters active, list all; pass status to override.`,
+    description: `Search and retrieve thoughts. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/cwd/tag/is_cluster filters, limit/offset paging, total count). Status defaults: search/clusters active, list all; pass status to override.`,
     inputSchema: {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters', 'list']).describe('Action'),
       query: z.string().optional().describe('Search query (REQUIRED for search/clusters; accepted by context as an alternative to thought_id). IGNORED for get/chain/list.'),
       status: thoughtStatusSchema.optional().describe('Filter by status (search/clusters default: active; list default: all). IGNORED for get/context/chain.'),
-      project_id: z.string().optional().describe('Filter by project (prefer cwd instead). Consumed by search/clusters/context/list. IGNORED for get/chain.'),
+      project_id: z.never({ error: 'project_id was removed; use cwd' }).optional().describe('Removed; use cwd.'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project (search/clusters/context/list). Always pass this. IGNORED for get/chain.'),
       tag: z.string().optional().describe('Filter by tag (search/clusters/list). IGNORED for get/context/chain.'),
       is_cluster: z.boolean().optional().describe('Cluster filter: true = cluster thoughts only, false = exclude cluster thoughts (search/clusters/list). IGNORED for get/context/chain.'),

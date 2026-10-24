@@ -1,3 +1,5 @@
+> **Migration note (v0.19):** The `project_id` MCP tool argument was removed. Pass `cwd` (working directory) instead; SynaptoMind resolves the project from it. Supplying `project_id` now fails input validation with "project_id was removed; use cwd".
+
 # MCP Tools Reference
 
 SynaptoMind exposes its graph operations as 11 MCP tools, over both the stdio and HTTP
@@ -124,7 +126,7 @@ project, tag, or cluster flag — the tool that makes bulk triage and cleanup po
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `status` | enum | no | `draft`, `active`, or `archived` (default: all) |
-| `project_id` | string | no | Restrict to one project |
+| `cwd` | string | no | Resolve project from working directory |
 | `tag` | string | no | Restrict to thoughts carrying this tag |
 | `is_cluster` | boolean | no | `true` = only clusters, `false` = only non-clusters |
 | `limit` | integer | no | Page size (1–500, default 50) |
@@ -218,7 +220,7 @@ Example:
 Delete a single edge by id. Deletion is **idempotent**: a missing edge is reported as
 `not_found`, not an error. There is **no cascade** — only the edge row is removed; thoughts,
 tags and other edges are untouched. The action is not project-scoped (`edge_id` is globally
-unique), so no `cwd`/`project_id` is required.
+unique), so no `cwd` is required.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -310,8 +312,8 @@ Execution re-reads/revalidates current state, so previews can become stale. Prev
 a `preview_token` (stored in DB, ~5 min TTL) for every destructive action (unlink, retype, archive,
 archive_batch, merge, delete, auto_cluster, apply, apply_batch, rollback); `confirm: true` requires a
 valid `preview_token` and fails when it is missing or stale. No transactional reservation is implied.
-`archive` and `archive_batch` identify thoughts by ID and do not accept a project scope; `project_id`
-and `cwd` apply only to `merge`.
+`archive` and `archive_batch` identify thoughts by ID and do not accept a project scope; `cwd`
+applies only to `merge`.
 
 ### `action=archive`
 
@@ -364,7 +366,7 @@ bounded list does not promise every edge will transfer.
 | `target_id` | string | yes | Thought that survives and receives the edges |
 | `merged_content` | string | no | Resulting content of the target |
 | `merged_tags` | string[] | no | Resulting tag set of the target |
-| `project_id` | string | no | Resulting project (defaults to the target's, then the source's) |
+| `cwd` | string | no | Resolve resulting project from working directory (defaults to the target's, then the source's) |
 
 Preview returns `{ "status": "preview", "action": "merge", "outcome": "would_merge", "source": { "id", "status", "edges": [], "source_edge_count": 0, "truncated": false }, "target": { "id", "status" }, "proposed": { "merged_content", "merged_tags", "project_id" }, "effects": { "source_archived": true, "target_updated": false, "replaces_edge_created": true } }`. Missing IDs report `outcome: "not_found"`; an ineligible merge reports `outcome: "ineligible"` and `reason`. `proposed` reflects supplied values; `effects` describes the prospective updates. Execution returns `{ "status": "executed", "action": "merge", "result": { "target": { ... }, "edges_transferred": 2 } }` — `edges_transferred` is the number of
 source edges the target now holds, so a caller can verify the consolidation. Not every source
@@ -388,7 +390,7 @@ and `tags`), and `auto_cluster` (Union-Find grouping over active thoughts, tuned
 `autoCluster.*` settings in [CONFIG.md](CONFIG.md). It previews when `confirm` is absent or false;
 `confirm: true` executes, even when the configured `autoCluster.dryRun` default is true. The retired
 `dry_run` input is rejected with a hint to use `confirm`;
-`project_id`/`cwd` do not apply — the run is global).
+`cwd` does not apply — the run is global).
 
 ## `memory_reflect` — session reflection
 
@@ -417,7 +419,7 @@ output is identifiable and can be filtered (`memory_recall` with `tag: "reflect"
 without touching hand-created thoughts. It is additive: statuses, dedup and the scheduled
 surface time are unchanged, and no read path keys off it.
 
-`action=timeline` is the plain paginated thought list (`status`, `project_id`, `limit`,
+`action=timeline` is the plain paginated thought list (`status`, `cwd`, `limit`,
 `offset`).
 
 ## `memory_primers` — the always-at-hand set
