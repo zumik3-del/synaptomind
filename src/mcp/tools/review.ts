@@ -7,7 +7,7 @@ import {
   rejectPlacementProposalService as reject,
   type ListOptions
 } from '../../services/placement-proposals.service'
-import { isLegacyItemKind } from '../../db/placement-proposals'
+import { isLegacyItemKind } from '../../services/placement-proposals.service'
 import { applyBatchService } from '../../services/placement-apply.service'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'

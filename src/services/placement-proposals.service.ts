@@ -48,6 +48,7 @@ import {
 
 export { computeFingerprint, pairFingerprint } from './placement-proposals.mapping'
 export type { FingerprintInput } from './placement-proposals.mapping'
+export { isLegacyItemKind } from '../db/placement-proposals'
 
 /**
  * The result of one enqueue: the queued rows plus what was *not* queued.
