@@ -37,7 +37,8 @@ const handlers = {
 
   search: {
     input: z.object({
-      query: requiredString('query is required for search action')
+      query: requiredString('query is required for search action'),
+      status: thoughtStatusSchema.default('active')
     }),
     async run(args: ActionArgs) {
       const limit = (args.limit as number) ?? 10
@@ -75,7 +76,8 @@ const handlers = {
 
   clusters: {
     input: z.object({
-      query: requiredString('query is required for clusters action')
+      query: requiredString('query is required for clusters action'),
+      status: thoughtStatusSchema.default('active')
     }),
     async run(args: ActionArgs) {
       const limit = (args.limit as number) ?? 10
@@ -100,6 +102,9 @@ const handlers = {
 
   list: {
     // No required argument: an unfiltered inventory is a valid request.
+    input: z.object({
+      status: z.enum(['draft', 'active', 'archived', 'all']).default('all')
+    }),
     run(args: ActionArgs) {
       const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
       return listThoughtsPageService({
@@ -117,7 +122,7 @@ const handlers = {
 export function registerMemoryRecall(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_recall',
-    description: `Search and retrieve thoughts. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/project_id/tag/is_cluster filters, limit/offset paging, total count).`,
+    description: `Search and retrieve thoughts. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/project_id/tag/is_cluster filters, limit/offset paging, total count). Status defaults: search/clusters active, list all; pass status to override.`,
     inputSchema: {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters', 'list']).describe('Action'),
       query: z.string().optional().describe('Search query (REQUIRED for search/clusters; accepted by context as an alternative to thought_id). IGNORED for get/chain/list.'),

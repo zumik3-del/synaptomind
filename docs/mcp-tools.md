@@ -102,7 +102,7 @@ project, tag, or cluster flag — the tool that makes bulk triage and cleanup po
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `status` | enum | no | `draft`, `active`, or `archived` |
+| `status` | enum | no | `draft`, `active`, or `archived` (default: all) |
 | `project_id` | string | no | Restrict to one project |
 | `tag` | string | no | Restrict to thoughts carrying this tag |
 | `is_cluster` | boolean | no | `true` = only clusters, `false` = only non-clusters |
@@ -123,7 +123,7 @@ Example:
 ### `action=search`
 
 Hybrid (RRF) / vector search. Key arguments: `query` (required), `hybrid` (boolean, default true: RRF fusion of the vector and BM25 legs; false = vector leg only),
-`status`, `project`, `tag`, `is_cluster`, `min_importance`, `limit`, `min_relevance`,
+`status` (default active), `project`, `tag`, `is_cluster`, `min_importance`, `limit`, `min_relevance`,
 `recency_weight`, `recency_half_life_days`, `supersession_mode`, `contradiction_mode`.
 Returns hits with `similarity`/`distance` (embedding leg only), `match_source` (`embedding`/`bm25`/both), `low_confidence`.
 
