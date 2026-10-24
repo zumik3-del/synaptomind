@@ -26,8 +26,12 @@ function slimDetail(value: unknown): unknown {
   return out
 }
 
-/** MCP-only projection: drop duplicate score keys, slim detail content. Service output untouched. */
-export function projectHealthReport(report: any): any {
+/** MCP-only projection: drop duplicate score keys, slim detail content. Service output untouched.
+ *
+ * Details arrays are opt-in: by default they are omitted (summary + counts stay),
+ * and only included (slimmed) when `includeDetails` is true.
+ */
+export function projectHealthReport(report: any, includeDetails: boolean = false): any {
   const { summary, categories, ...rest } = report ?? {}
   // Keep a single score (health_score) + one score_breakdown; drop duplicate aliases.
   const {
@@ -44,10 +48,17 @@ export function projectHealthReport(report: any): any {
     ? categories.map((cat: any) => ({
         ...cat,
         checks: Array.isArray(cat?.checks)
-          ? cat.checks.map((check: any) => ({
-              ...check,
-              details: Array.isArray(check?.details) ? check.details.map(slimDetail) : check?.details,
-            }))
+          ? cat.checks.map((check: any) => {
+              if (!includeDetails) {
+                const { details: _details, ...restCheck } = check ?? {}
+                return restCheck
+              }
+              const { details, ...restCheck } = check ?? {}
+              return {
+                ...restCheck,
+                details: Array.isArray(details) ? details.map(slimDetail) : details,
+              }
+            })
           : cat?.checks,
       }))
     : categories
@@ -58,6 +69,6 @@ export function projectHealthReport(report: any): any {
 export const healthHandler: ActionHandler = {
   run(args: ActionArgs) {
     const report = runHealthCheckService({ severity: args.severity as 'critical' | 'warning' | 'info' | undefined, fix: args.fix as boolean | undefined })
-    return projectHealthReport(report)
+    return projectHealthReport(report, args.include_details === true)
   }
 }
