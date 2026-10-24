@@ -31,11 +31,12 @@ proposalsRouter.get('/', c => {
   const itemKind = c.req.query('item_kind') as StoredProposalItemKind | undefined
   const sourceThoughtId = c.req.query('source_thought_id')
   const createdAfter = c.req.query('created_after')
+  const includeRetired = c.req.query('include_retired') === 'true'
   const parsed = proposalsQuerySchema.safeParse({
     limit: c.req.query('limit') || undefined
   })
   if (!parsed.success) throw new ValidationError(formatZodIssues(parsed.error))
-  return c.json(listProposals({ state, itemKind, sourceThoughtId, createdAfter, projectId: c.req.query('project_id'), limit: parsed.data.limit }))
+  return c.json(listProposals({ state, itemKind, sourceThoughtId, createdAfter, projectId: c.req.query('project_id'), limit: parsed.data.limit, includeRetired }))
 })
 
 // Write: propose a plan for a persisted thought and queue its confirmable items.
