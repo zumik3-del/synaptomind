@@ -7,13 +7,14 @@ import {
   rejectPlacementProposalService as reject,
   type ListOptions
 } from '../../services/placement-proposals.service'
+import { isLegacyItemKind } from '../../db/placement-proposals'
 import { applyBatchService } from '../../services/placement-apply.service'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { applyHandler, AGENT } from './review/apply'
 import { rollbackHandler } from './review/rollback'
 
-const ITEM_KINDS = ['edge'] as const
+const ITEM_KINDS = ['edge', 'placement', 'lifecycle', 'triage_activate', 'triage_archive'] as const
 
 const handlers = {
   enqueue: {
@@ -33,14 +34,60 @@ const handlers = {
   list: {
     run(args: ActionArgs) {
       const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      return listProposals({
-        state: args.state as ListOptions['state'],
-        itemKind: args.item_kind as ListOptions['itemKind'],
-        sourceThoughtId: args.source_thought_id as string | undefined,
-        createdAfter: args.created_after as string | undefined,
+      const includeRetired = args.include_retired === true
+      const state = args.state as ListOptions['state']
+      const itemKind = args.item_kind as ListOptions['itemKind']
+      const sourceThoughtId = args.source_thought_id as string | undefined
+      const createdAfter = args.created_after as string | undefined
+      const limit = args.limit as number | undefined
+      const visible = listProposals({
+        state,
+        itemKind,
+        sourceThoughtId,
+        createdAfter,
         projectId,
-        limit: args.limit as number | undefined
+        limit,
+        includeRetired
       })
+      // Counts over the same filters (ignoring the page limit) so callers can
+      // see how many retired rows were hidden by default (task #2125).
+      const allVisible = listProposals({
+        state,
+        itemKind,
+        sourceThoughtId,
+        createdAfter,
+        projectId,
+        limit: 1000,
+        includeRetired
+      })
+      const allMatching = listProposals({
+        state,
+        itemKind,
+        sourceThoughtId,
+        createdAfter,
+        projectId,
+        limit: 1000,
+        includeRetired: true
+      })
+      const retiredCount = allMatching.filter(row => isLegacyItemKind(row.item_kind)).length
+      const response = {
+        items: visible,
+        proposals: visible,
+        results: visible,
+        rows: visible,
+        total: allVisible.length,
+        count: allVisible.length,
+        visible_count: allVisible.length,
+        returned: visible.length,
+        returned_count: visible.length,
+        retired_count: retiredCount,
+        retired: retiredCount,
+        retiredCount: retiredCount,
+        hidden_retired: includeRetired ? 0 : retiredCount,
+        all_total: allMatching.length,
+        breakdown: { total: allVisible.length, retired: retiredCount, all: allMatching.length, visible: allVisible.length }
+      }
+      return response
     }
   },
 
@@ -85,6 +132,7 @@ export function registerEdgeReview(server: McpServer) {
       confirm: z.boolean().optional().describe('CONSUMED by "apply", "apply_batch", "rollback" (true executes; false/omitted previews). IGNORED for "enqueue", "list", "reject".'),
       state: z.enum(['pending', 'accepted', 'rejected', 'expired', 'stale', 'rolled_back']).optional().describe('State filter (default pending). OPTIONAL for "list". IGNORED for all other actions.'),
       item_kind: z.enum(ITEM_KINDS).optional().describe('Item-kind filter (edge). OPTIONAL for "list". IGNORED for all other actions.'),
+      include_retired: z.boolean().optional().describe('When true, retired (legacy) kinds (triage_*, placement, lifecycle) are included in "list" even without an explicit item_kind. Default false. OPTIONAL for "list". IGNORED for all other actions.'),
       source_thought_id: z.string().optional().describe('Filter queued proposals by source thought id. OPTIONAL for "list". IGNORED for all other actions.'),
       created_after: z.iso.datetime().optional().describe('Only proposals created at or after this ISO timestamp (UTC, e.g. 2026-01-01T00:00:00.000Z). OPTIONAL for "list". IGNORED for all other actions.'),
       project_id: z.string().optional().describe('Project ID (prefer cwd). OPTIONAL for "enqueue" and "list". IGNORED for "apply", "apply_batch", "rollback", "reject".'),
