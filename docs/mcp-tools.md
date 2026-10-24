@@ -306,8 +306,10 @@ Example:
 ## `memory_supersede` — archiving and merging
 
 All three actions preview when `confirm` is omitted or `false`; only `confirm: true` executes.
-Execution re-reads/revalidates current state, so previews can become stale; no preview token or
-transactional reservation is implied. `archive` and `archive_batch` identify thoughts by ID and
+Execution re-reads/revalidates current state, so previews can become stale. Preview responses may
+include an optional `preview_token` (stored in DB, ~5 min TTL) for `unlink` and `archive`; execute
+accepts `preview_token` and falls back to fingerprint revalidation with a warning when it is missing
+or stale. No transactional reservation is implied. `archive` and `archive_batch` identify thoughts by ID and
 do not accept a project scope; `project_id` and `cwd` apply only to `merge`.
 
 ### `action=archive`

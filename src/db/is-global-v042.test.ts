@@ -38,7 +38,7 @@ test('v042: schema_version is 42 after fresh init', () => {
   const row = getDb()
     .prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`)
     .get() as { value: string } | undefined
-  expect(row?.value).toBe('44')
+  expect(row?.value).toBe('45')
 })
 
 test('v042: a row inserted without is_global defaults to 0', () => {
@@ -92,5 +92,5 @@ test('v042: re-running init on the same DB keeps is_global and schema_version 42
   const row = db2
     .prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`)
     .get() as { value: string } | undefined
-  expect(row?.value).toBe('44')
+  expect(row?.value).toBe('45')
 })

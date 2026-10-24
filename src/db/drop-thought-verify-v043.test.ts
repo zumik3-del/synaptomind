@@ -77,7 +77,7 @@ test('v043: apply() drops the table and both indexes, and a second run is a no-o
 })
 
 test('v043: a fresh DB and a v042 -> v043 migrated DB produce the same table set', () => {
-  const fresh = buildSchema(MIGRATIONS)
+  const fresh = buildSchema(MIGRATIONS.filter(migration => migration.version <= 43))
   const migrated = buildSchema(MIGRATIONS.filter(migration => migration.version <= 42))
   try {
     // The legacy install still carries the retired table before the upgrade.
@@ -94,5 +94,5 @@ test('v043: a fresh DB and a v042 -> v043 migrated DB produce the same table set
 })
 
 test('v043: registered as the head migration version', () => {
-  expect(MIGRATIONS.at(-1)?.version).toBe(44)
+  expect(MIGRATIONS.at(-1)?.version).toBe(45)
 })
