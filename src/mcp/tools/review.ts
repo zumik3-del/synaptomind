@@ -73,20 +73,10 @@ const handlers = {
       const retiredCount = allMatching.filter(row => isLegacyItemKind(row.item_kind)).length
       const response = {
         items: visible,
-        proposals: visible,
-        results: visible,
-        rows: visible,
         total: allVisible.length,
-        count: allVisible.length,
-        visible_count: allVisible.length,
         returned: visible.length,
-        returned_count: visible.length,
         retired_count: retiredCount,
-        retired: retiredCount,
-        retiredCount: retiredCount,
-        hidden_retired: includeRetired ? 0 : retiredCount,
-        all_total: allMatching.length,
-        breakdown: { total: allVisible.length, retired: retiredCount, all: allMatching.length, visible: allVisible.length }
+        all_total: allMatching.length
       }
       return response
     }
