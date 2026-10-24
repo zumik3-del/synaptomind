@@ -324,7 +324,7 @@ describe('memory_status action=config raw-text passthrough', () => {
     // The handler returns a ready-made tool result, so the dispatcher must not
     // JSON-wrap the text (isToolResult path) and structuredContent must mirror it.
     expect(result.content[0].text).toContain('SynaptoMind Configuration')
-    expect(result.structuredContent?.result).toBe(result.content[0].text)
+    expect(result.structuredContent?.result).toEqual({ text: result.content[0].text })
   })
 })
 

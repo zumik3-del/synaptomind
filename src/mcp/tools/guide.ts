@@ -98,6 +98,6 @@ export function registerMemoryGuide(server: McpServer) {
   }, async () => {
     const softLimit = getAdvertisedSoftLimitService()
     const text = buildGuideText(softLimit)
-    return { content: [{ type: 'text' as const, text }], structuredContent: { result: text } }
+    return { content: [{ type: 'text' as const, text }], structuredContent: { result: { text } } }
   })
 }
