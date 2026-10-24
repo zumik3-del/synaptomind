@@ -1,5 +1,71 @@
 # Changelog
 
+## v0.19.0
+
+> October 24, 2026
+
+- [`b905b02`](https://github.com/zumik3-del/synaptomind/commit/b905b02aac14fc071946eead5c3dd7a3da30725c): docs(mcp): v0.19 MCP UX cleanup examples and migration notes (#2147)
+- [`82b6d7a`](https://github.com/zumik3-del/synaptomind/commit/82b6d7a9ec8ac7fd10fd2f0decd7daffdcb84174): test(mcp): update tests for v0.19 breaking changes (#2148)
+- [`65ad655`](https://github.com/zumik3-del/synaptomind/commit/65ad6556127c83b76f018db8096b0c59ba1d5b1e): feat(mcp): add compact/fields shaping to retention review list (t2146)
+- [`c509d02`](https://github.com/zumik3-del/synaptomind/commit/c509d02168265d3291b981ae55f1b383c0a5b9e3): feat(mcp): default memory_status propose output to slim (t2145)
+- [`ce66bdf`](https://github.com/zumik3-del/synaptomind/commit/ce66bdf7b504790afe82c3c9be43e3a0a82db2f8): refactor(mcp)!: drop the project_id argument in favour of cwd (#2144)
+- [`1d777e8`](https://github.com/zumik3-del/synaptomind/commit/1d777e880585cde94cc1060f4b2e81ee89b44ed0): feat(mcp): make health check details opt-in via include_details (#2143)
+- [`30e7ace`](https://github.com/zumik3-del/synaptomind/commit/30e7acefcf070bd69deaf3d264c2b635536f95eb): refactor(mcp): trim edge_review list response to canonical keys (#2142)
+- [`eb60646`](https://github.com/zumik3-del/synaptomind/commit/eb60646d36ddac82db778f29dac7516c6eefa4df): feat(mcp): default compact output for memory_recall actions (#2141)
+- [`5218e4c`](https://github.com/zumik3-del/synaptomind/commit/5218e4c76219843c833ff939ffdddeea484b25d1): refactor(mcp): collapse compact plumbing aliases into single typed API (#2140)
+- [`dc88c00`](https://github.com/zumik3-del/synaptomind/commit/dc88c0052a391451958894b4ead08c5082cbec3d): chore: fix biome noImplicitAnyLet in retention-review test
+- [`c4c7a6b`](https://github.com/zumik3-del/synaptomind/commit/c4c7a6b02b86cb076a73db6a81831b9bc8aead88): chore: fix biome warnings (useConst, optional chain)
+- [`c2d280f`](https://github.com/zumik3-del/synaptomind/commit/c2d280f146d3c99ed53e2d515fbe14a1ede4f4e6): feat(mcp): require preview token for destructive operations (#2132)
+- [`5484cae`](https://github.com/zumik3-del/synaptomind/commit/5484caebcc392f8e0f7c4fd0cadfc578e562bbcd): feat(mcp): add preview-token infrastructure and pilot on unlink/archive (#2130)
+- [`24ca2ce`](https://github.com/zumik3-del/synaptomind/commit/24ca2ce6563ab894ad223ff198c6e4a97491479e): feat(mcp): wire compact and fields output controls into read tools (#2131)
+- [`6d4a888`](https://github.com/zumik3-del/synaptomind/commit/6d4a88843a57d372c1d5071ef1e38c789e6a1211): feat(mcp): default recall status per action (search/clusters active, list all) (#2129)
+- [`60a010b`](https://github.com/zumik3-del/synaptomind/commit/60a010bde9e52375ea482923985b743c5adc5aab): fix(db): hydrate project_name in thought search results (#2128)
+- [`adb067c`](https://github.com/zumik3-del/synaptomind/commit/adb067c908f9fab6993adaf3902195cb7aa5f74f): feat(mcp): add compact/fields plumbing for read tools (#2122)
+- [`b33857e`](https://github.com/zumik3-del/synaptomind/commit/b33857e2f0e81d91acc0b869625894d551d93c61): test(mcp): update edge-review contract tests to object response shape (#2125)
+- [`7d43038`](https://github.com/zumik3-del/synaptomind/commit/7d43038e28f65e73e125527f53b20a2bdce7ef1d): fix(mcp): restore layering guard after #2125 (re-export isLegacyItemKind via service)
+- [`192152d`](https://github.com/zumik3-del/synaptomind/commit/192152d3f203c361274008e1d0dd4df813d982ce): feat(mcp): add bulk_create action to memory_store
+- [`8a9314e`](https://github.com/zumik3-del/synaptomind/commit/8a9314e89936df9a3a9942dd0aadc9c4645dc3b2): feat(review): hide retired proposal kinds by default
+- [`3edfdd7`](https://github.com/zumik3-del/synaptomind/commit/3edfdd76ea695786e519608721f14a49e1e479a9): feat(mcp): add compact, max_edges and include_signals to status propose
+- [`bdbd369`](https://github.com/zumik3-del/synaptomind/commit/bdbd369270aec292b3360d16a925337902de6b3d): feat(mcp): slim memory_status health output for MCP callers
+- [`7d19353`](https://github.com/zumik3-del/synaptomind/commit/7d1935398690e27ddc5add5360a7fe63bb5b5f5d): feat(mcp): unify result envelope: wrap bare strings as {text} (#2126)
+- [`f5385a6`](https://github.com/zumik3-del/synaptomind/commit/f5385a626cc7b42b1a506b2ef69d056b759c306a): refactor: address code quality audit findings
+- [`cb78c0e`](https://github.com/zumik3-del/synaptomind/commit/cb78c0ea935cc023b4b42e341a0362c30342ff3b): test(config): verify retention bounds end to end (#2104)
+- [`8d8a698`](https://github.com/zumik3-del/synaptomind/commit/8d8a698130ae12943b5c252e950d435a1269e934): test(retention): cover profile HTTP MCP boundaries (#2103)
+- [`0742a4e`](https://github.com/zumik3-del/synaptomind/commit/0742a4e7aa969e507310d3e1ebe3d5768d8e56e3): test(retention): prove profile service safeguards (#2101)
+- [`bc502f5`](https://github.com/zumik3-del/synaptomind/commit/bc502f554c3a7abab05f03df7f72459d0fd31a6a): test(retention): cover caps previews and config bounds (#2085)
+- [`7687f14`](https://github.com/zumik3-del/synaptomind/commit/7687f147c533b3a0be49b43ee6b32246b92ae1e5): test(retention): prove audit log outcomes (#2102)
+- [`32d2ec9`](https://github.com/zumik3-del/synaptomind/commit/32d2ec9375262da75145689a41715f444b688b2b): docs(retention): document final review contract (#2086)
+- [`26843c6`](https://github.com/zumik3-del/synaptomind/commit/26843c6ac8779cbd450d31613c6da0681bf4354d): test(retention): prove cascades and service DI (#2081)
+- [`c5dc8d2`](https://github.com/zumik3-del/synaptomind/commit/c5dc8d2d3da94b1d45e33e8f84213eed4da38336): feat(retention): log committed review actions (#2084)
+- [`b19d570`](https://github.com/zumik3-del/synaptomind/commit/b19d5705d230658e1d3818e88fbbd07193e5bc5d): fix(retention): cap compact inputs and default delete preview (#2083)
+- [`2479778`](https://github.com/zumik3-del/synaptomind/commit/2479778536bd5615d3ca06aab3ef849e34042402): fix(retention): exclude profile thoughts (#2082)
+- [`75c9a36`](https://github.com/zumik3-del/synaptomind/commit/75c9a36693bac7e41cfdf1959c89ea4e56747a9b): refactor(retention): remove temporary action exports (#2100)
+- [`e8411f8`](https://github.com/zumik3-del/synaptomind/commit/e8411f8a2bd1f7cc7ddd4c8b6f7d72ded9af4014): test(retention): migrate action service imports (#2099)
+- [`a9e56c6`](https://github.com/zumik3-del/synaptomind/commit/a9e56c6b0cde091170f4ff763412049b5895298d): refactor(retention): split action services and use FK cascades (#2090)
+- [`53cb7d2`](https://github.com/zumik3-del/synaptomind/commit/53cb7d23802b0c07b6d111787379de00665bdd18): refactor(retention): remove temporary error export (#2098)
+- [`7a145de`](https://github.com/zumik3-del/synaptomind/commit/7a145decae2798dbba345178b21fdf683f4a7c61): test(retention): import shared ineligible error (#2097)
+- [`7ebe8a9`](https://github.com/zumik3-del/synaptomind/commit/7ebe8a908104f1db35d2970dc4250bd6433a46e2): refactor(retention): remove dead service API (#2095)
+- [`06d440a`](https://github.com/zumik3-del/synaptomind/commit/06d440a80f2f07f4df4eac23575ce9f2549c1b75): refactor(retention): type delete protect DI (#2096)
+- [`7545dc0`](https://github.com/zumik3-del/synaptomind/commit/7545dc07397a67525dcd7b060c9b0dfd60df2e7d): refactor(retention): type candidate list DI (#2089)
+- [`a00e5d1`](https://github.com/zumik3-del/synaptomind/commit/a00e5d1a214f78feffdda604c1665059c671b36d): test(retention): use canonical service arguments (#2094)
+- [`4c5b3ba`](https://github.com/zumik3-del/synaptomind/commit/4c5b3ba6de0c577b98452fe29116ac6a1bb630da): refactor(retention): extract compact lookups (#2093)
+- [`03ec589`](https://github.com/zumik3-del/synaptomind/commit/03ec589dbeef81053b9bf2b4c47a423e0b228518): refactor(retention): move dependent counts to DB layer (#2092)
+- [`f9e43c9`](https://github.com/zumik3-del/synaptomind/commit/f9e43c9cad8b1a25fe25762e06e08f107445b140): refactor(retention): extract eligibility reads (#2091)
+- [`1f9f43c`](https://github.com/zumik3-del/synaptomind/commit/1f9f43c431d04fa11b071bfbb75e3d34a22839e2): refactor(retention): move candidate queries to DB layer (#2088)
+- [`e0e4e6e`](https://github.com/zumik3-del/synaptomind/commit/e0e4e6eceba8286e62c28c0d3d35678a918c234d): fix(config): sanitize retention review bounds (#2080)
+- [`91da756`](https://github.com/zumik3-del/synaptomind/commit/91da75648d839f50f772e85fd3aec1154b5af313): test(retention): cover retention-review behavior (#2070)
+- [`edf0b9f`](https://github.com/zumik3-del/synaptomind/commit/edf0b9f6ccf5a4cb76e481013864c04d48c158ce): fix(retention): revalidate candidate before protect (#2075)
+- [`d967294`](https://github.com/zumik3-del/synaptomind/commit/d96729474b3b762d4c02d1083e6db1aed974ba76): fix(retention): allow archived compact sources (#2074)
+- [`a397453`](https://github.com/zumik3-del/synaptomind/commit/a3974537a7184fb6848683073c8ac7f51945359b): docs(retention): document unified retention review (#2071)
+- [`5b2d04b`](https://github.com/zumik3-del/synaptomind/commit/5b2d04b1df7bb3b23ce2855482103f593ddc6eb9): feat(mcp): add retention-review tool (#2069)
+- [`e75e8d7`](https://github.com/zumik3-del/synaptomind/commit/e75e8d7b0efc25931f378f2967dd4b74feec2c0c): feat(api): add retention-review endpoints (#2072)
+- [`6c347a0`](https://github.com/zumik3-del/synaptomind/commit/6c347a070ede984f9fd1341bc83d84dd82c333e0): feat(retention): accept compact summary object (#2073)
+- [`d3968c5`](https://github.com/zumik3-del/synaptomind/commit/d3968c52a8682061ebc740dec8f2b9e636aca42a): feat(retention): add safe compact service (#2068)
+- [`d68da9b`](https://github.com/zumik3-del/synaptomind/commit/d68da9b8923aee7cfe6d9d742a50a9220a44cb4b): feat(retention): hard delete (cascade) and protect actions (#2067)
+- [`f3afc6a`](https://github.com/zumik3-del/synaptomind/commit/f3afc6ab427d02ec9d450f428b64ad4bb8e40e40): feat(retention): candidate query, config block, and DB indexes (#2066)
+- [`5ab7bc4`](https://github.com/zumik3-del/synaptomind/commit/5ab7bc4fc07b0f8e45ac44373fabbe68f184155c): refactor(review): rename memory_review to edge_review
+- [`e1564e3`](https://github.com/zumik3-del/synaptomind/commit/e1564e3abd64f318eb36ef255a747fded90b228e): refactor(ttl): remove TTL cleanup mechanism (retention-review is sole deletion path)
+
 ## v0.18.0
 
 > October 23, 2026
