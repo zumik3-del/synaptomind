@@ -117,9 +117,14 @@ describe('memory_primers delete', () => {
     const client = await setupClient()
     const { primerId } = seedPrimer()
 
+    const preview = await client.callTool({
+      name: 'memory_primers',
+      arguments: { action: 'delete', primer_id: primerId }
+    })
+    const token = (JSON.parse((preview as any).content[0].text)).preview_token
     const result = await client.callTool({
       name: 'memory_primers',
-      arguments: { action: 'delete', primer_id: primerId, confirm: true }
+      arguments: { action: 'delete', primer_id: primerId, confirm: true, preview_token: token }
     })
     const { data, isError } = parseResult(result)
 

@@ -87,9 +87,14 @@ describe('memory_store unlink', () => {
     const tgt = seedThought({ content: 'unlink-confirm target' })
     const edgeId = seedEdge(src, tgt, 'supports')
 
+    const preview = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'unlink', edge_id: edgeId }
+    })
+    const token = parseResult(preview).data.preview_token
     const result = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'unlink', edge_id: edgeId, confirm: true }
+      arguments: { action: 'unlink', edge_id: edgeId, confirm: true, preview_token: token }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -139,15 +144,24 @@ describe('memory_store unlink', () => {
     const edgeId = seedEdge(src, tgt, 'related')
 
     // First delete
+    const firstPreview = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'unlink', edge_id: edgeId }
+    })
     await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'unlink', edge_id: edgeId, confirm: true }
+      arguments: { action: 'unlink', edge_id: edgeId, confirm: true, preview_token: parseResult(firstPreview).data.preview_token }
     })
 
     // Second delete — idempotent
+    const preview = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'unlink', edge_id: edgeId }
+    })
+    const token = parseResult(preview).data.preview_token
     const result = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'unlink', edge_id: edgeId, confirm: true }
+      arguments: { action: 'unlink', edge_id: edgeId, confirm: true, preview_token: token }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -191,9 +205,14 @@ describe('memory_store retype', () => {
     const tgt = seedThought({ content: 'retype-confirm target' })
     const edgeId = seedEdge(src, tgt, 'contradicts')
 
+    const retypePreview = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports' }
+    })
+    const retypeToken = parseResult(retypePreview).data.preview_token
     const result = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports', confirm: true }
+      arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports', confirm: true, preview_token: retypeToken }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -212,9 +231,13 @@ describe('memory_store retype', () => {
     expect(edge!.id).toBe(data.edge_id)
 
     // Chained follow-up: the returned fresh id resolves — unlink it
+    const unlinkPreview = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'unlink', edge_id: data.edge_id }
+    })
     const unlink = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'unlink', edge_id: data.edge_id, confirm: true }
+      arguments: { action: 'unlink', edge_id: data.edge_id, confirm: true, preview_token: parseResult(unlinkPreview).data.preview_token }
     })
     const { data: unlinked, isError: unlinkError } = parseResult(unlink)
     expect(unlinkError).toBe(false)
@@ -228,9 +251,14 @@ describe('memory_store retype', () => {
     const tgt = seedThought({ content: 'retype-same target' })
     const edgeId = seedEdge(src, tgt, 'supports')
 
+    const retypePreview = await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports' }
+    })
+    const retypeToken = parseResult(retypePreview).data.preview_token
     const result = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports', confirm: true }
+      arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports', confirm: true, preview_token: retypeToken }
     })
     const { isError, text } = parseResult(result)
     expect(isError).toBe(true)

@@ -25,6 +25,7 @@ import {
   getProposal,
   insertProposal,
   isLegacyItemKind,
+  listAcceptedProposalsByRun,
   listProposals,
   updateProposalState,
   type InsertProposalInput,
@@ -49,6 +50,14 @@ import {
 export { computeFingerprint, pairFingerprint } from './placement-proposals.mapping'
 export type { FingerprintInput } from './placement-proposals.mapping'
 export { isLegacyItemKind } from '../db/placement-proposals'
+
+export function getProposalService(id: string, d: Database = getDb()): PlacementProposalRow | undefined {
+  return getProposal(d, id)
+}
+
+export function listAcceptedProposalsByRunService(runId: string, d: Database = getDb()): PlacementProposalRow[] {
+  return listAcceptedProposalsByRun(d, runId)
+}
 
 /**
  * The result of one enqueue: the queued rows plus what was *not* queued.

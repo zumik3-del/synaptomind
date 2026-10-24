@@ -265,9 +265,14 @@ describe('edge_review apply', () => {
     const tgt = seedThought({ content: 'apply-confirm target' })
     const row = insertPendingEdge(src, tgt)
 
+    const preview = await client.callTool({
+      name: 'edge_review',
+      arguments: { action: 'apply', proposal_id: row.id }
+    })
+    const token = parseResult(preview).data.preview_token
     const result = await client.callTool({
       name: 'edge_review',
-      arguments: { action: 'apply', proposal_id: row.id, confirm: true }
+      arguments: { action: 'apply', proposal_id: row.id, confirm: true, preview_token: token }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -420,9 +425,14 @@ describe('edge_review: stored triage_* rows from an older install', () => {
     const src = seedThought({ content: 'retired triage apply source' })
     insertRetiredRow('retired-apply-archive', 'triage_archive', src)
 
+    const preview = await client.callTool({
+      name: 'edge_review',
+      arguments: { action: 'apply', proposal_id: 'retired-apply-archive' }
+    })
+    const token = parseResult(preview).data.preview_token
     const result = await client.callTool({
       name: 'edge_review',
-      arguments: { action: 'apply', proposal_id: 'retired-apply-archive', confirm: true }
+      arguments: { action: 'apply', proposal_id: 'retired-apply-archive', confirm: true, preview_token: token }
     })
 
     const { data, isError } = parseResult(result)
@@ -470,8 +480,10 @@ describe('static: no read handler in the review modules calls apply* functions',
   })
 
   test('apply_batch handler stays inline in review.ts and calls applyBatchService', () => {
-    const applyBatchMatch = SOURCE.match(/apply_batch:\s*\{([\s\S]*?\n\s*\})/)
-    expect(applyBatchMatch).not.toBeNull()
-    expect(applyBatchMatch![1]).toMatch(/applyBatchService/)
+    const start = SOURCE.indexOf('apply_batch:')
+    const end = SOURCE.indexOf('rollback:', start)
+    const applyBatchBlock = start >= 0 && end > start ? SOURCE.slice(start, end) : ''
+    expect(applyBatchBlock).not.toBe('')
+    expect(applyBatchBlock).toMatch(/applyBatchService/)
   })
 })

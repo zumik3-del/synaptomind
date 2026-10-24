@@ -356,6 +356,16 @@ beforeEach(async () => {
 
 describe('auto_cluster option pass-through over an in-memory MCP client', () => {
   test('numeric-string args are coerced and passed through as numbers', async () => {
+    const preview = await mockClient.callTool({
+      name: 'memory_crystallize',
+      arguments: {
+        action: 'auto_cluster',
+        min_similarity: '0.68',
+        min_members: '5',
+        min_age_days: '1'
+      }
+    })
+    const token1 = JSON.parse((preview as any).content[0].text).preview_token
     const result = await mockClient.callTool({
       name: 'memory_crystallize',
       arguments: {
@@ -363,7 +373,8 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
         min_similarity: '0.68',
         min_members: '5',
         min_age_days: '1',
-        confirm: true
+        confirm: true,
+        preview_token: token1
       }
     })
     const { isError } = parseResult(result)
@@ -377,6 +388,16 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
   })
 
   test('native-number args are passed through unchanged', async () => {
+    const preview = await mockClient.callTool({
+      name: 'memory_crystallize',
+      arguments: {
+        action: 'auto_cluster',
+        min_similarity: 0.68,
+        min_members: 5,
+        min_age_days: 1
+      }
+    })
+    const token2 = JSON.parse((preview as any).content[0].text).preview_token
     const result = await mockClient.callTool({
       name: 'memory_crystallize',
       arguments: {
@@ -384,7 +405,8 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
         min_similarity: 0.68,
         min_members: 5,
         min_age_days: 1,
-        confirm: true
+        confirm: true,
+        preview_token: token2
       }
     })
     const { isError } = parseResult(result)
@@ -401,9 +423,14 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
     const originalDryRun = config.autoCluster.dryRun
     try {
       config.autoCluster.dryRun = true
+      const preview = await mockClient.callTool({
+        name: 'memory_crystallize',
+        arguments: { action: 'auto_cluster' }
+      })
+      const token3 = JSON.parse((preview as any).content[0].text).preview_token
       const result = await mockClient.callTool({
         name: 'memory_crystallize',
-        arguments: { action: 'auto_cluster', confirm: true }
+        arguments: { action: 'auto_cluster', confirm: true, preview_token: token3 }
       })
       expect(parseResult(result).isError).toBe(false)
       expect(capturedAutoClusterOptions?.dryRun).toBe(false)

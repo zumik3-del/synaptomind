@@ -47,7 +47,8 @@ describe('memory_supersede confirmation contract', () => {
       expect(JSON.stringify(result.data)).not.toContain('secret-tag')
       expect(getDb().query('select status from thoughts where id = ?').get(id)).toEqual({ status: 'active' })
     }
-    const executed = await call({ action: 'archive', thought_id: id, confirm: true })
+    const archPreview = await call({ action: 'archive', thought_id: id })
+    const executed = await call({ action: 'archive', thought_id: id, confirm: true, preview_token: archPreview.data.preview_token })
     expect(executed.isError).toBe(false)
     expect(executed.data).toMatchObject({ status: 'executed', action: 'archive', result: { id, status: 'archived' } })
   })
@@ -80,7 +81,8 @@ describe('memory_supersede confirmation contract', () => {
     const active = seedThought({ content: 'batch active', status: 'active' })
     const protectedId = seedThought({ content: 'batch profile', status: 'active', is_profile: 1 })
     const ids = [active, 'missing-id', protectedId, active]
-    const result = await call({ action: 'archive_batch', thought_ids: ids, confirm: true })
+    const batchPreview = await call({ action: 'archive_batch', thought_ids: ids })
+    const result = await call({ action: 'archive_batch', thought_ids: ids, confirm: true, preview_token: batchPreview.data.preview_token })
     expect(result.isError).toBe(false)
     expect(result.data).toMatchObject({ status: 'executed', action: 'archive_batch' })
     expect(result.data.result).toMatchObject({
@@ -128,7 +130,8 @@ describe('memory_supersede confirmation contract', () => {
       expect(getDb().query('select status from thoughts where id = ?').get(source)).toEqual({ status: 'active' })
       expect(getDb().query('select content from thoughts where id = ?').get(target)).toEqual({ content: 'target' })
     }
-    const result = await call({ action: 'merge', source_id: source, target_id: target, merged_content: 'merged', confirm: true })
+    const mergePreview = await call({ action: 'merge', source_id: source, target_id: target, merged_content: 'merged' })
+    const result = await call({ action: 'merge', source_id: source, target_id: target, merged_content: 'merged', confirm: true, preview_token: mergePreview.data.preview_token })
     expect(result.isError).toBe(false)
     expect(result.data).toMatchObject({ status: 'executed', action: 'merge', result: { target: { content: 'merged' } } })
     expect(getDb().query('select status from thoughts where id = ?').get(source)).toEqual({ status: 'archived' })

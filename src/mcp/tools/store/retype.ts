@@ -1,22 +1,30 @@
 import { z } from 'zod/v4'
 import { retypeEdgeService, validateRetypeService, EDGE_TYPES } from '../../../services/edges.service'
+import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../../services/preview-tokens.service'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+
+function edgeFingerprint(edge: { id: string; source_id: string; target_id: string; type: string; created_at: string }, newType: string): string {
+  return `${edge.id}:${edge.source_id}:${edge.target_id}:${edge.type}:${edge.created_at}:${newType}`
+}
 
 export const retypeHandler: ActionHandler = {
   input: z.object({
     edge_id: requiredString('edge_id is required for retype action'),
-    new_type: z.enum(EDGE_TYPES)
+    new_type: z.enum(EDGE_TYPES),
+    preview_token: z.string().optional()
   }),
   run(args: ActionArgs) {
     const edgeId = args.edge_id as string
     const newType = args.new_type as string
     const confirm = args.confirm === true
+    const previewToken = args.preview_token as string | undefined
 
     // Dry-run and confirm run the SAME validation (ADR §2): the preview
     // must never promise a confirm would reject.
     const edge = validateRetypeService(edgeId, newType)
 
     if (!confirm) {
+      const token = createPreviewTokenService('retype', edgeId, edgeFingerprint(edge, newType))
       return {
         status: 'preview',
         edge_id: edgeId,
@@ -25,9 +33,16 @@ export const retypeHandler: ActionHandler = {
         new_type: newType,
         source_id: edge.source_id,
         target_id: edge.target_id,
-        consequence: `Changes edge type from '${edge.type}' to '${newType}'.`
+        consequence: `Changes edge type from '${edge.type}' to '${newType}'.`,
+        preview_token: token
       }
     }
+
+    const currentFingerprint = edgeFingerprint(edge, newType)
+    if (!previewToken) throw new Error('preview_token is required')
+    const verification = verifyPreviewTokenService(previewToken, 'retype', edgeId, currentFingerprint)
+    if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
+    consumePreviewTokenService(previewToken)
 
     const oldType = edge.type
     const retyped = retypeEdgeService(edgeId, newType)

@@ -1,11 +1,13 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { listRetentionReviewCandidatesService } from '../../services/retention-review.service'
+import { getThoughtByIdService } from '../../services/thoughts.service'
 import {
   compactRetentionReviewCandidatesService,
   deleteRetentionReviewCandidateService,
   protectRetentionReviewCandidateService
 } from '../../services/retention-review-actions.service'
+import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { BATCH_ITEMS_MAX } from '../../validation'
 
@@ -25,8 +27,29 @@ const handlers = {
     run(args: ActionArgs) { return protectRetentionReviewCandidateService(args.thought_id as string) }
   },
   delete: {
-    input: z.object({ thought_id: requiredString('thought_id is required for delete action') }),
-    run(args: ActionArgs) { return deleteRetentionReviewCandidateService(args.thought_id as string, { confirm: args.confirm === true }) }
+    input: z.object({ thought_id: requiredString('thought_id is required for delete action'), preview_token: z.string().optional() }),
+    run(args: ActionArgs) {
+      const id = args.thought_id as string
+      const confirm = args.confirm === true
+      const previewToken = args.preview_token as string | undefined
+      const thought = getThoughtByIdService(id)
+      const fp = thought ? `${thought.id}:${thought.status}:${thought.created_at}:${thought.is_protected}:${thought.is_profile}` : `missing:${id}`
+
+      if (!confirm) {
+        const result = deleteRetentionReviewCandidateService(id, { confirm: false })
+        const token = createPreviewTokenService('retention_delete', id, fp)
+        return { ...(result as unknown as Record<string, unknown>), preview_token: token }
+      }
+
+      if (thought) {
+        if (!previewToken) throw new Error('preview_token is required')
+        const verification = verifyPreviewTokenService(previewToken, 'retention_delete', id, fp)
+        if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
+        consumePreviewTokenService(previewToken)
+      }
+
+      return deleteRetentionReviewCandidateService(id, { confirm: true })
+    }
   },
   compact: {
     input: z.object({
@@ -54,6 +77,7 @@ export function registerRetentionReview(server: McpServer): void {
        limit: z.number().int().min(1).max(100).optional().describe('Maximum candidates to return. Optional for list.'),
       offset: z.number().int().min(0).optional().describe('Candidate pagination offset. Optional for list.'),
       thought_id: z.string().optional().describe('Thought ID. Required for protect and delete.'),
+      preview_token: z.string().optional().describe('OPTIONAL preview token returned by a prior preview. CONSUMED by "delete" (true executes with token validation; missing/stale fails). IGNORED for all other actions.'),
        source_ids: z.array(z.string()).max(BATCH_ITEMS_MAX, `source_ids accepts at most ${BATCH_ITEMS_MAX} ids per call`).optional().describe('Source thought IDs. Required for compact.'),
       summary: z.object({ content: z.string(), tags: z.array(z.string()).optional(), project_id: z.string().optional() }).optional().describe('Summary thought input. Required for compact.'),
       confirm: z.boolean().optional().describe('When true, authorizes delete or compact; false or omitted previews. Ignored otherwise.')
