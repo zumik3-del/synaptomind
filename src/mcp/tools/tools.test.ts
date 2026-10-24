@@ -608,12 +608,12 @@ describe('memory_crystallize', () => {
   test('historical crystal-source thought remains accessible through get and search', async () => {
     const id = seedThought({ content: 'unique historic crystal archival record', source: 'crystal', status: 'active' })
     const get = parseResult(await client.callTool({
-      name: 'memory_recall', arguments: { action: 'get', thought_id: id }
+      name: 'memory_recall', arguments: { action: 'get', thought_id: id, compact: false }
     }))
     expect(get.data.source).toBe('crystal')
 
     const search = parseResult(await client.callTool({
-      name: 'memory_recall', arguments: { action: 'search', query: 'unique historic crystal archival record', hybrid: true }
+      name: 'memory_recall', arguments: { action: 'search', query: 'unique historic crystal archival record', hybrid: true, compact: false }
     }))
     expect(JSON.stringify(search.data)).toContain(id)
   })
@@ -730,11 +730,11 @@ describe('merge edge cases', () => {
 
     const mergePreview = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged', project_id: target.project_id }
+      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged' }
     })
     const result = await client.callTool({
       name: 'memory_supersede',
-      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged', project_id: target.project_id, confirm: true, preview_token: parseResult(mergePreview).data.preview_token }
+      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged', confirm: true, preview_token: parseResult(mergePreview).data.preview_token }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -880,7 +880,7 @@ describe('search with project scope', () => {
 
     await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'create', content: 'SCOPED_MARKER in project', status: 'active', project_id: project.id }
+      arguments: { action: 'create', content: 'SCOPED_MARKER in project', status: 'active', cwd: '/tmp/search-scope' }
     })
     await client.callTool({
       name: 'memory_store',
@@ -889,7 +889,7 @@ describe('search with project scope', () => {
 
     const result = await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: 'SCOPED_MARKER', limit: 10, project_id: project.id }
+      arguments: { action: 'search', query: 'SCOPED_MARKER', limit: 10, cwd: '/tmp/search-scope', compact: false }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
