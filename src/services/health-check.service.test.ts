@@ -11,9 +11,28 @@ afterEach(() => {
 
 test('runHealthCheckService returns valid structure on empty DB', () => {
   const report = runHealthCheckService()
+  expect(Object.keys(report).sort()).toEqual(['categories', 'summary'])
+  expect(Object.keys(report.summary).sort()).toEqual([
+    'active', 'archived', 'critical', 'critical_count', 'critical_issues', 'draft', 'formula',
+    'health_score', 'info', 'info_count', 'info_issues', 'issues', 'score_breakdown',
+    'score_components', 'score_details', 'score_explanation', 'score_formula', 'score_composition',
+    'total_clusters', 'total_edges', 'total_thoughts', 'warning', 'warning_count', 'warning_issues'
+  ].sort())
   expect(report.summary.total_thoughts).toBe(0)
   expect(report.summary.total_edges).toBe(0)
   expect(report.summary.health_score).toBe(100)
+  expect(report.summary.issues).toEqual({ critical: 0, warning: 0, info: 0 })
+  expect(report.summary.critical).toBe(report.summary.critical_count)
+  expect(report.summary.critical).toBe(report.summary.critical_issues)
+  expect(report.summary.warning).toBe(report.summary.warning_count)
+  expect(report.summary.warning).toBe(report.summary.warning_issues)
+  expect(report.summary.info).toBe(report.summary.info_count)
+  expect(report.summary.info).toBe(report.summary.info_issues)
+  expect(report.summary.score_composition).toBe(report.summary.score_breakdown)
+  expect(report.summary.score_explanation).toBe(report.summary.score_breakdown)
+  expect(report.summary.score_components).toBe(report.summary.score_breakdown)
+  expect(report.summary.score_details).toBe(report.summary.score_breakdown)
+  expect(report.summary.formula).toBe(report.summary.score_formula)
   expect(report.categories.length).toBe(6)
 })
 

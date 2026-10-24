@@ -43,7 +43,8 @@ import { describe, expect, test, afterEach } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { guardProductionPaths, readAppEnvValues, resolveTargets, sandboxAppEnvText } from './app-targets'
+import { readAppEnvValues, sandboxAppEnvText } from './app-env-targets'
+import { guardProductionPaths, resolveTargets } from './app-targets'
 import { guardRealStateDir, installCleanup, isolatedEnv, mkTempTree } from './tmp-fixtures'
 
 installCleanup()
@@ -168,7 +169,7 @@ function seedSandbox(target: { label: string; deployDir: string; appEnvPath: str
   const unitFile = join(root, 'unit', `${label}.service`)
   mkdirSync(join(root, 'unit'), { recursive: true })
   const deployDir = join(root, 'deploy')
-  cpSync(DEPLOY_DIR, deployDir, { recursive: true, filter: (src) => !src.endsWith('.test.ts') && !src.endsWith('app-targets.ts') })
+  cpSync(DEPLOY_DIR, deployDir, { recursive: true, filter: (src) => !src.endsWith('.test.ts') && !src.endsWith('app-targets.ts') && !src.endsWith('app-env-targets.ts') })
 
   const overrides: Record<string, string> = {
     INSTALL_DIR: installDir,

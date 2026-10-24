@@ -675,7 +675,11 @@ scheduled job for it.
 
 ### GET /api/health-check
 
-Graph health audit: broken links, orphans, duplicates, structural issues. Requires auth (it lives under `/api/*`).
+Graph health audit: broken links, orphans, duplicates, structural issues. Requires auth (it lives under `/api/*`). The response is `{summary, categories}`. `categories` is an array of `{name, checks}`; each check reports `name`, `severity`, `count`, and `details`, and checks with a safe repair hook also report `auto_fixable: true`.
+
+`summary` includes graph counts (`total_thoughts`, `total_edges`, `total_clusters`, `active`, `draft`, `archived`), `health_score`, and raw issue counts by severity. The severity counts are currently emitted under duplicate aliases: `critical`/`warning`/`info`, `critical_count`/`warning_count`/`info_count`, `critical_issues`/`warning_issues`/`info_issues`, and the grouped `issues: {critical, warning, info}`. Score details are likewise duplicated as `score_breakdown`, `score_composition`, `score_explanation`, `score_components`, and `score_details` (the same object), plus `score_formula` and `formula` (the same formula string). These compatibility aliases are part of the current response and must remain until a separately reviewed deprecation/removal plan.
+
+`score_breakdown` fields are `critical_categories`, `warning_categories`, `info_occurrences`, `info_scored_occurrences`, `info_unscored_checks`, `penalty_critical`, `penalty_warning`, `penalty_info`, and `formula`. Critical and warning penalties count categories with findings (40 and 15 points); info penalty counts scored occurrences (0.25 each), clamped to a score from 0 to 100. `island_thoughts` occurrences are reported but not scored. The `severity` filter also filters which findings and summary counts contribute to that response.
 
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
