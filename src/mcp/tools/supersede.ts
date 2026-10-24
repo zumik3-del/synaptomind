@@ -7,6 +7,7 @@ import {
   archiveThoughtsBatchService
 } from '../../services/thoughts.service'
 import { getBoundedMergePreviewService, mergeThoughtsService } from '../../services/merge.service'
+import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { validateMergePreconditions } from '../../services/merge'
 import { BATCH_ITEMS_MAX } from '../../validation'
 import { resolveProjectId } from './utils'
@@ -29,18 +30,40 @@ function validateActionFields(action: string, args: ActionArgs): void {
   if (irrelevant.length) throw new Error(`${irrelevant.join(', ')} is not applicable to ${action} action`)
 }
 
+function thoughtFingerprint(thought: { id: string; status: string; updated_at: string; is_protected: number; is_profile: number }): string {
+  return `${thought.id}:${thought.status}:${thought.updated_at}:${thought.is_protected}:${thought.is_profile}`
+}
+
 const handlers = {
   archive: {
-    input: z.object({ thought_id: requiredString('thought_id is required for archive action') }),
+    input: z.object({ thought_id: requiredString('thought_id is required for archive action'), preview_token: z.string().optional() }),
     run(args: ActionArgs) {
-      const existing = getThoughtByIdService(args.thought_id as string)
+      const thoughtId = args.thought_id as string
+      const existing = getThoughtByIdService(thoughtId)
+      const previewToken = args.preview_token as string | undefined
       if (args.confirm !== true) {
-        return { status: 'preview', action: 'archive', thought_id: args.thought_id, current_status: existing?.status ?? null,
-          outcome: !existing ? 'not_found' : existing.status === 'archived' ? 'already_archived' : existing.is_profile ? 'protected' : 'would_archive' }
+        const token = existing ? createPreviewTokenService('archive', thoughtId, thoughtFingerprint(existing as any)) : undefined
+        return { status: 'preview', action: 'archive', thought_id: thoughtId, current_status: existing?.status ?? null,
+          outcome: !existing ? 'not_found' : existing.status === 'archived' ? 'already_archived' : existing.is_profile ? 'protected' : 'would_archive',
+          ...(token ? { preview_token: token } : {}) }
       }
-      if (!existing) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-      const result = existing.status === 'archived' ? existing : archiveThoughtByIdService(args.thought_id as string)
-      return { status: 'executed', action: 'archive', result }
+      if (!existing) throw new NotFoundError(`Thought '${thoughtId}' not found`)
+      let warning: string | undefined
+      const currentFingerprint = thoughtFingerprint(existing as any)
+      if (previewToken) {
+        const verification = verifyPreviewTokenService(previewToken, 'archive', thoughtId, currentFingerprint)
+        if (verification.valid) {
+          consumePreviewTokenService(previewToken)
+        } else {
+          warning = `preview token ${verification.reason ?? 'invalid'}; revalidated by fingerprint`
+        }
+      } else {
+        warning = 'preview token missing; revalidated by fingerprint'
+      }
+      const result = existing.status === 'archived' ? existing : archiveThoughtByIdService(thoughtId)
+      const out: Record<string, unknown> = { status: 'executed', action: 'archive', result }
+      if (warning) out.warning = warning
+      return out
     }
   },
 
@@ -126,7 +149,8 @@ export function registerMemorySupersede(server: McpServer) {
       merged_content: z.string().optional().describe('Replacement content for merge. OPTIONAL for "merge". REJECTED for "archive" and "archive_batch".'),
       merged_tags: z.array(z.string()).optional().describe('Merged tags. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
       project_id: z.string().optional().describe('Project ID. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
-      cwd: z.string().optional().describe('Working directory — auto-resolves project. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".')
+      cwd: z.string().optional().describe('Working directory — auto-resolves project. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
+      preview_token: z.string().optional().describe('OPTIONAL preview token returned by a prior preview. CONSUMED by "archive" (true executes with token validation; missing/stale falls back to fingerprint check with a warning). IGNORED for all other actions.')
     },
     handlers: Object.fromEntries(Object.entries(handlers).map(([action, handler]) => [action, {
       ...handler,
