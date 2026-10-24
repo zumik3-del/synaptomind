@@ -6,7 +6,7 @@ import type { ActionArgs, ActionHandler } from '../action-tool'
 export const bulkCreateHandler: ActionHandler = {
   run(args: ActionArgs) {
     const items = args.thoughts as BulkCreateItem[] | undefined
-    const defaultProjectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+    const defaultProjectId = resolveProjectId(args.cwd as string | undefined)
     const { created, errors } = bulkCreateThoughtsService(items, defaultProjectId)
     return {
       created: created.length,

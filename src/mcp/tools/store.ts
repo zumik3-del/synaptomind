@@ -37,7 +37,7 @@ export function registerMemoryStore(server: McpServer) {
       tags: z.array(z.string()).optional().describe('OPTIONAL for "create" and "update" (update merges with existing tags by default; use tags_mode=replace to overwrite the whole tag set). IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'),
       tags_mode: z.enum(['replace', 'merge']).optional().describe('update only: how to apply `tags` — "merge" (default) unions with existing tags, "replace" overwrites the whole tag set. IGNORED for all other actions.'),
       status: thoughtStatusSchema.optional().describe('Thought status (draft/active/archived). OPTIONAL for "create" and "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'),
-      project_id: z.string().optional().describe('Project ID (prefer cwd instead). OPTIONAL for "create" and "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'),
+      project_id: z.never({ error: 'project_id was removed; use cwd' }).optional().describe('Removed; use cwd.'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project for "create"/"update" (always pass for those). IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'),
       parent_id: z.string().optional().describe('Parent thought ID. OPTIONAL for "create". IGNORED for all other actions.'),
       is_profile: z.never({ error: 'is_profile is retired; remove this field (there is no replacement)' }).optional().describe('Retired: remove this field; there is no replacement.'),

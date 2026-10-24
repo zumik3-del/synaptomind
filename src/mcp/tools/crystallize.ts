@@ -19,7 +19,7 @@ export function registerMemoryCrystallize(server: McpServer) {
     inputSchema: {
       action: z.enum(['graph', 'cluster', 'auto_cluster']).describe('Action'),
       thought_ids: z.array(z.string()).optional().describe('Thought IDs. REQUIRED for "cluster". IGNORED for "graph" and "auto_cluster".'),
-      project_id: z.string().optional().describe('Project ID (prefer cwd instead). OPTIONAL for "graph" and "cluster" (auto_cluster operates globally). IGNORED for "auto_cluster".'),
+      project_id: z.never({ error: 'project_id was removed; use cwd' }).optional().describe('Removed; use cwd.'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. OPTIONAL for "graph" and "cluster" (always pass for those; auto_cluster operates globally). IGNORED for "auto_cluster".'),
       status: graphStatusSchema.optional().describe('Filter by status (default: active). OPTIONAL for "graph". IGNORED for "cluster" and "auto_cluster".'),
       limit: graphLimitSchema.optional().describe('Max nodes to return (default 500, 1-2000). OPTIONAL for "graph". IGNORED for "cluster" and "auto_cluster".'),

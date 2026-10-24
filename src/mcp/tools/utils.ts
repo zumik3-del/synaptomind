@@ -55,8 +55,7 @@ export function errorResult(
   return { content, structuredContent: { result: { error } }, isError: true }
 }
 
-export function resolveProjectId(projectId?: string, cwd?: string): string | undefined {
-  if (projectId) return projectId
+export function resolveProjectId(cwd?: string): string | undefined {
   if (cwd) {
     const project = resolveProjectService(cwd)
     if (project) return project.id

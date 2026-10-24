@@ -17,7 +17,7 @@ const MERGE_PREVIEW_EDGE_LIMIT = 50
 const ACTION_FIELDS: Record<string, string[]> = {
   archive: ['thought_id'],
   archive_batch: ['thought_ids'],
-  merge: ['source_id', 'target_id', 'merged_content', 'merged_tags', 'project_id', 'cwd']
+  merge: ['source_id', 'target_id', 'merged_content', 'merged_tags', 'cwd']
 }
 const ACTION_FIELDS_ALL = new Set(Object.values(ACTION_FIELDS).flat())
 
@@ -107,7 +107,7 @@ const handlers = {
       preview_token: z.string().optional()
     }),
     run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
+      const projectFilter = resolveProjectId(args.cwd as string)
       const sourceId = args.source_id as string
       const targetId = args.target_id as string
       const previewToken = args.preview_token as string | undefined
@@ -171,7 +171,7 @@ export function registerMemorySupersede(server: McpServer) {
       target_id: z.string().optional().describe('REQUIRED ONLY for "merge". Target thought ID — will be updated. Rejected for other actions.'),
       merged_content: z.string().optional().describe('Replacement content for merge. OPTIONAL for "merge". REJECTED for "archive" and "archive_batch".'),
       merged_tags: z.array(z.string()).optional().describe('Merged tags. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
-      project_id: z.string().optional().describe('Project ID. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
+      project_id: z.never({ error: 'project_id was removed; use cwd' }).optional().describe('Removed; use cwd.'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
       preview_token: z.string().optional().describe('OPTIONAL preview token returned by a prior preview. CONSUMED by "archive", "archive_batch", "merge" (true executes with token validation; missing/stale fails). IGNORED for all other actions.')
     },

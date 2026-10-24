@@ -17,7 +17,7 @@ export const proposeHandler: ActionHandler = {
       path: ['thought_id']
     }),
   async run(args: ActionArgs) {
-    const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+    const projectFilter = resolveProjectId(args.cwd as string | undefined)
     const compact = args.compact === true
     const maxEdges =
       typeof args.max_edges === 'number'

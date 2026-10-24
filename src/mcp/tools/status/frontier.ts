@@ -8,7 +8,7 @@ export const frontierHandler: ActionHandler = {
     limit: z.number().int().min(1).max(50, 'frontier limit must be at most 50').optional()
   }),
   run(args: ActionArgs) {
-    const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+    const projectFilter = resolveProjectId(args.cwd as string | undefined)
     return getFrontierService({ project_id: projectFilter, k: args.limit as number | undefined })
   }
 }

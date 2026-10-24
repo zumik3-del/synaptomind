@@ -21,7 +21,7 @@ const handlers = {
   enqueue: {
     input: z.object({ thought_id: requiredString('thought_id is required for enqueue action') }),
     run(args: ActionArgs) {
-      const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      const projectId = resolveProjectId(args.cwd as string | undefined)
       // `max_proposals` is the only enqueue cap this tool advertises: the
       // `max_items` alias is gone, so the canonical value is forwarded as-is
       // instead of through a precedence rule between several accepted names.
@@ -34,7 +34,7 @@ const handlers = {
 
   list: {
     run(args: ActionArgs) {
-      const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      const projectId = resolveProjectId(args.cwd as string | undefined)
       const includeRetired = args.include_retired === true
       const state = args.state as ListOptions['state']
       const itemKind = args.item_kind as ListOptions['itemKind']
@@ -148,7 +148,7 @@ export function registerEdgeReview(server: McpServer) {
       include_retired: z.boolean().optional().describe('When true, retired (legacy) kinds (triage_*, placement, lifecycle) are included in "list" even without an explicit item_kind. Default false. OPTIONAL for "list". IGNORED for all other actions.'),
       source_thought_id: z.string().optional().describe('Filter queued proposals by source thought id. OPTIONAL for "list". IGNORED for all other actions.'),
       created_after: z.iso.datetime().optional().describe('Only proposals created at or after this ISO timestamp (UTC, e.g. 2026-01-01T00:00:00.000Z). OPTIONAL for "list". IGNORED for all other actions.'),
-      project_id: z.string().optional().describe('Project ID (prefer cwd). OPTIONAL for "enqueue" and "list". IGNORED for "apply", "apply_batch", "rollback", "reject".'),
+      project_id: z.never({ error: 'project_id was removed; use cwd' }).optional().describe('Removed; use cwd.'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. OPTIONAL for "enqueue" and "list". IGNORED for "apply", "apply_batch", "rollback", "reject".'),
       limit: proposalsLimitSchema.optional().describe('Max rows (default 100, 1-1000) for "list"; max items for "apply_batch". OPTIONAL for "list" and "apply_batch". IGNORED for all other actions.'),
       // Tombstone for the retired enqueue cap: only max_proposals is advertised.
