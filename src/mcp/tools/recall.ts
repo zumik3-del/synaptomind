@@ -17,12 +17,12 @@ import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
 const ACTION_FIELDS: Record<string, string[]> = {
-  search: ['query', 'status', 'project_id', 'cwd', 'tag', 'is_cluster', 'group_by_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'supersession_mode', 'contradiction_mode', 'limit'],
-  clusters: ['query', 'status', 'project_id', 'cwd', 'tag', 'is_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'limit'],
-  context: ['query', 'thought_id', 'project_id', 'cwd', 'direction', 'max_degree'],
-  chain: ['thought_id', 'direction', 'max_degree'],
-  get: ['thought_id', 'include_edges', 'max_degree'],
-  list: ['status', 'project_id', 'cwd', 'tag', 'is_cluster', 'limit', 'offset']
+  search: ['query', 'status', 'project_id', 'cwd', 'tag', 'is_cluster', 'group_by_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'supersession_mode', 'contradiction_mode', 'limit', 'compact', 'fields'],
+  clusters: ['query', 'status', 'project_id', 'cwd', 'tag', 'is_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'limit', 'compact', 'fields'],
+  context: ['query', 'thought_id', 'project_id', 'cwd', 'direction', 'max_degree', 'compact', 'fields'],
+  chain: ['thought_id', 'direction', 'max_degree', 'compact', 'fields'],
+  get: ['thought_id', 'include_edges', 'max_degree', 'compact', 'fields'],
+  list: ['status', 'project_id', 'cwd', 'tag', 'is_cluster', 'limit', 'offset', 'compact', 'fields']
 }
 const ACTION_FIELDS_ALL = new Set(Object.values(ACTION_FIELDS).flat())
 
@@ -169,6 +169,8 @@ export function registerMemoryRecall(server: McpServer) {
       // two paginated thought surfaces cannot drift apart.
       limit: timelineLimitSchema.optional().describe('Max results for search/clusters (default 10) or list page size (default 50). IGNORED for get/context/chain.'),
       offset: z.number().int().min(0).max(1_000_000).optional().describe('list only: offset for pagination. IGNORED for all other actions.'),
+      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). OPTIONAL for all actions. IGNORED until wired (infra).'),
+      fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for all actions. IGNORED until wired (infra).'),
       // Tombstones for retired parameters: a supplied value fails the advertised
       // input validation with the canonical replacement (the same pattern as
       // the retired is_profile input) instead of being silently stripped.
