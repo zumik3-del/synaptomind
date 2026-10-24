@@ -4,6 +4,6 @@ import type { ActionHandler } from '../action-tool'
 export const configHandler: ActionHandler = {
   run() {
     const text = buildConfigDisplay()
-    return { content: [{ type: 'text' as const, text }], structuredContent: { result: text } }
+    return { content: [{ type: 'text' as const, text }], structuredContent: { result: { text } } }
   }
 }

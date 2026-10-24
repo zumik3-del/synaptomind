@@ -9,12 +9,15 @@ type McpTextContent = { type: 'text'; text: string }
  * stable contract: every successful result is `{ result: <payload> }`, where
  * the payload matches the JSON in `content[].text`.
  */
-export const toolOutputShape = { result: z.unknown().describe('Action payload, mirroring content[].text') }
+export const toolOutputShape = { result: z.unknown().describe('Action payload (structuredContent.result); JSON mirror of content[].text, except raw-text tools where result is {text}') }
 
 export function jsonResult(data: unknown): { content: McpTextContent[]; structuredContent: { result: unknown } } {
+  // Bare string payloads are wrapped so no action ever returns a bare string
+  // in `result`; arrays/objects pass through unchanged.
+  const payload = typeof data === 'string' ? { text: data } : data
   return {
-    content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
-    structuredContent: { result: data }
+    content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
+    structuredContent: { result: payload }
   }
 }
 

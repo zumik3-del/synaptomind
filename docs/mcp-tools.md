@@ -52,7 +52,16 @@ remove the field from requests. Retired names are not accepted aliases.
 
 Every tool declares the same output shape, `{ result: <payload> }` (`toolOutputShape`,
 `src/mcp/tools/utils.ts:12`). A successful action returns that payload in `structuredContent.result`
-mirroring the JSON in `content[].text` (`jsonResult`, `src/mcp/tools/utils.ts:14-19`).
+mirroring the JSON in `content[].text` (`jsonResult`, `src/mcp/tools/utils.ts:14-22`).
+Bare string payloads (config, guide) are wrapped as `{ text: string }` so no action ever
+returns a bare string in `result`; arrays and objects pass through unchanged.
+
+Two encodings coexist. Raw-text tools (`memory_status` action=config, `memory_guide`) keep the
+human-readable payload in `content[].text` verbatim and report `structuredContent.result = { text }`,
+so `content[].text` is **not** `JSON.stringify(result)` for those two. Every other tool goes through
+`jsonResult`, where `content[].text = JSON.stringify(payload)` and `result = payload`; a string passed
+to `jsonResult` is wrapped to `{ text }` and its `content[].text` becomes the JSON
+`{"text":"..."}`.
 
 An action failure returns `isError: true` with the human-readable message in `content[].text`. When
 the failure carries a domain status code, the classification is additionally mirrored into
@@ -72,10 +81,10 @@ the failure carries a domain status code, the classification is additionally mir
 
 - **Nesting.** The metadata sits under `result` — the key the declared output schema expects. The
   SDK client validates `structuredContent` against that schema whenever the key is present, so
-  putting it anywhere else would fail the check (`src/mcp/tools/utils.ts:37-39`).
+  putting it anywhere else would fail the check (`src/mcp/tools/utils.ts:40-42`).
 - **Classified vs unclassified.** Only errors exposing a numeric `statusCode` are enriched. A plain
   `Error` or a non-`Error` throw keeps the plain `{ content, isError }` shape with **no**
-  `structuredContent` key (`src/mcp/tools/utils.ts:49-52`, `src/mcp/tools/action-tool.ts:99-108`).
+  `structuredContent` key (`src/mcp/tools/utils.ts:52-55`, `src/mcp/tools/action-tool.ts:99-108`).
 - **Retryability.** `retryable` is `statusCode === 503`. The 503 class is the transient
   availability failures — embedder not ready, overloaded, timed out, send failure
   (`src/errors.ts`) — the only class safe to repeat as-is. Every other classified code

@@ -5,6 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { closeDb } from '../../db/init'
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
+import { jsonResult } from './utils'
 
 // Regression coverage for the MCP stdio/dispatch batch (tasks #127-#134):
 // cleanup dry-run default, numeric schema bounds, context project scoping and
@@ -54,7 +55,8 @@ function assertStructuredMatchesText(result: unknown): void {
   try {
     expected = JSON.parse(text)
   } catch {
-    expected = text
+    // Non-JSON (raw text) payloads are wrapped as { text } by #2126.
+    expected = { text }
   }
   expect(r.structuredContent?.result).toEqual(expected)
 }
@@ -296,6 +298,49 @@ describe('structuredContent mirrors the text payload', () => {
       expect(outputSchema).toBeDefined()
       expect(outputSchema?.required).toContain('result')
       expect(Object.keys(outputSchema?.properties ?? {})).toEqual(['result'])
+    }
+  })
+})
+
+// ── No bare-string tool results (#2135 AC-3) ───────────────────────────────
+
+describe('no bare-string tool results (#2135)', () => {
+  test('jsonResult wraps a bare string to { text }', () => {
+    // Re-asserted here (also in utils.test.ts) so the runtime invariant is
+    // visible alongside the per-tool loop below.
+    const result = jsonResult('x')
+    expect(result.structuredContent.result).toEqual({ text: 'x' })
+    expect(typeof result.structuredContent.result).not.toBe('string')
+  })
+
+  test('representative tool calls never return a bare string in result', async () => {
+    const created = parseResult(await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'no-bare-string probe' }
+    }))
+    const thoughtId = created.data.id as string
+
+    const cases: Array<{ label: string; call: () => Promise<unknown> }> = [
+      { label: 'memory_store create', call: () => client.callTool({ name: 'memory_store', arguments: { action: 'create', content: 'x' } }) },
+      { label: 'memory_recall search', call: () => client.callTool({ name: 'memory_recall', arguments: { action: 'search', query: 'x' } }) },
+      { label: 'memory_manage list', call: () => client.callTool({ name: 'memory_manage', arguments: { action: 'list' } }) },
+      { label: 'memory_primers list', call: () => client.callTool({ name: 'memory_primers', arguments: { action: 'list' } }) },
+      { label: 'memory_reflect timeline', call: () => client.callTool({ name: 'memory_reflect', arguments: { action: 'timeline' } }) },
+      { label: 'memory_crystallize graph', call: () => client.callTool({ name: 'memory_crystallize', arguments: { action: 'graph' } }) },
+      { label: 'memory_status slots', call: () => client.callTool({ name: 'memory_status', arguments: { action: 'slots' } }) },
+      { label: 'memory_status config', call: () => client.callTool({ name: 'memory_status', arguments: { action: 'config' } }) },
+      { label: 'edge_review list', call: () => client.callTool({ name: 'edge_review', arguments: { action: 'list' } }) },
+      { label: 'retention_review list', call: () => client.callTool({ name: 'retention_review', arguments: { action: 'list' } }) },
+      { label: 'memory_guide', call: () => client.callTool({ name: 'memory_guide', arguments: {} }) },
+      { label: 'memory_supersede archive', call: () => client.callTool({ name: 'memory_supersede', arguments: { action: 'archive', thought_id: thoughtId, confirm: true } }) },
+    ]
+
+    for (const c of cases) {
+      const result = await c.call()
+      const r = result as { structuredContent?: { result?: unknown }; isError?: boolean }
+      if (r.structuredContent !== undefined) {
+        expect(typeof r.structuredContent.result).not.toBe('string')
+      }
     }
   })
 })
