@@ -12,11 +12,17 @@ import {
   DEFAULT_PROJECT_DELETE_MESSAGE
 } from '../../services/projects.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import { pickFields } from './utils'
 
 const handlers = {
   list: {
-    run() {
-      return listProjectsService()
+    run(args: ActionArgs) {
+      const projects = listProjectsService()
+      const fields = args.fields
+      if (Array.isArray(fields) && fields.length > 0) {
+        return projects.map((p: any) => pickFields(p, { fields }))
+      }
+      return projects
     }
   },
 
@@ -90,7 +96,9 @@ export function registerMemoryManage(server: McpServer) {
       description: z.string().optional().describe('Project description. OPTIONAL for "create" and "update". IGNORED for "list", "delete", "resolve".'),
       local_path: z.string().optional().describe('Local filesystem path. OPTIONAL for "create" and "update". IGNORED for "list", "delete", "resolve".'),
       confirm: z.boolean().optional().describe('CONSUMED by "delete" (true executes; false/omitted previews). IGNORED for all other actions.'),
-      cwd: z.string().optional().describe('REQUIRED for "resolve". Working directory path to resolve project from. IGNORED for all other actions.')
+      cwd: z.string().optional().describe('REQUIRED for "resolve". Working directory path to resolve project from. IGNORED for all other actions.'),
+      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). OPTIONAL for "list". IGNORED for all other actions.'),
+      fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for "list". IGNORED for all other actions.')
     },
     handlers
   })

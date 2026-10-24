@@ -34,6 +34,7 @@ export function registerMemoryStatus(server: McpServer) {
       include_signals: z.boolean().optional().describe('Include per-edge signals in the output (default true). OPTIONAL for "propose". IGNORED for all other actions.'),
       severity: z.enum(['critical', 'warning', 'info']).optional().describe('Minimum severity. OPTIONAL for "health". IGNORED for all other actions.'),
       fix: z.boolean().optional().describe('Auto-fix safe issues. OPTIONAL for "health". IGNORED for all other actions.'),
+      fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for all actions. IGNORED for actions without thought output.'),
       // Tombstones for retired parameters: supplying one fails input validation
       // with the canonical replacement instead of a silent strip.
       k: z.never({ error: 'k was removed; use limit' }).optional().describe('Removed; use limit.'),

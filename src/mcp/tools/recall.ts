@@ -13,7 +13,7 @@ import { getChainService } from '../../services/graph.service'
 import { contextHandler } from './recall/context'
 import { listThoughtsPageService } from '../../services/thoughts.service'
 import { getHandler as getRecallGetHandler } from './recall/get'
-import { resolveProjectId } from './utils'
+import { resolveProjectId, shapeThought } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
 const ACTION_FIELDS: Record<string, string[]> = {
@@ -58,7 +58,18 @@ const handlers = {
       const results = args.group_by_cluster
         ? await searchThoughtsGrouped(baseOptions)
         : await searchThoughts(baseOptions)
-      return postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
+      const processed = postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
+      const compact = args.compact === true
+      const fields = args.fields
+      if (compact || (Array.isArray(fields) && fields.length > 0)) {
+        return (Array.isArray(processed) ? processed : []).map((r: any) => {
+          if (r && typeof r === 'object' && !Array.isArray(r) && r.thought) {
+            return { ...r, thought: shapeThought(r.thought, compact, fields) }
+          }
+          return shapeThought(r, compact, fields)
+        })
+      }
+      return processed
     }
   },
 
@@ -69,7 +80,14 @@ const handlers = {
     run(args: ActionArgs) {
       const chain = getChainService(args.thought_id as string, args.direction as 'upstream' | 'downstream' | 'both' | undefined, args.max_degree as number | undefined)
       if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-      return chain
+      const compact = args.compact === true
+      const fields = args.fields
+      return {
+        ...chain,
+        thought: shapeThought(chain.thought, compact, fields),
+        upstream: Array.isArray(chain.upstream) ? chain.upstream.map((e: any) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.upstream,
+        downstream: Array.isArray(chain.downstream) ? chain.downstream.map((e: any) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.downstream,
+      }
     }
   },
 
@@ -94,7 +112,18 @@ const handlers = {
         recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
         minRelevance: args.min_relevance as number | undefined
       }))
-      return postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
+      const processed = postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
+      const compact = args.compact === true
+      const fields = args.fields
+      if (compact || (Array.isArray(fields) && fields.length > 0)) {
+        return (Array.isArray(processed) ? processed : []).map((r: any) => {
+          if (r && typeof r === 'object' && !Array.isArray(r) && r.thought) {
+            return { ...r, thought: shapeThought(r.thought, compact, fields) }
+          }
+          return shapeThought(r, compact, fields)
+        })
+      }
+      return processed
     }
   },
 
@@ -102,7 +131,7 @@ const handlers = {
     // No required argument: an unfiltered inventory is a valid request.
     run(args: ActionArgs) {
       const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      return listThoughtsPageService({
+      const page = listThoughtsPageService({
         status: args.status as string | undefined,
         project_id: projectFilter,
         tag: args.tag as string | undefined,
@@ -110,6 +139,12 @@ const handlers = {
         limit: args.limit as number | undefined,
         offset: args.offset as number | undefined
       })
+      const compact = args.compact === true
+      const fields = args.fields
+      if (compact || (Array.isArray(fields) && fields.length > 0)) {
+        page.thoughts = page.thoughts.map((t: any) => shapeThought(t, compact, fields)) as any
+      }
+      return page
     }
   }
 }
@@ -169,8 +204,8 @@ export function registerMemoryRecall(server: McpServer) {
       // two paginated thought surfaces cannot drift apart.
       limit: timelineLimitSchema.optional().describe('Max results for search/clusters (default 10) or list page size (default 50). IGNORED for get/context/chain.'),
       offset: z.number().int().min(0).max(1_000_000).optional().describe('list only: offset for pagination. IGNORED for all other actions.'),
-      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). OPTIONAL for all actions. IGNORED until wired (infra).'),
-      fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for all actions. IGNORED until wired (infra).'),
+      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). OPTIONAL for all actions.'),
+      fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for all actions.'),
       // Tombstones for retired parameters: a supplied value fails the advertised
       // input validation with the canonical replacement (the same pattern as
       // the retired is_profile input) instead of being silently stripped.
