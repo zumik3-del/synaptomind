@@ -1,3 +1,5 @@
+> **Migration note (v0.19):** The `project_id` MCP tool argument was removed. Pass `cwd` (working directory) instead; SynaptoMind resolves the project from it. Supplying `project_id` now fails input validation with "project_id was removed; use cwd". See the **Migration notes (v0.19 MCP UX cleanup)** section at the end of this document for the full list (compact defaults, preview tokens, `edge_review` canonical keys, retired inputs).
+
 # MCP Tools Reference
 
 SynaptoMind exposes its graph operations as 11 MCP tools, over both the stdio and HTTP
@@ -52,7 +54,16 @@ remove the field from requests. Retired names are not accepted aliases.
 
 Every tool declares the same output shape, `{ result: <payload> }` (`toolOutputShape`,
 `src/mcp/tools/utils.ts:12`). A successful action returns that payload in `structuredContent.result`
-mirroring the JSON in `content[].text` (`jsonResult`, `src/mcp/tools/utils.ts:14-19`).
+mirroring the JSON in `content[].text` (`jsonResult`, `src/mcp/tools/utils.ts:14-22`).
+Bare string payloads (config, guide) are wrapped as `{ text: string }` so no action ever
+returns a bare string in `result`; arrays and objects pass through unchanged.
+
+Two encodings coexist. Raw-text tools (`memory_status` action=config, `memory_guide`) keep the
+human-readable payload in `content[].text` verbatim and report `structuredContent.result = { text }`,
+so `content[].text` is **not** `JSON.stringify(result)` for those two. Every other tool goes through
+`jsonResult`, where `content[].text = JSON.stringify(payload)` and `result = payload`; a string passed
+to `jsonResult` is wrapped to `{ text }` and its `content[].text` becomes the JSON
+`{"text":"..."}`.
 
 An action failure returns `isError: true` with the human-readable message in `content[].text`. When
 the failure carries a domain status code, the classification is additionally mirrored into
@@ -72,10 +83,10 @@ the failure carries a domain status code, the classification is additionally mir
 
 - **Nesting.** The metadata sits under `result` — the key the declared output schema expects. The
   SDK client validates `structuredContent` against that schema whenever the key is present, so
-  putting it anywhere else would fail the check (`src/mcp/tools/utils.ts:37-39`).
+  putting it anywhere else would fail the check (`src/mcp/tools/utils.ts:40-42`).
 - **Classified vs unclassified.** Only errors exposing a numeric `statusCode` are enriched. A plain
   `Error` or a non-`Error` throw keeps the plain `{ content, isError }` shape with **no**
-  `structuredContent` key (`src/mcp/tools/utils.ts:49-52`, `src/mcp/tools/action-tool.ts:99-108`).
+  `structuredContent` key (`src/mcp/tools/utils.ts:52-55`, `src/mcp/tools/action-tool.ts:99-108`).
 - **Retryability.** `retryable` is `statusCode === 503`. The 503 class is the transient
   availability failures — embedder not ready, overloaded, timed out, send failure
   (`src/errors.ts`) — the only class safe to repeat as-is. Every other classified code
@@ -83,6 +94,37 @@ the failure carries a domain status code, the classification is additionally mir
 
 A client should re-issue the identical request only when `retryable` is `true`; otherwise the
 failure is a bad request and repeating it will not help.
+
+## Compact output and field selection
+
+Read tools (`memory_recall`, `memory_status`, `memory_crystallize`, `memory_manage`,
+`retention_review`) accept two output controls:
+
+- `compact: true` — trims each thought to the minimal field set
+  `{ id, content, status, tags (as strings), project }`.
+- `fields: ["id", "content", ...]` — returns only the requested fields (intersected
+  with the available columns). Explicit `fields` take precedence over `compact`.
+
+Examples:
+
+```json
+{ "action": "list", "compact": true }
+{ "action": "list", "fields": ["id", "content"] }
+{ "action": "get", "thought_id": "thought-a", "compact": true }
+{ "action": "search", "query": "marker", "compact": true }
+```
+
+Compact defaults (v0.19 MCP UX cleanup):
+
+- `memory_recall` — every action defaults to compact output; pass `compact: false`
+  for the full thought, or `fields` for an explicit subset.
+- `memory_status` `propose` — defaults to the slim plan (top 3 edges, no signals);
+  pass `compact: false` or `include_signals: true` (or `max_edges`) for full output.
+- `memory_crystallize` `graph`, `memory_manage` `list`, `retention_review` `list` —
+  compact is opt-in (`compact: true`); full output is the default unless `fields`
+  is supplied. (`retention_review` applies `compact`/`fields` to its candidate list.)
+
+Explicit `fields` always take precedence over `compact` on every tool.
 
 ## `memory_recall` — finding and retrieving thoughts
 
@@ -93,8 +135,8 @@ project, tag, or cluster flag — the tool that makes bulk triage and cleanup po
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `status` | enum | no | `draft`, `active`, or `archived` |
-| `project_id` | string | no | Restrict to one project |
+| `status` | enum | no | `draft`, `active`, or `archived` (default: all) |
+| `cwd` | string | no | Resolve project from working directory |
 | `tag` | string | no | Restrict to thoughts carrying this tag |
 | `is_cluster` | boolean | no | `true` = only clusters, `false` = only non-clusters |
 | `limit` | integer | no | Page size (1–500, default 50) |
@@ -114,7 +156,7 @@ Example:
 ### `action=search`
 
 Hybrid (RRF) / vector search. Key arguments: `query` (required), `hybrid` (boolean, default true: RRF fusion of the vector and BM25 legs; false = vector leg only),
-`status`, `project`, `tag`, `is_cluster`, `min_importance`, `limit`, `min_relevance`,
+`status` (default active), `project`, `tag`, `is_cluster`, `min_importance`, `limit`, `min_relevance`,
 `recency_weight`, `recency_half_life_days`, `supersession_mode`, `contradiction_mode`.
 Returns hits with `similarity`/`distance` (embedding leg only), `match_source` (`embedding`/`bm25`/both), `low_confidence`.
 
@@ -188,7 +230,7 @@ Example:
 Delete a single edge by id. Deletion is **idempotent**: a missing edge is reported as
 `not_found`, not an error. There is **no cascade** — only the edge row is removed; thoughts,
 tags and other edges are untouched. The action is not project-scoped (`edge_id` is globally
-unique), so no `cwd`/`project_id` is required.
+unique), so no `cwd` is required.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -203,7 +245,8 @@ unique), so no `cwd`/`project_id` is required.
   "edge_id": "edge-123",
   "edge": { "id": "edge-123", "source_id": "thought-a", "target_id": "thought-b", "type": "contradicts", "created_at": "2026-10-01T12:00:00.000Z" },
   "consequence": "Removes the 'contradicts' edge between 'thought-a' and 'thought-b'.",
-  "instruction": "Call memory_store again with action=unlink, edge_id=edge-123, confirm=true to proceed."
+  "preview_token": "<token>",
+  "instruction": "Call memory_store again with action=unlink, edge_id=edge-123, confirm=true, preview_token=<token> to proceed."
 }
 ```
 
@@ -215,7 +258,7 @@ A missing edge in preview returns `{ "status": "not_found", "edge_id": "edge-123
 Example:
 
 ```json
-{ "action": "unlink", "edge_id": "edge-123", "confirm": true }
+{ "action": "unlink", "edge_id": "edge-123", "confirm": true, "preview_token": "<token>" }
 ```
 
 ### `action=unlink_batch`
@@ -255,7 +298,7 @@ only a cluster thought may carry a `cluster` edge).
 | `new_type` | enum | yes | One of: `related`, `parent`, `develops`, `replaces`, `cluster`, `references`, `depends_on`, `contradicts`, `supports` |
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = retype |
 
-**Preview**: `{ "status": "preview", "edge_id": "edge-123", "old_type": "contradicts", "new_type": "supports", "source_id": "thought-a", "target_id": "thought-b", "consequence": "Changes edge type from 'contradicts' to 'supports'." }`
+**Preview**: `{ "status": "preview", "edge_id": "edge-123", "old_type": "contradicts", "new_type": "supports", "source_id": "thought-a", "target_id": "thought-b", "consequence": "Changes edge type from 'contradicts' to 'supports'.", "preview_token": "<token>" }`
 
 **Execute**: `{ "status": "retyped", "edge_id": "edge-123", "old_type": "contradicts", "new_type": "supports" }`
 
@@ -270,15 +313,18 @@ cluster-constraint violation.
 Example:
 
 ```json
-{ "action": "retype", "edge_id": "edge-123", "new_type": "supports", "confirm": true }
+{ "action": "retype", "edge_id": "edge-123", "new_type": "supports", "confirm": true, "preview_token": "<token>" }
 ```
 
 ## `memory_supersede` — archiving and merging
 
 All three actions preview when `confirm` is omitted or `false`; only `confirm: true` executes.
-Execution re-reads/revalidates current state, so previews can become stale; no preview token or
-transactional reservation is implied. `archive` and `archive_batch` identify thoughts by ID and
-do not accept a project scope; `project_id` and `cwd` apply only to `merge`.
+Execution re-reads/revalidates current state, so previews can become stale. Preview responses include
+a `preview_token` (stored in DB, ~5 min TTL) for every destructive action (unlink, retype, archive,
+archive_batch, merge, delete, auto_cluster, apply, apply_batch, rollback); `confirm: true` requires a
+valid `preview_token` and fails when it is missing or stale. No transactional reservation is implied.
+`archive` and `archive_batch` identify thoughts by ID and do not accept a project scope; `cwd`
+applies only to `merge`.
 
 ### `action=archive`
 
@@ -331,9 +377,9 @@ bounded list does not promise every edge will transfer.
 | `target_id` | string | yes | Thought that survives and receives the edges |
 | `merged_content` | string | no | Resulting content of the target |
 | `merged_tags` | string[] | no | Resulting tag set of the target |
-| `project_id` | string | no | Resulting project (defaults to the target's, then the source's) |
+| `cwd` | string | no | Resolve resulting project from working directory (defaults to the target's, then the source's) |
 
-Preview returns `{ "status": "preview", "action": "merge", "outcome": "would_merge", "source": { "id", "status", "edges": [], "source_edge_count": 0, "truncated": false }, "target": { "id", "status" }, "proposed": { "merged_content", "merged_tags", "project_id" }, "effects": { "source_archived": true, "target_updated": false, "replaces_edge_created": true } }`. Missing IDs report `outcome: "not_found"`; an ineligible merge reports `outcome: "ineligible"` and `reason`. `proposed` reflects supplied values; `effects` describes the prospective updates. Execution returns `{ "status": "executed", "action": "merge", "result": { "target": { ... }, "edges_transferred": 2 } }` — `edges_transferred` is the number of
+Preview returns `{ "status": "preview", "action": "merge", "outcome": "would_merge", "source": { "id", "status", "edges": [], "source_edge_count": 0, "truncated": false }, "target": { "id", "status" }, "proposed": { "merged_content", "merged_tags", "project_id" }, "effects": { "source_archived": true, "target_updated": false, "replaces_edge_created": true }, "preview_token": "<token>" }`. Missing IDs report `outcome: "not_found"`; an ineligible merge reports `outcome: "ineligible"` and `reason`. `proposed` reflects supplied values; `effects` describes the prospective updates. Execution returns `{ "status": "executed", "action": "merge", "result": { "target": { ... }, "edges_transferred": 2 } }` — `edges_transferred` is the number of
 source edges the target now holds, so a caller can verify the consolidation. Not every source
 edge contributes: one that would collapse into a self-loop (it joined the target to the source),
 a duplicate of a non-symmetric edge the target already has, and a cluster edge the cluster rule
@@ -355,7 +401,31 @@ and `tags`), and `auto_cluster` (Union-Find grouping over active thoughts, tuned
 `autoCluster.*` settings in [CONFIG.md](CONFIG.md). It previews when `confirm` is absent or false;
 `confirm: true` executes, even when the configured `autoCluster.dryRun` default is true. The retired
 `dry_run` input is rejected with a hint to use `confirm`;
-`project_id`/`cwd` do not apply — the run is global).
+preview responses carry a `preview_token` that must be echoed on `confirm: true`.
+`cwd` does not apply — the run is global).
+
+## `edge_review` — placement proposals
+
+MCP parity for the HTTP review queue (`docs/API.md` §Review). Actions: `enqueue`, `list`,
+`apply`, `apply_batch`, `rollback`, `reject`. `enqueue` requires a persisted, `active`
+`thought_id`; `apply`/`apply_batch`/`rollback` are preview-first and require a `preview_token`
+on `confirm: true`.
+
+`list` returns the canonical (trimmed) envelope:
+
+```json
+{ "items": [ /* queued rows */ ], "total": 42, "returned": 10, "retired_count": 3, "all_total": 45 }
+```
+
+- `items` — queued rows for the page (retired kinds hidden unless `include_retired`).
+- `total` — rows matching the filters, ignoring the page limit.
+- `returned` — page size.
+- `retired_count` — retired (legacy) kinds hidden by default.
+- `all_total` — all matching rows, including retired.
+
+Retired aliases (`proposals`, `results`, `rows`, `count`, `visible_count`,
+`returned_count`, `retired`, `retiredCount`, `hidden_retired`, `breakdown`) were removed;
+use the canonical keys above.
 
 ## `memory_reflect` — session reflection
 
@@ -384,7 +454,7 @@ output is identifiable and can be filtered (`memory_recall` with `tag: "reflect"
 without touching hand-created thoughts. It is additive: statuses, dedup and the scheduled
 surface time are unchanged, and no read path keys off it.
 
-`action=timeline` is the plain paginated thought list (`status`, `project_id`, `limit`,
+`action=timeline` is the plain paginated thought list (`status`, `cwd`, `limit`,
 `offset`).
 
 ## `memory_primers` — the always-at-hand set
@@ -421,7 +491,8 @@ primer row. Deletion is **idempotent**: a missing primer is reported as `not_fou
   "primer_id": "primer-1",
   "primer": { "id": "primer-1", "thought_id": "thought-a", "hit_count": 12, "promoted_at": "2026-10-01T12:00:00.000Z", "created_at": "2026-10-01T12:00:00.000Z" },
   "consequence": "Removes the primer for thought 'thought-a' from the always-at-hand set.",
-  "instruction": "Call memory_primers again with action=delete, primer_id=primer-1, confirm=true to proceed."
+  "preview_token": "<token>",
+  "instruction": "Call memory_primers again with action=delete, primer_id=primer-1, confirm=true, preview_token=<token> to proceed."
 }
 ```
 
@@ -433,7 +504,7 @@ A missing primer in preview returns `{ "status": "not_found", "primer_id": "prim
 Example:
 
 ```json
-{ "action": "delete", "primer_id": "primer-1", "confirm": true }
+{ "action": "delete", "primer_id": "primer-1", "confirm": true, "preview_token": "<token>" }
 ```
 
 > **HTTP parity.** The HTTP routes `GET /api/primers` and `DELETE /api/primers/:id` keep their
@@ -456,7 +527,7 @@ content, update or archive the underlying thoughts (virtual slots) or use `memor
 
 ### `action=propose`
 
-Read-only placement plan (placement, edges, lifecycle); never writes.
+Read-only placement plan (placement, edges, lifecycle); never writes. Default output is slim (top 3 edges, no signals); pass `include_signals=true` or `compact=false` for full output.
 
 ## `memory_manage` — projects
 
@@ -485,3 +556,31 @@ Resolve it with the edge writers above, then re-run the check:
 
 Both edge writes are dry-run first: preview with `confirm` omitted, then re-issue with
 `confirm: true`.
+
+## Migration notes (v0.19 MCP UX cleanup)
+
+Breaking changes for MCP clients (HTTP API is unchanged unless noted):
+
+1. **`project_id` argument removed.** All MCP tools that accepted `project_id`
+   now resolve the project from `cwd` (working directory). Passing `project_id`
+   fails input validation with `project_id was removed; use cwd`. Remove the field
+   and pass `cwd` instead.
+2. **Compact defaults.** `memory_recall` now defaults to compact output; pass
+   `compact: false` for full thoughts. `memory_status` `propose` defaults to the
+   slim plan (top 3 edges, no signals); pass `compact: false` or
+   `include_signals: true`. Other read tools stay full by default; opt in with
+   `compact: true`. Explicit `fields` always win.
+3. **Preview tokens required.** Every destructive action (`memory_store`
+   `unlink`/`retype`, `memory_supersede` `archive`/`archive_batch`/`merge`,
+   `memory_manage` `delete`, `edge_review` `apply`/`apply_batch`/`rollback`,
+   `memory_primers` `delete`, `memory_crystallize` `auto_cluster`,
+   `retention_review` `delete`) now returns a `preview_token` on preview and
+   requires it (valid, unexpired) on `confirm: true`. Tokens live ~5 minutes.
+4. **`edge_review` list trimmed.** Response uses canonical keys only:
+   `items`, `total`, `returned`, `retired_count`, `all_total`. Retired aliases were
+   removed.
+5. **Retired inputs.** `top_k`→`limit`, `cluster`→`is_cluster`, `k`→`limit`,
+   `dry_run`→`confirm`, `thought_id` (link)→`source_id`, `goals_delta`→
+   `goals_add`/`goals_remove`, `max_items`→`max_proposals`, `mode`→`hybrid`.
+   `is_profile` has no replacement — remove the field. Retired names are not
+   accepted aliases.

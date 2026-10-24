@@ -80,7 +80,7 @@ export function rowToThought(row: Record<string, unknown>): Thought {
     tags: [],
     source: row.source as string | null,
     project_id: row.project_id as string,
-    project_name: row.project_name as string | undefined,
+    project_name: (row.project_name as string | null) ?? undefined,
     is_cluster: row.is_cluster as number,
     is_profile: (row.is_profile as number) ?? 0,
     is_protected: (row.is_protected as number) ?? 1,

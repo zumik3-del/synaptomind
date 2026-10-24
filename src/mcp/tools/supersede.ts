@@ -7,6 +7,7 @@ import {
   archiveThoughtsBatchService
 } from '../../services/thoughts.service'
 import { getBoundedMergePreviewService, mergeThoughtsService } from '../../services/merge.service'
+import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { validateMergePreconditions } from '../../services/merge'
 import { BATCH_ITEMS_MAX } from '../../validation'
 import { resolveProjectId } from './utils'
@@ -16,7 +17,7 @@ const MERGE_PREVIEW_EDGE_LIMIT = 50
 const ACTION_FIELDS: Record<string, string[]> = {
   archive: ['thought_id'],
   archive_batch: ['thought_ids'],
-  merge: ['source_id', 'target_id', 'merged_content', 'merged_tags', 'project_id', 'cwd']
+  merge: ['source_id', 'target_id', 'merged_content', 'merged_tags', 'cwd']
 }
 const ACTION_FIELDS_ALL = new Set(Object.values(ACTION_FIELDS).flat())
 
@@ -29,18 +30,32 @@ function validateActionFields(action: string, args: ActionArgs): void {
   if (irrelevant.length) throw new Error(`${irrelevant.join(', ')} is not applicable to ${action} action`)
 }
 
+function thoughtFingerprint(thought: { id: string; status: string; updated_at: string; is_protected: number; is_profile: number }): string {
+  return `${thought.id}:${thought.status}:${thought.updated_at}:${thought.is_protected}:${thought.is_profile}`
+}
+
 const handlers = {
   archive: {
-    input: z.object({ thought_id: requiredString('thought_id is required for archive action') }),
+    input: z.object({ thought_id: requiredString('thought_id is required for archive action'), preview_token: z.string().optional() }),
     run(args: ActionArgs) {
-      const existing = getThoughtByIdService(args.thought_id as string)
+      const thoughtId = args.thought_id as string
+      const existing = getThoughtByIdService(thoughtId)
+      const previewToken = args.preview_token as string | undefined
       if (args.confirm !== true) {
-        return { status: 'preview', action: 'archive', thought_id: args.thought_id, current_status: existing?.status ?? null,
-          outcome: !existing ? 'not_found' : existing.status === 'archived' ? 'already_archived' : existing.is_profile ? 'protected' : 'would_archive' }
+        const token = existing ? createPreviewTokenService('archive', thoughtId, thoughtFingerprint(existing as any)) : undefined
+        return { status: 'preview', action: 'archive', thought_id: thoughtId, current_status: existing?.status ?? null,
+          outcome: !existing ? 'not_found' : existing.status === 'archived' ? 'already_archived' : existing.is_profile ? 'protected' : 'would_archive',
+          ...(token ? { preview_token: token } : {}) }
       }
-      if (!existing) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-      const result = existing.status === 'archived' ? existing : archiveThoughtByIdService(args.thought_id as string)
-      return { status: 'executed', action: 'archive', result }
+      if (!existing) throw new NotFoundError(`Thought '${thoughtId}' not found`)
+      const currentFingerprint = thoughtFingerprint(existing as any)
+      if (!previewToken) throw new Error('preview_token is required')
+      const verification = verifyPreviewTokenService(previewToken, 'archive', thoughtId, currentFingerprint)
+      if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
+      consumePreviewTokenService(previewToken)
+      const result = existing.status === 'archived' ? existing : archiveThoughtByIdService(thoughtId)
+      const out: Record<string, unknown> = { status: 'executed', action: 'archive', result }
+      return out
     }
   },
 
@@ -51,10 +66,12 @@ const handlers = {
           error: 'thought_ids is required for archive_batch action'
         })
         .min(1, 'thought_ids is required for archive_batch action')
-        .max(BATCH_ITEMS_MAX, `thought_ids accepts at most ${BATCH_ITEMS_MAX} ids per call`)
+        .max(BATCH_ITEMS_MAX, `thought_ids accepts at most ${BATCH_ITEMS_MAX} ids per call`),
+      preview_token: z.string().optional()
     }),
     run(args: ActionArgs) {
       const ids = args.thought_ids as string[]
+      const previewToken = args.preview_token as string | undefined
       if (args.confirm !== true) {
         const seen = new Set<string>()
         const items = ids.map(thought_id => {
@@ -64,8 +81,21 @@ const handlers = {
           const outcome = !thought ? 'not_found' : thought.status === 'archived' || (duplicate && !thought.is_profile) ? 'already_archived' : thought.is_profile ? 'protected' : 'would_archive'
           return { thought_id, outcome }
         })
-        return { status: 'preview', action: 'archive_batch', requested_count: ids.length, items }
+        const fingerprint = ids.map(id => {
+          const t = getThoughtByIdService(id)
+          return t ? thoughtFingerprint(t as any) : `missing:${id}`
+        }).join('|')
+        const token = createPreviewTokenService('archive_batch', ids.join(','), fingerprint)
+        return { status: 'preview', action: 'archive_batch', requested_count: ids.length, items, preview_token: token }
       }
+      const fingerprint = ids.map(id => {
+        const t = getThoughtByIdService(id)
+        return t ? thoughtFingerprint(t as any) : `missing:${id}`
+      }).join('|')
+      if (!previewToken) throw new Error('preview_token is required')
+      const verification = verifyPreviewTokenService(previewToken, 'archive_batch', ids.join(','), fingerprint)
+      if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
+      consumePreviewTokenService(previewToken)
       return { status: 'executed', action: 'archive_batch', result: archiveThoughtsBatchService(ids) }
     }
   },
@@ -73,43 +103,59 @@ const handlers = {
   merge: {
     input: z.object({
       source_id: requiredString('source_id is required for merge action'),
-      target_id: requiredString('target_id is required for merge action')
+      target_id: requiredString('target_id is required for merge action'),
+      preview_token: z.string().optional()
     }),
     run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
+      const projectFilter = resolveProjectId(args.cwd as string)
+      const sourceId = args.source_id as string
+      const targetId = args.target_id as string
+      const previewToken = args.preview_token as string | undefined
       if (args.confirm !== true) {
-        const preview = getBoundedMergePreviewService(args.source_id as string, args.target_id as string, MERGE_PREVIEW_EDGE_LIMIT)
-        if (!preview) return { status: 'preview', action: 'merge', source: { id: args.source_id, status: null }, target: { id: args.target_id, status: null }, outcome: 'not_found' }
+        const preview = getBoundedMergePreviewService(sourceId, targetId, MERGE_PREVIEW_EDGE_LIMIT)
+        if (!preview) return { status: 'preview', action: 'merge', source: { id: sourceId, status: null }, target: { id: targetId, status: null }, outcome: 'not_found' }
         let outcome = 'would_merge'
         let reason: string | undefined
-        if (args.source_id === args.target_id) { outcome = 'ineligible'; reason = 'source_id and target_id must be different' }
+        if (sourceId === targetId) { outcome = 'ineligible'; reason = 'source_id and target_id must be different' }
         else {
           try { validateMergePreconditions(preview.source) }
           catch (error) { outcome = 'ineligible'; reason = error instanceof Error ? error.message : String(error) }
         }
         const edgePreview = { edges: preview.source.edges, source_edge_count: preview.sourceEdgeCount, truncated: preview.sourceEdgeCount > MERGE_PREVIEW_EDGE_LIMIT }
+        const token = createPreviewTokenService('merge', `${sourceId}:${targetId}`, mergeFingerprint(preview.source, preview.target, args.merged_content as string | undefined, args.merged_tags as string[] | undefined, projectFilter))
         return {
           status: 'preview', action: 'merge', outcome, ...(reason ? { reason } : {}),
           source: { id: preview.source.id, status: preview.source.status, ...edgePreview },
           target: { id: preview.target.id, status: preview.target.status },
           proposed: { merged_content: args.merged_content, merged_tags: args.merged_tags, project_id: projectFilter },
           effects: { source_archived: outcome === 'would_merge', target_updated: outcome === 'would_merge' && (args.merged_content !== undefined || args.merged_tags !== undefined || projectFilter !== undefined),
-            ...(outcome === 'would_merge' ? { replaces_edge_created: true } : {}) }
+            ...(outcome === 'would_merge' ? { replaces_edge_created: true } : {}) },
+          preview_token: token
         }
       }
+      const source = getThoughtByIdService(sourceId)
+      const target = getThoughtByIdService(targetId)
+      if (source && target) {
+        const currentFingerprint = mergeFingerprint(source as any, target as any, args.merged_content as string | undefined, args.merged_tags as string[] | undefined, projectFilter)
+        if (!previewToken) throw new Error('preview_token is required')
+        const verification = verifyPreviewTokenService(previewToken, 'merge', `${sourceId}:${targetId}`, currentFingerprint)
+        if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
+        consumePreviewTokenService(previewToken)
+      }
       const result = mergeThoughtsService({
-        targetId: args.target_id as string,
-        sourceId: args.source_id as string,
+        targetId,
+        sourceId,
         mergedContent: args.merged_content as string | undefined,
         mergedTags: args.merged_tags as string[] | undefined,
         projectId: projectFilter
       })
-      // The MCP surface reports the consolidation in snake_case (`edges_transferred`);
-      // the HTTP twin keeps its long-standing `transferredEdges` field, so the service
-      // result is renamed here instead of at the writer.
       return { status: 'executed', action: 'merge', result: { target: result.target, edges_transferred: result.transferredEdges } }
     }
   }
+}
+
+function mergeFingerprint(source: any, target: any, mergedContent: unknown, mergedTags: unknown, projectId: unknown): string {
+  return `${source ? thoughtFingerprint(source) : 'missing'}|${target ? thoughtFingerprint(target) : 'missing'}|${JSON.stringify(mergedContent)}|${JSON.stringify(mergedTags)}|${String(projectId)}`
 }
 
 export function registerMemorySupersede(server: McpServer) {
@@ -125,8 +171,9 @@ export function registerMemorySupersede(server: McpServer) {
       target_id: z.string().optional().describe('REQUIRED ONLY for "merge". Target thought ID — will be updated. Rejected for other actions.'),
       merged_content: z.string().optional().describe('Replacement content for merge. OPTIONAL for "merge". REJECTED for "archive" and "archive_batch".'),
       merged_tags: z.array(z.string()).optional().describe('Merged tags. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
-      project_id: z.string().optional().describe('Project ID. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
-      cwd: z.string().optional().describe('Working directory — auto-resolves project. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".')
+      project_id: z.never({ error: 'project_id was removed; use cwd' }).optional().describe('Removed; use cwd.'),
+      cwd: z.string().optional().describe('Working directory — auto-resolves project. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
+      preview_token: z.string().optional().describe('OPTIONAL preview token returned by a prior preview. CONSUMED by "archive", "archive_batch", "merge" (true executes with token validation; missing/stale fails). IGNORED for all other actions.')
     },
     handlers: Object.fromEntries(Object.entries(handlers).map(([action, handler]) => [action, {
       ...handler,

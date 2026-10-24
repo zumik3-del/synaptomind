@@ -10,7 +10,7 @@ export const clusterHandler: ActionHandler = {
       .min(1, 'thought_ids is required for cluster action')
   }),
   run(args: ActionArgs) {
-    const projectId = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+    const projectId = resolveProjectId(args.cwd as string | undefined)
     return createClusterService({ thoughtIds: args.thought_ids as string[], title: args.title as string | undefined, tags: args.tags as string[] | undefined, projectId })
   }
 }

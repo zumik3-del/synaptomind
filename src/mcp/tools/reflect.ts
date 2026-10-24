@@ -11,7 +11,7 @@ const handlers = {
     run(args: ActionArgs) {
       // Resolved inside the dispatch try so resolution failures return the
       // isError envelope like every other action (audit F9).
-      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      const projectFilter = resolveProjectId(args.cwd as string | undefined)
       return reflectSessionService({
         summary: args.summary as string | undefined,
         goals_add: args.goals_add as string[] | undefined,
@@ -25,7 +25,7 @@ const handlers = {
 
   timeline: {
     run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
+      const projectFilter = resolveProjectId(args.cwd as string | undefined)
       return listThoughtsService({
         status: args.status as 'draft' | 'active' | 'archived' | undefined, project_id: projectFilter,
         limit: args.limit as number | undefined, offset: args.offset as number | undefined
@@ -46,7 +46,7 @@ export function registerMemoryReflect(server: McpServer) {
       decisions: z.array(z.string()).optional().describe('Decisions made — each creates an active thought tagged "decision" and "reflect". OPTIONAL for "reflect". IGNORED for "timeline".'),
       pending: z.array(z.string()).optional().describe('Pending tasks — each creates a draft thought tagged "pending" and "reflect" that surfaces in the frontier after wake_days. OPTIONAL for "reflect". IGNORED for "timeline".'),
       wake_days: z.number().int().min(1).max(365).optional().describe('Days before pending items surface in the frontier (default 7, 1-365). OPTIONAL for "reflect". IGNORED for "timeline".'),
-      project_id: z.string().optional().describe('Project scope (omit for global). OPTIONAL for "reflect" and "timeline".'),
+      project_id: z.never({ error: 'project_id was removed; use cwd' }).optional().describe('Removed; use cwd.'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project. OPTIONAL for "reflect" and "timeline" (always pass).'),
       status: thoughtStatusSchema.optional().describe('Filter by status (default all). OPTIONAL for "timeline". IGNORED for "reflect".'),
       limit: timelineLimitSchema.optional().describe('Max results (default 50, 1-500). OPTIONAL for "timeline". IGNORED for "reflect".'),

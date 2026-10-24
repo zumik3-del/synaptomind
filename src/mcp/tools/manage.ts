@@ -12,11 +12,18 @@ import {
   DEFAULT_PROJECT_DELETE_MESSAGE
 } from '../../services/projects.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import { projectFields } from './utils'
+import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 
 const handlers = {
   list: {
-    run() {
-      return listProjectsService()
+    run(args: ActionArgs) {
+      const projects = listProjectsService()
+      const fields = args.fields
+      if (Array.isArray(fields) && fields.length > 0) {
+        return projects.map((p: any) => projectFields(p, { fields }))
+      }
+      return projects
     }
   },
 
@@ -40,13 +47,16 @@ const handlers = {
   },
 
   delete: {
-    input: z.object({ project_id: requiredString('project_id is required for delete action') }),
+    input: z.object({ project_id: requiredString('project_id is required for delete action'), preview_token: z.string().optional() }),
     run(args: ActionArgs) {
-      const project = getProjectService(args.project_id as string)
-      if (!project) throw new NotFoundError(`Project not found: ${args.project_id}`)
-      if (isDefaultProjectService(args.project_id as string)) throw new ValidationError(DEFAULT_PROJECT_DELETE_MESSAGE)
+      const projectId = args.project_id as string
+      const previewToken = args.preview_token as string | undefined
+      const project = getProjectService(projectId)
+      if (!project) throw new NotFoundError(`Project not found: ${projectId}`)
+      if (isDefaultProjectService(projectId)) throw new ValidationError(DEFAULT_PROJECT_DELETE_MESSAGE)
 
       if (!args.confirm) {
+        const token = createPreviewTokenService('manage_delete', projectId, `${project.id}:${project.name}:${project.thought_count}`)
         return {
           action: 'preview',
           project: { id: project.id, name: project.name, description: project.description },
@@ -54,12 +64,19 @@ const handlers = {
           consequence: project.thought_count > 0
             ? `${project.thought_count} thought(s) will be moved to the Default project before deletion.`
             : 'Project has no thoughts — safe to delete.',
-          instruction: 'Call memory_manage again with action=delete, project_id=..., confirm=true to proceed.'
+          instruction: 'Call memory_manage again with action=delete, project_id=..., confirm=true to proceed.',
+          preview_token: token
         }
       }
 
-      const deleted = deleteProjectService(args.project_id as string)
-      if (!deleted) throw new NotFoundError(`Project not found: ${args.project_id}`)
+      const fp = `${project.id}:${project.name}:${project.thought_count}`
+      if (!previewToken) throw new Error('preview_token is required')
+      const verification = verifyPreviewTokenService(previewToken, 'manage_delete', projectId, fp)
+      if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
+      consumePreviewTokenService(previewToken)
+
+      const deleted = deleteProjectService(projectId)
+      if (!deleted) throw new NotFoundError(`Project not found: ${projectId}`)
       return {
         action: 'deleted',
         project: { id: project.id, name: project.name },
@@ -90,7 +107,10 @@ export function registerMemoryManage(server: McpServer) {
       description: z.string().optional().describe('Project description. OPTIONAL for "create" and "update". IGNORED for "list", "delete", "resolve".'),
       local_path: z.string().optional().describe('Local filesystem path. OPTIONAL for "create" and "update". IGNORED for "list", "delete", "resolve".'),
       confirm: z.boolean().optional().describe('CONSUMED by "delete" (true executes; false/omitted previews). IGNORED for all other actions.'),
-      cwd: z.string().optional().describe('REQUIRED for "resolve". Working directory path to resolve project from. IGNORED for all other actions.')
+      preview_token: z.string().optional().describe('OPTIONAL preview token returned by a prior preview. CONSUMED by "delete" (true executes with token validation; missing/stale fails). IGNORED for all other actions.'),
+      cwd: z.string().optional().describe('REQUIRED for "resolve". Working directory path to resolve project from. IGNORED for all other actions.'),
+      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). OPTIONAL for "list". IGNORED for all other actions.'),
+      fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for "list". IGNORED for all other actions.')
     },
     handlers
   })

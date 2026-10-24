@@ -13,16 +13,16 @@ import { getChainService } from '../../services/graph.service'
 import { contextHandler } from './recall/context'
 import { listThoughtsPageService } from '../../services/thoughts.service'
 import { getHandler as getRecallGetHandler } from './recall/get'
-import { resolveProjectId } from './utils'
+import { resolveProjectId, shapeThought } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
 const ACTION_FIELDS: Record<string, string[]> = {
-  search: ['query', 'status', 'project_id', 'cwd', 'tag', 'is_cluster', 'group_by_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'supersession_mode', 'contradiction_mode', 'limit'],
-  clusters: ['query', 'status', 'project_id', 'cwd', 'tag', 'is_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'limit'],
-  context: ['query', 'thought_id', 'project_id', 'cwd', 'direction', 'max_degree'],
-  chain: ['thought_id', 'direction', 'max_degree'],
-  get: ['thought_id', 'include_edges', 'max_degree'],
-  list: ['status', 'project_id', 'cwd', 'tag', 'is_cluster', 'limit', 'offset']
+  search: ['query', 'status', 'cwd', 'tag', 'is_cluster', 'group_by_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'supersession_mode', 'contradiction_mode', 'limit', 'compact', 'fields'],
+  clusters: ['query', 'status', 'cwd', 'tag', 'is_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'limit', 'compact', 'fields'],
+  context: ['query', 'thought_id', 'cwd', 'direction', 'max_degree', 'compact', 'fields'],
+  chain: ['thought_id', 'direction', 'max_degree', 'compact', 'fields'],
+  get: ['thought_id', 'include_edges', 'max_degree', 'compact', 'fields'],
+  list: ['status', 'cwd', 'tag', 'is_cluster', 'limit', 'offset', 'compact', 'fields']
 }
 const ACTION_FIELDS_ALL = new Set(Object.values(ACTION_FIELDS).flat())
 
@@ -37,11 +37,12 @@ const handlers = {
 
   search: {
     input: z.object({
-      query: requiredString('query is required for search action')
+      query: requiredString('query is required for search action'),
+      status: thoughtStatusSchema.default('active')
     }),
     async run(args: ActionArgs) {
       const limit = (args.limit as number) ?? 10
-      const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
+      const projectFilter = resolveProjectId(args.cwd as string)
       const baseOptions = buildSearchOptions({
         query: args.query as string, topK: limit, status: args.status as string | undefined,
         projectFilter, tagFilter: args.tag as string | undefined,
@@ -58,7 +59,18 @@ const handlers = {
       const results = args.group_by_cluster
         ? await searchThoughtsGrouped(baseOptions)
         : await searchThoughts(baseOptions)
-      return postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
+      const processed = postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
+      const compact = args.compact !== false
+      const fields = args.fields
+      if (compact || (Array.isArray(fields) && fields.length > 0)) {
+        return (Array.isArray(processed) ? processed : []).map((r: any) => {
+          if (r && typeof r === 'object' && !Array.isArray(r) && r.thought) {
+            return { ...r, thought: shapeThought(r.thought, compact, fields) }
+          }
+          return shapeThought(r, compact, fields)
+        })
+      }
+      return processed
     }
   },
 
@@ -69,17 +81,25 @@ const handlers = {
     run(args: ActionArgs) {
       const chain = getChainService(args.thought_id as string, args.direction as 'upstream' | 'downstream' | 'both' | undefined, args.max_degree as number | undefined)
       if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-      return chain
+      const compact = args.compact !== false
+      const fields = args.fields
+      return {
+        ...chain,
+        thought: shapeThought(chain.thought, compact, fields),
+        upstream: Array.isArray(chain.upstream) ? chain.upstream.map((e: any) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.upstream,
+        downstream: Array.isArray(chain.downstream) ? chain.downstream.map((e: any) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.downstream,
+      }
     }
   },
 
   clusters: {
     input: z.object({
-      query: requiredString('query is required for clusters action')
+      query: requiredString('query is required for clusters action'),
+      status: thoughtStatusSchema.default('active')
     }),
     async run(args: ActionArgs) {
       const limit = (args.limit as number) ?? 10
-      const projectFilter = resolveProjectId(args.project_id as string, args.cwd as string)
+      const projectFilter = resolveProjectId(args.cwd as string)
       // This action lists cluster thoughts by definition, so an explicit
       // `is_cluster=false` contradicts it.
       if (args.is_cluster === false) {
@@ -94,15 +114,29 @@ const handlers = {
         recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
         minRelevance: args.min_relevance as number | undefined
       }))
-      return postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
+      const processed = postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
+      const compact = args.compact !== false
+      const fields = args.fields
+      if (compact || (Array.isArray(fields) && fields.length > 0)) {
+        return (Array.isArray(processed) ? processed : []).map((r: any) => {
+          if (r && typeof r === 'object' && !Array.isArray(r) && r.thought) {
+            return { ...r, thought: shapeThought(r.thought, compact, fields) }
+          }
+          return shapeThought(r, compact, fields)
+        })
+      }
+      return processed
     }
   },
 
   list: {
     // No required argument: an unfiltered inventory is a valid request.
+    input: z.object({
+      status: z.enum(['draft', 'active', 'archived', 'all']).default('all')
+    }),
     run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.project_id as string | undefined, args.cwd as string | undefined)
-      return listThoughtsPageService({
+      const projectFilter = resolveProjectId(args.cwd as string | undefined)
+      const page = listThoughtsPageService({
         status: args.status as string | undefined,
         project_id: projectFilter,
         tag: args.tag as string | undefined,
@@ -110,6 +144,12 @@ const handlers = {
         limit: args.limit as number | undefined,
         offset: args.offset as number | undefined
       })
+      const compact = args.compact !== false
+      const fields = args.fields
+      if (compact || (Array.isArray(fields) && fields.length > 0)) {
+        page.thoughts = page.thoughts.map((t: any) => shapeThought(t, compact, fields)) as any
+      }
+      return page
     }
   }
 }
@@ -117,12 +157,12 @@ const handlers = {
 export function registerMemoryRecall(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_recall',
-    description: `Search and retrieve thoughts. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/project_id/tag/is_cluster filters, limit/offset paging, total count).`,
+    description: `Search and retrieve thoughts. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/cwd/tag/is_cluster filters, limit/offset paging, total count). Status defaults: search/clusters active, list all; pass status to override.`,
     inputSchema: {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters', 'list']).describe('Action'),
       query: z.string().optional().describe('Search query (REQUIRED for search/clusters; accepted by context as an alternative to thought_id). IGNORED for get/chain/list.'),
       status: thoughtStatusSchema.optional().describe('Filter by status (search/clusters default: active; list default: all). IGNORED for get/context/chain.'),
-      project_id: z.string().optional().describe('Filter by project (prefer cwd instead). Consumed by search/clusters/context/list. IGNORED for get/chain.'),
+      project_id: z.never({ error: 'project_id was removed; use cwd' }).optional().describe('Removed; use cwd.'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project (search/clusters/context/list). Always pass this. IGNORED for get/chain.'),
       tag: z.string().optional().describe('Filter by tag (search/clusters/list). IGNORED for get/context/chain.'),
       is_cluster: z.boolean().optional().describe('Cluster filter: true = cluster thoughts only, false = exclude cluster thoughts (search/clusters/list). IGNORED for get/context/chain.'),
@@ -169,6 +209,8 @@ export function registerMemoryRecall(server: McpServer) {
       // two paginated thought surfaces cannot drift apart.
       limit: timelineLimitSchema.optional().describe('Max results for search/clusters (default 10) or list page size (default 50). IGNORED for get/context/chain.'),
       offset: z.number().int().min(0).max(1_000_000).optional().describe('list only: offset for pagination. IGNORED for all other actions.'),
+      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). Default true for all actions; pass false for full output.'),
+      fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for all actions.'),
       // Tombstones for retired parameters: a supplied value fails the advertised
       // input validation with the canonical replacement (the same pattern as
       // the retired is_profile input) instead of being silently stripped.

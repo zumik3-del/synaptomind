@@ -24,6 +24,8 @@ import { getDb } from '../db'
 import {
   getProposal,
   insertProposal,
+  isLegacyItemKind,
+  listAcceptedProposalsByRun,
   listProposals,
   updateProposalState,
   type InsertProposalInput,
@@ -47,6 +49,15 @@ import {
 
 export { computeFingerprint, pairFingerprint } from './placement-proposals.mapping'
 export type { FingerprintInput } from './placement-proposals.mapping'
+export { isLegacyItemKind } from '../db/placement-proposals'
+
+export function getProposalService(id: string, d: Database = getDb()): PlacementProposalRow | undefined {
+  return getProposal(d, id)
+}
+
+export function listAcceptedProposalsByRunService(runId: string, d: Database = getDb()): PlacementProposalRow[] {
+  return listAcceptedProposalsByRun(d, runId)
+}
 
 /**
  * The result of one enqueue: the queued rows plus what was *not* queued.
@@ -98,8 +109,10 @@ export interface ListOptions {
   /** State filter; defaults to live `pending` rows (ADR §2.2). */
   state?: ProposalState
   projectId?: string
+  project_id?: string
   /** Optional item-kind filter; a removed kind still filters (tasks #1942, #1946). */
   itemKind?: StoredProposalItemKind
+  item_kind?: StoredProposalItemKind
   /** Optional source-thought filter (queued proposals of one source thought). */
   sourceThoughtId?: string
   source_thought_id?: string
@@ -109,6 +122,9 @@ export interface ListOptions {
   limit?: number
   /** Clock override for the expired-row filter (default now). */
   now?: string
+  /** When true, retired (legacy) kinds are included even without an explicit item_kind. */
+  includeRetired?: boolean
+  include_retired?: boolean
 }
 
 export interface RejectOptions {
@@ -288,19 +304,30 @@ export function listPlacementProposalsService(options: ListOptions = {}, d: Data
   const now = options.now ?? new Date().toISOString()
   const sourceThoughtId = options.sourceThoughtId ?? options.source_thought_id
   const createdAfter = options.createdAfter ?? options.created_after
+  const projectId = options.projectId ?? options.project_id
+  const itemKind = options.itemKind ?? options.item_kind
+  const includeRetired = options.includeRetired ?? options.include_retired ?? false
   if (createdAfter !== undefined && !isoDateTimeSchema.safeParse(createdAfter).success) {
     throw new ValidationError(`Invalid created_after: ${String(createdAfter)}. Must be a valid ISO timestamp.`)
   }
   const rows = listProposals(d, {
     state,
-    project_id: options.projectId,
-    item_kind: options.itemKind,
+    project_id: projectId,
+    item_kind: itemKind,
     source_thought_id: sourceThoughtId,
     created_after: createdAfter,
     limit: clampListLimit(options.limit)
   })
-  if (state !== 'pending') return rows
-  return rows.filter(row => row.expires_at === null || row.expires_at > now)
+  let result = rows
+  if (state === 'pending') {
+    result = result.filter(row => row.expires_at === null || row.expires_at > now)
+  }
+  // Hide retired (legacy) kinds by default unless an explicit item_kind filter
+  // or include_retired opts them back in (task #2125).
+  if (itemKind === undefined && !includeRetired) {
+    result = result.filter(row => !isLegacyItemKind(row.item_kind))
+  }
+  return result
 }
 
 /**

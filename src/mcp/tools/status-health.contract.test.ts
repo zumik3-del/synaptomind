@@ -60,7 +60,7 @@ test('memory_status action=health surfaces duplicate_drafts as a warning with th
   const active = seedThought({ content: 'alpha beta gamma delta', status: 'active' })
   const draft = seedThought({ content: 'alpha beta gamma delta epsilon', status: 'draft' })
 
-  const result = await client.callTool({ name: 'memory_status', arguments: { action: 'health' } })
+  const result = await client.callTool({ name: 'memory_status', arguments: { action: 'health', include_details: true } })
   const { report, isError } = parseHealth(result)
 
   expect(isError).toBe(false)

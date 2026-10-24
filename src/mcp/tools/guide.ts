@@ -41,11 +41,11 @@ Full action reference: docs/mcp-tools.md. HTTP parity: docs/API.md.
 - memory_store / memory_supersede = thought and edge writes; memory_recall = reads/search.
 
 ## Destructive operations (preview by default)
-memory_store unlink/retype, memory_supersede archive/archive_batch/merge, memory_manage delete, edge_review apply/apply_batch/rollback, memory_primers delete, and memory_crystallize auto_cluster are preview-first. confirm absent/false previews; confirm:true executes. Execution revalidates current state: previews can become stale, and there is no preview token or reservation. memory_supersede archive previews outcome (including missing, already archived, and protected); archive_batch preview returns ordered per-occurrence items, while confirmed execution returns the aggregate {archived, failed, errors} (errors are ordered), not per-item success records; merge previews eligibility, proposed values/effects, and at most 50 source edges with a count/truncation flag. This is an MCP contract only; HTTP merge remains immediate and unchanged. Retired argument names are rejected with an error hint naming the replacement.
+memory_store unlink/retype, memory_supersede archive/archive_batch/merge, memory_manage delete, edge_review apply/apply_batch/rollback, memory_primers delete, and memory_crystallize auto_cluster are preview-first. confirm absent/false previews; confirm:true executes. Execution revalidates current state: previews can become stale. Preview responses include a preview_token (stored in DB, ~5 min TTL) for all of the above destructive actions; confirm:true requires a valid preview_token and fails when it is missing or stale. memory_supersede archive previews outcome (including missing, already archived, and protected); archive_batch preview returns ordered per-occurrence items, while confirmed execution returns the aggregate {archived, failed, errors} (errors are ordered), not per-item success records; merge previews eligibility, proposed values/effects, and at most 50 source edges with a count/truncation flag. This is an MCP contract only; HTTP merge remains immediate and unchanged. Retired argument names are rejected with an error hint naming the replacement.
 Slots (memory_status action=slots) are read-only: pending_items is derived from thoughts tagged pending, architecture_decisions from primers, and only project_context/active_goals are stored rows. To change slot content, update or archive the underlying thoughts (virtual slots) or use memory_reflect (summary, goals_add, goals_remove) for the explicit slots; memory_status never writes.
 
 ## Thoughts
-Fields: content (≤${softLimit} soft), tags[], status, project_id, is_cluster, is_global, is_protected, surface_after, source.
+Fields: content (≤${softLimit} soft), tags[], status, project (resolved from cwd), is_cluster, is_global, is_protected, surface_after, source.
 Status: draft (wip), active (live), archived (hidden). Default draft on create; pass status=active to publish. Archive is idempotent.
 Tags: update merges by default; pass tags_mode=replace to overwrite the whole set. Common tags: decision, pending, todo, directive, gotcha, cluster, reflect.
 
@@ -59,7 +59,7 @@ link_batch creates up to 1000 edges in one transaction and reports per item as {
 
 ## Search
 Modes: hybrid (default true, RRF fusion of vector + BM25), vector (hybrid=false). There is no standalone BM25 mode; BM25 contributes inside hybrid. Filters: status, project, tag, is_cluster, min importance. limit sets search result count; max_degree bounds chain/context traversal, not result count. Retired top_k, cluster, and mode inputs fail with hints to use limit, is_cluster, and hybrid.
-memory_recall action=list returns a paginated inventory without a query: filters status (draft/active/archived), project_id, tag, is_cluster (true=clusters only, false=non-clusters); paging limit (1-500, default 50) and offset; result {thoughts[], total, limit, offset} with total the un-paged count. Ordering is fixed (created_at desc); there is no sort parameter. Example: {"action":"list","status":"draft","limit":50,"offset":0}.
+memory_recall action=list returns a paginated inventory without a query: filters status (draft/active/archived), cwd, tag, is_cluster (true=clusters only, false=non-clusters); paging limit (1-500, default 50) and offset; result {thoughts[], total, limit, offset} with total the un-paged count. Ordering is fixed (created_at desc); there is no sort parameter. Example: {"action":"list","status":"draft","limit":50,"offset":0}.
 memory_recall action=get accepts include_edges (default false) to return incident edges inline (upstream/downstream with type and created_at).
 BM25 hits are immediate; vector/hybrid hits appear only after the embedder stores the vector in vec_thoughts (polls pending_embeddings every embedder.pollIntervalMs, default 7000 ms; visible ~10-15 s).
 low_confidence: no BM25 anchor, or vector below search.confidence.vectorFloor. min_relevance gates weak vector-only hits (default 0 = all).
@@ -98,6 +98,6 @@ export function registerMemoryGuide(server: McpServer) {
   }, async () => {
     const softLimit = getAdvertisedSoftLimitService()
     const text = buildGuideText(softLimit)
-    return { content: [{ type: 'text' as const, text }], structuredContent: { result: text } }
+    return { content: [{ type: 'text' as const, text }], structuredContent: { result: { text } } }
   })
 }

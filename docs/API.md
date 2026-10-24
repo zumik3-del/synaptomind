@@ -1,6 +1,6 @@
 # HTTP API Reference
 
-REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Package version at time of writing: **0.15.0**.
+REST API served by the SynaptoMind HTTP server. Default base URL: `http://127.0.0.1:3005` (configurable, see docs/CONFIG.md). Package version at time of writing: **0.18.0**.
 
 This page documents the mounted surface only; removals between releases are recorded in
 [CHANGELOG.md](../CHANGELOG.md).
@@ -490,7 +490,7 @@ MCP parity for the routes above, plus `apply_batch` (no HTTP equivalent).
 | Action | Kind | Inputs | Result |
 |---|---|---|---|
 | `enqueue` | queue write | `thought_id`, `max_proposals` | `{proposals, skipped, skipped_kinds}` — the queued/refreshed `edge` rows plus the plan items whose kind is no longer stored; retired `max_items` and `limit` inputs return 400 with a hint to use `max_proposals` |
-| `list` | read | `state` (default `pending`), `item_kind`, `project_id`, `limit`, `source_thought_id`, `created_after` | Queued rows |
+| `list` | read | `state` (default `pending`), `item_kind`, `project_id`, `limit`, `source_thought_id`, `created_after` | `{items, total, returned, retired_count, all_total}` — `items` are the queued rows for the page; `total` counts the same filters ignoring the page limit; `returned` is the page size; `retired_count` counts retired (legacy) kinds hidden unless `include_retired`; `all_total` counts all matching rows including retired |
 | `apply` | graph write | `proposal_id`, `confirm` (default false), `run_id` | One `ApplyResult` (`dry_run`/`accepted`/`stale`/`failed`/`refused`); an `accepted` result carries the row's `run_id` envelope (the caller's, or a synthesized `auto-…`) |
 | `apply_batch` | graph write | `proposal_ids[]` (non-empty), `confirm`, `run_id`, `limit` | `{"results": [ApplyResult], "errors": [{"proposal_id", "error"}]}`; each item applied independently, a partial batch is a valid outcome. When the per-call `limit` trips, `{"results": [], "errors": [], "refused": {"code": "limit_exceeded", "reason"}}` — the whole batch is refused, nothing applied. When at least one row joined the run, the outcome also carries the one shared `run_id` envelope — the caller's, or a synthesized `auto-…` for the whole batch (see **Run envelope** above) |
 | `rollback` | graph write | `run_id`, `confirm` (default false) | `RollbackReport` (`run_id`, `confirm`, `items[]`, `summary`) |
@@ -710,3 +710,21 @@ Public liveness/readiness probe (no auth). Returns 200 when healthy, 503 when de
 curl `http://127.0.0.1:3005/health`
 
 Response: `{"status": "ok", "version": "0.9.0", "checks": {"database": "ok", "embedder": "ok"}}`
+
+## Migration notes (v0.19 MCP UX cleanup)
+
+The HTTP API is unchanged by this release. The following breaking changes apply to the
+**MCP surface only** (see `docs/mcp-tools.md`):
+
+1. **`project_id` MCP argument removed** — MCP tools resolve the project from `cwd`.
+   HTTP routes still accept `project_id` as before.
+2. **Compact defaults (MCP)** — `memory_recall` defaults to compact output and
+   `memory_status` `propose` defaults to the slim plan. HTTP responses are unaffected.
+3. **Preview tokens (MCP)** — destructive MCP actions now require a `preview_token`
+   from the preview step on `confirm: true`. HTTP routes remain immediate (no preview
+   token) and keep their existing semantics.
+4. **`edge_review` list canonical keys (MCP)** — `{ items, total, returned,
+   retired_count, all_total }`; retired aliases removed. The HTTP
+   `GET /api/proposals` route is unchanged.
+5. **Retired MCP inputs** — see `docs/mcp-tools.md` migration notes for the full
+   replacement table. HTTP parameter names are unchanged.

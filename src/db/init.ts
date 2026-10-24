@@ -88,6 +88,17 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
     )
   `)
 
+  d.run(`
+    CREATE TABLE IF NOT EXISTS preview_tokens (
+      token       TEXT PRIMARY KEY,
+      kind        TEXT NOT NULL,
+      target_id   TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      created_at  TEXT NOT NULL,
+      expires_at  TEXT NOT NULL
+    )
+  `)
+
   if (!runMigrations) {
     setDb(db)
     return

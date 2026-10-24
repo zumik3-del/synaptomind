@@ -183,7 +183,7 @@ describe('edge_review enqueue', () => {
 // ── list ───────────────────────────────────────────────────────────────────────
 
 describe('edge_review list', () => {
-  test('returns an array; seeded pending rows appear', async () => {
+  test('returns an object; seeded pending rows appear', async () => {
     const src = seedThought({ content: 'list-read-only source' })
     const tgt = seedThought({ content: 'list-read-only target' })
     insertPendingEdge(src, tgt)
@@ -194,8 +194,11 @@ describe('edge_review list', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    expect(data.length).toBeGreaterThanOrEqual(1)
+    expect(typeof data).toBe('object')
+    expect(Array.isArray(data.items)).toBe(true)
+    expect(data.items.length).toBeGreaterThanOrEqual(1)
+    expect(typeof data.total).toBe('number')
+    expect(typeof data.retired_count).toBe('number')
   })
 
   test('list does not mutate the queue (read-only)', async () => {
@@ -228,7 +231,8 @@ describe('edge_review list', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.some((r: PlacementProposalRow) => r.id === row.id)).toBe(true)
+    const items = data.items ?? data.proposals ?? []
+    expect(items.some((r: PlacementProposalRow) => r.id === row.id)).toBe(true)
   })
 })
 
@@ -258,9 +262,14 @@ describe('edge_review apply', () => {
     const tgt = seedThought({ content: 'apply-confirm target' })
     const row = insertPendingEdge(src, tgt)
 
+    const preview = await client.callTool({
+      name: 'edge_review',
+      arguments: { action: 'apply', proposal_id: row.id }
+    })
+    const token = parseResult(preview).data.preview_token
     const result = await client.callTool({
       name: 'edge_review',
-      arguments: { action: 'apply', proposal_id: row.id, confirm: true }
+      arguments: { action: 'apply', proposal_id: row.id, confirm: true, preview_token: token }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -398,11 +407,12 @@ describe('edge_review: stored triage_* rows from an older install', () => {
     const src = seedThought({ content: 'retired triage list source' })
     insertRetiredRow('retired-list-activate', 'triage_activate', src)
 
-    const result = await client.callTool({ name: 'edge_review', arguments: { action: 'list' } })
+    const result = await client.callTool({ name: 'edge_review', arguments: { action: 'list', include_retired: true } })
 
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    const row = (data ?? []).find((r: PlacementProposalRow) => r.id === 'retired-list-activate')
+    const items = (data && (data.items ?? data.proposals)) ?? []
+    const row = items.find((r: PlacementProposalRow) => r.id === 'retired-list-activate')
     expect(row).toBeDefined()
     expect(row.item_kind).toBe('triage_activate')
     expect(row.state).toBe('pending')
@@ -412,9 +422,14 @@ describe('edge_review: stored triage_* rows from an older install', () => {
     const src = seedThought({ content: 'retired triage apply source' })
     insertRetiredRow('retired-apply-archive', 'triage_archive', src)
 
+    const preview = await client.callTool({
+      name: 'edge_review',
+      arguments: { action: 'apply', proposal_id: 'retired-apply-archive' }
+    })
+    const token = parseResult(preview).data.preview_token
     const result = await client.callTool({
       name: 'edge_review',
-      arguments: { action: 'apply', proposal_id: 'retired-apply-archive', confirm: true }
+      arguments: { action: 'apply', proposal_id: 'retired-apply-archive', confirm: true, preview_token: token }
     })
 
     const { data, isError } = parseResult(result)
@@ -462,8 +477,10 @@ describe('static: no read handler in the review modules calls apply* functions',
   })
 
   test('apply_batch handler stays inline in review.ts and calls applyBatchService', () => {
-    const applyBatchMatch = SOURCE.match(/apply_batch:\s*\{([\s\S]*?\n\s*\})/)
-    expect(applyBatchMatch).not.toBeNull()
-    expect(applyBatchMatch![1]).toMatch(/applyBatchService/)
+    const start = SOURCE.indexOf('apply_batch:')
+    const end = SOURCE.indexOf('rollback:', start)
+    const applyBatchBlock = start >= 0 && end > start ? SOURCE.slice(start, end) : ''
+    expect(applyBatchBlock).not.toBe('')
+    expect(applyBatchBlock).toMatch(/applyBatchService/)
   })
 })

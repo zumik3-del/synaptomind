@@ -13,7 +13,7 @@ export const updateHandler: ActionHandler = {
   }),
   run(args: ActionArgs) {
     const updated = updateThoughtByIdService(args.thought_id as string, {
-      content: args.content as string | undefined, tags: args.tags as string[] | undefined, tags_mode: args.tags_mode as 'replace' | 'merge' | undefined, status: args.status as ThoughtStatus | undefined, project_id: resolveProjectId(args.project_id as string, args.cwd as string), is_protected: args.is_protected as boolean | undefined, is_global: args.is_global as boolean | undefined, surface_after: args.surface_after === undefined ? undefined : (args.surface_after as string | null)
+      content: args.content as string | undefined, tags: args.tags as string[] | undefined, tags_mode: args.tags_mode as 'replace' | 'merge' | undefined, status: args.status as ThoughtStatus | undefined, project_id: resolveProjectId(args.cwd as string), is_protected: args.is_protected as boolean | undefined, is_global: args.is_global as boolean | undefined, surface_after: args.surface_after === undefined ? undefined : (args.surface_after as string | null)
     })
     if (!updated) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
     return updated
