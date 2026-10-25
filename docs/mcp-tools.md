@@ -78,17 +78,17 @@ The envelope is the payload of the wire envelope described in
 | `filtered_out` | Rows deliberately dropped from `total` (relevance gate, paging, retired proposal kinds) |
 
 Action-specific counters sit beside them (`link_batch` → `linked`/`failed`; `archive_batch` →
-`archived`/`failed`; `retention_review` list → `limit`/`offset`; `edge_review` list →
-`retired_count`; `graph` → `edges`; `cluster` → `members`/`edges`), so a caller never has to count
-`items` itself.
+`archived`/`failed`; `retention_review` list, `memory_recall` list and `memory_reflect` timeline →
+`limit`/`offset`; `edge_review` list → `retired_count`; `graph` → `edges`; `cluster` →
+`members`/`edges`), so a caller never has to count `items` itself.
 
 `reason` is present only when "nothing" is not the ordinary case:
 
 | Value | Meaning |
 |---|---|
 | `no_match` | The action considered nothing — a search that matched no candidate, a context lookup without a best match |
-| `id_not_found` | An id-shaped search query addressed no thought (never a fallback to other rows) |
-| `ambiguous_id` | An id prefix addressed several thoughts; `items` carries all of them |
+| `id_not_found` | An id-shaped search query addressed no thought **and** the fallback word search matched nothing either (the same miss also appears in `warnings`) |
+| `ambiguous_id` | An id prefix addressed several thoughts; `items` carries all of them (up to `limit`) |
 
 A result set emptied by the relevance gate keeps **no** `reason`: it shows up as
 `counts.filtered_out > 0` instead, so a caller can tell "nothing matched" from "everything was
@@ -299,7 +299,7 @@ behind `compact: false`, the ranking metadata:
 | `standing` | always unless it is `current`; `compact: false` always | `superseded` or `contradicted` |
 | `superseded_by` | when it applies | Ids of the thoughts that replace this one |
 | `contradicted_by` | when it applies | Ids of the thoughts that contradict this one |
-| `low_confidence` | when it applies; `compact: false` always | `true` for a weak vector-only hit |
+| `low_confidence` | when it applies; `compact: false` always | `true` for a weak vector-only hit, and for an id-addressed hit whose `standing` is not `current` |
 | `scores` | `compact: false` only | `{ similarity, distance, rrf_score, bm25_score, relevance, recency_score, final_score }` — only the keys that apply |
 | `match_source` | `compact: false` only | `embedding`, `bm25`, `id` |
 
@@ -327,18 +327,31 @@ A compact hit is `{ "thought": { ... } }`; `meta` is the envelope meta described
 A `query` that is a thought id resolves that thought directly, without touching the embedding or
 BM25 legs (`src/db/search-id.ts`, `src/services/search-outcome.ts`):
 
-- **Shape.** A full UUID (32 hex digits, hyphens optional, case-insensitive) or a hex **prefix of
-  at least 8 characters**. `01a172b4` and `01A172B4-ebd5` address the same prefix.
+- **Shape.** A full UUID (32 hex digits, hyphens optional and accepted in any position,
+  case-insensitive) or a hex **prefix of at least 13 characters**. The floor is 13 because a UUIDv7
+  spends its first 12 hex digits on the millisecond timestamp: below that, a hex-looking *word*
+  (`20251025`, `deadbeef`) is indistinguishable from a prefix, so it stays an ordinary query.
+  `01a172b4-ebd5-7` and `01A172B4EBD57` address the same prefix.
 - **Scope.** An explicit id is an explicit reference: the lookup ignores `status`, `cwd`
-  (project), `tag`, `is_cluster` and `min_importance`, skips the standing suppression and the
-  relevance gate, and never falls back to other rows. `meta.scope` still reports what `cwd`
-  resolved to, but the rows are not filtered by it.
-- **Hits.** Each hit carries `match_source: ["id"]` and `low_confidence: false`; `relevance` is
-  absent, because an id has no cosine scale.
+  (project), `tag`, `is_cluster` and `min_importance`, never widens to other rows, and is never
+  touched by the relevance gate. `meta.scope` still reports what `cwd` resolved to, but the rows
+  are not filtered by it.
+- **Hits.** Each hit carries `match_source: ["id"]` and no `relevance`, because an id has no
+  cosine scale. Standing is annotated exactly as on any other hit — `standing`,
+  `superseded_by`, `contradicted_by` — but an id is never suppressed: a requested
+  `supersession_mode` of `suppress` degrades to `flag` here, because a caller who named the id
+  must get that thought back. A contested hit is `low_confidence: true` (a clean id hit is
+  `false`), so a superseded or contradicted thought never looks current.
 - **Several.** A prefix that addresses more than one thought returns them all in `items`, in id
   order, with `meta.reason: "ambiguous_id"`. It is not an error — narrow the prefix or pass the
-  full id.
-- **None.** `items: []` with `meta.reason: "id_not_found"`.
+  full id. The answer is capped at `limit` rows (hard ceiling 100, `ID_PREFIX_MATCH_HARD_CAP`),
+  because one `bulk_create` batch shares the UUIDv7 timestamp window and a prefix can address the
+  whole batch; a truncated answer still reports `ambiguous_id`.
+- **None.** A miss never zeroes the answer: an id-shaped query that addresses no thought falls
+  back to the ordinary hybrid search for the same text and adds an `id_not_found` note to
+  `meta.warnings`. `meta.reason: "id_not_found"` is reported only when that fallback matched
+  nothing either, so a hex-looking word stays searchable and its rows keep ordinary `search`
+  semantics.
 
 ```json
 {
@@ -365,14 +378,18 @@ BM25 legs (`src/db/search-id.ts`, `src/services/search-outcome.ts`):
     "scope": { "project": "01a172b6-5dfa-754c-b67e-a0a2f5915d96", "project_name": "Doc Probe", "global": false },
     "counts": { "total": 0, "returned": 0, "filtered_out": 0 },
     "degraded": false,
-    "warnings": [],
+    "warnings": ["id_not_found: \"cafebabe-0000-7000-8000-0000000000ff\" is id-shaped but no thought carries it — the answer is a normal search for that text"],
     "reason": "id_not_found"
   }
 }
 ```
 
-Anything else — a word, a shorter hex run — is an ordinary query and flows through the semantic
-and lexical legs.
+The second answer is the fallback emptying out. When the same fallback *does* return rows, the
+answer is a normal search result set — no `reason`, the `id_not_found` warning still in
+`meta.warnings`, so the caller knows the query was read as an id first.
+
+Anything else — a word, a hex run shorter than 13 characters — is an ordinary query and flows
+through the semantic and lexical legs.
 
 #### Calibrated `relevance` and the default gate
 
@@ -410,6 +427,8 @@ observed in the measurement while dropping 2 of 200 self-relevant top-1 hits.
   the bar.
 - `min_relevance: 0` turns the gate off and restores the pre-#2178 fail-open result set.
 - `min_relevance: <0–1>` overrides the threshold on the calibrated scale.
+- `memory_recall action=context` is exempt: its query path runs with the gate off and keeps its
+  best match (see `action=context` below).
 - The gate runs after standing annotation and before the `limit` slice; the candidate pool is
   over-fetched so gated rows are backfilled. Drops appear as `counts.filtered_out`, not as a
   `reason`.
@@ -430,7 +449,11 @@ inside them but never remove the edge lists. A missing id fails with a `404` err
 `chain` carries `upstream`/`downstream`. It accepts a text `query` (best match + its chain; `cwd`
 scopes the query path when given) or a `thought_id` (that thought + its chain, no project scope).
 A degraded query with no best match answers `item: null` with `meta.reason: "no_match"` instead of
-throwing.
+throwing. The query path is **not** gated: `context` asks for the single best match, so the
+default `min_relevance` gate of `search` would turn a weak-but-real neighbourhood into
+`no_match`. `getContextService` therefore runs with `minRelevance: 0` unless a caller opts in
+(`src/services/graph.service.ts:161`), and the `min_relevance` argument applies to
+`search`/`clusters` only.
 
 `chain` walks a parent/develops chain: `{ item: { thought, upstream, downstream }, meta }`;
 `max_degree` bounds chain/context traversal and is distinct from `limit`, which caps returned
@@ -449,8 +472,9 @@ Paginated inventory of thoughts without a search query. `cwd` is required.
 | `limit` | integer | no | Page size (1–500, default 50) |
 | `offset` | integer | no | Skip this many rows (default 0) |
 
-Result: `{ items, meta }`; `meta.counts.total` is the un-paged count matching the filters and
-`filtered_out` the rows the page did not include, so a caller pages with `offset += limit` until
+Result: `{ items, meta }`; `meta.counts` carries the page that actually ran — `limit` and
+`offset`, defaults applied — and `total` is the un-paged count matching the filters, `filtered_out`
+the rows the page did not include, so a caller pages with `offset += limit` until
 `offset >= total`.
 
 ```json
@@ -841,7 +865,8 @@ without touching hand-created thoughts. It is additive: statuses, dedup and the 
 surface time are unchanged, and no read path keys off it.
 
 `action=timeline` is the plain paginated thought list (`status`, `cwd`, `limit`, `offset`) as
-`{ items, meta }`.
+`{ items, meta }`; `meta.counts` carries the `limit` and `offset` that actually ran (defaults
+applied) beside the shared `total`/`returned`/`filtered_out`.
 
 ## `memory_primers` — the always-at-hand set
 
@@ -966,10 +991,12 @@ Breaking changes for MCP clients (the HTTP API keeps its shapes — see [API.md]
    `meta.preview = { token, destructive: true, consequence?, instruction? }` (token `null` for
    `unlink_batch` and `retention_review` `compact`). Single-object previews keep the same fields
    inside `item` as before; collection previews no longer carry `preview_token` at the top level.
-4. **Id-shaped search queries resolve by id.** A full UUID or a hex prefix of at least 8
+4. **Id-shaped search queries resolve by id.** A full UUID or a hex prefix of at least 13
    characters no longer goes through semantic search: it returns that thought (ignoring status
-   and project scope), `reason: "ambiguous_id"` with every match for a prefix, or `reason:
-   "id_not_found"` for none.
+   and project scope), annotated with its standing but never suppressed, `reason: "ambiguous_id"`
+   with every match for a prefix (at most `limit` rows), or — when nothing carries the id — the
+   ordinary search for the same text plus an `id_not_found` note in `warnings` (`reason:
+   "id_not_found"` only when that fallback is empty too).
 5. **Calibrated `relevance` and a default noise gate.** Vector hits carry `relevance` on the
    measured 0–1 scale (`unrelatedFloor` 0.8 → 0, `vectorFloor` 0.9 → 1), and the default gate
    drops cosine-only rows below 0.4. `min_relevance: 0` restores the old fail-open set.
