@@ -86,7 +86,7 @@ Started in src/index.ts when the process owns background jobs: decay, placement-
 
 ## Projects and clusters
 One project per thought. A cluster is a thought with is_cluster=1 whose cluster edges point at its members; cluster thoughts never enter the frontier.
-memory_crystallize action=graph paginates nodes: cwd scopes the answer (a call without cwd, or with a path no project owns, answers every project and says so in meta.warnings), offset (default 0), limit (default 500, max 2000); items are the nodes, edges rides beside them, and meta.counts.total is the node count for the filters. auto_cluster previews unless confirm:true (meta.preview); retired dry_run fails with a hint to use confirm.
+memory_crystallize action=graph paginates nodes: cwd scopes the answer (a call without cwd, or with a path no project owns, answers every project and says so in meta.warnings), offset (default 0), limit (default 500, max 2000); items are the nodes, edges rides beside them, and meta.counts.total is the node count for the filters while returned/filtered_out count that page against it (total = returned + filtered_out, counts.edges = the edges returned). auto_cluster previews unless confirm:true (meta.preview); retired dry_run fails with a hint to use confirm.
 ## Primers
 A recalled thought whose hit count reaches primer.promoteThreshold (default 5) becomes a primer on the search path. memory_primers delete is preview-first (confirm=true); the HTTP DELETE is immediate.
 

@@ -54,12 +54,18 @@ the HTTP array — a gated result set is simply shorter.
 
 **Id-shaped queries.** A `q` that is a full UUID or a hex prefix of at least 13 characters is
 resolved as a thought id instead of going through the vector/BM25 legs: the lookup is
-case-insensitive, accepts hyphens in any position, ignores `status`, `project_id`, `tag`,
-`cluster`, `exclude_clusters` and `min_importance`, and never widens to other rows. The 13-hex
+case-insensitive, accepts hyphens in any position and never widens to other rows. The 13-hex
 floor is the UUIDv7 timestamp window (12 hex digits) plus the version nibble: below it a
 hex-looking word (`20251025`, `deadbeef`) is indistinguishable from a prefix and stays an ordinary
-query. Each hit carries `match_source: ["id"]`, no `relevance` (an id has no cosine scale), and
-`low_confidence: false`:
+query.
+
+The two id forms are scoped differently (`src/db/search-id.ts:19-38`, `:152-158`). A **full UUID**
+is an explicit reference: it ignores `status`, `project_id`, `tag` and `min_importance`. A
+**prefix** is only a timestamp window, so it honours `status` and `project_id` like any other
+query; a prefix that matches nothing inside that scope falls back to the ordinary hybrid search
+(see below). `cluster=true` / `exclude_clusters=true` are a shape constraint rather than a scope,
+so they apply to both forms. Each hit carries `match_source: ["id"]`, no `relevance` (an id has
+no cosine scale), and `low_confidence: false`:
 
 ```json
 [{"thought": {"id": "deadbeef-1111-7000-8000-000000000001", "content": "first prefix hit", "status": "active", "tags": [], "source": null, "project_id": "default", "project_name": "Default", "is_cluster": 0, "is_profile": 0, "is_protected": 1, "is_global": 0, "created_at": "2026-10-25T10:56:16.314Z", "updated_at": "2026-10-25T10:56:16.314Z", "archived_at": null, "surface_after": null}, "match_source": ["id"], "low_confidence": false}]
@@ -67,16 +73,18 @@ query. Each hit carries `match_source: ["id"]`, no `relevance` (an id has no cos
 
 An id hit is annotated with its graph standing exactly like any other hit and is **never
 suppressed**: `supersession_mode=suppress` degrades to `flag` for the id lookup, so a superseded
-or contradicted thought still comes back — with `standing`, `superseded_by`/`contradicted_by` and
-`low_confidence: true`, so it does not read as a clean current hit.
+or contradicted thought still comes back — with `standing` and `superseded_by`/`contradicted_by`,
+which are what say the hit is contested. `low_confidence` is not reused for that: it means "weak
+retrieval" (no BM25 anchor and a cosine below `search.confidence.vectorFloor`), and an id hit has
+no cosine at all, so it stays `false`.
 
 A prefix that addresses several thoughts returns all of them in id order, capped at `k` rows
 (hard ceiling 100, `ID_PREFIX_MATCH_HARD_CAP`) because a `bulk_create` batch shares the UUIDv7
-timestamp window. A prefix or id that addresses none is **not** an empty answer: the request falls
-back to the ordinary hybrid search for the same text and returns its rows, so a hex-looking word
-stays searchable. The HTTP array carries no `reason`/`warnings` fields, so a caller that needs to
-tell "the id was not found" apart from "the word search matched" decides by the id-shaped `q`
-itself.
+timestamp window. A prefix or id that addresses none **inside its scope** is **not** an empty
+answer: the request falls back to the ordinary hybrid search for the same text and returns its
+rows, so a hex-looking word stays searchable. The HTTP array carries no `reason`/`warnings`
+fields, so a caller that needs to tell "the id was not found" apart from "the word search
+matched" decides by the id-shaped `q` itself.
 
 **Graph standing** (`supersession_mode` / `contradiction_mode`). `supersession_mode`
 controls thoughts marked superseded by an incoming `replaces` edge; `contradiction_mode`

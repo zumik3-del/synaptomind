@@ -118,6 +118,12 @@ A graph is two collections, not one, so this is the single documented exception 
 }
 ```
 
+`counts` keeps the shared three keys for the **nodes**: `total` is the node count matching the
+filters, `returned` the nodes of this page and `filtered_out` the nodes the page left out
+(`offset`/`limit`), so `total = returned + filtered_out` holds here like in every other
+collection. `edges` holds the active edges whose two endpoints are both in `items`, and
+`counts.edges` is how many of them there are — not a total.
+
 ### Preview metadata
 
 A non-mutating preview answer is marked in `meta.preview`; an executed answer carries no
@@ -299,7 +305,7 @@ behind `compact: false`, the ranking metadata:
 | `standing` | always unless it is `current`; `compact: false` always | `superseded` or `contradicted` |
 | `superseded_by` | when it applies | Ids of the thoughts that replace this one |
 | `contradicted_by` | when it applies | Ids of the thoughts that contradict this one |
-| `low_confidence` | when it applies; `compact: false` always | `true` for a weak vector-only hit, and for an id-addressed hit whose `standing` is not `current` |
+| `low_confidence` | when it applies; `compact: false` always | `true` for a weak vector-only hit: no BM25 anchor and a cosine below `search.confidence.vectorFloor`. Never for an id-addressed hit, which has no cosine — its contested state rides in `standing`/`superseded_by`/`contradicted_by` |
 | `scores` | `compact: false` only | `{ similarity, distance, rrf_score, bm25_score, relevance, recency_score, final_score }` — only the keys that apply |
 | `match_source` | `compact: false` only | `embedding`, `bm25`, `id` |
 
@@ -332,23 +338,32 @@ BM25 legs (`src/db/search-id.ts`, `src/services/search-outcome.ts`):
   spends its first 12 hex digits on the millisecond timestamp: below that, a hex-looking *word*
   (`20251025`, `deadbeef`) is indistinguishable from a prefix, so it stays an ordinary query.
   `01a172b4-ebd5-7` and `01A172B4EBD57` address the same prefix.
-- **Scope.** An explicit id is an explicit reference: the lookup ignores `status`, `cwd`
-  (project), `tag`, `is_cluster` and `min_importance`, never widens to other rows, and is never
-  touched by the relevance gate. `meta.scope` still reports what `cwd` resolved to, but the rows
-  are not filtered by it.
+- **Scope.** The two id forms do not share a scope (`src/db/search-id.ts:19-38`, `:152-158`). A
+  **full UUID** is an explicit reference: the lookup ignores `status`, `cwd` (project), `tag`
+  and `min_importance`, never widens to other rows, and is never touched by the relevance gate.
+  A **prefix** is a timestamp window, not a reference — its first 12 hex digits are the UUIDv7
+  millisecond — so it honours the call's `status` and `cwd` (project) scope like any other
+  query; a prefix that addresses nothing *inside* that scope is an id miss and falls back to the
+  ordinary search (see **None**). `meta.scope` reports what `cwd` resolved to either way.
+- **Cluster shape.** `is_cluster` is a shape constraint of the requested collection, not a
+  scope, so it applies to both forms (`src/db/search-id.ts:29-32`): `clusters` never answers a
+  non-cluster row, and `search` with `is_cluster: true` / `false` filters an id hit the same way
+  even for a full UUID.
 - **Hits.** Each hit carries `match_source: ["id"]` and no `relevance`, because an id has no
   cosine scale. Standing is annotated exactly as on any other hit — `standing`,
   `superseded_by`, `contradicted_by` — but an id is never suppressed: a requested
   `supersession_mode` of `suppress` degrades to `flag` here, because a caller who named the id
-  must get that thought back. A contested hit is `low_confidence: true` (a clean id hit is
-  `false`), so a superseded or contradicted thought never looks current.
+  must get that thought back. `low_confidence` keeps its retrieval-strength meaning and stays
+  `false` on an id hit (there is no cosine to judge): the contested state is carried by
+  `standing`/`superseded_by`/`contradicted_by`, never by the flag.
 - **Several.** A prefix that addresses more than one thought returns them all in `items`, in id
   order, with `meta.reason: "ambiguous_id"`. It is not an error — narrow the prefix or pass the
   full id. The answer is capped at `limit` rows (hard ceiling 100, `ID_PREFIX_MATCH_HARD_CAP`),
   because one `bulk_create` batch shares the UUIDv7 timestamp window and a prefix can address the
   whole batch; a truncated answer still reports `ambiguous_id`.
-- **None.** A miss never zeroes the answer: an id-shaped query that addresses no thought falls
-  back to the ordinary hybrid search for the same text and adds an `id_not_found` note to
+- **None.** A miss never zeroes the answer: an id-shaped query that addresses no thought — a full
+  UUID no row carries, or a prefix that matches nothing inside the requested scope — falls back
+  to the ordinary hybrid search for the same text and adds an `id_not_found` note to
   `meta.warnings`. `meta.reason: "id_not_found"` is reported only when that fallback matched
   nothing either, so a hex-looking word stays searchable and its rows keep ordinary `search`
   semantics.
@@ -457,7 +472,14 @@ default `min_relevance` gate of `search` would turn a weak-but-real neighbourhoo
 
 `chain` walks a parent/develops chain: `{ item: { thought, upstream, downstream }, meta }`;
 `max_degree` bounds chain/context traversal and is distinct from `limit`, which caps returned
-results. `clusters` is a cluster-only search: `{ items, meta }` of search items, `cwd` required.
+results. `clusters` is a cluster-only search: `{ items, meta }` of search items, `cwd` required;
+an explicit `is_cluster: false` is rejected, because it contradicts what the action is. An
+id-shaped query goes through the same id lookup as `search`
+([Id lookup](#id-lookup)), with the cluster constraint applied to both forms — a prefix is
+scoped by `status`/`cwd` and the cluster shape, while a full UUID ignores the status and project
+scope but still only answers a cluster thought: a non-cluster id answers nothing (the ordinary
+search fallback runs, and `meta.reason` explains the empty answer) instead of leaking a row the
+action exists to exclude (`src/mcp/tools/recall-id-lookup.test.ts:140-172`).
 
 ### `action=list`
 
@@ -776,8 +798,10 @@ API change.
 
 Three actions. `graph` (nodes + edges for a project, `status` and `limit` filters) is the one
 [envelope exception](#the-memory_crystallize-actiongraph-exception): `items` are nodes and `edges`
-rides beside them. `cluster` (create a cluster thought from `thought_ids` with an optional `title`
-and `tags`) answers `item: { cluster, edges, members }`, where `cluster` and every entry of
+rides beside them, with `meta.counts.total` the node count for the filters, `returned` the nodes
+of the page and `filtered_out` the nodes outside it (`offset`/`limit`) — so `total = returned +
+filtered_out` as for any other collection. `cluster` (create a cluster thought from `thought_ids`
+with an optional `title` and `tags`) answers `item: { cluster, edges, members }`, where `cluster` and every entry of
 `members` is a shaped thought, `edges` lists the `cluster` edges to the members
 (`{ source_id, target_id, type }`), and `meta.counts.members`/`meta.counts.edges` repeat the two
 sizes. `cwd` selects the project of the new cluster.
@@ -992,11 +1016,13 @@ Breaking changes for MCP clients (the HTTP API keeps its shapes — see [API.md]
    `unlink_batch` and `retention_review` `compact`). Single-object previews keep the same fields
    inside `item` as before; collection previews no longer carry `preview_token` at the top level.
 4. **Id-shaped search queries resolve by id.** A full UUID or a hex prefix of at least 13
-   characters no longer goes through semantic search: it returns that thought (ignoring status
-   and project scope), annotated with its standing but never suppressed, `reason: "ambiguous_id"`
-   with every match for a prefix (at most `limit` rows), or — when nothing carries the id — the
-   ordinary search for the same text plus an `id_not_found` note in `warnings` (`reason:
-   "id_not_found"` only when that fallback is empty too).
+   characters no longer goes through semantic search: it returns that thought, annotated with its
+   standing but never suppressed. A full UUID ignores status and project scope; a prefix honours
+   both and falls back to the word search when it matches nothing inside that scope. A prefix
+   that addresses several thoughts answers every match (at most `limit` rows) with `reason:
+   "ambiguous_id"`; when nothing carries the id, the answer is the ordinary search for the same
+   text plus an `id_not_found` note in `warnings` (`reason: "id_not_found"` only when that
+   fallback is empty too).
 5. **Calibrated `relevance` and a default noise gate.** Vector hits carry `relevance` on the
    measured 0–1 scale (`unrelatedFloor` 0.8 → 0, `vectorFloor` 0.9 → 1), and the default gate
    drops cosine-only rows below 0.4. `min_relevance: 0` restores the old fail-open set.
