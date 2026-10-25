@@ -203,7 +203,7 @@ describe('shared request contract parity (audit M8)', () => {
 describe('memory_recall context honors project_id', () => {
   const MARKER = 'CONTEXT_SCOPE_MARKER'
 
-  test('returns error when the matching thought is outside the requested project', async () => {
+  test('returns a degraded result when the matching thought is outside the requested project', async () => {
     // Marker exists only in the default project.
     await client.callTool({
       name: 'memory_store',
@@ -220,11 +220,14 @@ describe('memory_recall context honors project_id', () => {
       name: 'memory_recall',
       arguments: { action: 'context', query: MARKER, cwd: '/tmp/context-scope-empty', compact: false }
     })
-    const { isError } = parseResult(result)
+    const { data, isError } = parseResult(result)
 
     // Scoped search found nothing in that project — it must not fall back to
-    // the matching thought in the default project.
-    expect(isError).toBe(true)
+    // the matching thought in the default project. The new contract surfaces
+    // degradation instead of throwing NotFoundError.
+    expect(isError).toBe(false)
+    expect(data.best_match).toBeUndefined()
+    expect(data.degraded).toBe(true)
   })
 
   test('scopes the best match to the requested project', async () => {

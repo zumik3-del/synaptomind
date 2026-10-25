@@ -58,24 +58,44 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     minImportance
   })
 
-  const vecIds = embedding.length > 0
-    ? vecSearchIds(db, embedding, pool, filterSql, filterParams, topK)
-    : []
+  let degraded = false
+  let vecIds: Array<{ id: string; distance: number }> = []
+  if (embedding.length > 0) {
+    try {
+      vecIds = vecSearchIds(db, embedding, pool, filterSql, filterParams, topK, true)
+    } catch {
+      degraded = true
+      vecIds = []
+    }
+  }
   const vecSimById = new Map(vecIds.map(v => [v.id, 1 - v.distance]))
 
   if (!hybrid || !query) {
-    return fetchThoughtsByIds(
+    const out = fetchThoughtsByIds(
       db,
       vecIds.map(v => v.id),
       options,
       { vecSimById, bm25ScoreById: new Map(), rrfScoreById: new Map(), confidenceFloor },
       { rrfMax: 0, ...recency }
     )
+    // Degradation is surfaced once at the collection level (below); per-result
+    // annotation is owned by the service layer so the embedding leg's state is
+    // folded in. The filtered BM25 leg does not fall back to the unfiltered
+    // leg here — a filtered failure is reported as degraded to keep project
+    // scoping intact (the helper's own fallback is for direct callers only).
+    Object.assign(out, { degraded })
+    return out
   }
 
-  const bm25Scored = filterSql
-    ? bm25ScoredIdsFiltered(db, query, pool, filterSql, filterParams)
-    : bm25ScoredIds(db, query, pool)
+  let bm25Scored: ReturnType<typeof bm25ScoredIds> = []
+  try {
+    bm25Scored = filterSql
+      ? bm25ScoredIdsFiltered(db, query, pool, filterSql, filterParams, true)
+      : bm25ScoredIds(db, query, pool, true)
+  } catch {
+    degraded = true
+    bm25Scored = []
+  }
   const bm25ScoreById = new Map(bm25Scored.map(r => [r.id, r.score]))
   const fusionLists = [vecIds.map(v => v.id), bm25Scored.map(r => r.id)]
   // A thought ranked #1 in every non-empty list reaches the RRF maximum, so
@@ -83,11 +103,16 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
   const rrfMax = fusionLists.filter(list => list.length > 0).length / (RRF_K + 1)
   const merged = rrfMerge(fusionLists).slice(0, topK)
   const rrfScoreById = new Map(merged.map(m => [m.id, m.score]))
-  return fetchThoughtsByIds(
+  const out = fetchThoughtsByIds(
     db,
     merged.map(m => m.id),
     options,
     { vecSimById, bm25ScoreById, rrfScoreById, confidenceFloor },
     { rrfMax, ...recency }
   )
+  // Per-result degradation is owned by the service layer (embedding leg state
+  // is folded there); only the collection-level flag is set here. See the
+  // non-hybrid branch above for the filtered-BM25 fallback rationale.
+  Object.assign(out, { degraded })
+  return out
 }

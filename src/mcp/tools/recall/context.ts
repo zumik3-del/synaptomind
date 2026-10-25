@@ -22,7 +22,7 @@ export const contextHandler: ActionHandler = {
         ctx.addIssue({ code: 'custom', message: CONTEXT_REQUIRED, path: ['query'] })
       }
     }),
-  run(args: ActionArgs) {
+  async run(args: ActionArgs) {
     const projectFilter = resolveProjectId(args.cwd as string | undefined)
     const maxDegree = args.max_degree as number | undefined
     const compact = args.compact !== false
@@ -36,14 +36,19 @@ export const contextHandler: ActionHandler = {
         maxDegree
       )
       if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-      return { best_match: shapeThought(chain.thought, compact, fields), chain: shapeChain(chain, compact, fields) }
+      return { best_match: shapeThought(chain.thought, compact, fields), chain: shapeChain(chain, compact, fields), degraded: false }
     }
 
-    const context = getContextService(args.query as string, maxDegree, projectFilter)
+    const context = await getContextService(args.query as string, maxDegree, projectFilter)
     if (!context) throw new NotFoundError(`No context found for query '${args.query}'`)
+    if (!context.best_match) {
+      // Degraded result with no best match: surface degraded instead of throwing.
+      return { degraded: context.degraded === true }
+    }
     return {
       best_match: shapeThought(context.best_match, compact, fields),
-      chain: shapeChain(context.chain, compact, fields)
+      chain: shapeChain(context.chain, compact, fields),
+      degraded: context.degraded === true
     }
   }
 }
