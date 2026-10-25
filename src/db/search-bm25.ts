@@ -1,4 +1,5 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
+import { insertLog } from '../logging'
 import { isStopword } from './stopwords'
 
 /**
@@ -28,7 +29,7 @@ export interface ScoredId {
  * public `bm25_score` follows "higher = more relevant"; the ordering (FTS5
  * returns more negative for more relevant rows) is unchanged.
  */
-export function bm25ScoredIds(db: Database, query: string, limit: number): ScoredId[] {
+export function bm25ScoredIds(db: Database, query: string, limit: number, throwOnError: boolean = false): ScoredId[] {
   const fts = toFtsQuery(query)
   if (!fts) return []
   try {
@@ -43,7 +44,8 @@ export function bm25ScoredIds(db: Database, query: string, limit: number): Score
       .all(fts, limit) as Array<{ thought_id: string; score: number }>
     return rows.map(r => ({ id: r.thought_id, score: -r.score }))
   } catch (err) {
-    console.debug('[search] bm25 search failed:', err)
+    insertLog('debug', 'search', 'bm25 search failed', { error: err instanceof Error ? err.message : String(err) })
+    if (throwOnError) throw err
     return []
   }
 }
@@ -62,9 +64,10 @@ export function bm25ScoredIdsFiltered(
   query: string,
   limit: number,
   filterSql: string,
-  filterParams: SQLQueryBindings[]
+  filterParams: SQLQueryBindings[],
+  throwOnError: boolean = false
 ): ScoredId[] {
-  if (!filterSql) return bm25ScoredIds(db, query, limit)
+  if (!filterSql) return bm25ScoredIds(db, query, limit, throwOnError)
   const fts = toFtsQuery(query)
   if (!fts) return []
   try {
@@ -86,7 +89,13 @@ export function bm25ScoredIdsFiltered(
       `)
       .all(fts, oversample, ...filterParams, limit) as Array<{ thought_id: string; score: number }>
     return rows.map(r => ({ id: r.thought_id, score: -r.score }))
-  } catch {
-    return bm25ScoredIds(db, query, limit)
+  } catch (err) {
+    insertLog('debug', 'search', 'bm25 filtered search failed', { error: err instanceof Error ? err.message : String(err) })
+    if (throwOnError) throw err
+    // Preserve historical graceful fallback to the unfiltered leg for direct callers.
+    // Note: the search service calls this helper with throwOnError=true so a
+    // filtered failure surfaces as `degraded` (no fallback) and project scoping
+    // is not silently widened; direct callers keep the graceful fallback.
+    return bm25ScoredIds(db, query, limit, throwOnError)
   }
 }
