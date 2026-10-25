@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { getDb } from '../db/container'
-import { initDb } from '../db/init'
+import { closeDb, initDb } from '../db/init'
 import { insertLog } from '../logging'
 import { generateEmbeddings, resetExtractor } from './model'
 import { ensureModelFiles } from './model-validator'
@@ -41,9 +41,11 @@ function resetIdleTimer() {
       idleMinutes: config.embedder.idleTimeoutMs / 60000
     })
     process.send?.({ type: 'exiting' })
+    if (idleTimer) clearTimeout(idleTimer)
     if (pollTimer) clearInterval(pollTimer)
     if (sweepTimer) clearInterval(sweepTimer)
     resetExtractor()
+    closeDb()
     process.exit(0)
   }, config.embedder.idleTimeoutMs)
 }
@@ -213,9 +215,11 @@ process.on('message', async (raw: unknown) => {
   const message = raw as IpcMessage
   if (message.type === 'shutdown') {
     console.log('[embedder] shutdown requested, exiting')
+    if (idleTimer) clearTimeout(idleTimer)
     if (pollTimer) clearInterval(pollTimer)
     if (sweepTimer) clearInterval(sweepTimer)
     resetExtractor()
+    closeDb()
     process.exit(0)
     return
   }

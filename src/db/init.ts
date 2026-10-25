@@ -205,10 +205,23 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
 }
 
 export function closeDb(): void {
+  let db: ReturnType<typeof getDb> | null = null
   try {
-    getDb().close()
+    db = getDb()
   } catch {
-    // ignore close errors
+    // DB never initialized (or already closed): nothing to do.
+    clearDb()
+    return
+  }
+  try {
+    db.run('PRAGMA wal_checkpoint(TRUNCATE)')
+  } catch (err) {
+    console.error('[db] wal_checkpoint(TRUNCATE) failed:', err)
+  }
+  try {
+    db.close(true)
+  } catch (err) {
+    console.error('[db] close failed:', err)
   }
   clearDb()
 }
