@@ -39,7 +39,7 @@ export function clampPrimerCount(value: unknown, fallback: number): number {
  * config layer already uses for bad values ("invalid value for ..."), naming
  * both the offending value and the value actually used.
  */
-export function sanitizePrimerCount(value: unknown, fallback: number, label: string): number {
+function sanitizePrimerCount(value: unknown, fallback: number, label: string): number {
   // Not provided at all: the built-in default, silently.
   if (value === undefined) return fallback
   const numeric = typeof value === 'number' && Number.isFinite(value) ? value : undefined

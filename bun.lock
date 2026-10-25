@@ -7,7 +7,6 @@
       "dependencies": {
         "@huggingface/transformers": "^4.2.0",
         "@modelcontextprotocol/sdk": "^1.31.0",
-        "fast-uri": "3.1.7",
         "hono": "^4.13.5",
       },
       "devDependencies": {

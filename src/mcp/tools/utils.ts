@@ -72,7 +72,7 @@ export function resolveProjectId(cwd?: string): string | undefined {
 // transforms a thought; one projectFields projects an arbitrary object.
 
 /** Minimal field set selected by `compact: true`. */
-export const COMPACT_FIELDS = ['id', 'content', 'status', 'tags', 'project'] as const
+const COMPACT_FIELDS = ['id', 'content', 'status', 'tags', 'project'] as const
 
 /** A single value accepted anywhere a field selection may appear. */
 export type FieldSelectionInput =
@@ -158,7 +158,7 @@ function parseFieldSelectionArgs(args: FieldSelectionInput[]): ParsedFieldSelect
   return { compact, fields, available }
 }
 
-export function resolveFields(...args: FieldSelectionInput[]): string[] {
+function resolveFields(...args: FieldSelectionInput[]): string[] {
   const { compact, fields: rawFields, available } = parseFieldSelectionArgs(args)
   let fields = rawFields
   if (!fields || fields.length === 0) {

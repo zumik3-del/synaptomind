@@ -8,7 +8,7 @@ import {
   type PreviewTokenRow
 } from '../db/preview-tokens'
 
-export const PREVIEW_TOKEN_TTL_MINUTES = 5
+const PREVIEW_TOKEN_TTL_MINUTES = 5
 
 export function createPreviewTokenService(
   kind: string,

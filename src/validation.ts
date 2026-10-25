@@ -19,20 +19,20 @@ export const graphStatusSchema = z.enum(['active', 'draft', 'archived', 'all'])
 
 /** Node cap for the graph surface (`GET /api/graph`, `memory_crystallize graph`). */
 export const GRAPH_LIMIT_DEFAULT = 500
-export const GRAPH_LIMIT_MIN = 1
-export const GRAPH_LIMIT_MAX = 2000
+const GRAPH_LIMIT_MIN = 1
+const GRAPH_LIMIT_MAX = 2000
 export const graphLimitSchema = z.coerce.number().int().min(GRAPH_LIMIT_MIN).max(GRAPH_LIMIT_MAX)
 
 /** Page offset for the graph surface (`GET /api/graph`, `memory_crystallize graph`). */
 export const GRAPH_OFFSET_DEFAULT = 0
-export const GRAPH_OFFSET_MIN = 0
-export const GRAPH_OFFSET_MAX = 1_000_000
+const GRAPH_OFFSET_MIN = 0
+const GRAPH_OFFSET_MAX = 1_000_000
 export const graphOffsetSchema = z.coerce.number().int().min(GRAPH_OFFSET_MIN).max(GRAPH_OFFSET_MAX)
 
 /** Page size for the timeline surface (`GET /api/thoughts/timeline`, `memory_reflect timeline`). */
 export const TIMELINE_LIMIT_DEFAULT = 50
-export const TIMELINE_LIMIT_MIN = 1
-export const TIMELINE_LIMIT_MAX = 500
+const TIMELINE_LIMIT_MIN = 1
+const TIMELINE_LIMIT_MAX = 500
 export const timelineLimitSchema = z.coerce.number().int().min(TIMELINE_LIMIT_MIN).max(TIMELINE_LIMIT_MAX)
 
 /**
@@ -48,8 +48,8 @@ export const BATCH_ITEMS_MAX = 1000
 
 /** Page size for the proposal queue (`GET /api/proposals`, `edge_review action=list`). */
 export const PROPOSALS_LIMIT_DEFAULT = 100
-export const PROPOSALS_LIMIT_MIN = 1
-export const PROPOSALS_LIMIT_MAX = 1000
+const PROPOSALS_LIMIT_MIN = 1
+const PROPOSALS_LIMIT_MAX = 1000
 export const proposalsLimitSchema = z.coerce.number().int().min(PROPOSALS_LIMIT_MIN).max(PROPOSALS_LIMIT_MAX)
 
 /** ISO-8601 UTC datetime (the format stored timestamps use). */

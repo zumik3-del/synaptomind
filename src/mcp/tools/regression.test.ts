@@ -214,7 +214,7 @@ describe('memory_recall context honors project_id', () => {
       name: 'memory_manage',
       arguments: { action: 'create', name: 'ContextScopeEmpty', local_path: '/tmp/context-scope-empty' }
     })
-    const { data: project } = parseResult(proj)
+    parseResult(proj)
 
     const result = await client.callTool({
       name: 'memory_recall',

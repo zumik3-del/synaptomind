@@ -31,7 +31,7 @@ export interface ApplyOptions {
 }
 
 /** Why an explicit apply/rollback refused the request (ADR 2026-09-29 §2.7). */
-export type RunRefusalCode =
+type RunRefusalCode =
   | 'limit_exceeded'
   /** The row's item kind was removed from the queue (tasks #1942, #1946). */
   | 'unsupported_item_kind'
@@ -48,7 +48,7 @@ interface ApplyResultBase {
   item_kind: StoredProposalItemKind
 }
 
-export interface DryRunApplyResult extends ApplyResultBase {
+interface DryRunApplyResult extends ApplyResultBase {
   status: 'dry_run'
   calls: PlannedWriterCall[]
 }
@@ -69,12 +69,12 @@ export interface AcceptedApplyResult extends ApplyResultBase {
   run_id: string | null
 }
 
-export interface StaleApplyResult extends ApplyResultBase {
+interface StaleApplyResult extends ApplyResultBase {
   status: 'stale'
   reason: string
 }
 
-export interface FailedApplyResult extends ApplyResultBase {
+interface FailedApplyResult extends ApplyResultBase {
   status: 'failed'
   reason: string
 }
@@ -112,7 +112,7 @@ export interface RollbackOptions {
 }
 
 /** What the rollback did (or would do) with one accepted row of the run. */
-export type RollbackItemAction = 'reverted' | 'skipped' | 'refused'
+type RollbackItemAction = 'reverted' | 'skipped' | 'refused'
 
 export interface RollbackItemReport {
   proposal_id: string

@@ -31,7 +31,7 @@ function slimDetail(value: unknown): unknown {
  * Details arrays are opt-in: by default they are omitted (summary + counts stay),
  * and only included (slimmed) when `includeDetails` is true.
  */
-export function projectHealthReport(report: any, includeDetails: boolean = false): any {
+function projectHealthReport(report: any, includeDetails: boolean = false): any {
   const { summary, categories, ...rest } = report ?? {}
   // Keep a single score (health_score) + one score_breakdown; drop duplicate aliases.
   const {

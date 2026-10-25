@@ -25,7 +25,7 @@ export interface LinkBatchItem {
 }
 
 /** One `link_batch` item that could not be linked, with its position and reason. */
-export interface LinkBatchError {
+interface LinkBatchError {
   index: number
   source?: string
   target?: string
@@ -89,7 +89,7 @@ export function deleteEdgeService(id: string, d: Database = getDb()): boolean {
 }
 
 /** One `unlink_batch` item result (task #1972). */
-export interface UnlinkBatchItemResult {
+interface UnlinkBatchItemResult {
   edge_id: string
   status: 'deleted' | 'preview' | 'failed'
   /** Present on `preview` results (mirrors single `unlink`). */
@@ -99,7 +99,7 @@ export interface UnlinkBatchItemResult {
 }
 
 /** One `unlink_batch` failure entry (task #1972). */
-export interface UnlinkBatchError {
+interface UnlinkBatchError {
   index: number
   edge_id?: string
   error: string

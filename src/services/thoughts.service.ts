@@ -104,7 +104,7 @@ export function archiveThoughtByIdService(id: string, d: Database = getDb()): Th
 }
 
 /** One `archive_batch` item that could not be archived, with the reason. */
-export interface ArchiveBatchError {
+interface ArchiveBatchError {
   thought_id: string
   error: string
 }
