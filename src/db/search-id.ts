@@ -18,12 +18,26 @@ export interface ThoughtIdQuery {
 /** Hex length of a full UUID (the stored thought-id form). */
 const ID_HEX_LENGTH = 32
 /**
- * Shortest hex prefix treated as an id rather than as a word. Eight hex chars is
- * the shortest prefix that is practically unambiguous in a UUIDv7 namespace (the
- * first 48 bits are a millisecond timestamp, so equal prefixes share a creation
- * window) and long enough that ordinary hex-looking words are rare.
+ * Hard cap on the rows one prefix lookup returns (task #2186).
+ *
+ * UUIDv7 carries a 48-bit millisecond timestamp in its first 12 hex characters,
+ * so a `bulk_create` batch inserts thousands of thoughts that share them: even a
+ * 13-hex prefix can address a whole batch. The lookup never answers more than
+ * this many rows; the caller's `limit` caps it further, and a truncated answer is
+ * reported as ambiguous.
  */
-const ID_PREFIX_MIN_HEX_LENGTH = 8
+export const ID_PREFIX_MATCH_HARD_CAP = 100
+/**
+ * Shortest hex prefix treated as an id rather than as a word (task #2186).
+ *
+ * Thirteen hex characters cover the 48-bit UUIDv7 millisecond timestamp (12
+ * characters) plus the version nibble, the window in which unrelated thoughts
+ * still share a prefix. Below that floor a hex-looking *word* — a date token
+ * `20251025`, a constant `deadbeef` — is indistinguishable from a prefix, and a
+ * miss would replace a legitimate word search with an empty id answer. The floor
+ * keeps those terms flowing through the semantic/lexical legs.
+ */
+const ID_PREFIX_MIN_HEX_LENGTH = 13
 /** Canonical UUID hyphen positions (after these zero-based hex offsets). */
 const UUID_HYPHEN_POSITIONS = new Set([8, 12, 16, 20])
 
@@ -69,6 +83,12 @@ interface IdRow {
   updated_at: string
 }
 
+/** Clamp a caller-supplied prefix cap into `[1, ID_PREFIX_MATCH_HARD_CAP]`. */
+function clampPrefixLimit(limit: number): number {
+  if (!Number.isFinite(limit)) return ID_PREFIX_MATCH_HARD_CAP
+  return Math.min(Math.max(Math.floor(limit), 1), ID_PREFIX_MATCH_HARD_CAP)
+}
+
 /**
  * Resolve an id-shaped query to `SearchResult`s (empty when nothing matches),
  * or `null` when the query is not id-shaped.
@@ -76,16 +96,29 @@ interface IdRow {
  * An explicit id is an explicit reference: this lookup deliberately ignores the
  * `status`, `project`, `tag`, `is_cluster` and `min_importance` scope, because a
  * caller that named an id already chose exactly one thought and must be able to
- * resolve it from any scope. The filter/standing/gate layers never see these
- * rows — the caller short-circuits on them.
+ * resolve it from any scope. The filter/gate layers never see these rows — the
+ * caller short-circuits on them.
+ *
+ * A prefix answer is capped at `limit` (itself hard-capped at
+ * {@link ID_PREFIX_MATCH_HARD_CAP}) so a bulk batch cannot flood the answer; the
+ * exact form needs no cap because the id is the primary key.
+ *
+ * `low_confidence` is `false` here in the neutral "an explicit reference is an
+ * exact match, not a weak similarity hit" sense; the service re-flags a contested
+ * row (`standing` other than `current`) rather than leaving it looking clean.
  *
  * `GLOB` is case-sensitive against the stored BINARY-collated primary key and can
  * use that index for the `prefix*` form; the query is lowercased first, which
  * matches the lowercase ids the system generates.
  */
-export function findThoughtsByIdQuery(db: Database, query: string): SearchResult[] | null {
+export function findThoughtsByIdQuery(
+  db: Database,
+  query: string,
+  limit: number = ID_PREFIX_MATCH_HARD_CAP
+): SearchResult[] | null {
   const idQuery = parseThoughtIdQuery(query)
   if (!idQuery) return null
+  const cap = clampPrefixLimit(limit)
 
   const rows = (
     idQuery.exact
@@ -105,6 +138,7 @@ export function findThoughtsByIdQuery(db: Database, query: string): SearchResult
             LEFT JOIN projects p ON t.project_id = p.id
             WHERE t.id GLOB ?
             ORDER BY t.id ASC
+            LIMIT ${cap}
           `)
           .all(idQuery.pattern)
   ) as IdRow[]

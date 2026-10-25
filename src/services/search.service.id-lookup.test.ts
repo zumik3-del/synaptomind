@@ -4,16 +4,20 @@ import { createTestDb, seedThought } from '../test/helpers'
 import { searchThoughts, searchThoughtsOutcome } from './search.service'
 
 /**
- * Task #2178, service layer: an id-shaped query is an id lookup.
+ * Task #2178, service layer: an id-shaped query is an id lookup (task #2186
+ * revised the fallback, the prefix floor and the standing annotation).
  *
  * The DB layer (`src/db/search-id.test.ts`) pins the recognition rules and the
  * lookup itself. This file pins what the *service* must do around it:
  *
  * - the addressed thought comes back in any status, ignoring every scope
  *   filter (`status`, `project`, `tag`, `is_cluster`, `min_importance`),
- * - an unknown id returns no rows at all — never a best-effort semantic
- *   neighbour — with `reason: 'id_not_found'`,
- * - the embedder is never called for an id-shaped query,
+ * - an id-shaped query that addresses nothing falls back to the normal search
+ *   and only leaves an `id_not_found` warning — it never zeroes the answer,
+ * - an addressed thought is annotated like any other hit (standing,
+ *   superseded_by/contradicted_by, low_confidence when contested) but never
+ *   suppressed by the lookup,
+ * - the embedder is never called for an id-shaped query that *matches*,
  * - the calibrated relevance gate never touches an id result.
  *
  * The embedder mock both keeps the suite offline and counts invocations: each
@@ -60,7 +64,7 @@ describe('searchThoughtsOutcome — id lookup', () => {
     expect(outcome.ambiguous).toBeUndefined()
   })
 
-  test('an id result carries match_source [id], no similarity and low_confidence false', async () => {
+  test('an id result carries match_source [id], no similarity and low_confidence false for a current hit', async () => {
     seedThought({ id: A, content: 'ALPHA_ID marker' })
 
     const [hit] = (await searchThoughtsOutcome({ query: A })).items
@@ -121,7 +125,7 @@ describe('searchThoughtsOutcome — id lookup', () => {
     expect(outcome.items.map(r => r.thought.id)).toEqual([A])
   })
 
-  test('a superseded thought is still returned by its id (standing is not consulted)', async () => {
+  test('a superseded thought is still answered by its id, flagged not suppressed (task #2186)', async () => {
     const oldId = seedThought({ id: A, content: 'SUPERSEDED_ID marker' })
     const newId = seedThought({ id: B, content: 'SUPERSEDING_ID marker' })
     const { createEdge } = await import('../db/edges')
@@ -130,10 +134,29 @@ describe('searchThoughtsOutcome — id lookup', () => {
 
     const outcome = await searchThoughtsOutcome({ query: A, supersessionMode: 'suppress' })
 
+    // The explicit id always answers; the standing annotation replaces the
+    // suppression the caller asked for, so a contested hit never looks clean.
     expect(outcome.items.map(r => r.thought.id)).toEqual([oldId])
+    expect(outcome.items[0].standing).toBe('superseded')
+    expect(outcome.items[0].superseded_by).toEqual([newId])
+    expect(outcome.items[0].low_confidence).toBe(true)
   })
 
-  test('an unknown id returns no rows with reason id_not_found', async () => {
+  test('an id-shaped miss falls back to the word search and reports id_not_found as a warning (task #2186)', async () => {
+    // The token is 13 hex characters, so it *is* id-shaped; the corpus carries
+    // it as text. Before #2186 this query returned zero rows.
+    const id = seedThought({ id: A, content: 'release 2025102512345 shipped the fix' })
+
+    const outcome = await searchThoughtsOutcome({ query: '2025102512345', topK: 10 })
+
+    expect(outcome.items.map(r => r.thought.id)).toEqual([id])
+    expect(outcome.matched).toBeGreaterThan(0)
+    expect(outcome.warnings?.[0]).toContain('id_not_found')
+    // Rows did come back, so no `reason` is needed to explain an empty answer.
+    expect(outcome.reason).toBeUndefined()
+  })
+
+  test('an unknown full UUID keeps its precise reason when the fallback finds nothing either (task #2186)', async () => {
     seedThought({ id: A, content: 'NEIGHBOUR_ID marker' })
 
     const outcome = await searchThoughtsOutcome({ query: '018f0a00-0000-7000-8000-0000000000ff' })
@@ -141,6 +164,7 @@ describe('searchThoughtsOutcome — id lookup', () => {
     expect(outcome.items).toEqual([])
     expect(outcome.matched).toBe(0)
     expect(outcome.filtered_out).toBe(0)
+    expect(outcome.warnings?.[0]).toContain('id_not_found')
     expect(outcome.reason).toBe('id_not_found')
   })
 
@@ -148,7 +172,7 @@ describe('searchThoughtsOutcome — id lookup', () => {
     seedThought({ id: B, content: 'AMBIGUOUS_ID beta' })
     seedThought({ id: A, content: 'AMBIGUOUS_ID alpha' })
 
-    const outcome = await searchThoughtsOutcome({ query: '018f0a00' })
+    const outcome = await searchThoughtsOutcome({ query: '018f0a0000007' })
 
     expect(outcome.items.map(r => r.thought.id)).toEqual([A, B])
     expect(outcome.matched).toBe(2)
@@ -158,7 +182,7 @@ describe('searchThoughtsOutcome — id lookup', () => {
   test('a mixed-case prefix with a dash resolves the same rows', async () => {
     seedThought({ id: A, content: 'PREFIX_ID alpha' })
 
-    const outcome = await searchThoughtsOutcome({ query: '018F0A00-00' })
+    const outcome = await searchThoughtsOutcome({ query: '018F0A00-0000-7' })
 
     expect(outcome.items.map(r => r.thought.id)).toEqual([A])
     expect(outcome.ambiguous).toBeUndefined()
@@ -189,10 +213,10 @@ describe('searchThoughtsOutcome — embedder is never called for an id-shaped qu
     expect(embeddingCalls).toBe(0)
   })
 
-  test('a hex string shorter than 8 characters is a word query, not an id lookup', async () => {
+  test('a hex string shorter than the 13-character floor is a word query, not an id lookup', async () => {
     seedThought({ id: A, content: 'SHORT_HEX_ID marker' })
 
-    const outcome = await searchThoughtsOutcome({ query: '018f0a0', topK: 5 })
+    const outcome = await searchThoughtsOutcome({ query: '018f0a000000', topK: 5 })
 
     // Fell through to the normal search: no id_not_found reason, and the
     // embedder was consulted.

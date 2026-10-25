@@ -564,7 +564,8 @@ describe('empty and ambiguous search pass a reason through meta', () => {
     seedThought({ id: 'abcdef01-0000-7000-8000-000000000002', content: 'conformance prefix two', project_id: PROJECT })
     const { payload, isError } = readResult(await client.callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: 'abcdef01', cwd: CWD }
+      // 13 hex characters: the #2186 prefix floor, so this really is an id query.
+      arguments: { action: 'search', query: 'abcdef0100007', cwd: CWD }
     } as never))
     expect(isError).toBe(false)
     const body = payload as { items: Array<{ thought: { id: string } }>; meta: Record<string, unknown> }
