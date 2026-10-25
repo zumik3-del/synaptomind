@@ -21,9 +21,11 @@
  * cannot drift back to a per-action answer shape.
  *
  * Known defects found by this suite are pinned with `test.failing` (a fix flips
- * them red, so the pin is removed deliberately) and were reported on the task:
- *   - `memory_primers` action=delete answers a bare object (no envelope).
- *   - `memory_reflect` action=timeline returns raw rows (tag objects, 0/1 flags).
+ * them red, so the pin is removed deliberately) and were reported on the task.
+ * The two defects the suite originally pinned were fixed by task #2185 and their
+ * cases are ordinary passing tests now: `memory_primers` action=delete answers
+ * `{ item, meta }`, and `memory_reflect` action=timeline shapes its rows with the
+ * shared read-surface hygiene.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
@@ -222,8 +224,7 @@ const CASES: ActionCase[] = [
     action: 'timeline',
     args: () => ({}),
     slot: 'items',
-    cwd: true,
-    knownDefect: 'timeline returns raw rows: tags are {id,name} objects and flag columns are 0/1'
+    cwd: true
   },
   // memory_primers
   { tool: 'memory_primers', action: 'list', args: () => ({}), slot: 'items' },
@@ -231,8 +232,7 @@ const CASES: ActionCase[] = [
     tool: 'memory_primers',
     action: 'delete',
     args: () => ({ primer_id: 'missing-primer' }),
-    slot: 'item',
-    knownDefect: 'delete answers a bare { status, primer_id } object instead of { item, meta }'
+    slot: 'item'
   },
   // edge_review
   { tool: 'edge_review', action: 'enqueue', args: f => ({ thought_id: f.source }), slot: 'item', cwd: true },

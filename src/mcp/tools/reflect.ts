@@ -1,9 +1,10 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { reflectSessionService } from '../../services/slots.service'
-import { listThoughtsService } from '../../services/thoughts.service'
+import { listThoughtsPageService, type Thought } from '../../services/thoughts.service'
 import { thoughtStatusSchema, timelineLimitSchema } from '../../validation'
 import { itemEnvelope, collectionEnvelope, requireEnvelopeScope } from './envelope'
+import { shapeThought } from './utils'
 import { registerActionTool, type ActionArgs } from './action-tool'
 
 const handlers = {
@@ -27,11 +28,21 @@ const handlers = {
   timeline: {
     run(args: ActionArgs) {
       const { scope, warnings, projectId } = requireEnvelopeScope(args.cwd, 'memory_reflect', 'timeline')
-      const items = listThoughtsService({
+      const page = listThoughtsPageService({
         status: args.status as 'draft' | 'active' | 'archived' | undefined, project_id: projectId,
         limit: args.limit as number | undefined, offset: args.offset as number | undefined
       })
-      return collectionEnvelope('timeline', items, { scope, warnings })
+      // Same read-surface hygiene as every other thought listing: tag names as
+      // plain strings, flag columns as booleans. Paging metadata belongs to
+      // meta.counts, never to a row.
+      const items = page.thoughts.map((t: Thought) => shapeThought(t))
+      return collectionEnvelope('timeline', items, {
+        scope,
+        warnings,
+        total: page.total,
+        filtered_out: Math.max(0, page.total - items.length),
+        counts: { limit: page.limit ?? 0, offset: page.offset }
+      })
     }
   }
 }
@@ -39,7 +50,7 @@ const handlers = {
 export function registerMemoryReflect(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_reflect',
-    description: `Session management. Every action answers { items, meta } (timeline) or { item, meta } (reflect); meta = { action, scope, counts, degraded, warnings }. cwd is REQUIRED for both actions. Actions: reflect (summary, decisions, pending, goals), timeline (paginated).`,
+    description: `Session management. Every action answers { items, meta } (timeline) or { item, meta } (reflect); meta = { action, scope, counts, degraded, warnings }. cwd is REQUIRED for both actions. Actions: reflect (summary, decisions, pending, goals), timeline (paginated thought inventory with the shared read-surface hygiene; limit/offset/total ride in meta.counts, never in a row).`,
     inputSchema: {
       action: z.enum(['reflect', 'timeline']).describe('Action'),
       summary: z.string().optional().describe('Brief summary of what was accomplished. OPTIONAL for "reflect". IGNORED for "timeline".'),
