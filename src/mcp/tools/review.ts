@@ -8,6 +8,7 @@ import {
   type ListOptions
 } from '../../services/placement-proposals.service'
 import { isLegacyItemKind, getProposalService } from '../../services/placement-proposals.service'
+import type { PlacementProposalRow } from '../../services/placement-proposals.service'
 import { applyBatchService } from '../../services/placement-apply.service'
 import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { resolveProjectId } from './utils'
@@ -92,7 +93,7 @@ const handlers = {
       const previewToken = args.preview_token as string | undefined
       const rows = proposalIds.map(id => getProposalService(id))
       function fp() {
-        return rows.map((r: any, i: number) => r ? `${r.id}:${r.state}:${r.fingerprint}:${r.created_at}:${r.expires_at ?? ''}:${r.result ?? ''}:${r.run_id ?? ''}` : `missing:${proposalIds[i]}`).join('|')
+        return rows.map((r: PlacementProposalRow | undefined, i: number) => r ? `${r.id}:${r.state}:${r.fingerprint}:${r.created_at}:${r.expires_at ?? ''}:${r.result ?? ''}:${r.run_id ?? ''}` : `missing:${proposalIds[i]}`).join('|')
       }
       if (!confirm) {
         const result = applyBatchService(proposalIds, {

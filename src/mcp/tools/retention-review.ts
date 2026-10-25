@@ -1,6 +1,6 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { listRetentionReviewCandidatesService } from '../../services/retention-review.service'
+import { listRetentionReviewCandidatesService, type RetentionReviewResult } from '../../services/retention-review.service'
 import { getThoughtByIdService } from '../../services/thoughts.service'
 import {
   compactRetentionReviewCandidatesService,
@@ -24,7 +24,7 @@ const handlers = {
       const compact = args.compact === true
       const fields = args.fields
       if (compact || (Array.isArray(fields) && fields.length > 0)) {
-        result.candidates = result.candidates.map((c: unknown) => shapeThought(c, compact, fields)) as any
+        result.candidates = result.candidates.map((c) => shapeThought(c, compact, fields)) as RetentionReviewResult['candidates']
       }
       return result
     }

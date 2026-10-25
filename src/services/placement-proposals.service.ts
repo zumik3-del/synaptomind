@@ -56,6 +56,7 @@ import { clampListLimit, resolveMaxProposalsPerEnqueue } from './placement-propo
 export { computeFingerprint, pairFingerprint } from './placement-proposals.mapping'
 export type { FingerprintInput } from './placement-proposals.mapping'
 export { isLegacyItemKind } from '../db/placement-proposals'
+export type { PlacementProposalRow } from '../db/placement-proposals'
 
 export type {
   EnqueueOutcome,

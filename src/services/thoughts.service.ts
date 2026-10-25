@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+export type { Thought } from '../db/thoughts'
 import { config } from '../config'
 import { createEdge } from '../db/edges'
 import { getClusterMembers } from '../db/cluster-edges'

@@ -11,6 +11,10 @@ import {
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getChainService } from '../../services/graph.service'
 import { contextHandler } from './recall/context'
+import type { SearchResult } from '../../services/search.service'
+import type { GroupedResult } from '../../services/search.service'
+import type { Thought } from '../../services/thoughts.service'
+import type { EdgeView } from '../../services/edges.service'
 import { listThoughtsPageService } from '../../services/thoughts.service'
 import { getHandler as getRecallGetHandler } from './recall/get'
 import { resolveProjectId, shapeThought } from './utils'
@@ -63,7 +67,7 @@ const handlers = {
       const compact = args.compact !== false
       const fields = args.fields
       if (compact || (Array.isArray(fields) && fields.length > 0)) {
-        return (Array.isArray(processed) ? processed : []).map((r: any) => {
+        return (Array.isArray(processed) ? processed : []).map((r: SearchResult | GroupedResult) => {
           if (r && typeof r === 'object' && !Array.isArray(r) && r.thought) {
             return { ...r, thought: shapeThought(r.thought, compact, fields) }
           }
@@ -86,8 +90,8 @@ const handlers = {
       return {
         ...chain,
         thought: shapeThought(chain.thought, compact, fields),
-        upstream: Array.isArray(chain.upstream) ? chain.upstream.map((e: any) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.upstream,
-        downstream: Array.isArray(chain.downstream) ? chain.downstream.map((e: any) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.downstream,
+        upstream: Array.isArray(chain.upstream) ? chain.upstream.map((e: { edge: EdgeView; thought?: Thought }) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.upstream,
+        downstream: Array.isArray(chain.downstream) ? chain.downstream.map((e: { edge: EdgeView; thought?: Thought }) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.downstream,
       }
     }
   },
@@ -118,7 +122,7 @@ const handlers = {
       const compact = args.compact !== false
       const fields = args.fields
       if (compact || (Array.isArray(fields) && fields.length > 0)) {
-        return (Array.isArray(processed) ? processed : []).map((r: any) => {
+        return (Array.isArray(processed) ? processed : []).map((r: SearchResult | GroupedResult) => {
           if (r && typeof r === 'object' && !Array.isArray(r) && r.thought) {
             return { ...r, thought: shapeThought(r.thought, compact, fields) }
           }
@@ -147,7 +151,7 @@ const handlers = {
       const compact = args.compact !== false
       const fields = args.fields
       if (compact || (Array.isArray(fields) && fields.length > 0)) {
-        page.thoughts = page.thoughts.map((t: any) => shapeThought(t, compact, fields)) as any
+        page.thoughts = page.thoughts.map((t: Thought) => shapeThought(t, compact, fields)) as unknown as typeof page.thoughts
       }
       return page
     }

@@ -83,7 +83,7 @@ export class InMemoryEventStore implements EventStore {
     for (const [id, { streamId: sId, message }] of this.events) {
       if (id === lastEventId) { found = true; continue }
       if (!found || sId !== streamId) continue
-      await send(id, message as any)
+      await send(id, message)
     }
     return streamId
   }

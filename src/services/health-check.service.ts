@@ -15,7 +15,7 @@ import { findDuplicateDrafts } from './health-check-drafts.service'
 
 export type Severity = 'critical' | 'warning' | 'info'
 
-interface CheckResult {
+export interface CheckResult {
   name: string
   severity: Severity
   count: number
@@ -24,7 +24,7 @@ interface CheckResult {
   autofix?: Autofix
 }
 
-interface CategoryResult {
+export interface CategoryResult {
   name: string
   checks: CheckResult[]
 }
@@ -44,7 +44,7 @@ interface ScoreBreakdown {
   formula: string
 }
 
-interface HealthReport {
+export interface HealthReport {
   summary: {
     total_thoughts: number
     total_edges: number

@@ -8,6 +8,7 @@ import type { Database } from 'bun:sqlite'
 // zod enums from the db-layer source of truth without importing db directly
 // (AGENTS.md §4 layering: api/mcp -> services -> db).
 export { EDGE_TYPES, type EdgeType } from '../db/edges'
+export type { EdgeView } from '../db/edges'
 
 export function createEdgeService(sourceId: string, targetId: string, type?: string, d: Database = getDb()) {
   if (!targetId) {
