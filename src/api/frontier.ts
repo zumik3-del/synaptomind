@@ -5,7 +5,9 @@ const frontierRouter = new Hono()
 
 frontierRouter.get('/', c => {
   const projectId = c.req.query('project_id') || undefined
-  const k = parseInt(c.req.query('k') || '10', 10) || 10
+  const rawK = c.req.query('k')
+  const k = rawK ? parseInt(rawK, 10) : 10
+  if (!Number.isFinite(k) || k <= 0) return c.json({ error: 'invalid k' }, 400)
   return c.json(getFrontierService({ project_id: projectId, k }))
 })
 

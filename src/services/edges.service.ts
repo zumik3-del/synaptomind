@@ -171,7 +171,7 @@ export function deleteEdgesBatchService(
             errors.push({ index, edge_id: id, error: err })
           } else {
             failed++
-            const err = 'batch aborted: not all edge_ids exist'
+            const err = 'batch aborted: not all edge_ids exist (transaction rolled back)'
             results.push({ edge_id: id, status: 'failed', error: err })
             errors.push({ index, edge_id: id, error: err })
           }

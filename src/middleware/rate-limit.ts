@@ -62,7 +62,10 @@ export function createRateLimitMiddleware() {
       store.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
       return true
     }
+    // LRU: re-insert so the key becomes the newest (Map preserves insertion order).
+    store.delete(key)
     entry.count++
+    store.set(key, entry)
     return entry.count <= RATE_LIMIT_MAX
   }
 

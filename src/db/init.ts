@@ -37,7 +37,8 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
   if (!isMemory) {
     db.run('PRAGMA journal_mode = WAL')
   }
-  db.run(`PRAGMA busy_timeout = ${config.db.busyTimeout}`)
+  const busyTimeout = Number.isFinite(config.db.busyTimeout) ? Math.max(0, Math.floor(config.db.busyTimeout)) : 5000
+  db.run(`PRAGMA busy_timeout = ${busyTimeout}`)
   db.run('PRAGMA foreign_keys = ON')
 
   loadVecExtension(db, isMemory)

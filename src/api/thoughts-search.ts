@@ -13,7 +13,9 @@ const searchRouter = new Hono()
 searchRouter.get('/search', async c => {
   const q = c.req.query('q')
   if (!q) return c.json({ error: 'query "q" is required' }, 400)
-  const k = parseInt(c.req.query('k') || '10', 10)
+  const rawK = c.req.query('k')
+  const k = rawK ? parseInt(rawK, 10) : 10
+  if (!Number.isFinite(k) || k <= 0) return c.json({ error: 'invalid k' }, 400)
   const status = c.req.query('status') || 'active'
   const project_id = c.req.query('project_id')
   const tag = c.req.query('tag')

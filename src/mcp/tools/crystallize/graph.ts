@@ -8,8 +8,8 @@ export const graphHandler: ActionHandler = {
     const data = getGraphDataService(projectId, args.status as string | undefined, args.limit as number | undefined, args.offset as number | undefined)
     const fields = args.fields
     if (Array.isArray(fields) && fields.length > 0) {
-      data.nodes = data.nodes.map((n: any) => projectFields(n, { fields })) as any
-      data.edges = data.edges.map((e: any) => projectFields(e, { fields })) as any
+      data.nodes = data.nodes.map((n) => projectFields(n, { fields })) as unknown as typeof data.nodes
+      data.edges = data.edges.map((e) => projectFields(e, { fields })) as unknown as typeof data.edges
     }
     return data
   }

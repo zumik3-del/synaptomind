@@ -233,8 +233,16 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   return result
 }
 
+function resolveConfigPath(): string {
+  const envPath = process.env.SYNAPTOMIND_CONFIG
+  if (envPath && envPath.trim() !== '') return envPath.trim()
+  const modulePath = join(import.meta.dir, '..', 'config.json')
+  if (existsSync(modulePath)) return modulePath
+  return join(process.cwd(), 'config.json')
+}
+
 function loadFileConfig(): Partial<Config> {
-  const configPath = join(process.cwd(), 'config.json')
+  const configPath = resolveConfigPath()
   if (!existsSync(configPath)) {
     console.error(`[synaptomind] config.json not found at ${configPath}, using defaults`)
     return {}

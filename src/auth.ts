@@ -6,6 +6,7 @@ let warnedMissingTokens = false
 // Test hook: drop the cached token list so env changes are re-read.
 export function resetValidTokens(): void {
   validTokens = null
+  warnedMissingTokens = false
 }
 
 // Explicit local-development opt-out. Without a configured token and without

@@ -21,7 +21,7 @@ const handlers = {
       const projects = listProjectsService()
       const fields = args.fields
       if (Array.isArray(fields) && fields.length > 0) {
-        return projects.map((p: any) => projectFields(p, { fields }))
+        return projects.map((p) => projectFields(p, { fields })) as unknown as typeof projects
       }
       return projects
     }

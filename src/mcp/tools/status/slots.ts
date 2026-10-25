@@ -13,7 +13,7 @@ export const slotsHandler: ActionHandler = {
     })
     const fields = args.fields
     if (Array.isArray(fields) && fields.length > 0) {
-      return slots.map((s: any) => projectFields(s, { fields }))
+      return slots.map((s) => projectFields(s, { fields })) as unknown as typeof slots
     }
     return slots
   }

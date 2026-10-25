@@ -23,16 +23,19 @@ const STANDING_RANK: Record<GraphStanding, number> = {
 }
 
 async function generateEmbeddingWithFallback(query: string): Promise<Float32Array> {
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
       generateEmbedding(query),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Embedding timeout')), EMBEDDING_TIMEOUT_MS)
-      )
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Embedding timeout')), EMBEDDING_TIMEOUT_MS)
+      })
     ])
   } catch (err) {
     console.error('[search] embedding generation failed, falling back to BM25:', err instanceof Error ? err.message : err)
     return new Float32Array(0)
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 

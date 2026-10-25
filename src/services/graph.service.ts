@@ -120,7 +120,7 @@ export function getGraphDataService(
   }
 }
 
-interface ChainResult {
+export interface ChainResult {
   thought: Thought
   upstream: Array<{ edge: EdgeView; thought: Thought | undefined }>
   downstream: Array<{ edge: EdgeView; thought: Thought | undefined }>

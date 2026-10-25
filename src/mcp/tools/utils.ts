@@ -1,4 +1,5 @@
 import { z } from 'zod/v4'
+import type { ChainResult } from '../../services/graph.service'
 import { resolveProjectService } from '../../services/projects.service'
 
 type McpTextContent = { type: 'text'; text: string }
@@ -187,7 +188,7 @@ function resolveFields(...args: FieldSelectionInput[]): string[] {
   return out
 }
 
-export function projectFields(...args: FieldSelectionInput[]): unknown {
+export function projectFields(...args: unknown[]): unknown {
   // Support projectFields(data, fields) and projectFields(fields, data).
   if (args.length >= 2) {
     const second = args[1]
@@ -201,12 +202,12 @@ export function projectFields(...args: FieldSelectionInput[]): unknown {
   return projectFieldsImpl(args[0])
 }
 
-function projectFieldsImpl(value: unknown, ...rest: FieldSelectionInput[]): unknown {
+function projectFieldsImpl(value: unknown, ...rest: unknown[]): unknown {
   let fields: string[] = []
   if (rest.length > 0) {
     const first = rest[0]
     if (Array.isArray(first) || typeof first === 'string' || (first !== null && typeof first === 'object')) {
-      fields = resolveFields(first as FieldSelectionInput, ...rest.slice(1))
+      fields = resolveFields(first as FieldSelectionInput, ...(rest.slice(1) as FieldSelectionInput[]))
     }
   } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>
@@ -273,4 +274,23 @@ export function shapeThought(thought: unknown, compact?: boolean, fields?: unkno
     }
   }
   return out
+}
+
+
+/**
+ * Shape a thought chain (best_match neighbourhood) for compact/fields output.
+ * Shared by the recall `context` and `get` handlers (DRY).
+ */
+export function shapeChain(chain: ChainResult | null | undefined, compact: boolean, fields: unknown): ChainResult | null | undefined {
+  if (!chain) return chain
+  return {
+    ...chain,
+    thought: chain.thought ? (shapeThought(chain.thought, compact, fields) as ChainResult['thought']) : chain.thought,
+    upstream: Array.isArray(chain.upstream)
+      ? chain.upstream.map((e) => ({ ...e, thought: e?.thought ? (shapeThought(e.thought, compact, fields) as typeof e.thought) : e?.thought }))
+      : chain.upstream,
+    downstream: Array.isArray(chain.downstream)
+      ? chain.downstream.map((e) => ({ ...e, thought: e?.thought ? (shapeThought(e.thought, compact, fields) as typeof e.thought) : e?.thought }))
+      : chain.downstream,
+  }
 }
