@@ -81,7 +81,7 @@ memory_crystallize action=graph paginates nodes: offset (default 0), limit (defa
 A recalled thought whose hit count reaches primer.promoteThreshold (default 5) becomes a primer on the search path. memory_primers delete is preview-first (confirm=true); the HTTP DELETE is immediate.
 
 ## Health check
-memory_status action=health; severity restricts reported findings, fix=true auto-repairs safe issues. Score: 100 - criticalCategories×40 - warningCategories×15 - scoredInfoOccurrences×0.25, clamped [0,100]. Islands are an informational coverage finding and are not scored, so publishing an unlinked thought never lowers the score.
+memory_status action=health; severity restricts reported findings (read-only; repair via POST /api/health-check/repair with preview+confirm). Score: 100 - criticalCategories×40 - warningCategories×15 - scoredInfoOccurrences×0.25, clamped [0,100]. Islands are an informational coverage finding and are not scored, so publishing an unlinked thought never lowers the score.
 contradiction_in_cluster remediation: memory_store action=unlink on the contradicts edge, or retype it to supports/related, or archive the cluster thought. Dry-run first, then confirm=true.
 
 ## Placement proposal and review

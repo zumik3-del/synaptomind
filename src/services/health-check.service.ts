@@ -8,7 +8,7 @@ import {
   findContradictsWithHierarchy, findContradictsRedundantWithReplaces, findContradictionInCluster,
   findContradictsToArchived, findSupportsSelfConflict,
   findMissingEmbeddings, findDeadPrimers, findImportanceOutliers,
-  getGraphStats, deleteEdges, deleteThoughts,
+  getGraphStats, deleteEdges, archiveThoughts,
 } from '../db/health-check'
 import type { Database } from 'bun:sqlite'
 import { findDuplicateDrafts } from './health-check-drafts.service'
@@ -78,10 +78,9 @@ export interface HealthReport {
 
 interface HealthCheckOptions {
   severity?: Severity
-  fix?: boolean
 }
 
-type Autofix = (db: Database, details: unknown[]) => void
+type Autofix = (db: Database, details: unknown[]) => number | undefined
 
 interface CheckDef {
   name: string
@@ -120,15 +119,15 @@ function runChecks(db: Database, checks: CheckDef[]): CheckResult[] {
 }
 
 const autofixEdgeIds: Autofix = (db, details) => {
-  deleteEdges(db, (details as Array<{ id: string }>).map(e => e.id))
+  return deleteEdges(db, (details as Array<{ id: string }>).map(e => e.id))
 }
 
 const autofixClusterMemberEdges: Autofix = (db, details) => {
-  deleteEdges(db, (details as Array<{ cluster_edge_id: string }>).map(m => m.cluster_edge_id))
+  return deleteEdges(db, (details as Array<{ cluster_edge_id: string }>).map(m => m.cluster_edge_id))
 }
 
 const autofixThoughtIds: Autofix = (db, details) => {
-  deleteThoughts(db, (details as Array<{ id: string }>).map(t => t.id))
+  return archiveThoughts(db, (details as Array<{ id: string }>).map(t => t.id))
 }
 
 // Only edges whose target is *archived* are truly dangling (the node is out of
@@ -138,7 +137,8 @@ const autofixArchivedParentEdges: Autofix = (db, details) => {
   const ids = (details as Array<{ edge_id: string; target_status: string }>)
     .filter(b => b.target_status === 'archived')
     .map(b => b.edge_id)
-  if (ids.length > 0) deleteEdges(db, ids)
+  if (ids.length === 0) return 0
+  return deleteEdges(db, ids)
 }
 
 const STRUCTURAL_CHECKS: CheckDef[] = [
@@ -245,10 +245,6 @@ export function runHealthCheckService(options: HealthCheckOptions = {}, d: Datab
     100 - (criticalCats * 40) - (warningCats * 15) - (scoredInfo * 0.25)
   ))
 
-  if (options.fix) {
-    runAutoFix(d, categories)
-  }
-
   const penaltyCritical = criticalCats * 40
   const penaltyWarning = warningCats * 15
   const penaltyInfo = scoredInfo * 0.25
@@ -292,11 +288,4 @@ export function runHealthCheckService(options: HealthCheckOptions = {}, d: Datab
   }
 }
 
-function runAutoFix(db: Database, categories: CategoryResult[]): void {
-  for (const cat of categories) {
-    for (const check of cat.checks) {
-      if (!check.autofix || check.count === 0) continue
-      check.autofix(db, check.details)
-    }
-  }
-}
+export type { HealthRepairResult } from './health-check-repair.service'

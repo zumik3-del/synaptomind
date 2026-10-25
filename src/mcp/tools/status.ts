@@ -33,12 +33,12 @@ export function registerMemoryStatus(server: McpServer) {
       max_edges: z.number().int().min(0).optional().describe('Cap the number of proposed edges (maps to engine maxProposals). Default: 3 (slim) unless full output is requested. OPTIONAL for "propose". IGNORED for all other actions.'),
       include_signals: z.boolean().optional().describe('Include per-edge signals in the output. Default false (slim); true restores full output. OPTIONAL for "propose". IGNORED for all other actions.'),
       severity: z.enum(['critical', 'warning', 'info']).optional().describe('Minimum severity. OPTIONAL for "health". IGNORED for all other actions.'),
-      fix: z.boolean().optional().describe('Auto-fix safe issues. OPTIONAL for "health". IGNORED for all other actions.'),
       include_details: z.boolean().optional().describe('Include per-check detail arrays in the health report (default false). OPTIONAL for "health". IGNORED for all other actions.'),
       fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for all actions. IGNORED for actions without thought output.'),
       // Tombstones for retired parameters: supplying one fails input validation
       // with the canonical replacement instead of a silent strip.
       k: z.never({ error: 'k was removed; use limit' }).optional().describe('Removed; use limit.'),
+      fix: z.never({ error: 'fix was removed; use /health-check/repair' }).optional().describe('Removed; use the repair endpoint.'),
     },
     handlers
   })
