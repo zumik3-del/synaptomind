@@ -1,6 +1,7 @@
 import { config } from '../config'
 import { getDb } from '../db'
 import { deleteExpired } from '../db/placement-proposals'
+import { deleteExpiredPreviewTokens } from '../db/preview-tokens'
 import { insertLog } from '../logging/log'
 import { createIntervalJob } from './jobs'
 import type { Database } from 'bun:sqlite'
@@ -14,23 +15,29 @@ import type { Database } from 'bun:sqlite'
 export function cleanupPlacementProposals(d: Database = getDb()): number {
   const ttlDays = config.placement.proposalTtlDays
 
-  if (ttlDays < 0) return 0
-
-  const now = new Date().toISOString()
-  const cutoff = new Date(Date.now() - ttlDays * 86400000).toISOString()
-  const affected = deleteExpired(d, cutoff, now)
-
-  if (affected > 0) {
-    insertLog('info', 'placement-retention', `Expired/pruned ${affected} placement proposals`)
+  let affected = 0
+  if (ttlDays >= 0) {
+    const now = new Date().toISOString()
+    const cutoff = new Date(Date.now() - ttlDays * 86400000).toISOString()
+    affected = deleteExpired(d, cutoff, now)
+    if (affected > 0) {
+      insertLog('info', 'placement-retention', `Expired/pruned ${affected} placement proposals`)
+    }
   }
 
-  return affected
+  // Sweep expired preview tokens (task #2154).
+  const expiredTokens = deleteExpiredPreviewTokens(d)
+  if (expiredTokens > 0) {
+    insertLog('info', 'placement-retention', `Swept ${expiredTokens} expired preview tokens`)
+  }
+
+  return affected + expiredTokens
 }
 
 const job = createIntervalJob({
   name: 'placement-retention',
   intervalMs: 86400000,
-  guard: () => config.placement.proposalTtlDays >= 0,
+  guard: () => true,
   onError: err => insertLog('warning', 'placement-retention', 'Placement retention job failed', { error: String(err) })
 }, () => {
   // `cleanupPlacementProposals` already logs the affected count.

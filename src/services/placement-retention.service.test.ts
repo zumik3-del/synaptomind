@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { config, DEFAULTS, ENV_MAPPINGS } from '../config'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
+import { createPreviewToken } from '../db/preview-tokens'
 import { buildConfigDisplay } from './config-display.service'
 import {
   cleanupPlacementProposals,
@@ -16,8 +17,15 @@ import {
   type InsertProposalInput
 } from '../db/placement-proposals'
 
+const ORIGINAL_PLACEMENT_CONFIG = { ...config.placement }
+
 beforeEach(createTestDb)
-afterEach(closeDb)
+afterEach(() => {
+  // Several tests below mutate the shared config object; restore it so the
+  // mutation cannot leak into other suites in the same Bun process.
+  config.placement = { ...ORIGINAL_PLACEMENT_CONFIG }
+  closeDb()
+})
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -198,6 +206,17 @@ describe('cleanupPlacementProposals', () => {
     })
   })
 
+  test('sweeps expired preview tokens', () => {
+    config.placement = { ...config.placement, proposalTtlDays: 30 }
+    withClock(Date.now(), () => {
+      const db = getDb()
+      const past = new Date(Date.now() - 60000).toISOString()
+      db.prepare(`INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`).run('expired-tok', 'kind', 'target', 'fp', past, past)
+      const removed = cleanupPlacementProposals(db)
+      expect(removed).toBeGreaterThanOrEqual(1)
+    })
+  })
+
   test('terminal older than TTL → pruned (deleted)', () => {
     config.placement = { ...config.placement, proposalTtlDays: 30 }
     withClock(Date.now(), () => {
@@ -305,6 +324,44 @@ describe('cleanupPlacementProposals', () => {
       const removed = cleanupPlacementProposals(db)
       expect(removed).toBe(0)
       expect(listProposals(db)).toHaveLength(1)
+    })
+  })
+})
+
+// ── expired preview token sweep ───────────────────────────────────────────────
+
+describe('expired preview token sweep', () => {
+  test('cleanupPlacementProposals sweeps expired preview tokens', () => {
+    config.placement = { ...config.placement, proposalTtlDays: 30 }
+    withClock(Date.now(), () => {
+      const db = getDb()
+      const expiredToken = 'expired-token'
+      db.prepare(`INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        expiredToken, 'kind', 'target', 'fp',
+        new Date(Date.now() - 10000).toISOString(),
+        new Date(Date.now() - 1000).toISOString(),
+      )
+      const freshToken = createPreviewToken(db, 'kind', 'target', 'fp', 5)
+      const removed = cleanupPlacementProposals(db)
+      expect(removed).toBeGreaterThanOrEqual(1)
+      expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(expiredToken)).toBeNull()
+      expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(freshToken)).toBeDefined()
+    })
+  })
+
+  test('expired preview tokens are swept even when ttlDays < 0', () => {
+    config.placement = { ...config.placement, proposalTtlDays: -1 }
+    withClock(Date.now(), () => {
+      const db = getDb()
+      const expiredToken = 'expired-token-2'
+      db.prepare(`INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        expiredToken, 'kind', 'target', 'fp',
+        new Date(Date.now() - 10000).toISOString(),
+        new Date(Date.now() - 1000).toISOString(),
+      )
+      const removed = cleanupPlacementProposals(db)
+      expect(removed).toBeGreaterThanOrEqual(1)
+      expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(expiredToken)).toBeNull()
     })
   })
 })

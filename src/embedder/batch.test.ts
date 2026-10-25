@@ -28,6 +28,9 @@ beforeEach(() => {
   // vec_thoughts is a vec0 virtual table — v002 skips it on `:memory:` databases,
   // so stub it as a plain table (same approach as queue.test.ts).
   getDb().prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)').run()
+  // Content-dedupe partial unique index (v046) is unrelated to embedding tests;
+  // drop it so fixtures can share content_hash without violating the invariant.
+  getDb().run('DROP INDEX IF EXISTS idx_thoughts_content_dedupe')
 })
 
 afterEach(closeDb)

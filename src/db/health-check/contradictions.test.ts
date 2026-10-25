@@ -11,7 +11,7 @@ import {
 	findSupportsSelfConflict,
 } from "./contradictions";
 
-beforeEach(createTestDb);
+beforeEach(() => { createTestDb(); getDb().run("DROP INDEX IF EXISTS idx_edges_pair"); });
 afterEach(closeDb);
 
 describe("findContradictsWithHierarchy", () => {

@@ -30,7 +30,7 @@ import {
 	getGraphStats,
 } from "./health-check";
 
-beforeEach(createTestDb);
+beforeEach(() => { createTestDb(); getDb().run("DROP INDEX IF EXISTS idx_edges_pair"); });
 afterEach(closeDb);
 
 // :memory: test DBs skip the vec0 extension — a plain table with an
