@@ -32,7 +32,7 @@ Hybrid (vector + FTS5) search over thoughts. Results can be grouped by cluster a
 | hybrid | query | bool | true | `0` disables hybrid search |
 | recency_weight | query | float | 0 | Opt-in recency boost weight (0-1); `0` preserves relevance-only ranking, `>0` adds `recency_weight × 0.5^(ageDays/recency_half_life_days)` |
 | recency_half_life_days | query | int | 30 | Recency decay half-life in days (clamped 1-3650); only meaningful when `recency_weight > 0` |
-| min_relevance | query | float | 0 | Opt-in relevance gate (0-1); with `>0` only strong matches are kept (BM25, or vector with `similarity >= min_relevance`) |
+| min_relevance | query | float | 0.4 | Relevance gate on the calibrated `relevance` scale (0–1). Omitted = the default 0.4 gate; `0` disables it and restores the fail-open result set; a value in between overrides the threshold. BM25- and id-anchored rows are never gated |
 | supersession_mode | query | string | suppress | Superseded thoughts: `off` (no annotation), `flag` (annotate), `suppress` (drop) |
 | contradiction_mode | query | string | flag | Contradicted thoughts: `off` or `flag`; never suppressed |
 
@@ -42,7 +42,30 @@ Unknown query parameters are ignored: `exclude_flagged` in particular is an ordi
 ignored parameter (no 400), and search never filters on it. Graph standing filters apply
 independently.
 
-Response: `[{"thought": {"id": "...", "content": "...", ...}, "distance": 0.12, "similarity": 0.88, "standing": "current"}, ...]`
+Response: `[{"thought": {"id": "...", "content": "...", ...}, "distance": 0.12, "similarity": 0.88, "relevance": 0.8, "standing": "current"}, ...]`
+
+`relevance` is an additive field on the hits the embedding leg produced: the raw cosine
+`similarity` mapped onto the measured unrelated→strong band,
+`clamp01((similarity − search.confidence.unrelatedFloor) / (search.confidence.vectorFloor −
+search.confidence.unrelatedFloor))`, so `0` is an unrelated pair and `1` is a strong match
+([CONFIG.md](CONFIG.md#search)). A BM25-only hit carries no cosine scale and therefore no
+`relevance`. The gate above runs on that value; `matched`/`filtered_out` are not reported on
+the HTTP array — a gated result set is simply shorter.
+
+**Id-shaped queries.** A `q` that is a full UUID or a hex prefix of at least 8 characters is
+resolved as a thought id instead of going through the vector/BM25 legs: the lookup is
+case-insensitive, accepts hyphens in any position, ignores `status`, `project_id`, `tag`,
+`cluster`, `exclude_clusters` and `min_importance`, skips standing suppression and the
+relevance gate, and never falls back to other rows. Each hit carries `match_source: ["id"]`
+and `low_confidence: false`, and no `relevance`:
+
+```json
+[{"thought": {"id": "deadbeef-1111-7000-8000-000000000001", "content": "first prefix hit", "status": "active", "tags": [], "source": null, "project_id": "default", "project_name": "Default", "is_cluster": 0, "is_profile": 0, "is_protected": 1, "is_global": 0, "created_at": "2026-10-25T10:56:16.314Z", "updated_at": "2026-10-25T10:56:16.314Z", "archived_at": null, "surface_after": null}, "match_source": ["id"], "low_confidence": false}]
+```
+
+A prefix that addresses several thoughts returns all of them in id order, and a prefix or id
+that addresses none returns `[]` — the HTTP shape has no `reason` field; a caller that needs
+"id not found" tells it apart from "nothing matched" by the id-shaped query itself.
 
 **Graph standing** (`supersession_mode` / `contradiction_mode`). `supersession_mode`
 controls thoughts marked superseded by an incoming `replaces` edge; `contradiction_mode`
