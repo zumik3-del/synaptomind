@@ -26,6 +26,16 @@ type Searcher = (
   options?: QuerySearchOptions
 ) => Promise<SearchResult[]> | SearchResult[]
 
+/**
+ * The harness measures ranking quality (recall/precision against labeled
+ * results), not the agent-facing noise gate: the measured default gate
+ * (`DEFAULT_MIN_RELEVANCE`) would drop deterministic-mode vector rows wholesale,
+ * because the feature-hashing embeddings sit far below the real cosine band. The
+ * recorded `eval/thresholds.json` baselines were produced without a gate, so the
+ * harness pins `minRelevance: 0` to stay comparable (task #2178).
+ */
+const HARNESS_MIN_RELEVANCE = 0
+
 export function deterministicEmbedder(dimensions = config.embedder.dimensions): EmbedFn {
   return text => deterministicEmbedding(text, dimensions)
 }
@@ -42,6 +52,7 @@ export function createDeterministicSearcher(
       embedding: deterministicEmbedding(query, dimensions),
       supersessionMode: 'suppress',
       contradictionMode: 'flag',
+      minRelevance: HARNESS_MIN_RELEVANCE,
       recencyWeight: options?.recencyWeight,
       recencyHalfLifeDays: options?.recencyHalfLifeDays
     } satisfies SearchServiceOptions)
@@ -62,6 +73,7 @@ export async function realSearcher(): Promise<Searcher> {
       projectFilter,
       supersessionMode: 'suppress',
       contradictionMode: 'flag',
+      minRelevance: HARNESS_MIN_RELEVANCE,
       recencyWeight: options?.recencyWeight,
       recencyHalfLifeDays: options?.recencyHalfLifeDays
     } satisfies SearchServiceOptions)

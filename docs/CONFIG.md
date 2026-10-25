@@ -249,7 +249,8 @@ Context windows for agent startup.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `search.confidence.vectorFloor` | `SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR` | `0.9` | Vector similarity at or above which a hit is not marked `low_confidence` |
+| `search.confidence.vectorFloor` | `SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR` | `0.9` | Vector similarity at or above which a hit is not marked `low_confidence` and reaches calibrated `relevance` 1 |
+| `search.confidence.unrelatedFloor` | `SYNAPTOMIND_SEARCH_CONFIDENCE_UNRELATED_FLOOR` | `0.8` | Measured similarity of an unrelated query/thought pair; the zero point of the calibrated `relevance` scale (`(similarity - unrelatedFloor) / (vectorFloor - unrelatedFloor)`). The default noise gate drops cosine-only rows below calibrated `relevance` 0.4 |
 
 ---
 
@@ -340,7 +341,7 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
   "placement": { "maxClusterSize": 50, "proposalTtlDays": 30, "maxPendingProposals": 500, "maxProposalsPerEnqueue": 5 },
   "slots": { "defaultMaxChars": 2000, "hardLimit": 20000 },
   "graph": { "maxDegree": 50 },
-  "search": { "confidence": { "vectorFloor": 0.9 } },
+  "search": { "confidence": { "vectorFloor": 0.9, "unrelatedFloor": 0.8 } },
   "rateLimit": { "max": 200, "windowMs": 60000, "trustProxy": false }
 }
 ```

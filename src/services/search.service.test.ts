@@ -385,6 +385,9 @@ describe("low_confidence + min_relevance — service layer", () => {
         topK: 10,
         hybrid: true,
         embedding: weakQuery,
+        // Ungated reference: the default gate is ON since #2178, so a baseline
+        // that must contain the weak vector hit has to turn it off explicitly.
+        minRelevance: 0,
       },
       db,
     );

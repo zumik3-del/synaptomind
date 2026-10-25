@@ -76,7 +76,8 @@
   },
   "search": {
     "confidence": {
-      "vectorFloor": 0.9
+      "vectorFloor": 0.9,
+      "unrelatedFloor": 0.8
     }
   },
   "rateLimit": {

@@ -53,7 +53,7 @@ interface Config {
   }
   slots: { defaultMaxChars: number; hardLimit: number }
   graph: { maxDegree: number }
-  search: { confidence: { vectorFloor: number } }
+  search: { confidence: { vectorFloor: number; unrelatedFloor: number } }
   rateLimit: { max: number; windowMs: number; trustProxy: boolean }
   retentionReview: { minAgeDays: number; importanceFloor: number; pageSize: number }
 }
@@ -103,7 +103,14 @@ export const DEFAULTS: Config = {
   // real-embedder run; override with SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR.
   // Single source of truth for the DB-layer fallback in `src/db/search.ts` (which
   // reads `DEFAULTS.search.confidence.vectorFloor` directly — keep them in sync).
-  search: { confidence: { vectorFloor: 0.9 } },
+  //
+  // `unrelatedFloor` is the measured similarity of an unrelated query/thought
+  // pair (task #2178, real e5-small run over 200 sampled thoughts: p50 0.7627,
+  // p95 0.8002, p99 0.8123, max 0.8355 over 4000 pairs). It is the zero point of
+  // the calibrated `relevance` scale: `(similarity - unrelatedFloor) /
+  // (vectorFloor - unrelatedFloor)`, clamped to `[0, 1]`. The default noise gate
+  // (`DEFAULT_MIN_RELEVANCE` in `search-normalize.ts`) is set from the same run.
+  search: { confidence: { vectorFloor: 0.9, unrelatedFloor: 0.8 } },
   rateLimit: { max: 200, windowMs: 60_000, trustProxy: false },
   retentionReview: { minAgeDays: 30, importanceFloor: 0.2, pageSize: 20 }
 }
@@ -182,6 +189,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_GRAPH_MAX_DEGREE', 'graph.maxDegree', 'int'),
 
   M('SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR', 'search.confidence.vectorFloor', 'float'),
+  M('SYNAPTOMIND_SEARCH_CONFIDENCE_UNRELATED_FLOOR', 'search.confidence.unrelatedFloor', 'float'),
 
   M('SYNAPTOMIND_RATE_LIMIT', 'rateLimit.max', 'int'),
   M('SYNAPTOMIND_RATE_LIMIT_WINDOW_MS', 'rateLimit.windowMs', 'int'),

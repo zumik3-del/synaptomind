@@ -1,7 +1,7 @@
 import { getClusterForThoughtBatch } from '../db/cluster-edges'
 import { getDb } from '../db'
 import { annotateGraphStanding, type GraphStanding } from '../db/graph-annotations'
-import { isStrongMatch, type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
+import { type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
 export type { SearchResult } from '../db/search'
 import { getThoughtTagsBatch } from '../db/tags'
 import { getThought } from '../db/thoughts'
@@ -9,6 +9,10 @@ import type { Database } from 'bun:sqlite'
 import { generateEmbedding } from '../embedder/client'
 import { parseTags } from '../utils'
 import { normalizeSearchOptions } from './search-normalize'
+import { keepsUnderRelevanceGate, runIdLookup, type SearchOutcome } from './search-outcome'
+import { calibrateRelevance } from './text-similarity'
+
+export type { SearchOutcome, SearchOutcomeReason } from './search-outcome'
 
 const EMBEDDING_TIMEOUT_MS = 5_000
 
@@ -74,12 +78,13 @@ export interface SearchServiceOptions {
    */
   recencyHalfLifeDays?: number
   /**
-   * Opt-in relevance gate, clamped to `[0, 1]` (default `0`). With `0` the
-   * result set/order is byte-identical to the ungated search. With `> 0` a
-   * result is kept only when it is a strong match
-   * (`match_source` contains `bm25`, or contains `vector` with
-   * `similarity >= minRelevance`); the candidate pool is widened so `topK`
-   * survivors are still reachable.
+   * Relevance gate on the calibrated `relevance` scale, clamped to `[0, 1]`.
+   * Omitted → the measured default (`DEFAULT_MIN_RELEVANCE` in
+   * `search-normalize.ts`): a row without a lexical (BM25) anchor is kept only
+   * when its calibrated `relevance` clears the threshold. An explicit `0`
+   * disables the gate and keeps the pre-#2178 result set byte-identically (same
+   * rows, same order). The candidate pool is widened when the gate can drop rows
+   * so `topK` survivors are still reachable.
    */
   minRelevance?: number
   /**
@@ -96,12 +101,23 @@ export interface GroupedResult {
   items?: SearchResult[]
 }
 
-export async function searchThoughts(options: SearchServiceOptions, d: Database = getDb()): Promise<SearchResult[]> {
+/**
+ * Internal search run: the outcome plus the collection-level degradation flag.
+ */
+interface SearchRun extends SearchOutcome {
+  degraded: boolean
+}
+
+async function runSearch(options: SearchServiceOptions, d: Database): Promise<SearchRun> {
+  const idLookup = runIdLookup(options.query, d)
+  if (idLookup) return { ...idLookup, degraded: false }
+
   const {
     topK,
     minImportance,
     minRelevance,
     confidenceFloor,
+    unrelatedFloor,
     candidateK,
     recencyWeight,
     recencyHalfLifeDays
@@ -126,13 +142,22 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
   })
   const dbDegraded = (dbResults as { degraded?: boolean }).degraded === true
 
+  // Calibrate the cosine leg onto the measured unrelated→strong-match band. Only
+  // embedding-leg hits carry a cosine scale; a BM25-only hit keeps `relevance`
+  // undefined so a keyword match is never read as a weak semantic one.
+  for (const result of dbResults) {
+    if (result.similarity !== undefined) {
+      result.relevance = calibrateRelevance(result.similarity, unrelatedFloor, confidenceFloor)
+    }
+  }
+
   const filtered = options.tagFilter
     ? filterByTags(dbResults, options.tagFilter, d)
     : dbResults
   const standing = applyGraphStanding(filtered, options, d)
   // Gate after standing annotation (a suppressed row is already gone) and
   // before the final `topK` slice; the DB-slice overfetch above backfills it.
-  const gated = minRelevance > 0 ? standing.filter(r => isStrongMatch(r, minRelevance)) : standing
+  const gated = standing.filter(r => keepsUnderRelevanceGate(r, minRelevance))
   const finalResults = gated.length > topK ? gated.slice(0, topK) : gated
   const degraded = embeddingDegraded || dbDegraded
   // Single annotation layer (service): fold the embedding leg's state into the
@@ -141,11 +166,36 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
   for (const r of finalResults) {
     r.degraded = degraded
   }
+  return {
+    items: finalResults,
+    matched: standing.length,
+    filtered_out: standing.length - gated.length,
+    degraded
+  }
+}
+
+export async function searchThoughts(options: SearchServiceOptions, d: Database = getDb()): Promise<SearchResult[]> {
+  const { items, degraded } = await runSearch(options, d)
   // Preserve a top-level degraded flag for empty result sets (consumed by
   // getContextService and other in-process callers; not an array own-property
   // on the wire).
-  Object.assign(finalResults, { degraded })
-  return finalResults
+  Object.assign(items, { degraded })
+  return items
+}
+
+/**
+ * Source-compatible sibling of {@link searchThoughts}: same rows and order,
+ * plus the machine-readable match bookkeeping (`matched`, `filtered_out`,
+ * `reason`, `ambiguous`). The MCP envelope consumes this; the array-returning
+ * service stays the surface for HTTP, context and clusters.
+ */
+export async function searchThoughtsOutcome(
+  options: SearchServiceOptions,
+  d: Database = getDb()
+): Promise<SearchOutcome> {
+  const { items, degraded, ...outcome } = await runSearch(options, d)
+  Object.assign(items, { degraded })
+  return { ...outcome, items }
 }
 
 /**
