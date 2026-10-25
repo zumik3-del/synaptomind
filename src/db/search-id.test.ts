@@ -18,11 +18,11 @@ import { findThoughtsByIdQuery, parseThoughtIdQuery } from './search-id'
  * `:memory:` DB is enough — the vector leg is never reached on this path.
  */
 
-/** Shares the 8-hex prefix `018f0a00` with {@link B} — an ambiguous prefix. */
+/** Shares the 13-hex prefix `018f0a00-0000-7` with {@link B} — an ambiguous prefix. */
 const A = '018f0a00-0000-7000-8000-00000000000a'
-/** Shares the 8-hex prefix `018f0a00` with {@link A}. */
+/** Shares the 13-hex prefix `018f0a00-0000-7` with {@link A}. */
 const B = '018f0a00-0000-7000-8000-00000000000b'
-/** A prefix of its own (`018f0b00`). */
+/** A prefix of its own (`018f0b00-0000-7`). */
 const C = '018f0b00-0000-7000-8000-00000000000c'
 
 beforeEach(createTestDb)
@@ -41,8 +41,12 @@ describe('parseThoughtIdQuery — what counts as an id', () => {
     expect(parseThoughtIdQuery(`\t  ${A.toUpperCase()}  \n`)).toEqual({ pattern: A, exact: true })
   })
 
-  test('an 8-character hex prefix is a prefix query, not an exact one', () => {
-    expect(parseThoughtIdQuery('018f0a00')).toEqual({ pattern: '018f0a00*', exact: false })
+  test('a 13-character hex prefix is a prefix query, not an exact one (task #2186 floor)', () => {
+    expect(parseThoughtIdQuery('018f0a0000007')).toEqual({ pattern: '018f0a00-0000-7*', exact: false })
+  })
+
+  test('a 12-character hex string is a word, not an id (the floor is 13)', () => {
+    expect(parseThoughtIdQuery('018f0a000000')).toBeNull()
   })
 
   test('a 7-character hex string is a word, not an id', () => {
@@ -54,9 +58,9 @@ describe('parseThoughtIdQuery — what counts as an id', () => {
   })
 
   test('hyphen placement is normalised, so a dashed prefix addresses the same row', () => {
-    // `018f0a00-00` → hex `018f0a0000` → canonical `018f0a00-00` + GLOB star.
-    expect(parseThoughtIdQuery('018f0a00-00')).toEqual({ pattern: '018f0a00-00*', exact: false })
-    expect(parseThoughtIdQuery('018f0a0000')).toEqual({ pattern: '018f0a00-00*', exact: false })
+    // `018f0a00-0000-7` → hex `018f0a0000007` → canonical `018f0a00-0000-7` + GLOB star.
+    expect(parseThoughtIdQuery('018f0a00-0000-7')).toEqual({ pattern: '018f0a00-0000-7*', exact: false })
+    expect(parseThoughtIdQuery('018f0a0000007')).toEqual({ pattern: '018f0a00-0000-7*', exact: false })
   })
 
   test('a non-hex query is a word', () => {
@@ -70,11 +74,14 @@ describe('parseThoughtIdQuery — what counts as an id', () => {
     expect(parseThoughtIdQuery('   ')).toBeNull()
   })
 
-  test('a hex-looking word of 8+ characters is treated as a prefix (documented trade-off)', () => {
-    // The rule is deliberately positional, not semantic: `deadbeef` cannot be
-    // distinguished from a prefix without a lookup. A miss returns an empty id
-    // result (`id_not_found`), which the service layer pins.
-    expect(parseThoughtIdQuery('deadbeef')).toEqual({ pattern: 'deadbeef*', exact: false })
+  test('a hex-looking word below the 13-character floor is a word (task #2186)', () => {
+    // The rule is positional: `deadbeef` (8 hex) is below the floor, so it keeps
+    // flowing through the normal search instead of becoming an id miss. A longer
+    // hex word (>= 13) is still positional and falls back at the service layer
+    // when the id lookup misses.
+    expect(parseThoughtIdQuery('deadbeef')).toBeNull()
+    expect(parseThoughtIdQuery('20251025')).toBeNull()
+    expect(parseThoughtIdQuery('deadbeefdeadbeef')).toEqual({ pattern: 'deadbeef-dead-beef*', exact: false })
   })
 })
 
@@ -132,10 +139,10 @@ describe('findThoughtsByIdQuery — resolving the id against the stored rows', (
     expect(findThoughtsByIdQuery(getDbOrThrow(), '018f0a00-0000-7000-8000-0000000000ff')).toEqual([])
   })
 
-  test('an unknown prefix returns no rows', () => {
+  test('an unknown 13-hex prefix returns no rows', () => {
     seedThought({ id: A, content: 'alpha' })
 
-    expect(findThoughtsByIdQuery(getDbOrThrow(), '99999999')).toEqual([])
+    expect(findThoughtsByIdQuery(getDbOrThrow(), '9999999900000')).toEqual([])
   })
 
   test('an ambiguous prefix returns every match, ordered by id', () => {
@@ -143,7 +150,7 @@ describe('findThoughtsByIdQuery — resolving the id against the stored rows', (
     seedThought({ id: A, content: 'alpha' })
     seedThought({ id: C, content: 'gamma' })
 
-    const results = findThoughtsByIdQuery(getDbOrThrow(), '018f0a00')
+    const results = findThoughtsByIdQuery(getDbOrThrow(), '018f0a0000007')
 
     expect(results?.map(r => r.thought.id)).toEqual([A, B])
   })
@@ -152,7 +159,7 @@ describe('findThoughtsByIdQuery — resolving the id against the stored rows', (
     seedThought({ id: A, content: 'alpha' })
     seedThought({ id: C, content: 'gamma' })
 
-    expect(findThoughtsByIdQuery(getDbOrThrow(), '018f0b00')?.map(r => r.thought.id)).toEqual([C])
+    expect(findThoughtsByIdQuery(getDbOrThrow(), '018f0b0000007')?.map(r => r.thought.id)).toEqual([C])
   })
 
   test('an id result carries the thought tags', () => {
