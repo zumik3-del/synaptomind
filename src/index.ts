@@ -34,7 +34,7 @@ const { dirname } = await import('path')
 const { serve } = await import('bun')
 const { app } = await import('./app')
 const { config } = await import('./config')
-const { initDb } = await import('./db/init')
+const { initDb, closeDb } = await import('./db/init')
 const { startEmbedderProcess, stopEmbedderProcess } = await import('./embedder/client')
 const { closeLogDb } = await import('./logging')
 const { startMcpHttpServer } = await import('./mcp/http-transport')
@@ -104,6 +104,7 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   await stopEmbedderProcess()
   closeLogDb()
   if (extra) await extra()
+  closeDb()
   process.exit(0)
 }
 
