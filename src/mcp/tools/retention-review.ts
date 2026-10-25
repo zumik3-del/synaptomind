@@ -8,6 +8,7 @@ import {
   protectRetentionReviewCandidateService
 } from '../../services/retention-review-actions.service'
 import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
+import { collectionEnvelope, itemEnvelope } from './envelope'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { shapeThought } from './utils'
 import { BATCH_ITEMS_MAX } from '../../validation'
@@ -23,15 +24,22 @@ const handlers = {
       })
       const compact = args.compact === true
       const fields = args.fields
-      if (compact || (Array.isArray(fields) && fields.length > 0)) {
-        result.candidates = result.candidates.map((c) => shapeThought(c, compact, fields)) as RetentionReviewResult['candidates']
-      }
-      return result
+      // Always shape: the default path applies the read-surface hygiene too
+      // (tag names as strings, is_protected as a boolean) — task #2181.
+      result.candidates = result.candidates.map((c) => shapeThought(c, compact, fields)) as RetentionReviewResult['candidates']
+      // `total` is the candidate count for the filters, ignoring the page: the
+      // page size and offset the caller supplied live in `meta.counts`.
+      return collectionEnvelope('list', result.candidates, {
+        total: result.total,
+        counts: { limit: result.limit, offset: result.offset }
+      })
     }
   },
   protect: {
     input: z.object({ thought_id: requiredString('thought_id is required for protect action') }),
-    run(args: ActionArgs) { return protectRetentionReviewCandidateService(args.thought_id as string) }
+    run(args: ActionArgs) {
+      return itemEnvelope('protect', protectRetentionReviewCandidateService(args.thought_id as string))
+    }
   },
   delete: {
     input: z.object({ thought_id: requiredString('thought_id is required for delete action'), preview_token: z.string().optional() }),
@@ -45,7 +53,11 @@ const handlers = {
       if (!confirm) {
         const result = deleteRetentionReviewCandidateService(id, { confirm: false })
         const token = createPreviewTokenService('retention_delete', id, fp)
-        return { ...(result as unknown as Record<string, unknown>), preview_token: token }
+        return itemEnvelope(
+          'delete',
+          { ...(result as unknown as Record<string, unknown>), preview_token: token },
+          { preview: { token, consequence: result.instruction } }
+        )
       }
 
       if (thought) {
@@ -54,7 +66,7 @@ const handlers = {
         if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
       }
 
-      return deleteRetentionReviewCandidateService(id, { confirm: true })
+      return itemEnvelope('delete', deleteRetentionReviewCandidateService(id, { confirm: true }))
     }
   },
   compact: {
@@ -63,11 +75,17 @@ const handlers = {
       summary: z.object({ content: z.string().min(1), tags: z.array(z.string()).optional(), project_id: z.string().min(1).optional() })
     }),
     run(args: ActionArgs) {
-      return compactRetentionReviewCandidatesService({
+      const result = compactRetentionReviewCandidatesService({
         source_ids: args.source_ids as string[],
         summary: args.summary as { content: string; tags?: string[]; project_id?: string },
         confirm: args.confirm === true
       })
+      const item = { ...result, ...(result.summary === undefined ? {} : { summary: shapeThought(result.summary) }) }
+      // Compaction confirms on `confirm: true` alone (no token), so the gate
+      // carries the instruction and a null token (task #2181).
+      return result.preview
+        ? itemEnvelope('compact', item, { counts: { sources: result.source_ids.length }, preview: { instruction: result.instruction } })
+        : itemEnvelope('compact', item, { counts: { sources: result.source_ids.length } })
     }
   }
 }
@@ -75,7 +93,7 @@ const handlers = {
 export function registerRetentionReview(server: McpServer): void {
   registerActionTool(server, {
     name: 'retention_review',
-    description: 'Review retention candidates: list candidates, protect a thought, preview or confirm deletion, or compact candidates into a summary.',
+    description: 'Review retention candidates: list candidates, protect a thought, preview or confirm deletion, or compact candidates into a summary. Answers the shared envelope { items, meta } for list and { item, meta } for protect/delete/compact; a preview sets meta.preview={token,destructive:true}.',
     inputSchema: {
       action: z.enum(['list', 'protect', 'delete', 'compact']).describe('Action'),
        min_age_days: z.number().finite().positive().optional().describe('Minimum candidate age in days. Optional for list.'),

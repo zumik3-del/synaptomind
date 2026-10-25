@@ -2,7 +2,8 @@ import { z } from 'zod/v4'
 import { NotFoundError } from '../../../errors'
 import { updateThoughtByIdService } from '../../../services/thoughts.service'
 import type { ThoughtStatus } from '../../../types/thought'
-import { resolveProjectId } from '../utils'
+import { itemEnvelope, writeEnvelopeScope } from '../envelope'
+import { resolveProjectId, shapeThought } from '../utils'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
 export const updateHandler: ActionHandler = {
@@ -16,6 +17,6 @@ export const updateHandler: ActionHandler = {
       content: args.content as string | undefined, tags: args.tags as string[] | undefined, tags_mode: args.tags_mode as 'replace' | 'merge' | undefined, status: args.status as ThoughtStatus | undefined, project_id: resolveProjectId(args.cwd as string), is_protected: args.is_protected as boolean | undefined, is_global: args.is_global as boolean | undefined, surface_after: args.surface_after === undefined ? undefined : (args.surface_after as string | null)
     })
     if (!updated) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-    return updated
+    return itemEnvelope('update', shapeThought(updated), writeEnvelopeScope(args.cwd))
   }
 }

@@ -1,7 +1,16 @@
 import { getGraphDataService } from '../../../services/graph.service'
+import { collectionEnvelope, writeEnvelopeScope } from '../envelope'
 import { projectFields, resolveProjectId } from '../utils'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
+/**
+ * `memory_crystallize action=graph` — the one envelope exception (task #2181).
+ *
+ * A graph is two collections, not one: the nodes are `items` and the edges ride
+ * beside them as a named `edges` field, because interleaving them in one array
+ * would force every caller to filter by shape. Every other action of the MCP
+ * surface stays `{ item, meta }` / `{ items, meta }`.
+ */
 export const graphHandler: ActionHandler = {
   run(args: ActionArgs) {
     const projectId = resolveProjectId(args.cwd as string | undefined)
@@ -11,6 +20,11 @@ export const graphHandler: ActionHandler = {
       data.nodes = data.nodes.map((n) => projectFields(n, { fields })) as unknown as typeof data.nodes
       data.edges = data.edges.map((e) => projectFields(e, { fields })) as unknown as typeof data.edges
     }
-    return data
+    const envelope = collectionEnvelope('graph', data.nodes, {
+      ...writeEnvelopeScope(args.cwd),
+      total: typeof data.total === 'number' ? data.total : data.nodes.length,
+      counts: { edges: data.edges.length }
+    })
+    return { items: envelope.items, edges: data.edges, meta: envelope.meta }
   }
 }

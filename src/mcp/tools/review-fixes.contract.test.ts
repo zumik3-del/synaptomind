@@ -56,14 +56,14 @@ test('memory_store update continues accepting thought_id', async () => {
   const created = toolResult(await client.callTool({
     name: 'memory_store',
     arguments: { action: 'create', content: 'update compatibility marker' }
-  })).data
+  })).data.item
   const updated = toolResult(await client.callTool({
     name: 'memory_store',
     arguments: { action: 'update', thought_id: created.id, content: 'updated compatibility marker' }
   }))
 
   expect(updated.isError).toBe(false)
-  expect(updated.data.content).toBe('updated compatibility marker')
+  expect(updated.data.item.content).toBe('updated compatibility marker')
 })
 
 test('memory_status frontier accepts limit 1 and rejects 51 with its range', async () => {

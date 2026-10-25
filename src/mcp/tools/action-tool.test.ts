@@ -369,7 +369,7 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
         min_age_days: '1'
       }
     })
-    const token1 = JSON.parse((preview as any).content[0].text).preview_token
+    const token1 = JSON.parse((preview as any).content[0].text).meta.preview.token
     const result = await mockClient.callTool({
       name: 'memory_crystallize',
       arguments: {
@@ -401,7 +401,7 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
         min_age_days: 1
       }
     })
-    const token2 = JSON.parse((preview as any).content[0].text).preview_token
+    const token2 = JSON.parse((preview as any).content[0].text).meta.preview.token
     const result = await mockClient.callTool({
       name: 'memory_crystallize',
       arguments: {
@@ -431,7 +431,7 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
         name: 'memory_crystallize',
         arguments: { action: 'auto_cluster' }
       })
-      const token3 = JSON.parse((preview as any).content[0].text).preview_token
+      const token3 = JSON.parse((preview as any).content[0].text).meta.preview.token
       const result = await mockClient.callTool({
         name: 'memory_crystallize',
         arguments: { action: 'auto_cluster', confirm: true, preview_token: token3 }

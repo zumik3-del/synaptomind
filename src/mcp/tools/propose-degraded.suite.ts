@@ -73,7 +73,7 @@ describe('memory_status propose degraded branch', () => {
         arguments: { action: 'create', content: `degraded-seed-${i}`, status: 'active' }
       })
       const text = (r as { content: Array<{ text: string }> })?.content?.[0]?.text ?? ''
-      try { ids.push(JSON.parse(text).id) } catch { /* skip */ }
+      try { ids.push(JSON.parse(text).item.id) } catch { /* skip */ }
     }
     if (ids.length === 0) {
       // If seeding failed entirely, still assert degraded via a known-empty graph.

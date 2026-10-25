@@ -1,6 +1,7 @@
 import { z } from 'zod/v4'
 import { createClusterService } from '../../../services/cluster.service'
-import { resolveProjectId } from '../utils'
+import { itemEnvelope, writeEnvelopeScope } from '../envelope'
+import { resolveProjectId, shapeThought } from '../utils'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
 export const clusterHandler: ActionHandler = {
@@ -11,6 +12,17 @@ export const clusterHandler: ActionHandler = {
   }),
   run(args: ActionArgs) {
     const projectId = resolveProjectId(args.cwd as string | undefined)
-    return createClusterService({ thoughtIds: args.thought_ids as string[], title: args.title as string | undefined, tags: args.tags as string[] | undefined, projectId })
+    const created = createClusterService({ thoughtIds: args.thought_ids as string[], title: args.title as string | undefined, tags: args.tags as string[] | undefined, projectId })
+    // The new cluster, its member edges and its members are one object: `item`
+    // carries them together with the read-surface hygiene applied (task #2181).
+    return itemEnvelope(
+      'cluster',
+      {
+        cluster: shapeThought(created.cluster),
+        edges: created.edges,
+        members: created.members.map(member => shapeThought(member))
+      },
+      { ...writeEnvelopeScope(args.cwd), counts: { members: created.members.length, edges: created.edges.length } }
+    )
   }
 }

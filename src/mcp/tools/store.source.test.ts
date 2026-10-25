@@ -68,8 +68,8 @@ describe('memory_store create stamps source=mcp (F15)', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(data.id).toBeString()
-    expect(dbSource(data.id)).toBe('mcp')
+    expect(data.item.id).toBeString()
+    expect(dbSource(data.item.id)).toBe('mcp')
   })
 
   test('negative control: the service itself does not default to mcp', () => {
@@ -91,8 +91,8 @@ describe('memory_store is_global flag', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(data.is_global).toBe(1)
-    expect(dbIsGlobal(data.id)).toBe(1)
+    expect(data.item.is_global).toBe(true)
+    expect(dbIsGlobal(data.item.id)).toBe(1)
   })
 
   test('create with is_global:false persists 0', async () => {
@@ -103,7 +103,7 @@ describe('memory_store is_global flag', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(dbIsGlobal(data.id)).toBe(0)
+    expect(dbIsGlobal(data.item.id)).toBe(0)
   })
 
   test('create without is_global defaults to 0', async () => {
@@ -114,7 +114,7 @@ describe('memory_store is_global flag', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(dbIsGlobal(data.id)).toBe(0)
+    expect(dbIsGlobal(data.item.id)).toBe(0)
   })
 
   test('update toggles is_global on and back off', async () => {
@@ -124,25 +124,25 @@ describe('memory_store is_global flag', () => {
         arguments: { action: 'create', content: 'mcp toggle marker' }
       })
     )
-    expect(dbIsGlobal(created.data.id)).toBe(0)
+    expect(dbIsGlobal(created.data.item.id)).toBe(0)
 
     const on = parseResult(
       await client.callTool({
         name: 'memory_store',
-        arguments: { action: 'update', thought_id: created.data.id, is_global: true }
+        arguments: { action: 'update', thought_id: created.data.item.id, is_global: true }
       })
     )
     expect(on.isError).toBe(false)
-    expect(dbIsGlobal(created.data.id)).toBe(1)
+    expect(dbIsGlobal(created.data.item.id)).toBe(1)
 
     const off = parseResult(
       await client.callTool({
         name: 'memory_store',
-        arguments: { action: 'update', thought_id: created.data.id, is_global: false }
+        arguments: { action: 'update', thought_id: created.data.item.id, is_global: false }
       })
     )
     expect(off.isError).toBe(false)
-    expect(dbIsGlobal(created.data.id)).toBe(0)
+    expect(dbIsGlobal(created.data.item.id)).toBe(0)
   })
 
   test('advertised schema exposes is_global as an optional boolean', async () => {
