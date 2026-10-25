@@ -616,6 +616,24 @@ describe('memory_crystallize', () => {
     expect(data.meta.action).toBe('graph')
   })
 
+  test('graph reports filtered_out so total = returned + filtered_out holds (task #2190)', async () => {
+    seedThought({ content: 'graph page row one', status: 'active' })
+    seedThought({ content: 'graph page row two', status: 'active' })
+    seedThought({ content: 'graph page row three', status: 'active' })
+
+    const { data, isError } = parseResult(await callTool({
+      name: 'memory_crystallize',
+      arguments: { action: 'graph', limit: 2 }
+    }))
+
+    expect(isError).toBe(false)
+    expect(data.items).toHaveLength(2)
+    expect(data.meta.counts.total).toBe(3)
+    expect(data.meta.counts.returned).toBe(2)
+    expect(data.meta.counts.filtered_out).toBe(1)
+    expect(data.meta.counts.total).toBe(data.meta.counts.returned + data.meta.counts.filtered_out)
+  })
+
   test('dispatches cluster creation and auto-cluster', async () => {
     const member = seedThought({ content: 'retained cluster member' })
     const created = parseResult(await callTool({

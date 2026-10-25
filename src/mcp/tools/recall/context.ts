@@ -52,7 +52,7 @@ export const contextHandler: ActionHandler = {
     }
 
     const { scope, warnings } = resolveEnvelopeScope(args.cwd as string | undefined)
-    const context = await getContextService(args.query as string, maxDegree, scopeProjectId(scope))
+    const context = await getContextService(args.query as string, { maxDegree, projectFilter: scopeProjectId(scope) })
     if (!context) throw new NotFoundError(`No context found for query '${args.query}'`)
     if (!context.best_match) {
       // Degraded result with no best match: surface it as an empty item instead

@@ -102,8 +102,14 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
   // An id-shaped query is an explicit reference: resolve it directly, before the
   // embedding/BM25 legs and the scope filters. A *miss* is not an answer though —
   // an id-shaped word must never zero out a legitimate search — so it falls
-  // through to the normal search and only leaves a warning behind.
-  const idLookup = runIdLookup(options.query, d, normalized.topK)
+  // through to the normal search and only leaves a warning behind. A prefix is
+  // not a reference: it is a timestamp window, so it inherits the caller's
+  // status/project scope (a full UUID does not).
+  const idLookup = runIdLookup(options.query, d, normalized.topK, {
+    statusFilter: options.statusFilter,
+    projectFilter: options.projectFilter,
+    clusterFilter: options.clusterFilter
+  })
   if (idLookup && idLookup.items.length > 0) {
     return resolveIdLookup(idLookup, options, normalized, d)
   }
@@ -185,9 +191,12 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
  * Standing is annotated exactly as for any other hit, but never suppressed: a
  * caller who named an id must get that thought back even when it is superseded
  * (the agent-facing default is `suppress`), so a suppressed request degrades to
- * `flag` here. A contested row is also flagged `low_confidence: true` — an
- * explicit-id answer must not read as a clean current hit. The relevance gate
- * never sees these rows (an id is not a similarity match).
+ * `flag` here. A contested row is not re-flagged `low_confidence` though: that
+ * field means "weak retrieval" (no BM25 anchor, cosine below the vector floor),
+ * and an id hit has no cosine at all — `standing`/`superseded_by`/
+ * `contradicted_by` already carry the contested state, and a client that drops
+ * low-confidence rows would otherwise discard the exact row it asked for. The
+ * relevance gate never sees these rows (an id is not a similarity match).
  */
 function resolveIdLookup(
   lookup: IdLookup,
@@ -203,9 +212,6 @@ function resolveIdLookup(
     },
     d
   )
-  for (const result of annotated) {
-    if (result.standing !== undefined && result.standing !== 'current') result.low_confidence = true
-  }
   const items = annotated.length > normalized.topK ? annotated.slice(0, normalized.topK) : annotated
   return {
     items,
