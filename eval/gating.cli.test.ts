@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { resolveDefaultMinRelevance } from './search'
 
 // CLI-level verification of the #139 gating fix.
 //
@@ -32,6 +33,12 @@ interface StagedEval {
 
 interface Report {
   regressions: Array<Record<string, unknown>>
+  /** Ungated pass (the one thresholds and the exit code gate on). */
+  relevanceGate?: { minRelevance: number; candidates: number; droppedRows: number; queriesWithDrops: number }
+  /** Report-only gated pass (task #2191). */
+  gated?: {
+    relevanceGate?: { minRelevance: number; candidates: number; droppedRows: number; queriesWithDrops: number }
+  }
 }
 
 function datasetSource(scenarios: unknown[]): string {
@@ -163,6 +170,35 @@ describe('eval CLI gating (subprocess, temp thresholds)', () => {
         'overall'
       ])
       expect(regressions.every(regression => regression.metric !== 'assertion')).toBe(true)
+    } finally {
+      rmSync(staged.dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a forced threshold regression exits 1 while both passes are printed (task #2192)', async () => {
+    // A floor of 2 cannot be met (metrics are 0..1), so every metric regresses —
+    // the same exit path a real recall loss takes. The gated pass runs alongside
+    // and must be visible in the output and the report without changing the
+    // verdict (task #2191: report-only).
+    const staged = stageEval(CLEAN_SCENARIO, { deterministic: thresholdEntry('deterministic', 2) })
+    try {
+      const { status, output } = runCli(staged)
+
+      expect(status, output).toBe(1)
+      expect(output).toContain('Gating regressions:')
+      // Both tables: the gated view repeats the OVERALL row of the ungated one.
+      expect(output.match(/OVERALL \(non-xfail\)/g)).toHaveLength(2)
+      expect(output).toContain('Categories (non-xfail):')
+      expect(output).toContain('Relevance gate pass (report-only')
+      expect(output).toContain('recall off')
+      expect(output).toContain('recall gated')
+
+      const report = readReport(staged)
+      expect(report.regressions.length).toBeGreaterThan(0)
+      // The measured pass is the ungated one, and it is the one that gates.
+      expect(report.relevanceGate?.minRelevance).toBe(0)
+      // The gated pass carries the gate production resolves (not a harness copy).
+      expect(report.gated?.relevanceGate?.minRelevance).toBe(await resolveDefaultMinRelevance())
     } finally {
       rmSync(staged.dir, { recursive: true, force: true })
     }

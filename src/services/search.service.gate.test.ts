@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
+import { createEdge } from '../db/edges'
 import { closeDb } from '../db/init'
 import { createTestDb, isVecExtensionAvailable, seedThought, withVecDb } from '../test/helpers'
 import { DEFAULT_MIN_RELEVANCE } from './search-normalize'
@@ -191,6 +192,35 @@ describe('default relevance gate', () => {
 
     expect(byId.get(weakKept)?.low_confidence).toBe(true)
     expect(byId.get(strongKept)?.low_confidence).toBe(false)
+  })
+
+  itVec('a contested id hit keeps low_confidence false while a weak cosine-only hit keeps it true (task #2192)', async db => {
+    // One corpus, two ways of reaching a thought. The round-3 decision: an id
+    // hit has no cosine at all, so `low_confidence` ("weak retrieval") stays
+    // false and the contested state rides in standing/superseded_by — even
+    // though a client-facing default would suppress a superseded row. A weak
+    // cosine-only search hit keeps the flag, so the pairing proves the id path
+    // did not simply switch the annotation off everywhere.
+    const contested = seedThought({ content: 'LOWCONF contested claim' })
+    const superseder = seedThought({ content: 'LOWCONF superseding claim' })
+    createEdge(db, superseder, contested, 'replaces')
+    const weak = seedThought({ content: 'LOWCONF weak-but-kept note' })
+    seedVector(db, weak, 0.85) // relevance 0.5 → kept by the gate, below the vector floor
+
+    const byId = await searchThoughtsOutcome(
+      { query: contested, topK: 10, supersessionMode: 'suppress' },
+      db
+    )
+    expect(byId.items.map(r => r.thought.id)).toEqual([contested])
+    expect(byId.items[0].standing).toBe('superseded')
+    expect(byId.items[0].superseded_by).toEqual([superseder])
+    expect(byId.items[0].low_confidence).toBe(false)
+
+    // Positive control on the same corpus: the weak cosine-only search hit is
+    // still flagged, so the flag itself is alive.
+    const searched = await searchThoughtsOutcome(vectorOptions(), db)
+    const weakHit = searched.items.find(r => r.thought.id === weak)
+    expect(weakHit?.low_confidence).toBe(true)
   })
 
   itVec('a BM25-only hit survives the gate and keeps relevance undefined', async db => {

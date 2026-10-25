@@ -153,6 +153,44 @@ describe('searchThoughtsOutcome — id lookup', () => {
     expect(scoped.items.map(r => r.thought.id)).toEqual([A])
   })
 
+  test('a prefix seeded in two projects is ambiguous unfiltered and scope-narrows to one project (task #2192)', async () => {
+    // The same 13-hex prefix (one UUIDv7 millisecond + version nibble) can
+    // address a thought in every project: without a project filter the answer
+    // carries both rows and says it was ambiguous, while a project filter leaves
+    // exactly the scoped one — a predictable timestamp key never crosses scope.
+    seedThought({ id: A, content: 'SHARED_PREFIX_PROJECT_A', project_id: 'proj-a' })
+    seedThought({ id: B, content: 'SHARED_PREFIX_PROJECT_B', project_id: 'proj-b' })
+
+    const unscoped = await searchThoughtsOutcome({ query: '018f0a0000007' })
+
+    expect(unscoped.items.map(r => r.thought.id)).toEqual([A, B])
+    expect(unscoped.matched).toBe(2)
+    expect(unscoped.ambiguous).toBe(true)
+
+    const scoped = await searchThoughtsOutcome({ query: '018f0a0000007', projectFilter: 'proj-a' })
+
+    expect(scoped.items.map(r => r.thought.id)).toEqual([A])
+    // One row inside the scope is not an ambiguity, whatever the other project holds.
+    expect(scoped.matched).toBe(1)
+    expect(scoped.ambiguous).toBeUndefined()
+  })
+
+  test('the explicit-reference rule: a full UUID resolves across projects while its own prefix does not (task #2192)', async () => {
+    // One corpus, two forms of the same thought id: the full UUID carries the
+    // random bits and is an explicit reference (any project resolves it), the
+    // prefix is only a timestamp window (the project scope applies).
+    seedThought({ id: A, content: 'CROSS_PROJECT_REFERENCE', project_id: 'proj-b' })
+
+    const byUuid = await searchThoughtsOutcome({ query: A, projectFilter: 'proj-a' })
+
+    expect(byUuid.items.map(r => r.thought.id)).toEqual([A])
+
+    const byPrefix = await searchThoughtsOutcome({ query: '018f0a0000007', projectFilter: 'proj-a' })
+
+    expect(byPrefix.items).toEqual([])
+    expect(byPrefix.warnings?.[0]).toContain('id_not_found')
+  })
+
   test('a prefix that matches only outside the project falls back to the word search with an id_not_found note (task #2190)', async () => {
     seedThought({ id: B, content: 'PREFIX_OUT_OF_SCOPE', project_id: 'proj-b' })
 
