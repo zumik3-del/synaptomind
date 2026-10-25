@@ -187,26 +187,6 @@ export function resolveFields(...args: FieldSelectionInput[]): string[] {
   return out
 }
 
-export function partitionFields(...args: FieldSelectionInput[]): { fields: string[]; unknown: string[]; valid: string[]; invalid: string[] } {
-  const { fields: rawFields, available } = parseFieldSelectionArgs(args)
-  const requested = rawFields ?? []
-  if (!available || available.length === 0) {
-    return { fields: [...requested], unknown: [], valid: [...requested], invalid: [] }
-  }
-  const availSet = new Set(available)
-  const fields: string[] = []
-  const unknown: string[] = []
-  const seen = new Set<string>()
-  for (const f of requested) {
-    if (availSet.has(f)) {
-      if (!seen.has(f)) { fields.push(f); seen.add(f) }
-    } else if (!unknown.includes(f)) {
-      unknown.push(f)
-    }
-  }
-  return { fields, unknown, valid: [...fields], invalid: [...unknown] }
-}
-
 export function projectFields(...args: FieldSelectionInput[]): unknown {
   // Support projectFields(data, fields) and projectFields(fields, data).
   if (args.length >= 2) {
