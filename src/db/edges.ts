@@ -74,11 +74,26 @@ function insertEdge(db: Database, sourceId: string, targetId: string, type: stri
   const id = Bun.randomUUIDv7()
   const now = new Date().toISOString()
 
+  let inserted = false
   const insertInTx = db.transaction(() => {
-    insertEdgeRow(db, id, sourceId, targetId, type, now)
-    boostImportance(db, sourceId, 0.1)
+    const res = db.prepare(`
+      INSERT INTO edges (id, source_id, target_id, type, created_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (min(source_id, target_id), max(source_id, target_id)) DO NOTHING
+    `).run(id, sourceId, targetId, type, now)
+    if (res.changes > 0) {
+      inserted = true
+      boostImportance(db, sourceId, 0.1)
+    }
   })
   insertInTx()
+
+  if (!inserted) {
+    // Re-read the row that won the race / already existed.
+    const existing = getEdgePairBetween(db, sourceId, targetId)
+    if (existing) return existing
+    throw new EdgeAlreadyExistsError()
+  }
 
   return findEdge(db, id)
 }
@@ -95,6 +110,7 @@ function insertEdgeRow(
     db.prepare(`
       INSERT INTO edges (id, source_id, target_id, type, created_at)
       VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (min(source_id, target_id), max(source_id, target_id)) DO NOTHING
     `).run(id, sourceId, targetId, type, createdAt)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)

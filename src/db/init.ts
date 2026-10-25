@@ -134,6 +134,14 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
 
   let current = getVersion(d)
 
+  const maxVersion = MIGRATIONS.length > 0 ? Math.max(...MIGRATIONS.map(m => m.version)) : 0
+  if (current > maxVersion) {
+    throw new Error(
+      `Database schema version ${current} is newer than this binary supports (max ${maxVersion}). ` +
+        'Restore from a backup taken before the upgrade or upgrade the binary.'
+    )
+  }
+
   for (const migration of MIGRATIONS) {
     if (current >= migration.version) continue
     // Apply the migration and stamp its schema_version in one transaction: a crash

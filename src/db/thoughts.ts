@@ -106,20 +106,7 @@ export function createThought(db: Database, data: CreateThoughtInput): Thought {
     const now = new Date().toISOString()
     const projectId = data.project_id ?? resolveDefaultProjectId(db)
     const contentHash = computeContentHash(data.content, projectId)
-
-    const existing = db
-      .prepare(
-        `SELECT id FROM thoughts WHERE content_hash = ? AND status IN ('draft', 'active') AND project_id = ? LIMIT 1`
-      )
-      .get(contentHash, projectId) as { id: string } | undefined
-
-    if (existing) {
-      if (data.tags && data.tags.length > 0) {
-        setThoughtTags(db, existing.id, data.tags)
-      }
-      db.prepare(`UPDATE thoughts SET updated_at = ? WHERE id = ?`).run(now, existing.id)
-      return existing.id
-    }
+    const status = data.status ?? 'draft'
 
     const id = Bun.randomUUIDv7()
     const isCluster = toBit(data.is_cluster)
@@ -127,10 +114,27 @@ export function createThought(db: Database, data: CreateThoughtInput): Thought {
     const isProtected = toBit(data.is_protected ?? true)
     const isGlobal = toBit(data.is_global)
 
-    db.prepare(`
+    const res = db.prepare(`
       INSERT INTO thoughts (id, content, status, source, project_id, content_hash, is_cluster, is_profile, is_protected, is_global, created_at, updated_at, surface_after)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, data.content, data.status ?? 'draft', data.source ?? null, projectId, contentHash, isCluster, isProfile, isProtected, isGlobal, now, now, data.surface_after ?? null)
+      ON CONFLICT (content_hash, project_id) WHERE status IN ('draft', 'active') DO NOTHING
+    `).run(id, data.content, status, data.source ?? null, projectId, contentHash, isCluster, isProfile, isProtected, isGlobal, now, now, data.surface_after ?? null)
+
+    if (res.changes === 0) {
+      // Re-read the existing draft/active thought with the same content.
+      const existing = db
+        .prepare(
+          `SELECT id FROM thoughts WHERE content_hash = ? AND status IN ('draft', 'active') AND project_id = ? LIMIT 1`
+        )
+        .get(contentHash, projectId) as { id: string } | undefined
+      if (existing) {
+        if (data.tags && data.tags.length > 0) {
+          setThoughtTags(db, existing.id, data.tags)
+        }
+        db.prepare(`UPDATE thoughts SET updated_at = ? WHERE id = ?`).run(now, existing.id)
+        return existing.id
+      }
+    }
 
     if (data.tags && data.tags.length > 0) {
       setThoughtTags(db, id, data.tags)

@@ -34,8 +34,21 @@ export function getPreviewToken(db: Database, token: string): PreviewTokenRow | 
 }
 
 export function deletePreviewToken(db: Database, token: string): boolean {
-  const res = db.prepare(`DELETE FROM preview_tokens WHERE token = ?`).run(token)
-  return res.changes > 0
+  const row = db.prepare(`DELETE FROM preview_tokens WHERE token = ? RETURNING token`).get(token) as
+    | { token: string }
+    | undefined
+    | null
+  return !!row
+}
+
+export function consumePreviewToken(db: Database, token: string): PreviewTokenRow | undefined {
+  const row = db.prepare(`DELETE FROM preview_tokens WHERE token = ? RETURNING *`).get(token) as PreviewTokenRow | undefined | null
+  return row ?? undefined
+}
+
+export function deleteExpiredPreviewTokens(db: Database, now: string = new Date().toISOString()): number {
+  const res = db.prepare(`DELETE FROM preview_tokens WHERE expires_at < ?`).run(now)
+  return res.changes
 }
 
 export function isPreviewTokenExpired(expiresAt: string, now: Date = new Date()): boolean {
