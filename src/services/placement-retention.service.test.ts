@@ -197,7 +197,7 @@ describe('cleanupPlacementProposals', () => {
         edge_type: 'develops'
       }))
       const removed = cleanupPlacementProposals(db)
-      expect(removed).toBe(1)
+      expect(removed.proposals).toBe(1)
       // No longer pending
       expect(listProposals(db)).toHaveLength(0)
       // Row still exists in state=expired
@@ -213,7 +213,7 @@ describe('cleanupPlacementProposals', () => {
       const past = new Date(Date.now() - 60000).toISOString()
       db.prepare(`INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`).run('expired-tok', 'kind', 'target', 'fp', past, past)
       const removed = cleanupPlacementProposals(db)
-      expect(removed).toBeGreaterThanOrEqual(1)
+      expect(removed).toEqual({ proposals: 0, tokens: 1 })
     })
   })
 
@@ -228,7 +228,7 @@ describe('cleanupPlacementProposals', () => {
         decided_at: new Date(Date.now() - 60 * 86400000).toISOString()
       })
       const removed = cleanupPlacementProposals(db)
-      expect(removed).toBe(1)
+      expect(removed.proposals).toBe(1)
       // Row physically deleted
       const remaining = db.prepare("SELECT id FROM placement_proposals").all() as { id: string }[]
       expect(remaining).toHaveLength(0)
@@ -255,7 +255,7 @@ describe('cleanupPlacementProposals', () => {
         decided_at: new Date(Date.now() - 1 * 86400000).toISOString()
       })
       const removed = cleanupPlacementProposals(db)
-      expect(removed).toBe(0)
+      expect(removed).toEqual({ proposals: 0, tokens: 0 })
       // Both rows still exist
       const all = db.prepare('SELECT id, state FROM placement_proposals ORDER BY id').all() as Array<{ id: string; state: string }>
       expect(all).toHaveLength(2)
@@ -276,7 +276,7 @@ describe('cleanupPlacementProposals', () => {
         edge_type: 'related'
       }))
       const removed = cleanupPlacementProposals(db)
-      expect(removed).toBe(0)
+      expect(removed).toEqual({ proposals: 0, tokens: 0 })
       // Row still pending despite being stale.
       expect(listProposals(db)).toHaveLength(1)
     })
@@ -307,7 +307,7 @@ describe('cleanupPlacementProposals', () => {
       insertProposal(db, makeInput({ source_thought_id: srcFresh, item_kind: 'edge', edge_type: 'develops' }))
 
       const removed = cleanupPlacementProposals(db)
-      expect(removed).toBe(2)
+      expect(removed.proposals).toBe(2)
       // Only the fresh one remains, and it is still pending.
       expect(listProposals(db)).toHaveLength(1)
       const freshRow = db.prepare("SELECT state FROM placement_proposals WHERE state = 'pending'").all() as { state: string }[]
@@ -322,7 +322,7 @@ describe('cleanupPlacementProposals', () => {
       const src = seedThought()
       insertProposal(db, makeInput({ source_thought_id: src, expires_at: null }))
       const removed = cleanupPlacementProposals(db)
-      expect(removed).toBe(0)
+      expect(removed.proposals).toBe(0)
       expect(listProposals(db)).toHaveLength(1)
     })
   })
@@ -343,7 +343,7 @@ describe('expired preview token sweep', () => {
       )
       const freshToken = createPreviewToken(db, 'kind', 'target', 'fp', 5)
       const removed = cleanupPlacementProposals(db)
-      expect(removed).toBeGreaterThanOrEqual(1)
+      expect(removed).toEqual({ proposals: 0, tokens: 1 })
       expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(expiredToken)).toBeNull()
       expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(freshToken)).toBeDefined()
     })
@@ -360,7 +360,7 @@ describe('expired preview token sweep', () => {
         new Date(Date.now() - 1000).toISOString(),
       )
       const removed = cleanupPlacementProposals(db)
-      expect(removed).toBeGreaterThanOrEqual(1)
+      expect(removed).toEqual({ proposals: 0, tokens: 1 })
       expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(expiredToken)).toBeNull()
     })
   })
@@ -384,6 +384,51 @@ describe('start/stop idempotency', () => {
     startPlacementRetentionJob()
     stopPlacementRetentionJob()
     expect(() => stopPlacementRetentionJob()).not.toThrow()
+    expect(() => startPlacementRetentionJob()).not.toThrow()
+    stopPlacementRetentionJob()
+  })
+})
+
+// ── boot-time sweep ──────────────────────────────────────────────────────────
+//
+// The interval is daily, so a host that restarts more often than that would
+// never prune anything. `startPlacementRetentionJob` therefore sweeps once
+// before arming the timer (#2174 review finding).
+
+describe('boot-time sweep', () => {
+  test('startPlacementRetentionJob sweeps once before the interval is armed', () => {
+    config.placement = { ...config.placement, proposalTtlDays: 30 }
+    withClock(Date.now(), () => {
+      const db = getDb()
+      const src = seedThought()
+      insertProposal(db, makeInput({
+        source_thought_id: src,
+        expires_at: new Date(Date.now() - 10 * 86400000).toISOString()
+      }))
+      const past = new Date(Date.now() - 60000).toISOString()
+      db.prepare(`INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`).run('boot-token', 'kind', 'target', 'fp', past, past)
+
+      // Nothing has been swept yet: the timer alone would leave both rows for a day.
+      expect(listProposals(db)).toHaveLength(1)
+      expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get('boot-token')).toBeDefined()
+
+      startPlacementRetentionJob()
+      try {
+        expect(listProposals(db)).toHaveLength(0)
+        const expired = db.prepare(`SELECT COUNT(*) AS c FROM placement_proposals WHERE state = 'expired'`).get() as { c: number }
+        expect(expired.c).toBe(1)
+        expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get('boot-token')).toBeNull()
+      } finally {
+        stopPlacementRetentionJob()
+      }
+    })
+  })
+
+  test('a failed boot sweep is reported, and the job still starts', () => {
+    // A boot sweep that could throw out of `startPlacementRetentionJob` would
+    // take the process down at startup; it must degrade to a log line instead.
+    // No DB is the cheapest way to make `cleanupPlacementProposals` fail.
+    closeDb()
     expect(() => startPlacementRetentionJob()).not.toThrow()
     stopPlacementRetentionJob()
   })

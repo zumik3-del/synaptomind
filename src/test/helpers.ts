@@ -170,6 +170,53 @@ export function seedEdge(
 	return id;
 }
 
+/**
+ * Seed an edge onto an unordered pair that ALREADY has one — the legacy state
+ * v046's `idx_edges_pair` (one edge per pair, any type, either direction)
+ * exists to repair. `edges` is rebuilt into its pre-v046 shape first: no pair
+ * index, and no `UNIQUE(source_id, target_id, type)` table constraint either,
+ * so exact duplicates are possible too. Every other index on `edges` is
+ * recreated, so the fixture differs from production only in the invariant under
+ * test.
+ *
+ * Use it only in tests that deliberately model legacy data (the health-check
+ * finders exist to detect exactly that state). An ordinary fixture must go
+ * through `seedEdge` and keep the live schema. Idempotent: after the rebuild,
+ * later calls only insert.
+ */
+export function seedLegacyPairEdge(
+	sourceId: string,
+	targetId: string,
+	type: string = "related",
+): string {
+	const db = getDb();
+	const pairIndex = db
+		.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_edges_pair'`)
+		.get();
+	if (pairIndex) {
+		const otherIndexes = db
+			.prepare(
+				`SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'edges' AND name <> 'idx_edges_pair' AND sql IS NOT NULL`,
+			)
+			.all() as { sql: string }[];
+		db.run(`CREATE TABLE edges_legacy (
+      id         TEXT PRIMARY KEY,
+      source_id  TEXT NOT NULL REFERENCES thoughts(id) ON DELETE CASCADE,
+      target_id  TEXT NOT NULL REFERENCES thoughts(id) ON DELETE CASCADE,
+      type       TEXT NOT NULL DEFAULT 'related',
+      created_at TEXT NOT NULL
+    )`);
+		db.run(
+			`INSERT INTO edges_legacy (id, source_id, target_id, type, created_at)
+       SELECT id, source_id, target_id, type, created_at FROM edges`,
+		);
+		db.run(`DROP TABLE edges`);
+		db.run(`ALTER TABLE edges_legacy RENAME TO edges`);
+		for (const index of otherIndexes) db.run(index.sql);
+	}
+	return seedEdge(sourceId, targetId, type);
+}
+
 export function seedEmbedding(thoughtId: string): void {
 	const db = getDb();
 	const embedding = new Float32Array(384);

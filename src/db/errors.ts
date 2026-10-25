@@ -39,3 +39,22 @@ export class EdgeConflictError extends Error {
     this.name = 'EdgeConflictError'
   }
 }
+
+/**
+ * A live (draft/active) thought already carries this content inside the project
+ * — the `idx_thoughts_content_dedupe` invariant introduced by v046. Raised
+ * instead of letting the raw `UNIQUE constraint failed` escape as a 500.
+ */
+export class ThoughtContentConflictError extends Error {
+  readonly statusCode = 409
+  constructor(existingId?: string) {
+    super(
+      existingId
+        ? `A live thought in this project already has this content (${existingId}). ` +
+          'Edit that thought or archive it before reusing the content.'
+        : 'Another live thought in this project already has this content. ' +
+          'Edit that thought or archive it before reusing the content.'
+    )
+    this.name = 'ThoughtContentConflictError'
+  }
+}

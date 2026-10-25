@@ -3,7 +3,8 @@ export {
   ClusterEdgeValidationError,
   SelfLoopEdgeError,
   EdgeConflictError,
-  InvalidEdgeTypeError
+  InvalidEdgeTypeError,
+  ThoughtContentConflictError
 } from './db/errors'
 
 export class NotFoundError extends Error {
