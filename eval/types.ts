@@ -150,6 +150,33 @@ export interface AggregateMetrics {
 
 export type EvalMode = 'deterministic' | 'real'
 
+/**
+ * Relevance gate applied to one harness pass.
+ *
+ * - `off` pins `minRelevance: 0` (the pre-#2178 fail-open result set the
+ *   recorded `eval/thresholds.json` baselines were produced with).
+ * - `default` leaves `minRelevance` unset so the search service resolves it the
+ *   way production does (`DEFAULT_MIN_RELEVANCE`, `0.4` today).
+ */
+export type RelevanceGate = 'off' | 'default'
+
+/**
+ * Gate bookkeeping for a pass, so a recall loss under the production gate is
+ * attributable instead of appearing as an unexplained dip (task #2191).
+ */
+export interface GateStats {
+  /** Resolved gate threshold on the calibrated relevance scale; `0` = gate off. */
+  minRelevance: number
+  /** Rows handed to the gate (retained + dropped) across the pass. Retained rows
+   * are counted after the `topK` slice, so this is a lower bound on what the gate
+   * actually saw when the candidate pool overfetches. */
+  candidates: number
+  /** Rows the gate dropped across the pass (`SearchOutcome.filtered_out`). */
+  droppedRows: number
+  /** Queries where the gate dropped at least one row. */
+  queriesWithDrops: number
+}
+
 export interface QueryRun {
   query: string
   relevant: string[]
@@ -183,4 +210,9 @@ export interface RunResult {
   scenarios: ScenarioRun[]
   overall: AggregateMetrics
   categories: Record<string, AggregateMetrics>
+  /**
+   * Relevance-gate bookkeeping for this pass: the resolved threshold and how
+   * many rows it dropped. Always set by `runEval`; absent on hand-built results.
+   */
+  relevanceGate?: GateStats
 }
