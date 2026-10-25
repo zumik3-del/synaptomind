@@ -1,6 +1,8 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import type { ThoughtStatus } from '../types/thought'
 import { computeContentHash, parseTags } from '../utils'
+import { assertNoLiveContentConflict, isContentDedupeViolation } from './content-dedupe'
+import { ThoughtContentConflictError } from './errors'
 import { resolveDefaultProjectId } from './projects'
 import { getThoughtTags, getThoughtTagsBatch, mergeThoughtTags, pruneOrphanTags, setThoughtTags, type Tag } from './tags'
 import { sqlIn, toBit } from './utils'
@@ -226,15 +228,19 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
       return getThoughtRow(db, id)
     }
 
-    if (data.content !== undefined || data.project_id !== undefined) {
-      const existing = db.prepare('SELECT content, project_id FROM thoughts WHERE id = ?').get(id) as
-        | { content: string; project_id: string }
-        | undefined
+    if (data.content !== undefined || data.project_id !== undefined || data.status !== undefined) {
+      const existing = db
+        .prepare('SELECT content, project_id, status, content_hash FROM thoughts WHERE id = ?')
+        .get(id) as { content: string; project_id: string; status: string; content_hash: string | null } | undefined
       if (existing) {
-        const newContent = data.content ?? existing.content
         const newProjectId = data.project_id ?? existing.project_id
-        sets.push('content_hash = ?')
-        values.push(computeContentHash(newContent, newProjectId))
+        const contentChanged = data.content !== undefined || data.project_id !== undefined
+        const newHash = contentChanged ? computeContentHash(data.content ?? existing.content, newProjectId) : existing.content_hash
+        if (contentChanged) {
+          sets.push('content_hash = ?')
+          values.push(newHash)
+        }
+        assertNoLiveContentConflict(db, id, newHash, newProjectId, data.status ?? existing.status)
       }
     }
 
@@ -242,7 +248,12 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
     values.push(new Date().toISOString())
     values.push(id)
 
-    db.prepare(`UPDATE thoughts SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+    try {
+      db.prepare(`UPDATE thoughts SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+    } catch (err) {
+      // A concurrent writer can win the pre-check race: map only that one fault.
+      throw isContentDedupeViolation(err) ? new ThoughtContentConflictError() : err
+    }
 
     return getThoughtRow(db, id)
   })

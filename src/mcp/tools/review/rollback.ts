@@ -1,7 +1,7 @@
 import { z } from 'zod/v4'
 import { rollbackService as rollbackRun } from '../../../services/placement-rollback.service'
 import { listAcceptedProposalsByRunService } from '../../../services/placement-proposals.service'
-import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../../services/preview-tokens.service'
+import { createPreviewTokenService, consumePreviewTokenService } from '../../../services/preview-tokens.service'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 import { AGENT } from './apply'
 
@@ -25,9 +25,8 @@ export const rollbackHandler: ActionHandler = {
 
     const fp = rollbackFingerprint(runId, rows)
     if (!previewToken) throw new Error('preview_token is required')
-    const verification = verifyPreviewTokenService(previewToken, 'rollback', runId, fp)
+    const verification = consumePreviewTokenService(previewToken, 'rollback', runId, fp)
     if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-    consumePreviewTokenService(previewToken)
 
     return rollbackRun(runId, { confirm: true, decidedBy: AGENT })
   }

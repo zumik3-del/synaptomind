@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createTestDb, seedEdge, seedThought } from "../../test/helpers";
+import { createTestDb, seedEdge, seedLegacyPairEdge, seedThought } from "../../test/helpers";
 import { getDb } from "../container";
 import { closeDb } from "../init";
 import { runHealthCheckService } from "../../services/health-check.service";
@@ -11,7 +11,7 @@ import {
 	findSupportsSelfConflict,
 } from "./contradictions";
 
-beforeEach(() => { createTestDb(); getDb().run("DROP INDEX IF EXISTS idx_edges_pair"); });
+beforeEach(createTestDb);
 afterEach(closeDb);
 
 describe("findContradictsWithHierarchy", () => {
@@ -20,7 +20,8 @@ describe("findContradictsWithHierarchy", () => {
 		const parent = seedThought({ content: "parent claim" });
 		const child = seedThought({ content: "child claim" });
 		seedEdge(parent, child, "parent");
-		seedEdge(child, parent, "contradicts");
+		// v046 allows one edge per pair: the second one is legacy state.
+		seedLegacyPairEdge(child, parent, "contradicts");
 
 		const found = findContradictsWithHierarchy(db);
 		expect(found).toHaveLength(1);
@@ -56,7 +57,8 @@ describe("findContradictsRedundantWithReplaces", () => {
 		const oldThought = seedThought({ content: "old" });
 		const newThought = seedThought({ content: "new" });
 		seedEdge(newThought, oldThought, "replaces");
-		seedEdge(oldThought, newThought, "contradicts"); // junk: normally impossible
+		// junk: normally impossible — v046 keeps one edge per pair, so it is legacy state
+		seedLegacyPairEdge(oldThought, newThought, "contradicts");
 
 		const found = findContradictsRedundantWithReplaces(db);
 		expect(found).toHaveLength(1);
@@ -248,7 +250,8 @@ describe("findSupportsSelfConflict", () => {
 		const a = seedThought({ content: "a" });
 		const b = seedThought({ content: "b" });
 		seedEdge(a, b, "supports");
-		seedEdge(b, a, "contradicts"); // junk: one-edge-per-pair should prevent it
+		// junk: one-edge-per-pair should prevent it — seeded as legacy state
+		seedLegacyPairEdge(b, a, "contradicts");
 
 		const found = findSupportsSelfConflict(db);
 		expect(found).toHaveLength(1);
@@ -284,12 +287,13 @@ describe("runHealthCheckService semantic_consistency integration", () => {
 		const parent = seedThought({ content: "parent" });
 		const child = seedThought({ content: "child" });
 		seedEdge(parent, child, "parent");
-		seedEdge(child, parent, "contradicts");
+		// v046 allows one edge per pair: the second one is legacy state.
+		seedLegacyPairEdge(child, parent, "contradicts");
 
 		const a = seedThought({ content: "a" });
 		const b = seedThought({ content: "b" });
 		seedEdge(a, b, "supports");
-		seedEdge(a, b, "contradicts");
+		seedLegacyPairEdge(a, b, "contradicts");
 
 		const report = runHealthCheckService();
 		const semantic = report.categories.find(
@@ -320,11 +324,12 @@ describe("runHealthCheckService semantic_consistency integration", () => {
 		const parent = seedThought({ content: "parent claim in the hierarchy" });
 		const child = seedThought({ content: "child claim in the hierarchy" });
 		seedEdge(parent, child, "parent");
-		seedEdge(child, parent, "contradicts");
+		// v046 allows one edge per pair: the second one is legacy state.
+		seedLegacyPairEdge(child, parent, "contradicts");
 		const junk1 = seedThought({ content: "junk supports endpoint one" });
 		const junk2 = seedThought({ content: "junk supports endpoint two" });
 		seedEdge(junk1, junk2, "supports");
-		seedEdge(junk2, junk1, "contradicts");
+		seedLegacyPairEdge(junk2, junk1, "contradicts");
 
 		const report = runHealthCheckService();
 		const semantic = report.categories.find(

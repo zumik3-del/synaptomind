@@ -1,6 +1,6 @@
 import { z } from 'zod/v4'
 import { retypeEdgeService, validateRetypeService, EDGE_TYPES } from '../../../services/edges.service'
-import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../../services/preview-tokens.service'
+import { createPreviewTokenService, consumePreviewTokenService } from '../../../services/preview-tokens.service'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
 function edgeFingerprint(edge: { id: string; source_id: string; target_id: string; type: string; created_at: string }, newType: string): string {
@@ -40,9 +40,8 @@ export const retypeHandler: ActionHandler = {
 
     const currentFingerprint = edgeFingerprint(edge, newType)
     if (!previewToken) throw new Error('preview_token is required')
-    const verification = verifyPreviewTokenService(previewToken, 'retype', edgeId, currentFingerprint)
+    const verification = consumePreviewTokenService(previewToken, 'retype', edgeId, currentFingerprint)
     if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-    consumePreviewTokenService(previewToken)
 
     const oldType = edge.type
     const retyped = retypeEdgeService(edgeId, newType)

@@ -7,7 +7,7 @@ import {
   archiveThoughtsBatchService
 } from '../../services/thoughts.service'
 import { getBoundedMergePreviewService, mergeThoughtsService } from '../../services/merge.service'
-import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
+import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { validateMergePreconditions } from '../../services/merge'
 import { BATCH_ITEMS_MAX } from '../../validation'
 import { resolveProjectId } from './utils'
@@ -50,9 +50,8 @@ const handlers = {
       if (!existing) throw new NotFoundError(`Thought '${thoughtId}' not found`)
       const currentFingerprint = thoughtFingerprint(existing as unknown as Parameters<typeof thoughtFingerprint>[0])
       if (!previewToken) throw new Error('preview_token is required')
-      const verification = verifyPreviewTokenService(previewToken, 'archive', thoughtId, currentFingerprint)
+      const verification = consumePreviewTokenService(previewToken, 'archive', thoughtId, currentFingerprint)
       if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-      consumePreviewTokenService(previewToken)
       const result = existing.status === 'archived' ? existing : archiveThoughtByIdService(thoughtId)
       const out: Record<string, unknown> = { status: 'executed', action: 'archive', result }
       return out
@@ -93,9 +92,8 @@ const handlers = {
         return t ? thoughtFingerprint(t as unknown as Parameters<typeof thoughtFingerprint>[0]) : `missing:${id}`
       }).join('|')
       if (!previewToken) throw new Error('preview_token is required')
-      const verification = verifyPreviewTokenService(previewToken, 'archive_batch', ids.join(','), fingerprint)
+      const verification = consumePreviewTokenService(previewToken, 'archive_batch', ids.join(','), fingerprint)
       if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-      consumePreviewTokenService(previewToken)
       return { status: 'executed', action: 'archive_batch', result: archiveThoughtsBatchService(ids) }
     }
   },
@@ -138,9 +136,8 @@ const handlers = {
       if (source && target) {
         const currentFingerprint = mergeFingerprint(source as unknown as Parameters<typeof mergeFingerprint>[0], target as unknown as Parameters<typeof mergeFingerprint>[1], args.merged_content as string | undefined, args.merged_tags as string[] | undefined, projectFilter)
         if (!previewToken) throw new Error('preview_token is required')
-        const verification = verifyPreviewTokenService(previewToken, 'merge', `${sourceId}:${targetId}`, currentFingerprint)
+        const verification = consumePreviewTokenService(previewToken, 'merge', `${sourceId}:${targetId}`, currentFingerprint)
         if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-        consumePreviewTokenService(previewToken)
       }
       const result = mergeThoughtsService({
         targetId,

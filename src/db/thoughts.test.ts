@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createTestDb } from "../test/helpers";
 import { getDb } from "./container";
+import { ThoughtContentConflictError } from "./errors";
 import { closeDb } from "./init";
 import {
 	batchGetImportance,
@@ -97,6 +98,101 @@ test("updateThought partial update: tags only", () => {
 test("updateThought returns null for missing id", () => {
 	const updated = updateThought(getDb(), "nonexistent", { content: "x" });
 	expect(updated).toBeUndefined();
+});
+
+// ── content-dedupe guard on edit (v046, #2174 review finding) ────────────────
+//
+// One live (draft/active) thought per (content_hash, project_id) is a database
+// invariant, but an edit has no `ON CONFLICT DO NOTHING` escape hatch like
+// `createThought` does. An edit that would collide must read as a domain
+// conflict (409), not as a raw constraint fault (500).
+
+describe("updateThought content-dedupe guard", () => {
+	test("refuses content a live thought in the same project already holds", () => {
+		const db = getDb();
+		const holder = createThought(db, { content: "already stored" });
+		const other = createThought(db, { content: "something else" });
+
+		expect(() =>
+			updateThought(db, other.id, { content: "already stored" }),
+		).toThrow(ThoughtContentConflictError);
+		// The refusal is inert: neither row was written.
+		expect(getThought(db, other.id)?.content).toBe("something else");
+		expect(getThought(db, holder.id)?.content).toBe("already stored");
+	});
+
+	test("a repeat of the same refused edit is refused again with the same conflict", () => {
+		const db = getDb();
+		const holder = createThought(db, { content: "contended content" });
+		const other = createThought(db, { content: "something else" });
+
+		const failures: string[] = [];
+		for (let attempt = 0; attempt < 2; attempt += 1) {
+			try {
+				updateThought(db, other.id, { content: "contended content" });
+			} catch (err) {
+				failures.push((err as Error).message);
+			}
+		}
+		expect(failures).toHaveLength(2);
+		expect(failures[0]).toContain(holder.id);
+		expect(failures[1]).toContain(holder.id);
+	});
+
+	test("the guard is project-scoped", () => {
+		const db = getDb();
+		createThought(db, { content: "cross project content" });
+		const other = createThought(db, { content: "something else" });
+		const second = createProject(db, { name: "Second" });
+
+		const updated = updateThought(db, other.id, {
+			content: "cross project content",
+			project_id: second.id,
+		});
+		expect(updated?.content).toBe("cross project content");
+		expect(updated?.project_id).toBe(second.id);
+	});
+
+	test("re-activating an archived thought whose content is live again is refused", () => {
+		const db = getDb();
+		const archived = createThought(db, { content: "revived content" });
+		archiveThought(db, archived.id);
+		// Creating the same content again is allowed: archived rows do not hold
+		// the dedupe slot (that is exactly how the slot gets freed).
+		const live = createThought(db, { content: "revived content" });
+		expect(live.id).not.toBe(archived.id);
+
+		expect(() => updateThought(db, archived.id, { status: "active" })).toThrow(
+			ThoughtContentConflictError,
+		);
+		expect(getThought(db, archived.id)?.status).toBe("archived");
+		expect(getThought(db, live.id)?.status).toBe("draft");
+	});
+
+	test("an ordinary edit, a status change and an archive still go through", () => {
+		const db = getDb();
+		const thought = createThought(db, { content: "original content" });
+
+		expect(updateThought(db, thought.id, { content: "rewritten content" })?.content).toBe(
+			"rewritten content",
+		);
+		expect(updateThought(db, thought.id, { status: "active" })?.status).toBe("active");
+		expect(updateThought(db, thought.id, { status: "archived" })?.status).toBe("archived");
+	});
+
+	test("archiving the holder frees the content for another thought", () => {
+		const db = getDb();
+		const holder = createThought(db, { content: "freed content" });
+		const other = createThought(db, { content: "someone else" });
+
+		expect(() => updateThought(db, other.id, { content: "freed content" })).toThrow(
+			ThoughtContentConflictError,
+		);
+		archiveThought(db, holder.id);
+		expect(updateThought(db, other.id, { content: "freed content" })?.content).toBe(
+			"freed content",
+		);
+	});
 });
 
 test("archiveThought sets status to archived", () => {

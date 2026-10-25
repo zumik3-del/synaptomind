@@ -7,7 +7,7 @@ import {
   deleteRetentionReviewCandidateService,
   protectRetentionReviewCandidateService
 } from '../../services/retention-review-actions.service'
-import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
+import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { shapeThought } from './utils'
 import { BATCH_ITEMS_MAX } from '../../validation'
@@ -50,9 +50,8 @@ const handlers = {
 
       if (thought) {
         if (!previewToken) throw new Error('preview_token is required')
-        const verification = verifyPreviewTokenService(previewToken, 'retention_delete', id, fp)
+        const verification = consumePreviewTokenService(previewToken, 'retention_delete', id, fp)
         if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-        consumePreviewTokenService(previewToken)
       }
 
       return deleteRetentionReviewCandidateService(id, { confirm: true })

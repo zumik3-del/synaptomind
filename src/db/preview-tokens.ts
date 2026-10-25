@@ -33,14 +33,11 @@ export function getPreviewToken(db: Database, token: string): PreviewTokenRow | 
   return row ?? undefined
 }
 
-export function deletePreviewToken(db: Database, token: string): boolean {
-  const row = db.prepare(`DELETE FROM preview_tokens WHERE token = ? RETURNING token`).get(token) as
-    | { token: string }
-    | undefined
-    | null
-  return !!row
-}
-
+/**
+ * Atomically claim a token: the row is deleted in the same statement that
+ * returns it, so of two concurrent confirms only the one whose DELETE matched
+ * gets a row — the other gets `undefined` and must be refused.
+ */
 export function consumePreviewToken(db: Database, token: string): PreviewTokenRow | undefined {
   const row = db.prepare(`DELETE FROM preview_tokens WHERE token = ? RETURNING *`).get(token) as PreviewTokenRow | undefined | null
   return row ?? undefined

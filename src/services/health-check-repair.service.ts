@@ -3,7 +3,7 @@ import { getDb } from '../db'
 import { ValidationError } from '../errors'
 import { runHealthCheckService } from './health-check.service'
 import type { HealthReport, Severity } from './health-check.service'
-import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from './preview-tokens.service'
+import { createPreviewTokenService, consumePreviewTokenService } from './preview-tokens.service'
 
 export interface HealthRepairResult {
   status: 'preview' | 'executed'
@@ -66,9 +66,8 @@ export function runHealthRepairService(
 
   const previewToken = options.preview_token
   if (!previewToken) throw new ValidationError('preview_token is required')
-  const verification = verifyPreviewTokenService(previewToken, 'health_repair', 'health', fingerprint, d)
+  const verification = consumePreviewTokenService(previewToken, 'health_repair', 'health', fingerprint, d)
   if (!verification.valid) throw new ValidationError(`preview token ${verification.reason ?? 'invalid'}`)
-  consumePreviewTokenService(previewToken, d)
 
   const repaired = runAutoFix(d, fullReport.categories)
 

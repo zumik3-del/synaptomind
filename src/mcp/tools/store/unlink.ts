@@ -1,6 +1,6 @@
 import { z } from 'zod/v4'
 import { deleteEdgeService, findEdgeService } from '../../../services/edges.service'
-import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../../services/preview-tokens.service'
+import { createPreviewTokenService, consumePreviewTokenService } from '../../../services/preview-tokens.service'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
 function edgeFingerprint(edge: { id: string; source_id: string; target_id: string; type: string; created_at: string }): string {
@@ -35,9 +35,8 @@ export const unlinkHandler: ActionHandler = {
     if (edge) {
       const currentFingerprint = edgeFingerprint(edge)
       if (!previewToken) throw new Error('preview_token is required')
-      const verification = verifyPreviewTokenService(previewToken, 'unlink', edgeId, currentFingerprint)
+      const verification = consumePreviewTokenService(previewToken, 'unlink', edgeId, currentFingerprint)
       if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-      consumePreviewTokenService(previewToken)
     }
 
     const deleted = deleteEdgeService(edgeId)
