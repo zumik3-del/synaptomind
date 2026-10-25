@@ -11,7 +11,7 @@ import { isLegacyItemKind, getProposalService } from '../../services/placement-p
 import type { PlacementProposalRow } from '../../services/placement-proposals.service'
 import { applyBatchService } from '../../services/placement-apply.service'
 import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
-import { collectionEnvelope, itemEnvelope, writeEnvelopeScope } from './envelope'
+import { collectionEnvelope, itemEnvelope, resolveEnvelopeScope, scopeProjectId, writeEnvelopeScope } from './envelope'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { applyHandler, AGENT } from './review/apply'
@@ -40,7 +40,11 @@ const handlers = {
 
   list: {
     run(args: ActionArgs) {
-      const projectId = resolveProjectId(args.cwd as string | undefined)
+      // A read: the scope comes from the shared read-side helper, so a cwd-less
+      // or unregistered call reports a `meta.warning` instead of silently
+      // spanning every project (task #2187).
+      const { scope, warnings } = resolveEnvelopeScope(args.cwd as string | undefined)
+      const projectId = scopeProjectId(scope)
       const includeRetired = args.include_retired === true
       const state = args.state as ListOptions['state']
       const itemKind = args.item_kind as ListOptions['itemKind']
@@ -78,7 +82,8 @@ const handlers = {
       })
       const retiredCount = allMatching.filter(row => isLegacyItemKind(row.item_kind)).length
       return collectionEnvelope('list', visible, {
-        ...writeEnvelopeScope(args.cwd),
+        scope,
+        warnings,
         total: allVisible.length,
         filtered_out: allMatching.length - allVisible.length,
         counts: { retired_count: retiredCount }

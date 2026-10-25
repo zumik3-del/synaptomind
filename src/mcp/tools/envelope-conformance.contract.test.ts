@@ -85,8 +85,6 @@ function readResult(result: unknown): { payload: unknown; isError: boolean; text
 /** Registered project: every `cwd`-carrying action resolves a real scope. */
 const CWD = '/tmp/opencode/conformance-project'
 const PROJECT = 'proj-conformance'
-/** A path no project owns — still accepted by `cwd`, reported as a warning. */
-const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 interface Fixture {
   source: string
@@ -291,7 +289,9 @@ const REASONS = new Set(['no_match', 'id_not_found', 'ambiguous_id'])
 /** Recursively enforce output hygiene: tag strings, no `{id,name}` object, no 0/1 booleans. */
 function assertHygiene(node: unknown, path: string): void {
   if (Array.isArray(node)) {
-    node.forEach((value, index) => assertHygiene(value, `${path}[${index}]`))
+    node.forEach((value, index) => {
+      assertHygiene(value, `${path}[${index}]`)
+    })
     return
   }
   if (node === null || typeof node !== 'object') return

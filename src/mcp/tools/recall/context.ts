@@ -14,6 +14,11 @@ const CONTEXT_REQUIRED = 'query or thought_id is required for context action'
  * logic). At least one of the two must be supplied. With `thought_id` the call
  * is id-addressed and needs no `cwd`; the query path scopes to `cwd` when it is
  * given and reports the (global) scope in `meta` when it is not.
+ *
+ * The query path is deliberately ungated: it wants the single best match, so
+ * the default relevance gate of the search surface would turn a weak-but-real
+ * neighbourhood into "no match". `getContextService` therefore keeps
+ * `minRelevance: 0` unless a caller opts in (task #2187).
  */
 export const contextHandler: ActionHandler = {
   input: z

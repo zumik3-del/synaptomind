@@ -141,19 +141,39 @@ interface ContextResult {
   degraded?: boolean
 }
 
+/**
+ * Best match for a context lookup plus its neighbourhood.
+ *
+ * The context path is deliberately ungated (task #2187): it asks for the single
+ * best cosine match, so the default relevance gate the search surface applies
+ * would turn a weak-but-real neighbourhood into "no match". `minRelevance`
+ * therefore defaults to `0` here and only an explicit value re-enables the gate.
+ */
 export async function getContextService(
   query: string,
   maxDegree: number = config.graph.maxDegree,
   projectFilter?: string,
+  minRelevanceOrDb?: number | Database,
   d: Database = getDb()
 ): Promise<ContextResult | null> {
+  // Backward-compatible: a Database passed as the 4th arg (legacy DI style) is
+  // treated as the db handle, and the gate stays off.
+  let minRelevance = 0
+  let db: Database = d
+  if (minRelevanceOrDb !== null && minRelevanceOrDb !== undefined && typeof minRelevanceOrDb === 'object' && 'prepare' in (minRelevanceOrDb as object)) {
+    db = minRelevanceOrDb as Database
+  } else if (typeof minRelevanceOrDb === 'number') {
+    minRelevance = minRelevanceOrDb
+  }
+
   const results = await searchThoughtsService({
     query,
     topK: 1,
     hybrid: true,
     statusFilter: 'active',
-    projectFilter
-  }, d)
+    projectFilter,
+    minRelevance
+  }, db)
   if (!results || results.length === 0) {
     // Surface degradation instead of throwing: when the search degraded, return
     // a degraded-only result so callers can observe it rather than NotFoundError.
@@ -165,6 +185,6 @@ export async function getContextService(
   }
   const best = results[0].thought ?? (results[0] as unknown as Thought)
   const degraded = results[0].degraded === true || (results as { degraded?: boolean }).degraded === true
-  const chain = getThoughtEdges(d, best.id, best.is_cluster ? 'downstream' : 'both', maxDegree)
+  const chain = getThoughtEdges(db, best.id, best.is_cluster ? 'downstream' : 'both', maxDegree)
   return { best_match: best, chain, degraded }
 }
