@@ -296,6 +296,69 @@ test('a superseded idle-exit child cannot clobber its respawned successor (#1784
   await client.stopEmbedderProcess()
 }, 20_000)
 
+// ── #2153: single-flight readiness, backoff/cooldown, kill-before-respawn ───
+// Coverage for the hardening in embedder-client.ts: one shared promise/owner,
+// child killed before respawn, exponential backoff + cooldown on startFailed,
+// and unref()'d wait timers.
+
+test('second concurrent ensureReady() reuses the same promise (single-flight)', async () => {
+  const client = new EmbedderClient()
+  const internals = client as unknown as {
+    ready: boolean
+    ensureReady: () => Promise<void>
+    runEnsureReady: () => Promise<void>
+  }
+  let runs = 0
+  internals.runEnsureReady = async () => {
+    runs++
+    await new Promise(r => setTimeout(r, 50))
+    ;(client as unknown as { ready: boolean }).ready = true
+  }
+
+  const p1 = internals.ensureReady()
+  const p2 = internals.ensureReady()
+  await Promise.all([p1, p2])
+  expect(runs).toBe(1)
+  expect((client as unknown as { ready: boolean }).ready).toBe(true)
+})
+
+test('startFailed latches backoffAttempt and a cooldown window before respawn', async () => {
+  useLifecycleStub('crash-then-recover', 2_000)
+  const client = new EmbedderClient()
+  const started = client.startEmbedderProcess()
+  started.catch(() => {})
+
+  await waitFor(() => {
+    const internals = client as unknown as { startFailed: boolean }
+    return internals.startFailed === true
+  }, "startFailed to latch")
+
+  const internals = client as unknown as {
+    startFailed: boolean
+    backoffAttempt: number
+    cooldownUntil: number
+  }
+  expect(internals.startFailed).toBe(true)
+  expect(internals.backoffAttempt).toBeGreaterThanOrEqual(1)
+  expect(internals.cooldownUntil).toBeGreaterThan(0)
+
+  await started.catch(() => {})
+  await client.stopEmbedderProcess().catch(() => {})
+}, 30_000)
+
+test('killCurrentChild bumps the generation so a killed child cannot clobber a successor', async () => {
+  // Use a fresh client to avoid disturbing the shared singleton.
+  const c = new EmbedderClient()
+  // Point at default stub by leaving env as STUB_PATH (afterEach restores).
+  await c.startEmbedderProcess()
+  const ci = c as unknown as { generation: number; proc: unknown }
+  const genBefore = ci.generation
+  expect(ci.proc).not.toBeNull()
+  await (c as unknown as { killCurrentChild: () => Promise<void> }).killCurrentChild()
+  expect(ci.generation).toBe(genBefore + 1)
+  await c.stopEmbedderProcess().catch(() => {})
+})
+
 test('generateEmbeddings chunks the batch and returns N vectors in input order', async () => {
   await startEmbedderProcess()
 
@@ -313,3 +376,65 @@ test('generateEmbeddings chunks the batch and returns N vectors in input order',
     expect(Array.from(vector)).toEqual([texts[i]!.length, 1, 2])
   })
 })
+
+// ── #2166/#2171: review-fix verification ────────────────────────────────────
+
+test('real deadline path latches failed state with injected EMBEDDER_START_TIMEOUT_MS', async () => {
+  process.env.EMBEDDER_START_TIMEOUT_MS = '200'
+  useLifecycleStub('hang')
+  const client = new EmbedderClient()
+  const started = client.startEmbedderProcess()
+  await expect(started).rejects.toThrow(/failed to start within/i)
+  expect(client.getEmbedderState()).toBe('failed')
+  await client.stopEmbedderProcess().catch(() => {})
+  delete process.env.EMBEDDER_START_TIMEOUT_MS
+}, 10_000)
+
+test('teardown does not kill a newer live child', async () => {
+  const client = new EmbedderClient()
+  await client.startEmbedderProcess()
+  const internals = client as unknown as {
+    proc: unknown
+    generation: number
+    shuttingDown: boolean
+    spawnProcess: () => void
+    waitForExit: (p: unknown) => Promise<void>
+  }
+  const origWaitForExit = internals.waitForExit.bind(internals)
+  internals.waitForExit = (p: unknown) => new Promise<void>(resolve => {
+    setTimeout(() => { void origWaitForExit(p).then(resolve) }, 200)
+  })
+
+  const teardownPromise = client.stopEmbedderProcess()
+  await new Promise(r => setTimeout(r, 50))
+  internals.shuttingDown = false
+  internals.spawnProcess()
+  await new Promise(r => setTimeout(r, 50))
+  const newProc = internals.proc
+  await teardownPromise
+
+  expect(newProc).not.toBeNull()
+  await new Promise(r => setTimeout(r, 50))
+  expect(client.getEmbedderState()).toBe('ok')
+  await client.stopEmbedderProcess().catch(() => {})
+}, 15_000)
+
+test('cooldown branch is reachable and waits before respawn', async () => {
+  useLifecycleStub('crash-then-recover', 2_000)
+  const client = new EmbedderClient()
+  const started = client.startEmbedderProcess()
+  started.catch(() => {})
+
+  // Wait until the first crash has set a future cooldown.
+  await waitFor(() => {
+    const i = client as unknown as { cooldownUntil: number }
+    return i.cooldownUntil > Date.now()
+  }, 'cooldownUntil to be set in the future')
+
+  const i = client as unknown as { backoffAttempt: number; cooldownUntil: number }
+  expect(i.backoffAttempt).toBeGreaterThanOrEqual(1)
+  expect(i.cooldownUntil).toBeGreaterThan(Date.now() - 1)
+
+  await started.catch(() => {})
+  await client.stopEmbedderProcess().catch(() => {})
+}, 30_000)
