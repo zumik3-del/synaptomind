@@ -2,6 +2,7 @@ import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { listPrimersService, getPrimerService, deletePrimerService } from '../../services/primers.service'
 import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
+import { collectionEnvelope } from './envelope'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
 function primerFingerprint(primer: { id: string; thought_id: string; hit_count: number; promoted_at: string | null; created_at: string }): string {
@@ -11,7 +12,7 @@ function primerFingerprint(primer: { id: string; thought_id: string; hit_count: 
 const handlers = {
   list: {
     run() {
-      return listPrimersService()
+      return collectionEnvelope('list', listPrimersService())
     }
   },
 
@@ -59,7 +60,7 @@ const handlers = {
 export function registerMemoryPrimers(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_primers',
-    description: `Manage primers (the always-at-hand set). Actions: list, delete (preview→confirm).`,
+    description: `Manage primers (the always-at-hand set). Actions: list ({ items, meta }), delete (preview→confirm).`,
     inputSchema: {
       action: z.enum(['list', 'delete']).describe('Action'),
       primer_id: z.string().optional().describe('REQUIRED for "delete". Primer ID. IGNORED for "list".'),

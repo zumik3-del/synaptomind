@@ -57,9 +57,8 @@ describe('recall context semantic', () => {
 
     const r = await client.callTool({ name: 'memory_recall', arguments: { action: 'context', query: 'zzzznomatchtoken', compact: false } })
     const { data, isError } = parseResult(r)
-    console.log('CTX SEMANTIC:', JSON.stringify(data))
     expect(isError).toBe(false)
-    expect(data.best_match.id).toBe(id)
-    expect(data.degraded).toBe(false)
+    expect(data.item.thought.id).toBe(id)
+    expect(data.meta.degraded).toBe(false)
   })
 })

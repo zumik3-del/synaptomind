@@ -34,15 +34,29 @@ async function setupClient(): Promise<Client> {
   return c
 }
 
-function parseResult(result: unknown): { data: PlacementPlan | null; isError: boolean; text: string } {
+interface ProposeMeta {
+  action: string
+  degraded: boolean
+  scope: { project: string | null; project_name: string | null; global: boolean } | null
+  counts: { total: number; returned: number; filtered_out: number }
+  warnings: string[]
+}
+
+/** The plan lives in the shared envelope's `item` (task #2179). */
+function parseResult(result: unknown): { data: PlacementPlan | null; meta: ProposeMeta | null; isError: boolean; text: string } {
   const r = result as { content: Array<{ type: string; text: string }>; isError?: boolean }
   const text = r.content?.[0]?.text ?? ''
   try {
-    return { data: JSON.parse(text) as PlacementPlan, isError: r.isError === true, text }
+    const parsed = JSON.parse(text) as { item?: PlacementPlan | null; meta?: ProposeMeta }
+    return { data: (parsed.item ?? null) as PlacementPlan | null, meta: parsed.meta ?? null, isError: r.isError === true, text }
   } catch {
-    return { data: null, isError: r.isError === true, text }
+    return { data: null, meta: null, isError: r.isError === true, text }
   }
 }
+
+// A fresh test DB registers no project for this path: the answer keeps the
+// global scope while satisfying the hard-cwd contract.
+const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 beforeEach(async () => {
   createTestDb()
@@ -60,7 +74,7 @@ describe('memory_status propose — thought_id path', () => {
     const id = seedThought({ content: 'contract-marker existing thought' })
     const result = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'propose', thought_id: id }
+      arguments: { action: 'propose', thought_id: id, cwd: UNSCOPED_CWD }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -79,7 +93,7 @@ describe('memory_status propose — thought_id path', () => {
   test('unknown thought_id returns an isError envelope', async () => {
     const result = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'propose', thought_id: 'does-not-exist' }
+      arguments: { action: 'propose', thought_id: 'does-not-exist', cwd: UNSCOPED_CWD }
     })
     const { isError, text } = parseResult(result)
     expect(isError).toBe(true)
@@ -90,7 +104,7 @@ describe('memory_status propose — thought_id path', () => {
     const id = seedThought({ content: 'shape mirror' })
     const plan = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'propose', thought_id: id }
+      arguments: { action: 'propose', thought_id: id, cwd: UNSCOPED_CWD }
     })
     const planData = parseResult(plan).data
     // The plan carries a degraded flag and the proposed edges.
@@ -105,7 +119,7 @@ describe('memory_status propose — content (draft) path', () => {
   test('returns a PlacementPlan for unpersisted draft content', async () => {
     const result = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'propose', content: 'draft thought about contracts' }
+      arguments: { action: 'propose', content: 'draft thought about contracts', cwd: UNSCOPED_CWD }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -140,7 +154,7 @@ describe('memory_status propose — input validation', () => {
   test('missing both thought_id and content returns an isError envelope', async () => {
     const result = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'propose' }
+      arguments: { action: 'propose', cwd: UNSCOPED_CWD }
     })
     const { isError, text } = parseResult(result)
     expect(isError).toBe(true)
@@ -151,7 +165,7 @@ describe('memory_status propose — input validation', () => {
   test('empty strings for both fields return an isError envelope', async () => {
     const result = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'propose', thought_id: '', content: '' }
+      arguments: { action: 'propose', thought_id: '', content: '', cwd: UNSCOPED_CWD }
     })
     const { isError } = parseResult(result)
     expect(isError).toBe(true)
@@ -179,9 +193,9 @@ describe('memory_status propose — read-only invariant', () => {
     seedThought({ content: 'before-c', is_cluster: 1 })
 
     const before = fp(db)
-    await client.callTool({ name: 'memory_status', arguments: { action: 'propose', thought_id: a } })
-    await client.callTool({ name: 'memory_status', arguments: { action: 'propose', thought_id: b } })
-    await client.callTool({ name: 'memory_status', arguments: { action: 'propose', content: 'draft no-mutate' } })
+    await client.callTool({ name: 'memory_status', arguments: { action: 'propose', thought_id: a, cwd: UNSCOPED_CWD } })
+    await client.callTool({ name: 'memory_status', arguments: { action: 'propose', thought_id: b, cwd: UNSCOPED_CWD } })
+    await client.callTool({ name: 'memory_status', arguments: { action: 'propose', content: 'draft no-mutate', cwd: UNSCOPED_CWD } })
 
     const after = fp(db)
     expect(after).toEqual(before)

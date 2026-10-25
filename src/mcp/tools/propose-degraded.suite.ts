@@ -35,15 +35,21 @@ async function setupClient(): Promise<Client> {
   return c
 }
 
-function parseResult(result: unknown): { data: any; isError: boolean } {
+/** The plan lives in the shared envelope's `item` (task #2179). */
+function parseResult(result: unknown): { data: any; meta: any; isError: boolean } {
   const r = result as { content: Array<{ type: string; text: string }>; isError?: boolean }
   const text = r.content?.[0]?.text ?? '{}'
   try {
-    return { data: JSON.parse(text), isError: r.isError === true }
+    const parsed = JSON.parse(text)
+    return { data: parsed?.item ?? null, meta: parsed?.meta ?? null, isError: r.isError === true }
   } catch {
-    return { data: text, isError: r.isError === true }
+    return { data: text, meta: null, isError: r.isError === true }
   }
 }
+
+// A fresh test DB registers no project for this path: the answer keeps the
+// global scope while satisfying the hard-cwd contract.
+const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 beforeEach(async () => {
   createTestDb()
@@ -73,7 +79,7 @@ describe('memory_status propose degraded branch', () => {
       // If seeding failed entirely, still assert degraded via a known-empty graph.
       const emptyResult = await client.callTool({
         name: 'memory_status',
-        arguments: { action: 'propose', content: 'standalone draft degraded' }
+        arguments: { action: 'propose', content: 'standalone draft degraded', cwd: UNSCOPED_CWD }
       })
       const { data, isError } = parseResult(emptyResult)
       expect(isError).toBe(false)
@@ -86,7 +92,7 @@ describe('memory_status propose degraded branch', () => {
 
     const r = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'propose', thought_id: ids[0] }
+      arguments: { action: 'propose', thought_id: ids[0], cwd: UNSCOPED_CWD }
     })
     const { data, isError } = parseResult(r)
     expect(isError).toBe(false)
@@ -104,7 +110,7 @@ describe('memory_status propose degraded branch', () => {
   test('draft content degrades gracefully when embedder is down', async () => {
     const result = await client.callTool({
       name: 'memory_status',
-      arguments: { action: 'propose', content: 'draft degraded contract' }
+      arguments: { action: 'propose', content: 'draft degraded contract', cwd: UNSCOPED_CWD }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)

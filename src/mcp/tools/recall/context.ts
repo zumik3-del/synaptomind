@@ -1,15 +1,19 @@
 import { z } from 'zod/v4'
 import { NotFoundError } from '../../../errors'
 import { getChainService, getContextService } from '../../../services/graph.service'
-import { resolveProjectId, shapeThought, shapeChain } from '../utils'
+import { shapeThought, shapeChain } from '../utils'
+import { itemEnvelope, resolveEnvelopeScope, scopeProjectId } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
 const CONTEXT_REQUIRED = 'query or thought_id is required for context action'
 
 /**
- * `context` returns a thought plus its neighbourhood. It accepts either a text
- * `query` (best match + its chain) or a `thought_id` (that thought + its chain,
- * reusing the chain traversal logic). At least one of the two must be supplied.
+ * `context` returns a thought plus its neighbourhood as `{ item: { thought,
+ * chain }, meta }`. It accepts either a text `query` (best match + its chain)
+ * or a `thought_id` (that thought + its chain, reusing the chain traversal
+ * logic). At least one of the two must be supplied. With `thought_id` the call
+ * is id-addressed and needs no `cwd`; the query path scopes to `cwd` when it is
+ * given and reports the (global) scope in `meta` when it is not.
  */
 export const contextHandler: ActionHandler = {
   input: z
@@ -23,11 +27,9 @@ export const contextHandler: ActionHandler = {
       }
     }),
   async run(args: ActionArgs) {
-    const projectFilter = resolveProjectId(args.cwd as string | undefined)
     const maxDegree = args.max_degree as number | undefined
     const compact = args.compact !== false
     const fields = args.fields
-
 
     if (args.thought_id) {
       const chain = getChainService(
@@ -36,19 +38,30 @@ export const contextHandler: ActionHandler = {
         maxDegree
       )
       if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-      return { best_match: shapeThought(chain.thought, compact, fields), chain: shapeChain(chain, compact, fields), degraded: false }
+      // An id-addressed lookup is project-free, so it reports no scope and no
+      // scope warning even when the caller passed a cwd.
+      return itemEnvelope('context', {
+        thought: shapeThought(chain.thought, compact, fields),
+        chain: shapeChain(chain, compact, fields)
+      })
     }
 
-    const context = await getContextService(args.query as string, maxDegree, projectFilter)
+    const { scope, warnings } = resolveEnvelopeScope(args.cwd as string | undefined)
+    const context = await getContextService(args.query as string, maxDegree, scopeProjectId(scope))
     if (!context) throw new NotFoundError(`No context found for query '${args.query}'`)
     if (!context.best_match) {
-      // Degraded result with no best match: surface degraded instead of throwing.
-      return { degraded: context.degraded === true }
+      // Degraded result with no best match: surface it as an empty item instead
+      // of throwing, so `meta.reason` explains why nothing came back.
+      return itemEnvelope('context', null, {
+        scope,
+        warnings,
+        degraded: context.degraded === true,
+        reason: 'no_match'
+      })
     }
-    return {
-      best_match: shapeThought(context.best_match, compact, fields),
-      chain: shapeChain(context.chain, compact, fields),
-      degraded: context.degraded === true
-    }
+    return itemEnvelope('context', {
+      thought: shapeThought(context.best_match, compact, fields),
+      chain: shapeChain(context.chain, compact, fields)
+    }, { scope, warnings, degraded: context.degraded === true })
   }
 }

@@ -18,6 +18,27 @@ mock.module('../../embedder/client', () => ({
 
 let client: Client
 
+// A fresh test DB registers no project for this path, so read-side calls keep
+// the global scope while satisfying the hard-cwd contract of task #2179.
+const UNSCOPED_CWD = '/tmp/mcp-unscoped'
+
+/** Actions that require `cwd`; `callTool` injects the default for them. */
+const CWD_ACTIONS: Record<string, string[]> = {
+  memory_recall: ['search', 'clusters', 'list', 'context'],
+  memory_status: ['slots', 'frontier', 'propose'],
+  memory_reflect: ['reflect', 'timeline'],
+  memory_primers: ['list'],
+  memory_manage: ['list', 'create', 'update', 'delete', 'resolve']
+}
+
+/** `client.callTool` with the hard-cwd default injected for the scoped actions. */
+function callTool(request: { name: string; arguments?: Record<string, unknown> }) {
+  const args = request.arguments ?? {}
+  const scoped = CWD_ACTIONS[request.name]
+  const needsCwd = scoped?.includes(String(args.action)) === true
+  return client.callTool({ ...request, arguments: needsCwd ? { cwd: UNSCOPED_CWD, ...args } : args } as Parameters<Client['callTool']>[0])
+}
+
 async function setupClient(): Promise<Client> {
   const s = new McpServer({ name: 'test', version: '0.0.0' })
   registerAllMemoryTools(s)
@@ -80,10 +101,10 @@ describe('retention_review MCP', () => {
     const id = seedThought({ content: 'MCP retention candidate', status: 'archived', is_protected: 0, importance: 0.1, created_at: '2026-09-01T00:00:00.000Z' })
     getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
     getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
-    const listed = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'list', min_age_days: 1, importance_floor: 1, limit: 1, offset: 0 } }))
+    const listed = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'list', min_age_days: 1, importance_floor: 1, limit: 1, offset: 0 } }))
     expect(listed.isError).toBe(false)
     expect(listed.data.candidates.map((row: { id: string }) => row.id)).toContain(id)
-    const protectedResult = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'protect', thought_id: id } }))
+    const protectedResult = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'protect', thought_id: id } }))
     expect(protectedResult.isError).toBe(false)
     expect(getDb().prepare('SELECT is_protected FROM thoughts WHERE id = ?').get(id)).toEqual({ is_protected: 1 })
   })
@@ -92,32 +113,32 @@ describe('retention_review MCP', () => {
     const id = seedThought({ content: 'MCP retention delete', status: 'archived', is_protected: 0, importance: 0.1, created_at: '2026-09-01T00:00:00.000Z' })
     getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
     getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
-    const preview = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
+    const preview = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
     expect(preview.data.preview).toBe(true)
     expect(getDb().prepare('SELECT id FROM thoughts WHERE id = ?').get(id)).toBeTruthy()
-    const deletePreview = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
-    const deleted = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id, confirm: true, preview_token: deletePreview.data.preview_token } }))
+    const deletePreview = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
+    const deleted = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id, confirm: true, preview_token: deletePreview.data.preview_token } }))
     expect(deleted.data.deleted).toBe(true)
 
     const source = seedThought({ content: 'MCP retention compact source', status: 'archived', is_protected: 0, importance: 0.1, created_at: '2026-09-01T00:00:00.000Z' })
     getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', source)
     getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(source)
     const args = { action: 'compact', source_ids: [source], summary: { content: 'MCP retention compact summary', tags: ['mcp-tag'], project_id: 'default' } }
-    const compactPreview = parseResult(await client.callTool({ name: 'retention_review', arguments: args }))
+    const compactPreview = parseResult(await callTool({ name: 'retention_review', arguments: args }))
     expect(compactPreview.data.status).toBe('preview')
     expect(getDb().prepare("SELECT id FROM thoughts WHERE content = 'MCP retention compact summary'").get()).toBeNull()
-    const compacted = parseResult(await client.callTool({ name: 'retention_review', arguments: { ...args, confirm: true } }))
+    const compacted = parseResult(await callTool({ name: 'retention_review', arguments: { ...args, confirm: true } }))
     expect(compacted.isError).toBe(false)
     expect(compacted.data.summary.project_id).toBe('default')
     expect(compacted.data.summary.tags.map((tag: { name: string }) => tag.name)).toContain('mcp-tag')
-    const invalid = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'compact', source_ids: [], summary: { content: 'invalid' } } }))
+    const invalid = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'compact', source_ids: [], summary: { content: 'invalid' } } }))
     expect(invalid.isError).toBe(true)
     const edgeTools = (await client.listTools()).tools.filter(tool => tool.name === 'edge_review')
     expect(edgeTools).toHaveLength(1)
   })
 
   test('retention-review compact rejects more than 1000 IDs through MCP validation', async () => {
-    const result = await client.callTool({ name: 'retention_review', arguments: {
+    const result = await callTool({ name: 'retention_review', arguments: {
       action: 'compact', source_ids: Array.from({ length: 1001 }, (_, i) => `id-${i}`), summary: { content: 'summary' }
     } })
     expect(result.isError).toBe(true)
@@ -130,7 +151,7 @@ describe('retention_review MCP', () => {
       getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
       getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
     }
-    const listed = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'list' } }))
+    const listed = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'list' } }))
     expect(listed.data.candidates.map((row: { id: string }) => row.id)).toContain(candidate)
     expect(listed.data.candidates.map((row: { id: string }) => row.id)).not.toContain(profile)
     expect(listed.data.total).toBe(1)
@@ -145,14 +166,14 @@ describe('retention_review MCP', () => {
     ]) {
       let result: { isError?: boolean }
       if (args.action === 'delete') {
-        const pv = parseResult(await client.callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
+        const pv = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
         if (pv.isError) {
           result = pv
         } else {
-          result = parseResult(await client.callTool({ name: 'retention_review', arguments: { ...args, preview_token: pv.data?.preview_token } }))
+          result = parseResult(await callTool({ name: 'retention_review', arguments: { ...args, preview_token: pv.data?.preview_token } }))
         }
       } else {
-        result = parseResult(await client.callTool({ name: 'retention_review', arguments: args }))
+        result = parseResult(await callTool({ name: 'retention_review', arguments: args }))
       }
       expect(result.isError).toBe(true)
       expect(JSON.stringify(result).toLowerCase()).toContain('profile')
@@ -160,7 +181,7 @@ describe('retention_review MCP', () => {
   })
 
   test('retention-review compact accepts 1000 source IDs through MCP schema validation', async () => {
-    const result = parseResult(await client.callTool({ name: 'retention_review', arguments: {
+    const result = parseResult(await callTool({ name: 'retention_review', arguments: {
       action: 'compact', source_ids: Array.from({ length: 1000 }, (_, i) => `missing-${i}`), summary: { content: 'summary' }
     } }))
     expect(result.isError).toBe(true)
@@ -172,7 +193,7 @@ describe('retention_review MCP', () => {
 
 describe('memory_store', () => {
   test('create action creates a thought', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'test thought from MCP' }
     })
@@ -184,7 +205,7 @@ describe('memory_store', () => {
   })
 
   test('create with tags stores tags', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'tagged thought', tags: ['alpha', 'beta'] }
     })
@@ -194,13 +215,13 @@ describe('memory_store', () => {
   })
 
   test('update action modifies content', async () => {
-    const create = await client.callTool({
+    const create = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'original content' }
     })
     const { data: created } = parseResult(create)
 
-    const update = await client.callTool({
+    const update = await callTool({
       name: 'memory_store',
       arguments: { action: 'update', thought_id: created.id, content: 'updated content' }
     })
@@ -210,18 +231,18 @@ describe('memory_store', () => {
   })
 
   test('link action creates an edge', async () => {
-    const a = await client.callTool({
+    const a = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'source thought' }
     })
-    const b = await client.callTool({
+    const b = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'target thought' }
     })
     const { data: da } = parseResult(a)
     const { data: db } = parseResult(b)
 
-    const link = await client.callTool({
+    const link = await callTool({
       name: 'memory_store',
       arguments: { action: 'link', source_id: da.id, target_id: db.id, edge_type: 'develops' }
     })
@@ -233,7 +254,7 @@ describe('memory_store', () => {
   })
 
   test('error: create without content returns error', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_store',
       arguments: { action: 'create' }
     })
@@ -242,7 +263,7 @@ describe('memory_store', () => {
   })
 
   test('error: update nonexistent thought returns error', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_store',
       arguments: { action: 'update', thought_id: 'nonexistent-id', content: 'x' }
     })
@@ -255,41 +276,42 @@ describe('memory_store', () => {
 
 describe('memory_recall', () => {
   test('search returns matching thoughts', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'MCP_CONTRACT_MARKER unique search term', status: 'active' }
     })
 
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'MCP_CONTRACT_MARKER', limit: 5 }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    expect(data.length).toBeGreaterThanOrEqual(1)
-    expect(data.some((r: any) => r.thought?.content?.includes('MCP_CONTRACT_MARKER'))).toBe(true)
+    expect(Array.isArray(data.items)).toBe(true)
+    expect(data.items.length).toBeGreaterThanOrEqual(1)
+    expect(data.meta.action).toBe('search')
+    expect(data.items.some((r: any) => r.thought?.content?.includes('MCP_CONTRACT_MARKER'))).toBe(true)
   })
 
   test('get returns a thought by id', async () => {
-    const create = await client.callTool({
+    const create = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'gettable thought' }
     })
     const { data: created } = parseResult(create)
 
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'get', thought_id: created.id }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.id).toBe(created.id)
-    expect(data.content).toBe('gettable thought')
+    expect(data.item.id).toBe(created.id)
+    expect(data.item.content).toBe('gettable thought')
   })
 
   test('get: nonexistent id returns error', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'get', thought_id: 'does-not-exist' }
     })
@@ -298,11 +320,11 @@ describe('memory_recall', () => {
   })
 
   test('clusters returns only cluster thoughts', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'regular thought' }
     })
-    const cl = await client.callTool({
+    const cl = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'cluster marker' }
     })
@@ -311,18 +333,19 @@ describe('memory_recall', () => {
     const db = getDb()
     db.prepare('UPDATE thoughts SET is_cluster = 1 WHERE id = ?').run(cluster.id)
 
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'clusters', query: 'cluster', limit: 5 }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    expect(data.every((r: any) => r.thought?.is_cluster === 1)).toBe(true)
+    expect(Array.isArray(data.items)).toBe(true)
+    // Read-surface hygiene: the 0/1 storage flag is a boolean on the wire.
+    expect(data.items.every((r: any) => r.thought?.is_cluster === true)).toBe(true)
   })
 
   test('search without query returns error', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search' }
     })
@@ -332,7 +355,7 @@ describe('memory_recall', () => {
   })
 
   test('context without query returns error', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'context' }
     })
@@ -341,7 +364,7 @@ describe('memory_recall', () => {
     expect(data).toContain('query or thought_id is required for context action')  })
 
   test('clusters without query returns error', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'clusters' }
     })
@@ -355,18 +378,18 @@ describe('memory_recall', () => {
 
 describe('memory_supersede', () => {
   test('archive sets status to archived', async () => {
-    const create = await client.callTool({
+    const create = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'to be archived' }
     })
     const { data: thought } = parseResult(create)
 
-    const preview = await client.callTool({
+    const preview = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: thought.id }
     })
     const token = parseResult(preview).data.preview_token
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: token }
     })
@@ -376,25 +399,25 @@ describe('memory_supersede', () => {
   })
 
   test('double archive is idempotent (regression #76)', async () => {
-    const create = await client.callTool({
+    const create = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'double archive test' }
     })
     const { data: thought } = parseResult(create)
 
-    const preview1 = await client.callTool({
+    const preview1 = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: thought.id }
     })
-    await client.callTool({
+    await callTool({
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: parseResult(preview1).data.preview_token }
     })
-    const preview2 = await client.callTool({
+    const preview2 = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: thought.id }
     })
-    const second = await client.callTool({
+    const second = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: parseResult(preview2).data.preview_token }
     })
@@ -404,18 +427,18 @@ describe('memory_supersede', () => {
   })
 
   test('merge archives source and updates target (regression #76)', async () => {
-    const a = await client.callTool({
+    const a = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'source thought A' }
     })
-    const b = await client.callTool({
+    const b = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'target thought B' }
     })
     const { data: source } = parseResult(a)
     const { data: target } = parseResult(b)
 
-    const mergePreview = await client.callTool({
+    const mergePreview = await callTool({
       name: 'memory_supersede',
       arguments: {
         action: 'merge',
@@ -424,7 +447,7 @@ describe('memory_supersede', () => {
         merged_content: 'merged result'
       }
     })
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_supersede',
       arguments: {
         action: 'merge',
@@ -439,19 +462,19 @@ describe('memory_supersede', () => {
     expect(isError).toBe(false)
     expect(data).toMatchObject({ status: 'executed', action: 'merge', result: { target: { id: target.id, content: 'merged result' } } })
 
-    const srcCheck = await client.callTool({
+    const srcCheck = await callTool({
       name: 'memory_recall',
       arguments: { action: 'get', thought_id: source.id }
     })
     const { data: srcData } = parseResult(srcCheck)
-    expect(srcData.status).toBe('archived')
+    expect(srcData.item.status).toBe('archived')
 
-    const tgtCheck = await client.callTool({
+    const tgtCheck = await callTool({
       name: 'memory_recall',
       arguments: { action: 'get', thought_id: target.id }
     })
     const { data: tgtData } = parseResult(tgtCheck)
-    expect(tgtData.content).toBe('merged result')
+    expect(tgtData.item.content).toBe('merged result')
   })
 })
 
@@ -459,32 +482,32 @@ describe('memory_supersede', () => {
 
 describe('memory_manage', () => {
   test('list returns projects array', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_manage',
       arguments: { action: 'list' }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    expect(data.length).toBeGreaterThanOrEqual(1)
+    expect(Array.isArray(data.items)).toBe(true)
+    expect(data.items.length).toBeGreaterThanOrEqual(1)
   })
 
   test('create and resolve project', async () => {
-    const create = await client.callTool({
+    const create = await callTool({
       name: 'memory_manage',
       arguments: { action: 'create', name: 'TestProject', local_path: '/tmp/test-project' }
     })
-    const { data: project, isError: createErr } = parseResult(create)
+    const { data: created, isError: createErr } = parseResult(create)
     expect(createErr).toBe(false)
-    expect(project.name).toBe('TestProject')
+    expect(created.item.name).toBe('TestProject')
 
-    const resolve = await client.callTool({
+    const resolve = await callTool({
       name: 'memory_manage',
       arguments: { action: 'resolve', cwd: '/tmp/test-project' }
     })
     const { data: resolved, isError: resolveErr } = parseResult(resolve)
     expect(resolveErr).toBe(false)
-    expect(resolved.name).toBe('TestProject')
+    expect(resolved.item.name).toBe('TestProject')
   })
 })
 
@@ -492,7 +515,7 @@ describe('memory_manage', () => {
 
 describe('memory_reflect', () => {
   test('reflect with summary succeeds', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_reflect',
       arguments: { action: 'reflect', summary: 'Session completed successfully' }
     })
@@ -501,23 +524,23 @@ describe('memory_reflect', () => {
   })
 
   test('timeline lists thoughts', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'timeline item 1' }
     })
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'timeline item 2' }
     })
 
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_reflect',
       arguments: { action: 'timeline', limit: 5 }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    expect(data.length).toBeGreaterThanOrEqual(2)
+    expect(Array.isArray(data.items)).toBe(true)
+    expect(data.items.length).toBeGreaterThanOrEqual(2)
   })
 })
 
@@ -525,7 +548,7 @@ describe('memory_reflect', () => {
 
 describe('memory_status', () => {
   test('slots returns slot data', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_status',
       arguments: { action: 'slots' }
     })
@@ -535,7 +558,7 @@ describe('memory_status', () => {
   })
 
   test('frontier returns items', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_status',
       arguments: { action: 'frontier' }
     })
@@ -546,7 +569,7 @@ describe('memory_status', () => {
   })
 
   test('config returns config text', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_status',
       arguments: { action: 'config' }
     })
@@ -568,17 +591,17 @@ describe('memory_crystallize', () => {
   })
 
   test('rejects retired crystallize action through MCP', async () => {
-    const result = await client.callTool({ name: 'memory_crystallize', arguments: { action: 'crystallize' } })
+    const result = await callTool({ name: 'memory_crystallize', arguments: { action: 'crystallize' } })
     expect(parseResult(result).isError).toBe(true)
   })
 
   test('graph returns nodes and edges', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'graph node' }
     })
 
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_crystallize',
       arguments: { action: 'graph' }
     })
@@ -590,16 +613,16 @@ describe('memory_crystallize', () => {
 
   test('dispatches cluster creation and auto-cluster', async () => {
     const member = seedThought({ content: 'retained cluster member' })
-    const created = parseResult(await client.callTool({
+    const created = parseResult(await callTool({
       name: 'memory_crystallize', arguments: { action: 'cluster', thought_ids: [member], title: 'retained cluster' }
     }))
     expect(created.isError).toBe(false)
     expect(created.data.cluster.id).toBeDefined()
 
-    const autoPreview = parseResult(await client.callTool({
+    const autoPreview = parseResult(await callTool({
       name: 'memory_crystallize', arguments: { action: 'auto_cluster' }
     }))
-    const auto = parseResult(await client.callTool({
+    const auto = parseResult(await callTool({
       name: 'memory_crystallize', arguments: { action: 'auto_cluster', confirm: true, preview_token: autoPreview.data.preview_token }
     }))
     expect(auto.isError).toBe(false)
@@ -607,12 +630,12 @@ describe('memory_crystallize', () => {
 
   test('historical crystal-source thought remains accessible through get and search', async () => {
     const id = seedThought({ content: 'unique historic crystal archival record', source: 'crystal', status: 'active' })
-    const get = parseResult(await client.callTool({
+    const get = parseResult(await callTool({
       name: 'memory_recall', arguments: { action: 'get', thought_id: id, compact: false }
     }))
-    expect(get.data.source).toBe('crystal')
+    expect(get.data.item.source).toBe('crystal')
 
-    const search = parseResult(await client.callTool({
+    const search = parseResult(await callTool({
       name: 'memory_recall', arguments: { action: 'search', query: 'unique historic crystal archival record', hybrid: true, compact: false }
     }))
     expect(JSON.stringify(search.data)).toContain(id)
@@ -623,13 +646,13 @@ describe('memory_crystallize', () => {
 
 describe('memory_primers', () => {
   test('list returns array', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_primers',
       arguments: { action: 'list' }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
+    expect(Array.isArray(data.items)).toBe(true)
   })
 })
 
@@ -637,7 +660,7 @@ describe('memory_primers', () => {
 
 describe('memory_guide', () => {
   test('returns guide text', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_guide',
       arguments: {}
     })
@@ -649,7 +672,7 @@ describe('memory_guide', () => {
   test('advertises the effective soft limit resolved at call time', async () => {
     setThoughtLimits(getDb(), 123, 20)
 
-    const result = await client.callTool({ name: 'memory_guide', arguments: {} })
+    const result = await callTool({ name: 'memory_guide', arguments: {} })
     const r = result as { content: Array<{ type: string; text: string }> }
     expect(r.content[0].text).toContain('≤123 soft')
     expect(r.content[0].text).not.toContain('≤600 soft')
@@ -660,7 +683,7 @@ describe('memory_guide', () => {
 
 describe('schema validation', () => {
   test('unknown action on memory_store returns error', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_store',
       arguments: { action: 'nonexistent' }
     })
@@ -669,7 +692,7 @@ describe('schema validation', () => {
   })
 
   test('unknown action on memory_recall returns error', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'nonexistent', query: 'test' }
     })
@@ -678,7 +701,7 @@ describe('schema validation', () => {
   })
 
   test('unknown action on memory_supersede returns error', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'nonexistent' }
     })
@@ -691,18 +714,18 @@ describe('schema validation', () => {
 
 describe('dedup after update (regression #76)', () => {
   test('create after update creates new thought, not stale one', async () => {
-    const c1 = await client.callTool({
+    const c1 = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'original content' }
     })
     const { data: t1 } = parseResult(c1)
 
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'update', thought_id: t1.id, content: 'changed content' }
     })
 
-    const c2 = await client.callTool({
+    const c2 = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'original content' }
     })
@@ -717,58 +740,58 @@ describe('dedup after update (regression #76)', () => {
 
 describe('merge edge cases', () => {
   test('merge with project_id argument succeeds', async () => {
-    const a = await client.callTool({
+    const a = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'source with project' }
     })
-    const b = await client.callTool({
+    const b = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'target with project' }
     })
     const { data: source } = parseResult(a)
     const { data: target } = parseResult(b)
 
-    const mergePreview = await client.callTool({
+    const mergePreview = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged' }
     })
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged', confirm: true, preview_token: parseResult(mergePreview).data.preview_token }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
     expect(data).toMatchObject({ status: 'executed', action: 'merge', result: { target: { id: target.id, content: 'merged' } } })
-    const targetCheck = await client.callTool({ name: 'memory_recall', arguments: { action: 'get', thought_id: target.id } })
-    expect(parseResult(targetCheck).data.content).toBe('merged')
+    const targetCheck = await callTool({ name: 'memory_recall', arguments: { action: 'get', thought_id: target.id } })
+    expect(parseResult(targetCheck).data.item.content).toBe('merged')
   })
 
   test('merge with archived source returns error', async () => {
-    const a = await client.callTool({
+    const a = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'archived source' }
     })
     const { data: source } = parseResult(a)
-    const archPreview = await client.callTool({
+    const archPreview = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: source.id }
     })
-    await client.callTool({
+    await callTool({
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: source.id, confirm: true, preview_token: parseResult(archPreview).data.preview_token }
     })
 
-    const b = await client.callTool({
+    const b = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'target' }
     })
     const { data: target } = parseResult(b)
 
-    const mergePreview2 = await client.callTool({
+    const mergePreview2 = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'merge', source_id: source.id, target_id: target.id }
     })
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'merge', source_id: source.id, target_id: target.id, confirm: true, preview_token: parseResult(mergePreview2).data.preview_token }
     })
@@ -784,11 +807,11 @@ describe('archive edge cases', () => {
     // archive guard is seeded at the db layer.
     const thought = createThought(getDb(), { content: 'profile thought', status: 'active', is_profile: true })
 
-    const archPreview = await client.callTool({
+    const archPreview = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: thought.id }
     })
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: parseResult(archPreview).data.preview_token }
     })
@@ -801,11 +824,11 @@ describe('archive edge cases', () => {
 
 describe('memory_store link edge types', () => {
   async function createPair(): Promise<{ a: string; b: string }> {
-    const a = await client.callTool({
+    const a = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'source claim' }
     })
-    const b = await client.callTool({
+    const b = await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'target claim' }
     })
@@ -815,7 +838,7 @@ describe('memory_store link edge types', () => {
   test('accepts contradicts and is idempotent in both directions', async () => {
     const { a, b } = await createPair()
 
-    const forward = await client.callTool({
+    const forward = await callTool({
       name: 'memory_store',
       arguments: { action: 'link', source_id: a, target_id: b, edge_type: 'contradicts' }
     })
@@ -825,7 +848,7 @@ describe('memory_store link edge types', () => {
     expect(edge.source_id).toBe(a)
     expect(edge.target_id).toBe(b)
 
-    const reverse = await client.callTool({
+    const reverse = await callTool({
       name: 'memory_store',
       arguments: { action: 'link', source_id: b, target_id: a, edge_type: 'contradicts' }
     })
@@ -836,7 +859,7 @@ describe('memory_store link edge types', () => {
   test('accepts supports and rejects a reverse duplicate', async () => {
     const { a, b } = await createPair()
 
-    const forward = await client.callTool({
+    const forward = await callTool({
       name: 'memory_store',
       arguments: { action: 'link', source_id: a, target_id: b, edge_type: 'supports' }
     })
@@ -845,7 +868,7 @@ describe('memory_store link edge types', () => {
     expect(edge.type).toBe('supports')
     expect(edge.source_id).toBe(a)
 
-    const reverse = await client.callTool({
+    const reverse = await callTool({
       name: 'memory_store',
       arguments: { action: 'link', source_id: b, target_id: a, edge_type: 'supports' }
     })
@@ -854,7 +877,7 @@ describe('memory_store link edge types', () => {
 
   test('rejects an invalid edge_type', async () => {
     const { a, b } = await createPair()
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_store',
       arguments: { action: 'link', source_id: a, target_id: b, edge_type: 'frobnicates' }
     })
@@ -872,29 +895,29 @@ describe('memory_store link edge types', () => {
 
 describe('search with project scope', () => {
   test('projectFilter scopes search results', async () => {
-    const proj = await client.callTool({
+    const proj = await callTool({
       name: 'memory_manage',
       arguments: { action: 'create', name: 'SearchScopeTest', local_path: '/tmp/search-scope' }
     })
     const { data: project } = parseResult(proj)
 
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'SCOPED_MARKER in project', status: 'active', cwd: '/tmp/search-scope' }
     })
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'SCOPED_MARKER in default', status: 'active' }
     })
 
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'SCOPED_MARKER', limit: 10, cwd: '/tmp/search-scope', compact: false }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.length).toBeGreaterThanOrEqual(1)
-    expect(data.every((r: any) => r.thought?.project_id === project.id)).toBe(true)
+    expect(data.items.length).toBeGreaterThanOrEqual(1)
+    expect(data.items.every((r: any) => r.thought?.project_id === project.item.id)).toBe(true)
   })
 })
 
@@ -902,62 +925,64 @@ describe('search with project scope', () => {
 
 describe('memory_recall ranking signals', () => {
   async function searchWithSignals(query: string, extra?: Record<string, unknown>) {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query, limit: 10, ...extra }
+      arguments: { action: 'search', query, limit: 10, compact: false, ...extra }
     })
     return parseResult(result)
   }
 
   test('search response includes match_source on every result', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'SIGNALS_MARKER bm25 relevant content here', status: 'active' }
     })
 
     const { data, isError } = await searchWithSignals('SIGNALS_MARKER')
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    expect(data.length).toBeGreaterThanOrEqual(1)
+    expect(Array.isArray(data.items)).toBe(true)
+    expect(data.items.length).toBeGreaterThanOrEqual(1)
     // Every result must carry match_source (always present per SearchResult contract)
-    expect(data.every((r: any) => Array.isArray(r.match_source))).toBe(true)
+    expect(data.items.every((r: any) => Array.isArray(r.match_source))).toBe(true)
+    // compact=false moves scoring metadata into its own block, never the thought
+    expect(data.items.every((r: any) => r.thought.similarity === undefined && r.thought.bm25_score === undefined)).toBe(true)
   })
 
   test('BM25 hit carries a positive bm25_score', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'SIGNALS_BM25 unique keyword marker alpha', status: 'active' }
     })
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'SIGNALS_BM25 unique keyword marker beta', status: 'active' }
     })
 
     const { data, isError } = await searchWithSignals('SIGNALS_BM25 unique keyword marker')
     expect(isError).toBe(false)
-    const results = data as Array<{ thought: { id: string }; match_source: string[]; bm25_score?: number }>
+    const results = data.items as Array<{ thought: { id: string }; match_source: string[]; scores?: { bm25_score?: number } }>
     const bm25Hits = results.filter((r) => r.match_source.includes('bm25'))
     expect(bm25Hits.length).toBeGreaterThanOrEqual(1)
     bm25Hits.forEach((r) => {
-      expect(typeof r.bm25_score).toBe('number')
-      expect(r.bm25_score).toBeGreaterThan(0)
+      expect(typeof r.scores?.bm25_score).toBe('number')
+      expect(r.scores?.bm25_score).toBeGreaterThan(0)
     })
   })
 
   test('hybrid path carries rrf_score on merged results', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'SIGNALS_RRF hybrid fusion marker', status: 'active' }
     })
 
     const { data, isError } = await searchWithSignals('SIGNALS_RRF hybrid fusion marker')
     expect(isError).toBe(false)
-    const results = data as Array<{ match_source: string[]; rrf_score?: number }>
+    const results = data.items as Array<{ match_source: string[]; scores?: { rrf_score?: number } }>
     // On the hybrid path, every returned result that matched any leg should have rrf_score
     const withRrf = results.filter((r) => r.match_source.length > 0)
     expect(withRrf.length).toBeGreaterThanOrEqual(1)
     // rrf_score is present when fusion ran (hybrid=true is the default)
-    expect(withRrf.every((r) => r.rrf_score !== undefined)).toBe(true)
+    expect(withRrf.every((r) => r.scores?.rrf_score !== undefined)).toBe(true)
   })
 })
 
@@ -965,54 +990,54 @@ describe('memory_recall ranking signals', () => {
 
 describe('memory_recall recency boost', () => {
   async function searchWithRecency(query: string, extra?: Record<string, unknown>) {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query, limit: 10, ...extra }
+      arguments: { action: 'search', query, limit: 10, compact: false, ...extra }
     })
     return parseResult(result)
   }
 
   test('recency_weight accepted; response carries recency_score and final_score', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'REC_MCP marker content here', status: 'active' }
     })
 
     const { data, isError } = await searchWithRecency('REC_MCP marker content here', { recency_weight: 0.5 })
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    expect(data.length).toBeGreaterThanOrEqual(1)
+    expect(Array.isArray(data.items)).toBe(true)
+    expect(data.items.length).toBeGreaterThanOrEqual(1)
     // Every result should carry recency fields when weight > 0.
-    const results = data as Array<{ recency_score?: number; final_score?: number }>
-    expect(results.every((r) => r.recency_score !== undefined)).toBe(true)
-    expect(results.every((r) => r.final_score !== undefined)).toBe(true)
+    const results = data.items as Array<{ scores?: { recency_score?: number; final_score?: number } }>
+    expect(results.every((r) => r.scores?.recency_score !== undefined)).toBe(true)
+    expect(results.every((r) => r.scores?.final_score !== undefined)).toBe(true)
   })
 
   test('unset recency_weight → neither recency_score nor final_score present', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'REC_MCP_UNSET marker content here', status: 'active' }
     })
 
     const { data, isError } = await searchWithRecency('REC_MCP_UNSET marker content here')
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    const results = data as Array<{ recency_score?: number; final_score?: number }>
+    expect(Array.isArray(data.items)).toBe(true)
+    const results = data.items as Array<{ scores?: { recency_score?: number; final_score?: number } }>
     // Default weight=0 → fields must be absent (backward compat).
-    expect(results.every((r) => r.recency_score === undefined)).toBe(true)
-    expect(results.every((r) => r.final_score === undefined)).toBe(true)
+    expect(results.every((r) => r.scores?.recency_score === undefined)).toBe(true)
+    expect(results.every((r) => r.scores?.final_score === undefined)).toBe(true)
   })
 
   test('schema rejects out-of-range recency_weight', async () => {
     // Negative weight.
-    const neg = await client.callTool({
+    const neg = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'test', recency_weight: -0.1 }
     })
     expect(parseResult(neg).isError).toBe(true)
 
     // Weight above 1.
-    const over = await client.callTool({
+    const over = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'test', recency_weight: 1.1 }
     })
@@ -1024,31 +1049,31 @@ describe('memory_recall recency boost', () => {
 
 describe('memory_recall low_confidence + min_relevance', () => {
   test('search response includes low_confidence on every result', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'LC_MCP marker relevant content here', status: 'active' }
     })
 
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: 'LC_MCP marker relevant content' }
+      arguments: { action: 'search', query: 'LC_MCP marker relevant content', compact: false }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    expect(data.length).toBeGreaterThanOrEqual(1)
-    for (const r of data) {
+    expect(Array.isArray(data.items)).toBe(true)
+    expect(data.items.length).toBeGreaterThanOrEqual(1)
+    for (const r of data.items) {
       expect(typeof r.low_confidence).toBe('boolean')
     }
   })
 
   test('search accepts min_relevance argument', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'LC_MIN_REL marker content', status: 'active' }
     })
 
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'LC_MIN_REL marker content', min_relevance: 0.5 }
     })
@@ -1057,12 +1082,12 @@ describe('memory_recall low_confidence + min_relevance', () => {
   })
 
   test('clusters action accepts min_relevance argument', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'LC_CLUST marker cluster content', status: 'active' }
     })
 
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'clusters', query: 'LC_CLUST marker cluster content', min_relevance: 0.5 }
     })
@@ -1071,7 +1096,7 @@ describe('memory_recall low_confidence + min_relevance', () => {
   })
 
   test('schema rejects min_relevance < 0', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'test', min_relevance: -0.1 }
     })
@@ -1079,7 +1104,7 @@ describe('memory_recall low_confidence + min_relevance', () => {
   })
 
   test('schema rejects min_relevance > 1', async () => {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'test', min_relevance: 1.1 }
     })
@@ -1087,22 +1112,22 @@ describe('memory_recall low_confidence + min_relevance', () => {
   })
 
   test('min_relevance=0 returns same results as default (no gating)', async () => {
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'LC_EQUIV equivalent marker test', status: 'active' }
     })
 
-    const defaultResult = await client.callTool({
+    const defaultResult = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'LC_EQUIV equivalent marker test' }
     })
-    const zeroResult = await client.callTool({
+    const zeroResult = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'LC_EQUIV equivalent marker test', min_relevance: 0 }
     })
 
-    const defaultData = parseResult(defaultResult).data as Array<{ thought: { id: string } }>
-    const zeroData = parseResult(zeroResult).data as Array<{ thought: { id: string } }>
+    const defaultData = parseResult(defaultResult).data.items as Array<{ thought: { id: string } }>
+    const zeroData = parseResult(zeroResult).data.items as Array<{ thought: { id: string } }>
     const defaultIds = defaultData.map(r => r.thought.id).sort()
     const zeroIds = zeroData.map(r => r.thought.id).sort()
     expect(zeroIds).toEqual(defaultIds)
@@ -1120,7 +1145,7 @@ describe('memory_recall low_confidence + min_relevance', () => {
 describe('retired surface', () => {
   test('memory_store create refuses is_profile and writes nothing', async () => {
     const before = (getDb().query('select count(*) as n from thoughts').get() as { n: number }).n
-    const { data, isError } = parseResult(await client.callTool({
+    const { data, isError } = parseResult(await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'retired profile flag', is_profile: true }
     }))
@@ -1131,12 +1156,12 @@ describe('retired surface', () => {
   })
 
   test('memory_store update refuses is_profile and leaves the row untouched', async () => {
-    const created = parseResult(await client.callTool({
+    const created = parseResult(await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'plain thought' }
     }))
     const id = created.data.id as string
-    const { data, isError } = parseResult(await client.callTool({
+    const { data, isError } = parseResult(await callTool({
       name: 'memory_store',
       arguments: { action: 'update', thought_id: id, is_profile: true }
     }))
@@ -1146,7 +1171,7 @@ describe('retired surface', () => {
   })
 
   test('memory_status action=profile is no longer a valid action', async () => {
-    const { data, isError } = parseResult(await client.callTool({
+    const { data, isError } = parseResult(await callTool({
       name: 'memory_status',
       arguments: { action: 'profile' }
     }))
@@ -1156,7 +1181,7 @@ describe('retired surface', () => {
 
   for (const action of ['cluster_remove', 'cluster_dissolve']) {
     test(`memory_crystallize ${action} is refused with the surviving action enum`, async () => {
-      const { data, isError } = parseResult(await client.callTool({
+      const { data, isError } = parseResult(await callTool({
         name: 'memory_crystallize',
         arguments: { action }
       }))

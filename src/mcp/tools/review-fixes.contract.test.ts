@@ -68,12 +68,12 @@ test('memory_store update continues accepting thought_id', async () => {
 
 test('memory_status frontier accepts limit 1 and rejects 51 with its range', async () => {
   const minimum = toolResult(await client.callTool({
-    name: 'memory_status', arguments: { action: 'frontier', limit: 1 }
+    name: 'memory_status', arguments: { action: 'frontier', limit: 1, cwd: '/tmp/mcp-unscoped' }
   }))
   expect(minimum.isError).toBe(false)
 
   const over = toolResult(await client.callTool({
-    name: 'memory_status', arguments: { action: 'frontier', limit: 51 }
+    name: 'memory_status', arguments: { action: 'frontier', limit: 51, cwd: '/tmp/mcp-unscoped' }
   }))
   expect(over.isError).toBe(true)
   expect(String(over.data)).toContain('50')
@@ -81,7 +81,7 @@ test('memory_status frontier accepts limit 1 and rejects 51 with its range', asy
 
 test('memory_status slots accepts a limit above the frontier maximum', async () => {
   const result = toolResult(await client.callTool({
-    name: 'memory_status', arguments: { action: 'slots', slots_limit: 51 }
+    name: 'memory_status', arguments: { action: 'slots', slots_limit: 51, cwd: '/tmp/mcp-unscoped' }
   }))
 
   expect(result.isError).toBe(false)

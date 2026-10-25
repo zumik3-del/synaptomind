@@ -63,8 +63,8 @@ describe('memory_primers list', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    expect(data.map((p: { thought_id: string }) => p.thought_id)).toContain(thoughtId)
+    expect(Array.isArray(data.items)).toBe(true)
+    expect(data.items.map((p: { thought_id: string }) => p.thought_id)).toContain(thoughtId)
   })
 
   test('list returns an empty array when there is no primer', async () => {
@@ -74,7 +74,7 @@ describe('memory_primers list', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(data).toEqual([])
+    expect(data.items).toEqual([])
   })
 })
 

@@ -38,9 +38,11 @@ async function setupClient(): Promise<Client> {
   return c
 }
 
-function parseHealth(result: unknown): { report: HealthReportShape; isError: boolean } {
+/** The report lives in the shared envelope's `item` (task #2179). */
+function parseHealth(result: unknown): { report: HealthReportShape; meta: { action: string }; isError: boolean } {
   const r = result as { content: Array<{ type: string; text: string }>; isError?: boolean }
-  return { report: JSON.parse(r.content?.[0]?.text ?? '{}') as HealthReportShape, isError: r.isError === true }
+  const parsed = JSON.parse(r.content?.[0]?.text ?? '{}') as { item: HealthReportShape; meta: { action: string } }
+  return { report: parsed.item, meta: parsed.meta, isError: r.isError === true }
 }
 
 /** The `duplicate_drafts` check from a health report. */
