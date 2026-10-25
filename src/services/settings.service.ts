@@ -2,11 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { getDb } from '../db/container'
 import {
   configuredSoftLimit,
-  getAdvertisedSoftLimit as resolveAdvertisedSoftLimit,
-  getEmbedderIdleTimeoutMs as resolveEmbedderIdleTimeoutMs,
-  getEmbedderPrecache as resolveEmbedderPrecache,
-  getThoughtLimits as resolveThoughtLimits,
-  type ThoughtLimits
+  getAdvertisedSoftLimit as resolveAdvertisedSoftLimit
 } from '../db/settings'
 
 /**
@@ -18,18 +14,6 @@ import {
  * Each wrapper takes the connection as a trailing defaulted param per the DI
  * convention, so a caller with a specific connection can pass it through.
  */
-export function getThoughtLimitsService(d: Database = getDb()): ThoughtLimits {
-  return resolveThoughtLimits(d)
-}
-
-export function getEmbedderPrecacheService(d: Database = getDb()): boolean {
-  return resolveEmbedderPrecache(d)
-}
-
-export function getEmbedderIdleTimeoutMsService(d: Database = getDb()): number {
-  return resolveEmbedderIdleTimeoutMs(d)
-}
-
 /**
  * The advertised thought soft limit. Unlike the wrappers above this one cannot
  * default its connection to `getDb()`: registration may run before `initDb()`

@@ -187,27 +187,6 @@ export function resolveFields(...args: FieldSelectionInput[]): string[] {
   return out
 }
 
-export function intersectFields(...args: FieldSelectionInput[]): string[] {
-  const { fields: rawFields, available } = parseFieldSelectionArgs(args)
-  const requested = rawFields ?? []
-  if (!available || available.length === 0) {
-    const out: string[] = []
-    const seen = new Set<string>()
-    for (const f of requested) if (!seen.has(f)) { out.push(f); seen.add(f) }
-    return out
-  }
-  const availSet = new Set(available)
-  const out: string[] = []
-  const seen = new Set<string>()
-  for (const f of requested) {
-    if (availSet.has(f) && !seen.has(f)) {
-      out.push(f)
-      seen.add(f)
-    }
-  }
-  return out
-}
-
 export function partitionFields(...args: FieldSelectionInput[]): { fields: string[]; unknown: string[]; valid: string[]; invalid: string[] } {
   const { fields: rawFields, available } = parseFieldSelectionArgs(args)
   const requested = rawFields ?? []
@@ -226,10 +205,6 @@ export function partitionFields(...args: FieldSelectionInput[]): { fields: strin
     }
   }
   return { fields, unknown, valid: [...fields], invalid: [...unknown] }
-}
-
-export function unknownFields(...args: FieldSelectionInput[]): string[] {
-  return partitionFields(...args).unknown
 }
 
 export function projectFields(...args: FieldSelectionInput[]): unknown {
@@ -293,19 +268,6 @@ function stringifyTags(tags: unknown): string[] {
   })
 }
 
-export function compactThought(thought: unknown): Record<string, unknown> {
-  if (!thought || typeof thought !== 'object' || Array.isArray(thought)) return {}
-  const t = thought as Record<string, unknown>
-  const project = (t.project_name ?? t.project ?? t.project_id) as unknown
-  return {
-    id: t.id,
-    content: t.content,
-    status: t.status,
-    tags: stringifyTags(t.tags),
-    project,
-  }
-}
-
 export function shapeThought(thought: unknown, compact?: boolean, fields?: unknown): unknown {
   if (!thought || typeof thought !== 'object' || Array.isArray(thought)) return thought
   const t = thought as Record<string, unknown>
@@ -331,9 +293,4 @@ export function shapeThought(thought: unknown, compact?: boolean, fields?: unkno
     }
   }
   return out
-}
-
-export function toCompact(data: unknown, _options?: FieldSelectionInput): unknown {
-  if (Array.isArray(data)) return data.map((d) => compactThought(d))
-  return compactThought(data)
 }
