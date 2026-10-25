@@ -12,6 +12,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { runHealthCheckService } from './health-check.service'
+import { runHealthRepairService } from './health-check-repair.service'
 
 beforeEach(createTestDb)
 afterEach(() => {
@@ -55,7 +56,8 @@ test('broken_parent_chains autofix only deletes edges to archived targets', () =
   const before = getDb().prepare("SELECT target_id FROM edges WHERE type = 'parent'").all() as Array<{ target_id: string }>
   expect(before.map(r => r.target_id).sort()).toEqual([archivedChild, draftChild].sort())
 
-  runHealthCheckService({ fix: true })
+  const _rp = runHealthRepairService()
+  runHealthRepairService({ confirm: true, preview_token: _rp.preview_token })
 
   const remaining = getDb()
     .prepare("SELECT target_id FROM edges WHERE type = 'parent'")
@@ -73,11 +75,12 @@ test('empty_cluster autofix removes the empty cluster thought', () => {
   expect(empty.count).toBe(1)
   expect(empty.auto_fixable).toBe(true)
 
-  runHealthCheckService({ fix: true })
+  const _rp = runHealthRepairService()
+  runHealthRepairService({ confirm: true, preview_token: _rp.preview_token })
 
   const db = getDb()
-  const stillExists = db.prepare('SELECT 1 FROM thoughts WHERE id = ?').get(clusterId)
-  expect(stillExists).toBeNull()
+  const row = db.prepare('SELECT status FROM thoughts WHERE id = ?').get(clusterId) as { status: string } | undefined
+  expect(row?.status).toBe('archived')
 })
 
 test('orphan_edge autofix removes the dangling edge', () => {
@@ -96,7 +99,8 @@ test('orphan_edge autofix removes the dangling edge', () => {
   expect(orphan.count).toBe(1)
   expect(orphan.auto_fixable).toBe(true)
 
-  runHealthCheckService({ fix: true })
+  const _rp = runHealthRepairService()
+  runHealthRepairService({ confirm: true, preview_token: _rp.preview_token })
 
   const remaining = db.prepare('SELECT 1 FROM edges WHERE id = ?').get(edgeId)
   expect(remaining).toBeNull()

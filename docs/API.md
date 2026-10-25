@@ -684,9 +684,12 @@ Graph health audit: broken links, orphans, duplicates, structural issues. Requir
 | Name | In | Type | Default | Description |
 |---|---|---|---|---|
 | severity | query | string | optional | Minimum severity: `critical`, `warning`, or `info` |
-| fix | query | bool | false | `true` auto-fixes safe issues |
 
 curl `'http://127.0.0.1:3005/api/health-check?severity=warning'`
+
+### POST /api/health-check/repair
+
+Preview or execute safe repairs (archives thoughts instead of deleting; edges are removed). Body: `{ confirm?: boolean, preview_token?: string, severity?: string }`. Omit `confirm` (or false) to preview and receive a `preview_token`; re-issue with `confirm: true` and the token to execute.
 
 #### Accepted graph-health trade-offs
 

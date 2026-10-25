@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { runHealthCheckService } from './health-check.service'
+import { runHealthRepairService } from './health-check-repair.service'
+import { ValidationError } from '../errors'
 
 beforeEach(createTestDb)
 afterEach(() => {
@@ -235,7 +237,8 @@ test('fix mode does not repair duplicate_drafts', () => {
 
   expect(duplicateDraftCheck(runHealthCheckService()).count).toBe(1)
 
-  runHealthCheckService({ fix: true })
+  const _repairPreview = runHealthRepairService()
+  runHealthRepairService({ confirm: true, preview_token: _repairPreview.preview_token })
 
   // The count is unchanged and neither side was merged, archived or deleted:
   // a duplicate draft needs a human decision.
@@ -323,7 +326,8 @@ test('fix mode removes orphan edges', () => {
   const before = runHealthCheckService()
   expect(before.summary.issues.critical).toBeGreaterThan(0)
 
-  runHealthCheckService({ fix: true })
+  const _repairPreview = runHealthRepairService()
+  runHealthRepairService({ confirm: true, preview_token: _repairPreview.preview_token })
   const after = runHealthCheckService()
   expect(after.summary.issues.critical).toBe(0)
 })
@@ -335,7 +339,8 @@ test('fix mode removes empty clusters', () => {
   const emptyBefore = before.categories.find(c => c.name === 'cluster_health')!.checks.find(c => c.name === 'empty_clusters')!
   expect(emptyBefore.count).toBe(1)
 
-  runHealthCheckService({ fix: true })
+  const _repairPreview = runHealthRepairService()
+  runHealthRepairService({ confirm: true, preview_token: _repairPreview.preview_token })
   const after = runHealthCheckService()
   const emptyAfter = after.categories.find(c => c.name === 'cluster_health')!.checks.find(c => c.name === 'empty_clusters')!
   expect(emptyAfter.count).toBe(0)
@@ -348,10 +353,92 @@ test('fix mode deletes archived-target parent edges but keeps draft-target ones'
   seedEdge(parent, archivedChild, 'parent')
   seedEdge(parent, draftChild, 'parent')
 
-  runHealthCheckService({ fix: true })
+  const _repairPreview = runHealthRepairService()
+  runHealthRepairService({ confirm: true, preview_token: _repairPreview.preview_token })
 
   const remaining = getDb()
     .prepare("SELECT target_id FROM edges WHERE type = 'parent'")
     .all() as Array<{ target_id: string }>
   expect(remaining.map(r => r.target_id)).toEqual([draftChild])
+})
+
+test('empty-cluster repair clears both empty and singleton counts', () => {
+  seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
+
+  const before = runHealthCheckService()
+  const clusterCatBefore = before.categories.find(c => c.name === 'cluster_health')!
+  const emptyBefore = clusterCatBefore.checks.find(c => c.name === 'empty_clusters')!
+  const singletonBefore = clusterCatBefore.checks.find(c => c.name === 'singleton_clusters')!
+  expect(emptyBefore.count).toBe(1)
+  // An empty cluster (0 members) also qualifies as a singleton (<=1 member).
+  expect(singletonBefore.count).toBeGreaterThanOrEqual(1)
+
+  const preview = runHealthRepairService()
+  runHealthRepairService({ confirm: true, preview_token: preview.preview_token })
+
+  const after = runHealthCheckService()
+  const clusterCatAfter = after.categories.find(c => c.name === 'cluster_health')!
+  const emptyAfter = clusterCatAfter.checks.find(c => c.name === 'empty_clusters')!
+  const singletonAfter = clusterCatAfter.checks.find(c => c.name === 'singleton_clusters')!
+  expect(emptyAfter.count).toBe(0)
+  expect(singletonAfter.count).toBe(0)
+})
+
+test('repair throws ValidationError on missing preview token', () => {
+  seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
+  runHealthRepairService() // create a preview (unused)
+  expect(() => runHealthRepairService({ confirm: true })).toThrow(ValidationError)
+})
+
+test('repair throws ValidationError on bogus preview token', () => {
+  seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
+  expect(() => runHealthRepairService({ confirm: true, preview_token: 'bogus-token' })).toThrow(ValidationError)
+})
+
+test('repair throws ValidationError on stale preview token', () => {
+  seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
+  const preview = runHealthRepairService()
+
+  // Change state so the fingerprint no longer matches.
+  seedThought({ content: 'another empty cluster', is_cluster: 1, is_protected: 0 })
+
+  expect(() => runHealthRepairService({ confirm: true, preview_token: preview.preview_token })).toThrow(ValidationError)
+})
+
+test('repair throws ValidationError on replayed preview token', () => {
+  seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
+  const preview = runHealthRepairService()
+  runHealthRepairService({ confirm: true, preview_token: preview.preview_token })
+
+  // Re-seed so a second repair attempt has something to fix, but token is consumed.
+  seedThought({ content: 'empty cluster 2', is_cluster: 1, is_protected: 0 })
+  const preview2 = runHealthRepairService()
+  // Use the already-consumed first token against the new fingerprint context: still invalid.
+  expect(() => runHealthRepairService({ confirm: true, preview_token: preview.preview_token })).toThrow(ValidationError)
+  // sanity: a fresh token works
+  runHealthRepairService({ confirm: true, preview_token: preview2.preview_token })
+})
+
+test('repaired count reflects actually repaired targets (protected skipped)', () => {
+  const protectedId = seedThought({ content: 'protected empty cluster', is_cluster: 1, is_protected: 1 })
+  const unprotectedId = seedThought({ content: 'unprotected empty cluster', is_cluster: 1, is_protected: 0 })
+
+  const before = runHealthCheckService()
+  const emptyBefore = before.categories.find(c => c.name === 'cluster_health')!.checks.find(c => c.name === 'empty_clusters')!
+  // Both are counted as repairable before (including protected).
+  expect(emptyBefore.count).toBe(2)
+
+  const preview = runHealthRepairService()
+  const result = runHealthRepairService({ confirm: true, preview_token: preview.preview_token })
+
+  expect(result.status).toBe('executed')
+  const emptyRepaired = result.repaired?.find(r => r.name === 'empty_clusters')
+  // Only the unprotected one was actually archived.
+  expect(emptyRepaired?.count).toBe(1)
+
+  const db = getDb()
+  const protectedRow = db.prepare('SELECT status FROM thoughts WHERE id = ?').get(protectedId) as { status: string }
+  const unprotectedRow = db.prepare('SELECT status FROM thoughts WHERE id = ?').get(unprotectedId) as { status: string }
+  expect(protectedRow.status).toBe('active')
+  expect(unprotectedRow.status).toBe('archived')
 })
