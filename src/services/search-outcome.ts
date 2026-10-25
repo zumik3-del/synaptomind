@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { findThoughtsByIdQuery, ID_PREFIX_MATCH_HARD_CAP } from '../db/search-id'
+import { findThoughtsByIdQuery, type IdLookupFilters, ID_PREFIX_MATCH_HARD_CAP } from '../db/search-id'
 import type { SearchResult } from '../db/search'
 
 /**
@@ -47,8 +47,9 @@ export interface SearchOutcome {
 export interface IdLookup {
   /**
    * The addressed rows, capped at the caller's `limit` (hard-capped). Empty means
-   * the query was id-shaped but no thought carries it: the caller must fall back
-   * to the normal search instead of answering with nothing.
+   * the query was id-shaped but no thought carries it *inside the requested
+   * scope*: the caller must fall back to the normal search instead of answering
+   * with nothing.
    */
   items: SearchResult[]
   /** A prefix addressed more rows than `limit` (or several rows at all). */
@@ -66,7 +67,8 @@ export function idNotFoundWarning(query: string): string {
 
 /**
  * Resolve an id-shaped query (see `parseThoughtIdQuery`) to its thought(s)
- * without touching the embedding or BM25 legs, any scope filter or the gate.
+ * without touching the embedding or BM25 legs, any tag/importance filter or the
+ * gate.
  *
  * Returns `null` when the query is not id-shaped, so the caller falls through to
  * the normal search. Returns an empty `items` when the query *is* id-shaped but
@@ -75,15 +77,17 @@ export function idNotFoundWarning(query: string): string {
  * search. A miss is reported through {@link idNotFoundWarning}, never by
  * replacing the result set.
  *
- * An explicit id is an explicit reference: the lookup is deliberately
- * project/status-scope-free, so a caller that named the id always gets that
- * thought back. Standing annotation and suppression stay with the caller.
+ * A full UUID is an explicit reference and resolves from any project/status,
+ * while a prefix is only a timestamp window and inherits the caller's
+ * `status`/`project` scope (see {@link IdLookupFilters}); a prefix that addresses
+ * nothing inside the scope is an id miss like any other. Standing annotation and
+ * suppression stay with the caller.
  */
-export function runIdLookup(query: string, d: Database, limit?: number): IdLookup | null {
+export function runIdLookup(query: string, d: Database, limit?: number, filters?: IdLookupFilters): IdLookup | null {
   const cap = limit === undefined ? ID_PREFIX_MATCH_HARD_CAP : Math.min(Math.max(Math.floor(limit), 1), ID_PREFIX_MATCH_HARD_CAP)
   // One row past the cap tells "exactly cap matches" apart from "more than the
   // caller asked to see", so a truncated prefix still reports as ambiguous.
-  const hits = findThoughtsByIdQuery(d, query, cap + 1)
+  const hits = findThoughtsByIdQuery(d, query, cap + 1, filters)
   if (hits === null) return null
   return {
     items: hits.length > cap ? hits.slice(0, cap) : hits,
@@ -92,12 +96,15 @@ export function runIdLookup(query: string, d: Database, limit?: number): IdLooku
 }
 
 /**
- * Relevance-gate predicate on the calibrated scale: a lexical (BM25) anchor and
- * an explicit id always pass, a cosine-only row passes only when its calibrated
- * `relevance` reaches the threshold. `threshold <= 0` disables the gate.
+ * Relevance-gate predicate on the calibrated scale: a lexical (BM25) anchor
+ * always passes, a cosine-only row passes only when its calibrated `relevance`
+ * reaches the threshold. `threshold <= 0` disables the gate.
+ *
+ * There is no `id` arm: an id lookup is answered before the gate runs (see
+ * `runSearch`), so an id row can never reach this predicate.
  */
 export function keepsUnderRelevanceGate(result: SearchResult, threshold: number): boolean {
   if (threshold <= 0) return true
-  if (result.match_source.includes('bm25') || result.match_source.includes('id')) return true
+  if (result.match_source.includes('bm25')) return true
   return (result.relevance ?? 0) >= threshold
 }

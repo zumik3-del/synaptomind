@@ -141,6 +141,19 @@ interface ContextResult {
   degraded?: boolean
 }
 
+/** Options of {@link getContextService}. */
+export interface ContextServiceOptions {
+  /** Max edges returned for the neighbourhood chain (default `config.graph.maxDegree`). */
+  maxDegree?: number
+  /** Project scope of the lookup (`undefined` = every project). */
+  projectFilter?: string
+  /**
+   * Relevance gate on the calibrated scale. `0` (default) keeps the context path
+   * ungated; only an explicit positive value re-enables the gate.
+   */
+  minRelevance?: number
+}
+
 /**
  * Best match for a context lookup plus its neighbourhood.
  *
@@ -151,29 +164,18 @@ interface ContextResult {
  */
 export async function getContextService(
   query: string,
-  maxDegree: number = config.graph.maxDegree,
-  projectFilter?: string,
-  minRelevanceOrDb?: number | Database,
+  options: ContextServiceOptions = {},
   d: Database = getDb()
 ): Promise<ContextResult | null> {
-  // Backward-compatible: a Database passed as the 4th arg (legacy DI style) is
-  // treated as the db handle, and the gate stays off.
-  let minRelevance = 0
-  let db: Database = d
-  if (minRelevanceOrDb !== null && minRelevanceOrDb !== undefined && typeof minRelevanceOrDb === 'object' && 'prepare' in (minRelevanceOrDb as object)) {
-    db = minRelevanceOrDb as Database
-  } else if (typeof minRelevanceOrDb === 'number') {
-    minRelevance = minRelevanceOrDb
-  }
-
+  const maxDegree = options.maxDegree ?? config.graph.maxDegree
   const results = await searchThoughtsService({
     query,
     topK: 1,
     hybrid: true,
     statusFilter: 'active',
-    projectFilter,
-    minRelevance
-  }, db)
+    projectFilter: options.projectFilter,
+    minRelevance: options.minRelevance ?? 0
+  }, d)
   if (!results || results.length === 0) {
     // Surface degradation instead of throwing: when the search degraded, return
     // a degraded-only result so callers can observe it rather than NotFoundError.
@@ -185,6 +187,6 @@ export async function getContextService(
   }
   const best = results[0].thought ?? (results[0] as unknown as Thought)
   const degraded = results[0].degraded === true || (results as { degraded?: boolean }).degraded === true
-  const chain = getThoughtEdges(db, best.id, best.is_cluster ? 'downstream' : 'both', maxDegree)
+  const chain = getThoughtEdges(d, best.id, best.is_cluster ? 'downstream' : 'both', maxDegree)
   return { best_match: best, chain, degraded }
 }

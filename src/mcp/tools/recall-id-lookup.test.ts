@@ -20,9 +20,13 @@ import { registerAllMemoryTools } from '.'
  *   leaves an `id_not_found` note in `meta.warnings` (the answer is not empty),
  * - an unknown full UUID keeps the precise `reason: id_not_found` when the
  *   fallback finds nothing either,
- * - an id-addressed superseded thought stays observable: `standing`,
- *   `superseded_by` and `low_confidence: true`, even though the agent-facing
- *   default is `supersession_mode=suppress`.
+ * - an id-addressed superseded thought stays observable: `standing` and
+ *   `superseded_by`, even though the agent-facing default is
+ *   `supersession_mode=suppress`, while `low_confidence` keeps its retrieval
+ *   meaning and stays false on an id hit (task #2190),
+ * - the `clusters` action honours its cluster invariant on an id query: a
+ *   non-cluster id answers nothing instead of leaking a non-cluster row
+ *   (task #2190).
  */
 
 const CWD = '/tmp/t2188-recall-id'
@@ -127,6 +131,60 @@ describe('memory_recall search — id lookup on the wire (task #2186)', () => {
     expect(hit.thought.id).toBe(oldId)
     expect(hit.standing).toBe('superseded')
     expect(hit.superseded_by).toEqual([newId])
-    expect(hit.low_confidence).toBe(true)
+    // low_confidence means "weak retrieval" and stays false on an id hit (task
+    // #2190): the contested state rides in standing/superseded_by.
+    expect(hit.low_confidence).toBe(false)
+  })
+})
+
+describe('memory_recall clusters — the id lookup honours the cluster invariant (task #2190)', () => {
+  test('a non-cluster id answers nothing instead of leaking a non-cluster row', async () => {
+    const pid = projectId()
+    seedThought({ id: A, content: 'PLAIN_ROW marker', project_id: pid, is_cluster: 0 })
+
+    const { data, isError } = parseResult(
+      await client.callTool({
+        name: 'memory_recall',
+        arguments: { action: 'clusters', query: A, cwd: CWD }
+      })
+    )
+
+    expect(isError).toBe(false)
+    expect(data.items).toEqual([])
+    // Nothing survived the cluster filter, so the miss is explained.
+    expect(data.meta.reason).toBeDefined()
+  })
+
+  test('a cluster id is answered with its row', async () => {
+    const pid = projectId()
+    seedThought({ id: B, content: 'CLUSTER_ROW marker', project_id: pid, is_cluster: 1 })
+
+    const { data, isError } = parseResult(
+      await client.callTool({
+        name: 'memory_recall',
+        arguments: { action: 'clusters', query: B, cwd: CWD }
+      })
+    )
+
+    expect(isError).toBe(false)
+    expect(data.items.map((item: { thought: { id: string } }) => item.thought.id)).toEqual([B])
+  })
+})
+
+describe('memory_recall search — a prefix is project-scoped on the wire (task #2190)', () => {
+  test('a prefix shared by two projects resolves only the scoped one', async () => {
+    const pid = projectId()
+    const mine = seedThought({ id: A, content: 'PREFIX_SCOPED_MINE', project_id: pid })
+    seedThought({ id: B, content: 'PREFIX_SCOPED_OTHER', project_id: 'default' })
+
+    const { data, isError } = parseResult(
+      await client.callTool({
+        name: 'memory_recall',
+        arguments: { action: 'search', query: '018f0a0000007', cwd: CWD }
+      })
+    )
+
+    expect(isError).toBe(false)
+    expect(data.items.map((item: { thought: { id: string } }) => item.thought.id)).toEqual([mine])
   })
 })

@@ -155,7 +155,7 @@ const handlers = {
 export function registerEdgeReview(server: McpServer) {
   registerActionTool(server, {
     name: 'edge_review',
-    description: `Review and apply placement proposals. Answers the shared envelope: { items, meta } for list/apply_batch (aggregate in meta.counts), { item, meta } for enqueue/apply/rollback/reject; a preview sets meta.preview={token,destructive:true}. Actions: enqueue (persisted thought only; queues the plan's edge items and reports the skipped ones), list (default pending), apply (dry-run unless confirm=true), apply_batch (per-call cap), rollback (dry-run), reject. Rows of a retired item kind (triage_*) stay listable but cannot be applied.`,
+    description: `Review and apply placement proposals. Answers the shared envelope: { items, meta } for list/apply_batch/rollback (aggregate in meta.counts), { item, meta } for enqueue/apply/reject; a preview sets meta.preview={token,destructive:true}. Actions: enqueue (persisted thought only; queues the plan's edge items and reports the skipped ones), list (default pending), apply (dry-run unless confirm=true), apply_batch (per-call cap), rollback (dry-run; one items row per proposal of the run), reject. Rows of a retired item kind (triage_*) stay listable but cannot be applied.`,
     inputSchema: {
       action: z
         .enum(['enqueue', 'list', 'apply', 'apply_batch', 'rollback', 'reject'])

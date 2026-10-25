@@ -38,10 +38,6 @@ describe('keepsUnderRelevanceGate', () => {
     ).toBe(true)
   })
 
-  test('an id result always passes', () => {
-    expect(keepsUnderRelevanceGate(result({ match_source: ['id'] }), 1)).toBe(true)
-  })
-
   test('a cosine-only row is kept exactly at the threshold and above', () => {
     expect(keepsUnderRelevanceGate(result({ relevance: 0.4 }), 0.4)).toBe(true)
     expect(keepsUnderRelevanceGate(result({ relevance: 0.4000001 }), 0.4)).toBe(true)

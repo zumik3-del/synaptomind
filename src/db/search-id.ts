@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { buildFilterSQL } from './search-filters'
 import type { SearchResult } from './search-types'
 import { getThoughtTagsBatch } from './tags'
 import { rowToThought } from './thoughts'
@@ -13,6 +14,27 @@ import { rowToThought } from './thoughts'
 export interface ThoughtIdQuery {
   pattern: string
   exact: boolean
+}
+
+/**
+ * Scope applied to an id lookup (task #2190).
+ *
+ * A **prefix** is a timestamp, not a reference: its first 12 hex characters are
+ * the UUIDv7 millisecond and the 13th only the version nibble, so anybody who
+ * knows roughly *when* a thought was stored can address it. A prefix therefore
+ * takes the same `status`/`project` scope as any other query. A **full UUID**
+ * carries the random bits and is an explicit reference, so it stays
+ * project/status-free by design.
+ *
+ * `clusterFilter` is not a scope but a shape constraint of the requested
+ * collection (the `clusters` action lists cluster thoughts and refuses
+ * `is_cluster=false`): it applies to both forms, otherwise an id would answer a
+ * thought the collection is defined never to contain.
+ */
+export interface IdLookupFilters {
+  statusFilter?: string
+  projectFilter?: string
+  clusterFilter?: 'only' | 'exclude'
 }
 
 /** Hex length of a full UUID (the stored thought-id form). */
@@ -93,19 +115,26 @@ function clampPrefixLimit(limit: number): number {
  * Resolve an id-shaped query to `SearchResult`s (empty when nothing matches),
  * or `null` when the query is not id-shaped.
  *
- * An explicit id is an explicit reference: this lookup deliberately ignores the
- * `status`, `project`, `tag`, `is_cluster` and `min_importance` scope, because a
- * caller that named an id already chose exactly one thought and must be able to
- * resolve it from any scope. The filter/gate layers never see these rows — the
- * caller short-circuits on them.
+ * A full UUID is an explicit reference: the lookup deliberately ignores the
+ * `status`, `project`, `tag` and `min_importance` scope, because a caller that
+ * named an id already chose exactly one thought and must be able to resolve it
+ * from any scope. A prefix is not a reference — it is a timestamp window — so it
+ * takes the `status`/`project` scope of the request (see
+ * {@link IdLookupFilters}); a prefix that addresses nothing inside the scope
+ * returns `[]`, which the caller treats exactly like any other id miss. The
+ * `is_cluster` filter is structural and applies to both forms even though an
+ * explicit reference bypasses the other scopes.
+ *
+ * The filter/gate layers never see these rows — the caller short-circuits on
+ * them.
  *
  * A prefix answer is capped at `limit` (itself hard-capped at
  * {@link ID_PREFIX_MATCH_HARD_CAP}) so a bulk batch cannot flood the answer; the
  * exact form needs no cap because the id is the primary key.
  *
  * `low_confidence` is `false` here in the neutral "an explicit reference is an
- * exact match, not a weak similarity hit" sense; the service re-flags a contested
- * row (`standing` other than `current`) rather than leaving it looking clean.
+ * exact match, not a weak similarity hit" sense; standing annotation stays with
+ * the caller.
  *
  * `GLOB` is case-sensitive against the stored BINARY-collated primary key and can
  * use that index for the `prefix*` form; the query is lowercased first, which
@@ -114,11 +143,19 @@ function clampPrefixLimit(limit: number): number {
 export function findThoughtsByIdQuery(
   db: Database,
   query: string,
-  limit: number = ID_PREFIX_MATCH_HARD_CAP
+  limit: number = ID_PREFIX_MATCH_HARD_CAP,
+  filters: IdLookupFilters = {}
 ): SearchResult[] | null {
   const idQuery = parseThoughtIdQuery(query)
   if (!idQuery) return null
   const cap = clampPrefixLimit(limit)
+  const scope = idQuery.exact
+    ? buildFilterSQL({ clusterFilter: filters.clusterFilter })
+    : buildFilterSQL({
+        statusFilter: filters.statusFilter,
+        projectFilter: filters.projectFilter,
+        clusterFilter: filters.clusterFilter
+      })
 
   const rows = (
     idQuery.exact
@@ -127,20 +164,20 @@ export function findThoughtsByIdQuery(
             SELECT t.*, p.name AS project_name
             FROM thoughts t
             LEFT JOIN projects p ON t.project_id = p.id
-            WHERE t.id = ?
+            WHERE t.id = ? ${scope.sql}
             ORDER BY t.id ASC
           `)
-          .all(idQuery.pattern)
+          .all(idQuery.pattern, ...scope.params)
       : db
           .prepare(`
             SELECT t.*, p.name AS project_name
             FROM thoughts t
             LEFT JOIN projects p ON t.project_id = p.id
-            WHERE t.id GLOB ?
+            WHERE t.id GLOB ? ${scope.sql}
             ORDER BY t.id ASC
             LIMIT ${cap}
           `)
-          .all(idQuery.pattern)
+          .all(idQuery.pattern, ...scope.params)
   ) as IdRow[]
 
   const tagMap = getThoughtTagsBatch(db, rows.map(r => r.id))

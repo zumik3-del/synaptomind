@@ -51,7 +51,7 @@ describe("getContextService uses real embeddings", () => {
 		const buf = Buffer.from(VECTOR.buffer, VECTOR.byteOffset, VECTOR.byteLength);
 		db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(id, buf);
 
-		const ctx = await getContextService("zzzznomatchtoken", 3, undefined, db);
+		const ctx = await getContextService("zzzznomatchtoken", { maxDegree: 3 }, db);
 
 		expect(ctx).not.toBeNull();
 		expect(ctx!.best_match!.id).toBe(id);
@@ -90,7 +90,7 @@ describe("getContextService keeps the pre-gate best match (task #2187)", () => {
 			);
 			expect(gated).toEqual([]);
 
-			const ctx = await getContextService(QUERY, 3);
+			const ctx = await getContextService(QUERY, { maxDegree: 3 });
 
 			expect(ctx).not.toBeNull();
 			expect(ctx!.best_match!.id).toBe(id);
@@ -112,7 +112,7 @@ describe("getContextService keeps the pre-gate best match (task #2187)", () => {
 			expect(gated).toEqual([]);
 
 			// ...must not affect the context lookup, which resolves its own gate.
-			const ctx = await getContextService(QUERY, 3);
+			const ctx = await getContextService(QUERY, { maxDegree: 3 });
 
 			expect(ctx).not.toBeNull();
 			expect(ctx!.best_match!.id).toBe(id);

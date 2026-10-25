@@ -11,13 +11,15 @@ import { searchThoughts, searchThoughtsOutcome } from './search.service'
  * The DB layer (`src/db/search-id.test.ts`) pins the recognition rules and the
  * lookup itself. This file pins what the *service* must do around it:
  *
- * - the addressed thought comes back in any status, ignoring every scope
- *   filter (`status`, `project`, `tag`, `is_cluster`, `min_importance`),
+ * - a full UUID comes back in any status/project, ignoring `status`, `project`,
+ *   `tag` and `min_importance` (an explicit reference), while a prefix is a
+ *   timestamp window and takes the `status`/`project` scope (task #2190);
+ *   `is_cluster` is structural and applies to both forms,
  * - an id-shaped query that addresses nothing falls back to the normal search
  *   and only leaves an `id_not_found` warning — it never zeroes the answer,
  * - an addressed thought is annotated like any other hit (standing,
- *   superseded_by/contradicted_by, low_confidence when contested) but never
- *   suppressed by the lookup,
+ *   superseded_by/contradicted_by) but never suppressed, and `low_confidence`
+ *   keeps its retrieval meaning instead of flagging a contested id,
  * - the embedder is never called for an id-shaped query that *matches*,
  * - the calibrated relevance gate never touches an id result.
  *
@@ -118,10 +120,54 @@ describe('searchThoughtsOutcome — id lookup', () => {
     expect(outcome.items.map(r => r.thought.id)).toEqual([A])
   })
 
-  test('is_cluster / clusterFilter is ignored', async () => {
+  test('clusterFilter applies to a full UUID: a cluster row is filtered out of a non-cluster request (task #2190)', async () => {
     seedThought({ id: A, content: 'CLUSTER_ID marker', is_cluster: 1 })
 
-    const outcome = await searchThoughtsOutcome({ query: A, clusterFilter: 'exclude' })
+    // The lookup honours the shape constraint, so it answers nothing and the
+    // query falls through to the (empty) word search rather than returning a
+    // row the caller excluded.
+    const excluded = await searchThoughtsOutcome({ query: A, clusterFilter: 'exclude' })
+
+    expect(excluded.items).toEqual([])
+
+    const only = await searchThoughtsOutcome({ query: A, clusterFilter: 'only' })
+
+    expect(only.items.map(r => r.thought.id)).toEqual([A])
+  })
+
+  test('clusterFilter applies to a prefix too', async () => {
+    seedThought({ id: A, content: 'PLAIN_PREFIX_ROW', is_cluster: 0 })
+    seedThought({ id: B, content: 'CLUSTER_PREFIX_ROW', is_cluster: 1 })
+
+    const outcome = await searchThoughtsOutcome({ query: '018f0a0000007', clusterFilter: 'only' })
+
+    expect(outcome.items.map(r => r.thought.id)).toEqual([B])
+  })
+
+  test('a prefix is scoped by project: a predictable timestamp key cannot read another project (task #2190)', async () => {
+    seedThought({ id: A, content: 'PREFIX_PROJ_A', project_id: 'proj-a' })
+    seedThought({ id: B, content: 'PREFIX_PROJ_B', project_id: 'proj-b' })
+
+    const scoped = await searchThoughtsOutcome({ query: '018f0a0000007', projectFilter: 'proj-a' })
+
+    expect(scoped.items.map(r => r.thought.id)).toEqual([A])
+  })
+
+  test('a prefix that matches only outside the project falls back to the word search with an id_not_found note (task #2190)', async () => {
+    seedThought({ id: B, content: 'PREFIX_OUT_OF_SCOPE', project_id: 'proj-b' })
+
+    const outcome = await searchThoughtsOutcome({ query: '018f0a0000007', projectFilter: 'proj-a' })
+
+    expect(outcome.items).toEqual([])
+    expect(outcome.warnings?.[0]).toContain('id_not_found')
+    expect(outcome.reason).toBe('id_not_found')
+  })
+
+  test('a prefix is scoped by status', async () => {
+    seedThought({ id: A, content: 'PREFIX_ACTIVE', status: 'active' })
+    seedThought({ id: B, content: 'PREFIX_ARCHIVED', status: 'archived' })
+
+    const outcome = await searchThoughtsOutcome({ query: '018f0a0000007', statusFilter: 'active' })
 
     expect(outcome.items.map(r => r.thought.id)).toEqual([A])
   })
@@ -140,7 +186,9 @@ describe('searchThoughtsOutcome — id lookup', () => {
     expect(outcome.items.map(r => r.thought.id)).toEqual([oldId])
     expect(outcome.items[0].standing).toBe('superseded')
     expect(outcome.items[0].superseded_by).toEqual([newId])
-    expect(outcome.items[0].low_confidence).toBe(true)
+    // Contested state rides in standing/superseded_by: low_confidence means
+    // "weak retrieval", and an id hit has no cosine at all (task #2190).
+    expect(outcome.items[0].low_confidence).toBe(false)
   })
 
   test('an id-shaped miss falls back to the word search and reports id_not_found as a warning (task #2186)', async () => {

@@ -460,6 +460,27 @@ describe('action table completeness', () => {
     }
   })
 
+  test('the edge_review description maps every action to the envelope shape it really answers', async () => {
+    // The description is the only place a client learns whether an action
+    // answers { items, meta } or { item, meta }; if it drifts from the table
+    // above, a client following the text misses the per-row report it is sent
+    // (task #2190: rollback was documented as { item, meta }).
+    const tool = (await advertisedTools()).find(t => t.name === 'edge_review')
+    const description = tool?.description ?? ''
+    const itemsClause = description.match(/\{ items, meta \} for ([^;.]+)/)?.[1] ?? ''
+    const itemClause = description.match(/\{ item, meta \} for ([^;.]+)/)?.[1] ?? ''
+    expect(itemsClause).not.toBe('')
+    expect(itemClause).not.toBe('')
+
+    const mentions = (clause: string, action: string) => new RegExp(`(^|[^a-z_])${action}([^a-z_]|$)`).test(clause)
+    for (const c of CASES.filter(c => c.tool === 'edge_review')) {
+      const documented = c.slot === 'item' ? itemClause : itemsClause
+      const other = c.slot === 'item' ? itemsClause : itemClause
+      expect({ action: c.action, documented: mentions(documented, c.action) }).toEqual({ action: c.action, documented: true })
+      expect({ action: c.action, wrongClause: mentions(other, c.action) }).toEqual({ action: c.action, wrongClause: false })
+    }
+  })
+
   test('the graph exception is documented on memory_crystallize', async () => {
     const tool = (await advertisedTools()).find(t => t.name === 'memory_crystallize')
     expect(tool?.description).toContain('exception')

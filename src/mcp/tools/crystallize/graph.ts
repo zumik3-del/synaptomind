@@ -25,10 +25,14 @@ export const graphHandler: ActionHandler = {
       data.nodes = data.nodes.map((n) => projectFields(n, { fields })) as unknown as typeof data.nodes
       data.edges = data.edges.map((e) => projectFields(e, { fields })) as unknown as typeof data.edges
     }
+    const total = typeof data.total === 'number' ? data.total : data.nodes.length
     const envelope = collectionEnvelope('graph', data.nodes, {
       scope,
       warnings,
-      total: typeof data.total === 'number' ? data.total : data.nodes.length,
+      total,
+      // The nodes are a page of the graph, so `total = returned + filtered_out`
+      // holds like every other collection (task #2190).
+      filtered_out: Math.max(0, total - data.nodes.length),
       counts: { edges: data.edges.length }
     })
     return { items: envelope.items, edges: data.edges, meta: envelope.meta }
