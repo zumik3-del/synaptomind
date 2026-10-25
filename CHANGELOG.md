@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.19.1
+
+> October 25, 2026
+
+- [`38a31a1`](https://github.com/zumik3-del/synaptomind/commit/38a31a1c9877c668480f2fa9f37c567b7126cc59): fix(db): address v046 review findings (task #2174)
+- [`c447a2c`](https://github.com/zumik3-del/synaptomind/commit/c447a2c9e28cca703ded872940480ea082717c05): fix(db): close DB on shutdown for WAL checkpoint (task #2155)
+- [`d1e19bf`](https://github.com/zumik3-del/synaptomind/commit/d1e19bf1ccff5a8c10ba3cb621f4fc6ec9239e0f): feat(db): v046 invariants, boot guard, atomic preview tokens (task #2154)
+- [`9c43e7c`](https://github.com/zumik3-del/synaptomind/commit/9c43e7c28178491b5a03cb790d42f0d4e8d3dbc4): refactor(embedder): single-flight supervision hardening (task #2153)
+- [`82c9789`](https://github.com/zumik3-del/synaptomind/commit/82c9789a7a1498ee1ca2c29fc071b1fff7b0df28): feat(search): semantic context + observable degraded signal (task #2152)
+- [`6c9979e`](https://github.com/zumik3-del/synaptomind/commit/6c9979e5ce9cc4a5779564aa47e90c2329ca640f): feat(health): remove writes from read surfaces, add repair endpoint (task #2151)
+- [`2e97e1f`](https://github.com/zumik3-del/synaptomind/commit/2e97e1f1b65c0c3c310e174c65c313d5e2931f04): refactor(mcp): remove `any` from MCP tool layer (health, recall, review, retention, event-store)
+- [`c35bfb1`](https://github.com/zumik3-del/synaptomind/commit/c35bfb1706f43ae2ad549c467ba2bf5c70479d58): refactor(services): split placement-proposals.service.ts under 350 lines
+- [`a2fa9ba`](https://github.com/zumik3-del/synaptomind/commit/a2fa9bae47ffcf1352ab204fa0782bd4e370a76e): refactor: apply audit improvements (auth, rate-limit, config path, validation, typing, DRY)
+- [`12ff415`](https://github.com/zumik3-del/synaptomind/commit/12ff415b80ab1e0a7addd8b9c549bae00b5895a9): refactor: remove unused exports, dead types and fast-uri dependency
+- [`52a42c6`](https://github.com/zumik3-del/synaptomind/commit/52a42c62ea6813a1ccfd3fe89b3121a644e9b049): refactor: remove dead partitionFields helper
+- [`9e53307`](https://github.com/zumik3-del/synaptomind/commit/9e533071a89a737e5d1f9d367c24d7b50083afd8): refactor: remove dead code (9 unused functions)
+
 ## v0.19.0
 
 > October 24, 2026
