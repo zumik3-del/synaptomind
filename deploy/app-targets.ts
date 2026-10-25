@@ -69,7 +69,7 @@ export interface TargetResolution {
 }
 
 /** The raw DEPLOY_APP_ENVS value; '' when unset or empty. */
-export function appEnvsSpec(): string {
+function appEnvsSpec(): string {
   return process.env.DEPLOY_APP_ENVS?.trim() ?? ''
 }
 

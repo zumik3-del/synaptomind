@@ -1,7 +1,7 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { listPrimersService, getPrimerService, deletePrimerService } from '../../services/primers.service'
-import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
+import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
 function primerFingerprint(primer: { id: string; thought_id: string; hit_count: number; promoted_at: string | null; created_at: string }): string {
@@ -46,9 +46,8 @@ const handlers = {
       if (primer) {
         const fp = primerFingerprint(primer)
         if (!previewToken) throw new Error('preview_token is required')
-        const verification = verifyPreviewTokenService(previewToken, 'primer_delete', primerId, fp)
+        const verification = consumePreviewTokenService(previewToken, 'primer_delete', primerId, fp)
         if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-        consumePreviewTokenService(previewToken)
       }
 
       const deleted = deletePrimerService(primerId)

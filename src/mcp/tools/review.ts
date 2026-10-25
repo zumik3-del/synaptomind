@@ -8,8 +8,9 @@ import {
   type ListOptions
 } from '../../services/placement-proposals.service'
 import { isLegacyItemKind, getProposalService } from '../../services/placement-proposals.service'
+import type { PlacementProposalRow } from '../../services/placement-proposals.service'
 import { applyBatchService } from '../../services/placement-apply.service'
-import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
+import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { applyHandler, AGENT } from './review/apply'
@@ -92,7 +93,7 @@ const handlers = {
       const previewToken = args.preview_token as string | undefined
       const rows = proposalIds.map(id => getProposalService(id))
       function fp() {
-        return rows.map((r: any, i: number) => r ? `${r.id}:${r.state}:${r.fingerprint}:${r.created_at}:${r.expires_at ?? ''}:${r.result ?? ''}:${r.run_id ?? ''}` : `missing:${proposalIds[i]}`).join('|')
+        return rows.map((r: PlacementProposalRow | undefined, i: number) => r ? `${r.id}:${r.state}:${r.fingerprint}:${r.created_at}:${r.expires_at ?? ''}:${r.result ?? ''}:${r.run_id ?? ''}` : `missing:${proposalIds[i]}`).join('|')
       }
       if (!confirm) {
         const result = applyBatchService(proposalIds, {
@@ -106,9 +107,8 @@ const handlers = {
       }
       const current = fp()
       if (!previewToken) throw new Error('preview_token is required')
-      const verification = verifyPreviewTokenService(previewToken, 'apply_batch', proposalIds.join(','), current)
+      const verification = consumePreviewTokenService(previewToken, 'apply_batch', proposalIds.join(','), current)
       if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-      consumePreviewTokenService(previewToken)
       return applyBatchService(proposalIds, {
         confirm: true,
         runId: args.run_id as string | undefined,

@@ -55,7 +55,7 @@ export function pairFingerprint(db: Database, sourceId: string, targetId: string
  * (`placement-proposals.service.ts:250-262`). An edge-producing proposal must be
  * enqueued against that snapshot or its own gate call reports it as drifted.
  */
-export function edgePairFingerprint(db: Database, sourceId: string, targetId: string): string {
+function edgePairFingerprint(db: Database, sourceId: string, targetId: string): string {
   const source = getThoughtRow(db, sourceId)
   if (!source) throw new Error(`source thought '${sourceId}' not found`)
   const target = getThoughtRow(db, targetId)

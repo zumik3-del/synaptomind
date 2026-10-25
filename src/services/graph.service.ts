@@ -1,7 +1,7 @@
 import { getAllActiveEdges, getThoughtEdges, type EdgeView } from '../db/edges'
 import { getDb } from '../db'
 import { config } from '../config'
-import { searchThoughts } from '../db/search'
+import { searchThoughts as searchThoughtsService } from './search.service'
 import { countThoughts, listThoughts, type Thought } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
 
@@ -120,7 +120,7 @@ export function getGraphDataService(
   }
 }
 
-interface ChainResult {
+export interface ChainResult {
   thought: Thought
   upstream: Array<{ edge: EdgeView; thought: Thought | undefined }>
   downstream: Array<{ edge: EdgeView; thought: Thought | undefined }>
@@ -136,26 +136,35 @@ export function getChainService(
 }
 
 interface ContextResult {
-  best_match: Thought
-  chain: ChainResult | null
+  best_match?: Thought
+  chain?: ChainResult | null
+  degraded?: boolean
 }
 
-export function getContextService(
+export async function getContextService(
   query: string,
   maxDegree: number = config.graph.maxDegree,
   projectFilter?: string,
   d: Database = getDb()
-): ContextResult | null {
-  const results = searchThoughts(d, {
-    embedding: new Float32Array(0),
+): Promise<ContextResult | null> {
+  const results = await searchThoughtsService({
     query,
     topK: 1,
     hybrid: true,
     statusFilter: 'active',
     projectFilter
-  })
-  if (!results || results.length === 0) return null
-  const best = results[0].thought ?? results[0]
+  }, d)
+  if (!results || results.length === 0) {
+    // Surface degradation instead of throwing: when the search degraded, return
+    // a degraded-only result so callers can observe it rather than NotFoundError.
+    const degraded = (results as { degraded?: boolean }).degraded === true
+    if (degraded) {
+      return { degraded }
+    }
+    return null
+  }
+  const best = results[0].thought ?? (results[0] as unknown as Thought)
+  const degraded = results[0].degraded === true || (results as { degraded?: boolean }).degraded === true
   const chain = getThoughtEdges(d, best.id, best.is_cluster ? 'downstream' : 'both', maxDegree)
-  return { best_match: best, chain }
+  return { best_match: best, chain, degraded }
 }

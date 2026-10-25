@@ -8,6 +8,7 @@ import type { Database } from 'bun:sqlite'
 // zod enums from the db-layer source of truth without importing db directly
 // (AGENTS.md §4 layering: api/mcp -> services -> db).
 export { EDGE_TYPES, type EdgeType } from '../db/edges'
+export type { EdgeView } from '../db/edges'
 
 export function createEdgeService(sourceId: string, targetId: string, type?: string, d: Database = getDb()) {
   if (!targetId) {
@@ -25,7 +26,7 @@ export interface LinkBatchItem {
 }
 
 /** One `link_batch` item that could not be linked, with its position and reason. */
-export interface LinkBatchError {
+interface LinkBatchError {
   index: number
   source?: string
   target?: string
@@ -89,7 +90,7 @@ export function deleteEdgeService(id: string, d: Database = getDb()): boolean {
 }
 
 /** One `unlink_batch` item result (task #1972). */
-export interface UnlinkBatchItemResult {
+interface UnlinkBatchItemResult {
   edge_id: string
   status: 'deleted' | 'preview' | 'failed'
   /** Present on `preview` results (mirrors single `unlink`). */
@@ -99,7 +100,7 @@ export interface UnlinkBatchItemResult {
 }
 
 /** One `unlink_batch` failure entry (task #1972). */
-export interface UnlinkBatchError {
+interface UnlinkBatchError {
   index: number
   edge_id?: string
   error: string
@@ -171,7 +172,7 @@ export function deleteEdgesBatchService(
             errors.push({ index, edge_id: id, error: err })
           } else {
             failed++
-            const err = 'batch aborted: not all edge_ids exist'
+            const err = 'batch aborted: not all edge_ids exist (transaction rolled back)'
             results.push({ edge_id: id, status: 'failed', error: err })
             errors.push({ index, edge_id: id, error: err })
           }

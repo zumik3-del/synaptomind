@@ -31,36 +31,43 @@ function slimDetail(value: unknown): unknown {
  * Details arrays are opt-in: by default they are omitted (summary + counts stay),
  * and only included (slimmed) when `includeDetails` is true.
  */
-export function projectHealthReport(report: any, includeDetails: boolean = false): any {
-  const { summary, categories, ...rest } = report ?? {}
+function projectHealthReport(report: unknown, includeDetails: boolean = false): unknown {
+  const r = (report ?? {}) as Record<string, unknown>
+  const { summary, categories, ...rest } = r
+  const s = (summary ?? {}) as Record<string, unknown>
   // Keep a single score (health_score) + one score_breakdown; drop duplicate aliases.
   const {
-    score_composition,
-    score_explanation,
-    score_components,
-    score_details,
-    score_formula,
-    formula,
+    score_composition: _score_composition,
+    score_explanation: _score_explanation,
+    score_components: _score_components,
+    score_details: _score_details,
+    score_formula: _score_formula,
+    formula: _formula,
     ...slimSummary
-  } = summary ?? {}
+  } = s
 
   const slimCategories = Array.isArray(categories)
-    ? categories.map((cat: any) => ({
-        ...cat,
-        checks: Array.isArray(cat?.checks)
-          ? cat.checks.map((check: any) => {
-              if (!includeDetails) {
-                const { details: _details, ...restCheck } = check ?? {}
-                return restCheck
-              }
-              const { details, ...restCheck } = check ?? {}
-              return {
-                ...restCheck,
-                details: Array.isArray(details) ? details.map(slimDetail) : details,
-              }
-            })
-          : cat?.checks,
-      }))
+    ? categories.map((cat: unknown) => {
+        const c = (cat ?? {}) as Record<string, unknown>
+        const checks = Array.isArray(c.checks) ? c.checks : undefined
+        return {
+          ...c,
+          checks: Array.isArray(checks)
+            ? checks.map((check: unknown) => {
+                const ch = (check ?? {}) as Record<string, unknown>
+                if (!includeDetails) {
+                  const { details: _details, ...restCheck } = ch
+                  return restCheck
+                }
+                const { details, ...restCheck } = ch
+                return {
+                  ...restCheck,
+                  details: Array.isArray(details) ? details.map(slimDetail) : details,
+                }
+              })
+            : checks,
+        }
+      })
     : categories
 
   return { ...rest, summary: slimSummary, categories: slimCategories }
@@ -68,7 +75,7 @@ export function projectHealthReport(report: any, includeDetails: boolean = false
 
 export const healthHandler: ActionHandler = {
   run(args: ActionArgs) {
-    const report = runHealthCheckService({ severity: args.severity as 'critical' | 'warning' | 'info' | undefined, fix: args.fix as boolean | undefined })
+    const report = runHealthCheckService({ severity: args.severity as 'critical' | 'warning' | 'info' | undefined })
     return projectHealthReport(report, args.include_details === true)
   }
 }

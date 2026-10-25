@@ -42,7 +42,7 @@ export function parseResult(raw: string | null): Record<string, unknown> {
 }
 
 /** The id of an edge an apply created, when its stored `result` recorded one. */
-export function createdEdgeId(row: PlacementProposalRow): string | undefined {
+function createdEdgeId(row: PlacementProposalRow): string | undefined {
   const value = parseResult(row.result).edge_id
   return typeof value === 'string' ? value : undefined
 }

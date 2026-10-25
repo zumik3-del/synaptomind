@@ -71,6 +71,13 @@ export interface SearchResult {
    */
   low_confidence: boolean
   /**
+   * True when the search degraded (embedding unavailable or a search leg
+   * failed), so callers can distinguish "no matches" from "semantic search
+   * is down". Mirrors the placement engine's `degraded` flag. This single
+   * boolean replaces the former `signals` triple.
+   */
+  degraded?: boolean
+  /**
    * Pure exponential recency decay `0.5^(ageDays / halfLifeDays)` in `[0, 1]`,
    * independent of relevance. Present only when the recency boost is enabled
    * (`recencyWeight > 0`); `1` = created at `nowMs`.

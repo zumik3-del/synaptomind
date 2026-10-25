@@ -13,7 +13,7 @@ import {
 } from '../../services/projects.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { projectFields } from './utils'
-import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
+import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 
 const handlers = {
   list: {
@@ -21,7 +21,7 @@ const handlers = {
       const projects = listProjectsService()
       const fields = args.fields
       if (Array.isArray(fields) && fields.length > 0) {
-        return projects.map((p: any) => projectFields(p, { fields }))
+        return projects.map((p) => projectFields(p, { fields })) as unknown as typeof projects
       }
       return projects
     }
@@ -71,9 +71,8 @@ const handlers = {
 
       const fp = `${project.id}:${project.name}:${project.thought_count}`
       if (!previewToken) throw new Error('preview_token is required')
-      const verification = verifyPreviewTokenService(previewToken, 'manage_delete', projectId, fp)
+      const verification = consumePreviewTokenService(previewToken, 'manage_delete', projectId, fp)
       if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-      consumePreviewTokenService(previewToken)
 
       const deleted = deleteProjectService(projectId)
       if (!deleted) throw new NotFoundError(`Project not found: ${projectId}`)

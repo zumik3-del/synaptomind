@@ -2,6 +2,7 @@ import { getClusterForThoughtBatch } from '../db/cluster-edges'
 import { getDb } from '../db'
 import { annotateGraphStanding, type GraphStanding } from '../db/graph-annotations'
 import { isStrongMatch, type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
+export type { SearchResult } from '../db/search'
 import { getThoughtTagsBatch } from '../db/tags'
 import { getThought } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
@@ -22,17 +23,21 @@ const STANDING_RANK: Record<GraphStanding, number> = {
   superseded: 2
 }
 
-async function generateEmbeddingWithFallback(query: string): Promise<Float32Array> {
+async function generateEmbeddingWithFallback(query: string): Promise<{ embedding: Float32Array; degraded: boolean }> {
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    return await Promise.race([
+    const embedding = await Promise.race([
       generateEmbedding(query),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Embedding timeout')), EMBEDDING_TIMEOUT_MS)
-      )
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Embedding timeout')), EMBEDDING_TIMEOUT_MS)
+      })
     ])
+    return { embedding, degraded: false }
   } catch (err) {
     console.error('[search] embedding generation failed, falling back to BM25:', err instanceof Error ? err.message : err)
-    return new Float32Array(0)
+    return { embedding: new Float32Array(0), degraded: true }
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 
@@ -101,8 +106,12 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
     recencyWeight,
     recencyHalfLifeDays
   } = normalizeSearchOptions(options)
-  const embedding = options.embedding ?? (await generateEmbeddingWithFallback(options.query))
-  const results = dbSearchThoughts(d, {
+  const embeddingResult = options.embedding
+    ? { embedding: options.embedding, degraded: false }
+    : await generateEmbeddingWithFallback(options.query)
+  const embedding = embeddingResult.embedding
+  const embeddingDegraded = embeddingResult.degraded
+  const dbResults = dbSearchThoughts(d, {
     embedding,
     query: options.query,
     topK: candidateK,
@@ -115,15 +124,28 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
     recencyHalfLifeDays,
     confidenceFloor
   })
+  const dbDegraded = (dbResults as { degraded?: boolean }).degraded === true
 
   const filtered = options.tagFilter
-    ? filterByTags(results, options.tagFilter, d)
-    : results
+    ? filterByTags(dbResults, options.tagFilter, d)
+    : dbResults
   const standing = applyGraphStanding(filtered, options, d)
   // Gate after standing annotation (a suppressed row is already gone) and
   // before the final `topK` slice; the DB-slice overfetch above backfills it.
   const gated = minRelevance > 0 ? standing.filter(r => isStrongMatch(r, minRelevance)) : standing
-  return gated.length > topK ? gated.slice(0, topK) : gated
+  const finalResults = gated.length > topK ? gated.slice(0, topK) : gated
+  const degraded = embeddingDegraded || dbDegraded
+  // Single annotation layer (service): fold the embedding leg's state into the
+  // DB leg's degraded flag on each result. The former `signals` triple is
+  // collapsed into this one boolean, mirroring the placement engine.
+  for (const r of finalResults) {
+    r.degraded = degraded
+  }
+  // Preserve a top-level degraded flag for empty result sets (consumed by
+  // getContextService and other in-process callers; not an array own-property
+  // on the wire).
+  Object.assign(finalResults, { degraded })
+  return finalResults
 }
 
 /**

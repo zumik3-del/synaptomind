@@ -1106,3 +1106,15 @@ describe("buildFilterSQL project scope (is_global always included)", () => {
     expect(params).toEqual([P, 0.5]);
   });
 });
+
+test("searchThoughts reports degraded when the vec leg throws", () => {
+	const db = getDb();
+	seedThought({ content: "hello world degraded" });
+	const results = searchThoughts(db, {
+		embedding: new Float32Array(384),
+		query: "hello",
+		topK: 5,
+		hybrid: true,
+	});
+	expect((results as { degraded?: boolean }).degraded).toBe(true);
+});

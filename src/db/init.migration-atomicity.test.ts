@@ -102,7 +102,7 @@ function rewindToV35(): void {
 test('a crash after v036 apply but before its stamp rolls back; the next boot replays cleanly (#1751)', () => {
   // Build a real schema, then rewind it to v035.
   initDb({ dbPath, runMigrations: true })
-  expect(schemaVersion()).toBe('45')
+  expect(schemaVersion()).toBe('46')
   closeDb()
   rewindToV35()
   installStampFailureTrigger()
@@ -120,7 +120,7 @@ test('a crash after v036 apply but before its stamp rolls back; the next boot re
   // v036 would throw "duplicate column name: archived_at" and block startup.
   dropStampFailureTrigger()
   initDb({ dbPath, runMigrations: true })
-  expect(schemaVersion()).toBe('45')
+  expect(schemaVersion()).toBe('46')
   const cols = thoughtColumns()
   expect(cols).toContain('archived_at')
   expect(cols).toContain('is_protected')

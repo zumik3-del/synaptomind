@@ -1,7 +1,7 @@
 import { z } from 'zod/v4'
 import { NotFoundError } from '../../../errors'
 import { getChainService, getContextService } from '../../../services/graph.service'
-import { resolveProjectId, shapeThought } from '../utils'
+import { resolveProjectId, shapeThought, shapeChain } from '../utils'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
 const CONTEXT_REQUIRED = 'query or thought_id is required for context action'
@@ -22,25 +22,12 @@ export const contextHandler: ActionHandler = {
         ctx.addIssue({ code: 'custom', message: CONTEXT_REQUIRED, path: ['query'] })
       }
     }),
-  run(args: ActionArgs) {
+  async run(args: ActionArgs) {
     const projectFilter = resolveProjectId(args.cwd as string | undefined)
     const maxDegree = args.max_degree as number | undefined
     const compact = args.compact !== false
     const fields = args.fields
 
-    const transformChain = (chain: any) => {
-      if (!chain) return chain
-      return {
-        ...chain,
-        thought: chain.thought ? shapeThought(chain.thought, compact, fields) : chain.thought,
-        upstream: Array.isArray(chain.upstream)
-          ? chain.upstream.map((e: any) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought }))
-          : chain.upstream,
-        downstream: Array.isArray(chain.downstream)
-          ? chain.downstream.map((e: any) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought }))
-          : chain.downstream,
-      }
-    }
 
     if (args.thought_id) {
       const chain = getChainService(
@@ -49,14 +36,19 @@ export const contextHandler: ActionHandler = {
         maxDegree
       )
       if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-      return { best_match: shapeThought(chain.thought, compact, fields), chain: transformChain(chain) }
+      return { best_match: shapeThought(chain.thought, compact, fields), chain: shapeChain(chain, compact, fields), degraded: false }
     }
 
-    const context = getContextService(args.query as string, maxDegree, projectFilter)
+    const context = await getContextService(args.query as string, maxDegree, projectFilter)
     if (!context) throw new NotFoundError(`No context found for query '${args.query}'`)
+    if (!context.best_match) {
+      // Degraded result with no best match: surface degraded instead of throwing.
+      return { degraded: context.degraded === true }
+    }
     return {
       best_match: shapeThought(context.best_match, compact, fields),
-      chain: transformChain(context.chain)
+      chain: shapeChain(context.chain, compact, fields),
+      degraded: context.degraded === true
     }
   }
 }

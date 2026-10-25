@@ -20,11 +20,10 @@ import type {
   EvalQuery,
   EvalScenario,
   QueryMetrics,
-  Regression,
   RetrievedHit,
   RunResult
 } from './types'
-export type { EvalMode, Regression, RunResult } from './types'
+export type { EvalMode, RunResult } from './types'
 
 export const DEFAULT_TOP_K = 5
 

@@ -32,7 +32,7 @@ export interface ReflectResult {
  * filtered or cleaned up without touching hand-created thoughts. Tag-based,
  * additive: nothing in the read paths keys off it.
  */
-export const REFLECT_TAG = 'reflect'
+const REFLECT_TAG = 'reflect'
 
 function reflectTimestamp(): string {
   return new Date().toISOString()

@@ -280,7 +280,7 @@ export function countLivePendingProposals(db: Database, now: string): number {
 }
 
 /** The live row for the same item, if any — the dedup key of `idx_pp_dedup`. */
-export function findPendingByItem(db: Database, input: InsertProposalInput): { id: string } | undefined {
+function findPendingByItem(db: Database, input: InsertProposalInput): { id: string } | undefined {
   // `Statement.get` yields `null` for no match; normalise to `undefined` so
   // callers can test `=== undefined` (a bare `as` cast here made every
   // "is this a new item?" check silently report false).

@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs'
  * "this app.env declares X" assertion became a lookup that could not fail.
  * The declared keys are what an app.env is accountable for.
  */
-export function appEnvKeys(appEnvPath: string): string[] {
+function appEnvKeys(appEnvPath: string): string[] {
   const keys: string[] = []
   for (const line of readFileSync(appEnvPath, 'utf8').split('\n')) {
     const m = /^([A-Z_][A-Z0-9_]*)=/.exec(line)

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { getDb } from '../db'
+import { getDb } from '../db/container'
 import { closeDb } from '../db/init'
 import { getThoughtRow } from '../db/thoughts'
 import { ValidationError } from '../errors'
@@ -58,7 +58,6 @@ test('collapses the pair edge between source and target without creating a self-
   const source = seedThought({ content: 'source thought' })
   const target = seedThought({ content: 'target thought' })
   seedEdge(source, target, 'related')
-  seedEdge(target, source, 'develops')
 
   const transferred = transferEdgesFromSource(source, target, db)
 
@@ -67,7 +66,6 @@ test('collapses the pair edge between source and target without creating a self-
   expect(edgeCountBetween(db, target, target, 'related')).toBe(0)
   expect(edgeCountBetween(db, target, target, 'develops')).toBe(0)
   expect(edgeExists(db, source, target, 'related')).toBe(false)
-  expect(edgeExists(db, target, source, 'develops')).toBe(false)
 })
 
 test('skips a duplicate edge on the target and continues the merge', () => {

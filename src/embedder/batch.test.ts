@@ -178,21 +178,25 @@ function pendingRowOrNull(
  * are therefore written TOGETHER, and the divergence is created after the batch
  * was built — the embed-window edit production has to survive.
  */
-function midBatchFixture(): { id: string; rows: EmbeddingRow[] } {
+function midBatchFixture(): { id: string; oldHash: string; newHash: string; rows: EmbeddingRow[] } {
   const db = getDb()
   const id = seedThought({ content: 'OLD content' })
-  db.prepare(`UPDATE thoughts SET content = 'OLD content', content_hash = 'hash-old' WHERE id = ?`).run(id)
+  // Per-thought hashes: two live thoughts may not share (content_hash, project)
+  // — the v046 content-dedupe index — and one test seeds several fixtures.
+  const oldHash = `hash-old-${id}`
+  const newHash = `hash-new-${id}`
+  db.prepare(`UPDATE thoughts SET content = 'OLD content', content_hash = ? WHERE id = ?`).run(oldHash, id)
   // the vector a previous pass wrote for OLD content — now stale, still on disk
   storeVec(id, vec(1))
 
   const rows = findPendingEmbeddings(db, 10).filter(r => r.id === id)
   expect(rows.map(r => r.id)).toEqual([id])
-  expect(rows[0]).toMatchObject({ content: 'OLD content', contentHash: 'hash-old' })
+  expect(rows[0]).toMatchObject({ content: 'OLD content', contentHash: oldHash })
 
   // mid-batch edit: NEW content + NEW hash; the v035 trigger re-queues the row
   // with the NEW hash — the FRESH queue row the pre-fix loop deleted.
-  db.prepare(`UPDATE thoughts SET content = 'NEW content', content_hash = 'hash-new' WHERE id = ?`).run(id)
-  return { id, rows }
+  db.prepare(`UPDATE thoughts SET content = 'NEW content', content_hash = ? WHERE id = ?`).run(newHash, id)
+  return { id, oldHash, newHash, rows }
 }
 
 /**
@@ -240,7 +244,7 @@ function markers(vectors: Float32Array[]): number[] {
 
 describe('delete-only-succeeded invariant (#1572)', () => {
   test('AC2/AC4: a skipped row keeps its pending_embeddings row, and R1 then catches the stale vector', async () => {
-    const { id, rows } = midBatchFixture()
+    const { id, newHash, rows } = midBatchFixture()
 
     const outcome = runBatchComposition(rows, [vec(2)])
 
@@ -254,7 +258,7 @@ describe('delete-only-succeeded invariant (#1572)', () => {
       attempts: 1,
       is_error: 0,
       last_error: CONTENT_CHANGED_REASON,
-      content_hash: 'hash-new'
+      content_hash: newHash
     })
     // AC4: the stale vector is still physically on disk (nothing overwrote it)…
     expect(vecMarker(id)).toBe(1)
@@ -320,7 +324,8 @@ describe('delete-only-succeeded invariant (#1572)', () => {
     const storedId = seedThought({ content: 'STABLE content' })
     const skippedId = seedThought({ content: 'OLD content' })
     for (const id of [storedId, skippedId]) {
-      db.prepare(`UPDATE thoughts SET content = content, content_hash = 'hash-old' WHERE id = ?`).run(id)
+      // One hash per thought: the v046 content-dedupe index covers live rows.
+      db.prepare(`UPDATE thoughts SET content = content, content_hash = ? WHERE id = ?`).run(`hash-old-${id}`, id)
     }
     storeVec(skippedId, vec(7))
 
@@ -328,7 +333,7 @@ describe('delete-only-succeeded invariant (#1572)', () => {
     expect(rows.map(r => r.id).sort()).toEqual([storedId, skippedId].sort())
 
     // Only `skippedId` is edited mid-batch; `storedId` keeps the hash the batch read.
-    db.prepare(`UPDATE thoughts SET content = 'NEW content', content_hash = 'hash-new' WHERE id = ?`).run(skippedId)
+    db.prepare(`UPDATE thoughts SET content = 'NEW content', content_hash = ? WHERE id = ?`).run(`hash-new-${skippedId}`, skippedId)
 
     const embeddingsByRow = new Map(rows.map(r => [r.id, r.id === skippedId ? vec(7) : vec(42)]))
     const outcome = runBatchComposition(

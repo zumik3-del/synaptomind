@@ -1,4 +1,5 @@
 import { z } from 'zod/v4'
+import type { ChainResult } from '../../services/graph.service'
 import { resolveProjectService } from '../../services/projects.service'
 
 type McpTextContent = { type: 'text'; text: string }
@@ -72,7 +73,7 @@ export function resolveProjectId(cwd?: string): string | undefined {
 // transforms a thought; one projectFields projects an arbitrary object.
 
 /** Minimal field set selected by `compact: true`. */
-export const COMPACT_FIELDS = ['id', 'content', 'status', 'tags', 'project'] as const
+const COMPACT_FIELDS = ['id', 'content', 'status', 'tags', 'project'] as const
 
 /** A single value accepted anywhere a field selection may appear. */
 export type FieldSelectionInput =
@@ -158,7 +159,7 @@ function parseFieldSelectionArgs(args: FieldSelectionInput[]): ParsedFieldSelect
   return { compact, fields, available }
 }
 
-export function resolveFields(...args: FieldSelectionInput[]): string[] {
+function resolveFields(...args: FieldSelectionInput[]): string[] {
   const { compact, fields: rawFields, available } = parseFieldSelectionArgs(args)
   let fields = rawFields
   if (!fields || fields.length === 0) {
@@ -187,52 +188,7 @@ export function resolveFields(...args: FieldSelectionInput[]): string[] {
   return out
 }
 
-export function intersectFields(...args: FieldSelectionInput[]): string[] {
-  const { fields: rawFields, available } = parseFieldSelectionArgs(args)
-  const requested = rawFields ?? []
-  if (!available || available.length === 0) {
-    const out: string[] = []
-    const seen = new Set<string>()
-    for (const f of requested) if (!seen.has(f)) { out.push(f); seen.add(f) }
-    return out
-  }
-  const availSet = new Set(available)
-  const out: string[] = []
-  const seen = new Set<string>()
-  for (const f of requested) {
-    if (availSet.has(f) && !seen.has(f)) {
-      out.push(f)
-      seen.add(f)
-    }
-  }
-  return out
-}
-
-export function partitionFields(...args: FieldSelectionInput[]): { fields: string[]; unknown: string[]; valid: string[]; invalid: string[] } {
-  const { fields: rawFields, available } = parseFieldSelectionArgs(args)
-  const requested = rawFields ?? []
-  if (!available || available.length === 0) {
-    return { fields: [...requested], unknown: [], valid: [...requested], invalid: [] }
-  }
-  const availSet = new Set(available)
-  const fields: string[] = []
-  const unknown: string[] = []
-  const seen = new Set<string>()
-  for (const f of requested) {
-    if (availSet.has(f)) {
-      if (!seen.has(f)) { fields.push(f); seen.add(f) }
-    } else if (!unknown.includes(f)) {
-      unknown.push(f)
-    }
-  }
-  return { fields, unknown, valid: [...fields], invalid: [...unknown] }
-}
-
-export function unknownFields(...args: FieldSelectionInput[]): string[] {
-  return partitionFields(...args).unknown
-}
-
-export function projectFields(...args: FieldSelectionInput[]): unknown {
+export function projectFields(...args: unknown[]): unknown {
   // Support projectFields(data, fields) and projectFields(fields, data).
   if (args.length >= 2) {
     const second = args[1]
@@ -246,12 +202,12 @@ export function projectFields(...args: FieldSelectionInput[]): unknown {
   return projectFieldsImpl(args[0])
 }
 
-function projectFieldsImpl(value: unknown, ...rest: FieldSelectionInput[]): unknown {
+function projectFieldsImpl(value: unknown, ...rest: unknown[]): unknown {
   let fields: string[] = []
   if (rest.length > 0) {
     const first = rest[0]
     if (Array.isArray(first) || typeof first === 'string' || (first !== null && typeof first === 'object')) {
-      fields = resolveFields(first as FieldSelectionInput, ...rest.slice(1))
+      fields = resolveFields(first as FieldSelectionInput, ...(rest.slice(1) as FieldSelectionInput[]))
     }
   } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>
@@ -293,19 +249,6 @@ function stringifyTags(tags: unknown): string[] {
   })
 }
 
-export function compactThought(thought: unknown): Record<string, unknown> {
-  if (!thought || typeof thought !== 'object' || Array.isArray(thought)) return {}
-  const t = thought as Record<string, unknown>
-  const project = (t.project_name ?? t.project ?? t.project_id) as unknown
-  return {
-    id: t.id,
-    content: t.content,
-    status: t.status,
-    tags: stringifyTags(t.tags),
-    project,
-  }
-}
-
 export function shapeThought(thought: unknown, compact?: boolean, fields?: unknown): unknown {
   if (!thought || typeof thought !== 'object' || Array.isArray(thought)) return thought
   const t = thought as Record<string, unknown>
@@ -333,7 +276,21 @@ export function shapeThought(thought: unknown, compact?: boolean, fields?: unkno
   return out
 }
 
-export function toCompact(data: unknown, _options?: FieldSelectionInput): unknown {
-  if (Array.isArray(data)) return data.map((d) => compactThought(d))
-  return compactThought(data)
+
+/**
+ * Shape a thought chain (best_match neighbourhood) for compact/fields output.
+ * Shared by the recall `context` and `get` handlers (DRY).
+ */
+export function shapeChain(chain: ChainResult | null | undefined, compact: boolean, fields: unknown): ChainResult | null | undefined {
+  if (!chain) return chain
+  return {
+    ...chain,
+    thought: chain.thought ? (shapeThought(chain.thought, compact, fields) as ChainResult['thought']) : chain.thought,
+    upstream: Array.isArray(chain.upstream)
+      ? chain.upstream.map((e) => ({ ...e, thought: e?.thought ? (shapeThought(e.thought, compact, fields) as typeof e.thought) : e?.thought }))
+      : chain.upstream,
+    downstream: Array.isArray(chain.downstream)
+      ? chain.downstream.map((e) => ({ ...e, thought: e?.thought ? (shapeThought(e.thought, compact, fields) as typeof e.thought) : e?.thought }))
+      : chain.downstream,
+  }
 }

@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { deleteThought } from '../thoughts'
+import { archiveThought as dbArchiveThought, deleteThought } from '../thoughts'
 import { sqlIn } from '../utils'
 
 export function getGraphStats(db: Database): { total_thoughts: number; total_edges: number; total_clusters: number; active: number; draft: number; archived: number } {
@@ -40,4 +40,21 @@ export function deleteThoughts(db: Database, thoughtIds: string[]): number {
   })
   tx()
   return deleted
+}
+
+export function archiveThoughts(db: Database, thoughtIds: string[]): number {
+  if (thoughtIds.length === 0) return 0
+  const ph = sqlIn(thoughtIds)
+  const rows = db
+    .prepare(`SELECT id FROM thoughts WHERE id IN (${ph}) AND (is_protected IS NULL OR is_protected = 0) AND (is_profile IS NULL OR is_profile = 0)`)
+    .all(...thoughtIds) as { id: string }[]
+  let archived = 0
+  const tx = db.transaction(() => {
+    for (const row of rows) {
+      const updated = dbArchiveThought(db, row.id)
+      if (updated) archived++
+    }
+  })
+  tx()
+  return archived
 }

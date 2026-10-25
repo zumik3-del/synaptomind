@@ -14,6 +14,7 @@ export function findEmptyClusters(db: Database): EmptyCluster[] {
   return db.prepare(`
     SELECT t.id, t.content FROM ${THOUGHTS}
     WHERE t.is_cluster = 1
+      AND t.status != 'archived'
       AND ${noIncidentEdges({ sourceOnly: true, type: 'cluster' })}
   `).all() as EmptyCluster[]
 }
@@ -24,6 +25,7 @@ export function findSingletonClusters(db: Database): SingletonCluster[] {
     FROM ${THOUGHTS}
     ${joinIncidentEdges({ left: true, sourceOnly: true, type: 'cluster' })}
     WHERE t.is_cluster = 1
+      AND t.status != 'archived'
     GROUP BY t.id
     HAVING member_count <= 1
   `).all() as SingletonCluster[]

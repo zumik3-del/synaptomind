@@ -3,6 +3,7 @@ import { NotFoundError } from '../../../errors'
 import { getThoughtByIdService } from '../../../services/thoughts.service'
 import { getChainService } from '../../../services/graph.service'
 import { shapeThought } from '../utils'
+import type { Thought } from '../../../db/thoughts'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
 /**
@@ -29,8 +30,8 @@ export const getHandler: ActionHandler = {
     if (!chain) throw new NotFoundError(`Thought '${id}' not found`)
     const result = {
       ...thought,
-      upstream: Array.isArray(chain.upstream) ? chain.upstream.map((e: any) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.upstream,
-      downstream: Array.isArray(chain.downstream) ? chain.downstream.map((e: any) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.downstream,
+      upstream: Array.isArray(chain.upstream) ? chain.upstream.map((e: { edge: unknown; thought?: Thought }) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.upstream,
+      downstream: Array.isArray(chain.downstream) ? chain.downstream.map((e: { edge: unknown; thought?: Thought }) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.downstream,
     }
     return shapeThought(result, compact, fields)
   }

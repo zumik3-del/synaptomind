@@ -34,11 +34,51 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
   mkdirSync(dirname(resolvedPath), { recursive: true })
   const db = new Database(resolvedPath)
 
+  const busyTimeout = Number.isFinite(config.db.busyTimeout) ? Math.max(0, Math.floor(config.db.busyTimeout)) : 5000
+  db.run(`PRAGMA busy_timeout = ${busyTimeout}`)
+  db.run('PRAGMA foreign_keys = ON')
+
+  // Only `_meta` is bootstrapped before the schema-version guard: an older
+  // binary must refuse a newer database BEFORE any step that could reshape it
+  // (WAL switch, bootstrap DDL, migrations). `CREATE TABLE IF NOT EXISTS` is a
+  // no-op on a database that already has it.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS _meta (
+      key   TEXT PRIMARY KEY,
+      value TEXT
+    )
+  `)
+
+  const getVersion = (database: Database): number => {
+    const row = database.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
+      | { value: string }
+      | undefined
+    return row ? parseInt(row.value, 10) : 0
+  }
+
+  const setVersion = (database: Database, version: number): void => {
+    database.prepare(
+      `INSERT INTO _meta (key, value) VALUES ('schema_version', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    ).run(String(version))
+  }
+
+  let current = getVersion(db)
+  const maxVersion = MIGRATIONS.length > 0 ? Math.max(...MIGRATIONS.map(m => m.version)) : 0
+  if (current > maxVersion) {
+    // The handle was never published through `setDb`, so `closeDb()` cannot
+    // reach it: close it here or the connection (and its file handle) leaks
+    // for the lifetime of the process.
+    db.close(true)
+    throw new Error(
+      `Database schema version ${current} is newer than this binary supports (max ${maxVersion}). ` +
+        'Restore from a backup taken before the upgrade or upgrade the binary.'
+    )
+  }
+
   if (!isMemory) {
     db.run('PRAGMA journal_mode = WAL')
   }
-  db.run(`PRAGMA busy_timeout = ${config.db.busyTimeout}`)
-  db.run('PRAGMA foreign_keys = ON')
 
   loadVecExtension(db, isMemory)
 
@@ -82,13 +122,6 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
   `)
 
   d.run(`
-    CREATE TABLE IF NOT EXISTS _meta (
-      key   TEXT PRIMARY KEY,
-      value TEXT
-    )
-  `)
-
-  d.run(`
     CREATE TABLE IF NOT EXISTS preview_tokens (
       token       TEXT PRIMARY KEY,
       kind        TEXT NOT NULL,
@@ -116,22 +149,6 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
       throw err
     }
   }
-
-  const getVersion = (db: Database): number => {
-    const row = db.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
-      | { value: string }
-      | undefined
-    return row ? parseInt(row.value, 10) : 0
-  }
-
-  const setVersion = (db: Database, version: number): void => {
-    db.prepare(
-      `INSERT INTO _meta (key, value) VALUES ('schema_version', ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-    ).run(String(version))
-  }
-
-  let current = getVersion(d)
 
   for (const migration of MIGRATIONS) {
     if (current >= migration.version) continue
@@ -196,10 +213,23 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
 }
 
 export function closeDb(): void {
+  let db: ReturnType<typeof getDb> | null = null
   try {
-    getDb().close()
+    db = getDb()
   } catch {
-    // ignore close errors
+    // DB never initialized (or already closed): nothing to do.
+    clearDb()
+    return
+  }
+  try {
+    db.run('PRAGMA wal_checkpoint(TRUNCATE)')
+  } catch (err) {
+    console.error('[db] wal_checkpoint(TRUNCATE) failed:', err)
+  }
+  try {
+    db.close(true)
+  } catch (err) {
+    console.error('[db] close failed:', err)
   }
   clearDb()
 }

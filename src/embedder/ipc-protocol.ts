@@ -9,26 +9,13 @@
 // `{ type: 'result' | 'error', id, ... }`.
 
 /** Embedding payload on the wire: one vector, or one vector per input text. */
-export type EmbeddingPayload = number[] | number[][]
+type EmbeddingPayload = number[] | number[][]
 
 /** Params of a client→child request; unknown methods carry no params at all. */
-export interface EmbedderRequestParams {
+interface EmbedderRequestParams {
   text?: string
   texts?: string[]
 }
-
-/**
- * Known embedder methods and the params each expects / reply each returns.
- * A method outside this map gets an error reply from the child instead of
- * leaving the client to wait out its full request timeout.
- */
-export interface EmbedderMethodMap {
-  embed: { params: { text?: string }; reply: number[] }
-  embed_batch: { params: { texts?: string[] }; reply: number[][] }
-}
-
-/** A method name from `EmbedderMethodMap`; the child handles no other method. */
-export type EmbedderMethod = keyof EmbedderMethodMap
 
 /** Body of a client→child `request` (without the `type` discriminant). */
 export interface EmbedderRequest {
@@ -44,11 +31,11 @@ export type EmbedderReply =
   | { type: 'error'; id?: string; error: string }
 
 /** Child→client lifecycle notices. */
-export type EmbedderLifecycle = { type: 'ready' } | { type: 'exiting' }
+type EmbedderLifecycle = { type: 'ready' } | { type: 'exiting' }
 
 /** Client→child messages. */
-export type IpcRequest = EmbedderRequest & { type: 'request' }
-export type IpcShutdown = { type: 'shutdown' }
+type IpcRequest = EmbedderRequest & { type: 'request' }
+type IpcShutdown = { type: 'shutdown' }
 
 /** The full message union flowing over the pipe in either direction. */
 export type IpcMessage = EmbedderLifecycle | EmbedderReply | IpcRequest | IpcShutdown

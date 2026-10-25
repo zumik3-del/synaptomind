@@ -1,15 +1,15 @@
 import { ValidationError } from '../errors'
 import type { ContradictionMode, SearchServiceOptions, SupersessionMode } from './search.service'
 
-export const SUPERSESSION_MODES: readonly SupersessionMode[] = ['off', 'flag', 'suppress']
-export const CONTRADICTION_MODES: readonly ContradictionMode[] = ['off', 'flag']
+const SUPERSESSION_MODES: readonly SupersessionMode[] = ['off', 'flag', 'suppress']
+const CONTRADICTION_MODES: readonly ContradictionMode[] = ['off', 'flag']
 
 /**
  * Agent-facing default for superseded thoughts is `suppress` (the library
  * default stays `flag`); an explicit but unknown value is a 400.
  */
-export const DEFAULT_SUPERSESSION_MODE: SupersessionMode = 'suppress'
-export const DEFAULT_CONTRADICTION_MODE: ContradictionMode = 'flag'
+const DEFAULT_SUPERSESSION_MODE: SupersessionMode = 'suppress'
+const DEFAULT_CONTRADICTION_MODE: ContradictionMode = 'flag'
 
 export function parseSupersessionMode(raw: string | undefined): SupersessionMode {
   if (raw === undefined || raw === '') return DEFAULT_SUPERSESSION_MODE

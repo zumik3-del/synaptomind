@@ -26,7 +26,7 @@ import { dirname, join, resolve } from 'node:path'
 export const VEC0_FILENAME = 'vec0.so'
 
 /** Where a resolved extension file came from. */
-export type Vec0Source = 'cwd' | 'repo-root' | 'main-checkout'
+type Vec0Source = 'cwd' | 'repo-root' | 'main-checkout'
 
 export interface Vec0Resolution {
   path: string

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { createTestDb, seedEdge, seedThought } from "../test/helpers";
+import { createTestDb, seedEdge, seedLegacyPairEdge, seedThought } from "../test/helpers";
 import { getDb } from "./container";
 import { closeDb } from "./init";
 import {
@@ -85,7 +85,9 @@ test("findOrphanEdges reports which side is missing", () => {
 	const a = seedThought({ content: "kept thought" });
 	const b = seedThought({ content: "deleted thought" });
 	const e1 = insertRawEdge(db, a, b);
-	const e2 = insertRawEdge(db, b, a);
+	// v046 allows one edge per pair (either direction): the second edge of this
+	// pair has to be seeded in the legacy shape the finder exists to detect.
+	const e2 = seedLegacyPairEdge(b, a);
 	// an edge whose both endpoints never existed — FK must be bypassed to seed it
 	db.run("PRAGMA foreign_keys = OFF");
 	const e3 = insertRawEdge(db, crypto.randomUUID(), crypto.randomUUID());
@@ -117,25 +119,9 @@ test("findDuplicateEdges groups identical source/target/type pairs", () => {
 	const a = seedThought({ content: "thought a" });
 	const b = seedThought({ content: "thought b" });
 	seedEdge(a, b, "related");
-	seedEdge(b, a, "related"); // opposite direction is a different pair
-
-	// The live schema forbids exact duplicates (UNIQUE(source_id, target_id,
-	// type) is a table constraint, so the index cannot be dropped) — rebuild
-	// the table without it, which is exactly the legacy state this finder
-	// exists to detect.
-	db.run(`CREATE TABLE edges_dup (
-		id TEXT PRIMARY KEY,
-		source_id TEXT NOT NULL,
-		target_id TEXT NOT NULL,
-		type TEXT NOT NULL,
-		created_at TEXT NOT NULL
-	)`);
-	db.run(`INSERT INTO edges_dup SELECT * FROM edges`);
-	db.run(`DROP TABLE edges`);
-	db.run(`ALTER TABLE edges_dup RENAME TO edges`);
-	db.prepare(
-		`INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)`,
-	).run(crypto.randomUUID(), a, b, "related", new Date().toISOString());
+	// An exact duplicate: v046 forbids it (one edge per pair, either direction),
+	// so it is seeded in the legacy shape this finder exists to detect.
+	seedLegacyPairEdge(a, b, "related");
 
 	const dupes = findDuplicateEdges(db);
 	expect(dupes).toHaveLength(1);
@@ -526,8 +512,9 @@ test("deleteEdges deletes by id and returns the count", () => {
 	const a = seedThought({ content: "a" });
 	const b = seedThought({ content: "b" });
 	const keep = seedEdge(a, b, "related");
-	const drop1 = seedEdge(a, b, "develops");
-	const drop2 = seedEdge(b, a, "related");
+	// Two more edges on the same pair — legacy state (v046 keeps one per pair).
+	const drop1 = seedLegacyPairEdge(a, b, "develops");
+	const drop2 = seedLegacyPairEdge(b, a, "related");
 
 	expect(deleteEdges(db, [drop1, drop2, crypto.randomUUID()])).toBe(2);
 	expect(deleteEdges(db, [])).toBe(0);

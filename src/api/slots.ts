@@ -19,7 +19,7 @@ const updateSlotBodySchema = z.object({
 // Shared body schema for the reflect endpoint (audit M8 residual): a malformed
 // payload (e.g. `decisions` given as a string instead of string[]) becomes a
 // typed 400 instead of being iterated character-by-character downstream.
-export const reflectBodySchema = z.object({
+const reflectBodySchema = z.object({
   project_id: z.string().nullable().optional(),
   summary: z.string().optional(),
   goals_add: z.array(z.string()).optional(),

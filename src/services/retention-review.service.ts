@@ -15,7 +15,7 @@ import { getDb } from '../db'
 import { getThoughtTagsBatch, type Tag } from '../db/tags'
 import { ValidationError } from '../errors'
 
-export interface RetentionReviewCandidate {
+interface RetentionReviewCandidate {
   id: string
   /** Content truncated to 200 characters. */
   content: string

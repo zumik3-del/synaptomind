@@ -24,7 +24,7 @@ export function isCompiled(): boolean {
 }
 
 /** Directory holding the running executable — the release payload root. */
-export function appRootDir(): string {
+function appRootDir(): string {
   return dirname(process.execPath)
 }
 

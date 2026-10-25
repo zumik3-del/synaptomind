@@ -1,6 +1,8 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import type { ThoughtStatus } from '../types/thought'
 import { computeContentHash, parseTags } from '../utils'
+import { assertNoLiveContentConflict, isContentDedupeViolation } from './content-dedupe'
+import { ThoughtContentConflictError } from './errors'
 import { resolveDefaultProjectId } from './projects'
 import { getThoughtTags, getThoughtTagsBatch, mergeThoughtTags, pruneOrphanTags, setThoughtTags, type Tag } from './tags'
 import { sqlIn, toBit } from './utils'
@@ -106,20 +108,7 @@ export function createThought(db: Database, data: CreateThoughtInput): Thought {
     const now = new Date().toISOString()
     const projectId = data.project_id ?? resolveDefaultProjectId(db)
     const contentHash = computeContentHash(data.content, projectId)
-
-    const existing = db
-      .prepare(
-        `SELECT id FROM thoughts WHERE content_hash = ? AND status IN ('draft', 'active') AND project_id = ? LIMIT 1`
-      )
-      .get(contentHash, projectId) as { id: string } | undefined
-
-    if (existing) {
-      if (data.tags && data.tags.length > 0) {
-        setThoughtTags(db, existing.id, data.tags)
-      }
-      db.prepare(`UPDATE thoughts SET updated_at = ? WHERE id = ?`).run(now, existing.id)
-      return existing.id
-    }
+    const status = data.status ?? 'draft'
 
     const id = Bun.randomUUIDv7()
     const isCluster = toBit(data.is_cluster)
@@ -127,10 +116,27 @@ export function createThought(db: Database, data: CreateThoughtInput): Thought {
     const isProtected = toBit(data.is_protected ?? true)
     const isGlobal = toBit(data.is_global)
 
-    db.prepare(`
+    const res = db.prepare(`
       INSERT INTO thoughts (id, content, status, source, project_id, content_hash, is_cluster, is_profile, is_protected, is_global, created_at, updated_at, surface_after)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, data.content, data.status ?? 'draft', data.source ?? null, projectId, contentHash, isCluster, isProfile, isProtected, isGlobal, now, now, data.surface_after ?? null)
+      ON CONFLICT (content_hash, project_id) WHERE status IN ('draft', 'active') DO NOTHING
+    `).run(id, data.content, status, data.source ?? null, projectId, contentHash, isCluster, isProfile, isProtected, isGlobal, now, now, data.surface_after ?? null)
+
+    if (res.changes === 0) {
+      // Re-read the existing draft/active thought with the same content.
+      const existing = db
+        .prepare(
+          `SELECT id FROM thoughts WHERE content_hash = ? AND status IN ('draft', 'active') AND project_id = ? LIMIT 1`
+        )
+        .get(contentHash, projectId) as { id: string } | undefined
+      if (existing) {
+        if (data.tags && data.tags.length > 0) {
+          setThoughtTags(db, existing.id, data.tags)
+        }
+        db.prepare(`UPDATE thoughts SET updated_at = ? WHERE id = ?`).run(now, existing.id)
+        return existing.id
+      }
+    }
 
     if (data.tags && data.tags.length > 0) {
       setThoughtTags(db, id, data.tags)
@@ -222,15 +228,19 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
       return getThoughtRow(db, id)
     }
 
-    if (data.content !== undefined || data.project_id !== undefined) {
-      const existing = db.prepare('SELECT content, project_id FROM thoughts WHERE id = ?').get(id) as
-        | { content: string; project_id: string }
-        | undefined
+    if (data.content !== undefined || data.project_id !== undefined || data.status !== undefined) {
+      const existing = db
+        .prepare('SELECT content, project_id, status, content_hash FROM thoughts WHERE id = ?')
+        .get(id) as { content: string; project_id: string; status: string; content_hash: string | null } | undefined
       if (existing) {
-        const newContent = data.content ?? existing.content
         const newProjectId = data.project_id ?? existing.project_id
-        sets.push('content_hash = ?')
-        values.push(computeContentHash(newContent, newProjectId))
+        const contentChanged = data.content !== undefined || data.project_id !== undefined
+        const newHash = contentChanged ? computeContentHash(data.content ?? existing.content, newProjectId) : existing.content_hash
+        if (contentChanged) {
+          sets.push('content_hash = ?')
+          values.push(newHash)
+        }
+        assertNoLiveContentConflict(db, id, newHash, newProjectId, data.status ?? existing.status)
       }
     }
 
@@ -238,7 +248,12 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
     values.push(new Date().toISOString())
     values.push(id)
 
-    db.prepare(`UPDATE thoughts SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+    try {
+      db.prepare(`UPDATE thoughts SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+    } catch (err) {
+      // A concurrent writer can win the pre-check race: map only that one fault.
+      throw isContentDedupeViolation(err) ? new ThoughtContentConflictError() : err
+    }
 
     return getThoughtRow(db, id)
   })

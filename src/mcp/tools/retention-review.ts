@@ -1,13 +1,13 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { listRetentionReviewCandidatesService } from '../../services/retention-review.service'
+import { listRetentionReviewCandidatesService, type RetentionReviewResult } from '../../services/retention-review.service'
 import { getThoughtByIdService } from '../../services/thoughts.service'
 import {
   compactRetentionReviewCandidatesService,
   deleteRetentionReviewCandidateService,
   protectRetentionReviewCandidateService
 } from '../../services/retention-review-actions.service'
-import { createPreviewTokenService, verifyPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
+import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { shapeThought } from './utils'
 import { BATCH_ITEMS_MAX } from '../../validation'
@@ -24,7 +24,7 @@ const handlers = {
       const compact = args.compact === true
       const fields = args.fields
       if (compact || (Array.isArray(fields) && fields.length > 0)) {
-        result.candidates = result.candidates.map((c: unknown) => shapeThought(c, compact, fields)) as any
+        result.candidates = result.candidates.map((c) => shapeThought(c, compact, fields)) as RetentionReviewResult['candidates']
       }
       return result
     }
@@ -50,9 +50,8 @@ const handlers = {
 
       if (thought) {
         if (!previewToken) throw new Error('preview_token is required')
-        const verification = verifyPreviewTokenService(previewToken, 'retention_delete', id, fp)
+        const verification = consumePreviewTokenService(previewToken, 'retention_delete', id, fp)
         if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-        consumePreviewTokenService(previewToken)
       }
 
       return deleteRetentionReviewCandidateService(id, { confirm: true })

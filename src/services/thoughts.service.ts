@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+export type { Thought } from '../db/thoughts'
 import { config } from '../config'
 import { createEdge } from '../db/edges'
 import { getClusterMembers } from '../db/cluster-edges'
@@ -104,7 +105,7 @@ export function archiveThoughtByIdService(id: string, d: Database = getDb()): Th
 }
 
 /** One `archive_batch` item that could not be archived, with the reason. */
-export interface ArchiveBatchError {
+interface ArchiveBatchError {
   thought_id: string
   error: string
 }

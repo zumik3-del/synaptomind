@@ -38,7 +38,7 @@ export interface FingerprintInput {
 }
 
 /** Internal per-item shape before it becomes an `InsertProposalInput`. */
-export interface MappedItem {
+interface MappedItem {
   itemKind: ProposalItemKind
   targetId: string
   edgeType: string | null
