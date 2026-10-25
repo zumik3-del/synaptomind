@@ -56,7 +56,7 @@ const handlers = {
         return itemEnvelope(
           'delete',
           { ...(result as unknown as Record<string, unknown>), preview_token: token },
-          { preview: { token, consequence: result.instruction } }
+          { preview: { token, instruction: result.instruction } }
         )
       }
 
