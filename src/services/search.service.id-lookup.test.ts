@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { ID_PREFIX_MATCH_HARD_CAP } from '../db/search-id'
 import { closeDb } from '../db/init'
 import { createTestDb, seedThought } from '../test/helpers'
 import { searchThoughts, searchThoughtsOutcome } from './search.service'
@@ -186,6 +187,48 @@ describe('searchThoughtsOutcome — id lookup', () => {
 
     expect(outcome.items.map(r => r.thought.id)).toEqual([A])
     expect(outcome.ambiguous).toBeUndefined()
+  })
+
+  test('a sub-floor hex word (20251025) is an ordinary search that still finds its thought (task #2186)', async () => {
+    // Eight hex characters sit below the 13-character id floor, so the token is
+    // a *word*: it must reach the lexical/semantic legs instead of being
+    // turned into an id lookup that answers nothing.
+    const id = seedThought({ id: A, content: 'released 20251025 with the fix' })
+    seedThought({ id: B, content: 'UNRELATED_BYSTANDER marker' })
+
+    const outcome = await searchThoughtsOutcome({ query: '20251025', topK: 10 })
+
+    expect(outcome.items.map(r => r.thought.id)).toEqual([id])
+    expect(outcome.items[0].match_source).toContain('bm25')
+    // No id machinery ran: neither the note nor the miss reason mentions an id.
+    expect(outcome.warnings).toBeUndefined()
+    expect(outcome.reason).toBeUndefined()
+  })
+
+  test('a same-millisecond prefix batch is capped at the hard cap and still reported ambiguous (task #2186)', async () => {
+    // A UUIDv7 bulk batch shares its first 12 hex characters, so a 13-hex
+    // prefix can address the whole batch. Both the lookup and the service must
+    // refuse to flood the answer, while still saying the prefix was ambiguous.
+    const total = ID_PREFIX_MATCH_HARD_CAP + 50
+    for (let i = 0; i < total; i++) {
+      seedThought({
+        id: `018f0d00-0000-7000-8000-${String(i).padStart(12, '0')}`,
+        content: `BATCH_ROW_${i}`
+      })
+    }
+
+    const hardCapped = await searchThoughtsOutcome({ query: '018f0d0000007', topK: 1000 })
+
+    expect(ID_PREFIX_MATCH_HARD_CAP).toBe(100)
+    expect(hardCapped.items).toHaveLength(ID_PREFIX_MATCH_HARD_CAP)
+    expect(hardCapped.matched).toBe(ID_PREFIX_MATCH_HARD_CAP)
+    expect(hardCapped.ambiguous).toBe(true)
+
+    // The caller's own limit still caps it further.
+    const limited = await searchThoughtsOutcome({ query: '018f0d0000007', topK: 5 })
+
+    expect(limited.items).toHaveLength(5)
+    expect(limited.ambiguous).toBe(true)
   })
 
   test('the array-returning searchThoughts returns the id row too (source compatibility)', async () => {
