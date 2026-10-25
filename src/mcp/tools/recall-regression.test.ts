@@ -25,6 +25,27 @@ mock.module('../../embedder/client', () => ({
 
 let client: Client
 
+// A fresh test DB registers no project for this path, so read-side calls keep
+// the global scope while satisfying the hard-cwd contract of task #2179.
+const UNSCOPED_CWD = '/tmp/mcp-unscoped'
+
+/** Actions that require `cwd`; `callTool` injects the default for them. */
+const CWD_ACTIONS: Record<string, string[]> = {
+  memory_recall: ['search', 'clusters', 'list', 'context'],
+  memory_status: ['slots', 'frontier', 'propose'],
+  memory_reflect: ['reflect', 'timeline'],
+  memory_primers: ['list'],
+  memory_manage: ['list', 'create', 'update', 'delete', 'resolve']
+}
+
+/** `client.callTool` with the hard-cwd default injected for the scoped actions. */
+function callTool(request: { name: string; arguments?: Record<string, unknown> }) {
+  const args = request.arguments ?? {}
+  const scoped = CWD_ACTIONS[request.name]
+  const needsCwd = scoped?.includes(String(args.action)) === true
+  return client.callTool({ ...request, arguments: needsCwd ? { cwd: UNSCOPED_CWD, ...args } : args } as Parameters<Client['callTool']>[0])
+}
+
 async function setupClient(): Promise<Client> {
   const s = new McpServer({ name: 'test', version: '0.0.0' })
   registerAllMemoryTools(s)
@@ -69,7 +90,7 @@ describe('memory_recall schema after exclude_flagged retirement', () => {
         status: 'active',
         ...(action === 'clusters' ? { is_cluster: 1 } : {})
       })
-      const result = await client.callTool({
+      const result = await callTool({
         name: 'memory_recall',
         arguments: { action, query: 'RECALL_RETIRED_MARKER', exclude_flagged: true, status: 'active' }
       })
@@ -83,14 +104,14 @@ describe('memory_recall schema after exclude_flagged retirement', () => {
 describe('retired memory_recall input migration hints', () => {
   for (const [field, hint] of [['top_k', 'limit'], ['cluster', 'is_cluster']] as const) {
     test(`search rejects retired ${field} and points to ${hint}`, async () => {
-      const result = await client.callTool({ name: 'memory_recall', arguments: { action: 'search', query: 'x', [field]: 3 } })
+      const result = await callTool({ name: 'memory_recall', arguments: { action: 'search', query: 'x', [field]: 3 } })
       const parsed = parseResult(result)
       expect(parsed.isError).toBe(true)
       expect(String(parsed.data)).toContain(hint)
     })
   }
   test('list rejects retired cluster filter and points to is_cluster', async () => {
-    const result = await client.callTool({ name: 'memory_recall', arguments: { action: 'list', cluster: true } })
+    const result = await callTool({ name: 'memory_recall', arguments: { action: 'list', cluster: true } })
     const parsed = parseResult(result)
     expect(parsed.isError).toBe(true)
     expect(String(parsed.data)).toContain('is_cluster')
@@ -131,11 +152,11 @@ describe('memory_recall string-numeric coercion', () => {
 
   for (const p of numericParams) {
     test(`accepts valid string ${p.name}`, async () => {
-      await client.callTool({
+      await callTool({
         name: 'memory_store',
         arguments: { action: 'create', content: `COERCE_${p.name}_marker content`, status: 'active' }
       })
-      const result = await client.callTool({
+      const result = await callTool({
         name: 'memory_recall',
         arguments: { action: 'search', query: `COERCE_${p.name}_marker content`, [p.name]: p.validStr }
       })
@@ -144,7 +165,7 @@ describe('memory_recall string-numeric coercion', () => {
     })
 
     test(`rejects out-of-range string ${p.name} (high)`, async () => {
-      const result = await client.callTool({
+      const result = await callTool({
         name: 'memory_recall',
         arguments: { action: 'search', query: 'test', [p.name]: p.invalidHigh }
       })
@@ -152,7 +173,7 @@ describe('memory_recall string-numeric coercion', () => {
     })
 
     test(`rejects out-of-range string ${p.name} (low)`, async () => {
-      const result = await client.callTool({
+      const result = await callTool({
         name: 'memory_recall',
         arguments: { action: 'search', query: 'test', [p.name]: p.invalidLow }
       })
@@ -160,13 +181,13 @@ describe('memory_recall string-numeric coercion', () => {
     })
 
     test(`string ${p.name} is coerced to the correct numeric type`, async () => {
-      await client.callTool({
+      await callTool({
         name: 'memory_store',
         arguments: { action: 'create', content: `COERCE_TYPE_${p.name} marker`, status: 'active' }
       })
       // The coerced value must behave identically to a native number — no error,
       // and the gate actually filters when min_relevance is involved.
-      const result = await client.callTool({
+      const result = await callTool({
         name: 'memory_recall',
         arguments: { action: 'search', query: `COERCE_TYPE_${p.name} marker`, [p.name]: p.validStr }
       })
@@ -176,29 +197,29 @@ describe('memory_recall string-numeric coercion', () => {
 
   test('min_relevance string "0.5" gates low-similarity results', async () => {
     // Seed two thoughts with distinct content so BM25 can differentiate them.
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'GATE_MIN_REL high relevance unique marker alpha', status: 'active' }
     })
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'GATE_MIN_REL low relevance unrelated content here', status: 'active' }
     })
 
     // With min_relevance=0 (default) both should appear.
-    const defaultResult = await client.callTool({
+    const defaultResult = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'GATE_MIN_REL', limit: 10 }
     })
-    const defaultData = parseResult(defaultResult).data as Array<{ thought: { content: string } }>
+    const defaultData = parseResult(defaultResult).data.items as Array<{ thought: { content: string } }>
     expect(defaultData.length).toBeGreaterThanOrEqual(1)
 
     // With min_relevance="0.9" (string) only the BM25-exact hit should remain.
-    const gatedResult = await client.callTool({
+    const gatedResult = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'GATE_MIN_REL', limit: 10, min_relevance: '0.9' }
     })
-    const gatedData = parseResult(gatedResult).data as Array<{ thought: { content: string } }>
+    const gatedData = parseResult(gatedResult).data.items as Array<{ thought: { content: string } }>
     // At least the exact-marker hit survives; the vague one may be dropped by the gate.
     expect(gatedData.length).toBeGreaterThanOrEqual(1)
     const hasExact = gatedData.some(r => r.thought.content.includes('high relevance'))
@@ -225,10 +246,12 @@ describe('memory_recall standing per-axis off semantics', () => {
     return { old: oldId, new: newId }
   }
 
+  // `compact: false` is what puts `standing` beside each thought in the shared
+  // envelope (task #2179): the default minimal hit carries the thought alone.
   async function recall(extra: Record<string, unknown> = {}) {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: QUERY, limit: 10, ...extra }
+      arguments: { action: 'search', query: QUERY, limit: 10, compact: false, ...extra }
     })
     return parseResult(result)
   }
@@ -237,7 +260,7 @@ describe('memory_recall standing per-axis off semantics', () => {
     const { old: oldId, new: newId } = seedSupersededPair()
     const { data, isError } = await recall()
     expect(isError).toBe(false)
-    const results = data as Array<{ thought: { id: string }; standing?: string }>
+    const results = data.items as Array<{ thought: { id: string }; standing?: string }>
     // Default suppress: superseded row is removed from the result set.
     expect(results.find(r => r.thought.id === oldId)).toBeUndefined()
     // The replacement thought is present with current standing.
@@ -248,7 +271,7 @@ describe('memory_recall standing per-axis off semantics', () => {
     const { old: oldId, new: newId } = seedSupersededPair()
     const { data, isError } = await recall({ supersession_mode: 'flag' })
     expect(isError).toBe(false)
-    const results = data as Array<{ thought: { id: string }; standing?: string }>
+    const results = data.items as Array<{ thought: { id: string }; standing?: string }>
     const oldResult = results.find(r => r.thought.id === oldId)
     expect(oldResult?.standing).toBe('superseded')
     expect(results.find(r => r.thought.id === newId)?.standing).toBe('current')
@@ -258,7 +281,7 @@ describe('memory_recall standing per-axis off semantics', () => {
     const { a, b } = seedContradictedPair()
     const { data, isError } = await recall({ supersession_mode: 'off' })
     expect(isError).toBe(false)
-    const results = data as Array<{ thought: { id: string }; standing?: string }>
+    const results = data.items as Array<{ thought: { id: string }; standing?: string }>
     const aResult = results.find(r => r.thought.id === a)
     const bResult = results.find(r => r.thought.id === b)
     expect(aResult?.standing).toBe('contradicted')
@@ -269,7 +292,7 @@ describe('memory_recall standing per-axis off semantics', () => {
     const { old: oldId, new: newId } = seedSupersededPair()
     const { data, isError } = await recall({ supersession_mode: 'flag', contradiction_mode: 'off' })
     expect(isError).toBe(false)
-    const results = data as Array<{ thought: { id: string }; standing?: string }>
+    const results = data.items as Array<{ thought: { id: string }; standing?: string }>
     const oldResult = results.find(r => r.thought.id === oldId)
     expect(oldResult?.standing).toBe('superseded')
     expect(results.find(r => r.thought.id === newId)?.standing).toBe('current')
@@ -280,7 +303,7 @@ describe('memory_recall standing per-axis off semantics', () => {
     const { old: oldId, new: newId } = seedSupersededPair()
     const { data, isError } = await recall({ supersession_mode: 'off', contradiction_mode: 'off' })
     expect(isError).toBe(false)
-    const results = data as Array<{
+    const results = data.items as Array<{
       thought: { id: string }
       standing?: string
       superseded_by?: string[]
@@ -371,11 +394,11 @@ describe('memory_recall advertised schema retains numeric bounds with z.coerce',
     // This is the core regression: z.coerce lets string numerics through, but
     // the JSON Schema must still advertise type:number so clients know the
     // canonical shape while the runtime accepts the coerce path.
-    await client.callTool({
+    await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'SCHEMA_COERCE_MARKER test content', status: 'active' }
     })
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'SCHEMA_COERCE_MARKER', min_relevance: '0.5', limit: '3' }
     })
@@ -392,15 +415,15 @@ describe('memory_recall — is_global is always included in a project-scoped sea
   const QUERY = 'RECALL_GLOBAL_MARKER'
 
   async function recallSearch(extra: Record<string, unknown>) {
-    const result = await client.callTool({
+    const result = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: QUERY, limit: 10, ...extra }
     })
     return parseResult(result)
   }
 
-  function idsOf(data: unknown): string[] {
-    return (data as Array<{ thought: { id: string } }>).map(r => r.thought.id)
+  function idsOf(data: { items: Array<{ thought: { id: string } }> }): string[] {
+    return data.items.map(r => r.thought.id)
   }
 
   function seedWorld() {
@@ -435,7 +458,7 @@ describe('memory_recall — is_global is always included in a project-scoped sea
     expect(ids).not.toContain(local)
   })
 
-  test('without project_id every project\'s thoughts are returned', async () => {
+  test('an unregistered cwd searches every project (global scope)', async () => {
     const { local, foreign, global } = seedWorld()
 
     const { data, isError } = await recallSearch({})
@@ -465,7 +488,7 @@ describe('memory_recall — is_global is always included in a project-scoped sea
     db.prepare(`UPDATE projects SET local_path = ? WHERE id = ?`).run(`/tmp/${P2}`, P2)
 
     const scoped = parseResult(
-      await client.callTool({
+      await callTool({
         name: 'memory_recall',
         arguments: { action: 'clusters', query: QUERY, limit: 10, cwd: `/tmp/${P1}` }
       })
@@ -483,19 +506,19 @@ describe('memory_recall — is_global is always included in a project-scoped sea
 })
 
 describe('memory_recall is_cluster filtering', () => {
-  function idsOf(data: unknown): string[] {
-    return (data as Array<{ thought: { id: string } }>).map(row => row.thought.id)
+  function idsOf(data: { items: Array<{ thought: { id: string } }> }): string[] {
+    return data.items.map(row => row.thought.id)
   }
 
   test('list true returns only clusters and false excludes clusters', async () => {
     const regular = seedThought({ content: 'filter marker regular' })
     const cluster = seedThought({ content: 'filter marker cluster', is_cluster: 1 })
     for (const [value, expected, excluded] of [[true, cluster, regular], [false, regular, cluster]] as const) {
-      const { data, isError } = parseResult(await client.callTool({
+      const { data, isError } = parseResult(await callTool({
         name: 'memory_recall', arguments: { action: 'list', is_cluster: value, limit: 100 }
       }))
       expect(isError).toBe(false)
-      const ids = (data.thoughts as Array<{ id: string }>).map(row => row.id)
+      const ids = (data.items as Array<{ id: string }>).map(row => row.id)
       expect(ids).toContain(expected)
       expect(ids).not.toContain(excluded)
     }
@@ -506,7 +529,7 @@ describe('memory_recall is_cluster filtering', () => {
       const regular = seedThought({ content: 'VECTOR_CLUSTER_FILTER_MCP regular thought' })
       const cluster = seedThought({ content: 'VECTOR_CLUSTER_FILTER_MCP cluster thought', is_cluster: 1 })
       for (const [value, expected, excluded] of [[true, cluster, regular], [false, regular, cluster]] as const) {
-        const { data, isError } = parseResult(await client.callTool({
+        const { data, isError } = parseResult(await callTool({
           name: 'memory_recall', arguments: { action: 'search', query: 'VECTOR_CLUSTER_FILTER_MCP', limit: 10, is_cluster: value }
         }))
         expect(isError).toBe(false)
@@ -524,12 +547,12 @@ describe('memory_recall is_cluster filtering', () => {
     createEdge(getDb(), root, second, 'related')
 
     async function downstream(max_degree: number) {
-      const { data, isError } = parseResult(await client.callTool({
+      const { data, isError } = parseResult(await callTool({
         name: 'memory_recall',
         arguments: { action: 'chain', thought_id: root, direction: 'downstream', max_degree }
       }))
       expect(isError).toBe(false)
-      return data as { downstream: unknown[] }
+      return data.item as { downstream: unknown[] }
     }
 
     const shallow = await downstream(1)

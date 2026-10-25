@@ -67,13 +67,15 @@ describe('memory_store unlink', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.status).toBe('preview')
-    expect(data.edge_id).toBe(edgeId)
-    expect(data.edge.source_id).toBe(src)
-    expect(data.edge.target_id).toBe(tgt)
-    expect(data.edge.type).toBe('contradicts')
-    expect(data.consequence).toContain('contradicts')
-    expect(data.instruction).toContain('confirm=true')
+    expect(data.item.status).toBe('preview')
+    expect(data.item.edge_id).toBe(edgeId)
+    expect(data.item.edge.source_id).toBe(src)
+    expect(data.item.edge.target_id).toBe(tgt)
+    expect(data.item.edge.type).toBe('contradicts')
+    expect(data.item.consequence).toContain('contradicts')
+    expect(data.item.instruction).toContain('confirm=true')
+    // The confirm gate mirrors the token in one place (task #2181).
+    expect(data.meta.preview).toMatchObject({ token: data.item.preview_token, destructive: true })
 
     // Verify no mutation
     const edge = getEdgePairBetween(db, src, tgt)
@@ -91,15 +93,15 @@ describe('memory_store unlink', () => {
       name: 'memory_store',
       arguments: { action: 'unlink', edge_id: edgeId }
     })
-    const token = parseResult(preview).data.preview_token
+    const token = parseResult(preview).data.item.preview_token
     const result = await client.callTool({
       name: 'memory_store',
       arguments: { action: 'unlink', edge_id: edgeId, confirm: true, preview_token: token }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.status).toBe('deleted')
-    expect(data.edge_id).toBe(edgeId)
+    expect(data.item.status).toBe('deleted')
+    expect(data.item.edge_id).toBe(edgeId)
 
     // Verify edge is gone
     const edge = getEdgePairBetween(db, src, tgt)
@@ -113,8 +115,8 @@ describe('memory_store unlink', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.status).toBe('not_found')
-    expect(data.edge_id).toBe('non-existent-edge')
+    expect(data.item.status).toBe('not_found')
+    expect(data.item.edge_id).toBe('non-existent-edge')
   })
 
   test('dry-run on non-existent edge → not_found', async () => {
@@ -124,8 +126,8 @@ describe('memory_store unlink', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.status).toBe('not_found')
-    expect(data.edge_id).toBe('non-existent-edge')
+    expect(data.item.status).toBe('not_found')
+    expect(data.item.edge_id).toBe('non-existent-edge')
   })
 
   test('missing edge_id → error envelope', async () => {
@@ -150,7 +152,7 @@ describe('memory_store unlink', () => {
     })
     await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'unlink', edge_id: edgeId, confirm: true, preview_token: parseResult(firstPreview).data.preview_token }
+      arguments: { action: 'unlink', edge_id: edgeId, confirm: true, preview_token: parseResult(firstPreview).data.item.preview_token }
     })
 
     // Second delete — idempotent
@@ -158,14 +160,14 @@ describe('memory_store unlink', () => {
       name: 'memory_store',
       arguments: { action: 'unlink', edge_id: edgeId }
     })
-    const token = parseResult(preview).data.preview_token
+    const token = parseResult(preview).data.item.preview_token
     const result = await client.callTool({
       name: 'memory_store',
       arguments: { action: 'unlink', edge_id: edgeId, confirm: true, preview_token: token }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.status).toBe('not_found')
+    expect(data.item.status).toBe('not_found')
   })
 })
 
@@ -184,14 +186,15 @@ describe('memory_store retype', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.status).toBe('preview')
-    expect(data.edge_id).toBe(edgeId)
-    expect(data.old_type).toBe('contradicts')
-    expect(data.new_type).toBe('supports')
-    expect(data.source_id).toBe(src)
-    expect(data.target_id).toBe(tgt)
-    expect(data.consequence).toContain('contradicts')
-    expect(data.consequence).toContain('supports')
+    expect(data.item.status).toBe('preview')
+    expect(data.item.edge_id).toBe(edgeId)
+    expect(data.item.old_type).toBe('contradicts')
+    expect(data.item.new_type).toBe('supports')
+    expect(data.item.source_id).toBe(src)
+    expect(data.item.target_id).toBe(tgt)
+    expect(data.item.consequence).toContain('contradicts')
+    expect(data.item.consequence).toContain('supports')
+    expect(data.meta.preview).toMatchObject({ token: data.item.preview_token, destructive: true })
 
     // Verify no mutation
     const edge = getEdgePairBetween(db, src, tgt)
@@ -209,40 +212,40 @@ describe('memory_store retype', () => {
       name: 'memory_store',
       arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports' }
     })
-    const retypeToken = parseResult(retypePreview).data.preview_token
+    const retypeToken = parseResult(retypePreview).data.item.preview_token
     const result = await client.callTool({
       name: 'memory_store',
       arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports', confirm: true, preview_token: retypeToken }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.status).toBe('retyped')
+    expect(data.item.status).toBe('retyped')
     // retypeEdge does delete+insert, so the id changes — the tool must return
     // the fresh id so a chained unlink/retype resolves.
-    expect(data.edge_id).toBeDefined()
-    expect(data.edge_id).not.toBe(edgeId)
-    expect(data.old_type).toBe('contradicts')
-    expect(data.new_type).toBe('supports')
+    expect(data.item.edge_id).toBeDefined()
+    expect(data.item.edge_id).not.toBe(edgeId)
+    expect(data.item.old_type).toBe('contradicts')
+    expect(data.item.new_type).toBe('supports')
 
     // Verify edge type changed and the stored edge now carries the fresh id
     const edge = getEdgePairBetween(db, src, tgt)
     expect(edge).toBeDefined()
     expect(edge!.type).toBe('supports')
-    expect(edge!.id).toBe(data.edge_id)
+    expect(edge!.id).toBe(data.item.edge_id)
 
     // Chained follow-up: the returned fresh id resolves — unlink it
     const unlinkPreview = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'unlink', edge_id: data.edge_id }
+      arguments: { action: 'unlink', edge_id: data.item.edge_id }
     })
     const unlink = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'unlink', edge_id: data.edge_id, confirm: true, preview_token: parseResult(unlinkPreview).data.preview_token }
+      arguments: { action: 'unlink', edge_id: data.item.edge_id, confirm: true, preview_token: parseResult(unlinkPreview).data.item.preview_token }
     })
     const { data: unlinked, isError: unlinkError } = parseResult(unlink)
     expect(unlinkError).toBe(false)
-    expect(unlinked.status).toBe('deleted')
-    expect(unlinked.edge_id).toBe(data.edge_id)
+    expect(unlinked.item.status).toBe('deleted')
+    expect(unlinked.item.edge_id).toBe(data.item.edge_id)
     expect(getEdgePairBetween(db, src, tgt)).toBeFalsy()
   })
 
@@ -255,7 +258,8 @@ describe('memory_store retype', () => {
       name: 'memory_store',
       arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports' }
     })
-    const retypeToken = parseResult(retypePreview).data.preview_token
+    // The preview already refuses a same-type retype, so it issues no token.
+    const retypeToken = parseResult(retypePreview).data?.item?.preview_token
     const result = await client.callTool({
       name: 'memory_store',
       arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports', confirm: true, preview_token: retypeToken }

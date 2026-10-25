@@ -29,6 +29,10 @@ function parseResult(result: unknown): { data: any; isError: boolean } {
   }
 }
 
+// A fresh test DB registers no project for this path: the answer keeps the
+// global scope while satisfying the hard-cwd contract.
+const UNSCOPED_CWD = '/tmp/mcp-unscoped'
+
 beforeEach(async () => {
   createTestDb()
   client = await setupClient()
@@ -41,36 +45,36 @@ afterEach(async () => {
 test('MCP reflect adds goals with case-insensitive exact dedupe', async () => {
   const result = parseResult(await client.callTool({
     name: 'memory_reflect',
-    arguments: { action: 'reflect', goals_add: ['Ship alpha', 'ship ALPHA', 'Ship beta'] }
+    arguments: { action: 'reflect', cwd: UNSCOPED_CWD, goals_add: ['Ship alpha', 'ship ALPHA', 'Ship beta'] }
   }))
   expect(result.isError).toBe(false)
-  expect(result.data.goals_added).toBe(2)
+  expect(result.data.item.goals_added).toBe(2)
   expect(getSlots({ names: ['active_goals'] })[0].content).toBe('Ship alpha\nShip beta')
 })
 
 test('MCP reflect rejects blank goals', async () => {
   const result = parseResult(await client.callTool({
     name: 'memory_reflect',
-    arguments: { action: 'reflect', goals_add: ['  '] }
+    arguments: { action: 'reflect', cwd: UNSCOPED_CWD, goals_add: ['  '] }
   }))
   expect(result.isError).toBe(true)
 })
 
 test('MCP reflect removes stored goals by case-insensitive substring and keeps same-call additions', async () => {
-  await client.callTool({ name: 'memory_reflect', arguments: { action: 'reflect', goals_add: ['Ship alpha', 'Ship beta'] } })
+  await client.callTool({ name: 'memory_reflect', arguments: { action: 'reflect', cwd: UNSCOPED_CWD, goals_add: ['Ship alpha', 'Ship beta'] } })
   const result = parseResult(await client.callTool({
     name: 'memory_reflect',
-    arguments: { action: 'reflect', goals_add: ['Ship gamma'], goals_remove: ['ALPHA', 'BETA'] }
+    arguments: { action: 'reflect', cwd: UNSCOPED_CWD, goals_add: ['Ship gamma'], goals_remove: ['ALPHA', 'BETA'] }
   }))
   expect(result.isError).toBe(false)
-  expect(result.data.goals_removed).toBe(2)
+  expect(result.data.item.goals_removed).toBe(2)
   expect(getSlots({ names: ['active_goals'] })[0].content).toBe('Ship gamma')
 })
 
 test('MCP reflect rejects retired goals_delta with migration hint', async () => {
   const result = parseResult(await client.callTool({
     name: 'memory_reflect',
-    arguments: { action: 'reflect', goals_delta: ['old goal'] }
+    arguments: { action: 'reflect', cwd: UNSCOPED_CWD, goals_delta: ['old goal'] }
   }))
   expect(result.isError).toBe(true)
   expect(String(result.data)).toContain('goals_add / goals_remove')

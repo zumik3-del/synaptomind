@@ -29,8 +29,12 @@ export interface SearchOptions {
   confidenceFloor?: number
 }
 
-/** Search legs that can contribute a hit, in the fixed `match_source` order. */
-export type SearchMatchSource = 'embedding' | 'bm25'
+/**
+ * Search legs that can contribute a hit, in the fixed `match_source` order.
+ * `id` is never combined with the others: an id lookup short-circuits the
+ * embedding/BM25 legs and returns the addressed thought directly.
+ */
+export type SearchMatchSource = 'embedding' | 'bm25' | 'id'
 
 export interface SearchResult {
   thought: Thought
@@ -58,8 +62,19 @@ export interface SearchResult {
    */
   bm25_score?: number
   /**
+   * Calibrated relevance in `[0, 1]` for an embedding-leg hit: the cosine
+   * similarity rescaled onto the measured unrelated→strong-match band
+   * (`(similarity - unrelatedFloor) / (confidenceFloor - unrelatedFloor)`,
+   * clamped). `0` means "indistinguishable from an unrelated thought", `1` means
+   * "at or above the strong-match floor". Present only when the embedding leg
+   * matched: a BM25-only hit carries no calibrated cosine scale and leaves it
+   * undefined, and an id lookup has no cosine signal at all.
+   */
+  relevance?: number
+  /**
    * Search legs that matched this thought, always present, in the fixed order
-   * `embedding`, `bm25`. The embedding-only path returns `['embedding']`.
+   * `embedding`, `bm25`. The embedding-only path returns `['embedding']`; an id
+   * lookup returns `['id']`.
    */
   match_source: SearchMatchSource[]
   /**

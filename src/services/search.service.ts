@@ -1,27 +1,20 @@
 import { getClusterForThoughtBatch } from '../db/cluster-edges'
 import { getDb } from '../db'
-import { annotateGraphStanding, type GraphStanding } from '../db/graph-annotations'
-import { isStrongMatch, type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
+import { type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
 export type { SearchResult } from '../db/search'
 import { getThoughtTagsBatch } from '../db/tags'
 import { getThought } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
 import { generateEmbedding } from '../embedder/client'
 import { parseTags } from '../utils'
-import { normalizeSearchOptions } from './search-normalize'
+import { type IdLookup, idNotFoundWarning, keepsUnderRelevanceGate, runIdLookup, type SearchOutcome } from './search-outcome'
+import { normalizeSearchOptions, type NormalizedSearchOptions } from './search-normalize'
+import { applyGraphStanding } from './search-standing'
+import { calibrateRelevance } from './text-similarity'
+
+export type { SearchOutcome, SearchOutcomeReason } from './search-outcome'
 
 const EMBEDDING_TIMEOUT_MS = 5_000
-
-/**
- * Rank used by `orderByStanding`: lower is better, so every `current` row
- * precedes the contested rows while the incoming relevance order is preserved
- * within each standing group.
- */
-const STANDING_RANK: Record<GraphStanding, number> = {
-  current: 0,
-  contradicted: 1,
-  superseded: 2
-}
 
 async function generateEmbeddingWithFallback(query: string): Promise<{ embedding: Float32Array; degraded: boolean }> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -74,12 +67,13 @@ export interface SearchServiceOptions {
    */
   recencyHalfLifeDays?: number
   /**
-   * Opt-in relevance gate, clamped to `[0, 1]` (default `0`). With `0` the
-   * result set/order is byte-identical to the ungated search. With `> 0` a
-   * result is kept only when it is a strong match
-   * (`match_source` contains `bm25`, or contains `vector` with
-   * `similarity >= minRelevance`); the candidate pool is widened so `topK`
-   * survivors are still reachable.
+   * Relevance gate on the calibrated `relevance` scale, clamped to `[0, 1]`.
+   * Omitted → the measured default (`DEFAULT_MIN_RELEVANCE` in
+   * `search-normalize.ts`): a row without a lexical (BM25) anchor is kept only
+   * when its calibrated `relevance` clears the threshold. An explicit `0`
+   * disables the gate and keeps the pre-#2178 result set byte-identically (same
+   * rows, same order). The candidate pool is widened when the gate can drop rows
+   * so `topK` survivors are still reachable.
    */
   minRelevance?: number
   /**
@@ -96,16 +90,41 @@ export interface GroupedResult {
   items?: SearchResult[]
 }
 
-export async function searchThoughts(options: SearchServiceOptions, d: Database = getDb()): Promise<SearchResult[]> {
+/**
+ * Internal search run: the outcome plus the collection-level degradation flag.
+ */
+interface SearchRun extends SearchOutcome {
+  degraded: boolean
+}
+
+async function runSearch(options: SearchServiceOptions, d: Database): Promise<SearchRun> {
+  const normalized = normalizeSearchOptions(options)
+  // An id-shaped query is an explicit reference: resolve it directly, before the
+  // embedding/BM25 legs and the scope filters. A *miss* is not an answer though —
+  // an id-shaped word must never zero out a legitimate search — so it falls
+  // through to the normal search and only leaves a warning behind. A prefix is
+  // not a reference: it is a timestamp window, so it inherits the caller's
+  // status/project scope (a full UUID does not).
+  const idLookup = runIdLookup(options.query, d, normalized.topK, {
+    statusFilter: options.statusFilter,
+    projectFilter: options.projectFilter,
+    clusterFilter: options.clusterFilter
+  })
+  if (idLookup && idLookup.items.length > 0) {
+    return resolveIdLookup(idLookup, options, normalized, d)
+  }
+  const idWarnings = idLookup ? [idNotFoundWarning(options.query)] : []
+
   const {
     topK,
     minImportance,
     minRelevance,
     confidenceFloor,
+    unrelatedFloor,
     candidateK,
     recencyWeight,
     recencyHalfLifeDays
-  } = normalizeSearchOptions(options)
+  } = normalized
   const embeddingResult = options.embedding
     ? { embedding: options.embedding, degraded: false }
     : await generateEmbeddingWithFallback(options.query)
@@ -126,13 +145,22 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
   })
   const dbDegraded = (dbResults as { degraded?: boolean }).degraded === true
 
+  // Calibrate the cosine leg onto the measured unrelated→strong-match band. Only
+  // embedding-leg hits carry a cosine scale; a BM25-only hit keeps `relevance`
+  // undefined so a keyword match is never read as a weak semantic one.
+  for (const result of dbResults) {
+    if (result.similarity !== undefined) {
+      result.relevance = calibrateRelevance(result.similarity, unrelatedFloor, confidenceFloor)
+    }
+  }
+
   const filtered = options.tagFilter
     ? filterByTags(dbResults, options.tagFilter, d)
     : dbResults
   const standing = applyGraphStanding(filtered, options, d)
   // Gate after standing annotation (a suppressed row is already gone) and
   // before the final `topK` slice; the DB-slice overfetch above backfills it.
-  const gated = minRelevance > 0 ? standing.filter(r => isStrongMatch(r, minRelevance)) : standing
+  const gated = standing.filter(r => keepsUnderRelevanceGate(r, minRelevance))
   const finalResults = gated.length > topK ? gated.slice(0, topK) : gated
   const degraded = embeddingDegraded || dbDegraded
   // Single annotation layer (service): fold the embedding leg's state into the
@@ -141,77 +169,81 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
   for (const r of finalResults) {
     r.degraded = degraded
   }
+  const outcome: SearchRun = {
+    items: finalResults,
+    matched: standing.length,
+    filtered_out: standing.length - gated.length,
+    degraded
+  }
+  if (idWarnings.length > 0) {
+    outcome.warnings = idWarnings
+    // With nothing to fall back to, "id_not_found" is the more precise answer
+    // than a bare "no_match"; rows the fallback did return keep `no_match`
+    // semantics and carry only the warning.
+    if (standing.length === 0) outcome.reason = 'id_not_found'
+  }
+  return outcome
+}
+
+/**
+ * Answer an id-shaped query that addressed at least one thought.
+ *
+ * Standing is annotated exactly as for any other hit, but never suppressed: a
+ * caller who named an id must get that thought back even when it is superseded
+ * (the agent-facing default is `suppress`), so a suppressed request degrades to
+ * `flag` here. A contested row is not re-flagged `low_confidence` though: that
+ * field means "weak retrieval" (no BM25 anchor, cosine below the vector floor),
+ * and an id hit has no cosine at all — `standing`/`superseded_by`/
+ * `contradicted_by` already carry the contested state, and a client that drops
+ * low-confidence rows would otherwise discard the exact row it asked for. The
+ * relevance gate never sees these rows (an id is not a similarity match).
+ */
+function resolveIdLookup(
+  lookup: IdLookup,
+  options: SearchServiceOptions,
+  normalized: NormalizedSearchOptions,
+  d: Database
+): SearchRun {
+  const annotated = applyGraphStanding(
+    lookup.items,
+    {
+      supersessionMode: options.supersessionMode === 'suppress' ? 'flag' : options.supersessionMode,
+      contradictionMode: options.contradictionMode
+    },
+    d
+  )
+  const items = annotated.length > normalized.topK ? annotated.slice(0, normalized.topK) : annotated
+  return {
+    items,
+    matched: items.length,
+    filtered_out: 0,
+    degraded: false,
+    ...(lookup.ambiguous ? { ambiguous: true } : {})
+  }
+}
+
+export async function searchThoughts(options: SearchServiceOptions, d: Database = getDb()): Promise<SearchResult[]> {
+  const { items, degraded } = await runSearch(options, d)
   // Preserve a top-level degraded flag for empty result sets (consumed by
   // getContextService and other in-process callers; not an array own-property
   // on the wire).
-  Object.assign(finalResults, { degraded })
-  return finalResults
+  Object.assign(items, { degraded })
+  return items
 }
 
 /**
- * ADR #142, item D2: attach graph standing to results after tag filtering and
- * before post-processing, so primer hoisting can never promote a suppressed
- * (superseded) thought. `suppress` drops superseded rows; `flag` keeps them
- * annotated. Contradicted results are always flagged, never suppressed —
- * contradiction is symmetric and neither endpoint is authoritative.
- *
- * ADR #142, item 3: results are then stably partitioned by standing so every
- * `current` row precedes the contested ones (`contradicted` then `superseded`).
- * The incoming vector/BM25/RRF relevance order is preserved within each group —
- * the ordering never re-scores relevance, so hybrid results are not reshuffled.
+ * Source-compatible sibling of {@link searchThoughts}: same rows and order,
+ * plus the machine-readable match bookkeeping (`matched`, `filtered_out`,
+ * `reason`, `ambiguous`, `warnings`). The MCP envelope consumes this; the
+ * array-returning service stays the surface for HTTP, context and clusters.
  */
-function applyGraphStanding(
-  results: SearchResult[],
+export async function searchThoughtsOutcome(
   options: SearchServiceOptions,
-  d: Database
-): SearchResult[] {
-  const supersessionMode = options.supersessionMode ?? 'flag'
-  const contradictionMode = options.contradictionMode ?? 'flag'
-  if (results.length === 0) return results
-  if (supersessionMode === 'off' && contradictionMode === 'off') return results
-
-  const standingMap = annotateGraphStanding(d, results.map(r => r.thought.id))
-  const annotated: SearchResult[] = []
-
-  for (const result of results) {
-    const info = standingMap.get(result.thought.id)
-    const supersededBy = supersessionMode === 'off' ? [] : (info?.superseded_by ?? [])
-    const contradictedBy = contradictionMode === 'off' ? [] : (info?.contradicted_by ?? [])
-
-    if (supersessionMode === 'suppress' && supersededBy.length > 0) continue
-
-    const next: SearchResult = { ...result, standing: 'current' }
-    if (supersededBy.length > 0) {
-      next.superseded_by = supersededBy
-      next.standing = 'superseded'
-    } else if (contradictedBy.length > 0) {
-      next.standing = 'contradicted'
-    }
-    if (contradictedBy.length > 0) next.contradicted_by = contradictedBy
-    annotated.push(next)
-  }
-
-  return orderByStanding(annotated)
-}
-
-/**
- * Deterministic standing-aware ordering (ADR #142, item 3): a stable partition
- * that keeps every `current` row ahead of the contested ones while preserving
- * the incoming (vector/BM25/RRF) relevance order within each standing group.
- *
- * `similarity` is deliberately NOT used as a sort key: it is populated only from
- * the vector leg, so keyword-only results carry `0` and would be demoted
- * below every vector hit, discarding the hybrid fusion ranking.
- *
- * The recency boost is applied *upstream* (inside the DB ranking), so this
- * stable partition preserves the recency order within each standing group.
- *
- * Exported for the ordering regression test only.
- */
-export function orderByStanding(results: SearchResult[]): SearchResult[] {
-  return [...results].sort(
-    (a, b) => STANDING_RANK[a.standing ?? 'current'] - STANDING_RANK[b.standing ?? 'current']
-  )
+  d: Database = getDb()
+): Promise<SearchOutcome> {
+  const { items, degraded, ...outcome } = await runSearch(options, d)
+  Object.assign(items, { degraded })
+  return { ...outcome, items }
 }
 
 export async function searchThoughtsGrouped(

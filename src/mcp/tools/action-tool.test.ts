@@ -213,16 +213,16 @@ const KNOWN_ACTION_CASES: Array<{
   tool: string
   args: () => Record<string, unknown>
 }> = [
-  { label: 'memory_recall search', tool: 'memory_recall', args: () => ({ action: 'search', query: 'known action marker' }) },
+  { label: 'memory_recall search', tool: 'memory_recall', args: () => ({ action: 'search', query: 'known action marker', cwd: '/tmp/mcp-unscoped' }) },
   {
     label: 'memory_supersede archive',
     tool: 'memory_supersede',
     args: () => ({ action: 'archive', thought_id: seedThought({ content: 'archive dispatch probe' }) })
   },
-  { label: 'memory_status slots', tool: 'memory_status', args: () => ({ action: 'slots' }) },
+  { label: 'memory_status slots', tool: 'memory_status', args: () => ({ action: 'slots', cwd: '/tmp/mcp-unscoped' }) },
   { label: 'memory_manage list', tool: 'memory_manage', args: () => ({ action: 'list' }) },
   { label: 'memory_crystallize graph', tool: 'memory_crystallize', args: () => ({ action: 'graph' }) },
-  { label: 'memory_reflect timeline', tool: 'memory_reflect', args: () => ({ action: 'timeline' }) },
+  { label: 'memory_reflect timeline', tool: 'memory_reflect', args: () => ({ action: 'timeline', cwd: '/tmp/mcp-unscoped' }) },
   { label: 'memory_primers list', tool: 'memory_primers', args: () => ({ action: 'list' }) }
 ]
 
@@ -324,7 +324,11 @@ describe('memory_status action=config raw-text passthrough', () => {
     // The handler returns a ready-made tool result, so the dispatcher must not
     // JSON-wrap the text (isToolResult path) and structuredContent must mirror it.
     expect(result.content[0].text).toContain('SynaptoMind Configuration')
-    expect(result.structuredContent?.result).toEqual({ text: result.content[0].text })
+    // The content channel stays raw; the structured channel carries the shared
+    // envelope with the same text in `item.text` (task #2179).
+    const envelope = result.structuredContent?.result as { item: { text: string }; meta: { action: string } }
+    expect(envelope.item.text).toBe(result.content[0].text)
+    expect(envelope.meta.action).toBe('config')
   })
 })
 
@@ -365,7 +369,7 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
         min_age_days: '1'
       }
     })
-    const token1 = JSON.parse((preview as any).content[0].text).preview_token
+    const token1 = JSON.parse((preview as any).content[0].text).meta.preview.token
     const result = await mockClient.callTool({
       name: 'memory_crystallize',
       arguments: {
@@ -397,7 +401,7 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
         min_age_days: 1
       }
     })
-    const token2 = JSON.parse((preview as any).content[0].text).preview_token
+    const token2 = JSON.parse((preview as any).content[0].text).meta.preview.token
     const result = await mockClient.callTool({
       name: 'memory_crystallize',
       arguments: {
@@ -427,7 +431,7 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
         name: 'memory_crystallize',
         arguments: { action: 'auto_cluster' }
       })
-      const token3 = JSON.parse((preview as any).content[0].text).preview_token
+      const token3 = JSON.parse((preview as any).content[0].text).meta.preview.token
       const result = await mockClient.callTool({
         name: 'memory_crystallize',
         arguments: { action: 'auto_cluster', confirm: true, preview_token: token3 }

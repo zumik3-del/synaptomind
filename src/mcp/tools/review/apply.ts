@@ -2,6 +2,7 @@ import { z } from 'zod/v4'
 import { applyProposalService } from '../../../services/placement-apply.service'
 import { getProposalService } from '../../../services/placement-proposals.service'
 import { createPreviewTokenService, consumePreviewTokenService } from '../../../services/preview-tokens.service'
+import { itemEnvelope } from '../envelope'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
 /** Audit label recorded on apply/reject/rollback decisions (ADR §2.8). */
@@ -25,11 +26,9 @@ export const applyHandler: ActionHandler = {
         runId: args.run_id as string | undefined,
         decidedBy: AGENT
       })
-      if (row) {
-        const token = createPreviewTokenService('apply', proposalId, proposalFingerprint(row))
-        ;(result as unknown as Record<string, unknown>).preview_token = token
-      }
-      return result
+      if (!row) return itemEnvelope('apply', result)
+      const token = createPreviewTokenService('apply', proposalId, proposalFingerprint(row))
+      return itemEnvelope('apply', { ...(result as unknown as Record<string, unknown>), preview_token: token }, { preview: { token } })
     }
 
     if (!row) throw new Error(`placement proposal '${proposalId}' not found`)
@@ -38,10 +37,10 @@ export const applyHandler: ActionHandler = {
     const verification = consumePreviewTokenService(previewToken, 'apply', proposalId, fp)
     if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
 
-    return applyProposalService(proposalId, {
+    return itemEnvelope('apply', applyProposalService(proposalId, {
       confirm: true,
       runId: args.run_id as string | undefined,
       decidedBy: AGENT
-    })
+    }))
   }
 }

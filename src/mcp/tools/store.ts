@@ -30,7 +30,7 @@ const handlers = {
 export function registerMemoryStore(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_store',
-    description: `Store and modify thoughts. Actions: create, update (tags merge by default; tags_mode=replace to overwrite), link, link_batch (one transaction, per-item results), unlink (preview→confirm; dry-run default), unlink_batch (one transaction, per-edge status, confirm-gated), retype (preview→confirm; returns old/new edge id), bulk_create (create up to 10000 thoughts in one transaction; same shape as HTTP /api/thoughts/bulk).`,
+    description: `Store and modify thoughts. Answers the shared envelope: { item, meta } for a single-object action, { items, meta } for a batch; meta.counts carries the aggregate (linked/failed, created/failed, deleted/failed). A non-mutating preview sets meta.preview={token,destructive:true}. Actions: create, update (tags merge by default; tags_mode=replace to overwrite), link, link_batch (one transaction, per-item results), unlink (preview→confirm; dry-run default), unlink_batch (one transaction, per-edge status, confirm-gated), retype (preview→confirm; returns old/new edge id), bulk_create (create up to 10000 thoughts in one transaction; same shape as HTTP /api/thoughts/bulk).`,
     inputSchema: {
       action: z.enum(['create', 'update', 'link', 'link_batch', 'unlink', 'unlink_batch', 'retype', 'bulk_create', 'create_bulk', 'bulk', 'create_batch']).describe('The specific action to perform. This dictates which other parameters are required.'),
       content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype". Recommended soft limit: ${getAdvertisedSoftLimitService()} chars.`),

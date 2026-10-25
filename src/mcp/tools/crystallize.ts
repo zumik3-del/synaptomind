@@ -15,7 +15,7 @@ const handlers = {
 export function registerMemoryCrystallize(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_crystallize',
-    description: `Visualize and reorganize clusters. Actions: graph, cluster, auto_cluster (Union-Find; preview→confirm — clusters are created only with confirm: true).`,
+    description: `Visualize and reorganize clusters. Answers the shared envelope { item, meta } / { items, meta } (aggregate in meta.counts; a preview sets meta.preview={token,destructive:true}). One documented exception: action=graph answers { items: nodes, edges, meta } — the graph is two collections, so edges sit beside items as a named field. Actions: graph, cluster, auto_cluster (Union-Find; preview→confirm — clusters are created only with confirm: true).`,
     inputSchema: {
       action: z.enum(['graph', 'cluster', 'auto_cluster']).describe('Action'),
       thought_ids: z.array(z.string()).optional().describe('Thought IDs. REQUIRED for "cluster". IGNORED for "graph" and "auto_cluster".'),

@@ -10,7 +10,8 @@ import { getBoundedMergePreviewService, mergeThoughtsService } from '../../servi
 import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { validateMergePreconditions } from '../../services/merge'
 import { BATCH_ITEMS_MAX } from '../../validation'
-import { resolveProjectId } from './utils'
+import { collectionEnvelope, itemEnvelope, writeEnvelopeScope } from './envelope'
+import { resolveProjectId, shapeThought } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
 const MERGE_PREVIEW_EDGE_LIMIT = 50
@@ -43,9 +44,9 @@ const handlers = {
       const previewToken = args.preview_token as string | undefined
       if (args.confirm !== true) {
         const token = existing ? createPreviewTokenService('archive', thoughtId, thoughtFingerprint(existing as unknown as Parameters<typeof thoughtFingerprint>[0])) : undefined
-        return { status: 'preview', action: 'archive', thought_id: thoughtId, current_status: existing?.status ?? null,
+        return itemEnvelope('archive', { status: 'preview', action: 'archive', thought_id: thoughtId, current_status: existing?.status ?? null,
           outcome: !existing ? 'not_found' : existing.status === 'archived' ? 'already_archived' : existing.is_profile ? 'protected' : 'would_archive',
-          ...(token ? { preview_token: token } : {}) }
+          ...(token ? { preview_token: token } : {}) }, token ? { preview: { token } } : {})
       }
       if (!existing) throw new NotFoundError(`Thought '${thoughtId}' not found`)
       const currentFingerprint = thoughtFingerprint(existing as unknown as Parameters<typeof thoughtFingerprint>[0])
@@ -53,8 +54,7 @@ const handlers = {
       const verification = consumePreviewTokenService(previewToken, 'archive', thoughtId, currentFingerprint)
       if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
       const result = existing.status === 'archived' ? existing : archiveThoughtByIdService(thoughtId)
-      const out: Record<string, unknown> = { status: 'executed', action: 'archive', result }
-      return out
+      return itemEnvelope('archive', { status: 'executed', action: 'archive', result: shapeThought(result) })
     }
   },
 
@@ -85,7 +85,11 @@ const handlers = {
           return t ? thoughtFingerprint(t as unknown as Parameters<typeof thoughtFingerprint>[0]) : `missing:${id}`
         }).join('|')
         const token = createPreviewTokenService('archive_batch', ids.join(','), fingerprint)
-        return { status: 'preview', action: 'archive_batch', requested_count: ids.length, items, preview_token: token }
+        // One counter per previewed outcome, so a caller sees the aggregate
+        // without scanning the rows (task #2181).
+        const counts: Record<string, number> = {}
+        for (const item of items) counts[item.outcome] = (counts[item.outcome] ?? 0) + 1
+        return collectionEnvelope('archive_batch', items, { total: ids.length, counts, preview: { token } })
       }
       const fingerprint = ids.map(id => {
         const t = getThoughtByIdService(id)
@@ -94,7 +98,20 @@ const handlers = {
       if (!previewToken) throw new Error('preview_token is required')
       const verification = consumePreviewTokenService(previewToken, 'archive_batch', ids.join(','), fingerprint)
       if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-      return { status: 'executed', action: 'archive_batch', result: archiveThoughtsBatchService(ids) }
+      const result = archiveThoughtsBatchService(ids)
+      // The service reports failures by thought id, in request order: rebuild one
+      // row per requested occurrence so duplicates stay distinct.
+      const failures = new Map<string, string[]>()
+      for (const error of result.errors) {
+        const list = failures.get(error.thought_id) ?? []
+        list.push(error.error)
+        failures.set(error.thought_id, list)
+      }
+      const items = ids.map(thought_id => {
+        const error = failures.get(thought_id)?.shift()
+        return error === undefined ? { thought_id, status: 'archived' as const } : { thought_id, status: 'failed' as const, error }
+      })
+      return collectionEnvelope('archive_batch', items, { total: ids.length, counts: { archived: result.archived, failed: result.failed } })
     }
   },
 
@@ -111,7 +128,7 @@ const handlers = {
       const previewToken = args.preview_token as string | undefined
       if (args.confirm !== true) {
         const preview = getBoundedMergePreviewService(sourceId, targetId, MERGE_PREVIEW_EDGE_LIMIT)
-        if (!preview) return { status: 'preview', action: 'merge', source: { id: sourceId, status: null }, target: { id: targetId, status: null }, outcome: 'not_found' }
+        if (!preview) return itemEnvelope('merge', { status: 'preview', action: 'merge', source: { id: sourceId, status: null }, target: { id: targetId, status: null }, outcome: 'not_found' })
         let outcome = 'would_merge'
         let reason: string | undefined
         if (sourceId === targetId) { outcome = 'ineligible'; reason = 'source_id and target_id must be different' }
@@ -121,7 +138,7 @@ const handlers = {
         }
         const edgePreview = { edges: preview.source.edges, source_edge_count: preview.sourceEdgeCount, truncated: preview.sourceEdgeCount > MERGE_PREVIEW_EDGE_LIMIT }
         const token = createPreviewTokenService('merge', `${sourceId}:${targetId}`, mergeFingerprint(preview.source, preview.target, args.merged_content as string | undefined, args.merged_tags as string[] | undefined, projectFilter))
-        return {
+        return itemEnvelope('merge', {
           status: 'preview', action: 'merge', outcome, ...(reason ? { reason } : {}),
           source: { id: preview.source.id, status: preview.source.status, ...edgePreview },
           target: { id: preview.target.id, status: preview.target.status },
@@ -129,7 +146,7 @@ const handlers = {
           effects: { source_archived: outcome === 'would_merge', target_updated: outcome === 'would_merge' && (args.merged_content !== undefined || args.merged_tags !== undefined || projectFilter !== undefined),
             ...(outcome === 'would_merge' ? { replaces_edge_created: true } : {}) },
           preview_token: token
-        }
+        }, { preview: { token }, ...writeEnvelopeScope(args.cwd) })
       }
       const source = getThoughtByIdService(sourceId)
       const target = getThoughtByIdService(targetId)
@@ -146,7 +163,7 @@ const handlers = {
         mergedTags: args.merged_tags as string[] | undefined,
         projectId: projectFilter
       })
-      return { status: 'executed', action: 'merge', result: { target: result.target, edges_transferred: result.transferredEdges } }
+      return itemEnvelope('merge', { status: 'executed', action: 'merge', result: { target: shapeThought(result.target), edges_transferred: result.transferredEdges } }, writeEnvelopeScope(args.cwd))
     }
   }
 }
@@ -158,7 +175,7 @@ function mergeFingerprint(source: { id: string; content: string; tags: unknown; 
 export function registerMemorySupersede(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_supersede',
-    description: `Version and supersede thoughts. All actions preview by default; set confirm=true to execute. Actions: archive (idempotent), archive_batch (per-item partial results), merge (source→target; reports edges_transferred).`,
+    description: `Version and supersede thoughts. Answers the shared envelope: { item, meta } for archive/merge, { items, meta } for archive_batch (one row per requested occurrence, aggregate in meta.counts.archived/failed); a preview sets meta.preview={token,destructive:true}. All actions preview by default; set confirm=true to execute. Actions: archive (idempotent), archive_batch (per-item partial results), merge (source→target; reports edges_transferred).`,
     inputSchema: {
       action: z.enum(['archive', 'archive_batch', 'merge']).describe('Action'),
       confirm: z.boolean().optional().describe('CONSUMED by all actions (true executes; false/omitted previews).'),

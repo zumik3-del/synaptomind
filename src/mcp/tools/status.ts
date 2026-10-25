@@ -18,7 +18,7 @@ const handlers = {
 export function registerMemoryStatus(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_status',
-    description: `Query system state (read-only). Actions: slots (read-only; pending_items derived from pending thoughts, architecture_decisions from primers; slots_limit/offset paging), frontier (limit result count, 1-50), config, health, propose (read-only plan).`,
+    description: `Query system state (read-only). Every action answers in one envelope: { items, meta } for collections (slots, frontier) or { item, meta } for single objects (config, health, propose); meta = { action, scope, counts: { total, returned, filtered_out }, degraded, warnings }. cwd is REQUIRED for slots, frontier and propose (it scopes the answer to one project). Actions: slots (read-only; pending_items derived from pending thoughts, architecture_decisions from primers; slots_limit/offset paging), frontier (limit result count, 1-50), config, health, propose (read-only plan).`,
     inputSchema: {
       action: z.enum(['slots', 'frontier', 'config', 'health', 'propose']).describe('Action'),
       names: z.array(z.string()).optional().describe('Filter by slot names. OPTIONAL for "slots". IGNORED for all other actions.'),
@@ -26,7 +26,7 @@ export function registerMemoryStatus(server: McpServer) {
       slots_limit: z.number().int().min(1).max(1000).optional().describe('Max pending_items for slots paging (1-1000). OPTIONAL for "slots". IGNORED for all other actions.'),
       offset: z.number().int().min(0).max(1_000_000).optional().describe('Offset for pagination (slots only, pending_items). OPTIONAL for "slots". IGNORED for all other actions.'),
       project_id: z.never({ error: 'project_id was removed; use cwd' }).optional().describe('Removed; use cwd.'),
-      cwd: z.string().optional().describe('Working directory — auto-resolves project. OPTIONAL for "slots", "frontier", "propose". IGNORED for "config", "health".'),
+      cwd: z.string().optional().describe('Working directory — REQUIRED for "slots", "frontier", "propose" (it resolves the project scope reported in meta.scope); a call without it is rejected. IGNORED for "config", "health".'),
       thought_id: z.string().optional().describe('Existing thought to analyse (provide this or content). OPTIONAL for "propose". IGNORED for all other actions.'),
       content: z.string().optional().describe('Draft content to analyse when the thought is not persisted yet (provide this or thought_id). OPTIONAL for "propose". IGNORED for all other actions.'),
       compact: z.boolean().optional().describe('Compact propose output (top 3 edges, no signals). Default true; pass false (or include_signals=true) for full output. OPTIONAL for "propose". IGNORED for all other actions.'),

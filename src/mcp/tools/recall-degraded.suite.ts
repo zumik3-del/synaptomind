@@ -29,38 +29,41 @@ function parseResult(r: unknown) {
   try { return { data: JSON.parse(text), isError: rr.isError === true } } catch { return { data: text, isError: rr.isError === true } }
 }
 
+// A fresh test DB registers no project for this path: the answer keeps the
+// global scope while satisfying the hard-cwd contract.
+const UNSCOPED_CWD = '/tmp/mcp-unscoped'
+
 beforeEach(async () => { createTestDb(); client = await setupClient() })
 afterEach(() => { closeDb() })
 
 describe('recall degraded', () => {
   test('context degraded', async () => {
     await client.callTool({ name: 'memory_store', arguments: { action: 'create', content: 'degraded context marker mcp', status: 'active' } })
-    const r = await client.callTool({ name: 'memory_recall', arguments: { action: 'context', query: 'degraded context marker mcp' } })
+    const r = await client.callTool({ name: 'memory_recall', arguments: { action: 'context', query: 'degraded context marker mcp', cwd: UNSCOPED_CWD } })
     const { data, isError } = parseResult(r)
-    console.log('CONTEXT DATA:', JSON.stringify(data))
     expect(isError).toBe(false)
-    expect(data.degraded).toBe(true)
+    expect(data.meta.degraded).toBe(true)
     expect(data.signals).toBeUndefined()
   })
   test('context degraded (no matches) surfaces degraded instead of 404', async () => {
-    const r = await client.callTool({ name: 'memory_recall', arguments: { action: 'context', query: 'zzzznomatchtoken-degraded' } })
+    const r = await client.callTool({ name: 'memory_recall', arguments: { action: 'context', query: 'zzzznomatchtoken-degraded', cwd: UNSCOPED_CWD } })
     const { data, isError } = parseResult(r)
-    console.log('CONTEXT DEGRADED-ONLY:', JSON.stringify(data))
     expect(isError).toBe(false)
-    expect(data.degraded).toBe(true)
-    expect(data.best_match).toBeUndefined()
+    expect(data.meta.degraded).toBe(true)
+    expect(data.meta.reason).toBe('no_match')
+    expect(data.item).toBeNull()
     expect(data.signals).toBeUndefined()
   })
   test('search degraded', async () => {
     await client.callTool({ name: 'memory_store', arguments: { action: 'create', content: 'degraded search marker mcp', status: 'active' } })
-    const r = await client.callTool({ name: 'memory_recall', arguments: { action: 'search', query: 'degraded search marker mcp' } })
+    const r = await client.callTool({ name: 'memory_recall', arguments: { action: 'search', query: 'degraded search marker mcp', cwd: UNSCOPED_CWD } })
     const { data, isError } = parseResult(r)
-    console.log('SEARCH DATA:', JSON.stringify(data))
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    expect(data.length).toBeGreaterThan(0)
-    expect(data[0].degraded).toBe(true)
-    expect(data[0].signals).toBeUndefined()
-    expect('signals' in data[0]).toBe(false)
+    expect(Array.isArray(data.items)).toBe(true)
+    expect(data.items.length).toBeGreaterThan(0)
+    expect(data.meta.degraded).toBe(true)
+    expect(data.meta.action).toBe('search')
+    expect(data.items[0].signals).toBeUndefined()
+    expect('signals' in data.items[0]).toBe(false)
   })
 })

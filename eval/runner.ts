@@ -9,17 +9,21 @@ import { EVAL_SCENARIOS } from './datasets'
 import { averageMetrics, computeQueryMetrics } from './metrics'
 import { seedScenario } from './seed'
 import {
-  createDeterministicSearcher,
+  createDeterministicOutcomeSearcher,
   deterministicEmbedder,
+  HARNESS_MIN_RELEVANCE,
   realEmbedder,
-  realSearcher
+  realOutcomeSearcher,
+  resolveDefaultMinRelevance
 } from './search'
 import type {
   AggregateMetrics,
   EvalMode,
   EvalQuery,
   EvalScenario,
+  GateStats,
   QueryMetrics,
+  RelevanceGate,
   RetrievedHit,
   RunResult
 } from './types'
@@ -31,11 +35,32 @@ import type { QueryRun, ScenarioRun } from './types'
 export { buildThresholdEntry, collectGatingRegressions, evaluateAssertions, evaluateThresholds, loadThresholds, upsertThresholdEntry, writeThresholds } from './thresholds'
 export type { MetricFloor, ThresholdEntry, ThresholdFile } from './thresholds'
 export type { QueryRun, ScenarioRun } from './types'
+export type { GateStats, RelevanceGate } from './types'
 
 interface RunOptions {
   mode?: EvalMode
   topK?: number
   scenarios?: EvalScenario[]
+  /**
+   * Relevance gate for this pass: `off` (default, pinned `minRelevance: 0`, the
+   * pass the recorded baselines and the exit code gate on) or `default` (the
+   * production gate, report-only — see `runEvalWithGate`).
+   */
+  gate?: RelevanceGate
+}
+
+/**
+ * A full harness run with both relevance-gate passes over the same scenarios.
+ *
+ * `gated` is **report-only** (task #2191): it never feeds thresholds, the
+ * regression list or the exit code, it only makes the production gate's recall
+ * cost visible next to the ungated measurement.
+ */
+export interface EvalPasses {
+  /** Ungated pass (`minRelevance: 0`); the one thresholds and the exit code gate on. */
+  ungated: RunResult
+  /** Report-only pass with the gate production resolves. */
+  gated: RunResult
 }
 
 /**
@@ -109,9 +134,16 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
   const mode = options.mode ?? 'deterministic'
   const topK = options.topK ?? DEFAULT_TOP_K
   const scenarios = options.scenarios ?? EVAL_SCENARIOS
+  const gate = options.gate ?? 'off'
   const dir = mkdtempSync(join(tmpdir(), 'synaptomind-eval-'))
   const embed = mode === 'real' ? await realEmbedder() : deterministicEmbedder()
   const results: ScenarioRun[] = []
+  const gateStats: GateStats = {
+    minRelevance: gate === 'default' ? await resolveDefaultMinRelevance() : HARNESS_MIN_RELEVANCE,
+    candidates: 0,
+    droppedRows: 0,
+    queriesWithDrops: 0
+  }
 
   try {
     for (const scenario of scenarios) {
@@ -120,7 +152,10 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
       initDb({ dbPath: join(dir, `${safeName}.db`), runMigrations: true })
       const db = getDb()
       await seedScenario(db, scenario, embed)
-      const searcher = mode === 'real' ? await realSearcher() : createDeterministicSearcher()
+      const searcher =
+        mode === 'real'
+          ? await realOutcomeSearcher(gate)
+          : createDeterministicOutcomeSearcher(undefined, gate)
       // The scenario's own thoughts exclude shared DISTRACTORS; the noRelevant
       // contract asserts none of these are retrieved.
       const ownThoughtIds = scenario.thoughts
@@ -130,10 +165,15 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
       const queries: QueryRun[] = []
       for (const query of scenario.queries) {
         const k = query.topK ?? topK
-        const found = await searcher(query.query, k, query.projectFilter, {
-          recencyWeight: query.recencyWeight,
-          recencyHalfLifeDays: query.recencyHalfLifeDays
-        })
+        const { hits: found, filteredOut } = await searcher(
+          query.query,
+          k,
+          query.projectFilter,
+          {
+            recencyWeight: query.recencyWeight,
+            recencyHalfLifeDays: query.recencyHalfLifeDays
+          }
+        )
         // Capture the #155 confidence signals before the ids are flattened, so
         // `expectNoStrongMatch` can assert on them (see eval/types.ts).
         const hits: RetrievedHit[] = found.map(result => ({
@@ -143,6 +183,9 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
           matchSource: result.match_source
         }))
         const retrieved = hits.map(hit => hit.id)
+        gateStats.candidates += retrieved.length + filteredOut
+        gateStats.droppedRows += filteredOut
+        if (filteredOut > 0) gateStats.queriesWithDrops += 1
         const checkErrors = evaluateChecks(query, retrieved, ownThoughtIds, hits)
         queries.push({
           query: query.query,
@@ -179,6 +222,18 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
     topK,
     scenarios: results,
     overall: averageMetrics(passScenarios.flatMap(scenario => scenario.queries.map(query => query.metrics))),
-    categories
+    categories,
+    relevanceGate: gateStats
   }
+}
+
+/**
+ * Run the ungated (gating) pass and, over the same scenarios, the report-only
+ * pass with the relevance gate production resolves. The gated pass is
+ * deliberately not folded into `regressions` or the exit code (task #2191).
+ */
+export async function runEvalWithGate(options: RunOptions = {}): Promise<EvalPasses> {
+  const ungated = await runEval({ ...options, gate: 'off' })
+  const gated = await runEval({ ...options, gate: 'default' })
+  return { ungated, gated }
 }

@@ -10,7 +10,7 @@ type McpTextContent = { type: 'text'; text: string }
  * stable contract: every successful result is `{ result: <payload> }`, where
  * the payload matches the JSON in `content[].text`.
  */
-export const toolOutputShape = { result: z.unknown().describe('Action payload (structuredContent.result); JSON mirror of content[].text, except raw-text tools where result is {text}') }
+export const toolOutputShape = { result: z.unknown().describe('Action payload (structuredContent.result); JSON mirror of content[].text, except the raw-text config action, whose result is { item: { text }, meta }') }
 
 export function jsonResult(data: unknown): { content: McpTextContent[]; structuredContent: { result: unknown } } {
   // Bare string payloads are wrapped so no action ever returns a bare string
@@ -249,6 +249,37 @@ function stringifyTags(tags: unknown): string[] {
   })
 }
 
+/** Thought columns stored as SQLite 0/1 that the read surface exposes as booleans. */
+const BOOLEAN_FIELDS = new Set(['is_protected', 'is_global', 'is_cluster', 'is_profile'])
+
+function toBoolean(value: unknown): boolean {
+  return value === true || value === 1
+}
+
+/**
+ * Read-surface hygiene for one thought column: tags become plain strings
+ * (never `{ id, name }`) and the 0/1 flag columns become booleans, so a client
+ * never has to know the storage encoding.
+ */
+function hygienicValue(field: string, value: unknown): unknown {
+  if (field === 'tags') return stringifyTags(value)
+  if (BOOLEAN_FIELDS.has(field)) return toBoolean(value)
+  return value
+}
+
+/** Apply {@link hygienicValue} across a whole thought object (full output). */
+function hygienicThought(t: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(t)) out[key] = hygienicValue(key, value)
+  return out
+}
+
+/**
+ * Shape one thought for the wire: `compact` trims to the minimal field set,
+ * `fields` selects exactly the named columns, and both apply the read-surface
+ * hygiene (tag names as strings, flag columns as booleans). An empty selection
+ * returns the full thought with the same hygiene applied.
+ */
 export function shapeThought(thought: unknown, compact?: boolean, fields?: unknown): unknown {
   if (!thought || typeof thought !== 'object' || Array.isArray(thought)) return thought
   const t = thought as Record<string, unknown>
@@ -259,7 +290,7 @@ export function shapeThought(thought: unknown, compact?: boolean, fields?: unkno
         ? fields.split(',').map((v) => v.trim()).filter(Boolean)
         : [])
   const fieldList: string[] = requested.length > 0 ? [...requested] : (compactFlag ? [...COMPACT_FIELDS] : [])
-  if (fieldList.length === 0) return thought
+  if (fieldList.length === 0) return hygienicThought(t)
   const out: Record<string, unknown> = {}
   const seen = new Set<string>()
   for (const f of fieldList) {
@@ -268,14 +299,11 @@ export function shapeThought(thought: unknown, compact?: boolean, fields?: unkno
     if (f === 'project') {
       out.project = t.project_name ?? t.project ?? t.project_id
     } else if (Object.hasOwn(t, f)) {
-      let v = t[f]
-      if (compactFlag && f === 'tags') v = stringifyTags(v)
-      out[f] = v
+      out[f] = hygienicValue(f, t[f])
     }
   }
   return out
 }
-
 
 /**
  * Shape a thought chain (best_match neighbourhood) for compact/fields output.

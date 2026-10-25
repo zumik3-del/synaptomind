@@ -43,7 +43,7 @@ describe("search degraded path (embedder unavailable)", () => {
 	test("getContextService degraded path reports degraded:true", async () => {
 		seedThought({ content: "degraded context marker beta" });
 
-		const ctx = await getContextService("degraded context marker", 3);
+		const ctx = await getContextService("degraded context marker", { maxDegree: 3 });
 
 		expect(ctx).not.toBeNull();
 		expect(ctx!.degraded).toBe(true);
@@ -51,7 +51,7 @@ describe("search degraded path (embedder unavailable)", () => {
 	});
 
 	test("getContextService degraded path (no matches) surfaces degraded without null", async () => {
-		const ctx = await getContextService("zzzznomatchtoken-degraded", 3);
+		const ctx = await getContextService("zzzznomatchtoken-degraded", { maxDegree: 3 });
 
 		expect(ctx).not.toBeNull();
 		expect(ctx!.degraded).toBe(true);

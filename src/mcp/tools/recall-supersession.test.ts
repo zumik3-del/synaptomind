@@ -58,10 +58,16 @@ function seedSupersededPair(): { oldThought: string; newThought: string } {
   return { oldThought, newThought }
 }
 
+// A fresh test DB registers no project for this path, so the answer keeps the
+// global scope while still satisfying the hard-cwd contract. `compact: false`
+// is what puts standing/superseded_by beside each thought (the envelope keeps
+// them out of the default minimal hit).
+const UNSCOPED_CWD = '/tmp/mcp-unscoped'
+
 async function recallSupersession(extra: Record<string, unknown> = {}) {
   const result = await client.callTool({
     name: 'memory_recall',
-    arguments: { action: 'search', query: QUERY, limit: 10, ...extra }
+    arguments: { action: 'search', query: QUERY, limit: 10, cwd: UNSCOPED_CWD, compact: false, ...extra }
   })
   return parseResult(result)
 }
@@ -72,7 +78,7 @@ describe('memory_recall supersession contract', () => {
 
     const { data, isError } = await recallSupersession()
     expect(isError).toBe(false)
-    const ids = (data as Array<{ thought: { id: string } }>).map(r => r.thought.id)
+    const ids = (data.items as Array<{ thought: { id: string } }>).map(r => r.thought.id)
     expect(ids).toContain(newThought)
     expect(ids).not.toContain(oldThought)
   })
@@ -82,7 +88,7 @@ describe('memory_recall supersession contract', () => {
 
     const { data, isError } = await recallSupersession({ supersession_mode: 'flag' })
     expect(isError).toBe(false)
-    const old = (data as Array<{ thought: { id: string }; standing?: string; superseded_by?: string[] }>).find(
+    const old = (data.items as Array<{ thought: { id: string }; standing?: string; superseded_by?: string[] }>).find(
       r => r.thought.id === oldThought
     )
     expect(old).toBeDefined()
@@ -95,7 +101,7 @@ describe('memory_recall supersession contract', () => {
 
     const { data, isError } = await recallSupersession({ supersession_mode: 'off' })
     expect(isError).toBe(false)
-    const old = (data as Array<{ thought: { id: string }; standing?: string; superseded_by?: string[] }>).find(
+    const old = (data.items as Array<{ thought: { id: string }; standing?: string; superseded_by?: string[] }>).find(
       r => r.thought.id === oldThought
     )
     expect(old).toBeDefined()
@@ -110,7 +116,7 @@ describe('memory_recall supersession contract', () => {
 
     const { data, isError } = await recallSupersession()
     expect(isError).toBe(false)
-    const results = data as Array<{ thought: { id: string }; standing?: string }>
+    const results = data.items as Array<{ thought: { id: string }; standing?: string }>
     expect(results.find(r => r.thought.id === a)?.standing).toBe('contradicted')
     expect(results.find(r => r.thought.id === b)?.standing).toBe('contradicted')
   })

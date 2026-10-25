@@ -22,10 +22,43 @@ bun run eval --real --update-baseline  # record/refresh the real-mode baseline
 Exit code is non-zero **only** on a threshold regression (or a failed assertion in
 a non-xfail scenario). Scenarios marked `xfail` are reported but never fail the run.
 Metric gating applies per mode: the `deterministic` baseline gates `bun run eval`,
-and the recorded `real` baseline gates `bun run eval --real`.
+and the recorded `real` baseline gates `bun run eval --real`. The report-only
+gated pass (see below) never affects the exit code.
 
 The JSON report is written to `eval/report.json` (gitignored) and contains every
 scenario, query, retrieved id, metric and the regression list.
+
+### Report-only gated pass
+
+Every run executes the scenarios twice. The first pass is the measurement above
+(ungated, `minRelevance: 0`, comparable to the recorded baselines). The second
+pass replays the same scenarios with the relevance gate the production search
+service applies when a caller omits `min_relevance` — nothing is pinned, the
+service resolves its own default (`DEFAULT_MIN_RELEVANCE`, `0.4` today; the
+harness reports the value it actually resolved).
+
+The gated pass is printed after the main table as a side-by-side comparison
+(recall / precision / MRR per scenario, then overall) with a header line naming
+the gate value and the number of rows it dropped:
+
+```
+Relevance gate pass (report-only — never gates the exit code, thresholds or regressions)
+  gate: minRelevance=0.400 (production default) — dropped 117 of 152 candidate rows across 16/16 queries
+```
+
+`gated` rows are the survivors the gate kept; the dropped count is the service's
+own `filtered_out` bookkeeping, so a recall loss under the gate is attributable
+to a specific scenario instead of appearing as an unexplained dip. Both passes
+land in the JSON report: the top level stays the ungated pass (plus
+`relevanceGate`: `{ minRelevance, candidates, droppedRows, queriesWithDrops }`),
+and the gated pass is the nested `gated` object with the same shape.
+
+**The gated pass never gates.** It feeds neither `regressions` nor the exit
+code, and `--update-baseline` still records the ungated numbers only. This is
+deliberate visibility-first sequencing: gating on the gate would need its own
+baseline (a separate `gated`/`relevanceGate` threshold entry keyed by mode, so
+the recorded value carries the `minRelevance` it was measured at) and a decision
+on the tolerated recall delta per category before any floor is recorded.
 
 ### Modes
 
