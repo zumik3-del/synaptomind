@@ -30,8 +30,6 @@ import {
   updateProposalState,
   type InsertProposalInput,
   type PlacementProposalRow,
-  type ProposalState,
-  type StoredProposalItemKind
 } from '../db/placement-proposals'
 import { getThoughtRow } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
@@ -46,10 +44,26 @@ import {
   proposalExpiry,
   toItemKey
 } from './placement-proposals.mapping'
+import type {
+  EnqueueOutcome,
+  EnqueuePlanOptions,
+  EnqueueThoughtOptions,
+  ListOptions,
+  RejectOptions
+} from './placement-proposals.types'
+import { clampListLimit, resolveMaxProposalsPerEnqueue } from './placement-proposals.helpers'
 
 export { computeFingerprint, pairFingerprint } from './placement-proposals.mapping'
 export type { FingerprintInput } from './placement-proposals.mapping'
 export { isLegacyItemKind } from '../db/placement-proposals'
+
+export type {
+  EnqueueOutcome,
+  EnqueuePlanOptions,
+  EnqueueThoughtOptions,
+  ListOptions,
+  RejectOptions
+} from './placement-proposals.types'
 
 export function getProposalService(id: string, d: Database = getDb()): PlacementProposalRow | undefined {
   return getProposal(d, id)
@@ -57,115 +71,6 @@ export function getProposalService(id: string, d: Database = getDb()): Placement
 
 export function listAcceptedProposalsByRunService(runId: string, d: Database = getDb()): PlacementProposalRow[] {
   return listAcceptedProposalsByRun(d, runId)
-}
-
-/**
- * The result of one enqueue: the queued rows plus what was *not* queued.
- * `skipped` counts the plan items whose kind the queue no longer supports
- * (task #1942) — `placement` and `lifecycle` — so nothing is lost silently.
- */
-export interface EnqueueOutcome {
-  /** The queued rows — `edge` items only (task #1942). */
-  proposals: PlacementProposalRow[]
-  /** How many plan items were not queued because their kind is no longer supported. */
-  skipped: number
-  /** The skipped kinds and how many of each (`placement`, `lifecycle`). */
-  skipped_kinds: Record<string, number>
-}
-
-export interface EnqueuePlanOptions {
-  /** Clock override for deterministic tests (default now). */
-  now?: string
-  /** Cap on the number of proposals enqueued for this plan (default config.placement.maxProposalsPerEnqueue). */
-  maxProposals?: number
-  max_proposals?: number
-  maxItems?: number
-  max_items?: number
-  maxItemsPerEnqueue?: number
-  max_items_per_enqueue?: number
-  maxProposalsPerEnqueue?: number
-  max_proposals_per_enqueue?: number
-  limit?: number
-}
-
-export interface EnqueueThoughtOptions {
-  /** Project scope for neighbour recall (defaults to the thought's project). */
-  projectId?: string
-  /** Clock override for deterministic tests (default now). */
-  now?: string
-  /** Cap on the number of proposals enqueued for this thought (default config.placement.maxProposalsPerEnqueue). */
-  maxProposals?: number
-  max_proposals?: number
-  maxItems?: number
-  max_items?: number
-  maxItemsPerEnqueue?: number
-  max_items_per_enqueue?: number
-  maxProposalsPerEnqueue?: number
-  max_proposals_per_enqueue?: number
-  limit?: number
-}
-
-export interface ListOptions {
-  /** State filter; defaults to live `pending` rows (ADR §2.2). */
-  state?: ProposalState
-  projectId?: string
-  project_id?: string
-  /** Optional item-kind filter; a removed kind still filters (tasks #1942, #1946). */
-  itemKind?: StoredProposalItemKind
-  item_kind?: StoredProposalItemKind
-  /** Optional source-thought filter (queued proposals of one source thought). */
-  sourceThoughtId?: string
-  source_thought_id?: string
-  /** Optional lower bound on created_at (ISO; inclusive). */
-  createdAfter?: string
-  created_after?: string
-  limit?: number
-  /** Clock override for the expired-row filter (default now). */
-  now?: string
-  /** When true, retired (legacy) kinds are included even without an explicit item_kind. */
-  includeRetired?: boolean
-  include_retired?: boolean
-}
-
-export interface RejectOptions {
-  /** Agent/tool that rejected the item (audit, ADR §2.8). */
-  decidedBy?: string
-  now?: string
-}
-
-/**
- * Enqueue every confirmable item of `plan` (ADR §2.2–2.4). Only the plan's
- * `edge` items are queued (task #1942); the items of a removed kind are
- * reported in the outcome's `skipped` counter. Re-enqueueing the same item
- * refreshes the live pending row (dedup via `insertProposal`); enqueueing a
- * *new* item while `maxPendingProposals` live rows exist throws. Drafts cannot
- * be enqueued (ADR OQ-2) — the thought must be persisted first, and it must be
- * `active`: a draft gets no edge proposals.
- */
-/** Resolve the per-enqueue proposal cap from options/config (first defined wins). */
-function resolveMaxProposalsPerEnqueue(options: EnqueuePlanOptions | EnqueueThoughtOptions = {}): number {
-  const o = options as Record<string, unknown>
-  const candidates = [
-    o.maxProposals, o.max_proposals, o.maxItems, o.max_items,
-    o.maxItemsPerEnqueue, o.max_items_per_enqueue,
-    o.maxProposalsPerEnqueue, o.max_proposals_per_enqueue, o.limit
-  ]
-  for (const c of candidates) {
-    if (c !== undefined && c !== null && Number.isFinite(c as number)) {
-      return Math.max(1, Math.floor(c as number))
-    }
-  }
-  const cfg = config.placement as Record<string, unknown>
-  const cfgCandidates = [
-    cfg.maxProposalsPerEnqueue, cfg.maxProposals, cfg.maxItemsPerEnqueue, cfg.maxItemsPerRun,
-    (config.edgeDetect as Record<string, unknown>)?.maxProposals
-  ]
-  for (const c of cfgCandidates) {
-    if (c !== undefined && c !== null && Number.isFinite(c as number)) {
-      return Math.max(1, Math.floor(c as number))
-    }
-  }
-  return 5
 }
 
 export function enqueuePlanService(
@@ -280,25 +185,6 @@ export async function enqueueThoughtProposals(
   return enqueuePlanService(plan, { now: options.now, maxProposals: maxPerEnqueue }, d)
 }
 
-/** Default and hard ceiling of the `list` page size (matches the MCP schema). */
-const DEFAULT_LIST_LIMIT = 100
-const MAX_LIST_LIMIT = 1000
-
-/**
- * Clamp a caller-supplied page size into `1..1000`. Without this an unbounded or
- * negative value reaches SQLite, where `LIMIT -1` means *no limit* and `LIMIT 0`
- * returns nothing — so one request could read the whole queue.
- */
-function clampListLimit(limit: number | undefined): number {
-  if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIST_LIMIT
-  return Math.min(MAX_LIST_LIMIT, Math.max(1, Math.floor(limit)))
-}
-
-/**
- * List proposals newest first (ADR §2.2, §2.9). Defaults to live `pending`
- * rows and drops pending rows whose `expires_at` has passed, so terminal and
- * expired proposals are excluded unless an explicit `state` is requested.
- */
 export function listPlacementProposalsService(options: ListOptions = {}, d: Database = getDb()): PlacementProposalRow[] {
   const state = options.state ?? 'pending'
   const now = options.now ?? new Date().toISOString()
@@ -330,10 +216,6 @@ export function listPlacementProposalsService(options: ListOptions = {}, d: Data
   return result
 }
 
-/**
- * Transition a live `pending` proposal to `rejected` (ADR §2.2). Terminal rows
- * cannot be rejected again; unknown ids throw `NotFoundError`.
- */
 export function rejectPlacementProposalService(proposalId: string, options: RejectOptions = {}, d: Database = getDb()): PlacementProposalRow {
   const existing = getProposal(d, proposalId)
   if (!existing) throw new NotFoundError(`placement proposal '${proposalId}' not found`)
@@ -349,13 +231,6 @@ export function rejectPlacementProposalService(proposalId: string, options: Reje
   return updated
 }
 
-/**
- * Read-time staleness check (ADR §2.3): recompute the fingerprint from the
- * current graph snapshot and compare it to the one stored at enqueue. A
- * missing source/target, a changed `updated_at`/`status`, or a newly appeared
- * edge on the pair all make the proposal stale — a vanished row fingerprints
- * with empty fields, which never matches the stored snapshot.
- */
 export function isProposalStale(row: PlacementProposalRow, d: Database = getDb()): boolean {
   return pairFingerprint(d, row.source_thought_id, row.target_id) !== row.fingerprint
 }
