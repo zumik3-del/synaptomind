@@ -1,3 +1,9 @@
+> **Migration note (next release):** every MCP action now answers in one response envelope —
+> `{ items, meta }` for collections, `{ item, meta }` for single objects — `cwd` is required for
+> the eight project-scoped actions, and an id-shaped `query` resolves that thought directly. See
+> the **Migration notes (response envelope, hard cwd, id lookup)** section at the end of this
+> document for the full list of breaking changes.
+>
 > **Migration note (v0.19):** The `project_id` MCP tool argument was removed. Pass `cwd` (working directory) instead; SynaptoMind resolves the project from it. Supplying `project_id` now fails input validation with "project_id was removed; use cwd". See the **Migration notes (v0.19 MCP UX cleanup)** section at the end of this document for the full list (compact defaults, preview tokens, `edge_review` canonical keys, retired inputs).
 
 # MCP Tools Reference
@@ -16,7 +22,7 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 | Tool | Actions | Purpose |
 |---|---|---|
 | `memory_recall` | search, get, context, chain, clusters, list | Find and retrieve thoughts (list = paginated inventory) |
-| `memory_store` | create, update, link, link_batch, unlink, unlink_batch, retype | Write, connect and edit thoughts |
+| `memory_store` | create, update, link, link_batch, unlink, unlink_batch, retype, bulk_create | Write, connect and edit thoughts |
 | `memory_supersede` | archive, archive_batch, merge | Version and supersede thoughts |
 | `memory_status` | slots, frontier, config, health, propose | Query system state |
 | `memory_manage` | list, create, update, delete, resolve | Project management |
@@ -27,43 +33,126 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 | `memory_primers` | list, delete | Manage the always-at-hand set (primers) |
 | `memory_guide` | (no action) | In-band reference text |
 
-## Dry-run / confirm pattern
+## Response envelope
 
-Every destructive action — `memory_store` `unlink` and `retype`, `memory_supersede` `archive`,
-`archive_batch` and `merge`, `memory_manage action=delete`, `edge_review` (`apply`/`apply_batch`/`rollback`),
-`memory_primers action=delete`, and
-`memory_crystallize action=auto_cluster` — follows the same two-step
-pattern:
+Every action answers in one envelope (`src/mcp/tools/envelope.ts`):
 
-- **Preview (default).** `confirm` is absent or `false`. The tool returns its action-specific,
-  non-mutating preview payload (where applicable, `status: "preview"`). Nothing is written.
-- **Execute.** `confirm: true` performs the write and returns a status-specific result.
+- a **collection** action returns `{ "items": [...], "meta": {...} }`;
+- a **single-object** action returns `{ "item": ..., "meta": {...} }` (`item` is `null` when the
+  action legitimately found nothing);
+- `meta` always carries the same keys, whatever the action.
 
-Retired inputs may remain visible in the advertised tool schema as never-valued tombstones.
-Some MCP clients validate arguments against that schema before sending a call, and may reject a
-tombstone at the client schema boundary; such a client-side validation error is not a server
-response and does not necessarily contain the server's migration text. When a call containing a
-retired input reaches the server, invocation validation returns a migration error. Tool
-descriptions identify the supported replacements: recall `top_k` → `limit`, `cluster` →
-`is_cluster`; status `k` → `limit`, `dry_run` → `confirm`; crystallize `dry_run` → `confirm`;
-store link `thought_id` → `source_id`; reflect `goals_delta` → `goals_add` / `goals_remove`;
-review enqueue `max_items` → `max_proposals`. `memory_store.is_profile` has no replacement:
-remove the field from requests. Retired names are not accepted aliases.
+The envelope is the payload of the wire envelope described in
+[Wire envelope](#wire-envelope): a client reads it from `structuredContent.result` (or from
+`content[].text` for the two raw-text actions).
 
-## Result and error envelopes
+### `meta`
+
+| Key | Type | Description |
+|---|---|---|
+| `action` | string | The action that produced the answer (`search`, `slots`, `link_batch`, ...) |
+| `scope` | object \| null | Resolved project scope, or `null` for actions that are not project-scoped |
+| `counts` | object | Row accounting (see below) |
+| `degraded` | boolean | `true` when the answer is degraded (semantic leg down, missing best match) |
+| `warnings` | string[] | Non-fatal notes; empty when there are none |
+| `reason` | string | Optional: why the answer is empty — `no_match`, `id_not_found`, `ambiguous_id` |
+| `preview` | object | Optional: present only when the answer previews a destructive write |
+
+`scope` reports the project `cwd` resolved to:
+
+```json
+{ "project": "01a172b4-d49b-76f4-ada8-7ba408661064", "project_name": "Doc Probe", "global": false }
+```
+
+- `project` is the project id and `project_name` its display name;
+- `global: true` with `project: null` means the answer spans every project — either the action is
+  not project-scoped, or `cwd` names a path that is not registered (then `warnings` carries a
+  `cwd "..." matches no known project` note). The call still succeeds; it just is not narrowed.
+
+`counts` always carries three shared keys plus whatever the action can report:
+
+| Key | Description |
+|---|---|
+| `total` | Rows the action considered (search: post-filter candidates; list: the un-paged count) |
+| `returned` | Rows in `items`, or `1`/`0` for a single `item` |
+| `filtered_out` | Rows deliberately dropped from `total` (relevance gate, paging, retired proposal kinds) |
+
+Action-specific counters sit beside them (`link_batch` → `linked`/`failed`; `archive_batch` →
+`archived`/`failed`; `retention_review` list → `limit`/`offset`; `edge_review` list →
+`retired_count`; `graph` → `edges`; `cluster` → `members`/`edges`), so a caller never has to count
+`items` itself.
+
+`reason` is present only when "nothing" is not the ordinary case:
+
+| Value | Meaning |
+|---|---|
+| `no_match` | The action considered nothing — a search that matched no candidate, a context lookup without a best match |
+| `id_not_found` | An id-shaped search query addressed no thought (never a fallback to other rows) |
+| `ambiguous_id` | An id prefix addressed several thoughts; `items` carries all of them |
+
+A result set emptied by the relevance gate keeps **no** `reason`: it shows up as
+`counts.filtered_out > 0` instead, so a caller can tell "nothing matched" from "everything was
+gated out".
+
+### The `memory_crystallize action=graph` exception
+
+A graph is two collections, not one, so this is the single documented exception to
+`item`/`items`: the nodes are `items` and the edges ride beside them in a named `edges` field
+(`src/mcp/tools/crystallize/graph.ts`):
+
+```json
+{
+  "items": [
+    { "id": "01a172b6-5dfc-73e5-b28e-91236675b273", "label": "MCP_DOC_MARKER: the envelope example thought", "title": "MCP_DOC_MARKER: the envelope example thought", "group": "test", "tags": [], "category": "concept", "status": "active", "is_cluster": false, "project_name": "Doc Probe" }
+  ],
+  "edges": [
+    { "id": "01a172b6-5dfd-7207-98e9-e76a296474fd", "source": "01a172b6-5dfc-73e5-b28e-91236675b273", "target": "01a172b6-5dfc-73e6-b63a-ded850ebfd9b", "type": "supports" }
+  ],
+  "meta": {
+    "action": "graph",
+    "scope": { "project": "01a172b6-5dfa-754c-b67e-a0a2f5915d96", "project_name": "Doc Probe", "global": false },
+    "counts": { "edges": 1, "total": 4, "returned": 4, "filtered_out": 0 },
+    "degraded": false,
+    "warnings": []
+  }
+}
+```
+
+### Preview metadata
+
+A non-mutating preview answer is marked in `meta.preview`; an executed answer carries no
+`preview` key at all:
+
+| Key | Description |
+|---|---|
+| `token` | Token the confirm call must send back; `null` for the tokenless previews (`unlink_batch`, `retention_review` `compact`) |
+| `destructive` | Always `true` — confirming this answer writes to the graph |
+| `consequence` | What confirming would do, in one sentence (where the action has one) |
+| `instruction` | The exact call that confirms this preview (where the action phrases one) |
+
+A single-object preview also keeps `status: "preview"`, `preview_token`, `consequence` and
+`instruction` **inside `item`**; a collection preview keeps them only in `meta.preview`, because
+the batch rows in `items` already carry their own per-row status.
+
+## Wire envelope
 
 Every tool declares the same output shape, `{ result: <payload> }` (`toolOutputShape`,
 `src/mcp/tools/utils.ts:12`). A successful action returns that payload in `structuredContent.result`
 mirroring the JSON in `content[].text` (`jsonResult`, `src/mcp/tools/utils.ts:14-22`).
-Bare string payloads (config, guide) are wrapped as `{ text: string }` so no action ever
-returns a bare string in `result`; arrays and objects pass through unchanged.
+Bare string payloads are wrapped as `{ text: string }` so no action ever returns a bare string in
+`result`; arrays and objects pass through unchanged.
 
-Two encodings coexist. Raw-text tools (`memory_status` action=config, `memory_guide`) keep the
-human-readable payload in `content[].text` verbatim and report `structuredContent.result = { text }`,
-so `content[].text` is **not** `JSON.stringify(result)` for those two. Every other tool goes through
-`jsonResult`, where `content[].text = JSON.stringify(payload)` and `result = payload`; a string passed
-to `jsonResult` is wrapped to `{ text }` and its `content[].text` becomes the JSON
-`{"text":"..."}`.
+Two encodings coexist. `memory_guide` is the one raw-text tool: it keeps the human-readable
+payload in `content[].text` verbatim and reports `structuredContent.result = { text }`, so
+`content[].text` is **not** `JSON.stringify(result)` there. `memory_status action=config` keeps its
+display text verbatim in `content[].text` too, but wraps it in the standard envelope as
+`result = { item: { text }, meta }`. Every other tool goes through `jsonResult`, where
+`content[].text = JSON.stringify(payload)` and `result = payload`; a string passed to `jsonResult`
+is wrapped to `{ text }` and its `content[].text` becomes the JSON `{"text":"..."}`.
+
+`memory_status action=config` therefore carries the configuration display as raw text in
+`content[].text` and the same string as `structuredContent.result.item.text`, with the standard
+envelope `meta` beside it (`src/mcp/tools/status/config.ts`).
 
 An action failure returns `isError: true` with the human-readable message in `content[].text`. When
 the failure carries a domain status code, the classification is additionally mirrored into
@@ -95,10 +184,45 @@ the failure carries a domain status code, the classification is additionally mir
 A client should re-issue the identical request only when `retryable` is `true`; otherwise the
 failure is a bad request and repeating it will not help.
 
+## Working directory (`cwd`)
+
+`cwd` is the **required** scope argument of every project-scoped MCP action:
+
+| Tool | Actions requiring `cwd` |
+|---|---|
+| `memory_recall` | `search`, `clusters`, `list` |
+| `memory_status` | `slots`, `frontier`, `propose` |
+| `memory_reflect` | `reflect`, `timeline` |
+
+The other actions either address their rows by id (`get`, `chain`, `unlink`, `archive`, ...) or are
+global by design (`health`, `config`, `primers`, `crystallize auto_cluster`), so they take no
+`cwd`.
+
+A call that omits it — or passes an empty string — is rejected before anything runs
+(`requireCwd`, `src/mcp/tools/envelope.ts:182-188`):
+
+```json
+{
+  "error": {
+    "message": "cwd is required for memory_recall action=search: pass the project working directory (the repository root) so the answer stays inside one project — a call without cwd would search every project. Run memory_manage action=resolve with that path first if the project is not registered yet.",
+    "statusCode": 400,
+    "retryable": false
+  }
+}
+```
+
+`cwd` is optional for `memory_recall context` (it scopes the query path when given; an
+id-addressed context lookup is project-free) and for every write action, which lands in the
+project `cwd` resolves to (or the default project when `cwd` is absent). An unknown path is never
+an error: it yields `scope.global: true` plus a warning, and the action answers across projects.
+
+The HTTP API is deliberately different — `cwd` stays optional there and `project_id` remains its
+filter (see [API.md](API.md)).
+
 ## Compact output and field selection
 
 Read tools (`memory_recall`, `memory_status`, `memory_crystallize`, `memory_manage`,
-`retention_review`) accept two output controls:
+`retention_review`) accept two output controls, applied to the thought objects inside `item`/`items`:
 
 - `compact: true` — trims each thought to the minimal field set
   `{ id, content, status, tags (as strings), project }`.
@@ -108,11 +232,15 @@ Read tools (`memory_recall`, `memory_status`, `memory_crystallize`, `memory_mana
 Examples:
 
 ```json
-{ "action": "list", "compact": true }
-{ "action": "list", "fields": ["id", "content"] }
-{ "action": "get", "thought_id": "thought-a", "compact": true }
-{ "action": "search", "query": "marker", "compact": true }
+{ "action": "list", "compact": true, "cwd": "/path/to/project" }
+{ "action": "list", "fields": ["id", "content"], "cwd": "/path/to/project" }
+{ "action": "get", "thought_id": "01a172b4-d486-700c-a16e-5ae3d2d77a90", "compact": true }
+{ "action": "search", "query": "marker", "compact": true, "cwd": "/path/to/project" }
 ```
+
+Output hygiene applies to every shaped thought, compact or not: `tags` are plain strings (never
+`{ id, name }`), and the storage 0/1 columns `is_protected`, `is_global`, `is_cluster` and
+`is_profile` are booleans (`src/mcp/tools/utils.ts`, `shapeThought`).
 
 Compact defaults (v0.19 MCP UX cleanup):
 
@@ -126,61 +254,239 @@ Compact defaults (v0.19 MCP UX cleanup):
 
 Explicit `fields` always take precedence over `compact` on every tool.
 
+## Dry-run / confirm pattern
+
+Every destructive action — `memory_store` `unlink` and `retype`, `memory_supersede` `archive`,
+`archive_batch` and `merge`, `memory_manage action=delete`, `edge_review` (`apply`/`apply_batch`/`rollback`),
+`memory_primers action=delete`, `memory_crystallize action=auto_cluster`, and
+`retention_review action=delete` — follows the same two-step pattern:
+
+- **Preview (default).** `confirm` is absent or `false`. Nothing is written: the answer carries
+  `meta.preview` (token, `destructive: true`, consequence, instruction) and, for a single-object
+  action, `status: "preview"` inside `item`.
+- **Execute.** `confirm: true` performs the write and returns an executed answer with no
+  `meta.preview`.
+
+Two destructive actions take no token — `memory_store action=unlink_batch` and
+`retention_review action=compact` — their preview answers `meta.preview.token: null`.
+
+Retired inputs may remain visible in the advertised tool schema as never-valued tombstones.
+Some MCP clients validate arguments against that schema before sending a call, and may reject a
+tombstone at the client schema boundary; such a client-side validation error is not a server
+response and does not necessarily contain the server's migration text. When a call containing a
+retired input reaches the server, invocation validation returns a migration error. Tool
+descriptions identify the supported replacements: recall `top_k` → `limit`, `cluster` →
+`is_cluster`, `mode` → `hybrid`; status `k` → `limit`, `dry_run` → `confirm`; crystallize `dry_run` → `confirm`;
+store link `thought_id` → `source_id`; reflect `goals_delta` → `goals_add` / `goals_remove`;
+review enqueue `max_items` → `max_proposals`. `memory_store.is_profile` has no replacement:
+remove the field from requests. Retired names are not accepted aliases.
+
 ## `memory_recall` — finding and retrieving thoughts
+
+### `action=search`
+
+Hybrid (RRF) / vector search. Arguments: `query` (required), `cwd` (required), `hybrid` (boolean,
+default true: RRF fusion of the vector and BM25 legs; false = vector leg only), `status` (default
+active), `tag`, `is_cluster`, `group_by_cluster`, `min_importance`, `limit`, `min_relevance`,
+`recency_weight`, `recency_half_life_days`, `supersession_mode`, `contradiction_mode`.
+
+Result: `{ items, meta }`. Each item is `{ thought }` — plus the safety annotations that apply and,
+behind `compact: false`, the ranking metadata:
+
+| Item key | When | Description |
+|---|---|---|
+| `thought` | always | The (shaped) thought |
+| `standing` | always unless it is `current`; `compact: false` always | `superseded` or `contradicted` |
+| `superseded_by` | when it applies | Ids of the thoughts that replace this one |
+| `contradicted_by` | when it applies | Ids of the thoughts that contradict this one |
+| `low_confidence` | when it applies; `compact: false` always | `true` for a weak vector-only hit |
+| `scores` | `compact: false` only | `{ similarity, distance, rrf_score, bm25_score, relevance, recency_score, final_score }` — only the keys that apply |
+| `match_source` | `compact: false` only | `embedding`, `bm25`, `id` |
+
+The safety annotations are never hidden by the default compact output: a superseded, contradicted
+or low-confidence hit must not look clean because the caller used the default. `meta.counts.total`
+is the number of candidates that survived scope/tag/standing filtering, `filtered_out` the rows the
+relevance gate dropped, and `returned` the rows in `items` after the `limit` slice.
+
+A compact hit is `{ "thought": { ... } }`; `meta` is the envelope meta described above:
+
+```json
+{
+  "thought": {
+    "id": "01a172b6-5dfc-73e5-b28e-91236675b273",
+    "content": "MCP_DOC_MARKER: the envelope example thought",
+    "status": "active",
+    "tags": [],
+    "project": "Doc Probe"
+  }
+}
+```
+
+#### Id lookup
+
+A `query` that is a thought id resolves that thought directly, without touching the embedding or
+BM25 legs (`src/db/search-id.ts`, `src/services/search-outcome.ts`):
+
+- **Shape.** A full UUID (32 hex digits, hyphens optional, case-insensitive) or a hex **prefix of
+  at least 8 characters**. `01a172b4` and `01A172B4-ebd5` address the same prefix.
+- **Scope.** An explicit id is an explicit reference: the lookup ignores `status`, `cwd`
+  (project), `tag`, `is_cluster` and `min_importance`, skips the standing suppression and the
+  relevance gate, and never falls back to other rows. `meta.scope` still reports what `cwd`
+  resolved to, but the rows are not filtered by it.
+- **Hits.** Each hit carries `match_source: ["id"]` and `low_confidence: false`; `relevance` is
+  absent, because an id has no cosine scale.
+- **Several.** A prefix that addresses more than one thought returns them all in `items`, in id
+  order, with `meta.reason: "ambiguous_id"`. It is not an error — narrow the prefix or pass the
+  full id.
+- **None.** `items: []` with `meta.reason: "id_not_found"`.
+
+```json
+{
+  "items": [
+    { "thought": { "id": "cafebabe-0000-7000-8000-000000000001", "content": "first ambiguous id thought", "status": "active", "tags": [], "project": "Doc Probe" } },
+    { "thought": { "id": "cafebabe-0000-7000-8000-000000000002", "content": "second ambiguous id thought", "status": "active", "tags": [], "project": "Doc Probe" } }
+  ],
+  "meta": {
+    "action": "search",
+    "scope": { "project": "01a172b6-5dfa-754c-b67e-a0a2f5915d96", "project_name": "Doc Probe", "global": false },
+    "counts": { "total": 2, "returned": 2, "filtered_out": 0 },
+    "degraded": false,
+    "warnings": [],
+    "reason": "ambiguous_id"
+  }
+}
+```
+
+```json
+{
+  "items": [],
+  "meta": {
+    "action": "search",
+    "scope": { "project": "01a172b6-5dfa-754c-b67e-a0a2f5915d96", "project_name": "Doc Probe", "global": false },
+    "counts": { "total": 0, "returned": 0, "filtered_out": 0 },
+    "degraded": false,
+    "warnings": [],
+    "reason": "id_not_found"
+  }
+}
+```
+
+Anything else — a word, a shorter hex run — is an ordinary query and flows through the semantic
+and lexical legs.
+
+#### Calibrated `relevance` and the default gate
+
+The raw e5-small cosine scale is compressed, so a raw similarity is not a usable threshold. Each
+vector-leg hit therefore also carries a calibrated `relevance` in `[0, 1]`
+(`calibrateRelevance`, `src/services/text-similarity.ts`):
+
+```
+relevance = clamp01((similarity - unrelatedFloor) / (vectorFloor - unrelatedFloor))
+```
+
+with `search.confidence.unrelatedFloor = 0.8` (measured zero point) and
+`search.confidence.vectorFloor = 0.9` (a strong match) as defaults
+([CONFIG.md](CONFIG.md#search)). On the defaults:
+
+| Raw similarity | Calibrated `relevance` |
+|---|---|
+| 0.80 | 0.0 |
+| 0.82 | 0.2 |
+| 0.84 | 0.4 |
+| 0.86 | 0.6 |
+| 0.88 | 0.8 |
+| 0.90 and above | 1.0 |
+
+The measurement behind those two floors (task #2178, 200 sampled thoughts, 20 unrelated queries,
+real e5-small embedder): unrelated query/thought pairs reach p50 0.7627, p95 0.8002, max 0.8355,
+and the per-query maximum of unrelated hits reaches 0.8319 (p95) / 0.8355 (max); the p99 of
+self-relevant similarity is 0.8435.
+
+The default noise gate is **0.4 on that calibrated scale** (a raw similarity of 0.84,
+`DEFAULT_MIN_RELEVANCE` in `src/services/search-normalize.ts`): it clears every unrelated pair
+observed in the measurement while dropping 2 of 200 self-relevant top-1 hits.
+
+- A row with a lexical (BM25) anchor or an id is **never** gated; only cosine-only rows must clear
+  the bar.
+- `min_relevance: 0` turns the gate off and restores the pre-#2178 fail-open result set.
+- `min_relevance: <0–1>` overrides the threshold on the calibrated scale.
+- The gate runs after standing annotation and before the `limit` slice; the candidate pool is
+  over-fetched so gated rows are backfilled. Drops appear as `counts.filtered_out`, not as a
+  `reason`.
+
+`degraded: true` means a leg of the search was unavailable (for example the embedder is down); the
+answer is still the best available one.
+
+### `action=get`
+
+Fetch one thought by `thought_id`. Result: `{ item, meta }` where `item` is the shaped thought.
+Pass `include_edges: true` to return incident edges inline (`upstream`/`downstream`, each with the
+edge and its thought); edges are not thought columns, so `compact`/`fields` shape the thoughts
+inside them but never remove the edge lists. A missing id fails with a `404` error envelope.
+
+### `action=context` / `action=chain` / `action=clusters`
+
+`context` returns one thought plus its neighbourhood: `{ item: { thought, chain }, meta }`, where
+`chain` carries `upstream`/`downstream`. It accepts a text `query` (best match + its chain; `cwd`
+scopes the query path when given) or a `thought_id` (that thought + its chain, no project scope).
+A degraded query with no best match answers `item: null` with `meta.reason: "no_match"` instead of
+throwing.
+
+`chain` walks a parent/develops chain: `{ item: { thought, upstream, downstream }, meta }`;
+`max_degree` bounds chain/context traversal and is distinct from `limit`, which caps returned
+results. `clusters` is a cluster-only search: `{ items, meta }` of search items, `cwd` required.
 
 ### `action=list`
 
-Paginated inventory of thoughts without a search query. Use this to enumerate by status,
-project, tag, or cluster flag — the tool that makes bulk triage and cleanup possible.
+Paginated inventory of thoughts without a search query. `cwd` is required.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `status` | enum | no | `draft`, `active`, or `archived` (default: all) |
-| `cwd` | string | no | Resolve project from working directory |
+| `status` | enum | no | `draft`, `active`, `archived`, or `all` (default: all) |
+| `cwd` | string | yes | Resolve the project scope |
 | `tag` | string | no | Restrict to thoughts carrying this tag |
 | `is_cluster` | boolean | no | `true` = only clusters, `false` = only non-clusters |
 | `limit` | integer | no | Page size (1–500, default 50) |
 | `offset` | integer | no | Skip this many rows (default 0) |
 
-Result: `{ "thoughts": [ { "id", "content", "status", "tags", "project_id", "project_name", "is_cluster", "is_profile", "is_protected", "is_global", "created_at", "updated_at", ... } ], "total": 42, "limit": 50, "offset": 0 }`
-
-`total` is the un-paged count matching the filters, so a caller can page with
-`offset += limit` until `offset >= total`.
-
-Example:
+Result: `{ items, meta }`; `meta.counts.total` is the un-paged count matching the filters and
+`filtered_out` the rows the page did not include, so a caller pages with `offset += limit` until
+`offset >= total`.
 
 ```json
-{ "action": "list", "status": "draft", "limit": 50, "offset": 0 }
+{
+  "items": [
+    { "id": "01a172b6-5dfc-73e5-b28e-91236675b273", "content": "MCP_DOC_MARKER: the envelope example thought", "status": "active", "tags": [], "project": "Doc Probe" }
+  ],
+  "meta": {
+    "action": "list",
+    "scope": { "project": "01a172b6-5dfa-754c-b67e-a0a2f5915d96", "project_name": "Doc Probe", "global": false },
+    "counts": { "total": 4, "returned": 1, "filtered_out": 3 },
+    "degraded": false,
+    "warnings": []
+  }
+}
 ```
 
-### `action=search`
+## `memory_store` — writing thoughts and edges
 
-Hybrid (RRF) / vector search. Key arguments: `query` (required), `hybrid` (boolean, default true: RRF fusion of the vector and BM25 legs; false = vector leg only),
-`status` (default active), `project`, `tag`, `is_cluster`, `min_importance`, `limit`, `min_relevance`,
-`recency_weight`, `recency_half_life_days`, `supersession_mode`, `contradiction_mode`.
-Returns hits with `similarity`/`distance` (embedding leg only), `match_source` (`embedding`/`bm25`/both), `low_confidence`.
+### `action=create` / `action=update`
 
-### `action=get`
-
-Fetch one thought by `thought_id` (full content, tags, project, importance, edges). Pass `include_edges: true` to return incident edges inline (upstream/downstream with type and created_at).
-
-### `action=context` / `action=chain` / `action=clusters`
-
-`context` returns a thought plus its neighbours up to `max_degree` (accepts a text `query` or a
-`thought_id`); `chain` walks a parent/develops chain. `max_degree` bounds chain/context traversal;
-it is distinct from `limit`, which caps returned results. `clusters` lists cluster thoughts and their
-members.
-
-## `memory_store` — edges
+`create` takes `content` (required), `tags`, `status`, `cwd`, `is_protected`, `is_global`,
+`parent_id`, `url_links`; `update` takes `thought_id` (required) plus the fields to change
+(`content`, `tags`, `tags_mode`, `status`, `cwd`, `is_protected`, `is_global`, `surface_after`).
+Both answer `{ item: <shaped thought>, meta }`; `update` on a missing id fails with a `404` error
+envelope.
 
 ### `action=link`
 
 Create an edge between two thoughts. Use canonical endpoint parameters `source_id` and `target_id`;
-the retired `thought_id` alias is rejected with a hint to use `source_id`. A pair carries **one** edge: re-linking the same pair with
-the same type is idempotent for the symmetric types (`related`, `contradicts`), while a directed
-duplicate or a second, different type on the pair is reported as an error — except that a
-`related` placeholder edge is upgraded in place to the specific type you ask for. Constraints: no
-self-loops, and only a cluster thought may carry a `cluster` edge.
+the retired `thought_id` alias is rejected with a hint to use `source_id`. A pair carries **one**
+edge: re-linking the same pair with the same type is idempotent for the symmetric types
+(`related`, `contradicts`), while a directed duplicate or a second, different type on the pair is
+reported as an error — except that a `related` placeholder edge is upgraded in place to the
+specific type you ask for. Constraints: no self-loops, and only a cluster thought may carry a
+`cluster` edge.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -188,14 +494,16 @@ self-loops, and only a cluster thought may carry a `cluster` edge.
 | `target_id` | string | yes | The target thought |
 | `edge_type` | enum | no | One of `related`, `parent`, `develops`, `replaces`, `cluster`, `references`, `depends_on`, `contradicts`, `supports`; default `related` |
 
-**Naming convention.** `source_id`/`target_id` name the pair in both writers: `memory_store`
-`action=link` and `memory_supersede` `action=merge`. The link action requires `source_id` for
-the source side; its retired `thought_id` input is rejected with a hint to use `source_id`.
+Result: `{ item: { id, source_id, target_id, type, created_at }, meta }`.
 
-Example:
+**Naming convention.** `source_id`/`target_id` name the pair in both writers: `memory_store`
+`action=link` and `memory_supersede` `action=merge`.
 
 ```json
-{ "action": "link", "source_id": "thought-a", "target_id": "thought-b", "edge_type": "develops" }
+{
+  "item": { "id": "01a172b4-d4a4-77c6-8a1e-a4d19920ef2b", "source_id": "01a172b4-d486-700c-a16e-5ae3d2d77a90", "target_id": "01a172b4-d486-700d-b4f9-02962e9d2f1c", "type": "supports", "created_at": "2026-10-25T10:56:55.972Z" },
+  "meta": { "action": "link", "scope": null, "counts": { "total": 1, "returned": 1, "filtered_out": 0 }, "degraded": false, "warnings": [] }
+}
 ```
 
 ### `action=link_batch`
@@ -210,20 +518,30 @@ rather than aborting the batch: the accepted items still commit and the failure 
 | `links` | `{source, target, type?}`[] | yes | Edges to create (1–1000 items); `type` defaults to `related` |
 | `edge_type` | enum | no | Ignored — each item carries its own `type` |
 
-Result: `{ "linked": 2, "failed": 1, "errors": [{ "index": 2, "source": "thought-c", "target": "thought-c", "error": "Self-loop edges are not allowed" }] }`
-
-`linked` counts the accepted items (a repeated symmetric edge is an idempotent replay and counts
-too) and `failed` always equals `errors.length`. An empty or over-long `links` array is refused
-with an `isError` envelope before anything runs, so a batch is never applied as a silent prefix.
-
-Example:
+Result: `{ items, meta }` with one row per requested link, in input order
+(`{ index, status, source, target, type?, error? }`) and the aggregate in
+`meta.counts.linked` / `meta.counts.failed`:
 
 ```json
-{ "action": "link_batch", "links": [
-  { "source": "thought-a", "target": "thought-b", "type": "supports" },
-  { "source": "thought-a", "target": "thought-c" }
-] }
+{
+  "items": [
+    { "index": 0, "status": "linked", "source": "01a172b3-ebd5-75ba-8a66-c98fef3e3196", "target": "01a172b3-ebf3-7706-93fc-3f4af59deb28", "type": "supports" },
+    { "index": 1, "status": "failed", "source": "01a172b3-ebd5-75ba-8a66-c98fef3e3196", "target": "01a172b3-ebd5-75ba-8a66-c98fef3e3196", "error": "Edge cannot link a thought to itself (source_id and target_id are the same)" }
+  ],
+  "meta": {
+    "action": "link_batch",
+    "scope": null,
+    "counts": { "linked": 1, "failed": 1, "total": 2, "returned": 2, "filtered_out": 0 },
+    "degraded": false,
+    "warnings": []
+  }
+}
 ```
+
+`linked` counts the accepted items (a repeated symmetric edge is an idempotent replay and counts
+too) and `failed` always equals the number of rows with an `error`. An empty or over-long `links`
+array is refused with an `isError` envelope before anything runs, so a batch is never applied as a
+silent prefix.
 
 ### `action=unlink`
 
@@ -237,29 +555,34 @@ unique), so no `cwd` is required.
 | `edge_id` | string | yes | The edge to delete |
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = delete |
 
-**Preview** (`confirm` absent/`false`):
+**Preview** (`confirm` absent/`false`) — `item` carries the preview, `meta.preview` the gate:
 
 ```json
 {
-  "status": "preview",
-  "edge_id": "edge-123",
-  "edge": { "id": "edge-123", "source_id": "thought-a", "target_id": "thought-b", "type": "contradicts", "created_at": "2026-10-01T12:00:00.000Z" },
-  "consequence": "Removes the 'contradicts' edge between 'thought-a' and 'thought-b'.",
-  "preview_token": "<token>",
-  "instruction": "Call memory_store again with action=unlink, edge_id=edge-123, confirm=true, preview_token=<token> to proceed."
+  "item": {
+    "status": "preview",
+    "edge_id": "01a172b4-d4a4-77c6-8a1e-a4d19920ef2b",
+    "edge": { "id": "01a172b4-d4a4-77c6-8a1e-a4d19920ef2b", "source_id": "01a172b4-d486-700c-a16e-5ae3d2d77a90", "target_id": "01a172b4-d486-700d-b4f9-02962e9d2f1c", "type": "supports", "created_at": "2026-10-25T10:56:55.972Z" },
+    "consequence": "Removes the 'supports' edge between '01a172b4-d486-700c-a16e-5ae3d2d77a90' and '01a172b4-d486-700d-b4f9-02962e9d2f1c'.",
+    "preview_token": "01a172b4-d4a5-7635-9f7a-4263e42f55d6",
+    "instruction": "Call memory_store again with action=unlink, edge_id=01a172b4-d4a4-77c6-8a1e-a4d19920ef2b, confirm=true to proceed."
+  },
+  "meta": {
+    "action": "unlink",
+    "scope": null,
+    "counts": { "total": 1, "returned": 1, "filtered_out": 0 },
+    "degraded": false,
+    "warnings": [],
+    "preview": { "token": "01a172b4-d4a5-7635-9f7a-4263e42f55d6", "destructive": true }
+  }
 }
 ```
 
-A missing edge in preview returns `{ "status": "not_found", "edge_id": "edge-123" }`.
+A missing edge in preview returns `item: { "status": "not_found", "edge_id": "..." }` with no
+`meta.preview`.
 
-**Execute** (`confirm: true`): `{ "status": "deleted", "edge_id": "edge-123" }`, or
-`{ "status": "not_found", "edge_id": "edge-123" }` if it was already gone.
-
-Example:
-
-```json
-{ "action": "unlink", "edge_id": "edge-123", "confirm": true, "preview_token": "<token>" }
-```
+**Execute** (`confirm: true`): `item: { "status": "deleted", "edge_id": "..." }`, or
+`{ "status": "not_found", "edge_id": "..." }` if it was already gone, and no `meta.preview`.
 
 ### `action=unlink_batch`
 
@@ -274,16 +597,25 @@ the whole batch instead of leaving a partial prune behind. Preview mode
 | `edge_ids` | string[] | yes | Edge IDs to delete/preview (1–1000 items) |
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = delete |
 
-Result: `{ "deleted": 2, "preview": 0, "failed": 1, "results": [{ "edge_id": "edge-1", "status": "deleted" }, { "edge_id": "edge-2", "status": "deleted" }, { "edge_id": "missing", "status": "failed", "error": "Edge not found: missing" }] }`
-
-In preview mode each result carries `status: "preview"` plus the edge details and
-`consequence` (mirroring single `unlink`). `failed` always equals the number of
-entries in `errors`.
-
-Example:
+Result: `{ items, meta }`, one row per edge. `meta.counts` carries
+`deleted`/`preview`/`failed`. In preview mode each row carries `status: "preview"` plus the edge
+details and `consequence`, and `meta.preview` reports `token: null` with the confirm instruction
+(this batch issues no token):
 
 ```json
-{ "action": "unlink_batch", "edge_ids": ["edge-1", "edge-2"], "confirm": true }
+{
+  "items": [
+    { "edge_id": "01a172b4-d4a4-77c6-8a1e-a4d19920ef2b", "status": "preview", "edge": { "id": "01a172b4-d4a4-77c6-8a1e-a4d19920ef2b", "source_id": "01a172b4-d486-700c-a16e-5ae3d2d77a90", "target_id": "01a172b4-d486-700d-b4f9-02962e9d2f1c", "type": "supports", "created_at": "2026-10-25T10:56:55.972Z" }, "consequence": "Removes the 'supports' edge between '01a172b4-d486-700c-a16e-5ae3d2d77a90' and '01a172b4-d486-700d-b4f9-02962e9d2f1c'." }
+  ],
+  "meta": {
+    "action": "unlink_batch",
+    "scope": null,
+    "counts": { "deleted": 0, "preview": 1, "failed": 0, "total": 1, "returned": 1, "filtered_out": 0 },
+    "degraded": false,
+    "warnings": [],
+    "preview": { "token": null, "destructive": true, "instruction": "Call memory_store again with action=unlink_batch, edge_ids=[...], confirm=true to proceed." }
+  }
+}
 ```
 
 ### `action=retype`
@@ -298,23 +630,26 @@ only a cluster thought may carry a `cluster` edge).
 | `new_type` | enum | yes | One of: `related`, `parent`, `develops`, `replaces`, `cluster`, `references`, `depends_on`, `contradicts`, `supports` |
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = retype |
 
-**Preview**: `{ "status": "preview", "edge_id": "edge-123", "old_type": "contradicts", "new_type": "supports", "source_id": "thought-a", "target_id": "thought-b", "consequence": "Changes edge type from 'contradicts' to 'supports'.", "preview_token": "<token>" }`
+**Preview**: `item: { status: "preview", edge_id, old_edge_id, old_type, new_type, source_id, target_id, consequence, preview_token }`
+plus the same token in `meta.preview`.
 
-**Execute**: `{ "status": "retyped", "edge_id": "edge-123", "old_type": "contradicts", "new_type": "supports" }`
+**Execute**: `item: { status: "retyped", edge_id, old_edge_id, new_edge_id, old_type, new_type }`.
 
-Errors return an [`isError` envelope](#result-and-error-envelopes): a non-existent edge
+Errors return an [`isError` envelope](#wire-envelope): a non-existent edge
 (`Edge not found`), retyping to the current type (`is already of type`), an invalid type, or a
 cluster-constraint violation.
 
 > **Id note.** Retype is a transactional delete + insert that carries `created_at` over, so
-> the edge gets a **new id**. The response echoes the `edge_id` you passed — re-fetch the
-> edge if you need its new id.
+> the edge gets a **new id**. The executed answer reports both — `old_edge_id` is the id you
+> passed, `edge_id`/`new_edge_id` the fresh one.
 
-Example:
+### `action=bulk_create`
 
-```json
-{ "action": "retype", "edge_id": "edge-123", "new_type": "supports", "confirm": true, "preview_token": "<token>" }
-```
+Create several thoughts in one call (`thoughts[]`, 1–10000 items, in one transaction, `cwd`
+optional); `create_bulk`, `bulk` and `create_batch` are accepted aliases of the same handler.
+Result: `{ items, meta }`, one row per requested thought in input order
+(`{ index, status: "created", thought }` or `{ index, status: "failed", error }`), with
+`meta.counts.created` / `meta.counts.failed`.
 
 ## `memory_supersede` — archiving and merging
 
@@ -336,7 +671,11 @@ the existing thought without re-stamping it. Profile thoughts are protected and 
 | `thought_id` | string | yes | Thought to archive |
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = execute |
 
-Preview returns `{ "status": "preview", "action": "archive", "thought_id": "thought-a", "current_status": "active", "outcome": "would_archive" }`. `outcome` is `not_found`, `already_archived`, `protected`, or `would_archive`. Execution returns `{ "status": "executed", "action": "archive", "result": <thought> }`; missing or protected thoughts fail with an error.
+Preview: `item: { "status": "preview", "action": "archive", "thought_id": "...", "current_status": "active", "outcome": "would_archive", "preview_token": "<token>" }`
+with the token mirrored in `meta.preview`. `outcome` is `not_found`, `already_archived`,
+`protected`, or `would_archive`. Execution answers
+`item: { "status": "executed", "action": "archive", "result": <shaped thought> }`; missing or
+protected thoughts fail with an error.
 
 ### `action=archive_batch`
 
@@ -349,18 +688,31 @@ repeated non-profile IDs after their first occurrence preview as `already_archiv
 | `thought_ids` | string[] | yes | Thoughts to archive (1–1000 items) |
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = execute |
 
-Preview envelope: `{ "status": "preview", "action": "archive_batch", "requested_count": 2, "items": [{ "thought_id": "thought-a", "outcome": "would_archive" }] }`. The `items` array has one entry per requested occurrence, in input order (including duplicate IDs). Confirmed execution wraps the existing aggregate result: `{ "status": "executed", "action": "archive_batch", "result": { "archived": 2, "failed": 1, "errors": [{ "thought_id": "missing-id", "error": "Thought 'missing-id' not found" }] } }`. Execution does not return per-item success records.
-
-`failed` equals `errors.length`; unknown IDs and protected profiles appear in `errors` in input
-order, while successful items contribute to the aggregate `archived` count. Items are processed in
-input order; duplicate IDs are idempotent.
-An empty or over-long array is refused with an `isError` envelope before anything runs.
-
-Example:
+Preview: `items` holds one row per requested occurrence (`{ "thought_id": "...", "outcome": "would_archive" }`),
+`meta.counts` holds one counter per outcome (plus the shared three), and `meta.preview.token` is the
+confirm token.
 
 ```json
-{ "action": "archive_batch", "thought_ids": ["thought-a", "thought-b"] }
+{
+  "items": [
+    { "thought_id": "01a172b4-d486-700c-a16e-5ae3d2d77a90", "outcome": "would_archive" }
+  ],
+  "meta": {
+    "action": "archive_batch",
+    "scope": null,
+    "counts": { "would_archive": 1, "total": 1, "returned": 1, "filtered_out": 0 },
+    "degraded": false,
+    "warnings": [],
+    "preview": { "token": "01a172b4-d4a7-75e3-a3cb-c92314b80e3e", "destructive": true }
+  }
+}
 ```
+
+Confirmed execution answers the same `{ items, meta }` shape with one row per requested occurrence
+(`{ "thought_id": "...", "status": "archived" }` or `{ "thought_id": "...", "status": "failed", "error": "..." }`)
+and `meta.counts.archived` / `meta.counts.failed`. Items are processed in input order; duplicate
+IDs are idempotent. An empty or over-long array is refused with an `isError` envelope before
+anything runs.
 
 ### `action=merge`
 
@@ -379,30 +731,39 @@ bounded list does not promise every edge will transfer.
 | `merged_tags` | string[] | no | Resulting tag set of the target |
 | `cwd` | string | no | Resolve resulting project from working directory (defaults to the target's, then the source's) |
 
-Preview returns `{ "status": "preview", "action": "merge", "outcome": "would_merge", "source": { "id", "status", "edges": [], "source_edge_count": 0, "truncated": false }, "target": { "id", "status" }, "proposed": { "merged_content", "merged_tags", "project_id" }, "effects": { "source_archived": true, "target_updated": false, "replaces_edge_created": true }, "preview_token": "<token>" }`. Missing IDs report `outcome: "not_found"`; an ineligible merge reports `outcome: "ineligible"` and `reason`. `proposed` reflects supplied values; `effects` describes the prospective updates. Execution returns `{ "status": "executed", "action": "merge", "result": { "target": { ... }, "edges_transferred": 2 } }` — `edges_transferred` is the number of
-source edges the target now holds, so a caller can verify the consolidation. Not every source
-edge contributes: one that would collapse into a self-loop (it joined the target to the source),
-a duplicate of a non-symmetric edge the target already has, and a cluster edge the cluster rule
-rejects are dropped and left out of the count. An existing symmetric pair (`related`,
-`contradicts`) does count — the target owns that relation after the merge. The HTTP twin
-(`POST /api/thoughts/:targetId/merge`) is unchanged: it executes immediately without preview or
-confirmation and reports the count under its long-standing name `transferredEdges`. The
-confirmation-first contract applies to MCP only; it does not imply an HTTP API change.
-
-```json
-{ "action": "merge", "source_id": "thought-a", "target_id": "thought-b", "merged_content": "merged claim" }
-```
+Preview: `item` carries `status: "preview"`, `action: "merge"`, `outcome`, `source`
+(`{ id, status, edges, source_edge_count, truncated }`), `target` (`{ id, status }`),
+`proposed`, `effects` (`{ source_archived, target_updated, replaces_edge_created }`) and
+`preview_token`; `meta.preview` mirrors the token. Missing IDs report `outcome: "not_found"`; an
+ineligible merge reports `outcome: "ineligible"` and `reason`. `proposed` reflects supplied
+values; `effects` describes the prospective updates. Execution answers
+`item: { "status": "executed", "action": "merge", "result": { "target": <shaped thought>, "edges_transferred": 2 } }`
+— `edges_transferred` is the number of source edges the target now holds, so a caller can verify
+the consolidation. Not every source edge contributes: one that would collapse into a self-loop
+(it joined the target to the source), a duplicate of a non-symmetric edge the target already has,
+and a cluster edge the cluster rule rejects are dropped and left out of the count. An existing
+symmetric pair (`related`, `contradicts`) does count — the target owns that relation after the
+merge. The HTTP twin (`POST /api/thoughts/:targetId/merge`) is unchanged: it executes immediately
+without preview or confirmation and reports the count under its long-standing name
+`transferredEdges`. The confirmation-first contract applies to MCP only; it does not imply an HTTP
+API change.
 
 ## `memory_crystallize` — clusters
 
-Three actions, all read-mostly: `graph` (nodes + edges for a project, `status` and `limit`
-filters), `cluster` (create a cluster thought from `thought_ids` with an optional `title`
-and `tags`), and `auto_cluster` (Union-Find grouping over active thoughts, tuned by the
-`autoCluster.*` settings in [CONFIG.md](CONFIG.md). It previews when `confirm` is absent or false;
-`confirm: true` executes, even when the configured `autoCluster.dryRun` default is true. The retired
-`dry_run` input is rejected with a hint to use `confirm`;
-preview responses carry a `preview_token` that must be echoed on `confirm: true`.
-`cwd` does not apply — the run is global).
+Three actions. `graph` (nodes + edges for a project, `status` and `limit` filters) is the one
+[envelope exception](#the-memory_crystallize-actiongraph-exception): `items` are nodes and `edges`
+rides beside them. `cluster` (create a cluster thought from `thought_ids` with an optional `title`
+and `tags`) answers `item: { cluster, edges, members }`, where `cluster` and every entry of
+`members` is a shaped thought, `edges` lists the `cluster` edges to the members
+(`{ source_id, target_id, type }`), and `meta.counts.members`/`meta.counts.edges` repeat the two
+sizes. `cwd` selects the project of the new cluster.
+
+`auto_cluster` (Union-Find grouping over active thoughts, tuned by the `autoCluster.*` settings in
+[CONFIG.md](CONFIG.md)) answers `{ items: <groups>, meta }` with `meta.counts.candidates` and
+`meta.counts.clusters`. It previews when `confirm` is absent or false — `meta.preview` carries the
+token, the consequence and the confirm instruction — and `confirm: true` executes, even when the
+configured `autoCluster.dryRun` default is true. The retired `dry_run` input is rejected with a hint
+to use `confirm`. `cwd` does not apply to `auto_cluster` — the run is global.
 
 ## `edge_review` — placement proposals
 
@@ -411,25 +772,43 @@ MCP parity for the HTTP review queue (`docs/API.md` §Review). Actions: `enqueue
 `thought_id`; `apply`/`apply_batch`/`rollback` are preview-first and require a `preview_token`
 on `confirm: true`.
 
-`list` returns the canonical (trimmed) envelope:
+- `enqueue` → `{ item: <enqueue outcome>, meta }`, with `meta.counts.proposals` and
+  `meta.counts.skipped`.
+- `list` → `{ items, meta }`: `items` are the queued rows for the page (retired kinds hidden unless
+  `include_retired`), `meta.counts.total` the rows matching the filters ignoring the page limit,
+  `meta.counts.retired_count` the retired (legacy) kinds hidden by default, and `filtered_out` the
+  rows the page or the retired filter left out. The retired aliases (`proposals`, `results`, `rows`,
+  `count`, `visible_count`, `returned_count`, `retired`, `retiredCount`, `hidden_retired`,
+  `breakdown`) are gone; read the canonical keys above.
+- `apply` → `{ item: <apply report>, meta }`; the report's `status` is `dry_run` (preview),
+  `accepted`, `stale`, `failed` or `refused`, and a preview sets `meta.preview`.
+- `apply_batch` → `{ items, meta }`: one row per proposal (`status` per row, failures folded in as
+  `{ proposal_id, status: "failed", reason }`), with one counter per status plus `failed` in
+  `meta.counts`. A run-level refusal is reported in `meta.warnings`.
+- `rollback` → `{ items, meta }`: the per-row report is `items` and its summary
+  (`reverted`/`skipped`/`refused`) is `meta.counts`; a preview sets `meta.preview`.
+- `reject` → `{ item: <reject report>, meta }`.
 
-```json
-{ "items": [ /* queued rows */ ], "total": 42, "returned": 10, "retired_count": 3, "all_total": 45 }
-```
+## `retention_review` — retention candidates
 
-- `items` — queued rows for the page (retired kinds hidden unless `include_retired`).
-- `total` — rows matching the filters, ignoring the page limit.
-- `returned` — page size.
-- `retired_count` — retired (legacy) kinds hidden by default.
-- `all_total` — all matching rows, including retired.
-
-Retired aliases (`proposals`, `results`, `rows`, `count`, `visible_count`,
-`returned_count`, `retired`, `retiredCount`, `hidden_retired`, `breakdown`) were removed;
-use the canonical keys above.
+- `list` → `{ items: <candidates>, meta }`; `meta.counts` carries the page (`limit`, `offset`) plus
+  the shared three, where `total` is the candidate count for the filters ignoring the page
+  (`src/mcp/tools/retention-review.ts`).
+- `protect` → `{ item: <protect report>, meta }`.
+- `delete` → `{ item: <delete report>, meta }`; the preview `item` carries
+  `status: "preview"`, `action: "preview"`, `deleted: false`, `preview: true`, `confirm: false`,
+  `thought_id`, `dependents`, `instruction` and `preview_token`, and `meta.preview` mirrors the
+  token (with the instruction as its `consequence`). Confirming requires the token.
+- `compact` → `{ item, meta }`; the preview `item` carries `status: "preview"`, `preview: true`,
+  `confirm: false`, `source_ids` and `instruction`, and `meta.preview` reports `token: null`
+  (this action confirms on `confirm: true` alone). The executed item carries
+  `status: "compacted"`, `preview: false`, `confirm: true`, `source_ids` and the shaped `summary`
+  thought; `meta.counts.sources` is the number of compacted sources.
 
 ## `memory_reflect` — session reflection
 
-`action=reflect` is **not read-only**: it writes slots and thoughts.
+`cwd` is required for both actions. `action=reflect` is **not read-only**: it writes slots and
+thoughts, and answers `{ item: <counts>, meta }`.
 
 - `summary` is appended (with a timestamp) to the `project_context` slot.
 - `goals_add` adds goals to `active_goals`; `goals_remove` removes stored goal lines when the
@@ -443,10 +822,17 @@ use the canonical keys above.
   to the frontier until that time, then surfaces with reason `pending` and in the
   `pending_items` slot.
 
-Returns the applied counts:
-
 ```json
-{ "summary_appended": true, "goals_added": 1, "goals_removed": 0, "decisions_created": 2, "pending_created": 1 }
+{
+  "item": { "summary_appended": true, "goals_added": 0, "goals_removed": 0, "decisions_created": 0, "pending_created": 0 },
+  "meta": {
+    "action": "reflect",
+    "scope": { "project": "01a172b4-d49b-76f4-ada8-7ba408661064", "project_name": "Doc Probe", "global": false },
+    "counts": { "total": 1, "returned": 1, "filtered_out": 0 },
+    "degraded": false,
+    "warnings": []
+  }
+}
 ```
 
 The `reflect` tag marks **every** thought `reflect` created (next to the semantic tag), so the
@@ -454,8 +840,8 @@ output is identifiable and can be filtered (`memory_recall` with `tag: "reflect"
 without touching hand-created thoughts. It is additive: statuses, dedup and the scheduled
 surface time are unchanged, and no read path keys off it.
 
-`action=timeline` is the plain paginated thought list (`status`, `cwd`, `limit`,
-`offset`).
+`action=timeline` is the plain paginated thought list (`status`, `cwd`, `limit`, `offset`) as
+`{ items, meta }`.
 
 ## `memory_primers` — the always-at-hand set
 
@@ -465,13 +851,8 @@ Lists the primers, most-hit first. A primer is a pointer to a thought that was p
 repeated recalls, so an agent can inject project context without a search. The list is capped
 (500 rows by default).
 
-No arguments. Returns the primer rows:
-
-```json
-[
-  { "id": "primer-1", "thought_id": "thought-a", "hit_count": 12, "promoted_at": "2026-10-01T12:00:00.000Z", "created_at": "2026-10-01T12:00:00.000Z" }
-]
-```
+No arguments. Answers `{ items, meta }`, where each item is
+`{ id, thought_id, hit_count, promoted_at, created_at }` (`Primer`, `src/db/primers.ts`).
 
 ### `action=delete`
 
@@ -483,29 +864,13 @@ primer row. Deletion is **idempotent**: a missing primer is reported as `not_fou
 | `primer_id` | string | yes | The primer to delete |
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = delete |
 
-**Preview** (`confirm` absent/`false`):
+**Preview** (`confirm` absent/`false`): `item` carries `status: "preview"`, `primer_id`, `primer`,
+`consequence`, `preview_token` and `instruction`; `meta.preview` mirrors the token. A missing
+primer in preview returns `item: { "status": "not_found", "primer_id": "..." }` with no
+`meta.preview`.
 
-```json
-{
-  "status": "preview",
-  "primer_id": "primer-1",
-  "primer": { "id": "primer-1", "thought_id": "thought-a", "hit_count": 12, "promoted_at": "2026-10-01T12:00:00.000Z", "created_at": "2026-10-01T12:00:00.000Z" },
-  "consequence": "Removes the primer for thought 'thought-a' from the always-at-hand set.",
-  "preview_token": "<token>",
-  "instruction": "Call memory_primers again with action=delete, primer_id=primer-1, confirm=true, preview_token=<token> to proceed."
-}
-```
-
-A missing primer in preview returns `{ "status": "not_found", "primer_id": "primer-1" }`.
-
-**Execute** (`confirm: true`): `{ "status": "deleted", "primer_id": "primer-1" }`, or
-`{ "status": "not_found", "primer_id": "primer-1" }` if it was already gone.
-
-Example:
-
-```json
-{ "action": "delete", "primer_id": "primer-1", "confirm": true, "preview_token": "<token>" }
-```
+**Execute** (`confirm: true`): `item: { "status": "deleted", "primer_id": "..." }`, or
+`{ "status": "not_found", "primer_id": "..." }` if it was already gone.
 
 > **HTTP parity.** The HTTP routes `GET /api/primers` and `DELETE /api/primers/:id` keep their
 > previous semantics: the HTTP delete is immediate and takes no `confirm`.
@@ -518,23 +883,46 @@ the server; if the request is sent, invocation validation returns the migration 
 
 ### `action=slots` (read-only)
 
-Slots are **read-only** through this tool: it never writes. `pending_items` is derived from
-thoughts tagged `pending` (the same set the frontier surfaces); `architecture_decisions` from
-primers (most-hit first); `project_context` and `active_goals` are stored rows. To change slot
-content, update or archive the underlying thoughts (virtual slots) or use `memory_reflect`
-(`summary` appends to `project_context`; `goals_add` and `goals_remove` edit `active_goals`). Paging applies to
-`pending_items` via `limit`/`offset`.
+`cwd` is required. Answers `{ items, meta }` with one item per slot
+(`{ name, scope, virtual, content, truncated, max_chars, updated_at }`). Slots are **read-only**
+through this tool: it never writes. `pending_items` is derived from thoughts tagged `pending` (the
+same set the frontier surfaces); `architecture_decisions` from primers (most-hit first);
+`project_context` and `active_goals` are stored rows. To change slot content, update or archive the
+underlying thoughts (virtual slots) or use `memory_reflect` (`summary` appends to
+`project_context`; `goals_add` and `goals_remove` edit `active_goals`). Paging applies to
+`pending_items` via `slots_limit`/`offset`.
+
+### `action=frontier`
+
+`cwd` is required. Answers `{ items, meta }` with the frontier entries, `limit` (1–50) bounding the
+page.
+
+### `action=config` / `action=health`
+
+Both are read-only and take no `cwd`. `config` answers the raw-text display described in
+[Wire envelope](#wire-envelope) — `content[].text` verbatim, `structuredContent.result.item.text`
+the same string. `health` answers `{ item: <report>, meta }`; pass `include_details: true` for the
+per-check detail arrays (omitted, and content fields shortened, by default).
 
 ### `action=propose`
 
-Read-only placement plan (placement, edges, lifecycle); never writes. Default output is slim (top 3 edges, no signals); pass `include_signals=true` or `compact=false` for full output.
+Read-only placement plan (placement, edges, lifecycle); never writes, `cwd` required. Answers
+`{ item: <plan>, meta }`; default output is slim (top 3 edges, no signals) — pass
+`include_signals=true` or `compact=false` for full output. `meta.counts.total` is the number of
+planned edges and `meta.degraded` mirrors the plan's degraded flag.
 
 ## `memory_manage` — projects
 
 CRUD over projects plus resolution from a path.
 
-- `list`, `create`, `update`, `delete (preview→confirm)`, `resolve` (resolve project from `cwd`).
-- `delete` is preview-first: returns `action: "preview"` unless `confirm: true`.
+- `list` → `{ items: <projects>, meta }` (`fields` narrows each project row).
+- `create` → `{ item: <project>, meta }`.
+- `update` → `{ item: { success: true, project_id }, meta }`.
+- `delete` → preview-first: the preview `item` carries `action: "preview"`, `project`,
+  `thought_count`, `consequence`, `instruction` and `preview_token` (`meta.preview` mirrors the
+  token); the executed `item` carries `action: "deleted"`, `project`, `thoughts_moved` and
+  `moved_to`.
+- `resolve` → `{ item: { id, name, local_path }, meta }`.
 
 ## Health-check remediation: `contradiction_in_cluster`
 
@@ -556,6 +944,39 @@ Resolve it with the edge writers above, then re-run the check:
 
 Both edge writes are dry-run first: preview with `confirm` omitted, then re-issue with
 `confirm: true`.
+
+## Migration notes (response envelope, hard cwd, id lookup)
+
+Breaking changes for MCP clients (the HTTP API keeps its shapes — see [API.md](API.md)):
+
+1. **One response envelope.** Collections answer `{ items, meta }`, single objects
+   `{ item, meta }`; `meta` carries `action`, `scope`, `counts`, `degraded`, `warnings` and,
+   where applicable, `reason` and `preview`. Per-action payload keys are gone: the read array
+   used to arrive under `thoughts`, `proposals` or as a bare array, and write answers used to
+   carry their own top-level keys (`linked`/`failed`, `archived`, `status` at the root, ...).
+   Read `items`/`item` and `meta.counts` instead. Write-side answers that used to be a bare
+   object now nest it under `item`. The one exception is
+   `memory_crystallize action=graph` (nodes in `items`, edges beside them).
+2. **`cwd` is required.** `memory_recall` `search`/`clusters`/`list`, `memory_status`
+   `slots`/`frontier`/`propose` and `memory_reflect` `reflect`/`timeline` reject a call without
+   `cwd` (a `400` error envelope naming the argument and the `memory_manage action=resolve`
+   check). They used to widen silently to every project; an unknown-but-present `cwd` still
+   answers globally, with a warning. The HTTP API keeps `cwd` optional.
+3. **Preview gate moved.** A preview answer always sets
+   `meta.preview = { token, destructive: true, consequence?, instruction? }` (token `null` for
+   `unlink_batch` and `retention_review` `compact`). Single-object previews keep the same fields
+   inside `item` as before; collection previews no longer carry `preview_token` at the top level.
+4. **Id-shaped search queries resolve by id.** A full UUID or a hex prefix of at least 8
+   characters no longer goes through semantic search: it returns that thought (ignoring status
+   and project scope), `reason: "ambiguous_id"` with every match for a prefix, or `reason:
+   "id_not_found"` for none.
+5. **Calibrated `relevance` and a default noise gate.** Vector hits carry `relevance` on the
+   measured 0–1 scale (`unrelatedFloor` 0.8 → 0, `vectorFloor` 0.9 → 1), and the default gate
+   drops cosine-only rows below 0.4. `min_relevance: 0` restores the old fail-open set.
+   `search.confidence.unrelatedFloor` is the new zero-point setting.
+6. **Output hygiene.** Tags are plain strings and the flag columns are booleans everywhere;
+   scoring metadata (`scores`, `match_source`) lives behind `compact: false`, while safety
+   annotations stay visible in compact output.
 
 ## Migration notes (v0.19 MCP UX cleanup)
 

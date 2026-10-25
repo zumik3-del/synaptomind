@@ -395,17 +395,20 @@ curl http://127.0.0.1:3005/health
 | Category | Tools |
 |----------|-------|
 | Recall | `memory_recall` (search, get, context, chain, clusters, list) |
-| Store | `memory_store` (create, update, link, link_batch, unlink, unlink_batch, retype) |
+| Store | `memory_store` (create, update, link, link_batch, unlink, unlink_batch, retype, bulk_create) |
 | Supersede | `memory_supersede` (archive, archive_batch, merge) |
-| Status | `memory_status` (slots, frontier, config, health, propose, cleanup) |
+| Status | `memory_status` (slots, frontier, config, health, propose) |
 | Projects | `memory_manage` (list, create, update, delete, resolve) |
 | Consolidate | `memory_crystallize` (graph, cluster, auto_cluster) |
 | Reflect | `memory_reflect` (reflect, timeline) |
 | Primers | `memory_primers` (list, delete) |
 | Review | `edge_review` (enqueue, list, apply, apply_batch, rollback, reject) |
+| Retention | `retention_review` (list, protect, delete, compact) |
 | Guide | `memory_guide` |
 
-For action-level detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
+Every action answers in one response envelope — `{ items, meta }` for collections, `{ item, meta }`
+for single objects — and the project-scoped actions require a `cwd` argument. For action-level
+detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
 
 **Breaking 0.x changes:** this release prunes several 0.x subsystems from the MCP tools,
 the HTTP API and the configuration surface. [CHANGELOG.md](CHANGELOG.md) records every
