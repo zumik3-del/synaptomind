@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { setThoughtLimits } from '../../db/settings'
-import { createThought, getThought } from '../../db/thoughts'
+import { getThought } from '../../db/thoughts'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
@@ -145,40 +145,17 @@ describe('retention_review MCP', () => {
     expect(result.isError).toBe(true)
   })
 
-  test('retention-review list excludes profile thoughts and totals', async () => {
-    const candidate = seedThought({ content: 'candidate', status: 'archived', is_profile: 0, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
-    const profile = seedThought({ content: 'profile', status: 'archived', is_profile: 1, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
-    for (const id of [candidate, profile]) {
+  test('retention-review list returns every eligible candidate and totals', async () => {
+    const first = seedThought({ content: 'candidate', status: 'archived', is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
+    const second = seedThought({ content: 'second candidate', status: 'archived', is_protected: 0, created_at: '2026-09-02T00:00:00.000Z' })
+    for (const id of [first, second]) {
       getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
       getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
     }
     const listed = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'list' } }))
-    expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(candidate)
-    expect(listed.data.items.map((row: { id: string }) => row.id)).not.toContain(profile)
-    expect(listed.data.meta.counts.total).toBe(1)
-  })
-
-  test('retention-review delete, protect, and compact refuse profile thoughts', async () => {
-    const id = seedThought({ status: 'archived', is_profile: 1, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
-    for (const args of [
-      { action: 'delete', thought_id: id, confirm: true },
-      { action: 'protect', thought_id: id },
-      { action: 'compact', source_ids: [id], summary: { content: 'summary' }, confirm: true }
-    ]) {
-      let result: { isError?: boolean }
-      if (args.action === 'delete') {
-        const pv = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
-        if (pv.isError) {
-          result = pv
-        } else {
-          result = parseResult(await callTool({ name: 'retention_review', arguments: { ...args, preview_token: pv.data?.item?.preview_token } }))
-        }
-      } else {
-        result = parseResult(await callTool({ name: 'retention_review', arguments: args }))
-      }
-      expect(result.isError).toBe(true)
-      expect(JSON.stringify(result).toLowerCase()).toContain('profile')
-    }
+    expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(first)
+    expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(second)
+    expect(listed.data.meta.counts.total).toBe(2)
   })
 
   test('retention-review compact accepts 1000 source IDs through MCP schema validation', async () => {
@@ -824,26 +801,6 @@ describe('merge edge cases', () => {
   })
 })
 
-describe('archive edge cases', () => {
-  test('archive on profile thought returns error', async () => {
-    // Legacy profile data still exists in deployed DBs even though the flag is
-    // no longer writable through the API/MCP surface (task #1939), so the
-    // archive guard is seeded at the db layer.
-    const thought = createThought(getDb(), { content: 'profile thought', status: 'active', is_profile: true })
-
-    const archPreview = await callTool({
-      name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id }
-    })
-    const result = await callTool({
-      name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: parseResult(archPreview).data.item.preview_token }
-    })
-    const { isError } = parseResult(result)
-    expect(isError).toBe(true)
-  })
-})
-
 // ── link edge types (epic #141: contradicts / supports) ──────────────────────
 
 describe('memory_store link edge types', () => {
@@ -1191,7 +1148,7 @@ describe('retired surface', () => {
     }))
     expect(isError).toBe(true)
     expect(String(data)).toContain('is_profile is retired')
-    expect(getThought(getDb(), id)?.is_profile).toBe(0)
+    expect(getThought(getDb(), id)?.content).toBe('plain thought')
   })
 
   test('memory_status action=profile is no longer a valid action', async () => {

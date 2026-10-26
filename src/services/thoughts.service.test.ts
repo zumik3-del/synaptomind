@@ -86,11 +86,6 @@ test('archiveThoughtByIdService returns null for unknown id', () => {
   expect(archiveThoughtByIdService('nonexistent')).toBeNull()
 })
 
-test('archiveThoughtByIdService rejects profile thoughts', () => {
-  const id = seedThought({ is_profile: 1, status: 'active' })
-  expect(() => archiveThoughtByIdService(id)).toThrow(ValidationError)
-})
-
 test('listThoughtsService returns thoughts', () => {
   seedThought({ content: 'first' })
   seedThought({ content: 'second' })
@@ -131,12 +126,6 @@ test('mergeThoughtsService throws for missing target', () => {
 
 test('mergeThoughtsService throws for archived source', () => {
   const source = seedThought({ status: 'archived' })
-  const target = seedThought()
-  expect(() => mergeThoughtsService({ targetId: target, sourceId: source })).toThrow(ValidationError)
-})
-
-test('mergeThoughtsService throws for profile source', () => {
-  const source = seedThought({ is_profile: 1 })
   const target = seedThought()
   expect(() => mergeThoughtsService({ targetId: target, sourceId: source })).toThrow(ValidationError)
 })

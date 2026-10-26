@@ -747,7 +747,7 @@ test("PUT /api/thoughts/:id rejects the retired is_profile flag", async () => {
 		headers: { "Content-Type": "application/json" },
 	});
 	expect(res.status).toBe(400);
-	expect(getThoughtByIdService(id)?.is_profile).toBe(0);
+	expect(getThoughtByIdService(id)?.content).toBe("plain");
 });
 
 test("the retired profile endpoints are not mounted", async () => {
@@ -798,19 +798,10 @@ test("POST /api/thoughts/bulk ignores the retired is_profile field", async () =>
 		thoughts: Array<{ id: string }>;
 	};
 	expect(body.created).toBe(2);
-	for (const thought of body.thoughts) {
-		expect(getThoughtByIdService(thought.id)?.is_profile).toBe(0);
-	}
-});
-
-test("PUT /api/thoughts/:id archive rejected for profile thought", async () => {
-	const id = seedThought({ content: "persona", is_profile: 1 });
-	const res = await request(`/api/thoughts/${id}`, {
-		method: "PUT",
-		body: JSON.stringify({ status: "archived" }),
-		headers: { "Content-Type": "application/json" },
-	});
-	expect(res.status).toBe(400);
+	expect(body.thoughts.map((thought) => getThoughtByIdService(thought.id)?.content)).toEqual([
+		"bulk plain",
+		"bulk with retired flag",
+	]);
 });
 
 // Slots routes

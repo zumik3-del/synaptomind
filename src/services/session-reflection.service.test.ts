@@ -70,7 +70,7 @@ test('reflectSessionService skips archived decisions when checking dedup', () =>
   const db = getDb()
   // Create an archived decision manually
   const thoughtId = crypto.randomUUID()
-  db.prepare("INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, created_at, updated_at) VALUES (?, ?, 'archived', 'session-reflection', 'default', 0, 0, 1, ?, ?)").run(
+  db.prepare("INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_protected, created_at, updated_at) VALUES (?, ?, 'archived', 'session-reflection', 'default', 0, 1, ?, ?)").run(
     thoughtId,
     'Use SQLite for storage',
     new Date().toISOString(),

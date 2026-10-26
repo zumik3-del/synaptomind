@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
 import { config } from '../config'
-import { extractResultIds, prependPrimerResults, prependProfileResults, updatePrimerHits } from './search_postprocess.service'
+import { extractResultIds, prependPrimerResults, updatePrimerHits } from './search_postprocess.service'
 import type { SearchResult } from '../db/search'
 import type { GroupedResult } from './search.service'
 
@@ -17,7 +17,6 @@ function makeSearchResult(thoughtId: string, overrides?: Partial<SearchResult>):
       project_id: 'default',
       project_name: 'Default',
       is_cluster: 0,
-      is_profile: 0,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     },
@@ -38,7 +37,6 @@ function makeGroupedResult(clusterId: string, itemIds: string[]): GroupedResult 
       project_id: 'default',
       project_name: 'Default',
       is_cluster: 1,
-      is_profile: 0,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     },
@@ -111,29 +109,6 @@ test('prependPrimerResults preserves low_confidence on a hoisted primer', () => 
   expect(reordered[0].thought.id).toBe('weak-primer')
   expect(reordered[0].low_confidence).toBe(true)
   expect(reordered).toHaveLength(2)
-})
-
-// ── prependProfileResults ────────────────────────────────────────────────────
-
-test('prependProfileResults hoists profile thoughts for @profile query', () => {
-  const a = makeSearchResult('a')
-  const p = makeSearchResult('p')
-  p.thought.is_profile = 1
-  const results = [a, p]
-  const reordered = prependProfileResults(results, '@profile stuff')
-  expect((reordered[0] as SearchResult).thought.id).toBe('p')
-})
-
-test('prependProfileResults does nothing without @profile in query', () => {
-  const results = [makeSearchResult('a'), makeSearchResult('b')]
-  const reordered = prependProfileResults(results, 'normal query')
-  expect(reordered).toEqual(results)
-})
-
-test('prependProfileResults does nothing when no profile thoughts', () => {
-  const results = [makeSearchResult('a')]
-  const reordered = prependProfileResults(results, '@profile')
-  expect(reordered).toEqual(results)
 })
 
 // ── updatePrimerHits ─────────────────────────────────────────────────────────

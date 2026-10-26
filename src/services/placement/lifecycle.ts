@@ -54,7 +54,6 @@ export function findMergeTarget(pool: Thought[], source: Thought): MergeTarget |
 function mergeBlockers(source: Thought): string[] {
   const blocked: string[] = []
   if (source.status === 'archived') blocked.push('source is archived')
-  if (source.is_profile) blocked.push('source is profile')
   return blocked
 }
 

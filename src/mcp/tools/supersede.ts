@@ -31,8 +31,8 @@ function validateActionFields(action: string, args: ActionArgs): void {
   if (irrelevant.length) throw new Error(`${irrelevant.join(', ')} is not applicable to ${action} action`)
 }
 
-function thoughtFingerprint(thought: { id: string; status: string; updated_at: string; is_protected: number; is_profile: number }): string {
-  return `${thought.id}:${thought.status}:${thought.updated_at}:${thought.is_protected}:${thought.is_profile}`
+function thoughtFingerprint(thought: { id: string; status: string; updated_at: string; is_protected: number }): string {
+  return `${thought.id}:${thought.status}:${thought.updated_at}:${thought.is_protected}`
 }
 
 const handlers = {
@@ -45,7 +45,7 @@ const handlers = {
       if (args.confirm !== true) {
         const token = existing ? createPreviewTokenService('archive', thoughtId, thoughtFingerprint(existing as unknown as Parameters<typeof thoughtFingerprint>[0])) : undefined
         return itemEnvelope('archive', { status: 'preview', action: 'archive', thought_id: thoughtId, current_status: existing?.status ?? null,
-          outcome: !existing ? 'not_found' : existing.status === 'archived' ? 'already_archived' : existing.is_profile ? 'protected' : 'would_archive',
+          outcome: !existing ? 'not_found' : existing.status === 'archived' ? 'already_archived' : 'would_archive',
           ...(token ? { preview_token: token } : {}) }, token ? { preview: { token } } : {})
       }
       if (!existing) throw new NotFoundError(`Thought '${thoughtId}' not found`)
@@ -77,7 +77,7 @@ const handlers = {
           const duplicate = seen.has(thought_id)
           seen.add(thought_id)
           const thought = getThoughtByIdService(thought_id)
-          const outcome = !thought ? 'not_found' : thought.status === 'archived' || (duplicate && !thought.is_profile) ? 'already_archived' : thought.is_profile ? 'protected' : 'would_archive'
+          const outcome = !thought ? 'not_found' : thought.status === 'archived' || duplicate ? 'already_archived' : 'would_archive'
           return { thought_id, outcome }
         })
         const fingerprint = ids.map(id => {
@@ -168,7 +168,7 @@ const handlers = {
   }
 }
 
-function mergeFingerprint(source: { id: string; content: string; tags: unknown; is_protected: number; is_profile: number; status: string; updated_at: string }, target: { id: string; content: string; tags: unknown; is_protected: number; is_profile: number; status: string; updated_at: string }, mergedContent: unknown, mergedTags: unknown, projectId: unknown): string {
+function mergeFingerprint(source: { id: string; content: string; tags: unknown; is_protected: number; status: string; updated_at: string }, target: { id: string; content: string; tags: unknown; is_protected: number; status: string; updated_at: string }, mergedContent: unknown, mergedTags: unknown, projectId: unknown): string {
   return `${source ? thoughtFingerprint(source) : 'missing'}|${target ? thoughtFingerprint(target) : 'missing'}|${JSON.stringify(mergedContent)}|${JSON.stringify(mergedTags)}|${String(projectId)}`
 }
 

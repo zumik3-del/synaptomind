@@ -127,7 +127,7 @@ export interface LifecycleProposal {
   confidence: number
   rationale: string
   review_required: boolean
-  /** Reasons a proposed move cannot be confirmed, e.g. `['source is profile']`. */
+  /** Reasons a proposed move cannot be confirmed, e.g. `['source is archived']`. */
   blocked_by: string[]
   /**
    * Target thought the action applies to (`merge` → merge target,

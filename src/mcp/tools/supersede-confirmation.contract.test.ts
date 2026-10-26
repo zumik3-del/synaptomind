@@ -53,19 +53,17 @@ describe('memory_supersede confirmation contract', () => {
     expect(executed.data.item).toMatchObject({ status: 'executed', action: 'archive', result: { id, status: 'archived' } })
   })
 
-  test('archive preview differentiates missing, archived and protected thoughts', async () => {
+  test('archive preview differentiates missing and archived thoughts', async () => {
     const archived = seedThought({ content: 'archived', status: 'archived' })
-    const protectedId = seedThought({ content: 'profile', status: 'active', is_profile: 1 })
     expect((await call({ action: 'archive', thought_id: 'missing-id' })).data.item.outcome).toBe('not_found')
     expect((await call({ action: 'archive', thought_id: archived })).data.item.outcome).toBe('already_archived')
-    expect((await call({ action: 'archive', thought_id: protectedId })).data.item.outcome).toBe('protected')
   })
 
   test('archive_batch preview preserves order and labels duplicates and partial cases', async () => {
     const active = seedThought({ content: 'active', status: 'active' })
     const archived = seedThought({ content: 'old', status: 'archived' })
-    const protectedId = seedThought({ content: 'protected', status: 'active', is_profile: 1 })
-    const ids = [active, 'missing-id', archived, active, protectedId]
+    const other = seedThought({ content: 'other', status: 'active' })
+    const ids = [active, 'missing-id', archived, active, other]
     const preview = await call({ action: 'archive_batch', thought_ids: ids })
     expect(preview.isError).toBe(false)
     // The collection envelope reports the request size in meta.counts and the
@@ -77,29 +75,29 @@ describe('memory_supersede confirmation contract', () => {
     expect(preview.data.items).toEqual([
       { thought_id: active, outcome: 'would_archive' }, { thought_id: 'missing-id', outcome: 'not_found' },
       { thought_id: archived, outcome: 'already_archived' }, { thought_id: active, outcome: 'already_archived' },
-      { thought_id: protectedId, outcome: 'protected' }
+      { thought_id: other, outcome: 'would_archive' }
     ])
     expect(getDb().query('select status from thoughts where id = ?').get(active)).toEqual({ status: 'active' })
   })
 
   test('confirmed archive_batch returns ordered errors and preserves partial commits', async () => {
     const active = seedThought({ content: 'batch active', status: 'active' })
-    const protectedId = seedThought({ content: 'batch profile', status: 'active', is_profile: 1 })
-    const ids = [active, 'missing-id', protectedId, active]
+    const other = seedThought({ content: 'batch other', status: 'active' })
+    const ids = [active, 'missing-id', other, active]
     const batchPreview = await call({ action: 'archive_batch', thought_ids: ids })
     const result = await call({ action: 'archive_batch', thought_ids: ids, confirm: true, preview_token: batchPreview.data.meta.preview.token })
     expect(result.isError).toBe(false)
     expect(result.data.meta.action).toBe('archive_batch')
-    expect(result.data.meta.counts).toMatchObject({ archived: 2, failed: 2, total: ids.length })
+    expect(result.data.meta.counts).toMatchObject({ archived: 3, failed: 1, total: ids.length })
     // One row per requested occurrence, in request order, failures labelled.
     expect(result.data.items).toEqual([
       { thought_id: active, status: 'archived' },
       { thought_id: 'missing-id', status: 'failed', error: "Thought 'missing-id' not found" },
-      { thought_id: protectedId, status: 'failed', error: 'Profile thoughts cannot be archived — clear the is_profile flag first' },
+      { thought_id: other, status: 'archived' },
       { thought_id: active, status: 'archived' }
     ])
     expect(getDb().query('select status from thoughts where id = ?').get(active)).toEqual({ status: 'archived' })
-    expect(getDb().query('select status from thoughts where id = ?').get(protectedId)).toEqual({ status: 'active' })
+    expect(getDb().query('select status from thoughts where id = ?').get(other)).toEqual({ status: 'archived' })
   })
 
   test('merge preview reports proposed fields and bounded edge descriptors without writes', async () => {

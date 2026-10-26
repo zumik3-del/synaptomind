@@ -46,7 +46,7 @@ export function archiveThoughts(db: Database, thoughtIds: string[]): number {
   if (thoughtIds.length === 0) return 0
   const ph = sqlIn(thoughtIds)
   const rows = db
-    .prepare(`SELECT id FROM thoughts WHERE id IN (${ph}) AND (is_protected IS NULL OR is_protected = 0) AND (is_profile IS NULL OR is_profile = 0)`)
+    .prepare(`SELECT id FROM thoughts WHERE id IN (${ph}) AND (is_protected IS NULL OR is_protected = 0)`)
     .all(...thoughtIds) as { id: string }[]
   let archived = 0
   const tx = db.transaction(() => {

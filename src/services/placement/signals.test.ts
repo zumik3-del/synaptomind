@@ -27,7 +27,6 @@ function makeThought(overrides?: MakeThoughtInput): Thought {
     source: null,
     project_id: 'default',
     is_cluster: 0,
-    is_profile: 0,
     is_protected: 1,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
