@@ -13,7 +13,9 @@ transports. Each tool multiplexes several actions behind an `action` argument. T
 the detailed companion to the in-band `memory_guide` tool (`src/mcp/tools/guide.ts`), which
 returns a short quick map plus a pointer here at runtime.
 
-For the HTTP equivalents, see [docs/API.md](API.md). For end-to-end usage, see
+Every thought operation below is MCP-only: the HTTP listener is an ops plane
+(`/health` plus the two `/api/health-check` routes) and has no graph endpoints — see
+[docs/API.md](API.md). For end-to-end usage, see
 [docs/SCENARIOS.md](SCENARIOS.md). This page documents the current surface only; removals
 between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 
@@ -222,8 +224,9 @@ id-addressed context lookup is project-free) and for every write action, which l
 project `cwd` resolves to (or the default project when `cwd` is absent). An unknown path is never
 an error: it yields `scope.global: true` plus a warning, and the action answers across projects.
 
-The HTTP API is deliberately different — `cwd` stays optional there and `project_id` remains its
-filter (see [API.md](API.md)).
+There is no HTTP counterpart to that rule: the HTTP listener serves only `/health` and the
+`/api/health-check` pair, so a REST client cannot reach a thought at all
+([API.md](API.md)).
 
 ## Compact output and field selection
 
@@ -259,6 +262,60 @@ Compact defaults (v0.19 MCP UX cleanup):
   is supplied. (`retention_review` applies `compact`/`fields` to its candidate list.)
 
 Explicit `fields` always take precedence over `compact` on every tool.
+
+### Opt-in url links
+
+A thought's url links ride on the thought output behind one boolean argument,
+`include_url_links` (default `false`). It is accepted by `memory_recall` `search`,
+`clusters`, `list`, `get`, `context` and `chain`, and by `memory_reflect action=timeline`.
+
+- **Shape.** `url_links: [{ text, url, label }]`, ordered by `sort_order` then creation
+  time. `text` mirrors the create-time `url_links` input, so an item read from memory can be
+  fed back into `memory_store action=create` unchanged; `label` defaults to `text`. Internal
+  columns (`id`, `thought_id`, `created_at`) are never emitted.
+- **Every thought in the response.** Not just the primary one: `get` attaches it to the
+  thought *and* to its `upstream`/`downstream` neighbours, `chain`/`context` to the head and
+  both neighbourhoods, and a `group_by_cluster` answer to the cluster members. "Primary only"
+  is a rule a caller cannot remember.
+- **One query per response.** The links of the whole answer are read in a single batch
+  query, never one per thought (`getThoughtUrlLinksBatchService`,
+  `src/services/url_links.service.ts`).
+- **Not hidden by `compact`, not trimmed by `fields`.** The value is attached after the
+  thought shaping (`src/mcp/tools/utils.ts`, `shapeThought`), so
+  `include_url_links: true` with `fields: ["id"]` answers `{ id, url_links }`. The flag
+  itself is a read control, not a thought column.
+- **Absence is distinguishable from emptiness.** Omitted or `false`: the key is **absent**
+  from the payload (existing clients see byte-identical output). `true` with no links: the
+  key is `[]`.
+
+```json
+{
+  "action": "get",
+  "thought_id": "01a172b4-d486-700c-a16e-5ae3d2d77a90",
+  "include_url_links": true
+}
+```
+
+```json
+{
+  "item": {
+    "id": "01a172b4-d486-700c-a16e-5ae3d2d77a90",
+    "content": "Read the ADR before the rewrite",
+    "status": "active",
+    "tags": [],
+    "project": "Doc Probe",
+    "url_links": [
+      { "text": "adr", "url": "https://forgejo.home.lan/authelia/artifacts/src/branch/main/synaptomind/adr/2026-10-26-shrink-http-api-to-ops-endpoints.md", "label": "adr" }
+    ]
+  },
+  "meta": { "action": "get", "scope": null, "counts": { "total": 1, "returned": 1, "filtered_out": 0 }, "degraded": false, "warnings": [] }
+}
+```
+
+Url links are **written at create time only** (`memory_store action=create`, `url_links` as
+`[{ text, url }]`). There is no MCP action that adds a link to an existing thought or deletes
+one — the former `POST`/`DELETE /api/thoughts/:id/links` routes went with the rest of the
+HTTP API in 0.20 ([API.md](API.md#dropped-capabilities)).
 
 ## Dry-run / confirm pattern
 
@@ -788,10 +845,9 @@ the consolidation. Not every source edge contributes: one that would collapse in
 (it joined the target to the source), a duplicate of a non-symmetric edge the target already has,
 and a cluster edge the cluster rule rejects are dropped and left out of the count. An existing
 symmetric pair (`related`, `contradicts`) does count — the target owns that relation after the
-merge. The HTTP twin (`POST /api/thoughts/:targetId/merge`) is unchanged: it executes immediately
-without preview or confirmation and reports the count under its long-standing name
-`transferredEdges`. The confirmation-first contract applies to MCP only; it does not imply an HTTP
-API change.
+merge. The former HTTP twin (`POST /api/thoughts/:targetId/merge`, which executed immediately
+without a preview) is gone in 0.20: `memory_supersede action=merge` is the only merge path, so
+the preview→`confirm: true` contract is the whole contract ([API.md](API.md#removed-routes-020)).
 
 ## `memory_crystallize` — clusters
 
@@ -814,7 +870,7 @@ the run is global.
 
 ## `edge_review` — placement proposals
 
-MCP parity for the HTTP review queue (`docs/API.md` §Review). Actions: `enqueue`, `list`,
+The placement review queue, owned end to end by MCP (`edge_review`). Actions: `enqueue`, `list`,
 `apply`, `apply_batch`, `rollback`, `reject`. `enqueue` requires a persisted, `active`
 `thought_id`; `apply`/`apply_batch`/`rollback` are preview-first and require a `preview_token`
 on `confirm: true`.
@@ -838,19 +894,48 @@ on `confirm: true`.
 
 ## `retention_review` — retention candidates
 
+Retention review is a manual workflow, not a scheduled deletion policy: nothing is archived or
+deleted until a caller runs `delete` or `compact`. A thought is a candidate only when every signal
+holds at once — status `archived` or `draft`, an age anchor (`archived_at`, falling back to
+`created_at`) older than the minimum age, importance below the floor (a missing importance row
+counts as `1.0`), no recorded hits (a missing count is `0`), no incoming edge from an `active`
+thought, not protected, `surface_after` absent or already due, and not global
+(`src/db/retention-review.ts`).
+
+`action=list` filters are the call's eligibility control; each one falls back to the server setting,
+so a single call can narrow eligibility or page without reconfiguring anything
+([CONFIG.md](CONFIG.md#retention-review)):
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `min_age_days` | number | `retentionReview.minAgeDays` (30) | Minimum age in days, measured from the age anchor; must be positive |
+| `importance_floor` | number | `retentionReview.importanceFloor` (0.3) | Candidate importance must stay below this value (0–1) |
+| `limit` | int | `retentionReview.pageSize` (20) | Page size (1–100) |
+| `offset` | int | `0` | Pagination offset |
+
+```json
+{ "action": "list", "min_age_days": 90, "importance_floor": 0.1, "limit": 50, "offset": 0 }
+```
+
 - `list` → `{ items: <candidates>, meta }`; `meta.counts` carries the page (`limit`, `offset`) plus
   the shared three, where `total` is the candidate count for the filters ignoring the page
-  (`src/mcp/tools/retention-review.ts`).
+  (`src/mcp/tools/retention-review.ts`). Candidates come back oldest first (age anchor ascending),
+  then by id, with `content` truncated to 200 characters; `compact` and `fields` apply as on every
+  other read tool. The query spans every project — a candidate carries its `project_id`/
+  `project_name`, and no `cwd` narrows the list.
 - `protect` → `{ item: <protect report>, meta }`.
 - `delete` → `{ item: <delete report>, meta }`; the preview `item` carries
   `status: "preview"`, `action: "preview"`, `deleted: false`, `preview: true`, `confirm: false`,
   `thought_id`, `dependents`, `instruction` and `preview_token`, and `meta.preview` mirrors the
   token (with the instruction as its `consequence`). Confirming requires the token.
-- `compact` → `{ item, meta }`; the preview `item` carries `status: "preview"`, `preview: true`,
-  `confirm: false`, `source_ids` and `instruction`, and `meta.preview` reports `token: null`
-  (this action confirms on `confirm: true` alone). The executed item carries
-  `status: "compacted"`, `preview: false`, `confirm: true`, `source_ids` and the shaped `summary`
-  thought; `meta.counts.sources` is the number of compacted sources.
+- `compact` → `{ item, meta }`; input is a non-empty `source_ids` array (1–1000 ids) plus a
+  `summary` object (`content` required, `tags` and `project_id` optional). The preview `item`
+  carries `status: "preview"`, `preview: true`, `confirm: false`, `source_ids` and `instruction`,
+  and `meta.preview` reports `token: null` (this action confirms on `confirm: true` alone). The
+  executed item carries `status: "compacted"`, `preview: false`, `confirm: true`, `source_ids` and
+  the shaped `summary` thought; `meta.counts.sources` is the number of compacted sources. The
+  summary is created `active` and protected, and every source is merged into it — archived with its
+  edges transferred, not hard-deleted (`src/services/retention-review-actions.service.ts`).
 
 ## `memory_reflect` — session reflection
 
@@ -919,9 +1004,6 @@ primer in preview returns `item: { "status": "not_found", "primer_id": "..." }` 
 
 **Execute** (`confirm: true`): `item: { "status": "deleted", "primer_id": "..." }`, or
 `{ "status": "not_found", "primer_id": "..." }` if it was already gone.
-
-> **HTTP parity.** The HTTP routes `GET /api/primers` and `DELETE /api/primers/:id` keep their
-> previous semantics: the HTTP delete is immediate and takes no `confirm`.
 
 ## `memory_status` — system state
 
@@ -995,7 +1077,8 @@ Both edge writes are dry-run first: preview with `confirm` omitted, then re-issu
 
 ## Migration notes (response envelope, hard cwd, id lookup)
 
-Breaking changes for MCP clients (the HTTP API keeps its shapes — see [API.md](API.md)):
+Breaking changes for MCP clients (the HTTP surface has no thought endpoints to be affected —
+see [API.md](API.md)):
 
 1. **One response envelope.** Collections answer `{ items, meta }`, single objects
    `{ item, meta }`; `meta` carries `action`, `scope`, `counts`, `degraded`, `warnings` and,
@@ -1009,7 +1092,7 @@ Breaking changes for MCP clients (the HTTP API keeps its shapes — see [API.md]
    `slots`/`frontier`/`propose` and `memory_reflect` `reflect`/`timeline` reject a call without
    `cwd` (a `400` error envelope naming the argument and the `memory_manage action=resolve`
    check). They used to widen silently to every project; an unknown-but-present `cwd` still
-   answers globally, with a warning. The HTTP API keeps `cwd` optional.
+   answers globally, with a warning.
 3. **Preview gate moved.** A preview answer always sets
    `meta.preview = { token, destructive: true, consequence?, instruction? }` (token `null` for
    `unlink_batch` and `retention_review` `compact`). Single-object previews keep the same fields
@@ -1036,7 +1119,7 @@ Breaking changes for MCP clients (the HTTP API keeps its shapes — see [API.md]
 
 ## Migration notes (v0.19 MCP UX cleanup)
 
-Breaking changes for MCP clients (HTTP API is unchanged unless noted):
+Breaking changes for MCP clients:
 
 1. **`project_id` argument removed.** All MCP tools that accepted `project_id`
    now resolve the project from `cwd` (working directory). Passing `project_id`
