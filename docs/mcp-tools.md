@@ -230,7 +230,7 @@ There is no HTTP counterpart to that rule: the HTTP listener serves only `/healt
 
 ## Compact output and field selection
 
-Read tools (`memory_recall`, `memory_status`, `memory_crystallize`, `memory_manage`,
+Read tools (`memory_recall`, `memory_status`, `memory_crystallize`,
 `retention_review`) accept two output controls, applied to the thought objects inside `item`/`items`:
 
 - `compact: true` — trims each thought to the minimal field set
@@ -257,9 +257,9 @@ Compact defaults (v0.19 MCP UX cleanup):
   for the full thought, or `fields` for an explicit subset.
 - `memory_status` `propose` — defaults to the slim plan (top 3 edges, no signals);
   pass `compact: false` or `include_signals: true` (or `max_edges`) for full output.
-- `memory_crystallize` `graph`, `memory_manage` `list`, `retention_review` `list` —
-  compact is opt-in (`compact: true`); full output is the default unless `fields`
-  is supplied. (`retention_review` applies `compact`/`fields` to its candidate list.)
+- `memory_crystallize` `graph`, `retention_review` `list` — compact is opt-in
+  (`compact: true`); full output is the default unless `fields` is supplied.
+  (`retention_review` applies `compact`/`fields` to its candidate list.)
 
 Explicit `fields` always take precedence over `compact` on every tool.
 

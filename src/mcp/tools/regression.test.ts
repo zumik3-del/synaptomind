@@ -130,9 +130,9 @@ describe('numeric parameter schema validation', () => {
 
 // ── Shared request contract parity (task #1758, audit M8) ───────────────────
 //
-// `src/validation.ts` declares the status enum and limit ranges once; both the
-// HTTP adapters and these MCP tool input schemas import them, so the two
-// surfaces can never drift. Red-proof: on the pre-#1758 code `memory_crystallize`
+// `src/validation.ts` declares the status enum and limit ranges once; the MCP
+// tool input schemas import them, so the surface cannot drift from the shared
+// contract. Red-proof: on the pre-#1758 code `memory_crystallize`
 // advertised `status` as an open string (accepting `bogus`) and the limits were
 // inlined literals.
 

@@ -107,7 +107,7 @@ const handlers = {
       const results = args.group_by_cluster
         ? groupResultsByCluster(outcome.items)
         : outcome.items
-      const processed = postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
+      const processed = postProcessSearchResults(results, { showPrimers: true })
       const compact = args.compact !== false
       const fields = args.fields
       const hits = Array.isArray(processed) ? processed : []
@@ -165,7 +165,7 @@ const handlers = {
         minRelevance: args.min_relevance as number | undefined
       }))
       const degraded = degradedOf(outcome.items)
-      const processed = postProcessSearchResults(outcome.items, { query: args.query as string, topK: limit, showPrimers: true })
+      const processed = postProcessSearchResults(outcome.items, { showPrimers: true })
       const compact = args.compact !== false
       const fields = args.fields
       const results = Array.isArray(processed) ? processed : []
