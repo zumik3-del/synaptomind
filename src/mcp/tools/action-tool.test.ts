@@ -5,7 +5,6 @@ import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { closeDb } from '../../db/init'
-import { config } from '../../config'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 import { type ActionToolConfig, registerActionTool, requiredString } from './action-tool'
@@ -421,26 +420,6 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
       minAgeDays: 1,
       dryRun: false
     })
-  })
-
-  test('confirm overrides configured dryRun=true', async () => {
-    const originalDryRun = config.autoCluster.dryRun
-    try {
-      config.autoCluster.dryRun = true
-      const preview = await mockClient.callTool({
-        name: 'memory_crystallize',
-        arguments: { action: 'auto_cluster' }
-      })
-      const token3 = JSON.parse((preview as any).content[0].text).meta.preview.token
-      const result = await mockClient.callTool({
-        name: 'memory_crystallize',
-        arguments: { action: 'auto_cluster', confirm: true, preview_token: token3 }
-      })
-      expect(parseResult(result).isError).toBe(false)
-      expect(capturedAutoClusterOptions?.dryRun).toBe(false)
-    } finally {
-      config.autoCluster.dryRun = originalDryRun
-    }
   })
 
   test('omitted optional fields fall back to undefined (service uses config defaults)', async () => {

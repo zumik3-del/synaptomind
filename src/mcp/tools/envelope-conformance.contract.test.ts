@@ -192,9 +192,6 @@ const CASES: ActionCase[] = [
   { tool: 'memory_store', action: 'unlink_batch', args: f => ({ edge_ids: [f.edgeId] }), slot: 'items', preview: true },
   { tool: 'memory_store', action: 'retype', args: f => ({ edge_id: f.edgeId, new_type: 'related' }), slot: 'item', preview: true },
   { tool: 'memory_store', action: 'bulk_create', args: () => ({ thoughts: [{ content: 'conformance bulk' }] }), slot: 'items', cwd: true },
-  { tool: 'memory_store', action: 'create_bulk', metaAction: 'bulk_create', args: () => ({ thoughts: [{ content: 'conformance bulk alias 1' }] }), slot: 'items', cwd: true },
-  { tool: 'memory_store', action: 'bulk', metaAction: 'bulk_create', args: () => ({ thoughts: [{ content: 'conformance bulk alias 2' }] }), slot: 'items', cwd: true },
-  { tool: 'memory_store', action: 'create_batch', metaAction: 'bulk_create', args: () => ({ thoughts: [{ content: 'conformance bulk alias 3' }] }), slot: 'items', cwd: true },
   // memory_supersede
   { tool: 'memory_supersede', action: 'archive', args: f => ({ thought_id: f.target }), slot: 'item', preview: true },
   { tool: 'memory_supersede', action: 'archive_batch', args: f => ({ thought_ids: [f.target] }), slot: 'items', preview: true },

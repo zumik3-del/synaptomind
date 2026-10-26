@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Hono } from 'hono'
-import { resetValidTokens } from '../auth'
 import { authMiddleware } from './auth'
 
 // Coverage for task #170 finding F19: the API and the MCP HTTP transport must
@@ -41,7 +40,6 @@ describe('shared auth middleware behaviour', () => {
     process.env.SYNAPTOMIND_SECRET = SECRET
     delete process.env.SYNAPTOMIND_SERVICE_TOKEN
     delete process.env.SYNAPTOMIND_ALLOW_INSECURE
-    resetValidTokens()
   })
 
   afterAll(() => {
@@ -49,7 +47,6 @@ describe('shared auth middleware behaviour', () => {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
     }
-    resetValidTokens()
   })
 
   function guardedApp(): Hono {

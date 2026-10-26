@@ -1,6 +1,5 @@
 import { type Subprocess, spawn } from 'bun'
-import { getDb } from '../db/container'
-import { getEmbedderIdleTimeoutMs, getEmbedderPrecache } from '../db/settings'
+import { config } from '../config'
 import { insertLog as defaultInsertLog } from '../logging'
 import { EmbedderNotReadyError, EmbedderUnavailableError } from '../errors'
 import { isCompiled as defaultIsCompiled } from '../runtime-mode'
@@ -23,8 +22,10 @@ export interface EmbedderClientDeps {
 }
 
 export const DEFAULT_DEPS: EmbedderClientDeps = {
-  getEmbedderIdleTimeoutMs: () => getEmbedderIdleTimeoutMs(getDb()),
-  getEmbedderPrecache: () => getEmbedderPrecache(getDb()),
+  // Config/env only: the `_meta` runtime overrides this used to read had no
+  // production writer and were removed in task #2201.
+  getEmbedderIdleTimeoutMs: () => config.embedder.idleTimeoutMs,
+  getEmbedderPrecache: () => config.embedder.precache,
   insertLog: defaultInsertLog,
   isCompiled: defaultIsCompiled
 }

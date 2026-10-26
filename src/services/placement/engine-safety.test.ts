@@ -91,7 +91,7 @@ const WRITER_IMPORTS = [
   // crystallize / supersede surface
   'crystallize',
   // misc writers (unlikely to leak, but part of the guardrail)
-  'deleteEdges', 'deleteThoughts', 'insertEmbedding', 'boostImportance',
+  'deleteEdges', 'insertEmbedding', 'boostImportance',
 ]
 
 // ── no-write guarantee ───────────────────────────────────────────────────────

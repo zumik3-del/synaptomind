@@ -29,7 +29,6 @@ mock.module('./server', () => ({
 }))
 
 const { startMcpHttpServer } = await import('./http-transport')
-const { resetValidTokens } = await import('../auth')
 
 const SECRET = process.env.SYNAPTOMIND_SECRET
 const PROTOCOL_VERSION = '2025-06-18'
@@ -44,8 +43,6 @@ const INIT_MESSAGE = {
   }
 }
 const LIST_MESSAGE = { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }
-
-resetValidTokens()
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return { authorization: `Bearer ${SECRET}`, ...extra }

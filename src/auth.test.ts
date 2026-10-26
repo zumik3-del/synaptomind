@@ -1,12 +1,11 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { checkBearerAuth, getValidTokens, resetValidTokens } from './auth'
+import { checkBearerAuth, getValidTokens } from './auth'
 
 const SECRET = 'secret-a'
 
 afterAll(() => {
   delete process.env.SYNAPTOMIND_SECRET
   delete process.env.SYNAPTOMIND_SERVICE_TOKEN
-  resetValidTokens()
 })
 
 function primeEnv(secret: string, serviceToken?: string): void {
@@ -16,9 +15,6 @@ function primeEnv(secret: string, serviceToken?: string): void {
   } else {
     process.env.SYNAPTOMIND_SERVICE_TOKEN = serviceToken
   }
-  // the token list is cached at module level and other test files may have
-  // warmed it — drop it so the env set above is re-read
-  resetValidTokens()
 }
 
 describe('checkBearerAuth', () => {
@@ -46,7 +42,7 @@ describe('checkBearerAuth', () => {
     primeEnv(SECRET)
     const tokens = getValidTokens()
     expect(tokens.length).toBeGreaterThan(0)
-    // every cached token is the configured secret (impl may repeat it)
+    // every token is the configured secret (impl may repeat it)
     expect(tokens.every(t => t === SECRET)).toBeTrue()
   })
 })

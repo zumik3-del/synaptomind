@@ -4,7 +4,6 @@ import { getDb } from "./container";
 import { ThoughtContentConflictError } from "./errors";
 import { closeDb } from "./init";
 import {
-	batchGetImportance,
 	boostImportance,
 	decayImportance,
 	getThoughtImportance,
@@ -471,20 +470,6 @@ test("incrementHitCount increases hit_count", () => {
 	incrementHitCount(db, t.id);
 	imp = getThoughtImportance(db, t.id);
 	expect(imp?.hit_count).toBe(2);
-});
-
-test("batchGetImportance returns map for given ids", () => {
-	const db = getDb();
-	const t1 = createThought(db, { content: "first" });
-	const t2 = createThought(db, { content: "second" });
-	db.prepare(
-		`UPDATE thought_importance SET importance = 0.7 WHERE thought_id = ?`,
-	).run(t1.id);
-
-	const map = batchGetImportance(db, [t1.id, t2.id]);
-	expect(map.has(t1.id)).toBeTrue();
-	expect(map.get(t1.id)?.importance).toBe(0.7);
-	expect(map.get(t2.id)?.importance).toBe(1.0);
 });
 
 test("decayImportance multiplies by rate", () => {

@@ -692,8 +692,7 @@ cluster-constraint violation.
 ### `action=bulk_create`
 
 Create several thoughts in one call (`thoughts[]`, 1–10000 items, in one transaction, `cwd`
-optional); `create_bulk`, `bulk` and `create_batch` are accepted aliases of the same handler.
-Result: `{ items, meta }`, one row per requested thought in input order
+optional). Result: `{ items, meta }`, one row per requested thought in input order
 (`{ index, status: "created", thought }` or `{ index, status: "failed", error }`), with
 `meta.counts.created` / `meta.counts.failed`.
 
@@ -809,9 +808,9 @@ sizes. `cwd` selects the project of the new cluster.
 `auto_cluster` (Union-Find grouping over active thoughts, tuned by the `autoCluster.*` settings in
 [CONFIG.md](CONFIG.md)) answers `{ items: <groups>, meta }` with `meta.counts.candidates` and
 `meta.counts.clusters`. It previews when `confirm` is absent or false — `meta.preview` carries the
-token, the consequence and the confirm instruction — and `confirm: true` executes, even when the
-configured `autoCluster.dryRun` default is true. The retired `dry_run` input is rejected with a hint
-to use `confirm`. `cwd` does not apply to `auto_cluster` — the run is global.
+token, the consequence and the confirm instruction — and `confirm: true` executes. The retired
+`dry_run` input is rejected with a hint to use `confirm`. `cwd` does not apply to `auto_cluster` —
+the run is global.
 
 ## `edge_review` — placement proposals
 

@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { request as httpRequest } from 'node:http'
 import { Hono } from 'hono'
-import { resetValidTokens } from '../auth'
 import { config } from '../config'
 import {
   MAX_REQUEST_BODY_BYTES,
@@ -117,7 +116,6 @@ beforeAll(async () => {
   process.env.SYNAPTOMIND_SECRET = SECRET
   delete process.env.SYNAPTOMIND_SERVICE_TOKEN
   delete process.env.SYNAPTOMIND_ALLOW_INSECURE
-  resetValidTokens()
 
   mainPort = await freePort()
   mainServer = startMcpHttpServer('127.0.0.1', mainPort)
@@ -137,7 +135,6 @@ afterAll(async () => {
   else process.env.SYNAPTOMIND_SERVICE_TOKEN = previousServiceToken
   if (previousInsecure === undefined) delete process.env.SYNAPTOMIND_ALLOW_INSECURE
   else process.env.SYNAPTOMIND_ALLOW_INSECURE = previousInsecure
-  resetValidTokens()
 })
 
 describe('HTTP auth boundary', () => {

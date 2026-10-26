@@ -28,11 +28,6 @@ export function createPreviewToken(
   return token
 }
 
-export function getPreviewToken(db: Database, token: string): PreviewTokenRow | undefined {
-  const row = db.prepare(`SELECT * FROM preview_tokens WHERE token = ?`).get(token) as PreviewTokenRow | undefined | null
-  return row ?? undefined
-}
-
 /**
  * Atomically claim a token: the row is deleted in the same statement that
  * returns it, so of two concurrent confirms only the one whose DELETE matched

@@ -6,7 +6,6 @@ import {
   getProposal,
   insertProposal,
   listProposals,
-  listProposalsByRun,
   type InsertProposalInput,
   updateProposalState,
 } from './placement-proposals'
@@ -207,57 +206,4 @@ test('v041: rolled_back state round-trips through update/list', () => {
     .prepare("SELECT state FROM placement_proposals WHERE id = ?")
     .get(row.id) as { state: string }
   expect(found.state).toBe('rolled_back')
-})
-
-// ── listProposalsByRun ───────────────────────────────────────────────────────
-
-test('v041: listProposalsByRun returns exactly that run\'s rows, newest-first', () => {
-  const db = getDb()
-  const src1 = seedThought()
-  const src2 = seedThought()
-  const src3 = seedThought()
-  const runA = 'run-a'
-  const runB = 'run-b'
-
-  // Insert in run-A (older)
-  const oldA = insertProposal(db, makeInput({ source_thought_id: src1, run_id: runA, payload: 'a-old' }))
-  // Manual delay to ensure different created_at
-  db.prepare(`UPDATE placement_proposals SET created_at = ? WHERE id = ?`).run(
-    '2020-01-01T00:00:00.000Z',
-    oldA.id
-  )
-
-  // Insert in run-B
-  const bRow = insertProposal(db, makeInput({ source_thought_id: src2, run_id: runB, payload: 'b-only' }))
-
-  // Insert in run-A (newer)
-  const newA = insertProposal(db, makeInput({ source_thought_id: src3, run_id: runA, payload: 'a-new' }))
-
-  const rowsA = listProposalsByRun(db, runA)
-  expect(rowsA).toHaveLength(2)
-  expect(rowsA[0].id).toBe(newA.id) // newest first
-  expect(rowsA[1].id).toBe(oldA.id)
-  expect(rowsA.every((r) => r.run_id === runA)).toBe(true)
-
-  const rowsB = listProposalsByRun(db, runB)
-  expect(rowsB).toHaveLength(1)
-  expect(rowsB[0].id).toBe(bRow.id)
-})
-
-test('v041: listProposalsByRun spans all states for the given run', () => {
-  const db = getDb()
-  const src = seedThought()
-  const runId = 'run-states'
-  const row = insertProposal(db, makeInput({ source_thought_id: src, run_id: runId }))
-  updateProposalState(db, row.id, { state: 'accepted', decided_at: new Date().toISOString() })
-
-  const rows = listProposalsByRun(db, runId)
-  expect(rows).toHaveLength(1)
-  expect(rows[0].state).toBe('accepted')
-  expect(rows[0].run_id).toBe(runId)
-})
-
-test('v041: listProposalsByRun returns empty array for unknown run', () => {
-  const db = getDb()
-  expect(listProposalsByRun(db, 'nonexistent-run')).toEqual([])
 })

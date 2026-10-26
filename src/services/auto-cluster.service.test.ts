@@ -79,7 +79,7 @@ test('groupCandidates filters groups smaller than minMembers', () => {
 // ── runAutoClusterJob ────────────────────────────────────────────────────────
 
 test('runAutoClusterJob returns empty when no candidates', async () => {
-  const result = await runAutoClusterJob({ minAgeDays: 999 })
+  const result = await runAutoClusterJob({ minAgeDays: 999, dryRun: true })
   expect(result.candidates).toBe(0)
   expect(result.clusters_created).toBe(0)
 })

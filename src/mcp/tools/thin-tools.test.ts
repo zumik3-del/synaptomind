@@ -4,9 +4,8 @@ import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
-import { setThoughtLimits } from '../../db/settings'
+import { config } from '../../config'
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
@@ -77,17 +76,23 @@ describe('tool-layer layering guard', () => {
 // ── soft limit single source (F13) ───────────────────────────────────────────
 
 describe('soft-limit single resolution path', () => {
-  test('registration description and guide call resolve the same DB-backed value', async () => {
-    setThoughtLimits(getDb(), 432, 20)
-    const client = await setupClient()
+  test('registration description and guide call resolve the same configured value', async () => {
+    const original = config.thoughts.softLimit
+    config.thoughts.softLimit = 432
 
-    const { tools } = await client.listTools()
-    const store = tools.find(t => t.name === 'memory_store')
-    expect(JSON.stringify(store?.inputSchema ?? {})).toContain('432')
+    try {
+      const client = await setupClient()
 
-    const guide = await client.callTool({ name: 'memory_guide', arguments: {} })
-    const text = (guide as { content: Array<{ text: string }> }).content[0].text
-    expect(text).toContain('≤432 soft')
-    expect(text).not.toContain('≤600 soft')
+      const { tools } = await client.listTools()
+      const store = tools.find(t => t.name === 'memory_store')
+      expect(JSON.stringify(store?.inputSchema ?? {})).toContain('432')
+
+      const guide = await client.callTool({ name: 'memory_guide', arguments: {} })
+      const text = (guide as { content: Array<{ text: string }> }).content[0].text
+      expect(text).toContain('≤432 soft')
+      expect(text).not.toContain('≤600 soft')
+    } finally {
+      config.thoughts.softLimit = original
+    }
   })
 })
