@@ -33,7 +33,6 @@ function thought(overrides: Partial<Thought> = {}): Thought {
     source: null,
     project_id: 'default',
     is_cluster: 0,
-    is_profile: 0,
     is_protected: 1,
     is_global: 0,
     created_at: NOW,
@@ -209,14 +208,6 @@ describe('findDuplicateDrafts: exclusions', () => {
     const db = getDb()
     seedThought({ content: 'alpha beta gamma delta', status: 'active' })
     seedThought({ content: 'alpha beta gamma delta epsilon', status: 'draft', is_cluster: 1 })
-
-    expect(findDuplicateDrafts(db, NOW)).toEqual([])
-  })
-
-  test('a profile thought is never flagged', () => {
-    const db = getDb()
-    seedThought({ content: 'alpha beta gamma delta', status: 'active' })
-    seedThought({ content: 'alpha beta gamma delta epsilon', status: 'draft', is_profile: 1 })
 
     expect(findDuplicateDrafts(db, NOW)).toEqual([])
   })

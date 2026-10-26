@@ -192,9 +192,6 @@ const CASES: ActionCase[] = [
   { tool: 'memory_store', action: 'unlink_batch', args: f => ({ edge_ids: [f.edgeId] }), slot: 'items', preview: true },
   { tool: 'memory_store', action: 'retype', args: f => ({ edge_id: f.edgeId, new_type: 'related' }), slot: 'item', preview: true },
   { tool: 'memory_store', action: 'bulk_create', args: () => ({ thoughts: [{ content: 'conformance bulk' }] }), slot: 'items', cwd: true },
-  { tool: 'memory_store', action: 'create_bulk', metaAction: 'bulk_create', args: () => ({ thoughts: [{ content: 'conformance bulk alias 1' }] }), slot: 'items', cwd: true },
-  { tool: 'memory_store', action: 'bulk', metaAction: 'bulk_create', args: () => ({ thoughts: [{ content: 'conformance bulk alias 2' }] }), slot: 'items', cwd: true },
-  { tool: 'memory_store', action: 'create_batch', metaAction: 'bulk_create', args: () => ({ thoughts: [{ content: 'conformance bulk alias 3' }] }), slot: 'items', cwd: true },
   // memory_supersede
   { tool: 'memory_supersede', action: 'archive', args: f => ({ thought_id: f.target }), slot: 'item', preview: true },
   { tool: 'memory_supersede', action: 'archive_batch', args: f => ({ thought_ids: [f.target] }), slot: 'items', preview: true },
@@ -268,7 +265,6 @@ const LEGACY_KEYS = ['thoughts', 'nodes', 'best_match', 'text', 'results', 'clus
 /** Keys documented as booleans; a 0/1 here means the storage encoding leaked. */
 const BOOLEAN_FIELDS = new Set([
   'is_cluster',
-  'is_profile',
   'is_protected',
   'is_global',
   'low_confidence',
@@ -286,6 +282,14 @@ const BOOLEAN_FIELDS = new Set([
 const META_KEYS = new Set(['action', 'scope', 'counts', 'degraded', 'warnings', 'reason', 'preview'])
 const REASONS = new Set(['no_match', 'id_not_found', 'ambiguous_id'])
 
+/**
+ * Retired thought columns no answer may expose at any depth. `is_profile` was
+ * removed in v047 (task #2200): the migration keeps the column for the
+ * foreign-key parent's sake, so a leaked field would mean the read surface is
+ * projecting the raw row again instead of the `Thought` shape.
+ */
+const RETIRED_THOUGHT_FIELDS = new Set(['is_profile'])
+
 /** Recursively enforce output hygiene: tag strings, no `{id,name}` object, no 0/1 booleans. */
 function assertHygiene(node: unknown, path: string): void {
   if (Array.isArray(node)) {
@@ -301,6 +305,9 @@ function assertHygiene(node: unknown, path: string): void {
     throw new Error(`tag object {id,name} at ${path} — tags must be plain strings`)
   }
   for (const [key, value] of Object.entries(obj)) {
+    if (RETIRED_THOUGHT_FIELDS.has(key)) {
+      throw new Error(`retired thought field '${key}' leaked at ${path}`)
+    }
     if (BOOLEAN_FIELDS.has(key) && value !== undefined && typeof value !== 'boolean') {
       throw new Error(`${path}.${key} must be a boolean, got ${typeof value} (${String(value)})`)
     }

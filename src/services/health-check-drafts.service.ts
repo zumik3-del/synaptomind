@@ -43,15 +43,15 @@ export function isScheduledReminder(t: Thought, now: string): boolean {
 
 /**
  * Every plain draft that has an active near-duplicate, one finding per draft.
- * Clusters, profile thoughts and scheduled reminders are excluded (exactly the
- * drafts the retired triage guarded), and the duplicate is always an `active`
+ * Clusters and scheduled reminders are excluded (exactly the drafts the retired
+ * triage guarded), and the duplicate is always an `active`
  * thought of the draft's own project — the pool is project-scoped and holds
  * active thoughts only.
  */
 export function findDuplicateDrafts(d: Database, now: string = new Date().toISOString()): DuplicateDraft[] {
   const findings: DuplicateDraft[] = []
   for (const draft of listThoughts(d, { status: 'draft', limit: null })) {
-    if (draft.is_cluster || draft.is_profile) continue
+    if (draft.is_cluster) continue
     if (isScheduledReminder(draft, now)) continue
     const pool = buildCandidatePool(d, draft, draft.project_id, config.edgeDetect.maxCandidates)
     const target = findMergeTarget(pool, draft)

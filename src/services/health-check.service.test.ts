@@ -195,7 +195,7 @@ test('detects stale drafts', () => {
   const db = getDb()
   const id = crypto.randomUUID()
   const oldDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
-  db.prepare('INSERT INTO thoughts (id, content, status, project_id, is_cluster, is_profile, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, 'old draft', 'draft', 'default', 0, 0, oldDate, oldDate)
+  db.prepare('INSERT INTO thoughts (id, content, status, project_id, is_cluster, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, 'old draft', 'draft', 'default', 0, oldDate, oldDate)
 
   const report = runHealthCheckService()
   const contentCat = report.categories.find(c => c.name === 'content_quality')

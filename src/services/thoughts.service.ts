@@ -2,7 +2,6 @@ import type { Database } from 'bun:sqlite'
 export type { Thought } from '../db/thoughts'
 import { config } from '../config'
 import { createEdge } from '../db/edges'
-import { getClusterMembers } from '../db/cluster-edges'
 import { getDb } from '../db'
 import { getThoughtLimitsDB } from '../db/settings'
 import { pruneThoughtUrlLinks } from '../db/thought_url_links'
@@ -62,13 +61,6 @@ export function createThoughtWithParentService(
   return { ...thought, content_language: config.contentLanguage } as Thought
 }
 
-// Profile thoughts are persona material and must survive archiving (issue #200).
-function assertNotProfileArchive(thought: Thought | null | undefined): void {
-  if (thought?.is_profile) {
-    throw new ValidationError('Profile thoughts cannot be archived — clear the is_profile flag first')
-  }
-}
-
 export function updateThoughtByIdService(id: string, data: UpdateThoughtInput, d: Database = getDb()): Thought | null {
   validateStatus(data.status)
   if (data.content !== undefined) {
@@ -78,9 +70,6 @@ export function updateThoughtByIdService(id: string, data: UpdateThoughtInput, d
     if (typeof data.surface_after !== 'string' || !isoDateTimeSchema.safeParse(data.surface_after).success) {
       throw new ValidationError(`Invalid surface_after: ${String(data.surface_after)}. Must be a valid ISO timestamp or null.`)
     }
-  }
-  if (data.status === 'archived') {
-    assertNotProfileArchive(dbGetThought(d, id))
   }
   const run = d.transaction(() => {
     const updated = dbUpdateThought(d, id, data)
@@ -100,7 +89,6 @@ export function updateThoughtByIdService(id: string, data: UpdateThoughtInput, d
 export function archiveThoughtByIdService(id: string, d: Database = getDb()): Thought | null {
   const thought = dbGetThought(d, id)
   if (!thought) return null
-  assertNotProfileArchive(thought)
   return dbArchiveThought(d, id) ?? null
 }
 
@@ -122,11 +110,11 @@ export interface ArchiveBatchResult {
 /**
  * Archive several thoughts in one call (task #1964).
  *
- * Reuses `archiveThoughtByIdService`, so the profile guard (issue #200) and the
- * idempotency of an already-archived thought are unchanged. The batch runs in ONE
- * transaction and reports per-item failures instead of aborting the rest — the
- * contract `bulkCreateThoughtsService` already uses: a failure is collected, the
- * items that succeeded still commit, and nothing is swallowed silently.
+ * Reuses `archiveThoughtByIdService`, so the idempotency of an already-archived
+ * thought is unchanged. The batch runs in ONE transaction and reports per-item
+ * failures instead of aborting the rest — the contract `bulkCreateThoughtsService`
+ * already uses: a failure is collected, the items that succeeded still commit,
+ * and nothing is swallowed silently.
  */
 export function archiveThoughtsBatchService(ids: string[], d: Database = getDb()): ArchiveBatchResult {
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -158,10 +146,6 @@ export function archiveThoughtsBatchService(ids: string[], d: Database = getDb()
   return { archived, failed: errors.length, errors }
 }
 
-export function listThoughtsService(options?: ListThoughtsOptions, d: Database = getDb()): Thought[] {
-  return dbListThoughts(d, options)
-}
-
 /** One page of thoughts plus the total matching the same filters. */
 export interface ThoughtPage {
   thoughts: Thought[]
@@ -181,12 +165,4 @@ export function listThoughtsPageService(options: ListThoughtsOptions = {}, d: Da
   const offset = options.offset ?? 0
   const thoughts = dbListThoughts(d, { ...options, limit, offset })
   return { thoughts, total: countThoughts(d, options), limit, offset }
-}
-
-export function getClusterMembersService(clusterId: string, d: Database = getDb()): { cluster: Thought; members: Thought[] } {
-  const cluster = getThoughtByIdService(clusterId, d)
-  if (!cluster) throw new NotFoundError('Thought not found')
-  if (!cluster.is_cluster) throw new ValidationError('Not a cluster thought')
-  const members = getClusterMembers(d, clusterId)
-  return { cluster, members }
 }

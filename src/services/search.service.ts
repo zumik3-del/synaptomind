@@ -235,7 +235,7 @@ export async function searchThoughts(options: SearchServiceOptions, d: Database 
  * Source-compatible sibling of {@link searchThoughts}: same rows and order,
  * plus the machine-readable match bookkeeping (`matched`, `filtered_out`,
  * `reason`, `ambiguous`, `warnings`). The MCP envelope consumes this; the
- * array-returning service stays the surface for HTTP, context and clusters.
+ * array-returning service stays the surface for context and the id lookup.
  */
 export async function searchThoughtsOutcome(
   options: SearchServiceOptions,
@@ -244,14 +244,6 @@ export async function searchThoughtsOutcome(
   const { items, degraded, ...outcome } = await runSearch(options, d)
   Object.assign(items, { degraded })
   return { ...outcome, items }
-}
-
-export async function searchThoughtsGrouped(
-  options: SearchServiceOptions,
-  d: Database = getDb()
-): Promise<GroupedResult[]> {
-  const flat = await searchThoughts(options, d)
-  return groupResultsByCluster(flat, d)
 }
 
 function filterByTags(results: SearchResult[], tagFilter: string, d: Database): SearchResult[] {

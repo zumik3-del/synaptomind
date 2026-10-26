@@ -13,7 +13,6 @@ interface SearchRow {
   project_id: string
   project_name: string | null
   is_cluster: number
-  is_profile: number
   created_at: string
   updated_at: string
 }

@@ -1,24 +1,30 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { config } from '../config'
 import { getDb } from '../db'
-import { getThoughtLimits, setThoughtLimits } from '../db/settings'
+import { getThoughtLimits } from '../db/settings'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { NotFoundError, ValidationError } from '../errors'
+import { NotFoundError, ThoughtContentConflictError, ValidationError } from '../errors'
 import {
   archiveThoughtByIdService,
   createThoughtWithParentService,
-  getClusterMembersService,
   getThoughtByIdService,
-  listThoughtsService,
+  listThoughtsPageService,
   updateThoughtByIdService
 } from './thoughts.service'
 import { createThoughtWithUrlLinksService } from './url_links.service'
 import { mergeThoughtsService } from './merge.service'
 import { validateContentLength } from '../validation'
 
+// The thought limits are config-only since task #2201.
+const originalSoftLimit = config.thoughts.softLimit
+const originalHardLimitBufferPercent = config.thoughts.hardLimitBufferPercent
+
 beforeEach(createTestDb)
 afterEach(() => {
   const { closeDb } = require('../db/init')
   closeDb()
+  config.thoughts.softLimit = originalSoftLimit
+  config.thoughts.hardLimitBufferPercent = originalHardLimitBufferPercent
 })
 
 test('getThoughtByIdService returns thought', () => {
@@ -86,32 +92,20 @@ test('archiveThoughtByIdService returns null for unknown id', () => {
   expect(archiveThoughtByIdService('nonexistent')).toBeNull()
 })
 
-test('archiveThoughtByIdService rejects profile thoughts', () => {
-  const id = seedThought({ is_profile: 1, status: 'active' })
-  expect(() => archiveThoughtByIdService(id)).toThrow(ValidationError)
-})
-
-test('listThoughtsService returns thoughts', () => {
+test('listThoughtsPageService returns thoughts with the page metadata', () => {
   seedThought({ content: 'first' })
   seedThought({ content: 'second' })
-  const list = listThoughtsService()
-  expect(list.length).toBeGreaterThanOrEqual(2)
+  const page = listThoughtsPageService()
+  expect(page.thoughts.length).toBeGreaterThanOrEqual(2)
+  expect(page.total).toBeGreaterThanOrEqual(2)
+  expect(page.offset).toBe(0)
 })
 
-test('listThoughtsService filters by status', () => {
+test('listThoughtsPageService filters by status', () => {
   seedThought({ content: 'active1', status: 'active' })
   seedThought({ content: 'draft1', status: 'draft' })
-  const active = listThoughtsService({ status: 'active' })
-  expect(active.every(t => t.status === 'active')).toBeTrue()
-})
-
-test('getClusterMembersService throws for non-cluster thought', () => {
-  const id = seedThought()
-  expect(() => getClusterMembersService(id)).toThrow(ValidationError)
-})
-
-test('getClusterMembersService throws for unknown id', () => {
-  expect(() => getClusterMembersService('nonexistent')).toThrow(NotFoundError)
+  const active = listThoughtsPageService({ status: 'active' })
+  expect(active.thoughts.every(t => t.status === 'active')).toBeTrue()
 })
 
 test('mergeThoughtsService throws for same source and target', () => {
@@ -131,12 +125,6 @@ test('mergeThoughtsService throws for missing target', () => {
 
 test('mergeThoughtsService throws for archived source', () => {
   const source = seedThought({ status: 'archived' })
-  const target = seedThought()
-  expect(() => mergeThoughtsService({ targetId: target, sourceId: source })).toThrow(ValidationError)
-})
-
-test('mergeThoughtsService throws for profile source', () => {
-  const source = seedThought({ is_profile: 1 })
   const target = seedThought()
   expect(() => mergeThoughtsService({ targetId: target, sourceId: source })).toThrow(ValidationError)
 })
@@ -186,7 +174,8 @@ test('validateContentLength does not throw under soft limit', () => {
 // ── Padded hard-limit boundary (issue #123) ─────────────────────────────────
 
 test('createThoughtWithParentService accepts content exactly at the derived hard limit', () => {
-  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.hardLimitBufferPercent = 50
   const { hardLimit } = getThoughtLimits(getDb())
   expect(hardLimit).toBe(15)
 
@@ -195,14 +184,16 @@ test('createThoughtWithParentService accepts content exactly at the derived hard
 })
 
 test('createThoughtWithParentService rejects content one char over the derived hard limit', () => {
-  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.hardLimitBufferPercent = 50
   const { hardLimit } = getThoughtLimits(getDb())
 
   expect(() => createThoughtWithParentService({ content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
 })
 
 test('content between soft and hard limit is accepted (soft limit is advisory)', () => {
-  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.hardLimitBufferPercent = 50
   const { softLimit, hardLimit } = getThoughtLimits(getDb())
   const middle = softLimit + 1
   expect(middle).toBeGreaterThan(softLimit)
@@ -213,9 +204,49 @@ test('content between soft and hard limit is accepted (soft limit is advisory)',
 
 test('updateThoughtByIdService enforces the derived hard limit and accepts the exact ceiling', () => {
   const id = seedThought({ content: 'short' })
-  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.hardLimitBufferPercent = 50
   const { hardLimit } = getThoughtLimits(getDb())
 
   expect(() => updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
   expect(updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit) })?.content).toHaveLength(hardLimit)
+})
+
+// ── v046 content dedupe on update (moved off the deleted PUT route) ──────────
+//
+// Editing a live thought onto content another live thought in the same project
+// already holds is a ThoughtContentConflictError (409 at the wire), not a raw
+// `UNIQUE constraint failed` — and it is refused identically on a retry, so a
+// caller cannot talk its way in.
+
+test('updating onto live content throws the 409-class conflict and writes nothing', () => {
+  const holder = createThoughtWithUrlLinksService({ content: 'content already in use' })
+  const target = createThoughtWithUrlLinksService({ content: 'my own content' })
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    expect(() => updateThoughtByIdService(target.id, { content: 'content already in use' })).toThrow(
+      ThoughtContentConflictError
+    )
+  }
+
+  expect(getThoughtByIdService(target.id)?.content).toBe('my own content')
+  expect(getThoughtByIdService(holder.id)?.content).toBe('content already in use')
+})
+
+test('re-activating a thought whose content is live again throws the conflict', () => {
+  const archived = createThoughtWithUrlLinksService({ content: 'recycled content' })
+  expect(archiveThoughtByIdService(archived.id)?.status).toBe('archived')
+  const live = createThoughtWithUrlLinksService({ content: 'recycled content' })
+  expect(live.id).not.toBe(archived.id)
+
+  expect(() => updateThoughtByIdService(archived.id, { status: 'active' })).toThrow(ThoughtContentConflictError)
+  expect(getThoughtByIdService(archived.id)?.status).toBe('archived')
+})
+
+test('an ordinary update, activation and archive still succeed', () => {
+  const thought = createThoughtWithUrlLinksService({ content: 'ordinary content' })
+
+  expect(updateThoughtByIdService(thought.id, { content: 'rewritten content' })?.content).toBe('rewritten content')
+  expect(updateThoughtByIdService(thought.id, { status: 'active' })?.status).toBe('active')
+  expect(archiveThoughtByIdService(thought.id)?.status).toBe('archived')
 })

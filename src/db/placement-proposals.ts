@@ -195,13 +195,6 @@ export function listProposals(db: Database, options: ListProposalsOptions = {}):
     .all(...params) as PlacementProposalRow[]
 }
 
-/** List every row of one run, newest first, across all states (ADR 2026-09-29 §2.2). */
-export function listProposalsByRun(db: Database, runId: string): PlacementProposalRow[] {
-  return db
-    .prepare('SELECT * FROM placement_proposals WHERE run_id = ? ORDER BY created_at DESC')
-    .all(runId) as PlacementProposalRow[]
-}
-
 /**
  * The rollback manifest of one run: its accepted rows in *reverse application
  * order* (ADR 2026-09-29 §2.8). Application order is `applied_at`, not
@@ -266,17 +259,6 @@ export function deleteExpired(db: Database, cutoff: string, now: string = new Da
     .prepare(`DELETE FROM placement_proposals WHERE state != 'pending' AND decided_at IS NOT NULL AND decided_at < ?`)
     .run(cutoff).changes
   return expired + pruned
-}
-
-/** Live (non-overdue) `pending` rows — the denominator of `maxPendingProposals`. */
-export function countLivePendingProposals(db: Database, now: string): number {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM placement_proposals
-        WHERE state = 'pending' AND (expires_at IS NULL OR expires_at > ?)`
-    )
-    .get(now) as { n: number }
-  return row.n
 }
 
 /** The live row for the same item, if any — the dedup key of `idx_pp_dedup`. */

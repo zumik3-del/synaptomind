@@ -41,7 +41,7 @@ interface Config {
   primer: { promoteThreshold: number; topN: number }
   autoCluster: {
     minAgeDays: number; minSimilarity: number;
-    minMembers: number; dryRun: boolean
+    minMembers: number
   }
   edgeDetect: {
     minSimilarity: number; topK: number; maxCandidates: number;
@@ -51,7 +51,7 @@ interface Config {
     maxClusterSize: number; proposalTtlDays: number; maxPendingProposals: number;
     maxProposalsPerEnqueue: number
   }
-  slots: { defaultMaxChars: number; hardLimit: number }
+  slots: { defaultMaxChars: number }
   graph: { maxDegree: number }
   search: { confidence: { vectorFloor: number; unrelatedFloor: number } }
   rateLimit: { max: number; windowMs: number; trustProxy: boolean }
@@ -84,7 +84,7 @@ export const DEFAULTS: Config = {
   // cosine distance (ADR 2026-09-28, thought 01a094b2-…).
   autoCluster: {
     minAgeDays: 3, minSimilarity: 0.09,
-    minMembers: 3, dryRun: false
+    minMembers: 3
   },
   edgeDetect: {
     minSimilarity: 0.75, topK: 10, maxCandidates: 100,
@@ -96,7 +96,7 @@ export const DEFAULTS: Config = {
   // `proposalTtlDays` bounds the review queue (ADR §2.4): terminal rows are
   // pruned after the TTL and live `pending` rows use `expires_at`.
   placement: { maxClusterSize: 50, proposalTtlDays: 30, maxPendingProposals: 500, maxProposalsPerEnqueue: 5 },
-  slots: { defaultMaxChars: 2000, hardLimit: 20000 },
+  slots: { defaultMaxChars: 2000 },
   graph: { maxDegree: 50 },
   // Conservative placeholder pending issue #156 calibration: above the observed
   // nonsense band so noise is never marked confident. Re-derive from a labeled
@@ -112,7 +112,7 @@ export const DEFAULTS: Config = {
   // (`DEFAULT_MIN_RELEVANCE` in `search-normalize.ts`) is set from the same run.
   search: { confidence: { vectorFloor: 0.9, unrelatedFloor: 0.8 } },
   rateLimit: { max: 200, windowMs: 60_000, trustProxy: false },
-  retentionReview: { minAgeDays: 30, importanceFloor: 0.2, pageSize: 20 }
+  retentionReview: { minAgeDays: 30, importanceFloor: 0.3, pageSize: 20 }
 }
 
 type EnvType = 'string' | 'int' | 'float' | 'bool' | 'list'
@@ -171,7 +171,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_AUTO_CLUSTER_MIN_AGE_DAYS', 'autoCluster.minAgeDays', 'int'),
   M('SYNAPTOMIND_AUTO_CLUSTER_MIN_SIMILARITY', 'autoCluster.minSimilarity', 'float'),
   M('SYNAPTOMIND_AUTO_CLUSTER_MIN_MEMBERS', 'autoCluster.minMembers', 'int'),
-  M('SYNAPTOMIND_AUTO_CLUSTER_DRY_RUN', 'autoCluster.dryRun', 'bool'),
 
   M('SYNAPTOMIND_EDGE_DETECT_MIN_SIMILARITY', 'edgeDetect.minSimilarity', 'float'),
   M('SYNAPTOMIND_EDGE_DETECT_TOP_K', 'edgeDetect.topK', 'int'),
@@ -184,7 +183,6 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS_PER_ENQUEUE', 'placement.maxProposalsPerEnqueue', 'int'),
 
   M('SYNAPTOMIND_SLOTS_MAX_CHARS', 'slots.defaultMaxChars', 'int'),
-  M('SYNAPTOMIND_SLOTS_HARD_LIMIT', 'slots.hardLimit', 'int'),
 
   M('SYNAPTOMIND_GRAPH_MAX_DEGREE', 'graph.maxDegree', 'int'),
 

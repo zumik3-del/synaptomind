@@ -2,10 +2,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from '
 import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { config } from '../../config'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
-import { setThoughtLimits } from '../../db/settings'
-import { createThought, getThought } from '../../db/thoughts'
+import { getThought } from '../../db/thoughts'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
@@ -87,12 +87,17 @@ describe('tool registration', () => {
   })
 
   test('memory_store advertises the effective soft limit at registration', async () => {
-    setThoughtLimits(getDb(), 321, 20)
+    const original = config.thoughts.softLimit
+    config.thoughts.softLimit = 321
 
-    const fresh = await setupClient()
-    const { tools: freshTools } = await fresh.listTools()
-    const storeTool = freshTools.find(t => t.name === 'memory_store')
-    expect(JSON.stringify(storeTool?.inputSchema ?? {})).toContain('321')
+    try {
+      const fresh = await setupClient()
+      const { tools: freshTools } = await fresh.listTools()
+      const storeTool = freshTools.find(t => t.name === 'memory_store')
+      expect(JSON.stringify(storeTool?.inputSchema ?? {})).toContain('321')
+    } finally {
+      config.thoughts.softLimit = original
+    }
   })
 })
 
@@ -145,40 +150,17 @@ describe('retention_review MCP', () => {
     expect(result.isError).toBe(true)
   })
 
-  test('retention-review list excludes profile thoughts and totals', async () => {
-    const candidate = seedThought({ content: 'candidate', status: 'archived', is_profile: 0, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
-    const profile = seedThought({ content: 'profile', status: 'archived', is_profile: 1, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
-    for (const id of [candidate, profile]) {
+  test('retention-review list returns every eligible candidate and totals', async () => {
+    const first = seedThought({ content: 'candidate', status: 'archived', is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
+    const second = seedThought({ content: 'second candidate', status: 'archived', is_protected: 0, created_at: '2026-09-02T00:00:00.000Z' })
+    for (const id of [first, second]) {
       getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
       getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
     }
     const listed = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'list' } }))
-    expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(candidate)
-    expect(listed.data.items.map((row: { id: string }) => row.id)).not.toContain(profile)
-    expect(listed.data.meta.counts.total).toBe(1)
-  })
-
-  test('retention-review delete, protect, and compact refuse profile thoughts', async () => {
-    const id = seedThought({ status: 'archived', is_profile: 1, is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
-    for (const args of [
-      { action: 'delete', thought_id: id, confirm: true },
-      { action: 'protect', thought_id: id },
-      { action: 'compact', source_ids: [id], summary: { content: 'summary' }, confirm: true }
-    ]) {
-      let result: { isError?: boolean }
-      if (args.action === 'delete') {
-        const pv = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
-        if (pv.isError) {
-          result = pv
-        } else {
-          result = parseResult(await callTool({ name: 'retention_review', arguments: { ...args, preview_token: pv.data?.item?.preview_token } }))
-        }
-      } else {
-        result = parseResult(await callTool({ name: 'retention_review', arguments: args }))
-      }
-      expect(result.isError).toBe(true)
-      expect(JSON.stringify(result).toLowerCase()).toContain('profile')
-    }
+    expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(first)
+    expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(second)
+    expect(listed.data.meta.counts.total).toBe(2)
   })
 
   test('retention-review compact accepts 1000 source IDs through MCP schema validation', async () => {
@@ -272,6 +254,48 @@ describe('memory_store', () => {
     })
     const { isError } = parseResult(result)
     expect(isError).toBe(true)
+  })
+
+  // ── the action surface after #2201: bulk_create is the only bulk spelling ──
+
+  test('advertises only the canonical action set', async () => {
+    const { tools } = await client.listTools()
+    const tool = tools.find(t => t.name === 'memory_store')
+    const schema = tool?.inputSchema as
+      | { properties?: { action?: { enum?: string[] }; thoughts?: { description?: string } } }
+      | undefined
+
+    expect(schema?.properties?.action?.enum).toEqual([
+      'create', 'update', 'link', 'link_batch', 'unlink', 'unlink_batch', 'retype', 'bulk_create'
+    ])
+    // The `thoughts` field is documented for the surviving action only.
+    expect(schema?.properties?.thoughts?.description).toContain('"bulk_create"')
+    expect(schema?.properties?.thoughts?.description).not.toContain('create_bulk')
+    expect(schema?.properties?.thoughts?.description).not.toContain('create_batch')
+  })
+
+  test('rejects the retired bulk_create aliases', async () => {
+    for (const alias of ['create_bulk', 'bulk', 'create_batch']) {
+      const result = await callTool({
+        name: 'memory_store',
+        arguments: { action: alias, thoughts: [{ content: `alias write ${alias}` }] }
+      })
+      expect({ alias, isError: parseResult(result).isError }).toEqual({ alias, isError: true })
+    }
+    // The rejected spellings wrote nothing: the alias is a schema error, not a
+    // silently accepted second door into the bulk insert.
+    expect(getDb().prepare(`SELECT COUNT(*) AS cnt FROM thoughts WHERE content LIKE '% alias write %'`).get()).toEqual({ cnt: 0 })
+  })
+
+  test('bulk_create still creates every thought in one action', async () => {
+    const result = await callTool({
+      name: 'memory_store',
+      arguments: { action: 'bulk_create', thoughts: [{ content: 'bulk one' }, { content: 'bulk two' }] }
+    })
+    const { data, isError } = parseResult(result)
+    expect(isError).toBe(false)
+    expect(data.items).toHaveLength(2)
+    expect(getDb().prepare(`SELECT COUNT(*) AS cnt FROM thoughts WHERE content IN ('bulk one', 'bulk two')`).get()).toEqual({ cnt: 2 })
   })
 })
 
@@ -512,6 +536,34 @@ describe('memory_manage', () => {
     expect(resolveErr).toBe(false)
     expect(resolved.item.name).toBe('TestProject')
   })
+
+  test('advertises no compact option (#2201: the manage projection never read it)', async () => {
+    const { tools } = await client.listTools()
+    const manage = tools.find(t => t.name === 'memory_manage')
+    const props = (manage?.inputSchema as { properties?: Record<string, { description?: string }> } | undefined)?.properties ?? {}
+
+    expect(Object.keys(props)).not.toContain('compact')
+    expect(JSON.stringify(manage?.inputSchema)).not.toContain('compact')
+    expect(manage?.description ?? '').not.toContain('compact')
+    // Positive control: the surviving field selector is still advertised, and
+    // the option stays live where a projection actually reads it.
+    expect(props.fields).toBeDefined()
+    const recall = tools.find(t => t.name === 'memory_recall')
+    const recallProps = (recall?.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties ?? {}
+    expect(Object.keys(recallProps)).toContain('compact')
+  })
+
+  test('fields still trims the project rows (the surviving selector works)', async () => {
+    const trimmed = parseResult(await callTool({
+      name: 'memory_manage',
+      arguments: { action: 'list', fields: ['name'] }
+    }))
+    expect(trimmed.isError).toBe(false)
+    expect(Object.keys(trimmed.data.items[0])).toEqual(['name'])
+
+    const full = parseResult(await callTool({ name: 'memory_manage', arguments: { action: 'list' } }))
+    expect(Object.keys(full.data.items[0]).length).toBeGreaterThan(1)
+  })
 })
 
 // ── memory_reflect ───────────────────────────────────────────────────────────
@@ -694,12 +746,17 @@ describe('memory_guide', () => {
   })
 
   test('advertises the effective soft limit resolved at call time', async () => {
-    setThoughtLimits(getDb(), 123, 20)
+    const original = config.thoughts.softLimit
+    config.thoughts.softLimit = 123
 
-    const result = await callTool({ name: 'memory_guide', arguments: {} })
-    const r = result as { content: Array<{ type: string; text: string }> }
-    expect(r.content[0].text).toContain('≤123 soft')
-    expect(r.content[0].text).not.toContain('≤600 soft')
+    try {
+      const result = await callTool({ name: 'memory_guide', arguments: {} })
+      const r = result as { content: Array<{ type: string; text: string }> }
+      expect(r.content[0].text).toContain('≤123 soft')
+      expect(r.content[0].text).not.toContain('≤600 soft')
+    } finally {
+      config.thoughts.softLimit = original
+    }
   })
 })
 
@@ -818,26 +875,6 @@ describe('merge edge cases', () => {
     const result = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'merge', source_id: source.id, target_id: target.id, confirm: true, preview_token: parseResult(mergePreview2).data.item.preview_token }
-    })
-    const { isError } = parseResult(result)
-    expect(isError).toBe(true)
-  })
-})
-
-describe('archive edge cases', () => {
-  test('archive on profile thought returns error', async () => {
-    // Legacy profile data still exists in deployed DBs even though the flag is
-    // no longer writable through the API/MCP surface (task #1939), so the
-    // archive guard is seeded at the db layer.
-    const thought = createThought(getDb(), { content: 'profile thought', status: 'active', is_profile: true })
-
-    const archPreview = await callTool({
-      name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id }
-    })
-    const result = await callTool({
-      name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: parseResult(archPreview).data.item.preview_token }
     })
     const { isError } = parseResult(result)
     expect(isError).toBe(true)
@@ -1191,7 +1228,7 @@ describe('retired surface', () => {
     }))
     expect(isError).toBe(true)
     expect(String(data)).toContain('is_profile is retired')
-    expect(getThought(getDb(), id)?.is_profile).toBe(0)
+    expect(getThought(getDb(), id)?.content).toBe('plain thought')
   })
 
   test('memory_status action=profile is no longer a valid action', async () => {

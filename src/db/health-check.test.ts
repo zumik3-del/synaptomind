@@ -5,7 +5,6 @@ import { getDb } from "./container";
 import { closeDb } from "./init";
 import {
 	deleteEdges,
-	deleteThoughts,
 	findBrokenParentChains,
 	findCircularChains,
 	findClusterViolations,
@@ -278,14 +277,12 @@ test("findIslandThoughts finds active unconnected regular thoughts only", () => 
 	const island = seedThought({ content: "island thought" });
 	const connected = seedThought({ content: "connected thought" });
 	const cluster = seedThought({ content: "lonely cluster", is_cluster: 1 });
-	const profile = seedThought({ content: "lonely profile", is_profile: 1 });
 	seedEdge(connected, seedThought({ content: "peer" }), "related");
 
 	const islandIds = findIslandThoughts(db).map((i) => i.id);
-	// clusters and profiles are exempt; connected thoughts are not islands
+	// clusters are exempt; connected thoughts are not islands
 	expect(islandIds).toEqual([island]);
 	expect(islandIds).not.toContain(cluster);
-	expect(islandIds).not.toContain(profile);
 	expect(islandIds).not.toContain(connected);
 });
 
@@ -522,37 +519,3 @@ test("deleteEdges deletes by id and returns the count", () => {
 	expect(db.prepare(`SELECT COUNT(*) AS cnt FROM edges`).get()).toEqual({ cnt: 0 });
 });
 
-// ── deleteThoughts regression (#111): single-thought deletion path ──────────
-
-test("deleteThoughts skips protected thoughts and cleans up vec rows + orphan tags", () => {
-	const db = getDb();
-	seedVecTable(db);
-	const protectedId = seedThought({ content: "protected thought" }); // is_protected defaults to 1
-	const doomed = seedThought({
-		content: "doomed thought",
-		is_protected: 0,
-		tags: '["orphan-tag-unique"]',
-	});
-	seedVecRow(db, doomed);
-
-	const deleted = deleteThoughts(db, [protectedId, doomed, crypto.randomUUID()]);
-
-	expect(deleted).toBe(1);
-	expect(
-		db.prepare(`SELECT 1 FROM thoughts WHERE id = ?`).get(protectedId)
-	).not.toBeNull();
-	expect(
-		db.prepare(`SELECT 1 FROM thoughts WHERE id = ?`).get(doomed)
-	).toBeNull();
-	// vec_thoughts cleanup happened inside the same deletion path
-	expect(db.prepare(`SELECT 1 FROM vec_thoughts WHERE id = ?`).get(doomed)).toBeNull();
-	// the doomed thought's tag had no other users → pruned
-	expect(
-		db.prepare(`SELECT 1 FROM tags WHERE name = ?`).get("orphan-tag-unique")
-	).toBeNull();
-});
-
-test("deleteThoughts returns 0 for empty input", () => {
-	const db = getDb();
-	expect(deleteThoughts(db, [])).toBe(0);
-});

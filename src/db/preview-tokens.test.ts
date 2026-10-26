@@ -9,7 +9,6 @@ import { getDb } from './container'
 import { closeDb, initDb } from './init'
 import {
   createPreviewToken,
-  getPreviewToken,
   consumePreviewToken,
   deleteExpiredPreviewTokens,
   isPreviewTokenExpired,
@@ -23,13 +22,18 @@ import {
 beforeEach(createTestDb)
 afterEach(closeDb)
 
+/** The stored row, read directly (the db-layer accessor was removed in #2201). */
+function storedToken(token: string): unknown {
+  return getDb().prepare('SELECT * FROM preview_tokens WHERE token = ?').get(token)
+}
+
 test('consumePreviewToken returns row once then undefined', () => {
   const db = getDb()
   const token = createPreviewToken(db, 'kind', 'target', 'fp')
   const row = consumePreviewToken(db, token)
   expect(row?.token).toBe(token)
   expect(consumePreviewToken(db, token)).toBeUndefined()
-  expect(getPreviewToken(db, token)).toBeUndefined()
+  expect(storedToken(token)).toBeNull()
 })
 
 test('expired tokens are swept', () => {
@@ -38,7 +42,7 @@ test('expired tokens are swept', () => {
   const future = new Date(Date.now() + 1000).toISOString()
   const swept = deleteExpiredPreviewTokens(db, future)
   expect(swept).toBeGreaterThanOrEqual(1)
-  expect(getPreviewToken(db, token)).toBeUndefined()
+  expect(storedToken(token)).toBeNull()
 })
 
 test('isPreviewTokenExpired reflects expires_at', () => {
@@ -65,7 +69,7 @@ test('two confirms of one token: exactly one is valid, the other reads not_found
   expect(results.filter(r => r.valid)).toHaveLength(1)
   expect(results[0].valid).toBeTrue()
   expect(results[1]).toEqual({ valid: false, reason: 'not_found' })
-  expect(getPreviewToken(db, token)).toBeUndefined()
+  expect(storedToken(token)).toBeNull()
 })
 
 test('a rejected claim still burns the token: a stale or misdirected confirm cannot be replayed', () => {
@@ -107,7 +111,7 @@ test('a rejected claim still burns the token: a stale or misdirected confirm can
     // Fail closed: the refused confirm consumed the row, so the same token
     // cannot be replayed even with the correct arguments.
     expect(consumePreviewTokenService(item.token, 'kind', 'target', 'fp', db)).toEqual({ valid: false, reason: 'not_found' })
-    expect(getPreviewToken(db, item.token)).toBeUndefined()
+    expect(storedToken(item.token)).toBeNull()
   }
 })
 

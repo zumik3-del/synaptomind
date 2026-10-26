@@ -57,40 +57,6 @@ test('candidate query excludes each ineligible signal and respects age and impor
   expect(recent).not.toBe(keep)
 })
 
-test('candidate listing excludes archived profile thoughts from candidates and total', () => {
-  const eligible = candidate('eligible beside profile')
-  const profileId = seedThought({ content: 'archived profile', status: 'archived', is_profile: 1, is_protected: 0, importance: 0.1, created_at: old })
-  getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(profileId)
-  getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run(old, profileId)
-
-  const result = listRetentionReviewCandidatesService({ now, minAgeDays: 30, importanceFloor: 1 }, getDb())
-  expect(result.candidates.map(row => row.id)).toEqual([eligible])
-  expect(result.total).toBe(1)
-})
-
-test('delete and protect reject archived profiles without mutating the thought', () => {
-  const id = seedThought({ content: 'profile rejected', status: 'archived', is_profile: 1, is_protected: 0, importance: 0.1, created_at: old })
-  getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
-  getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run(old, id)
-  const options = { now, minAgeDays: 30, importanceFloor: 1 }
-
-  expect(() => deleteRetentionReviewCandidateService(id, { ...options, confirm: true }, getDb())).toThrow(RetentionReviewIneligibleError)
-  expect(() => protectRetentionReviewCandidateService(id, options, getDb())).toThrow(RetentionReviewIneligibleError)
-  expect(getDb().prepare('SELECT status, is_protected FROM thoughts WHERE id = ?').get(id)).toEqual({ status: 'archived', is_protected: 0 })
-})
-
-test('forced confirmed compact rejects archived profiles without changing source or creating summary', () => {
-  const id = seedThought({ content: 'profile compact source', status: 'archived', is_profile: 1, is_protected: 0, importance: 0.1, created_at: old })
-  getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
-  getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run(old, id)
-
-  expect(() => compactRetentionReviewCandidatesService({
-    source_ids: [id], summary: { content: 'must not exist' }, now, minAgeDays: 30, importanceFloor: 1, force: true, confirm: true
-  }, getDb())).toThrow(RetentionReviewIneligibleError)
-  expect(getDb().prepare('SELECT status, content FROM thoughts WHERE id = ?').get(id)).toEqual({ status: 'archived', content: 'profile compact source' })
-  expect(getDb().prepare("SELECT id FROM thoughts WHERE content = 'must not exist'").get()).toBeNull()
-})
-
 test('candidate pagination preserves stable order and returns unpaged total', () => {
   const ids = [candidate('a'), candidate('b'), candidate('c')]
   const page = listRetentionReviewCandidatesService({ now, minAgeDays: 30, importanceFloor: 1, limit: 1, offset: 1 }, getDb())

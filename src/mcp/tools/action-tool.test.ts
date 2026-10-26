@@ -5,7 +5,6 @@ import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { closeDb } from '../../db/init'
-import { config } from '../../config'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 import { type ActionToolConfig, registerActionTool, requiredString } from './action-tool'
@@ -312,6 +311,38 @@ describe('per-action schemas enforce action-conditional required fields', () => 
   }
 })
 
+// ── store update status enum: one message per invalid value (#2211) ──────────
+//
+// The action-conditional schema is the layer that owns the split, so these
+// probes go through the dispatcher callback directly: the advertised
+// `status` superset already rejects an unknown value, which would mask the
+// per-value message this schema is responsible for.
+
+describe('store update status enum keeps one message per invalid value', () => {
+  const storeDispatch = () => captureTool(registerMemoryStore)
+
+  test('a bogus status gets the generic enum error, not the archived guidance', async () => {
+    const result = (await storeDispatch()({ action: 'update', thought_id: 'irrelevant', status: 'bogus' })) as ToolResult
+    const { text, isError } = parseResult(result)
+
+    expect(isError).toBe(true)
+    expect(text).toContain('Invalid option: expected one of "draft"|"active"')
+    // Before the split this text was the archived-value guidance, which sent a
+    // caller holding a typo down the preview-token supersede flow.
+    expect(text).not.toContain('memory_supersede')
+  })
+
+  test('status=archived still names the supersede archive path', async () => {
+    const result = (await storeDispatch()({ action: 'update', thought_id: 'irrelevant', status: 'archived' })) as ToolResult
+    const { text, isError } = parseResult(result)
+
+    expect(isError).toBe(true)
+    expect(text).toContain('memory_supersede action=archive')
+    // The actionable half stays attached to the value it describes.
+    expect(text).not.toContain('Invalid option')
+  })
+})
+
 // ── memory_status action=config: raw-text envelope passthrough ───────────────
 
 describe('memory_status action=config raw-text passthrough', () => {
@@ -421,26 +452,6 @@ describe('auto_cluster option pass-through over an in-memory MCP client', () => 
       minAgeDays: 1,
       dryRun: false
     })
-  })
-
-  test('confirm overrides configured dryRun=true', async () => {
-    const originalDryRun = config.autoCluster.dryRun
-    try {
-      config.autoCluster.dryRun = true
-      const preview = await mockClient.callTool({
-        name: 'memory_crystallize',
-        arguments: { action: 'auto_cluster' }
-      })
-      const token3 = JSON.parse((preview as any).content[0].text).meta.preview.token
-      const result = await mockClient.callTool({
-        name: 'memory_crystallize',
-        arguments: { action: 'auto_cluster', confirm: true, preview_token: token3 }
-      })
-      expect(parseResult(result).isError).toBe(false)
-      expect(capturedAutoClusterOptions?.dryRun).toBe(false)
-    } finally {
-      config.autoCluster.dryRun = originalDryRun
-    }
   })
 
   test('omitted optional fields fall back to undefined (service uses config defaults)', async () => {

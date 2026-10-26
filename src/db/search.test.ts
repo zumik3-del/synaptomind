@@ -283,8 +283,8 @@ itVec("searchThoughts project-filtered BM25 returns topK when local thought exis
 function seedThoughtRow(db: Database, id: string, content: string): void {
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, created_at, updated_at)
-     VALUES (?, ?, 'active', 'test', 'default', 0, 1, 1, ?, ?)`,
+    `INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_protected, created_at, updated_at)
+     VALUES (?, ?, 'active', 'test', 'default', 0, 1, ?, ?)`,
   ).run(id, content, now, now);
   db.prepare(
     `INSERT OR IGNORE INTO thought_importance (thought_id, importance, hit_count, last_decay, created_at)

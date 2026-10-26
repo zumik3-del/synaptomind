@@ -6,9 +6,27 @@ import { itemEnvelope, writeEnvelopeScope } from '../envelope'
 import { resolveProjectId, shapeThought } from '../utils'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
+/**
+ * `update` is not an archive path (task #2207): archiving is destructive, so it
+ * goes through `memory_supersede action=archive` and its preview token, never a
+ * plain write that skips the preview. The advertised `status` enum still offers
+ * `archived` (the `create` action needs it), so the action-conditional schema
+ * narrows it here and rejects the value with the replacement path.
+ */
+const ARCHIVED_NEEDS_SUPERSEDE =
+  'update cannot set status "archived"; use memory_supersede action=archive (preview, then confirm:true with its preview_token)'
+
 export const updateHandler: ActionHandler = {
   input: z.object({
     thought_id: requiredString('thought_id is required for update action'),
+    status: z
+      .enum(['draft', 'active'], {
+        // Only the archived value carries the replacement path; any other bogus
+        // value falls back to the generic enum error (task #2211).
+        error: issue => (issue.input === 'archived' ? ARCHIVED_NEEDS_SUPERSEDE : undefined)
+      })
+      .optional()
+      .describe('draft or active only; archiving goes through memory_supersede action=archive.'),
     is_profile: z.never({ error: 'is_profile is retired; remove this field. There is no replacement.' }).optional(),
     surface_after: z.iso.datetime().nullable().optional()
   }),

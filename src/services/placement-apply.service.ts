@@ -10,7 +10,7 @@
  *
  * Conflict matrix (ADR §2.6): exact/symmetric duplicate → idempotent success;
  * reverse/different-type conflict, archived target, stale fingerprint, cluster
- * over `maxClusterSize` → `stale`; profile, invalid type, cluster constraint
+ * over `maxClusterSize` → `stale`; invalid type, cluster constraint
  * violation → typed `failed`.
  *
  * Every row this service accepts carries a run envelope (ADR 2026-09-29 §2.7,

@@ -5,9 +5,9 @@
  *
  * Request parsing (query-string → params) stays in `search-options.ts`; this
  * module is the other half — the already-parsed options → clamped, defaults
- * resolved, candidate-pool width derived. Keeping the two apart means the HTTP
- * API and the MCP tool share one parsing path without dragging the ranking
- * knobs into it.
+ * resolved, candidate-pool width derived. Keeping the two apart means the MCP
+ * tool and the service layer share one parsing path without dragging the
+ * ranking knobs into it.
  *
  * Types are imported from `search.service.ts` type-only, so there is no runtime
  * edge back (same pattern as `search-options.ts`).
