@@ -62,8 +62,8 @@ cp .env.example .env
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SYNAPTOMIND_SECRET` | (required) | Auth token for API and MCP |
-| `SYNAPTOMIND_PORT` | 3005 | HTTP API port |
+| `SYNAPTOMIND_SECRET` | (required) | Auth token for the HTTP ops endpoints and MCP |
+| `SYNAPTOMIND_PORT` | 3005 | HTTP ops port (health, health-check) |
 | `SYNAPTOMIND_HOST` | 0.0.0.0 (in container) | Server bind address. Pinned to `0.0.0.0` by `docker-compose.yml` so published ports are reachable from the host |
 | `SYNAPTOMIND_MCP_HTTP_PORT` | 3006 | MCP HTTP transport port |
 | `SYNAPTOMIND_DB_PATH` | ./data/synaptomind.db | SQLite database path |
@@ -91,11 +91,11 @@ volumes:
 
 Priority: env vars > config.json > defaults. See `config.json.example` for all options.
 
-**Port resolution:** the effective HTTP API port is `SYNAPTOMIND_PORT` >
+**Port resolution:** the effective HTTP ops port is `SYNAPTOMIND_PORT` >
 `config.json` `server.port` > `3005` (the same rule the server applies, and what
 `update.sh` uses to locate `/health`). Inside the container the port is pinned by
 `docker-compose.yml` (`3005:3005`) and the image healthcheck; if you change the
-API port you must update both to match, or the container will report unhealthy.
+port you must update both to match, or the container will report unhealthy.
 
 ### Exposing to network
 

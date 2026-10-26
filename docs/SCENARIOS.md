@@ -8,7 +8,7 @@
 
 2. memory_status(action=slots, cwd="/path/to/project")
    → agent sees the project and its context via cwd
-   → project_id resolves automatically
+   → the project resolves automatically from cwd
 
 3. memory_reflect(
       action=reflect,
@@ -120,9 +120,9 @@ search path → promotes frequently-hit thoughts to primers once hit_count reach
               primer.promoteThreshold (default 5)
 ```
 
-`exclude_flagged` is an ordinary query parameter: HTTP search and MCP recall
-search/clusters ignore it (it is no longer part of the MCP schema), so previously
-flagged thoughts may appear in default search results. Removals from earlier
+`exclude_flagged` is an ordinary query parameter: `memory_recall` search/clusters ignore it
+(it is no longer part of the MCP schema), so previously flagged thoughts may appear in
+default search results. Removals from earlier
 releases, including the retired verification job and its data, are listed in
 [CHANGELOG.md](../CHANGELOG.md).
 

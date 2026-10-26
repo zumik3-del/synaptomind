@@ -24,7 +24,7 @@ cp .env.example .env
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `server.port` | `SYNAPTOMIND_PORT` | `3005` | HTTP API port |
+| `server.port` | `SYNAPTOMIND_PORT` | `3005` | HTTP ops port (health, health-check) |
 | `server.host` | `SYNAPTOMIND_HOST` | `127.0.0.1` | Bind address. Use `0.0.0.0` to expose to network |
 
 ---
@@ -115,22 +115,24 @@ that file and its size — it is never deleted, because a switch back reuses it.
 Archived and draft thoughts are not deleted by an age-based background cleanup. This
 statement concerns thought deletion; the separate placement-proposal queue has its own
 scheduled expiry and pruning job (see [Placement](#placement)). The
-retention-review API lists eligible candidates; an operator must explicitly protect,
+`retention_review` tool (`action=list`) lists eligible candidates; an operator must explicitly protect,
 delete, or compact them. Candidate defaults are:
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | `retentionReview.minAgeDays` | `SYNAPTOMIND_RETENTION_REVIEW_MIN_AGE_DAYS` | `30` | Minimum age, measured from `archived_at` or (when absent) `created_at` |
 | `retentionReview.importanceFloor` | `SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR` | `0.3` | Candidate importance must be below this threshold |
-| `retentionReview.pageSize` | `SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE` | `20` | Default candidate page size (API limit is 1–100) |
+| `retentionReview.pageSize` | `SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE` | `20` | Default candidate page size (the `retention_review` `limit` argument accepts 1–100) |
 
 Configuration loading normalizes `pageSize` to an integer in the range 1–100 and
 clamps `importanceFloor` to 0–1. A non-positive or non-numeric `minAgeDays` uses
 the 30-day default. These settings govern the manual retention-review workflow;
 they do not enable age-based thought TTL cleanup.
 
-See [API.md](./API.md#retention-review) for candidate eligibility and the
-preview-first delete/compact routes.
+`retention_review action=list` accepts `min_age_days` and `importance_floor` to
+override these defaults per call, so candidate eligibility is set here and refined at
+the request; the preview-first protect/delete/compact actions are documented in
+[mcp-tools.md](./mcp-tools.md#retention_review--retention-candidates).
 
 ---
 
@@ -187,7 +189,7 @@ Batch grouping by embedding proximity.
 ## Neighbour search (edge detection bounds)
 
 These four keys bound the neighbour search behind edge proposals. The placement
-engine (`memory_status action=propose`, `POST /api/thoughts/propose`) reads all four:
+engine (`memory_status action=propose`) reads all four:
 `minSimilarity` sets the recall floor for embedding neighbours, `topK` the neighbour
 width, `maxCandidates` the candidate pool loaded for one run, and `maxProposals`
 the cap on emitted edge proposals. The draft health check reuses the candidate-pool
@@ -208,7 +210,7 @@ appears only when it is confirmed with `memory_store action=link`.
 
 ## Placement
 
-Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory_status action=propose` (see ADR 2026-09-28), plus the persisted review queue they feed (`edge_review`, `GET/POST /api/proposals` — see [API.md](./API.md) §Review). The engine never writes the graph: `maxClusterSize` only suppresses a proposal, it never mutates; queued proposals are applied only on an explicit `confirm:true`. `proposalTtlDays` sets proposal expiry, controls the daily placement-retention job that expires/prunes queue rows, and bounds the rollback window. This job prunes proposal records, not thoughts.
+Read-only cluster placement proposed by `memory_status action=propose` (see ADR 2026-09-28), plus the persisted review queue they feed (`edge_review` — see [mcp-tools.md](./mcp-tools.md#edge_review--placement-proposals)). The engine never writes the graph: `maxClusterSize` only suppresses a proposal, it never mutates; queued proposals are applied only on an explicit `confirm:true`. `proposalTtlDays` sets proposal expiry, controls the daily placement-retention job that expires/prunes queue rows, and bounds the rollback window. This job prunes proposal records, not thoughts.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
@@ -218,8 +220,8 @@ Read-only cluster placement proposed by `POST /api/thoughts/propose` and `memory
 | `placement.maxProposalsPerEnqueue` | `SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS_PER_ENQUEUE` | `5` | Cap on the number of proposals generated for one thought (enqueue/propose). A caller-supplied `max_proposals` overrides it |
 
 **Note:** The review queue stores `edge` items only. A plan's `placement` and
-`lifecycle` items are not queued; `POST /api/proposals` and
-`edge_review action=enqueue` return them in `skipped` / `skipped_kinds`. Rows
+`lifecycle` items are not queued; `edge_review action=enqueue` returns them
+in `skipped` / `skipped_kinds`. Rows
 written by retired subsystems may still exist in an upgraded install — they stay
 listable and filterable, but neither apply nor rollback can act on them.
 
@@ -258,8 +260,8 @@ p95 0.8002, max 0.8355.
 **Noise gate.** Cosine-only hits are dropped below calibrated `relevance` **0.4** by default
 (`DEFAULT_MIN_RELEVANCE` in `src/services/search-normalize.ts`, a raw similarity of 0.84 on the
 default scale). A row with a lexical (BM25) anchor or an id is never gated. The threshold is not a
-config file setting and has no environment variable: it is overridden per request — `min_relevance`
-on the HTTP search route and on the MCP `memory_recall` `search`/`clusters` actions — where `0`
+config file setting and has no environment variable: it is overridden per request —
+`min_relevance` on the MCP `memory_recall` `search`/`clusters` actions — where `0`
 disables the gate and keeps the pre-calibration fail-open result set.
 
 ---
@@ -276,7 +278,7 @@ disables the gate and keeps the pre-calibration fail-open result set.
 
 ## Authentication
 
-Auth applies to the HTTP API (`/api/*`) and the MCP HTTP transport (`/mcp`); the MCP stdio transport is local and unauthenticated by design.
+Auth applies to the HTTP ops endpoints under `/api/*` and the MCP HTTP transport (`/mcp`); the MCP stdio transport is local and unauthenticated by design.
 
 When **neither** `SYNAPTOMIND_SECRET` nor `SYNAPTOMIND_SERVICE_TOKEN` is set the server **fails closed**: authenticated requests are rejected with `401`. Set a secret for any non-local deployment.
 
@@ -308,7 +310,7 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `BIND_ADDR` | `127.0.0.1` | Docker port bind address. `0.0.0.0` for network access |
-| `SYNAPTOMIND_SECRET` | (none) | Auth token for API and MCP. **Required** — without it the server fails closed with `401` |
+| `SYNAPTOMIND_SECRET` | (none) | Auth token for the HTTP ops endpoints and MCP. **Required** — without it the server fails closed with `401` |
 | `SYNAPTOMIND_SERVICE_TOKEN` | (none) | Secondary auth token (optional) |
 
 ---
