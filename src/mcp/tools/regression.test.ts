@@ -194,6 +194,22 @@ describe('shared request contract parity (audit M8)', () => {
     expect(String(data)).toContain('limit')
   })
 
+  test('memory_crystallize graph rejects an out-of-range offset', async () => {
+    // The offset bound (0..1_000_000) used to be pinned by the deleted
+    // `GET /api/graph` contract test (ADR 2026-10-26); it now lives here, at the
+    // MCP action that shares `graphOffsetSchema`.
+    for (const offset of [-1, 1_000_001]) {
+      const { data, isError } = parseResult(
+        await callTool({ name: 'memory_crystallize', arguments: { action: 'graph', offset } })
+      )
+      expect({ offset, isError }).toEqual({ offset, isError: true })
+      expect(String(data)).toContain('offset')
+    }
+
+    const ok = parseResult(await callTool({ name: 'memory_crystallize', arguments: { action: 'graph', offset: 0 } }))
+    expect(ok.isError).toBe(false)
+  })
+
   test('memory_reflect timeline rejects a limit above 500 but accepts 500', async () => {
     const over = await callTool({
       name: 'memory_reflect',

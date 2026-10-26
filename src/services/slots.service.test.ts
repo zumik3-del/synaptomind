@@ -2,8 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
 import { config } from '../config'
-import { getSlots, updateExplicitSlot, SLOT_NAMES } from './slots.service'
-import { ValidationError } from '../errors'
+import { getSlots, SLOT_NAMES } from './slots.service'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
@@ -145,48 +144,6 @@ test('getSlots architecture_decisions renders the default 3 bullets when the con
   } finally {
     config.primer = original
   }
-})
-
-// ── updateExplicitSlot ───────────────────────────────────────────────────────
-
-test('updateExplicitSlot updates project_context', () => {
-  const result = updateExplicitSlot('project_context', { content: 'test content' }, 2000)
-  expect(result.content).toBe('test content')
-  expect(result.virtual).toBeFalse()
-  expect(result.updated_at).toBeString()
-})
-
-test('updateExplicitSlot rejects virtual slots', () => {
-  expect(() => updateExplicitSlot('pending_items', { content: 'test' }, 2000)).toThrow(ValidationError)
-})
-
-test('updateExplicitSlot validates max_chars range', () => {
-  expect(() => updateExplicitSlot('project_context', { content: 'x', max_chars: 50 }, 2000)).toThrow(ValidationError)
-  expect(() => updateExplicitSlot('project_context', { content: 'x', max_chars: 9000 }, 2000)).toThrow(ValidationError)
-})
-
-test('updateExplicitSlot truncates content to max_chars', () => {
-  const result = updateExplicitSlot('active_goals', { content: 'x'.repeat(500), max_chars: 100 }, 2000)
-  expect(result.content).toHaveLength(100)
-  expect(result.truncated).toBeTrue()
-})
-
-test('updateExplicitSlot persists and re-reads', () => {
-  updateExplicitSlot('project_context', { content: 'persisted' }, 2000)
-  const slots = getSlots({ names: ['project_context'] })
-  expect(slots[0].content).toBe('persisted')
-})
-
-test('updateExplicitSlot supports project scope', () => {
-  const db = getDb()
-  const projectId = 'test-project'
-  db.prepare('INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, ?, ?)').run(projectId, 'Test', new Date().toISOString())
-  const result = updateExplicitSlot('project_context', { content: 'project scoped', scope: 'project', project_id: projectId }, 2000)
-  expect(result.scope).toBe('project')
-})
-
-test('updateExplicitSlot rejects project scope without project_id', () => {
-  expect(() => updateExplicitSlot('project_context', { content: 'x', scope: 'project' }, 2000)).toThrow(ValidationError)
 })
 
 test('getSlots pending_items slot is empty when no pending thoughts', () => {

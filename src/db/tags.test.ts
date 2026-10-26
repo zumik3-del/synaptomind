@@ -1,24 +1,30 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import type { Database } from "bun:sqlite";
 import { createTestDb } from "../test/helpers";
 import { getDb } from "./container";
 import { closeDb } from "./init";
 import {
 	createTag,
-	deleteTag,
 	findTagByName,
 	getThoughtTags,
-	listTags,
 	pruneOrphanTags,
-	renameTag,
 	setThoughtTags,
 } from "./tags";
 import { createThought, deleteThought } from "./thoughts";
 
+// The tag *inventory* helpers (list/rename/delete) are gone with the HTTP tag
+// routes (ADR 2026-10-26): tags are only ever set through a thought write and
+// pruned when they lose their last thought. The orphan checks below therefore
+// read the table directly instead of going through a removed export.
+function storedTagNames(db: Database): string[] {
+	return (db.prepare("SELECT name FROM tags ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
+}
+
 beforeEach(createTestDb);
 afterEach(closeDb);
 
-test("listTags returns empty initially", () => {
-	expect(listTags(getDb())).toEqual([]);
+test("the tag table starts empty", () => {
+	expect(storedTagNames(getDb())).toEqual([]);
 });
 
 test("createTag creates and returns a tag", () => {
@@ -46,29 +52,6 @@ test("findTagByName returns undefined for missing", () => {
 	expect(findTagByName(getDb(), "nonexistent")).toBeUndefined();
 });
 
-test("renameTag updates tag name", () => {
-	const db = getDb();
-	const tag = createTag(db, "old-name");
-	const renamed = renameTag(db, tag.id, "new-name");
-	expect(renamed).toBeDefined();
-	expect(renamed?.name).toBe("new-name");
-});
-
-test("renameTag returns undefined for missing id", () => {
-	expect(renameTag(getDb(), "nonexistent", "x")).toBeUndefined();
-});
-
-test("deleteTag removes tag", () => {
-	const db = getDb();
-	const tag = createTag(db, "delete-me");
-	expect(deleteTag(db, tag.id)).toBe(true);
-	expect(findTagByName(db, "delete-me")).toBeUndefined();
-});
-
-test("deleteTag returns false for missing id", () => {
-	expect(deleteTag(getDb(), "nonexistent")).toBe(false);
-});
-
 test("setThoughtTags replaces tags on a thought", () => {
 	const db = getDb();
 	const thought = createThought(db, { content: "test" });
@@ -93,17 +76,10 @@ test("setThoughtTags prunes orphan tags", () => {
 	setThoughtTags(db, t1.id, ["shared", "unique1"]);
 	setThoughtTags(db, t2.id, ["shared", "unique2"]);
 
-	expect(
-		listTags(db)
-			.map((t) => t.name)
-			.sort(),
-	).toEqual(["shared", "unique1", "unique2"]);
+	expect(storedTagNames(db)).toEqual(["shared", "unique1", "unique2"]);
 
 	setThoughtTags(db, t1.id, ["shared"]);
-	const remaining = listTags(db)
-		.map((t) => t.name)
-		.sort();
-	expect(remaining).toEqual(["shared", "unique2"]);
+	expect(storedTagNames(db)).toEqual(["shared", "unique2"]);
 });
 
 test("getThoughtTags returns tags for a thought", () => {
@@ -123,37 +99,9 @@ test("pruneOrphanTags removes unused tags", () => {
 	const db = getDb();
 	createTag(db, "orphan1");
 	createTag(db, "orphan2");
-	expect(listTags(db)).toHaveLength(2);
+	expect(storedTagNames(db)).toHaveLength(2);
 	pruneOrphanTags(db);
-	expect(listTags(db)).toHaveLength(0);
-});
-
-test("listTags filters by query", () => {
-	const db = getDb();
-	createTag(db, "machine learning");
-	createTag(db, "deep learning");
-	createTag(db, "computer vision");
-
-	const results = listTags(db, "learning");
-	expect(results.map((t) => t.name).sort()).toEqual([
-		"deep learning",
-		"machine learning",
-	]);
-});
-
-test("listTags returns thought_count", () => {
-	const db = getDb();
-	const t1 = createThought(db, { content: "one" });
-	const t2 = createThought(db, { content: "two" });
-
-	setThoughtTags(db, t1.id, ["ml", "nlp"]);
-	setThoughtTags(db, t2.id, ["ml"]);
-
-	const tags = listTags(db);
-	const mlTag = tags.find((t) => t.name === "ml");
-	expect(mlTag?.thought_count).toBe(2);
-	const nlpTag = tags.find((t) => t.name === "nlp");
-	expect(nlpTag?.thought_count).toBe(1);
+	expect(storedTagNames(db)).toHaveLength(0);
 });
 
 test("deleting a thought cleans up orphan tags", () => {

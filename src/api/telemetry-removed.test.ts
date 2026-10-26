@@ -7,9 +7,8 @@ import { createApp } from './router'
 
 // Coverage for the telemetry cut (ADR 2026-10-21, Q1/Q6): the four
 // `GET /api/telemetry/*` routes are gone, so they answer 404 — a clean removal,
-// no deprecation shim. The HTTP primer surface that survived the cut
-// (`GET /api/primers`, `DELETE /api/primers/:id`) must keep working: the
-// removal touched its `withTelemetry` wrapper, not its behaviour.
+// no deprecation shim. The primer routes that survived that cut fell in the
+// 0.20 HTTP shrink; the primer capability lives on over MCP.
 
 process.env.SYNAPTOMIND_SECRET = 'test-token'
 const app = createApp()
@@ -63,33 +62,28 @@ test('no /api/telemetry route is mounted any more', async () => {
   }
 })
 
-// ── the surviving HTTP primer surface ────────────────────────────────────────
+// ── the primer surface that outlived telemetry, then fell in the 0.20 cut ───
+//
+// The telemetry removal deliberately kept the HTTP primer routes. The 0.20
+// HTTP shrink (ADR 2026-10-26, task #2202) then removed the whole route surface,
+// so those two routes are 404 now as well — the primer capability itself
+// survives over MCP (`memory_primers list` / `memory_primers delete`), which
+// `src/mcp/tools/primers.test.ts` covers.
 
-test('GET /api/primers still lists the primer set', async () => {
-  const thoughtId = seedThought({ content: 'http primer candidate' })
-  const primer = promoteThoughtToPrimer(getDb(), thoughtId, 9)
-  expect(primer).toBeDefined()
-
-  // The mounted path is `/api/primers` (Hono merges the sub-app's `/` handler
-  // onto the mount prefix); the trailing-slash form has always 404'd.
+test('GET /api/primers answers 404 after the HTTP shrink', async () => {
+  seedThought({ content: 'http primer candidate' })
   const res = await request('/api/primers')
-  expect(res.status).toBe(200)
-  const body = (await res.json()) as Array<{ id: string; thought_id: string }>
-  expect(body.map(p => p.thought_id)).toContain(thoughtId)
+  expect(res.status).toBe(404)
 })
 
-test('DELETE /api/primers/:id still deletes immediately', async () => {
+test('DELETE /api/primers/:id answers 404 after the HTTP shrink', async () => {
   const thoughtId = seedThought({ content: 'http primer to delete' })
   const primer = promoteThoughtToPrimer(getDb(), thoughtId, 9)
   expect(primer).toBeDefined()
 
   const res = await request(`/api/primers/${primer!.id}`, { method: 'DELETE' })
-  expect(res.status).toBe(200)
-  expect((await res.json()) as Record<string, unknown>).toMatchObject({ success: true })
-  expect(primerExists(primer!.id)).toBe(false)
+  expect(res.status).toBe(404)
+  // The removal must not have become a delete: the primer row is untouched.
+  expect(primerExists(primer!.id)).toBe(true)
 })
 
-test('DELETE /api/primers/:id answers 404 for an unknown id', async () => {
-  const res = await request('/api/primers/no-such-primer', { method: 'DELETE' })
-  expect(res.status).toBe(404)
-})
