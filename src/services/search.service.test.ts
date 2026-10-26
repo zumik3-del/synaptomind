@@ -10,7 +10,7 @@ import {
 	seedThought,
 	withVecDb,
 } from "../test/helpers";
-import { searchThoughts, searchThoughtsGrouped } from "./search.service";
+import { searchThoughts, searchThoughtsGrouped, searchThoughtsOutcome } from "./search.service";
 
 mock.module("../embedder/client", () => ({
 	generateEmbedding: () => new Float32Array(384),
@@ -668,6 +668,25 @@ describe("low_confidence + min_relevance — service layer", () => {
     expect(ids).toContain(bm25Id);
     expect(ids).toContain(exactId);
     expect(ids).not.toContain(weakId);
+  });
+
+  test("min_relevance>0 never gates an id hit: the id path answers before the gate", async () => {
+    const db = getDb();
+    const id = seedThought({ content: "id-gate target with no shared marker" });
+
+    // A full uuid is an explicit reference: `runSearch` resolves it before the
+    // embedding/BM25 legs and before the gate (search.service.ts:113-116), so a
+    // thought with no cosine and no lexical overlap still comes back even at
+    // minRelevance=1 — and it was never a candidate the gate could drop.
+    // No embedding or vec0 fixture is needed for exactly that reason.
+    const outcome = await searchThoughtsOutcome(
+      { query: id, minRelevance: 1, topK: 5 },
+      db,
+    );
+
+    expect(outcome.items.map((r) => r.thought.id)).toEqual([id]);
+    expect(outcome.matched).toBe(1);
+    expect(outcome.filtered_out).toBe(0);
   });
 });
 
