@@ -112,7 +112,7 @@ export const DEFAULTS: Config = {
   // (`DEFAULT_MIN_RELEVANCE` in `search-normalize.ts`) is set from the same run.
   search: { confidence: { vectorFloor: 0.9, unrelatedFloor: 0.8 } },
   rateLimit: { max: 200, windowMs: 60_000, trustProxy: false },
-  retentionReview: { minAgeDays: 30, importanceFloor: 0.2, pageSize: 20 }
+  retentionReview: { minAgeDays: 30, importanceFloor: 0.3, pageSize: 20 }
 }
 
 type EnvType = 'string' | 'int' | 'float' | 'bool' | 'list'

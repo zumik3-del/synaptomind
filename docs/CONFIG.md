@@ -121,7 +121,7 @@ delete, or compact them. Candidate defaults are:
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | `retentionReview.minAgeDays` | `SYNAPTOMIND_RETENTION_REVIEW_MIN_AGE_DAYS` | `30` | Minimum age, measured from `archived_at` or (when absent) `created_at` |
-| `retentionReview.importanceFloor` | `SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR` | `0.2` | Candidate importance must be below this threshold |
+| `retentionReview.importanceFloor` | `SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR` | `0.3` | Candidate importance must be below this threshold |
 | `retentionReview.pageSize` | `SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE` | `20` | Default candidate page size (API limit is 1–100) |
 
 Configuration loading normalizes `pageSize` to an integer in the range 1–100 and
