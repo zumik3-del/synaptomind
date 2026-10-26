@@ -1,4 +1,4 @@
-import { shapeThought } from '../utils'
+import { shapeThought, type BatchUrlLinks } from '../utils'
 import type { GroupedResult, SearchResult } from '../../../services/search.service'
 
 /** Score keys moved out of the thought item into `scores` (compact=false). */
@@ -85,15 +85,16 @@ function applyAnnotations(item: SearchItem, result: SearchResult, full: boolean)
 export function shapeSearchItem(
   result: SearchResult | GroupedResult,
   compact: boolean,
-  fields: unknown
+  fields: unknown,
+  urlLinks?: BatchUrlLinks
 ): SearchItem | GroupedSearchItem {
   if ('cluster' in result) {
     return {
       cluster: result.cluster,
-      items: (result.items ?? []).map((inner) => shapeSearchItem(inner, compact, fields) as SearchItem)
+      items: (result.items ?? []).map((inner) => shapeSearchItem(inner, compact, fields, urlLinks) as SearchItem)
     }
   }
-  const thought = shapeThought(result.thought, compact, fields)
+  const thought = shapeThought(result.thought, compact, fields, urlLinks)
   const explicitFields = Array.isArray(fields)
     ? fields.length > 0
     : (typeof fields === 'string' && fields.trim().length > 0)

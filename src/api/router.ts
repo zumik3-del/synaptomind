@@ -3,22 +3,23 @@ import { getHealthService } from '../services/health.service'
 import { authMiddleware } from '../middleware/auth'
 import { apiRateLimitMiddleware } from '../middleware/rate-limit'
 import { errorHandler } from './error-handler'
-import { clusterRouter } from './cluster'
-import { frontierRouter } from './frontier'
-import { graphRouter } from './graph'
-import { linksRouter } from './links'
-import { primersRouter } from './primers'
-import { proposalsRouter } from './proposals'
-import { projectsRouter } from './projects'
-import { slotsRouter } from './slots'
-import { tagsRouter } from './tags'
-import { thoughtsRouter } from './thoughts'
 import { healthCheckRouter } from './health-check'
 
+/**
+ * The public HTTP app is an **ops plane**, not a second agent API (ADR
+ * synaptomind/adr/2026-10-26-shrink-http-api-to-ops-endpoints.md, task #2202):
+ * `GET /health` for liveness/readiness and the `/api/health-check` pair for a
+ * report an operator can act on. Every former `/api/*` capability lives in the
+ * MCP surface over `services/`, so there is exactly one wire contract for
+ * agents. A removed route fails loudly with Hono's default 404 — a deprecation
+ * shim would keep the transport drift alive instead of deleting it.
+ */
 export function createApp(): Hono {
   const app = new Hono()
 
   app.onError(errorHandler)
+  // Auth, rate limiting and the 5 MB body guard still protect the two surviving
+  // /api routes; /health stays public and uninstrumented (see below).
   app.use('/api/*', authMiddleware)
   app.use('/api/*', apiRateLimitMiddleware)
 
@@ -30,17 +31,7 @@ export function createApp(): Hono {
     return next()
   })
 
-  app.route('/api/thoughts', thoughtsRouter)
-  app.route('/api/tags', tagsRouter)
-  app.route('/api', linksRouter)
-  app.route('/api', graphRouter)
-  app.route('/api', clusterRouter)
-  app.route('/api/projects', projectsRouter)
-  app.route('/api/primers', primersRouter)
-  app.route('/api/slots', slotsRouter)
-  app.route('/api/frontier', frontierRouter)
   app.route('/api', healthCheckRouter)
-  app.route('/api/proposals', proposalsRouter)
 
   // /health is a pure liveness probe (no memory/graph operation) and stays uninstrumented.
   app.get('/health', c => {
