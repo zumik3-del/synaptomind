@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createTestDb } from "../test/helpers";
+import type { Database } from "bun:sqlite";
+import { createTestDb, seedThought } from "../test/helpers";
 import { getDb } from "./container";
 import { ThoughtContentConflictError } from "./errors";
 import { closeDb } from "./init";
@@ -19,6 +20,7 @@ import {
 import {
 	archiveThought,
 	createThought,
+	deleteThought,
 	getThought,
 	listThoughts,
 	updateThought,
@@ -492,4 +494,58 @@ test("decayImportance skips recent last_decay", () => {
 	decayImportance(db, 0.5);
 	const after = getThoughtImportance(db, t.id)?.importance;
 	expect(after).toBe(before);
+});
+
+// ── deleteThought: the only production removal path (#2201) ──────────────────
+
+/**
+ * `:memory:` test DBs cannot host `vec_thoughts` — vec0 is unavailable without a
+ * file-backed DB (AGENTS.md §8) — so a plain table with the same shape stands
+ * in. `deleteThought` issues the same `DELETE FROM vec_thoughts` either way; the
+ * precondition assertion below proves the row under test really exists.
+ */
+function seedVecTable(db: Database): void {
+	db.prepare(`CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)`).run();
+}
+
+test("deleteThought removes the thought, its vec row and its orphan tag", () => {
+	const db = getDb();
+	seedVecTable(db);
+	const doomed = seedThought({ content: "doomed thought", tags: '["orphan-tag-unique"]' });
+	const keeper = seedThought({ content: "keeper thought", tags: '["shared-tag"]' });
+	const alsoKeeper = seedThought({ content: "another keeper", tags: '["shared-tag"]' });
+	db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(doomed, Buffer.alloc(0));
+	db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(keeper, Buffer.alloc(0));
+
+	// Precondition: the row this test deletes is really there.
+	expect(db.prepare(`SELECT 1 FROM vec_thoughts WHERE id = ?`).get(doomed)).not.toBeNull();
+	expect(db.prepare(`SELECT 1 FROM tags WHERE name = ?`).get("orphan-tag-unique")).not.toBeNull();
+
+	expect(deleteThought(db, doomed)).toBe(true);
+
+	expect(db.prepare(`SELECT 1 FROM thoughts WHERE id = ?`).get(doomed)).toBeNull();
+	// The vector row goes with it inside the same deletion path: a leftover
+	// embedding would be a dead vector the sweep never re-embeds.
+	expect(db.prepare(`SELECT 1 FROM vec_thoughts WHERE id = ?`).get(doomed)).toBeNull();
+	// The doomed thought's tag had no other user → pruned; the shared tag stays.
+	expect(db.prepare(`SELECT 1 FROM tags WHERE name = ?`).get("orphan-tag-unique")).toBeNull();
+	expect(db.prepare(`SELECT 1 FROM tags WHERE name = ?`).get("shared-tag")).not.toBeNull();
+	// Untouched neighbours keep their thoughts and their vectors.
+	for (const id of [keeper, alsoKeeper]) {
+		expect(db.prepare(`SELECT 1 FROM thoughts WHERE id = ?`).get(id)).not.toBeNull();
+	}
+	expect(db.prepare(`SELECT 1 FROM vec_thoughts WHERE id = ?`).get(keeper)).not.toBeNull();
+});
+
+test("deleteThought reports false and changes nothing for an unknown id", () => {
+	const db = getDb();
+	seedVecTable(db);
+	const survivor = seedThought({ content: "survivor", tags: '["keep-me"]' });
+	const before = db.prepare(`SELECT COUNT(*) AS cnt FROM thoughts`).get();
+
+	expect(deleteThought(db, crypto.randomUUID())).toBe(false);
+
+	expect(db.prepare(`SELECT COUNT(*) AS cnt FROM thoughts`).get()).toEqual(before);
+	expect(db.prepare(`SELECT 1 FROM tags WHERE name = ?`).get("keep-me")).not.toBeNull();
+	expect(db.prepare(`SELECT 1 FROM thoughts WHERE id = ?`).get(survivor)).not.toBeNull();
 });
