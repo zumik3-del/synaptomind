@@ -113,7 +113,7 @@ so `memory_store` `link`/`unlink` add and remove members.
 decay job → importance decreases by rate (0.95) every 24h
   → nothing else: decay never archives a thought
 
-archiving → explicit only (memory_supersede(action=archive) or status=archived)
+archiving → explicit only (memory_supersede(action=archive); memory_store update rejects status=archived)
   → deletion of archived thoughts is handled by retention-review (sole deletion path)
 
 search path → promotes frequently-hit thoughts to primers once hit_count reaches

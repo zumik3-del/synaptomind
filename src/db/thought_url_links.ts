@@ -40,12 +40,6 @@ export function upsertThoughtUrlLink(
   return db.prepare('SELECT * FROM thought_url_links WHERE id = ?').get(id) as ThoughtUrlLink
 }
 
-export function getThoughtUrlLinks(db: Database, thoughtId: string): ThoughtUrlLink[] {
-  return db
-    .prepare('SELECT * FROM thought_url_links WHERE thought_id = ? ORDER BY sort_order ASC, created_at ASC')
-    .all(thoughtId) as ThoughtUrlLink[]
-}
-
 export function getThoughtUrlLinksForThoughts(db: Database, thoughtIds: string[]): ThoughtUrlLink[] {
   if (thoughtIds.length === 0) return []
   const ph = sqlIn(thoughtIds)

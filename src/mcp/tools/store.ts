@@ -33,7 +33,7 @@ export function registerMemoryStore(server: McpServer) {
       content: z.string().optional().describe(`REQUIRED for "create". OPTIONAL for "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype". Recommended soft limit: ${getAdvertisedSoftLimitService()} chars.`),
       tags: z.array(z.string()).optional().describe('OPTIONAL for "create" and "update" (update merges with existing tags by default; use tags_mode=replace to overwrite the whole tag set). IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'),
       tags_mode: z.enum(['replace', 'merge']).optional().describe('update only: how to apply `tags` — "merge" (default) unions with existing tags, "replace" overwrites the whole tag set. IGNORED for all other actions.'),
-      status: thoughtStatusSchema.optional().describe('Thought status (draft/active/archived). OPTIONAL for "create" and "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'),
+      status: thoughtStatusSchema.optional().describe('Thought status (draft/active/archived). OPTIONAL for "create" and "update"; "update" rejects "archived" (archive through memory_supersede action=archive). IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'),
       project_id: z.never({ error: 'project_id was removed; use cwd' }).optional().describe('Removed; use cwd.'),
       cwd: z.string().optional().describe('Working directory — auto-resolves project for "create"/"update" (always pass for those). IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'),
       parent_id: z.string().optional().describe('Parent thought ID. OPTIONAL for "create". IGNORED for all other actions.'),
