@@ -59,6 +59,66 @@ describe('memory_supersede confirmation contract', () => {
     expect((await call({ action: 'archive', thought_id: archived })).data.item.outcome).toBe('already_archived')
   })
 
+  test('a legacy-flagged row previews as would_archive and archives on confirmation', async () => {
+    // v047 clears the values but keeps the column, so a pre-v047 database still
+    // has rows reading `is_profile = 1`; the archive surface must treat them like
+    // any other row instead of answering `protected`.
+    const flagged = seedThought({ content: 'legacy persona', status: 'active' })
+    getDb().prepare('UPDATE thoughts SET is_profile = 1 WHERE id = ?').run(flagged)
+
+    const preview = await call({ action: 'archive', thought_id: flagged })
+    expect(preview.data.item).toMatchObject({ status: 'preview', current_status: 'active', outcome: 'would_archive' })
+
+    const executed = await call({ action: 'archive', thought_id: flagged, confirm: true, preview_token: preview.data.item.preview_token })
+    expect(executed.isError).toBe(false)
+    expect(executed.data.item).toMatchObject({ status: 'executed', result: { id: flagged, status: 'archived' } })
+    expect(getDb().query('select status from thoughts where id = ?').get(flagged)).toEqual({ status: 'archived' })
+  })
+
+  test('archive outcomes stay inside the three-member union', async () => {
+    const active = seedThought({ content: 'active', status: 'active' })
+    const archived = seedThought({ content: 'archived', status: 'archived' })
+    const flagged = seedThought({ content: 'legacy persona', status: 'active' })
+    getDb().prepare('UPDATE thoughts SET is_profile = 1 WHERE id = ?').run(flagged)
+
+    const single = [
+      (await call({ action: 'archive', thought_id: 'missing-id' })).data.item.outcome,
+      (await call({ action: 'archive', thought_id: archived })).data.item.outcome,
+      (await call({ action: 'archive', thought_id: active })).data.item.outcome,
+      (await call({ action: 'archive', thought_id: flagged })).data.item.outcome
+    ]
+    const batch = (
+      (await call({ action: 'archive_batch', thought_ids: ['missing-id', archived, active, flagged, active] })).data.items as Array<{ outcome: string }>
+    ).map(item => item.outcome)
+
+    expect([...single, ...batch]).not.toContain('protected')
+    expect(new Set([...single, ...batch])).toEqual(new Set(['not_found', 'already_archived', 'would_archive']))
+  })
+
+  test('archive_batch keeps duplicate and archived outcomes beside a legacy-flagged row', async () => {
+    const flagged = seedThought({ content: 'legacy persona', status: 'active' })
+    getDb().prepare('UPDATE thoughts SET is_profile = 1 WHERE id = ?').run(flagged)
+    const active = seedThought({ content: 'batch active', status: 'active' })
+    const archived = seedThought({ content: 'batch archived', status: 'archived' })
+    const ids = [flagged, active, archived, flagged]
+
+    const preview = await call({ action: 'archive_batch', thought_ids: ids })
+    expect(preview.data.meta.counts).toMatchObject({ would_archive: 2, already_archived: 2, total: ids.length })
+    expect(preview.data.items).toEqual([
+      { thought_id: flagged, outcome: 'would_archive' },
+      { thought_id: active, outcome: 'would_archive' },
+      { thought_id: archived, outcome: 'already_archived' },
+      // The repeat of a row the same batch would archive is a duplicate, not a
+      // second pending write.
+      { thought_id: flagged, outcome: 'already_archived' }
+    ])
+
+    const result = await call({ action: 'archive_batch', thought_ids: ids, confirm: true, preview_token: preview.data.meta.preview.token })
+    expect(result.isError).toBe(false)
+    expect(result.data.meta.counts).toMatchObject({ archived: 4, failed: 0, total: ids.length })
+    expect(getDb().query('select status from thoughts where id = ?').get(flagged)).toEqual({ status: 'archived' })
+  })
+
   test('archive_batch preview preserves order and labels duplicates and partial cases', async () => {
     const active = seedThought({ content: 'active', status: 'active' })
     const archived = seedThought({ content: 'old', status: 'archived' })

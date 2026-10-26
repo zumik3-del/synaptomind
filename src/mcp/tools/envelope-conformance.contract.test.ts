@@ -282,6 +282,14 @@ const BOOLEAN_FIELDS = new Set([
 const META_KEYS = new Set(['action', 'scope', 'counts', 'degraded', 'warnings', 'reason', 'preview'])
 const REASONS = new Set(['no_match', 'id_not_found', 'ambiguous_id'])
 
+/**
+ * Retired thought columns no answer may expose at any depth. `is_profile` was
+ * removed in v047 (task #2200): the migration keeps the column for the
+ * foreign-key parent's sake, so a leaked field would mean the read surface is
+ * projecting the raw row again instead of the `Thought` shape.
+ */
+const RETIRED_THOUGHT_FIELDS = new Set(['is_profile'])
+
 /** Recursively enforce output hygiene: tag strings, no `{id,name}` object, no 0/1 booleans. */
 function assertHygiene(node: unknown, path: string): void {
   if (Array.isArray(node)) {
@@ -297,6 +305,9 @@ function assertHygiene(node: unknown, path: string): void {
     throw new Error(`tag object {id,name} at ${path} — tags must be plain strings`)
   }
   for (const [key, value] of Object.entries(obj)) {
+    if (RETIRED_THOUGHT_FIELDS.has(key)) {
+      throw new Error(`retired thought field '${key}' leaked at ${path}`)
+    }
     if (BOOLEAN_FIELDS.has(key) && value !== undefined && typeof value !== 'boolean') {
       throw new Error(`${path}.${key} must be a boolean, got ${typeof value} (${String(value)})`)
     }
