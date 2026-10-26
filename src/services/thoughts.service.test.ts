@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { config } from '../config'
 import { getDb } from '../db'
-import { getThoughtLimits, setThoughtLimits } from '../db/settings'
+import { getThoughtLimits } from '../db/settings'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError, ValidationError } from '../errors'
 import {
@@ -15,10 +16,16 @@ import { createThoughtWithUrlLinksService } from './url_links.service'
 import { mergeThoughtsService } from './merge.service'
 import { validateContentLength } from '../validation'
 
+// The thought limits are config-only since task #2201.
+const originalSoftLimit = config.thoughts.softLimit
+const originalHardLimitBufferPercent = config.thoughts.hardLimitBufferPercent
+
 beforeEach(createTestDb)
 afterEach(() => {
   const { closeDb } = require('../db/init')
   closeDb()
+  config.thoughts.softLimit = originalSoftLimit
+  config.thoughts.hardLimitBufferPercent = originalHardLimitBufferPercent
 })
 
 test('getThoughtByIdService returns thought', () => {
@@ -175,7 +182,8 @@ test('validateContentLength does not throw under soft limit', () => {
 // ── Padded hard-limit boundary (issue #123) ─────────────────────────────────
 
 test('createThoughtWithParentService accepts content exactly at the derived hard limit', () => {
-  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.hardLimitBufferPercent = 50
   const { hardLimit } = getThoughtLimits(getDb())
   expect(hardLimit).toBe(15)
 
@@ -184,14 +192,16 @@ test('createThoughtWithParentService accepts content exactly at the derived hard
 })
 
 test('createThoughtWithParentService rejects content one char over the derived hard limit', () => {
-  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.hardLimitBufferPercent = 50
   const { hardLimit } = getThoughtLimits(getDb())
 
   expect(() => createThoughtWithParentService({ content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
 })
 
 test('content between soft and hard limit is accepted (soft limit is advisory)', () => {
-  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.hardLimitBufferPercent = 50
   const { softLimit, hardLimit } = getThoughtLimits(getDb())
   const middle = softLimit + 1
   expect(middle).toBeGreaterThan(softLimit)
@@ -202,7 +212,8 @@ test('content between soft and hard limit is accepted (soft limit is advisory)',
 
 test('updateThoughtByIdService enforces the derived hard limit and accepts the exact ceiling', () => {
   const id = seedThought({ content: 'short' })
-  setThoughtLimits(getDb(), 10, 50) // soft 10 -> hard 15
+  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.hardLimitBufferPercent = 50
   const { hardLimit } = getThoughtLimits(getDb())
 
   expect(() => updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)

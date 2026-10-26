@@ -181,7 +181,6 @@ Batch grouping by embedding proximity.
 | `autoCluster.minAgeDays` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_AGE_DAYS` | `3` | Don't cluster thoughts younger than this |
 | `autoCluster.minSimilarity` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_SIMILARITY` | `0.09` | Max cosine **distance** between neighbours (lower = tighter; 0.3 chains the whole graph into one mega-cluster) |
 | `autoCluster.minMembers` | `SYNAPTOMIND_AUTO_CLUSTER_MIN_MEMBERS` | `3` | Min thoughts to form a cluster |
-| `autoCluster.dryRun` | `SYNAPTOMIND_AUTO_CLUSTER_DRY_RUN` | `false` | Service-level default preview flag. MCP auto-cluster always previews when `confirm` is absent/false; explicit `confirm: true` authorizes execution even when this setting is true |
 
 ---
 
@@ -233,7 +232,6 @@ Context windows for agent startup.
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
 | `slots.defaultMaxChars` | `SYNAPTOMIND_SLOTS_MAX_CHARS` | `2000` | Default max characters per slot |
-| `slots.hardLimit` | `SYNAPTOMIND_SLOTS_HARD_LIMIT` | `20000` | Absolute max characters across all slots |
 
 ---
 
@@ -344,14 +342,14 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
   "primer": { "promoteThreshold": 5, "topN": 3 },
   "autoCluster": {
     "minAgeDays": 3, "minSimilarity": 0.09,
-    "minMembers": 3, "dryRun": false
+    "minMembers": 3
   },
   "edgeDetect": {
     "minSimilarity": 0.75, "topK": 10,
     "maxCandidates": 100, "maxProposals": 20
   },
   "placement": { "maxClusterSize": 50, "proposalTtlDays": 30, "maxPendingProposals": 500, "maxProposalsPerEnqueue": 5 },
-  "slots": { "defaultMaxChars": 2000, "hardLimit": 20000 },
+  "slots": { "defaultMaxChars": 2000 },
   "graph": { "maxDegree": 50 },
   "search": { "confidence": { "vectorFloor": 0.9, "unrelatedFloor": 0.8 } },
   "rateLimit": { "max": 200, "windowMs": 60000, "trustProxy": false }

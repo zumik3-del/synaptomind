@@ -17,9 +17,6 @@ delete process.env.SYNAPTOMIND_ALLOW_INSECURE
 const { config } = await import('../config')
 const { startMcpHttpServer } = await import('./http-transport')
 const { InMemoryEventStore, MAX_EVENTS_PER_SESSION } = await import('./in-memory-event-store')
-const { resetValidTokens } = await import('../auth')
-
-resetValidTokens()
 
 const SECRET = process.env.SYNAPTOMIND_SECRET
 const PROTOCOL_VERSION = '2025-06-18'

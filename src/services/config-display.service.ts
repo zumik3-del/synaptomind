@@ -23,7 +23,7 @@ const SECTION_LABELS: Record<string, string> = {
   log: 'Logging', embedder: 'Embedder', thoughts: 'Thoughts', decay: 'Decay',
   primer: 'Primer',
   autoCluster: 'Auto Cluster',
-  edgeDetect: 'Edge Detect', slots: 'Slots', git: 'Git', search: 'Search',
+  edgeDetect: 'Edge Detect', slots: 'Slots', search: 'Search',
   placement: 'Placement'
 }
 

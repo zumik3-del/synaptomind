@@ -2,9 +2,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from '
 import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { config } from '../../config'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
-import { setThoughtLimits } from '../../db/settings'
 import { getThought } from '../../db/thoughts'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
@@ -87,12 +87,17 @@ describe('tool registration', () => {
   })
 
   test('memory_store advertises the effective soft limit at registration', async () => {
-    setThoughtLimits(getDb(), 321, 20)
+    const original = config.thoughts.softLimit
+    config.thoughts.softLimit = 321
 
-    const fresh = await setupClient()
-    const { tools: freshTools } = await fresh.listTools()
-    const storeTool = freshTools.find(t => t.name === 'memory_store')
-    expect(JSON.stringify(storeTool?.inputSchema ?? {})).toContain('321')
+    try {
+      const fresh = await setupClient()
+      const { tools: freshTools } = await fresh.listTools()
+      const storeTool = freshTools.find(t => t.name === 'memory_store')
+      expect(JSON.stringify(storeTool?.inputSchema ?? {})).toContain('321')
+    } finally {
+      config.thoughts.softLimit = original
+    }
   })
 })
 
@@ -671,12 +676,17 @@ describe('memory_guide', () => {
   })
 
   test('advertises the effective soft limit resolved at call time', async () => {
-    setThoughtLimits(getDb(), 123, 20)
+    const original = config.thoughts.softLimit
+    config.thoughts.softLimit = 123
 
-    const result = await callTool({ name: 'memory_guide', arguments: {} })
-    const r = result as { content: Array<{ type: string; text: string }> }
-    expect(r.content[0].text).toContain('≤123 soft')
-    expect(r.content[0].text).not.toContain('≤600 soft')
+    try {
+      const result = await callTool({ name: 'memory_guide', arguments: {} })
+      const r = result as { content: Array<{ type: string; text: string }> }
+      expect(r.content[0].text).toContain('≤123 soft')
+      expect(r.content[0].text).not.toContain('≤600 soft')
+    } finally {
+      config.thoughts.softLimit = original
+    }
   })
 })
 

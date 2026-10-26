@@ -2,9 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from './index'
 import {
-  batchGetImportance,
   boostImportance,
-  boostImportanceBatch,
   decayImportance,
   ensureImportanceRow,
   getThoughtImportance,
@@ -31,20 +29,6 @@ test('getThoughtImportance returns row after seed', () => {
   expect(imp!.hit_count).toBe(0)
 })
 
-test('batchGetImportance returns empty map for empty input', () => {
-  expect(batchGetImportance(getDb(), []).size).toBe(0)
-})
-
-test('batchGetImportance returns map for known ids', () => {
-  const a = seedThought()
-  const b = seedThought()
-  const map = batchGetImportance(getDb(), [a, b, 'nonexistent'])
-  expect(map.size).toBe(2)
-  expect(map.get(a)).toBeDefined()
-  expect(map.get(b)).toBeDefined()
-  expect(map.get('nonexistent')).toBeUndefined()
-})
-
 test('ensureImportanceRow is idempotent', () => {
   const id = seedThought()
   ensureImportanceRow(getDb(), id)
@@ -67,16 +51,6 @@ test('incrementHitCount increments by 1', () => {
   incrementHitCount(getDb(), id)
   incrementHitCount(getDb(), id)
   expect(getThoughtImportance(getDb(), id)!.hit_count).toBe(2)
-})
-
-test('boostImportanceBatch boosts all ids', () => {
-  const a = seedThought()
-  const b = seedThought()
-  setImportance(a, 0.1)
-  setImportance(b, 0.2)
-  boostImportanceBatch(getDb(), [a, b], 0.5)
-  expect(getThoughtImportance(getDb(), a)!.importance).toBeCloseTo(0.6)
-  expect(getThoughtImportance(getDb(), b)!.importance).toBeCloseTo(0.7)
 })
 
 test('decayImportance decays old rows', () => {
