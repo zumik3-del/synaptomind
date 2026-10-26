@@ -4,7 +4,7 @@
 
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { runEvalWithGate } from './runner'
+import { runEval, runEvalWithGate } from './runner'
 import { buildThresholdEntry, collectGatingRegressions, loadThresholds, upsertThresholdEntry, writeThresholds, type ThresholdFile } from './thresholds'
 import type { EvalMode, Regression, RunResult } from './types'
 
@@ -13,6 +13,8 @@ interface CliOptions {
   topK?: number
   out: string
   updateBaseline: boolean
+  /** Report-only production-gate pass; `--no-gated` turns it off. */
+  gated: boolean
   help: boolean
 }
 
@@ -21,12 +23,14 @@ function parseArgs(argv: string[]): CliOptions {
     mode: 'deterministic',
     out: join(import.meta.dir, 'report.json'),
     updateBaseline: false,
+    gated: true,
     help: false
   }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--real') options.mode = 'real'
     else if (arg === '--update-baseline') options.updateBaseline = true
+    else if (arg === '--no-gated') options.gated = false
     else if (arg === '--help' || arg === '-h') options.help = true
     else if (arg === '--top-k') {
       const parsed = Number.parseInt(argv[++i] ?? '', 10)
@@ -45,6 +49,7 @@ function helpText(): string {
     '  --top-k <n>         default top-k when a query does not set its own (default: 5)',
     '  --out <path>        JSON report path (default: eval/report.json)',
     '  --update-baseline   recompute eval/thresholds.json from the current run',
+    '  --no-gated          skip the report-only gated pass (one pass instead of two)',
     '  --help, -h          show this help',
     '',
     'Scenarios marked xfail (contradiction) are reported but never fail the run.',
@@ -52,7 +57,8 @@ function helpText(): string {
     'Every run also prints a report-only second pass with the production relevance',
     'gate enabled (minRelevance as production resolves it). It never affects the',
     'exit code, thresholds or the regression list; the JSON report carries it under',
-    '"gated".'
+    '"gated". --no-gated skips that pass, halving the run (the ungated measurement,',
+    'the baselines and the exit code are unaffected).'
   ].join('\n')
 }
 
@@ -184,15 +190,19 @@ async function main(): Promise<void> {
   }
 
   const thresholdsPath = join(import.meta.dir, 'thresholds.json')
-  // Two passes over the same scenarios: the ungated one is the measurement the
-  // baselines (and therefore the exit code) gate on; the gated one is
-  // report-only visibility into what the production relevance gate costs.
-  const { ungated: result, gated } = await runEvalWithGate({
-    mode: options.mode,
-    topK: options.topK
-  })
+  // Two passes over the same scenarios by default: the ungated one is the
+  // measurement the baselines (and therefore the exit code) gate on; the gated
+  // one is report-only visibility into what the production relevance gate costs.
+  // `--no-gated` drops the second pass for a caller that does not read it (it is
+  // half the run's embedding/search work and, in `--real`, half the model cost).
+  const runOptions = { mode: options.mode, topK: options.topK }
+  const passes = options.gated
+    ? await runEvalWithGate(runOptions)
+    : { ungated: await runEval(runOptions), gated: null }
+  const result = passes.ungated
   console.log(renderTable(result))
-  console.log(renderGatedPass(result, gated))
+  if (passes.gated) console.log(renderGatedPass(result, passes.gated))
+  else console.log('\nGated pass skipped (--no-gated).')
 
   const file: ThresholdFile = loadThresholds(thresholdsPath) ?? { version: 1, modes: {} }
   if (options.updateBaseline) {
@@ -215,7 +225,12 @@ async function main(): Promise<void> {
     console.log('\nNo gating regressions.')
   }
 
-  const report = { ...result, thresholds: thresholdsPath, regressions, gated }
+  const report = {
+    ...result,
+    thresholds: thresholdsPath,
+    regressions,
+    ...(passes.gated ? { gated: passes.gated } : {})
+  }
   writeFileSync(options.out, `${JSON.stringify(report, null, 2)}\n`)
   console.log(`report written to ${options.out}`)
 

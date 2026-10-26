@@ -1022,7 +1022,11 @@ Breaking changes for MCP clients (the HTTP API keeps its shapes — see [API.md]
    that addresses several thoughts answers every match (at most `limit` rows) with `reason:
    "ambiguous_id"`; when nothing carries the id, the answer is the ordinary search for the same
    text plus an `id_not_found` note in `warnings` (`reason: "id_not_found"` only when that
-   fallback is empty too).
+   fallback is empty too). `low_confidence` keeps its retrieval-strength meaning and is never set
+   on an id hit (it means "no BM25 anchor and a cosine below the floor", and an id hit has no
+   cosine at all), so a client that drops low-confidence rows cannot lose the exact thought it
+   asked for; the contested state of an id hit rides in `standing`/`superseded_by`/
+   `contradicted_by` instead.
 5. **Calibrated `relevance` and a default noise gate.** Vector hits carry `relevance` on the
    measured 0–1 scale (`unrelatedFloor` 0.8 → 0, `vectorFloor` 0.9 → 1), and the default gate
    drops cosine-only rows below 0.4. `min_relevance: 0` restores the old fail-open set.

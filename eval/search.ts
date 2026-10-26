@@ -136,9 +136,3 @@ export async function realOutcomeSearcher(gate: RelevanceGate = 'off'): Promise<
   return (query, topK, projectFilter, options) =>
     runSearch(baseOptions(query, topK, projectFilter, options, gate))
 }
-
-export async function realSearcher(): Promise<Searcher> {
-  const outcomeSearcher = await realOutcomeSearcher('off')
-  return async (query, topK, projectFilter, options) =>
-    (await outcomeSearcher(query, topK, projectFilter, options)).hits
-}
