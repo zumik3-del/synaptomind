@@ -153,7 +153,7 @@ describe('config surface — the removed keys are gone', () => {
 
 describe('config surface — every mapping targets a real default', () => {
   test('retention-review defaults and environment mappings are declared', () => {
-    expect(DEFAULTS.retentionReview).toEqual({ minAgeDays: 30, importanceFloor: 0.2, pageSize: 20 })
+    expect(DEFAULTS.retentionReview).toEqual({ minAgeDays: 30, importanceFloor: 0.3, pageSize: 20 })
     expect(ENV_MAPPINGS.filter(mapping => mapping.path.startsWith('retentionReview.')).map(mapping => mapping.env)).toEqual([
       'SYNAPTOMIND_RETENTION_REVIEW_MIN_AGE_DAYS',
       'SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR',
