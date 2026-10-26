@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { closeDb } from '../db/init'
 import { createTestDb } from '../test/helpers'
 import { createApp } from './router'
@@ -7,8 +8,9 @@ import { createApp } from './router'
 // 46 former routes are gone with no deprecation shim, so a former route must
 // answer Hono's plain 404 — not 200, not 400 (a surviving route would validate
 // the body), and not a `410`/`Deprecation` shim that keeps the transport drift
-// alive. This samples 29 of the 43 across every deleted router, one row per
-// former capability family.
+// alive. This pins all 43, one row per route, in the order of the contract
+// table in docs/API.md#removed-routes-020 (task #2212 closes the 14-route gap a
+// sample left behind).
 //
 // Requests carry a valid bearer token on purpose: without it the `/api/*` auth
 // middleware would answer 401 and the 404 would prove nothing.
@@ -30,44 +32,99 @@ interface FormerRoute {
   router: string
 }
 
+/**
+ * Paths are the documented templates, not concrete URLs, so this ledger can be
+ * diffed against the docs table one-to-one; `PARAMS` materialises them for the
+ * actual request.
+ */
 const FORMER_ROUTES: FormerRoute[] = [
-  { method: 'GET', path: '/api/thoughts/search?q=anything', router: 'thoughts-search' },
+  { method: 'GET', path: '/api/thoughts/search', router: 'thoughts-search' },
   { method: 'GET', path: '/api/thoughts/timeline', router: 'thoughts' },
   { method: 'POST', path: '/api/thoughts', router: 'thoughts' },
   { method: 'POST', path: '/api/thoughts/bulk', router: 'thoughts' },
-  { method: 'GET', path: `/api/thoughts/${THOUGHT}`, router: 'thoughts' },
-  { method: 'PUT', path: `/api/thoughts/${THOUGHT}`, router: 'thoughts' },
-  { method: 'DELETE', path: `/api/thoughts/${THOUGHT}`, router: 'thoughts' },
-  { method: 'GET', path: `/api/thoughts/members/${THOUGHT}`, router: 'thoughts' },
+  { method: 'GET', path: '/api/thoughts/:id', router: 'thoughts' },
+  { method: 'PUT', path: '/api/thoughts/:id', router: 'thoughts' },
+  { method: 'DELETE', path: '/api/thoughts/:id', router: 'thoughts' },
+  { method: 'GET', path: '/api/thoughts/:id/edges', router: 'thoughts' },
+  { method: 'GET', path: '/api/thoughts/members/:id', router: 'thoughts' },
   { method: 'POST', path: '/api/thoughts/propose', router: 'thoughts' },
-  { method: 'GET', path: '/api/thoughts/links/batch?ids=x', router: 'thoughts-links' },
-  { method: 'POST', path: `/api/thoughts/${THOUGHT}/links`, router: 'thoughts-links' },
-  { method: 'POST', path: `/api/thoughts/${THOUGHT}/merge`, router: 'thoughts-merge' },
+  { method: 'POST', path: '/api/thoughts/:targetId/merge', router: 'thoughts-merge' },
   { method: 'GET', path: '/api/thoughts/retention-review', router: 'retention-review' },
-  { method: 'POST', path: `/api/thoughts/${THOUGHT}/retention-review/protect`, router: 'retention-review' },
-  { method: 'POST', path: `/api/thoughts/${THOUGHT}/link`, router: 'links' },
-  { method: 'DELETE', path: `/api/edges/${THOUGHT}`, router: 'links' },
+  { method: 'POST', path: '/api/thoughts/retention-review/compact', router: 'retention-review' },
+  { method: 'POST', path: '/api/thoughts/:id/retention-review/protect', router: 'retention-review' },
+  { method: 'POST', path: '/api/thoughts/:id/retention-review/delete', router: 'retention-review' },
+  { method: 'GET', path: '/api/thoughts/:id/links', router: 'thoughts-links' },
+  { method: 'GET', path: '/api/thoughts/links/batch', router: 'thoughts-links' },
+  { method: 'POST', path: '/api/thoughts/:id/links', router: 'thoughts-links' },
+  { method: 'DELETE', path: '/api/thoughts/:id/links/:key', router: 'thoughts-links' },
+  { method: 'GET', path: '/api/tags', router: 'tags' },
+  { method: 'PUT', path: '/api/tags/:id', router: 'tags' },
+  { method: 'DELETE', path: '/api/tags/:id', router: 'tags' },
+  { method: 'POST', path: '/api/thoughts/:id/link', router: 'links' },
+  { method: 'DELETE', path: '/api/edges/:id', router: 'links' },
   { method: 'GET', path: '/api/graph', router: 'graph' },
   { method: 'POST', path: '/api/cluster', router: 'cluster' },
-  { method: 'GET', path: '/api/tags', router: 'tags' },
-  { method: 'PUT', path: '/api/tags/tag-1', router: 'tags' },
+  { method: 'GET', path: '/api/proposals', router: 'proposals' },
+  { method: 'POST', path: '/api/proposals', router: 'proposals' },
+  { method: 'POST', path: '/api/proposals/:id/apply', router: 'proposals' },
+  { method: 'POST', path: '/api/proposals/rollback', router: 'proposals' },
+  { method: 'POST', path: '/api/proposals/:id/reject', router: 'proposals' },
   { method: 'GET', path: '/api/projects', router: 'projects' },
+  { method: 'GET', path: '/api/projects/resolve', router: 'projects' },
   { method: 'POST', path: '/api/projects', router: 'projects' },
-  { method: 'PATCH', path: '/api/projects/project-1', router: 'projects' },
+  { method: 'PATCH', path: '/api/projects/:id', router: 'projects' },
+  { method: 'GET', path: '/api/projects/:id', router: 'projects' },
+  { method: 'DELETE', path: '/api/projects/:id', router: 'projects' },
   { method: 'GET', path: '/api/primers', router: 'primers' },
+  { method: 'DELETE', path: '/api/primers/:id', router: 'primers' },
   { method: 'GET', path: '/api/slots', router: 'slots' },
-  { method: 'PUT', path: '/api/slots/project_context', router: 'slots' },
+  { method: 'PUT', path: '/api/slots/:name', router: 'slots' },
   { method: 'POST', path: '/api/slots/reflect', router: 'slots' },
-  { method: 'GET', path: '/api/frontier', router: 'frontier' },
-  { method: 'POST', path: '/api/proposals/rollback', router: 'proposals' }
+  { method: 'GET', path: '/api/frontier', router: 'frontier' }
 ]
+
+const PARAMS: Record<string, string> = {
+  ':id': THOUGHT,
+  ':targetId': THOUGHT,
+  ':key': 'k1',
+  ':name': 'project_context'
+}
+
+function materialise(path: string): string {
+  return path.replace(/:[A-Za-z]+/g, param => {
+    const value = PARAMS[param]
+    if (!value) throw new Error(`no concrete value for ${param} in ${path}`)
+    return value
+  })
+}
+
+/**
+ * The removed-route table in docs/API.md is the published contract; this file is
+ * its executable copy. Reading it here means a route added to or dropped from
+ * the documentation cannot silently escape the 404 pin (the gap this task
+ * closed: 29 of 43 rows were sampled).
+ */
+function documentedFormerRoutes(): string[] {
+  const doc = readFileSync(new URL('../../docs/API.md', import.meta.url), 'utf8')
+  const start = doc.indexOf('## Removed routes (0.20)')
+  const end = doc.indexOf('## Dropped capabilities')
+  if (start < 0 || end < start) throw new Error('docs/API.md: removed-routes table not found')
+  return doc
+    .slice(start, end)
+    .split('\n')
+    .map(line => /^\|\s*`(GET|POST|PUT|PATCH|DELETE)`\s*\|\s*`([^`]+)`/.exec(line))
+    .filter(match => match !== null)
+    .map(match => `${match[1]} ${match[2]}`)
+}
+
+const label = (route: FormerRoute): string => `${route.method} ${route.path}`
 
 beforeEach(createTestDb)
 afterEach(closeDb)
 
 async function call(method: string, path: string): Promise<Response> {
   return app.request(
-    path,
+    materialise(path),
     {
       method,
       headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
@@ -79,7 +136,11 @@ async function call(method: string, path: string): Promise<Response> {
   )
 }
 
-test('the sample covers every router deleted in the cut', () => {
+test('the ledger matches the removed-route table in docs/API.md exactly', () => {
+  expect(FORMER_ROUTES.map(label).sort()).toEqual(documentedFormerRoutes().sort())
+})
+
+test('the ledger covers every router deleted in the cut', () => {
   const routers = new Set(FORMER_ROUTES.map(r => r.router))
   expect([...routers].sort()).toEqual([
     'cluster',
@@ -99,19 +160,32 @@ test('the sample covers every router deleted in the cut', () => {
   ])
 })
 
-test('the sample is 29 former routes and none of them is a surviving endpoint', () => {
-  expect(FORMER_ROUTES).toHaveLength(29)
+test('the ledger is 43 distinct former routes and none of them is a surviving endpoint', () => {
+  expect(FORMER_ROUTES).toHaveLength(43)
+  // A duplicate row would pad the count without proving another route.
+  expect(new Set(FORMER_ROUTES.map(label)).size).toBe(FORMER_ROUTES.length)
   const survivors = ['/health', '/api/health-check', '/api/health-check/repair']
   for (const route of FORMER_ROUTES) {
-    const path = route.path.split('?')[0]
-    expect(survivors).not.toContain(path)
+    expect(survivors).not.toContain(route.path)
+  }
+})
+
+test('every path placeholder has a concrete value', () => {
+  for (const route of FORMER_ROUTES) {
+    expect(materialise(route.path)).not.toContain(':')
   }
 })
 
 for (const route of FORMER_ROUTES) {
-  test(`${route.method} ${route.path} answers 404 (${route.router} router removed)`, async () => {
+  test(`${label(route)} answers plain 404 (${route.router} router removed)`, async () => {
     const res = await call(route.method, route.path)
     expect(res.status).toBe(404)
+    // The status alone would not prove removal: a surviving `:id` route answers
+    // its own 404 envelope (`application/json`, `{"error":"Not found"}`) for an
+    // unknown id. Only Hono's default — `text/plain`, `404 Not Found` — means
+    // there is no route at all.
+    expect(res.headers.get('content-type')).toContain('text/plain')
+    expect(await res.text()).toBe('404 Not Found')
     // No deprecation shim survives the cut.
     expect(res.headers.get('deprecation')).toBeNull()
     expect(res.headers.get('sunset')).toBeNull()
