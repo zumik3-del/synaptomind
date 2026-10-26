@@ -80,7 +80,7 @@ recency_weight (default 0) + recency_half_life_days (default 30) add recency_sco
 
 ## Lifecycle
 Importance decays by decay.rate (default 0.95) per decay.intervalMs (default 24 h). Decay only lowers importance — it never archives.
-Archiving is explicit (memory_supersede archive, or status=archived). Deletion of archived thoughts is handled by the retention-review process (the sole deletion path).
+Archiving is explicit (memory_supersede action=archive; memory_store update rejects status=archived). Deletion of archived thoughts is handled by the retention-review process (the sole deletion path).
 
 ## Scheduled jobs
 Started in src/index.ts when the process owns background jobs: decay, placement-retention. auto_cluster is on demand (memory_crystallize action=auto_cluster) and never scheduled.

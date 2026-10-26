@@ -581,6 +581,11 @@ the rows the page did not include, so a caller pages with `offset += limit` unti
 Both answer `{ item: <shaped thought>, meta }`; `update` on a missing id fails with a `404` error
 envelope.
 
+`update` is **not** an archive path: `status: "archived"` is rejected with an error envelope naming
+`memory_supersede action=archive` (preview it, then `confirm: true` with the returned
+`preview_token`), while `draft`/`active` transitions are unchanged. Archiving is destructive, so it
+keeps its single, token-gated write path.
+
 ### `action=link`
 
 Create an edge between two thoughts. Use canonical endpoint parameters `source_id` and `target_id`;

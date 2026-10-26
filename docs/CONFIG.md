@@ -146,9 +146,9 @@ Automatic importance decay for old thoughts.
 | `decay.intervalMs` | `SYNAPTOMIND_DECAY_INTERVAL_MS` | `86400000` | How often to run decay (ms). Default: 24h |
 
 **Note:** Decay only lowers importance — it never archives, deletes or otherwise
-changes a thought's status. Archiving is explicit (`memory_supersede action=archive`
-or `status=archived`), and deletion of archived thoughts is handled by the
-retention-review process (the sole deletion path).
+changes a thought's status. Archiving is explicit (`memory_supersede action=archive`;
+`memory_store action=update` rejects `status=archived`), and deletion of archived thoughts is
+handled by the retention-review process (the sole deletion path).
 
 ---
 
