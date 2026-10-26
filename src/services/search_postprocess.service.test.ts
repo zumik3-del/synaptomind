@@ -134,7 +134,7 @@ function leaveLegacyProfileFlag(result: SearchResult): SearchResult {
   return result
 }
 
-test('a @profile query does not reorder results by the retired flag', () => {
+test('the retired profile flag does not reorder results', () => {
   const plain = makeSearchResult('plain')
   const legacyProfile = leaveLegacyProfileFlag(makeSearchResult('legacy-profile'))
 
@@ -145,7 +145,7 @@ test('a @profile query does not reorder results by the retired flag', () => {
   expect(processed.map(r => (r as SearchResult).thought.id)).toEqual(['plain', 'legacy-profile'])
 })
 
-test('a @profile query leaves primer hoisting as the only reorder', () => {
+test('the retired profile flag leaves primer hoisting as the only reorder', () => {
   const flagged = leaveLegacyProfileFlag(makeSearchResult('legacy-profile'))
   const primer = seedThought({ content: 'primer thought', status: 'active' })
   getDb()

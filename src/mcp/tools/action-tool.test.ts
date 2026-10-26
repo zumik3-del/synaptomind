@@ -311,6 +311,38 @@ describe('per-action schemas enforce action-conditional required fields', () => 
   }
 })
 
+// ── store update status enum: one message per invalid value (#2211) ──────────
+//
+// The action-conditional schema is the layer that owns the split, so these
+// probes go through the dispatcher callback directly: the advertised
+// `status` superset already rejects an unknown value, which would mask the
+// per-value message this schema is responsible for.
+
+describe('store update status enum keeps one message per invalid value', () => {
+  const storeDispatch = () => captureTool(registerMemoryStore)
+
+  test('a bogus status gets the generic enum error, not the archived guidance', async () => {
+    const result = (await storeDispatch()({ action: 'update', thought_id: 'irrelevant', status: 'bogus' })) as ToolResult
+    const { text, isError } = parseResult(result)
+
+    expect(isError).toBe(true)
+    expect(text).toContain('Invalid option: expected one of "draft"|"active"')
+    // Before the split this text was the archived-value guidance, which sent a
+    // caller holding a typo down the preview-token supersede flow.
+    expect(text).not.toContain('memory_supersede')
+  })
+
+  test('status=archived still names the supersede archive path', async () => {
+    const result = (await storeDispatch()({ action: 'update', thought_id: 'irrelevant', status: 'archived' })) as ToolResult
+    const { text, isError } = parseResult(result)
+
+    expect(isError).toBe(true)
+    expect(text).toContain('memory_supersede action=archive')
+    // The actionable half stays attached to the value it describes.
+    expect(text).not.toContain('Invalid option')
+  })
+})
+
 // ── memory_status action=config: raw-text envelope passthrough ───────────────
 
 describe('memory_status action=config raw-text passthrough', () => {
