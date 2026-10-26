@@ -17,6 +17,7 @@ bun run eval --top-k 10      # override default top-k
 bun run eval --out /tmp/eval.json
 bun run eval --update-baseline   # recompute eval/thresholds.json from this run
 bun run eval --real --update-baseline  # record/refresh the real-mode baseline
+bun run eval --no-gated      # skip the report-only second pass (one pass, half the work)
 ```
 
 Exit code is non-zero **only** on a threshold regression (or a failed assertion in
@@ -59,6 +60,13 @@ deliberate visibility-first sequencing: gating on the gate would need its own
 baseline (a separate `gated`/`relevanceGate` threshold entry keyed by mode, so
 the recorded value carries the `minRelevance` it was measured at) and a decision
 on the tolerated recall delta per category before any floor is recorded.
+
+`--no-gated` skips that second pass (`bun run eval --no-gated`, one pass instead
+of two). It changes nothing about the gating: the ungated measurement, the
+thresholds, the exit code and `--update-baseline` are identical, the report just
+carries no `gated` object and the table says the pass was skipped. It is the
+switch for a run that has no reader for the gate comparison — the `--real` mode
+otherwise pays the model cost twice.
 
 ### Modes
 
