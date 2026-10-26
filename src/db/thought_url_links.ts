@@ -57,11 +57,6 @@ export function getThoughtUrlLinksForThoughts(db: Database, thoughtIds: string[]
     .all(...thoughtIds) as ThoughtUrlLink[]
 }
 
-export function deleteThoughtUrlLink(db: Database, thoughtId: string, key: string): boolean {
-  const result = db.prepare('DELETE FROM thought_url_links WHERE thought_id = ? AND key = ?').run(thoughtId, key)
-  return result.changes > 0
-}
-
 export function pruneThoughtUrlLinks(db: Database, thoughtId: string, content: string): number {
   return deleteThoughtUrlLinksNotIn(db, thoughtId, extractLinkKeys(content))
 }

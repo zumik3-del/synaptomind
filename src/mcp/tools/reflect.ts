@@ -4,7 +4,7 @@ import { reflectSessionService } from '../../services/slots.service'
 import { listThoughtsPageService, type Thought } from '../../services/thoughts.service'
 import { thoughtStatusSchema, timelineLimitSchema } from '../../validation'
 import { itemEnvelope, collectionEnvelope, requireEnvelopeScope } from './envelope'
-import { shapeThought } from './utils'
+import { shapeThought, loadUrlLinks } from './utils'
 import { registerActionTool, type ActionArgs } from './action-tool'
 
 const handlers = {
@@ -34,8 +34,10 @@ const handlers = {
       })
       // Same read-surface hygiene as every other thought listing: tag names as
       // plain strings, flag columns as booleans. Paging metadata belongs to
-      // meta.counts, never to a row.
-      const items = page.thoughts.map((t: Thought) => shapeThought(t))
+      // meta.counts, never to a row. `include_url_links` is attached after the
+      // shaping so the page cannot silently hide it (ADR §4).
+      const urlLinks = args.include_url_links === true ? loadUrlLinks(page.thoughts) : undefined
+      const items = page.thoughts.map((t: Thought) => shapeThought(t, undefined, undefined, urlLinks))
       return collectionEnvelope('timeline', items, {
         scope,
         warnings,
@@ -50,7 +52,7 @@ const handlers = {
 export function registerMemoryReflect(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_reflect',
-    description: `Session management. Every action answers { items, meta } (timeline) or { item, meta } (reflect); meta = { action, scope, counts, degraded, warnings }. cwd is REQUIRED for both actions. Actions: reflect (summary, decisions, pending, goals), timeline (paginated thought inventory with the shared read-surface hygiene; limit/offset/total ride in meta.counts, never in a row).`,
+    description: `Session management. Every action answers { items, meta } (timeline) or { item, meta } (reflect); meta = { action, scope, counts, degraded, warnings }. cwd is REQUIRED for both actions. Actions: reflect (summary, decisions, pending, goals), timeline (paginated thought inventory with the shared read-surface hygiene; limit/offset/total ride in meta.counts, never in a row; include_url_links adds the url links of every row, default false).`,
     inputSchema: {
       action: z.enum(['reflect', 'timeline']).describe('Action'),
       summary: z.string().optional().describe('Brief summary of what was accomplished. OPTIONAL for "reflect". IGNORED for "timeline".'),
@@ -64,6 +66,7 @@ export function registerMemoryReflect(server: McpServer) {
       status: thoughtStatusSchema.optional().describe('Filter by status (default all). OPTIONAL for "timeline". IGNORED for "reflect".'),
       limit: timelineLimitSchema.optional().describe('Max results (default 50, 1-500). OPTIONAL for "timeline". IGNORED for "reflect".'),
       offset: z.number().int().min(0).max(1_000_000).optional().describe('Offset for pagination. OPTIONAL for "timeline". IGNORED for "reflect".'),
+      include_url_links: z.boolean().optional().describe('timeline only: when true, every row carries url_links — [{text, url, label}] ordered by sort_order then creation, all rows read in one query. Default false, where the key is absent; true with no links returns []. Never hidden by the row shaping. IGNORED for "reflect".'),
       // Tombstone for the retired goals argument: only goals_add /
       // goals_remove are advertised.
       goals_delta: z.never({ error: 'goals_delta was removed; use goals_add / goals_remove' }).optional().describe('Removed; use goals_add / goals_remove.'),

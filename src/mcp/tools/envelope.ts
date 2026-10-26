@@ -176,8 +176,8 @@ export function resolveEnvelopeScope(cwd: string | undefined): { scope: Envelope
  *
  * A missing scope used to silently widen the search to every project; it now
  * fails with an actionable error naming the argument to pass and the call that
- * checks whether the path is registered. The HTTP API keeps `cwd` optional —
- * only the MCP surface is strict.
+ * checks whether the path is registered. The MCP surface is the only agent
+ * wire since the 0.20 HTTP shrink, so every project-scoped read is strict.
  */
 export function requireCwd(cwd: unknown, tool: string, action: string): string {
   if (typeof cwd === 'string' && cwd.trim().length > 0) return cwd

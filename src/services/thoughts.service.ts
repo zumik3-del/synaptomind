@@ -2,7 +2,6 @@ import type { Database } from 'bun:sqlite'
 export type { Thought } from '../db/thoughts'
 import { config } from '../config'
 import { createEdge } from '../db/edges'
-import { getClusterMembers } from '../db/cluster-edges'
 import { getDb } from '../db'
 import { getThoughtLimitsDB } from '../db/settings'
 import { pruneThoughtUrlLinks } from '../db/thought_url_links'
@@ -158,10 +157,6 @@ export function archiveThoughtsBatchService(ids: string[], d: Database = getDb()
   return { archived, failed: errors.length, errors }
 }
 
-export function listThoughtsService(options?: ListThoughtsOptions, d: Database = getDb()): Thought[] {
-  return dbListThoughts(d, options)
-}
-
 /** One page of thoughts plus the total matching the same filters. */
 export interface ThoughtPage {
   thoughts: Thought[]
@@ -181,12 +176,4 @@ export function listThoughtsPageService(options: ListThoughtsOptions = {}, d: Da
   const offset = options.offset ?? 0
   const thoughts = dbListThoughts(d, { ...options, limit, offset })
   return { thoughts, total: countThoughts(d, options), limit, offset }
-}
-
-export function getClusterMembersService(clusterId: string, d: Database = getDb()): { cluster: Thought; members: Thought[] } {
-  const cluster = getThoughtByIdService(clusterId, d)
-  if (!cluster) throw new NotFoundError('Thought not found')
-  if (!cluster.is_cluster) throw new ValidationError('Not a cluster thought')
-  const members = getClusterMembers(d, clusterId)
-  return { cluster, members }
 }

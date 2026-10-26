@@ -1,7 +1,7 @@
 import { z } from 'zod/v4'
 import { NotFoundError } from '../../../errors'
 import { getChainService, getContextService } from '../../../services/graph.service'
-import { shapeThought, shapeChain } from '../utils'
+import { shapeThought, shapeChain, loadUrlLinks } from '../utils'
 import { itemEnvelope, resolveEnvelopeScope, scopeProjectId } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
@@ -19,6 +19,9 @@ const CONTEXT_REQUIRED = 'query or thought_id is required for context action'
  * the default relevance gate of the search surface would turn a weak-but-real
  * neighbourhood into "no match". `getContextService` therefore keeps
  * `minRelevance: 0` unless a caller opts in (task #2187).
+ *
+ * `include_url_links` (default false) rides on every thought the answer emits —
+ * the best match, the chain head and both neighbourhoods — from one batch read.
  */
 export const contextHandler: ActionHandler = {
   input: z
@@ -43,11 +46,14 @@ export const contextHandler: ActionHandler = {
         maxDegree
       )
       if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
+      const urlLinks = args.include_url_links === true
+        ? loadUrlLinks([chain.thought, ...chain.upstream.map(e => e.thought), ...chain.downstream.map(e => e.thought)])
+        : undefined
       // An id-addressed lookup is project-free, so it reports no scope and no
       // scope warning even when the caller passed a cwd.
       return itemEnvelope('context', {
-        thought: shapeThought(chain.thought, compact, fields),
-        chain: shapeChain(chain, compact, fields)
+        thought: shapeThought(chain.thought, compact, fields, urlLinks),
+        chain: shapeChain(chain, compact, fields, urlLinks)
       })
     }
 
@@ -64,9 +70,16 @@ export const contextHandler: ActionHandler = {
         reason: 'no_match'
       })
     }
+    const urlLinks = args.include_url_links === true
+      ? loadUrlLinks([
+          context.best_match,
+          ...(context.chain?.upstream ?? []).map(e => e.thought),
+          ...(context.chain?.downstream ?? []).map(e => e.thought)
+        ])
+      : undefined
     return itemEnvelope('context', {
-      thought: shapeThought(context.best_match, compact, fields),
-      chain: shapeChain(context.chain, compact, fields)
+      thought: shapeThought(context.best_match, compact, fields, urlLinks),
+      chain: shapeChain(context.chain, compact, fields, urlLinks)
     }, { scope, warnings, degraded: context.degraded === true })
   }
 }
