@@ -278,6 +278,48 @@ describe('memory_store', () => {
     const { isError } = parseResult(result)
     expect(isError).toBe(true)
   })
+
+  // ── the action surface after #2201: bulk_create is the only bulk spelling ──
+
+  test('advertises only the canonical action set', async () => {
+    const { tools } = await client.listTools()
+    const tool = tools.find(t => t.name === 'memory_store')
+    const schema = tool?.inputSchema as
+      | { properties?: { action?: { enum?: string[] }; thoughts?: { description?: string } } }
+      | undefined
+
+    expect(schema?.properties?.action?.enum).toEqual([
+      'create', 'update', 'link', 'link_batch', 'unlink', 'unlink_batch', 'retype', 'bulk_create'
+    ])
+    // The `thoughts` field is documented for the surviving action only.
+    expect(schema?.properties?.thoughts?.description).toContain('"bulk_create"')
+    expect(schema?.properties?.thoughts?.description).not.toContain('create_bulk')
+    expect(schema?.properties?.thoughts?.description).not.toContain('create_batch')
+  })
+
+  test('rejects the retired bulk_create aliases', async () => {
+    for (const alias of ['create_bulk', 'bulk', 'create_batch']) {
+      const result = await callTool({
+        name: 'memory_store',
+        arguments: { action: alias, thoughts: [{ content: `alias write ${alias}` }] }
+      })
+      expect({ alias, isError: parseResult(result).isError }).toEqual({ alias, isError: true })
+    }
+    // The rejected spellings wrote nothing: the alias is a schema error, not a
+    // silently accepted second door into the bulk insert.
+    expect(getDb().prepare(`SELECT COUNT(*) AS cnt FROM thoughts WHERE content LIKE '% alias write %'`).get()).toEqual({ cnt: 0 })
+  })
+
+  test('bulk_create still creates every thought in one action', async () => {
+    const result = await callTool({
+      name: 'memory_store',
+      arguments: { action: 'bulk_create', thoughts: [{ content: 'bulk one' }, { content: 'bulk two' }] }
+    })
+    const { data, isError } = parseResult(result)
+    expect(isError).toBe(false)
+    expect(data.items).toHaveLength(2)
+    expect(getDb().prepare(`SELECT COUNT(*) AS cnt FROM thoughts WHERE content IN ('bulk one', 'bulk two')`).get()).toEqual({ cnt: 2 })
+  })
 })
 
 // ── memory_recall ────────────────────────────────────────────────────────────
@@ -516,6 +558,34 @@ describe('memory_manage', () => {
     const { data: resolved, isError: resolveErr } = parseResult(resolve)
     expect(resolveErr).toBe(false)
     expect(resolved.item.name).toBe('TestProject')
+  })
+
+  test('advertises no compact option (#2201: the manage projection never read it)', async () => {
+    const { tools } = await client.listTools()
+    const manage = tools.find(t => t.name === 'memory_manage')
+    const props = (manage?.inputSchema as { properties?: Record<string, { description?: string }> } | undefined)?.properties ?? {}
+
+    expect(Object.keys(props)).not.toContain('compact')
+    expect(JSON.stringify(manage?.inputSchema)).not.toContain('compact')
+    expect(manage?.description ?? '').not.toContain('compact')
+    // Positive control: the surviving field selector is still advertised, and
+    // the option stays live where a projection actually reads it.
+    expect(props.fields).toBeDefined()
+    const recall = tools.find(t => t.name === 'memory_recall')
+    const recallProps = (recall?.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties ?? {}
+    expect(Object.keys(recallProps)).toContain('compact')
+  })
+
+  test('fields still trims the project rows (the surviving selector works)', async () => {
+    const trimmed = parseResult(await callTool({
+      name: 'memory_manage',
+      arguments: { action: 'list', fields: ['name'] }
+    }))
+    expect(trimmed.isError).toBe(false)
+    expect(Object.keys(trimmed.data.items[0])).toEqual(['name'])
+
+    const full = parseResult(await callTool({ name: 'memory_manage', arguments: { action: 'list' } }))
+    expect(Object.keys(full.data.items[0]).length).toBeGreaterThan(1)
   })
 })
 
