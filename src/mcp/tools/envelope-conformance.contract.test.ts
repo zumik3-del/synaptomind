@@ -447,6 +447,47 @@ for (const c of CASES) {
 
 // ── table completeness (drift guard) ─────────────────────────────────────────
 
+/** The two envelope phrases a description uses to introduce a shape's action list. */
+const ITEMS_PHRASE = '{ items, meta } for '
+const ITEM_PHRASE = '{ item, meta } for '
+
+/**
+ * The action list that follows `phrase` in `description`, cut at the nearest
+ * clause boundary: `; `, a sentence end `. ` or the other envelope phrase.
+ *
+ * A description reads `… { items, meta } for a, b, c, { item, meta } for d, e; …`,
+ * so the list can only end at one of those. Matching `[^;.]+` instead truncated
+ * at the first period — inside `meta.counts` — and passed only because the action
+ * names happened to precede it (task #2197).
+ */
+function envelopeClause(description: string, phrase: string, otherPhrase: string): string {
+  const start = description.indexOf(phrase)
+  if (start < 0) return ''
+  const body = description.slice(start + phrase.length)
+  const cuts = [body.indexOf('; '), body.indexOf('. '), body.indexOf(otherPhrase)].filter(i => i >= 0)
+  return body.slice(0, cuts.length > 0 ? Math.min(...cuts) : body.length).replace(/[,\s]+$/, '')
+}
+
+/**
+ * Verify that every `edge_review` action is named under the phrase of its slot
+ * and by no other phrase. Throws (via `expect`) naming the offending action, so
+ * the doctored-description test below can prove the check has teeth.
+ */
+function assertEdgeReviewDescription(description: string): void {
+  const itemsClause = envelopeClause(description, ITEMS_PHRASE, ITEM_PHRASE)
+  const itemClause = envelopeClause(description, ITEM_PHRASE, ITEMS_PHRASE)
+  expect(itemsClause).not.toBe('')
+  expect(itemClause).not.toBe('')
+
+  const mentions = (clause: string, action: string) => new RegExp(`(^|[^a-z_])${action}([^a-z_]|$)`).test(clause)
+  for (const c of CASES.filter(c => c.tool === 'edge_review')) {
+    const documented = c.slot === 'item' ? itemClause : itemsClause
+    const other = c.slot === 'item' ? itemsClause : itemClause
+    expect({ action: c.action, documented: mentions(documented, c.action) }).toEqual({ action: c.action, documented: true })
+    expect({ action: c.action, wrongClause: mentions(other, c.action) }).toEqual({ action: c.action, wrongClause: false })
+  }
+}
+
 describe('action table completeness', () => {
   test('every action of every action tool is in the table, and nothing extra', async () => {
     const tools = await advertisedTools()
@@ -466,19 +507,30 @@ describe('action table completeness', () => {
     // above, a client following the text misses the per-row report it is sent
     // (task #2190: rollback was documented as { item, meta }).
     const tool = (await advertisedTools()).find(t => t.name === 'edge_review')
-    const description = tool?.description ?? ''
-    const itemsClause = description.match(/\{ items, meta \} for ([^;.]+)/)?.[1] ?? ''
-    const itemClause = description.match(/\{ item, meta \} for ([^;.]+)/)?.[1] ?? ''
-    expect(itemsClause).not.toBe('')
-    expect(itemClause).not.toBe('')
+    assertEdgeReviewDescription(tool?.description ?? '')
+  })
 
-    const mentions = (clause: string, action: string) => new RegExp(`(^|[^a-z_])${action}([^a-z_]|$)`).test(clause)
-    for (const c of CASES.filter(c => c.tool === 'edge_review')) {
-      const documented = c.slot === 'item' ? itemClause : itemsClause
-      const other = c.slot === 'item' ? itemsClause : itemClause
-      expect({ action: c.action, documented: mentions(documented, c.action) }).toEqual({ action: c.action, documented: true })
-      expect({ action: c.action, wrongClause: mentions(other, c.action) }).toEqual({ action: c.action, wrongClause: false })
-    }
+  test('the clause cut runs past the dot inside meta.counts and stops at the next phrase', () => {
+    // The exact shape edge_review uses: the aggregate mention carries a period
+    // (`meta.counts`), which must not end the clause.
+    const description =
+      'Answers the shared envelope: { items, meta } for list/apply_batch/rollback (aggregate in meta.counts), ' +
+      '{ item, meta } for enqueue/apply/reject; a preview sets meta.preview={token,destructive:true}. Actions: enqueue.'
+
+    expect(envelopeClause(description, ITEMS_PHRASE, ITEM_PHRASE)).toBe(
+      'list/apply_batch/rollback (aggregate in meta.counts)'
+    )
+    expect(envelopeClause(description, ITEM_PHRASE, ITEMS_PHRASE)).toBe('enqueue/apply/reject')
+  })
+
+  test('the description check has teeth: a period before the action list is caught', () => {
+    // Same two shapes, but the items list is split off by a sentence end — the
+    // drift that the former `[^;.]+` capture would have mistaken for a list.
+    const doctored =
+      'Answers the shared envelope: { items, meta } for collections. list, apply_batch and rollback use that shape, ' +
+      '{ item, meta } for enqueue, apply and reject; a preview sets meta.preview={token,destructive:true}.'
+
+    expect(() => assertEdgeReviewDescription(doctored)).toThrow()
   })
 
   test('the graph exception is documented on memory_crystallize', async () => {

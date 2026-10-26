@@ -151,8 +151,9 @@ describe('memory_recall clusters — the id lookup honours the cluster invariant
 
     expect(isError).toBe(false)
     expect(data.items).toEqual([])
-    // Nothing survived the cluster filter, so the miss is explained.
-    expect(data.meta.reason).toBeDefined()
+    // Nothing survived the cluster filter, so the miss is explained exactly as
+    // docs/mcp-tools.md documents it (reason only when the fallback is empty too).
+    expect(data.meta.reason).toBe('id_not_found')
   })
 
   test('a cluster id is answered with its row', async () => {
