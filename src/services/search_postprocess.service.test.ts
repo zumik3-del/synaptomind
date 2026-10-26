@@ -138,7 +138,7 @@ test('a @profile query does not reorder results by the retired flag', () => {
   const plain = makeSearchResult('plain')
   const legacyProfile = leaveLegacyProfileFlag(makeSearchResult('legacy-profile'))
 
-  const processed = postProcessSearchResults([plain, legacyProfile], { query: '@profile persona notes', topK: 5, showPrimers: false })
+  const processed = postProcessSearchResults([plain, legacyProfile], { showPrimers: false })
 
   // FI-08 hoisted persona rows to the top of an explicit @profile query; that
   // surface is retired, so the incoming order must survive untouched.
@@ -155,8 +155,6 @@ test('a @profile query leaves primer hoisting as the only reorder', () => {
   // The flagged row leads the incoming order, so only the profile pass could
   // keep it there once the primer is hoisted in front of it.
   const processed = postProcessSearchResults([flagged, makeSearchResult(primer)], {
-    query: '@profile persona notes',
-    topK: 5,
     showPrimers: true
   })
 

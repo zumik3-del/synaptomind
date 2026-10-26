@@ -12,8 +12,6 @@ function isFlat(r: SearchResult | GroupedResult): r is SearchResult {
 }
 
 interface SearchPostProcessOptions {
-  query: string
-  topK: number
   showPrimers: boolean
 }
 

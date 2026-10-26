@@ -20,7 +20,11 @@ export const updateHandler: ActionHandler = {
   input: z.object({
     thought_id: requiredString('thought_id is required for update action'),
     status: z
-      .enum(['draft', 'active'], { error: ARCHIVED_NEEDS_SUPERSEDE })
+      .enum(['draft', 'active'], {
+        // Only the archived value carries the replacement path; any other bogus
+        // value falls back to the generic enum error (task #2211).
+        error: issue => (issue.input === 'archived' ? ARCHIVED_NEEDS_SUPERSEDE : undefined)
+      })
       .optional()
       .describe('draft or active only; archiving goes through memory_supersede action=archive.'),
     is_profile: z.never({ error: 'is_profile is retired; remove this field. There is no replacement.' }).optional(),
