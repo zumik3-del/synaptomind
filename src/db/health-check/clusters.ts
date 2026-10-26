@@ -74,7 +74,6 @@ export function findIslandThoughts(db: Database): IslandThought[] {
   return db.prepare(`
     SELECT t.id, t.content, t.status FROM ${THOUGHTS}
     WHERE ${regularThoughtsWhere('active')}
-      AND t.is_profile = 0
       AND ${noIncidentEdges()}
   `).all() as IslandThought[]
 }

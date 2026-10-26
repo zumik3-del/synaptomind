@@ -87,8 +87,8 @@ test("deleteProject moves thoughts to Default before deletion", () => {
 	const p = createProject(db, { name: "With Thoughts" });
 
 	db.prepare(
-		`INSERT INTO thoughts (id, content, status, project_id, is_cluster, is_profile, created_at, updated_at)
-		 VALUES (?, 'test', 'active', ?, 0, 0, ?, ?)`
+		`INSERT INTO thoughts (id, content, status, project_id, is_cluster, created_at, updated_at)
+		 VALUES (?, 'test', 'active', ?, 0, ?, ?)`
 	).run("thought-1", p.id, new Date().toISOString(), new Date().toISOString());
 
 	expect(deleteProject(db, p.id)).toBeTrue();

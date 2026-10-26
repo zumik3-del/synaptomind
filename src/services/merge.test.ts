@@ -180,22 +180,3 @@ test('validateMergePreconditions rejects an archived source', () => {
     new ValidationError('Source thought is already archived')
   )
 })
-
-test('validateMergePreconditions rejects a profile source', () => {
-  const db = getDb()
-  const id = seedThought({ content: 'profile source', is_profile: 1 })
-  const source = getThoughtRow(db, id)!
-
-  expect(() => validateMergePreconditions(source)).toThrow(
-    new ValidationError('Cannot merge a profile thought away — clear the is_profile flag first')
-  )
-})
-
-test('validateMergePreconditions allows merging into a profile target', () => {
-  const db = getDb()
-  const sourceId = seedThought({ content: 'regular source' })
-  seedThought({ content: 'profile target', is_profile: 1 })
-  const source = getThoughtRow(db, sourceId)!
-
-  expect(() => validateMergePreconditions(source)).not.toThrow()
-})

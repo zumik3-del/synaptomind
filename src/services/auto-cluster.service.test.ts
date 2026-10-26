@@ -222,8 +222,8 @@ function seedClusterCandidates(count: number, past: string): string[] {
   vector[0] = 1
   const buffer = Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength)
   const insertThought = db.prepare(`
-    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, is_global, created_at, updated_at)
-    VALUES (?, ?, 'active', 'test', 'default', 0, 0, 1, 0, ?, ?)
+    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_protected, is_global, created_at, updated_at)
+    VALUES (?, ?, 'active', 'test', 'default', 0, 1, 0, ?, ?)
   `)
   const insertVec = db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`)
   db.transaction(() => {

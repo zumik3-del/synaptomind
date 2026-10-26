@@ -62,13 +62,6 @@ export function createThoughtWithParentService(
   return { ...thought, content_language: config.contentLanguage } as Thought
 }
 
-// Profile thoughts are persona material and must survive archiving (issue #200).
-function assertNotProfileArchive(thought: Thought | null | undefined): void {
-  if (thought?.is_profile) {
-    throw new ValidationError('Profile thoughts cannot be archived — clear the is_profile flag first')
-  }
-}
-
 export function updateThoughtByIdService(id: string, data: UpdateThoughtInput, d: Database = getDb()): Thought | null {
   validateStatus(data.status)
   if (data.content !== undefined) {
@@ -78,9 +71,6 @@ export function updateThoughtByIdService(id: string, data: UpdateThoughtInput, d
     if (typeof data.surface_after !== 'string' || !isoDateTimeSchema.safeParse(data.surface_after).success) {
       throw new ValidationError(`Invalid surface_after: ${String(data.surface_after)}. Must be a valid ISO timestamp or null.`)
     }
-  }
-  if (data.status === 'archived') {
-    assertNotProfileArchive(dbGetThought(d, id))
   }
   const run = d.transaction(() => {
     const updated = dbUpdateThought(d, id, data)
@@ -100,7 +90,6 @@ export function updateThoughtByIdService(id: string, data: UpdateThoughtInput, d
 export function archiveThoughtByIdService(id: string, d: Database = getDb()): Thought | null {
   const thought = dbGetThought(d, id)
   if (!thought) return null
-  assertNotProfileArchive(thought)
   return dbArchiveThought(d, id) ?? null
 }
 
@@ -122,11 +111,11 @@ export interface ArchiveBatchResult {
 /**
  * Archive several thoughts in one call (task #1964).
  *
- * Reuses `archiveThoughtByIdService`, so the profile guard (issue #200) and the
- * idempotency of an already-archived thought are unchanged. The batch runs in ONE
- * transaction and reports per-item failures instead of aborting the rest — the
- * contract `bulkCreateThoughtsService` already uses: a failure is collected, the
- * items that succeeded still commit, and nothing is swallowed silently.
+ * Reuses `archiveThoughtByIdService`, so the idempotency of an already-archived
+ * thought is unchanged. The batch runs in ONE transaction and reports per-item
+ * failures instead of aborting the rest — the contract `bulkCreateThoughtsService`
+ * already uses: a failure is collected, the items that succeeded still commit,
+ * and nothing is swallowed silently.
  */
 export function archiveThoughtsBatchService(ids: string[], d: Database = getDb()): ArchiveBatchResult {
   if (!Array.isArray(ids) || ids.length === 0) {

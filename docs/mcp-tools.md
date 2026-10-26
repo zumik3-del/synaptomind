@@ -245,8 +245,8 @@ Examples:
 ```
 
 Output hygiene applies to every shaped thought, compact or not: `tags` are plain strings (never
-`{ id, name }`), and the storage 0/1 columns `is_protected`, `is_global`, `is_cluster` and
-`is_profile` are booleans (`src/mcp/tools/utils.ts`, `shapeThought`).
+`{ id, name }`), and the storage 0/1 columns `is_protected`, `is_global` and `is_cluster` are
+booleans (`src/mcp/tools/utils.ts`, `shapeThought`).
 
 Compact defaults (v0.19 MCP UX cleanup):
 
@@ -710,7 +710,7 @@ applies only to `merge`.
 ### `action=archive`
 
 Archives one thought (`thought_id`). Already-archived thoughts are idempotent: execution returns
-the existing thought without re-stamping it. Profile thoughts are protected and cannot be archived.
+the existing thought without re-stamping it.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -718,16 +718,16 @@ the existing thought without re-stamping it. Profile thoughts are protected and 
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = execute |
 
 Preview: `item: { "status": "preview", "action": "archive", "thought_id": "...", "current_status": "active", "outcome": "would_archive", "preview_token": "<token>" }`
-with the token mirrored in `meta.preview`. `outcome` is `not_found`, `already_archived`,
-`protected`, or `would_archive`. Execution answers
-`item: { "status": "executed", "action": "archive", "result": <shaped thought> }`; missing or
-protected thoughts fail with an error.
+with the token mirrored in `meta.preview`. `outcome` is `not_found`, `already_archived` or
+`would_archive`. Execution answers
+`item: { "status": "executed", "action": "archive", "result": <shaped thought> }`; missing
+thoughts fail with an error.
 
 ### `action=archive_batch`
 
 Preview or archive 1–1000 thoughts per call. Preview reports each requested ID in input order,
-including duplicates. Outcomes are `not_found`, `already_archived`, `protected`, or `would_archive`;
-repeated non-profile IDs after their first occurrence preview as `already_archived`.
+including duplicates. Outcomes are `not_found`, `already_archived` or `would_archive`;
+repeated IDs after their first occurrence preview as `already_archived`.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -764,8 +764,8 @@ anything runs.
 
 Consolidates a source thought into a target: the source's edges are recreated on the target,
 the target's content/tags are replaced when supplied, the source is archived, and a `replaces`
-edge target → source records the consolidation. Merging an archived source or a profile thought
-is refused. Preview checks current eligibility and reports source/target status; it includes at
+edge target → source records the consolidation. Merging an archived source is
+refused. Preview checks current eligibility and reports source/target status; it includes at
 most 50 source-edge descriptors plus the full `source_edge_count` and a `truncated` flag. This
 bounded list does not promise every edge will transfer.
 

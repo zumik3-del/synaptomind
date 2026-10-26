@@ -48,7 +48,7 @@ const handlers = {
       const confirm = args.confirm === true
       const previewToken = args.preview_token as string | undefined
       const thought = getThoughtByIdService(id)
-      const fp = thought ? `${thought.id}:${thought.status}:${thought.created_at}:${thought.is_protected}:${thought.is_profile}` : `missing:${id}`
+      const fp = thought ? `${thought.id}:${thought.status}:${thought.created_at}:${thought.is_protected}` : `missing:${id}`
 
       if (!confirm) {
         const result = deleteRetentionReviewCandidateService(id, { confirm: false })

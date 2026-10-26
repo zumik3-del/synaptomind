@@ -268,7 +268,6 @@ const LEGACY_KEYS = ['thoughts', 'nodes', 'best_match', 'text', 'results', 'clus
 /** Keys documented as booleans; a 0/1 here means the storage encoding leaked. */
 const BOOLEAN_FIELDS = new Set([
   'is_cluster',
-  'is_profile',
   'is_protected',
   'is_global',
   'low_confidence',

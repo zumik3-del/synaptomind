@@ -55,7 +55,6 @@ function fp(db: Database): Record<string, number> {
     clusterEdges:    c("SELECT COUNT(*) AS n FROM edges WHERE type='cluster'"),
     edges:           c('SELECT COUNT(*) AS n FROM edges'),
     clusterThoughts: c('SELECT COUNT(*) AS n FROM thoughts WHERE is_cluster=1'),
-    profileThoughts: c('SELECT COUNT(*) AS n FROM thoughts WHERE is_profile=1'),
   }
 }
 

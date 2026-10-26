@@ -278,14 +278,12 @@ test("findIslandThoughts finds active unconnected regular thoughts only", () => 
 	const island = seedThought({ content: "island thought" });
 	const connected = seedThought({ content: "connected thought" });
 	const cluster = seedThought({ content: "lonely cluster", is_cluster: 1 });
-	const profile = seedThought({ content: "lonely profile", is_profile: 1 });
 	seedEdge(connected, seedThought({ content: "peer" }), "related");
 
 	const islandIds = findIslandThoughts(db).map((i) => i.id);
-	// clusters and profiles are exempt; connected thoughts are not islands
+	// clusters are exempt; connected thoughts are not islands
 	expect(islandIds).toEqual([island]);
 	expect(islandIds).not.toContain(cluster);
-	expect(islandIds).not.toContain(profile);
 	expect(islandIds).not.toContain(connected);
 });
 

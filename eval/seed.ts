@@ -26,8 +26,8 @@ export async function seedScenario(
     )
     db.prepare(`
       INSERT INTO thoughts
-        (id, content, status, source, project_id, is_cluster, is_profile, is_protected, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, content, status, source, project_id, is_cluster, is_protected, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       thought.id,
       thought.content,
@@ -35,7 +35,6 @@ export async function seedScenario(
       'eval',
       projectId,
       thought.isCluster ? 1 : 0,
-      0,
       1,
       thought.createdAt ?? now,
       now

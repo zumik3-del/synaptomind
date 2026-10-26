@@ -73,7 +73,6 @@ interface EligibilityDetail {
     project_id: string
     is_protected: number
     is_global: number
-    is_profile: number
     created_at: string
     archived_at: string | null
     surface_after: string | null
@@ -96,7 +95,6 @@ function evaluateEligibility(id: string, d: Database, opts: RetentionReviewDelet
   if (!['archived', 'draft'].includes(row.status)) reasons.push('status not archived/draft')
   if (row.is_protected) reasons.push('protected')
   if (row.is_global) reasons.push('is_global')
-  if (row.is_profile) reasons.push('profile')
 
   const anchor = row.archived_at ?? row.created_at
   const cutoffMs = nowMs - minAgeDays * 86400000
@@ -252,7 +250,6 @@ export function compactRetentionReviewCandidatesService(
   const now = resolveNow(options)
   const sources = source_ids.map(id => {
     const eligibility = evaluateEligibility(id, d, options, now)
-    if (eligibility.thought.is_profile) throw new RetentionReviewIneligibleError(`Thought ${id} is a profile and is not eligible for retention review`)
     if (eligibility.thought.is_protected) throw new RetentionReviewIneligibleError(`Thought ${id} is protected`)
     if (!force && !eligibility.eligible) {
       throw new RetentionReviewIneligibleError(`Thought ${id} is not a current retention-review candidate: ${eligibility.reasons.join(', ')}`)
@@ -267,7 +264,7 @@ export function compactRetentionReviewCandidatesService(
     // Revalidate in the write transaction so previewed candidates cannot become stale.
     const latest = sources.map(({ id }) => {
       const eligibility = evaluateEligibility(id, d, options, now)
-      if (eligibility.thought.is_profile || eligibility.thought.is_protected || (!force && !eligibility.eligible)) {
+      if (eligibility.thought.is_protected || (!force && !eligibility.eligible)) {
         throw new RetentionReviewIneligibleError(`Thought ${id} is no longer an eligible retention-review candidate: ${eligibility.reasons.join(', ')}`)
       }
       return eligibility.thought

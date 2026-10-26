@@ -250,7 +250,7 @@ function stringifyTags(tags: unknown): string[] {
 }
 
 /** Thought columns stored as SQLite 0/1 that the read surface exposes as booleans. */
-const BOOLEAN_FIELDS = new Set(['is_protected', 'is_global', 'is_cluster', 'is_profile'])
+const BOOLEAN_FIELDS = new Set(['is_protected', 'is_global', 'is_cluster'])
 
 function toBoolean(value: unknown): boolean {
   return value === true || value === 1
