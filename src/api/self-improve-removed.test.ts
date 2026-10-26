@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/sdk/client'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -264,11 +264,22 @@ describe('the in-band guide', () => {
 })
 
 // ── the surviving capability: promotion on the search path ──────────────────
+//
+// The promotion used to be pinned over `GET /api/thoughts/search`. That route
+// died in the 0.20 HTTP shrink, so the guard now drives the surviving search
+// path — `memory_recall action=search`, which is where
+// `postProcessSearchResults` counts hits and promotes.
 
 describe('the surviving promotion on the search path', () => {
   const MARKER = 'SURVIVORPRIMERMARKER'
   const THRESHOLD = 3
+  const UNSCOPED_CWD = '/tmp/guard-unscoped'
   let originalThreshold = 0
+  let client: Client
+
+  beforeAll(async () => {
+    client = await setupClient()
+  })
 
   beforeEach(() => {
     originalThreshold = config.primer.promoteThreshold
@@ -279,10 +290,14 @@ describe('the surviving promotion on the search path', () => {
     config.primer.promoteThreshold = originalThreshold
   })
 
-  async function search(): Promise<Response> {
-    const res = await request(`/api/thoughts/search?q=${MARKER}`)
-    expect(res.status).toBe(200)
-    return res
+  async function search(): Promise<Array<{ thought: { id: string } }>> {
+    const text = toolText(
+      await client.callTool({
+        name: 'memory_recall',
+        arguments: { action: 'search', query: MARKER, cwd: UNSCOPED_CWD, compact: false }
+      })
+    )
+    return (JSON.parse(text) as { items: Array<{ thought: { id: string } }> }).items
   }
 
   function primerRow(thoughtId: string): { hit_count: number } | null {
@@ -305,12 +320,11 @@ describe('the surviving promotion on the search path', () => {
 
     await search()
     await search()
-    const res = await search()
+    const items = await search()
 
     // The thought really was found by the search path — otherwise the promotion
     // below would prove nothing.
-    const body = (await res.json()) as Array<{ thought: { id: string } }>
-    expect(body.map(r => r.thought.id)).toContain(id)
+    expect(items.map(r => r.thought.id)).toContain(id)
     // The promotion happened on the hit that crossed the threshold.
     expect(primerRow(id)?.hit_count).toBe(THRESHOLD)
   })

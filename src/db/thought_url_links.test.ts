@@ -2,7 +2,6 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { getDb } from "../db/container";
 import { closeDb } from "../db/init";
 import {
-	deleteThoughtUrlLink,
 	deleteThoughtUrlLinksNotIn,
 	extractLinkKeys,
 	getThoughtUrlLinks,
@@ -36,15 +35,6 @@ test("getThoughtUrlLinks orders by sort_order then created_at", () => {
 	upsertThoughtUrlLink(db, id, "k1", "https://a.com", "A", 1);
 	const links = getThoughtUrlLinks(db, id);
 	expect(links.map((l) => l.key)).toEqual(["k1", "k2"]);
-});
-
-test("deleteThoughtUrlLink removes by thought_id + key", () => {
-	const db = getDb();
-	const id = seedThought();
-	upsertThoughtUrlLink(db, id, "k1", "https://a.com", "A");
-	expect(deleteThoughtUrlLink(db, id, "k1")).toBeTrue();
-	expect(deleteThoughtUrlLink(db, id, "k1")).toBeFalse();
-	expect(getThoughtUrlLinks(db, id)).toHaveLength(0);
 });
 
 test("deleteThoughtUrlLinksNotIn drops orphans only", () => {

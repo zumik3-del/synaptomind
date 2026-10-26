@@ -3,13 +3,12 @@ import { config } from '../config'
 import { getDb } from '../db'
 import { getThoughtLimits } from '../db/settings'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { NotFoundError, ValidationError } from '../errors'
+import { NotFoundError, ThoughtContentConflictError, ValidationError } from '../errors'
 import {
   archiveThoughtByIdService,
   createThoughtWithParentService,
-  getClusterMembersService,
   getThoughtByIdService,
-  listThoughtsService,
+  listThoughtsPageService,
   updateThoughtByIdService
 } from './thoughts.service'
 import { createThoughtWithUrlLinksService } from './url_links.service'
@@ -93,27 +92,20 @@ test('archiveThoughtByIdService returns null for unknown id', () => {
   expect(archiveThoughtByIdService('nonexistent')).toBeNull()
 })
 
-test('listThoughtsService returns thoughts', () => {
+test('listThoughtsPageService returns thoughts with the page metadata', () => {
   seedThought({ content: 'first' })
   seedThought({ content: 'second' })
-  const list = listThoughtsService()
-  expect(list.length).toBeGreaterThanOrEqual(2)
+  const page = listThoughtsPageService()
+  expect(page.thoughts.length).toBeGreaterThanOrEqual(2)
+  expect(page.total).toBeGreaterThanOrEqual(2)
+  expect(page.offset).toBe(0)
 })
 
-test('listThoughtsService filters by status', () => {
+test('listThoughtsPageService filters by status', () => {
   seedThought({ content: 'active1', status: 'active' })
   seedThought({ content: 'draft1', status: 'draft' })
-  const active = listThoughtsService({ status: 'active' })
-  expect(active.every(t => t.status === 'active')).toBeTrue()
-})
-
-test('getClusterMembersService throws for non-cluster thought', () => {
-  const id = seedThought()
-  expect(() => getClusterMembersService(id)).toThrow(ValidationError)
-})
-
-test('getClusterMembersService throws for unknown id', () => {
-  expect(() => getClusterMembersService('nonexistent')).toThrow(NotFoundError)
+  const active = listThoughtsPageService({ status: 'active' })
+  expect(active.thoughts.every(t => t.status === 'active')).toBeTrue()
 })
 
 test('mergeThoughtsService throws for same source and target', () => {
@@ -218,4 +210,43 @@ test('updateThoughtByIdService enforces the derived hard limit and accepts the e
 
   expect(() => updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
   expect(updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit) })?.content).toHaveLength(hardLimit)
+})
+
+// ── v046 content dedupe on update (moved off the deleted PUT route) ──────────
+//
+// Editing a live thought onto content another live thought in the same project
+// already holds is a ThoughtContentConflictError (409 at the wire), not a raw
+// `UNIQUE constraint failed` — and it is refused identically on a retry, so a
+// caller cannot talk its way in.
+
+test('updating onto live content throws the 409-class conflict and writes nothing', () => {
+  const holder = createThoughtWithUrlLinksService({ content: 'content already in use' })
+  const target = createThoughtWithUrlLinksService({ content: 'my own content' })
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    expect(() => updateThoughtByIdService(target.id, { content: 'content already in use' })).toThrow(
+      ThoughtContentConflictError
+    )
+  }
+
+  expect(getThoughtByIdService(target.id)?.content).toBe('my own content')
+  expect(getThoughtByIdService(holder.id)?.content).toBe('content already in use')
+})
+
+test('re-activating a thought whose content is live again throws the conflict', () => {
+  const archived = createThoughtWithUrlLinksService({ content: 'recycled content' })
+  expect(archiveThoughtByIdService(archived.id)?.status).toBe('archived')
+  const live = createThoughtWithUrlLinksService({ content: 'recycled content' })
+  expect(live.id).not.toBe(archived.id)
+
+  expect(() => updateThoughtByIdService(archived.id, { status: 'active' })).toThrow(ThoughtContentConflictError)
+  expect(getThoughtByIdService(archived.id)?.status).toBe('archived')
+})
+
+test('an ordinary update, activation and archive still succeed', () => {
+  const thought = createThoughtWithUrlLinksService({ content: 'ordinary content' })
+
+  expect(updateThoughtByIdService(thought.id, { content: 'rewritten content' })?.content).toBe('rewritten content')
+  expect(updateThoughtByIdService(thought.id, { status: 'active' })?.status).toBe('active')
+  expect(archiveThoughtByIdService(thought.id)?.status).toBe('archived')
 })

@@ -219,6 +219,22 @@ describe('edge_review list', () => {
     expect(propState(db, row.id)).toBe('pending')
   })
 
+  test('list clamps nothing: a limit outside 1..1000 is rejected', async () => {
+    // `proposalsLimitSchema` (src/validation.ts) is the shared page bound; the
+    // HTTP `GET /api/proposals` contract test that pinned it died with the route
+    // (ADR 2026-10-26), so the bound is pinned at the MCP action that uses it.
+    for (const limit of [0, 1001]) {
+      const { data, isError } = parseResult(
+        await client.callTool({ name: 'edge_review', arguments: { action: 'list', limit } })
+      )
+      expect({ limit, isError }).toEqual({ limit, isError: true })
+      expect(JSON.stringify(data)).toContain('limit')
+    }
+
+    const ok = parseResult(await client.callTool({ name: 'edge_review', arguments: { action: 'list', limit: 1 } }))
+    expect(ok.isError).toBe(false)
+  })
+
   test('list with state filter returns only matching state', async () => {
     const db = getDb()
     const src = seedThought({ content: 'list-filter source' })
