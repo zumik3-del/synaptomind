@@ -15,6 +15,9 @@ import { registerAllMemoryTools } from '.'
 // It is also not an archive path (#2207/#2208): `status: "archived"` is rejected
 // by the action-conditional schema before the handler runs, so archiving keeps
 // its single preview-token-gated route through `memory_supersede action=archive`.
+// That rejection message is scoped to the one value it describes (#2211): any
+// other invalid status must fall back to the generic enum error instead of
+// recommending the supersede detour for a typo.
 
 interface ToolErrorEnvelope {
   content: Array<{ type: string; text: string }>
@@ -89,13 +92,46 @@ test('memory_store update to unique content still succeeds', async () => {
   expect(getThoughtByIdService(thought.id)?.content).toBe('rewritten content')
 })
 
+test('an unknown status answers the generic enum error instead of the archive detour', async () => {
+  const thought = createThoughtWithUrlLinksService({ content: 'status probe', status: 'active' })
+
+  const rejected = (await updateThoughtWith({ thought_id: thought.id, status: 'bogus' })) as unknown as ToolErrorEnvelope
+  expect(rejected.isError).toBe(true)
+  const message = rejected.content[0]?.text ?? ''
+  // A typo must never be told to take the supersede detour: the reply names the
+  // accepted status values and stops there. This is the value the caller sees;
+  // which schema layer answers it (the advertised enum rejects an unknown value
+  // before the action schema runs) is pinned at the dispatcher level in
+  // action-tool.test.ts, where the split itself lives.
+  expect(message).toContain('Invalid option: expected one of')
+  expect(message).toContain('"draft"')
+  expect(message).toContain('"active"')
+  expect(message).not.toContain('memory_supersede')
+  // Schema rejection, not a classified domain failure: no statusCode/retryable.
+  expect(rejected.structuredContent).toBeUndefined()
+  // Validation runs before the write, so the row keeps its status.
+  expect(getThoughtByIdService(thought.id)?.status).toBe('active')
+})
+
+test('the split schema still accepts both writable statuses', async () => {
+  const thought = createThoughtWithUrlLinksService({ content: 'status happy path', status: 'active' })
+
+  for (const status of ['draft', 'active']) {
+    const updated = await updateThoughtWith({ thought_id: thought.id, status })
+    expect(updated.isError).toBeFalsy()
+    expect(getThoughtByIdService(thought.id)?.status).toBe(status)
+  }
+})
+
 test('memory_store update to archived is rejected and names the supersede path', async () => {
   const thought = createThoughtWithUrlLinksService({ content: 'stays around', status: 'active' })
 
   const rejected = (await updateThoughtWith({ thought_id: thought.id, status: 'archived' })) as unknown as ToolErrorEnvelope
   expect(rejected.isError).toBe(true)
-  // The rejection must be actionable: it names the only archive route.
+  // The rejection must be actionable: it names the only archive route, and it
+  // stays the one value that gets this message instead of the bare enum text.
   expect(rejected.content[0]?.text).toContain('memory_supersede action=archive')
+  expect(rejected.content[0]?.text).not.toContain('Invalid option')
   // Not a classified domain failure, so no statusCode/retryable block is
   // synthesized — a caller cannot mistake it for a retryable 503 or a 409.
   expect(rejected.structuredContent).toBeUndefined()
