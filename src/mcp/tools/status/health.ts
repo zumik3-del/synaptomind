@@ -1,4 +1,5 @@
 import { runHealthCheckService } from '../../../services/health-check.service'
+import { itemEnvelope } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
 /** Maximum characters retained for any `*content*` field in MCP health details. */
@@ -76,6 +77,6 @@ function projectHealthReport(report: unknown, includeDetails: boolean = false): 
 export const healthHandler: ActionHandler = {
   run(args: ActionArgs) {
     const report = runHealthCheckService({ severity: args.severity as 'critical' | 'warning' | 'info' | undefined })
-    return projectHealthReport(report, args.include_details === true)
+    return itemEnvelope('health', projectHealthReport(report, args.include_details === true))
   }
 }

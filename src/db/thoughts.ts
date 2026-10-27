@@ -20,7 +20,6 @@ export interface Thought {
   project_id: string
   project_name?: string
   is_cluster: number
-  is_profile: number
   is_protected: number
   is_global: number
   created_at: string
@@ -37,7 +36,6 @@ export interface CreateThoughtInput {
   source?: string
   project_id?: string
   is_cluster?: boolean
-  is_profile?: boolean
   is_protected?: boolean
   is_global?: boolean
   surface_after?: string
@@ -50,7 +48,6 @@ export interface UpdateThoughtInput {
   status?: ThoughtStatus
   project_id?: string
   is_cluster?: boolean
-  is_profile?: boolean
   is_protected?: boolean
   is_global?: boolean
   archived_at?: string | null
@@ -84,7 +81,6 @@ export function rowToThought(row: Record<string, unknown>): Thought {
     project_id: row.project_id as string,
     project_name: (row.project_name as string | null) ?? undefined,
     is_cluster: row.is_cluster as number,
-    is_profile: (row.is_profile as number) ?? 0,
     is_protected: (row.is_protected as number) ?? 1,
     is_global: (row.is_global as number) ?? 0,
     created_at: row.created_at as string,
@@ -112,15 +108,14 @@ export function createThought(db: Database, data: CreateThoughtInput): Thought {
 
     const id = Bun.randomUUIDv7()
     const isCluster = toBit(data.is_cluster)
-    const isProfile = toBit(data.is_profile)
     const isProtected = toBit(data.is_protected ?? true)
     const isGlobal = toBit(data.is_global)
 
     const res = db.prepare(`
-      INSERT INTO thoughts (id, content, status, source, project_id, content_hash, is_cluster, is_profile, is_protected, is_global, created_at, updated_at, surface_after)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO thoughts (id, content, status, source, project_id, content_hash, is_cluster, is_protected, is_global, created_at, updated_at, surface_after)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (content_hash, project_id) WHERE status IN ('draft', 'active') DO NOTHING
-    `).run(id, data.content, status, data.source ?? null, projectId, contentHash, isCluster, isProfile, isProtected, isGlobal, now, now, data.surface_after ?? null)
+    `).run(id, data.content, status, data.source ?? null, projectId, contentHash, isCluster, isProtected, isGlobal, now, now, data.surface_after ?? null)
 
     if (res.changes === 0) {
       // Re-read the existing draft/active thought with the same content.
@@ -202,10 +197,6 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
     if (data.is_cluster !== undefined) {
       sets.push('is_cluster = ?')
       values.push(toBit(data.is_cluster))
-    }
-    if (data.is_profile !== undefined) {
-      sets.push('is_profile = ?')
-      values.push(toBit(data.is_profile))
     }
     if (data.is_protected !== undefined) {
       sets.push('is_protected = ?')

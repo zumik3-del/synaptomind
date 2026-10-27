@@ -36,7 +36,7 @@ export function parseOptionalNumber(raw: string | undefined, name: string): numb
 }
 
 /**
- * Already-parsed search inputs shared by the HTTP API and the MCP tool.
+ * Already-parsed search inputs shared by the MCP tool and the service layer.
  * Surface-specific extraction (query presence, `k` parsing, cluster string
  * flags, project resolution) stays at the call site.
  */

@@ -193,20 +193,6 @@ describe('proposePlacementPlan', () => {
       expect(p.lifecycle.blocked_by).toEqual(['source is archived'])
     })
 
-    test('merge blocks when source is a profile thought', async () => {
-      const db = getDb()
-      const src = seedThought({ id: 'mf-src', content: 'red green blue yellow', created_at: T0, is_profile: 1 })
-      seedThought({ id: 'mf-tgt', content: 'red green blue yellow orange', created_at: T1 })
-      const p = await proposePlacementPlan(
-        { thoughtId: src },
-        { now: NOW },
-        { embed: okEmbed(), searchNeighbors: stubSearch({}) },
-        db
-      )
-      expect(p.lifecycle.action).toBe('merge')
-      expect(p.lifecycle.blocked_by).toEqual(['source is profile'])
-    })
-
     test('replaces+archive does not block when the newer source is archived (the older target is the archive candidate)', async () => {
       const db = getDb()
       const old_ = seedThought({ id: 'raa-old', content: 'x y z', created_at: T0 })

@@ -1,6 +1,7 @@
 import { z } from 'zod/v4'
 import { deleteEdgesBatchService } from '../../../services/edges.service'
 import { BATCH_ITEMS_MAX } from '../../../validation'
+import { collectionEnvelope } from '../envelope'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
 /**
@@ -13,7 +14,8 @@ import { requiredString, type ActionArgs, type ActionHandler } from '../action-t
  * whole batch instead of leaving a partial prune behind.
  *
  * `confirm` defaults to a non-mutating preview (`false`); pass `confirm: true`
- * to execute the deletes.
+ * to execute the deletes. The preview issues no token — `meta.preview` tells a
+ * client it is looking at a pending write (`token: null`).
  */
 export const unlinkBatchHandler: ActionHandler = {
   input: z.object({
@@ -26,6 +28,11 @@ export const unlinkBatchHandler: ActionHandler = {
   }),
   run(args: ActionArgs) {
     const confirm = args.confirm === true
-    return deleteEdgesBatchService(args.edge_ids as string[], confirm)
+    const result = deleteEdgesBatchService(args.edge_ids as string[], confirm)
+    return collectionEnvelope('unlink_batch', result.results, {
+      total: result.total,
+      counts: { deleted: result.deleted, preview: result.preview, failed: result.failed },
+      ...(confirm ? {} : { preview: { instruction: result.instruction } })
+    })
   }
 }

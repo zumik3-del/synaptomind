@@ -13,6 +13,7 @@ import {
 } from '../../services/projects.service'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { projectFields } from './utils'
+import { collectionEnvelope, itemEnvelope } from './envelope'
 import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 
 const handlers = {
@@ -20,19 +21,20 @@ const handlers = {
     run(args: ActionArgs) {
       const projects = listProjectsService()
       const fields = args.fields
-      if (Array.isArray(fields) && fields.length > 0) {
-        return projects.map((p) => projectFields(p, { fields })) as unknown as typeof projects
-      }
-      return projects
+      const items = Array.isArray(fields) && fields.length > 0
+        ? (projects.map((p) => projectFields(p, { fields })) as unknown as typeof projects)
+        : projects
+      return collectionEnvelope('list', items)
     }
   },
 
   create: {
     input: z.object({ name: requiredString('name is required for create action') }),
     run(args: ActionArgs) {
-      return createProjectService({
+      const project = createProjectService({
         name: args.name as string, description: args.description as string | undefined, local_path: args.local_path as string | undefined
       })
+      return itemEnvelope('create', project)
     }
   },
 
@@ -42,7 +44,7 @@ const handlers = {
       updateProjectService(args.project_id as string, {
         name: args.name as string | undefined, description: args.description as string | undefined, local_path: args.local_path as string | undefined
       })
-      return { success: true, project_id: args.project_id }
+      return itemEnvelope('update', { success: true, project_id: args.project_id })
     }
   },
 
@@ -57,7 +59,7 @@ const handlers = {
 
       if (!args.confirm) {
         const token = createPreviewTokenService('manage_delete', projectId, `${project.id}:${project.name}:${project.thought_count}`)
-        return {
+        return itemEnvelope('delete', {
           action: 'preview',
           project: { id: project.id, name: project.name, description: project.description },
           thought_count: project.thought_count,
@@ -66,7 +68,7 @@ const handlers = {
             : 'Project has no thoughts — safe to delete.',
           instruction: 'Call memory_manage again with action=delete, project_id=..., confirm=true to proceed.',
           preview_token: token
-        }
+        })
       }
 
       const fp = `${project.id}:${project.name}:${project.thought_count}`
@@ -76,12 +78,12 @@ const handlers = {
 
       const deleted = deleteProjectService(projectId)
       if (!deleted) throw new NotFoundError(`Project not found: ${projectId}`)
-      return {
+      return itemEnvelope('delete', {
         action: 'deleted',
         project: { id: project.id, name: project.name },
         thoughts_moved: project.thought_count,
         moved_to: project.thought_count > 0 ? 'Default project' : undefined
-      }
+      })
     }
   },
 
@@ -90,7 +92,7 @@ const handlers = {
     run(args: ActionArgs) {
       const project = resolveProjectService(args.cwd as string)
       if (!project) throw new NotFoundError(`No project found for path: ${args.cwd}`)
-      return { id: project.id, name: project.name, local_path: project.local_path }
+      return itemEnvelope('resolve', { id: project.id, name: project.name, local_path: project.local_path })
     }
   }
 }
@@ -98,7 +100,7 @@ const handlers = {
 export function registerMemoryManage(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_manage',
-    description: `Manage projects (CRUD). Actions: list, create, update, delete (preview→confirm), resolve (resolve project from cwd/path).`,
+    description: `Manage projects (CRUD). Every action answers in one envelope: list returns { items, meta }, the single-project actions return { item, meta }. Actions: list, create, update, delete (preview→confirm), resolve (resolve project from cwd/path).`,
     inputSchema: {
       action: z.enum(['list', 'create', 'update', 'delete', 'resolve']).describe('Action'),
       project_id: z.string().optional().describe('REQUIRED ONLY for "update" and "delete". IGNORED for "list", "create", "resolve".'),
@@ -108,7 +110,6 @@ export function registerMemoryManage(server: McpServer) {
       confirm: z.boolean().optional().describe('CONSUMED by "delete" (true executes; false/omitted previews). IGNORED for all other actions.'),
       preview_token: z.string().optional().describe('OPTIONAL preview token returned by a prior preview. CONSUMED by "delete" (true executes with token validation; missing/stale fails). IGNORED for all other actions.'),
       cwd: z.string().optional().describe('REQUIRED for "resolve". Working directory path to resolve project from. IGNORED for all other actions.'),
-      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). OPTIONAL for "list". IGNORED for all other actions.'),
       fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for "list". IGNORED for all other actions.')
     },
     handlers

@@ -26,7 +26,6 @@ export interface RetentionReviewEligibilityThought {
   project_id: string
   is_protected: number
   is_global: number
-  is_profile: number
   created_at: string
   archived_at: string | null
   surface_after: string | null
@@ -96,7 +95,6 @@ export function getRetentionReviewEligibilityThought(
 ): RetentionReviewEligibilityThought | undefined {
   return db.prepare(`
     SELECT t.id, t.content, t.status, t.project_id, t.is_protected, t.is_global,
-           COALESCE(t.is_profile, 0) AS is_profile,
            t.created_at, t.archived_at, t.surface_after,
            COALESCE(ti.importance, 1.0) AS importance,
            COALESCE(ti.hit_count, 0) AS hit_count
@@ -123,7 +121,6 @@ const where = `
     AND t.is_protected = 0
     AND (t.surface_after IS NULL OR t.surface_after <= ?)
     AND COALESCE(t.is_global, 0) = 0
-    AND COALESCE(t.is_profile, 0) = 0
     AND NOT EXISTS (
       SELECT 1 FROM edges e
       JOIN thoughts s ON s.id = e.source_id

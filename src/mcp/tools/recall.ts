@@ -2,7 +2,10 @@ import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { NotFoundError, ValidationError } from '../../errors'
 import { thoughtStatusSchema, timelineLimitSchema } from '../../validation'
-import { searchThoughts, searchThoughtsGrouped } from '../../services/search.service'
+import {
+  groupResultsByCluster,
+  searchThoughtsOutcome
+} from '../../services/search.service'
 import {
   buildSearchOptions,
   parseContradictionMode,
@@ -11,22 +14,29 @@ import {
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getChainService } from '../../services/graph.service'
 import { contextHandler } from './recall/context'
+import type { SearchOutcome } from '../../services/search-outcome'
 import type { SearchResult } from '../../services/search.service'
 import type { GroupedResult } from '../../services/search.service'
 import type { Thought } from '../../services/thoughts.service'
-import type { EdgeView } from '../../services/edges.service'
 import { listThoughtsPageService } from '../../services/thoughts.service'
 import { getHandler as getRecallGetHandler } from './recall/get'
-import { resolveProjectId, shapeThought } from './utils'
+import { shapeThought, shapeChain, loadUrlLinks, type BatchUrlLinks } from './utils'
+import { shapeSearchItem } from './recall/shape'
+import {
+  collectionEnvelope,
+  itemEnvelope,
+  requireEnvelopeScope,
+  type EnvelopeReason
+} from './envelope'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
 const ACTION_FIELDS: Record<string, string[]> = {
-  search: ['query', 'status', 'cwd', 'tag', 'is_cluster', 'group_by_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'supersession_mode', 'contradiction_mode', 'limit', 'compact', 'fields'],
-  clusters: ['query', 'status', 'cwd', 'tag', 'is_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'limit', 'compact', 'fields'],
-  context: ['query', 'thought_id', 'cwd', 'direction', 'max_degree', 'compact', 'fields'],
-  chain: ['thought_id', 'direction', 'max_degree', 'compact', 'fields'],
-  get: ['thought_id', 'include_edges', 'max_degree', 'compact', 'fields'],
-  list: ['status', 'cwd', 'tag', 'is_cluster', 'limit', 'offset', 'compact', 'fields']
+  search: ['query', 'status', 'cwd', 'tag', 'is_cluster', 'group_by_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'supersession_mode', 'contradiction_mode', 'limit', 'compact', 'fields', 'include_url_links'],
+  clusters: ['query', 'status', 'cwd', 'tag', 'is_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'limit', 'compact', 'fields', 'include_url_links'],
+  context: ['query', 'thought_id', 'cwd', 'direction', 'max_degree', 'compact', 'fields', 'include_url_links'],
+  chain: ['thought_id', 'direction', 'max_degree', 'compact', 'fields', 'include_url_links'],
+  get: ['thought_id', 'include_edges', 'max_degree', 'compact', 'fields', 'include_url_links'],
+  list: ['status', 'cwd', 'tag', 'is_cluster', 'limit', 'offset', 'compact', 'fields', 'include_url_links']
 }
 const ACTION_FIELDS_ALL = new Set(Object.values(ACTION_FIELDS).flat())
 
@@ -34,6 +44,38 @@ function validateActionFields(action: string, args: ActionArgs): void {
   const allowed = new Set(ACTION_FIELDS[action] ?? [])
   const irrelevant = Object.keys(args).filter(key => ACTION_FIELDS_ALL.has(key) && !allowed.has(key))
   if (irrelevant.length) throw new Error(`${irrelevant.join(', ')} is not applicable to ${action} action`)
+}
+
+/**
+ * The array-returning search service hangs the collection-level `degraded`
+ * flag on the returned array (so an empty result set still reports a downed
+ * semantic leg); read it back off the outcome's items.
+ */
+function degradedOf(items: SearchResult[]): boolean {
+  return (items as SearchResult[] & { degraded?: boolean }).degraded === true
+}
+
+/**
+ * Why a search answered with nothing (or with several id matches). `no_match`
+ * is only reported when nothing was even considered — a gated result set keeps
+ * no reason and shows up as `counts.filtered_out > 0` instead.
+ */
+function searchReason(outcome: SearchOutcome): EnvelopeReason | undefined {
+  if (outcome.reason !== undefined) return outcome.reason
+  if (outcome.ambiguous === true) return 'ambiguous_id'
+  if (outcome.matched === 0) return 'no_match'
+  return undefined
+}
+
+/**
+ * Url links of one search/clusters answer (`include_url_links`, ADR §4 of the
+ * 0.20 HTTP shrink): the whole answer is read in one batch query, and a grouped
+ * hit contributes its members' thoughts.
+ */
+function searchUrlLinks(items: Array<SearchResult | GroupedResult>, requested: unknown): BatchUrlLinks | undefined {
+  if (requested !== true) return undefined
+  const thoughts = items.flatMap(r => ('cluster' in r ? (r.items ?? []).map(i => i.thought) : [r.thought]))
+  return loadUrlLinks(thoughts)
 }
 
 const handlers = {
@@ -46,10 +88,10 @@ const handlers = {
     }),
     async run(args: ActionArgs) {
       const limit = (args.limit as number) ?? 10
-      const projectFilter = resolveProjectId(args.cwd as string)
+      const { scope, warnings, projectId } = requireEnvelopeScope(args.cwd, 'memory_recall', 'search')
       const baseOptions = buildSearchOptions({
         query: args.query as string, topK: limit, status: args.status as string | undefined,
-        projectFilter, tagFilter: args.tag as string | undefined,
+        projectFilter: projectId, tagFilter: args.tag as string | undefined,
         clusterFilter: args.is_cluster === undefined ? undefined : args.is_cluster ? 'only' : 'exclude',
         minImportance: args.min_importance as number | undefined,
         hybrid: args.hybrid as boolean | undefined,
@@ -60,21 +102,25 @@ const handlers = {
         recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
         minRelevance: args.min_relevance as number | undefined
       })
+      const outcome = await searchThoughtsOutcome(baseOptions)
+      const degraded = degradedOf(outcome.items)
       const results = args.group_by_cluster
-        ? await searchThoughtsGrouped(baseOptions)
-        : await searchThoughts(baseOptions)
-      const processed = postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
+        ? groupResultsByCluster(outcome.items)
+        : outcome.items
+      const processed = postProcessSearchResults(results, { showPrimers: true })
       const compact = args.compact !== false
       const fields = args.fields
-      if (compact || (Array.isArray(fields) && fields.length > 0)) {
-        return (Array.isArray(processed) ? processed : []).map((r: SearchResult | GroupedResult) => {
-          if (r && typeof r === 'object' && !Array.isArray(r) && r.thought) {
-            return { ...r, thought: shapeThought(r.thought, compact, fields) }
-          }
-          return shapeThought(r, compact, fields)
-        })
-      }
-      return processed
+      const hits = Array.isArray(processed) ? processed : []
+      const urlLinks = searchUrlLinks(hits, args.include_url_links)
+      const items = hits.map((r: SearchResult | GroupedResult) => shapeSearchItem(r, compact, fields, urlLinks))
+      return collectionEnvelope('search', items, {
+        scope,
+        warnings: [...warnings, ...(outcome.warnings ?? [])],
+        degraded,
+        total: outcome.matched,
+        filtered_out: outcome.filtered_out,
+        reason: searchReason(outcome)
+      })
     }
   },
 
@@ -87,12 +133,12 @@ const handlers = {
       if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
       const compact = args.compact !== false
       const fields = args.fields
-      return {
-        ...chain,
-        thought: shapeThought(chain.thought, compact, fields),
-        upstream: Array.isArray(chain.upstream) ? chain.upstream.map((e: { edge: EdgeView; thought?: Thought }) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.upstream,
-        downstream: Array.isArray(chain.downstream) ? chain.downstream.map((e: { edge: EdgeView; thought?: Thought }) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields) : e?.thought })) : chain.downstream,
-      }
+      // Every thought the answer emits (head plus both neighbourhoods) gets its
+      // links from the same single batch read.
+      const urlLinks = args.include_url_links === true
+        ? loadUrlLinks([chain.thought, ...chain.upstream.map(e => e.thought), ...chain.downstream.map(e => e.thought)])
+        : undefined
+      return itemEnvelope('chain', shapeChain(chain, compact, fields, urlLinks))
     }
   },
 
@@ -103,33 +149,36 @@ const handlers = {
     }),
     async run(args: ActionArgs) {
       const limit = (args.limit as number) ?? 10
-      const projectFilter = resolveProjectId(args.cwd as string)
+      const { scope, warnings, projectId } = requireEnvelopeScope(args.cwd, 'memory_recall', 'clusters')
       // This action lists cluster thoughts by definition, so an explicit
       // `is_cluster=false` contradicts it.
       if (args.is_cluster === false) {
         throw new ValidationError('the clusters action lists cluster thoughts; is_cluster=false conflicts')
       }
-      const results = await searchThoughts(buildSearchOptions({
+      const outcome = await searchThoughtsOutcome(buildSearchOptions({
         query: args.query as string, topK: limit, status: args.status as string | undefined,
-        projectFilter, tagFilter: args.tag as string | undefined, clusterFilter: 'only',
+        projectFilter: projectId, tagFilter: args.tag as string | undefined, clusterFilter: 'only',
         minImportance: args.min_importance as number | undefined,
         hybrid: args.hybrid as boolean | undefined,
         recencyWeight: args.recency_weight as number | undefined,
         recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
         minRelevance: args.min_relevance as number | undefined
       }))
-      const processed = postProcessSearchResults(results, { query: args.query as string, topK: limit, showPrimers: true })
+      const degraded = degradedOf(outcome.items)
+      const processed = postProcessSearchResults(outcome.items, { showPrimers: true })
       const compact = args.compact !== false
       const fields = args.fields
-      if (compact || (Array.isArray(fields) && fields.length > 0)) {
-        return (Array.isArray(processed) ? processed : []).map((r: SearchResult | GroupedResult) => {
-          if (r && typeof r === 'object' && !Array.isArray(r) && r.thought) {
-            return { ...r, thought: shapeThought(r.thought, compact, fields) }
-          }
-          return shapeThought(r, compact, fields)
-        })
-      }
-      return processed
+      const results = Array.isArray(processed) ? processed : []
+      const urlLinks = searchUrlLinks(results, args.include_url_links)
+      const items = results.map((r: SearchResult | GroupedResult) => shapeSearchItem(r, compact, fields, urlLinks))
+      return collectionEnvelope('clusters', items, {
+        scope,
+        warnings: [...warnings, ...(outcome.warnings ?? [])],
+        degraded,
+        total: outcome.matched,
+        filtered_out: outcome.filtered_out,
+        reason: searchReason(outcome)
+      })
     }
   },
 
@@ -139,10 +188,10 @@ const handlers = {
       status: z.enum(['draft', 'active', 'archived', 'all']).default('all')
     }),
     run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.cwd as string | undefined)
+      const { scope, warnings, projectId } = requireEnvelopeScope(args.cwd, 'memory_recall', 'list')
       const page = listThoughtsPageService({
         status: args.status as string | undefined,
-        project_id: projectFilter,
+        project_id: projectId,
         tag: args.tag as string | undefined,
         is_cluster: args.is_cluster as boolean | undefined,
         limit: args.limit as number | undefined,
@@ -150,10 +199,18 @@ const handlers = {
       })
       const compact = args.compact !== false
       const fields = args.fields
-      if (compact || (Array.isArray(fields) && fields.length > 0)) {
-        page.thoughts = page.thoughts.map((t: Thought) => shapeThought(t, compact, fields)) as unknown as typeof page.thoughts
-      }
-      return page
+      const urlLinks = args.include_url_links === true ? loadUrlLinks(page.thoughts) : undefined
+      const items = page.thoughts.map((t: Thought) => shapeThought(t, compact, fields, urlLinks))
+      return collectionEnvelope('list', items, {
+        scope,
+        warnings,
+        total: page.total,
+        filtered_out: Math.max(0, page.total - items.length),
+        // The page service resolves the defaults (THOUGHTS_PAGE_LIMIT_DEFAULT and
+        // offset 0), so the paging metadata reports the values actually applied —
+        // same shape as memory_reflect action=timeline (reflect.ts:44).
+        counts: { limit: page.limit ?? 0, offset: page.offset }
+      })
     }
   }
 }
@@ -161,13 +218,13 @@ const handlers = {
 export function registerMemoryRecall(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_recall',
-    description: `Search and retrieve thoughts. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/cwd/tag/is_cluster filters, limit/offset paging, total count). Status defaults: search/clusters active, list all; pass status to override.`,
+    description: `Search and retrieve thoughts. Every action answers in one envelope: collections return { items, meta }, single objects return { item, meta }. meta = { action, scope, counts: { total, returned, filtered_out }, degraded, warnings } plus an optional reason (no_match, ambiguous_id, id_not_found). Id lookup: a query that is a full UUID or a hex prefix of at least 13 characters is resolved against thought ids before the semantic and lexical legs. A full UUID is an explicit reference and ignores status/cwd/tag/min_importance; a prefix is only a timestamp window, so it takes the status/cwd scope of the call like any other query, and a prefix that addresses nothing inside that scope falls back to the ordinary search. is_cluster is a shape constraint rather than a scope, so it applies to both forms: clusters never answers a non-cluster row (the request comes back empty with a reason). An addressed id never widens to other rows (a prefix that addresses several answers every one of them, at most limit rows, with reason ambiguous_id). The resolution never suppresses a contested hit: standing, superseded_by and contradicted_by are annotated, while low_confidence keeps its retrieval meaning (no BM25 anchor, cosine below the floor) and stays false on an id hit. A miss is not an answer: when an id-shaped query addresses no thought, the answer is the ordinary search for the same text with an id_not_found note in meta.warnings (reason id_not_found only when that fallback matched nothing either), so a hex-looking word stays searchable. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/cwd/tag/is_cluster filters; limit/offset and the total ride in meta.counts, never in a row). Status defaults: search/clusters active, list all; pass status to override. cwd is REQUIRED for search, clusters and list (it scopes the answer to one project); it is optional for context and not used by get/chain. Relevance: an omitted min_relevance applies the default gate to cosine-only search/clusters hits (they surface as meta.counts.filtered_out, never as a reason), while BM25-anchored and id rows are never gated. context is exempt from that default gate — it asks for the single best match, so it keeps the pre-gate best match unless a caller passes min_relevance, which is a service-level opt-in there (the tool argument applies to search/clusters). Output modes: compact (default true) keeps the minimal thought fields (id, content, status, tags as strings, project) and no per-hit score block, but never hides a safety annotation — standing is emitted unless it is 'current', and superseded_by/contradicted_by plus low_confidence: true are emitted whenever they apply, so a contested or weak hit never looks clean; ranking metadata, match_source included (['id'] marks an id-addressed hit), is opt-in. compact=false adds that metadata (scores { similarity, distance, rrf_score, bm25_score, relevance, recency_score, final_score }, match_source, plus standing: 'current' and low_confidence: false as neutral markers). An explicit fields selection returns only those thought columns and drops the ranking metadata — scores and match_source, so an id hit is no longer labelled as one; safety annotations, include_url_links and get's include_edges output are not thought columns and stay. include_url_links (default false, all six actions) adds url_links to every thought the answer emits — [{text, url, label}] read in one batch query, never trimmed by fields and never hidden by compact; with true and no links the key is [], and with the argument omitted or false the key is absent.`,
     inputSchema: {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters', 'list']).describe('Action'),
       query: z.string().optional().describe('Search query (REQUIRED for search/clusters; accepted by context as an alternative to thought_id). IGNORED for get/chain/list.'),
       status: thoughtStatusSchema.optional().describe('Filter by status (search/clusters default: active; list default: all). IGNORED for get/context/chain.'),
       project_id: z.never({ error: 'project_id was removed; use cwd' }).optional().describe('Removed; use cwd.'),
-      cwd: z.string().optional().describe('Working directory — auto-resolves project (search/clusters/context/list). Always pass this. IGNORED for get/chain.'),
+      cwd: z.string().optional().describe('Working directory — resolves the project scope reported in meta.scope. REQUIRED for search/clusters/list (a call without it is rejected); OPTIONAL for context; IGNORED for get/chain.'),
       tag: z.string().optional().describe('Filter by tag (search/clusters/list). IGNORED for get/context/chain.'),
       is_cluster: z.boolean().optional().describe('Cluster filter: true = cluster thoughts only, false = exclude cluster thoughts (search/clusters/list). IGNORED for get/context/chain.'),
       group_by_cluster: z.boolean().optional().describe('Group results by cluster (search only).'),
@@ -195,7 +252,7 @@ export function registerMemoryRecall(server: McpServer) {
         .max(1)
         .optional()
         .describe(
-          'Opt-in relevance gate (0-1, default 0). >0 drops weak vector-only results: keeps lexical (bm25) hits and vector hits with similarity >= min_relevance. 0 preserves the full result set (search/clusters only).'
+          'Relevance gate on the calibrated relevance scale (0-1). Omitted = the measured default 0.4 (a raw cosine of 0.84): cosine-only hits below the threshold are dropped, while BM25-anchored and explicit-id rows are never gated. An explicit 0 disables the gate and restores the fail-open result set. Dropped rows appear as meta.counts.filtered_out, not as a reason (search/clusters only; memory_recall action=context is exempt from the default gate and keeps its pre-gate best match, so a gate there is a service-level opt-in).'
         ),
       supersession_mode: z
         .enum(['off', 'flag', 'suppress'])
@@ -207,14 +264,18 @@ export function registerMemoryRecall(server: McpServer) {
         .describe('Contradicted thoughts: off or flag (default). Contradicted endpoints are never suppressed (search only).'),
       thought_id: z.string().optional().describe('REQUIRED for "get" and "chain"; also accepted by "context" (alternative to query). IGNORED for "search", "clusters", "list".'),
       include_edges: z.boolean().optional().describe('get only: when true, return incident edges inline (upstream/downstream with type and created_at). Default false.'),
+      include_url_links: z
+        .boolean()
+        .optional()
+        .describe('When true, every thought the answer emits carries url_links: [{text, url, label}] ordered by sort_order then creation (text mirrors the memory_store create-time url_links input, label defaults to text). One batch query per response. Default false, where the key is absent; true with no links returns []. Never trimmed by fields and never hidden by compact. Applies to all six actions, including get\'s upstream/downstream neighbours and chain/context neighbourhoods.'),
       direction: z.enum(['upstream', 'downstream', 'both']).optional().describe('Traversal direction (default: both) (context/chain only).'),
       max_degree: z.coerce.number().int().min(1).max(200).optional().describe('Max edges to return for chain/context/get (default 50, 1-200). IGNORED for search/clusters/list.'),
       // The list page shares the timeline's page size (src/validation.ts) so the
       // two paginated thought surfaces cannot drift apart.
       limit: timelineLimitSchema.optional().describe('Max results for search/clusters (default 10) or list page size (default 50). IGNORED for get/context/chain.'),
       offset: z.number().int().min(0).max(1_000_000).optional().describe('list only: offset for pagination. IGNORED for all other actions.'),
-      compact: z.boolean().optional().describe('Compact output: trim to minimal fields (id, content, status, tags as strings, project). Default true for all actions; pass false for full output.'),
-      fields: z.array(z.string()).optional().describe('Fields to include in output; intersected with available columns. OPTIONAL for all actions.'),
+      compact: z.boolean().optional().describe('Compact output (default true): each hit keeps the minimal thought fields (id, content, status, tags as strings, project) and no score block, but safety annotations are never hidden — standing is emitted unless it is "current", and superseded_by/contradicted_by plus low_confidence: true whenever they apply. compact=false adds the opt-in ranking metadata: scores { similarity, distance, rrf_score, bm25_score, relevance, recency_score, final_score }, match_source, and the neutral standing: "current"/low_confidence: false values. Also shapes the thought objects of get/context/chain/list; get\'s include_edges output stays under both settings.'),
+      fields: z.array(z.string()).optional().describe('Thought columns to include in each output thought. Selects on the shaped thought only, so the ranking metadata (scores, match_source — which also drops the [\'id\'] label of an id-addressed hit) is dropped from search hits when set; safety annotations (standing, superseded_by, contradicted_by, low_confidence) and get\'s include_edges output are not thought columns and remain. OPTIONAL for all actions.'),
       // Tombstones for retired parameters: a supplied value fails the advertised
       // input validation with the canonical replacement (the same pattern as
       // the retired is_profile input) instead of being silently stripped.

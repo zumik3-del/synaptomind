@@ -79,10 +79,14 @@ describe('memory_reflect project resolution failure', () => {
     expect(result.content[0].text).toBe(RESOLUTION_FAILURE)
   })
 
-  test('reflect without cwd/project_id does not call resolution and succeeds', async () => {
+  test('reflect without cwd is rejected before resolution (hard-cwd contract)', async () => {
     const handler = captureTool(registerMemoryReflect)
     const result = (await handler({ action: 'reflect', summary: 'control run without project scope' })) as ToolResult
 
-    expect(result.isError).not.toBe(true)
+    // The hard-cwd guard fires first, so the mocked (throwing) resolver is
+    // never reached and the caller gets the actionable message instead.
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('cwd is required for memory_reflect action=reflect')
+    expect(result.content[0].text).not.toBe(RESOLUTION_FAILURE)
   })
 })

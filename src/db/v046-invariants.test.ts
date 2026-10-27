@@ -141,7 +141,7 @@ test('v046 drops self-loops and keeps one edge per pair, a specific relation bea
   closeDb()
 
   openRaw(path, db => {
-    expect(schemaVersion(db)).toBe('46')
+    expect(schemaVersion(db)).toBe('47')
     const remaining = (db.prepare(`SELECT id FROM edges ORDER BY id`).all() as { id: string }[]).map(r => r.id)
     expect(remaining).toEqual(['edge-2-develops', 'edge-a1'])
     // The repair left the invariant enforceable, not just satisfied once.

@@ -13,7 +13,6 @@ interface SearchRow {
   project_id: string
   project_name: string | null
   is_cluster: number
-  is_profile: number
   created_at: string
   updated_at: string
 }
@@ -75,13 +74,15 @@ export interface SearchRecencyContext {
 /**
  * Strong-match predicate shared by the `low_confidence` flag (DB layer) and the
  * `min_relevance` filter (service layer), so the two can never diverge:
- * a lexical (BM25) anchor always passes; otherwise a vector hit passes only when
- * `similarity >= floor`. A result with neither leg is never a strong match.
+ * a lexical (BM25) anchor always passes, as does an explicit id lookup;
+ * otherwise a vector hit passes only when `similarity >= floor`. A result with
+ * neither leg is never a strong match.
  */
 export function isStrongMatch(
   result: Pick<SearchResult, 'match_source' | 'similarity'>,
   floor: number
 ): boolean {
+  if (result.match_source.includes('id')) return true
   if (result.match_source.includes('bm25')) return true
   const sim = result.similarity ?? 0
   return result.match_source.includes('embedding') && sim >= floor

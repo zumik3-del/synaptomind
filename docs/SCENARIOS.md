@@ -8,7 +8,7 @@
 
 2. memory_status(action=slots, cwd="/path/to/project")
    → agent sees the project and its context via cwd
-   → project_id resolves automatically
+   → the project resolves automatically from cwd
 
 3. memory_reflect(
       action=reflect,
@@ -113,16 +113,16 @@ so `memory_store` `link`/`unlink` add and remove members.
 decay job → importance decreases by rate (0.95) every 24h
   → nothing else: decay never archives a thought
 
-archiving → explicit only (memory_supersede(action=archive) or status=archived)
+archiving → explicit only (memory_supersede(action=archive); memory_store update rejects status=archived)
   → deletion of archived thoughts is handled by retention-review (sole deletion path)
 
 search path → promotes frequently-hit thoughts to primers once hit_count reaches
               primer.promoteThreshold (default 5)
 ```
 
-`exclude_flagged` is an ordinary query parameter: HTTP search and MCP recall
-search/clusters ignore it (it is no longer part of the MCP schema), so previously
-flagged thoughts may appear in default search results. Removals from earlier
+`exclude_flagged` is an ordinary query parameter: `memory_recall` search/clusters ignore it
+(it is no longer part of the MCP schema), so previously flagged thoughts may appear in
+default search results. Removals from earlier
 releases, including the retired verification job and its data, are listed in
 [CHANGELOG.md](../CHANGELOG.md).
 

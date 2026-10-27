@@ -9,12 +9,6 @@ export function validateMergePreconditions(source: Thought, allowArchivedSource 
   if (source.status === 'archived' && !allowArchivedSource) {
     throw new ValidationError('Source thought is already archived')
   }
-
-  // Merge archives its source; profile thoughts are persona material and must
-  // survive (issue #200). Merging *into* a profile thought is fine.
-  if (source.is_profile) {
-    throw new ValidationError('Cannot merge a profile thought away — clear the is_profile flag first')
-  }
 }
 
 export function transferEdgesFromSource(sourceId: string, targetId: string, d: Database = getDb()): number {

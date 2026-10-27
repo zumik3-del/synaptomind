@@ -4,12 +4,12 @@ import { insertLog } from './logging/log'
 import { ValidationError } from './errors'
 import { isThoughtStatus } from './types/thought'
 
-// ── Shared request contract (HTTP + MCP) ─────────────────────────────────────
+// ── Shared request contract (MCP) ───────────────────────────────────────────
 //
-// The lifecycle `status` enum and the `limit` ranges are the fields both
-// surfaces accept with identical semantics (audit M8); the schemas are declared
-// once here and imported by the HTTP adapters (`src/api/*`) and the MCP tool
-// input schemas (`src/mcp/tools/*`) so a range can never drift between them.
+// The lifecycle `status` enum and the `limit` ranges are declared once here and
+// imported by the MCP tool input schemas (`src/mcp/tools/*`), so a range can
+// never drift between tools. The HTTP surface is an ops plane (ADR 2026-10-26)
+// and shares no request contract with the agent wire.
 
 /** Lifecycle status accepted by every thought-surface request. */
 export const thoughtStatusSchema = z.enum(['draft', 'active', 'archived'])
@@ -17,20 +17,17 @@ export const thoughtStatusSchema = z.enum(['draft', 'active', 'archived'])
 /** Graph status filter: the lifecycle statuses plus the `all` aggregate. */
 export const graphStatusSchema = z.enum(['active', 'draft', 'archived', 'all'])
 
-/** Node cap for the graph surface (`GET /api/graph`, `memory_crystallize graph`). */
-export const GRAPH_LIMIT_DEFAULT = 500
+/** Node cap for the graph surface (`memory_crystallize graph`). */
 const GRAPH_LIMIT_MIN = 1
 const GRAPH_LIMIT_MAX = 2000
 export const graphLimitSchema = z.coerce.number().int().min(GRAPH_LIMIT_MIN).max(GRAPH_LIMIT_MAX)
 
-/** Page offset for the graph surface (`GET /api/graph`, `memory_crystallize graph`). */
-export const GRAPH_OFFSET_DEFAULT = 0
+/** Page offset for the graph surface (`memory_crystallize graph`). */
 const GRAPH_OFFSET_MIN = 0
 const GRAPH_OFFSET_MAX = 1_000_000
 export const graphOffsetSchema = z.coerce.number().int().min(GRAPH_OFFSET_MIN).max(GRAPH_OFFSET_MAX)
 
-/** Page size for the timeline surface (`GET /api/thoughts/timeline`, `memory_reflect timeline`). */
-export const TIMELINE_LIMIT_DEFAULT = 50
+/** Page size for the timeline surface (`memory_reflect timeline`). */
 const TIMELINE_LIMIT_MIN = 1
 const TIMELINE_LIMIT_MAX = 500
 export const timelineLimitSchema = z.coerce.number().int().min(TIMELINE_LIMIT_MIN).max(TIMELINE_LIMIT_MAX)
@@ -42,12 +39,11 @@ export const timelineLimitSchema = z.coerce.number().int().min(TIMELINE_LIMIT_MI
  * Like `bulkCreateThoughtsService`'s 10000-thought ceiling: a safety bound on one
  * transaction, not a tuning knob, and no config key or env var. An over-long batch
  * is refused whole (never a silent prefix) at the MCP action schema and again in the
- * service, so a future HTTP surface cannot inherit an unbounded write.
+ * service.
  */
 export const BATCH_ITEMS_MAX = 1000
 
-/** Page size for the proposal queue (`GET /api/proposals`, `edge_review action=list`). */
-export const PROPOSALS_LIMIT_DEFAULT = 100
+/** Page size for the proposal queue (`edge_review action=list`). */
 const PROPOSALS_LIMIT_MIN = 1
 const PROPOSALS_LIMIT_MAX = 1000
 export const proposalsLimitSchema = z.coerce.number().int().min(PROPOSALS_LIMIT_MIN).max(PROPOSALS_LIMIT_MAX)

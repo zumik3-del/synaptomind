@@ -40,12 +40,6 @@ export function upsertThoughtUrlLink(
   return db.prepare('SELECT * FROM thought_url_links WHERE id = ?').get(id) as ThoughtUrlLink
 }
 
-export function getThoughtUrlLinks(db: Database, thoughtId: string): ThoughtUrlLink[] {
-  return db
-    .prepare('SELECT * FROM thought_url_links WHERE thought_id = ? ORDER BY sort_order ASC, created_at ASC')
-    .all(thoughtId) as ThoughtUrlLink[]
-}
-
 export function getThoughtUrlLinksForThoughts(db: Database, thoughtIds: string[]): ThoughtUrlLink[] {
   if (thoughtIds.length === 0) return []
   const ph = sqlIn(thoughtIds)
@@ -55,11 +49,6 @@ export function getThoughtUrlLinksForThoughts(db: Database, thoughtIds: string[]
        ORDER BY sort_order ASC, created_at ASC`
     )
     .all(...thoughtIds) as ThoughtUrlLink[]
-}
-
-export function deleteThoughtUrlLink(db: Database, thoughtId: string, key: string): boolean {
-  const result = db.prepare('DELETE FROM thought_url_links WHERE thought_id = ? AND key = ?').run(thoughtId, key)
-  return result.changes > 0
 }
 
 export function pruneThoughtUrlLinks(db: Database, thoughtId: string, content: string): number {

@@ -2,9 +2,7 @@ import { config, DEFAULTS } from '../config'
 import { clampPrimerCount } from '../config.primer-bounds'
 import { getDb } from '../db'
 import { getPrimers } from '../db/primers'
-import { projectExists } from '../db/projects'
-import { getSlotRow, upsertSlot } from '../db/slots'
-import { NotFoundError, ValidationError } from '../errors'
+import { getSlotRow } from '../db/slots'
 import { listPendingCandidates } from './frontier.service'
 import { getThoughtByIdService } from './thoughts.service'
 import type { Database } from 'bun:sqlite'
@@ -21,7 +19,6 @@ type SlotName = (typeof SLOT_NAMES)[number]
 // Virtual slots are composed from existing mechanisms on every read and are
 // never stored; explicit slots live in the `slots` table.
 const VIRTUAL_SLOT_NAMES = new Set<string>(['pending_items', 'architecture_decisions'])
-const EXPLICIT_SLOT_NAMES = new Set<string>(['project_context', 'active_goals'])
 
 interface SlotView {
   name: SlotName
@@ -98,51 +95,6 @@ export function getSlots(opts?: { projectId?: string; names?: string[]; limit?: 
     })
   }
   return views
-}
-
-interface UpdateSlotInput {
-  content: string
-  max_chars?: number
-  scope?: 'project' | 'global'
-  project_id?: string
-}
-
-export function updateExplicitSlot(
-  name: string,
-  input: UpdateSlotInput,
-  defaultMaxChars: number,
-  d: Database = getDb()
-): SlotView {
-  if (!EXPLICIT_SLOT_NAMES.has(name)) {
-    throw new ValidationError(
-      `Slot '${name}' is not writable (virtual/read-only or unknown). Writable slots: ${[...EXPLICIT_SLOT_NAMES].join(', ')}`
-    )
-  }
-  if (typeof input.content !== 'string') {
-    throw new ValidationError('content must be a string')
-  }
-  const maxChars = input.max_chars ?? defaultMaxChars
-  if (!Number.isInteger(maxChars) || maxChars < 100 || maxChars > 8000) {
-    throw new ValidationError('max_chars must be an integer between 100 and 8000')
-  }
-  const scope = input.scope ?? 'global'
-  let scopeId: string | null = null
-  if (scope === 'project') {
-    if (!input.project_id) throw new ValidationError('project_id is required when scope is "project"')
-    if (!projectExists(d, input.project_id)) throw new NotFoundError('Project not found')
-    scopeId = input.project_id
-  }
-  const row = upsertSlot(d, { name, scope, scope_id: scopeId, content: input.content, max_chars: maxChars })
-  const { content, truncated } = truncate(row.content, row.max_chars)
-  return {
-    name: name as SlotName,
-    scope: row.scope,
-    virtual: false,
-    content,
-    truncated,
-    max_chars: row.max_chars,
-    updated_at: row.updated_at
-  }
 }
 
 export { type ReflectInput, reflectSessionService } from './session-reflection.service'

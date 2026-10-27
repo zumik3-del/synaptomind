@@ -12,8 +12,6 @@ function isFlat(r: SearchResult | GroupedResult): r is SearchResult {
 }
 
 interface SearchPostProcessOptions {
-  query: string
-  topK: number
   showPrimers: boolean
 }
 
@@ -86,22 +84,6 @@ export function prependPrimerResults(
   return [...primerResults, ...filtered]
 }
 
-/** FI-08 (#200): hoist profile thoughts when the query explicitly asks for @profile. */
-export function prependProfileResults(
-  results: SearchResult[] | GroupedResult[],
-  query: string
-): SearchResult[] | GroupedResult[] {
-  if (!/@profile(-|\b)/i.test(query)) return results
-  const profileResults: SearchResult[] = []
-  const rest: Array<SearchResult | GroupedResult> = []
-  for (const r of results) {
-    if (isFlat(r) && r.thought.is_profile) profileResults.push(r)
-    else rest.push(r)
-  }
-  if (profileResults.length === 0) return results
-  return [...profileResults, ...rest]
-}
-
 /**
  * Domain pipeline shared by every search surface (issue #213 E14): hit
  * counting / primer promotion → optional primer hoisting.
@@ -112,13 +94,8 @@ export function postProcessSearchResults(
   d: Database = getDb()
 ): SearchResult[] | GroupedResult[] {
   updatePrimerHits(results, d)
-  let ordered = results
-  if (opts.showPrimers) {
-    const primerIds = getPrimerIds(d)
-    if (primerIds.length > 0) {
-      ordered = prependPrimerResults(ordered, primerIds)
-    }
-  }
-  // Applied last so an explicit @profile query puts persona thoughts topmost.
-  return prependProfileResults(ordered, opts.query)
+  if (!opts.showPrimers) return results
+  const primerIds = getPrimerIds(d)
+  if (primerIds.length === 0) return results
+  return prependPrimerResults(results, primerIds)
 }

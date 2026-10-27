@@ -98,7 +98,6 @@ function resolveThought(input: PlacementPlanInput, options: PlacementPlanOptions
       source: null,
       project_id: projectId,
       is_cluster: 0,
-      is_profile: 0,
       is_protected: 0,
       is_global: 0,
       created_at: now,

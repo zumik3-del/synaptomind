@@ -6,27 +6,8 @@ export interface Tag {
   name: string
 }
 
-interface TagWithCount extends Tag {
-  thought_count: number
-}
-
 function canonicalTagName(name: string): string {
   return name.startsWith('@') ? name.toLowerCase() : name
-}
-
-export function listTags(db: Database, q?: string): TagWithCount[] {
-  const where = q ? `WHERE LOWER(t.name) LIKE ? ESCAPE '\\'` : ''
-  const param = q ? [`%${q.toLowerCase().replace(/[%_]/g, c => `\\${c}`)}%`] : []
-  return db
-    .prepare(`
-    SELECT t.id, t.name, COUNT(tt.thought_id) as thought_count
-    FROM tags t
-    LEFT JOIN thought_tags tt ON tt.tag_id = t.id
-    ${where}
-    GROUP BY t.id, t.name
-    ORDER BY t.name COLLATE NOCASE
-  `)
-    .all(...param) as TagWithCount[]
 }
 
 export function findTagByName(db: Database, name: string): Tag | undefined {
@@ -41,19 +22,6 @@ export function createTag(db: Database, name: string): Tag {
   const id = Bun.randomUUIDv7()
   db.prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)').run(id, canonical, new Date().toISOString())
   return { id, name: canonical }
-}
-
-export function renameTag(db: Database, id: string, newName: string): Tag | undefined {
-  const existing = db.prepare('SELECT id, name FROM tags WHERE id = ?').get(id) as Tag | undefined
-  if (!existing) return undefined
-  const canonical = canonicalTagName(newName)
-  db.prepare('UPDATE tags SET name = ? WHERE id = ?').run(canonical, id)
-  return { id, name: canonical }
-}
-
-export function deleteTag(db: Database, id: string): boolean {
-  const result = db.prepare('DELETE FROM tags WHERE id = ?').run(id)
-  return result.changes > 0
 }
 
 export function mergeThoughtTags(db: Database, thoughtId: string, tagNames: string[]): Tag[] {

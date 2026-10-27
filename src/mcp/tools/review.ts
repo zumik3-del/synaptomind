@@ -11,6 +11,7 @@ import { isLegacyItemKind, getProposalService } from '../../services/placement-p
 import type { PlacementProposalRow } from '../../services/placement-proposals.service'
 import { applyBatchService } from '../../services/placement-apply.service'
 import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
+import { collectionEnvelope, itemEnvelope, resolveEnvelopeScope, scopeProjectId, writeEnvelopeScope } from './envelope'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { applyHandler, AGENT } from './review/apply'
@@ -21,21 +22,29 @@ const ITEM_KINDS = ['edge', 'placement', 'lifecycle', 'triage_activate', 'triage
 const handlers = {
   enqueue: {
     input: z.object({ thought_id: requiredString('thought_id is required for enqueue action') }),
-    run(args: ActionArgs) {
+    async run(args: ActionArgs) {
       const projectId = resolveProjectId(args.cwd as string | undefined)
       // `max_proposals` is the only enqueue cap this tool advertises: the
       // `max_items` alias is gone, so the canonical value is forwarded as-is
       // instead of through a precedence rule between several accepted names.
-      return enqueueThoughtProposals(args.thought_id as string, {
+      const outcome = await enqueueThoughtProposals(args.thought_id as string, {
         projectId,
         maxProposals: args.max_proposals as number | undefined
+      })
+      return itemEnvelope('enqueue', outcome, {
+        ...writeEnvelopeScope(args.cwd),
+        counts: { proposals: outcome.proposals.length, skipped: outcome.skipped }
       })
     }
   },
 
   list: {
     run(args: ActionArgs) {
-      const projectId = resolveProjectId(args.cwd as string | undefined)
+      // A read: the scope comes from the shared read-side helper, so a cwd-less
+      // or unregistered call reports a `meta.warning` instead of silently
+      // spanning every project (task #2187).
+      const { scope, warnings } = resolveEnvelopeScope(args.cwd as string | undefined)
+      const projectId = scopeProjectId(scope)
       const includeRetired = args.include_retired === true
       const state = args.state as ListOptions['state']
       const itemKind = args.item_kind as ListOptions['itemKind']
@@ -72,14 +81,13 @@ const handlers = {
         includeRetired: true
       })
       const retiredCount = allMatching.filter(row => isLegacyItemKind(row.item_kind)).length
-      const response = {
-        items: visible,
+      return collectionEnvelope('list', visible, {
+        scope,
+        warnings,
         total: allVisible.length,
-        returned: visible.length,
-        retired_count: retiredCount,
-        all_total: allMatching.length
-      }
-      return response
+        filtered_out: allMatching.length - allVisible.length,
+        counts: { retired_count: retiredCount }
+      })
     }
   },
 
@@ -95,6 +103,22 @@ const handlers = {
       function fp() {
         return rows.map((r: PlacementProposalRow | undefined, i: number) => r ? `${r.id}:${r.state}:${r.fingerprint}:${r.created_at}:${r.expires_at ?? ''}:${r.result ?? ''}:${r.run_id ?? ''}` : `missing:${proposalIds[i]}`).join('|')
       }
+      /** Rows of the batch outcome, with the per-proposal errors folded in as failed rows. */
+      function envelopeFor(outcome: ReturnType<typeof applyBatchService>, previewToken?: string) {
+        const items = [
+          ...outcome.results,
+          ...outcome.errors.map(error => ({ proposal_id: error.proposal_id, status: 'failed' as const, reason: error.error }))
+        ]
+        const counts: Record<string, number> = {}
+        for (const item of outcome.results) counts[item.status] = (counts[item.status] ?? 0) + 1
+        counts.failed = outcome.errors.length
+        return collectionEnvelope('apply_batch', items, {
+          total: proposalIds.length,
+          counts,
+          ...(outcome.refused === undefined ? {} : { warnings: [`refused (${outcome.refused.code}): ${outcome.refused.reason}`] }),
+          ...(previewToken === undefined ? {} : { preview: { token: previewToken } })
+        })
+      }
       if (!confirm) {
         const result = applyBatchService(proposalIds, {
           confirm: false,
@@ -103,18 +127,18 @@ const handlers = {
           decidedBy: AGENT
         })
         const token = createPreviewTokenService('apply_batch', proposalIds.join(','), fp())
-        return { ...(result as unknown as Record<string, unknown>), preview_token: token }
+        return envelopeFor(result, token)
       }
       const current = fp()
       if (!previewToken) throw new Error('preview_token is required')
       const verification = consumePreviewTokenService(previewToken, 'apply_batch', proposalIds.join(','), current)
       if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-      return applyBatchService(proposalIds, {
+      return envelopeFor(applyBatchService(proposalIds, {
         confirm: true,
         runId: args.run_id as string | undefined,
         limit: args.limit as number | undefined,
         decidedBy: AGENT
-      })
+      }))
     }
   },
 
@@ -123,7 +147,7 @@ const handlers = {
   reject: {
     input: z.object({ proposal_id: requiredString('proposal_id is required for reject action') }),
     run(args: ActionArgs) {
-      return reject(args.proposal_id as string, { decidedBy: AGENT })
+      return itemEnvelope('reject', reject(args.proposal_id as string, { decidedBy: AGENT }))
     }
   }
 }
@@ -131,7 +155,7 @@ const handlers = {
 export function registerEdgeReview(server: McpServer) {
   registerActionTool(server, {
     name: 'edge_review',
-    description: `Review and apply placement proposals. Actions: enqueue (persisted thought only; queues the plan's edge items and reports the skipped ones), list (default pending), apply (dry-run unless confirm=true), apply_batch (per-call cap), rollback (dry-run), reject. Rows of a retired item kind (triage_*) stay listable but cannot be applied.`,
+    description: `Review and apply placement proposals. Answers the shared envelope: { items, meta } for list/apply_batch/rollback (aggregate in meta.counts), { item, meta } for enqueue/apply/reject; a preview sets meta.preview={token,destructive:true}. Actions: enqueue (persisted thought only; queues the plan's edge items and reports the skipped ones), list (default pending), apply (dry-run unless confirm=true), apply_batch (per-call cap), rollback (dry-run; one items row per proposal of the run), reject. Rows of a retired item kind (triage_*) stay listable but cannot be applied.`,
     inputSchema: {
       action: z
         .enum(['enqueue', 'list', 'apply', 'apply_batch', 'rollback', 'reject'])

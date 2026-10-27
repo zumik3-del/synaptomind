@@ -122,11 +122,14 @@ describe('edge_review enqueue', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    // Task #1942: the response reports the queued rows plus the skipped count.
-    const outcome = data as { proposals: unknown[]; skipped: number; skipped_kinds: Record<string, number> }
+    // Task #1942: the response reports the queued rows plus the skipped count;
+    // task #2181 wraps it in the shared envelope and mirrors the counts in meta.
+    expect(data.meta.action).toBe('enqueue')
+    const outcome = data.item as { proposals: unknown[]; skipped: number; skipped_kinds: Record<string, number> }
     expect(Array.isArray(outcome.proposals)).toBe(true)
     expect(typeof outcome.skipped).toBe('number')
     expect(typeof outcome.skipped_kinds).toBe('object')
+    expect(data.meta.counts).toMatchObject({ proposals: outcome.proposals.length, skipped: outcome.skipped })
   })
 
   test('canonical max_proposals is accepted and max_items is rejected with migration hint', async () => {
@@ -197,8 +200,9 @@ describe('edge_review list', () => {
     expect(typeof data).toBe('object')
     expect(Array.isArray(data.items)).toBe(true)
     expect(data.items.length).toBeGreaterThanOrEqual(1)
-    expect(typeof data.total).toBe('number')
-    expect(typeof data.retired_count).toBe('number')
+    expect(data.meta.action).toBe('list')
+    expect(typeof data.meta.counts.total).toBe('number')
+    expect(typeof data.meta.counts.retired_count).toBe('number')
   })
 
   test('list does not mutate the queue (read-only)', async () => {
@@ -213,6 +217,22 @@ describe('edge_review list', () => {
 
     expect(afterCount).toBe(beforeCount)
     expect(propState(db, row.id)).toBe('pending')
+  })
+
+  test('list clamps nothing: a limit outside 1..1000 is rejected', async () => {
+    // `proposalsLimitSchema` (src/validation.ts) is the shared page bound; the
+    // HTTP `GET /api/proposals` contract test that pinned it died with the route
+    // (ADR 2026-10-26), so the bound is pinned at the MCP action that uses it.
+    for (const limit of [0, 1001]) {
+      const { data, isError } = parseResult(
+        await client.callTool({ name: 'edge_review', arguments: { action: 'list', limit } })
+      )
+      expect({ limit, isError }).toEqual({ limit, isError: true })
+      expect(JSON.stringify(data)).toContain('limit')
+    }
+
+    const ok = parseResult(await client.callTool({ name: 'edge_review', arguments: { action: 'list', limit: 1 } }))
+    expect(ok.isError).toBe(false)
   })
 
   test('list with state filter returns only matching state', async () => {
@@ -251,8 +271,10 @@ describe('edge_review apply', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.status).toBe('dry_run')
-    expect(Array.isArray(data.calls)).toBe(true)
+    expect(data.item.status).toBe('dry_run')
+    expect(Array.isArray(data.item.calls)).toBe(true)
+    // The preview gate mirrors the token (task #2181).
+    expect(data.meta.preview).toMatchObject({ token: data.item.preview_token, destructive: true })
     expect(propState(db, row.id)).toBe('pending')
   })
 
@@ -266,14 +288,15 @@ describe('edge_review apply', () => {
       name: 'edge_review',
       arguments: { action: 'apply', proposal_id: row.id }
     })
-    const token = parseResult(preview).data.preview_token
+    const token = parseResult(preview).data.item.preview_token
     const result = await client.callTool({
       name: 'edge_review',
       arguments: { action: 'apply', proposal_id: row.id, confirm: true, preview_token: token }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.status).toBe('accepted')
+    expect(data.item.status).toBe('accepted')
+    expect(data.meta.preview).toBeUndefined()
     expect(propState(db, row.id)).toBe('accepted')
   })
 
@@ -318,10 +341,13 @@ describe('edge_review apply_batch', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(Array.isArray(data.results)).toBe(true)
-    expect(Array.isArray(data.errors)).toBe(true)
-    expect(data.errors.length).toBeGreaterThanOrEqual(1)
-    expect(data.errors.some((e: { proposal_id: string }) => e.proposal_id === 'missing-id')).toBe(true)
+    // One row per proposal, with per-proposal errors folded in as failed rows.
+    expect(Array.isArray(data.items)).toBe(true)
+    const missing = data.items.filter((row: { proposal_id: string; status: string }) => row.proposal_id === 'missing-id')
+    expect(missing.length).toBe(1)
+    expect(missing[0].status).toBe('failed')
+    expect(data.meta.counts.failed).toBeGreaterThanOrEqual(1)
+    expect(data.meta.preview.destructive).toBe(true)
   })
 
   test('empty proposal_ids → error envelope', async () => {
@@ -359,8 +385,9 @@ describe('edge_review reject', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.state).toBe('rejected')
-    expect(typeof data.decided_at).toBe('string')
+    expect(data.meta.action).toBe('reject')
+    expect(data.item.state).toBe('rejected')
+    expect(typeof data.item.decided_at).toBe('string')
     expect(propState(db, row.id)).toBe('rejected')
   })
 
@@ -426,7 +453,7 @@ describe('edge_review: stored triage_* rows from an older install', () => {
       name: 'edge_review',
       arguments: { action: 'apply', proposal_id: 'retired-apply-archive' }
     })
-    const token = parseResult(preview).data.preview_token
+    const token = parseResult(preview).data.item.preview_token
     const result = await client.callTool({
       name: 'edge_review',
       arguments: { action: 'apply', proposal_id: 'retired-apply-archive', confirm: true, preview_token: token }
@@ -434,9 +461,9 @@ describe('edge_review: stored triage_* rows from an older install', () => {
 
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.status).toBe('refused')
-    expect(data.refusal.code).toBe('unsupported_item_kind')
-    expect(data.refusal.reason).toContain('triage_archive')
+    expect(data.item.status).toBe('refused')
+    expect(data.item.refusal.code).toBe('unsupported_item_kind')
+    expect(data.item.refusal.reason).toContain('triage_archive')
     // A refused row was never decided.
     expect(propState(getDb(), 'retired-apply-archive')).toBe('pending')
   })

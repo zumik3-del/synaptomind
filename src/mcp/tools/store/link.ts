@@ -1,5 +1,6 @@
 import { z } from 'zod/v4'
 import { createEdgeService } from '../../../services/edges.service'
+import { itemEnvelope } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
 const SOURCE_REQUIRED = 'source_id is required for link action'
@@ -21,6 +22,14 @@ export const linkHandler: ActionHandler = {
       }
     }),
   run(args: ActionArgs) {
-    return createEdgeService(args.source_id as string, args.target_id as string, args.edge_type as string | undefined)
+    const edge = createEdgeService(args.source_id as string, args.target_id as string, args.edge_type as string | undefined)
+    // Every id on the wire is a string, so a caller never has to cast.
+    return itemEnvelope('link', {
+      id: String(edge.id),
+      source_id: String(edge.source_id),
+      target_id: String(edge.target_id),
+      type: edge.type,
+      created_at: edge.created_at
+    })
   }
 }

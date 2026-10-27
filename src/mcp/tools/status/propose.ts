@@ -1,8 +1,9 @@
 import { z } from 'zod/v4'
 import { proposePlacementPlan } from '../../../services/placement/engine'
-import { resolveProjectId } from '../utils'
+import { itemEnvelope, requireEnvelopeScope } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
+/** `memory_status` action=propose: `{ item: <plan>, meta }`; `cwd` is required. */
 export const proposeHandler: ActionHandler = {
   input: z
     .object({
@@ -17,7 +18,7 @@ export const proposeHandler: ActionHandler = {
       path: ['thought_id']
     }),
   async run(args: ActionArgs) {
-    const projectFilter = resolveProjectId(args.cwd as string | undefined)
+    const { scope, warnings, projectId } = requireEnvelopeScope(args.cwd, 'memory_status', 'propose')
     // Slim is now the default (top-3 edges, no signals). Full output is
     // restored by include_signals=true or compact=false.
     const full = args.compact === false || args.include_signals === true
@@ -35,10 +36,10 @@ export const proposeHandler: ActionHandler = {
       {
         thoughtId: args.thought_id as string | undefined,
         content: args.content as string | undefined,
-        projectId: projectFilter
+        projectId
       },
       {
-        projectId: projectFilter,
+        projectId,
         ...(typeof maxEdges === 'number' ? { maxProposals: maxEdges } : {})
       }
     )
@@ -51,6 +52,11 @@ export const proposeHandler: ActionHandler = {
     if (compact && typeof args.max_edges !== 'number' && plan.edges.length > 3) {
       plan.edges = plan.edges.slice(0, 3)
     }
-    return plan
+    return itemEnvelope('propose', plan, {
+      scope,
+      warnings,
+      degraded: plan.degraded === true,
+      total: plan.edges.length
+    })
   }
 }

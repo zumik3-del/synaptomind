@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { config } from "../config";
 import { getDb } from "../db/container";
 import { closeDb, initDb } from "../db/init";
 import { vec0Path } from "../runtime-mode";
@@ -50,9 +51,62 @@ export function drainPendingEmbeddings(ids: string[]): void {
 }
 
 /**
+ * Path of a template database used by `withVecDb`: a file-backed DB with the
+ * full migration set already applied, built once per test process.
+ *
+ * Why: migrating a fresh file costs ~145 ms, which is ~88% of a vec case's wall
+ * time and — unlike the search the case actually asserts on — is fsync-bound, so
+ * it is what balloons when the machine is loaded (task #2196: cases hit bun's 5 s
+ * per-test limit next to concurrent probes). Copying the migrated 312 KiB image
+ * costs ~0.6 ms, so a case stays in the low milliseconds under the same load.
+ * Every case still gets its own file, so no schema or row state leaks between
+ * cases; the copy is verified equivalent to a fresh migration (identical schema,
+ * identical seeded rows — 24 tables, 0 differences).
+ */
+let vecDbTemplateRoot: string | null = null;
+let vecDbTemplatePath: string | null = null;
+let vecDbTemplateDimensions: number | null = null;
+
+function vecDbTemplate(): string {
+	const dimensions = config.embedder.dimensions;
+	if (vecDbTemplatePath !== null && vecDbTemplateDimensions === dimensions) {
+		return vecDbTemplatePath;
+	}
+	// A dimensions change rebuilds `vec_thoughts`, so the cached image is stale.
+	if (vecDbTemplateRoot !== null) {
+		rmSync(vecDbTemplateRoot, { recursive: true, force: true });
+	}
+	vecDbTemplateRoot = null;
+	vecDbTemplatePath = null;
+	vecDbTemplateDimensions = null;
+
+	const root = mkdtempSync(join(tmpdir(), "synaptomind-vec-template-"));
+	const template = join(root, "template.db");
+	try {
+		initDb({ dbPath: template, runMigrations: true });
+		// Checkpoints the WAL away, so the single file is a self-contained image.
+		closeDb();
+	} catch (err) {
+		closeDb();
+		rmSync(root, { recursive: true, force: true });
+		throw err;
+	}
+	vecDbTemplateRoot = root;
+	vecDbTemplatePath = template;
+	vecDbTemplateDimensions = dimensions;
+	process.once("exit", () => {
+		rmSync(root, { recursive: true, force: true });
+	});
+	return template;
+}
+
+/**
  * Run `fn` against a fresh file-backed DB with vec0 loaded, then tear it down.
  * `:memory:` cannot load vec0 (see `src/db/init.ts`), so any test that exercises
  * the vector leg must use this helper. Cleans up even when `fn` throws.
+ *
+ * The DB is a byte copy of `vecDbTemplate()`, not a fresh migration run: same
+ * schema and same initial rows at a fraction of the cost.
  */
 export async function withVecDb<T>(
 	fn: (db: Database) => T | Promise<T>,
@@ -60,6 +114,7 @@ export async function withVecDb<T>(
 	const dir = mkdtempSync(join(tmpdir(), "synaptomind-vec-"));
 	const dbPath = join(dir, "test.db");
 	try {
+		copyFileSync(vecDbTemplate(), dbPath);
 		initDb({ dbPath, runMigrations: true });
 		return await fn(getDb());
 	} finally {
@@ -76,7 +131,6 @@ export function seedThought(overrides?: {
 	source?: string | null;
 	project_id?: string;
 	is_cluster?: number | null;
-	is_profile?: number | null;
 	is_protected?: number | null;
 	is_global?: number | null;
 	importance?: number;
@@ -99,8 +153,8 @@ export function seedThought(overrides?: {
 		new Date().toISOString(),
 	);
 	db.prepare(`
-    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, is_global, created_at, updated_at, surface_after)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_protected, is_global, created_at, updated_at, surface_after)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
 		id,
 		overrides?.content ?? "test thought",
@@ -108,7 +162,6 @@ export function seedThought(overrides?: {
 		overrides?.source ?? "test",
 		projectId,
 		isCluster,
-		overrides?.is_profile ?? 0,
 		overrides?.is_protected ?? 1,
 		overrides?.is_global ?? 0,
 		now,

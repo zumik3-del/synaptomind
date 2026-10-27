@@ -4,7 +4,7 @@
 
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { runEval } from './runner'
+import { runEval, runEvalWithGate } from './runner'
 import { buildThresholdEntry, collectGatingRegressions, loadThresholds, upsertThresholdEntry, writeThresholds, type ThresholdFile } from './thresholds'
 import type { EvalMode, Regression, RunResult } from './types'
 
@@ -13,6 +13,8 @@ interface CliOptions {
   topK?: number
   out: string
   updateBaseline: boolean
+  /** Report-only production-gate pass; `--no-gated` turns it off. */
+  gated: boolean
   help: boolean
 }
 
@@ -21,12 +23,14 @@ function parseArgs(argv: string[]): CliOptions {
     mode: 'deterministic',
     out: join(import.meta.dir, 'report.json'),
     updateBaseline: false,
+    gated: true,
     help: false
   }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--real') options.mode = 'real'
     else if (arg === '--update-baseline') options.updateBaseline = true
+    else if (arg === '--no-gated') options.gated = false
     else if (arg === '--help' || arg === '-h') options.help = true
     else if (arg === '--top-k') {
       const parsed = Number.parseInt(argv[++i] ?? '', 10)
@@ -45,14 +49,34 @@ function helpText(): string {
     '  --top-k <n>         default top-k when a query does not set its own (default: 5)',
     '  --out <path>        JSON report path (default: eval/report.json)',
     '  --update-baseline   recompute eval/thresholds.json from the current run',
+    '  --no-gated          skip the report-only gated pass (one pass instead of two)',
     '  --help, -h          show this help',
     '',
-    "Scenarios marked xfail (contradiction) are reported but never fail the run."
+    'Scenarios marked xfail (contradiction) are reported but never fail the run.',
+    '',
+    'Every run also prints a report-only second pass with the production relevance',
+    'gate enabled (minRelevance as production resolves it). It never affects the',
+    'exit code, thresholds or the regression list; the JSON report carries it under',
+    '"gated". --no-gated skips that pass, halving the run (the ungated measurement,',
+    'the baselines and the exit code are unaffected).'
   ].join('\n')
 }
 
 function fmt(value: number): string {
   return value.toFixed(3)
+}
+
+/** Renders a left-aligned fixed-width table (header, separator, rows). */
+function renderGrid(header: string[], rows: string[][]): string[] {
+  const widths = header.map((cell, index) =>
+    Math.max(cell.length, ...rows.map(row => row[index].length))
+  )
+  const renderRow = (cells: string[]): string =>
+    cells.map((cell, index) => cell.padEnd(widths[index])).join('  ')
+
+  const lines = [renderRow(header), widths.map(width => '-'.repeat(width)).join('  ')]
+  for (const row of rows) lines.push(renderRow(row))
+  return lines
 }
 
 function renderTable(result: RunResult): string {
@@ -78,14 +102,7 @@ function renderTable(result: RunResult): string {
     ''
   ])
 
-  const widths = header.map((cell, index) =>
-    Math.max(cell.length, ...rows.map(row => row[index].length))
-  )
-  const renderRow = (cells: string[]): string =>
-    cells.map((cell, index) => cell.padEnd(widths[index])).join('  ')
-
-  const lines = [renderRow(header), widths.map(width => '-'.repeat(width)).join('  ')]
-  for (const row of rows) lines.push(renderRow(row))
+  const lines = renderGrid(header, rows)
 
   lines.push('', 'Categories (non-xfail):')
   for (const [category, metrics] of Object.entries(result.categories)) {
@@ -96,6 +113,62 @@ function renderTable(result: RunResult): string {
     )
   }
   return lines.join('\n')
+}
+
+/**
+ * Side-by-side view of the report-only gated pass (task #2191): the same
+ * scenarios scored with the relevance gate production applies, next to the
+ * ungated measurement the baselines gate on, plus the gate value and dropped-row
+ * count so a recall loss is attributable rather than mysterious.
+ */
+function renderGatedPass(ungated: RunResult, gated: RunResult): string {
+  const gate = gated.relevanceGate
+  const gateLine = gate
+    ? `  gate: minRelevance=${fmt(gate.minRelevance)} (production default) — dropped ` +
+      `${gate.droppedRows} of ${gate.candidates} candidate rows across ` +
+      `${gate.queriesWithDrops}/${gated.overall.queries} queries`
+    : '  gate: unavailable (no gate bookkeeping on the pass)'
+  const header = [
+    'scenario',
+    'recall off',
+    'recall gated',
+    'prec off',
+    'prec gated',
+    'mrr off',
+    'mrr gated',
+    'status gated'
+  ]
+  const gatedByName = new Map(gated.scenarios.map(scenario => [scenario.name, scenario]))
+  const rows: string[][] = ungated.scenarios.map(scenario => {
+    const other = gatedByName.get(scenario.name)
+    return [
+      scenario.name,
+      fmt(scenario.metrics.recall),
+      other ? fmt(other.metrics.recall) : '-',
+      fmt(scenario.metrics.precision),
+      other ? fmt(other.metrics.precision) : '-',
+      fmt(scenario.metrics.mrr),
+      other ? fmt(other.metrics.mrr) : '-',
+      other?.status ?? '-'
+    ]
+  })
+  rows.push([
+    'OVERALL (non-xfail)',
+    fmt(ungated.overall.recall),
+    fmt(gated.overall.recall),
+    fmt(ungated.overall.precision),
+    fmt(gated.overall.precision),
+    fmt(ungated.overall.mrr),
+    fmt(gated.overall.mrr),
+    ''
+  ])
+
+  return [
+    '',
+    'Relevance gate pass (report-only — never gates the exit code, thresholds or regressions)',
+    gateLine,
+    ...renderGrid(header, rows)
+  ].join('\n')
 }
 
 function printRegressions(regressions: Regression[]): void {
@@ -117,8 +190,19 @@ async function main(): Promise<void> {
   }
 
   const thresholdsPath = join(import.meta.dir, 'thresholds.json')
-  const result = await runEval({ mode: options.mode, topK: options.topK })
+  // Two passes over the same scenarios by default: the ungated one is the
+  // measurement the baselines (and therefore the exit code) gate on; the gated
+  // one is report-only visibility into what the production relevance gate costs.
+  // `--no-gated` drops the second pass for a caller that does not read it (it is
+  // half the run's embedding/search work and, in `--real`, half the model cost).
+  const runOptions = { mode: options.mode, topK: options.topK }
+  const passes = options.gated
+    ? await runEvalWithGate(runOptions)
+    : { ungated: await runEval(runOptions), gated: null }
+  const result = passes.ungated
   console.log(renderTable(result))
+  if (passes.gated) console.log(renderGatedPass(result, passes.gated))
+  else console.log('\nGated pass skipped (--no-gated).')
 
   const file: ThresholdFile = loadThresholds(thresholdsPath) ?? { version: 1, modes: {} }
   if (options.updateBaseline) {
@@ -141,7 +225,12 @@ async function main(): Promise<void> {
     console.log('\nNo gating regressions.')
   }
 
-  const report = { ...result, thresholds: thresholdsPath, regressions }
+  const report = {
+    ...result,
+    thresholds: thresholdsPath,
+    regressions,
+    ...(passes.gated ? { gated: passes.gated } : {})
+  }
   writeFileSync(options.out, `${JSON.stringify(report, null, 2)}\n`)
   console.log(`report written to ${options.out}`)
 

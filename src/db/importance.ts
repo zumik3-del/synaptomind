@@ -1,5 +1,4 @@
 import type { Database } from 'bun:sqlite'
-import { sqlIn } from './utils'
 
 export interface ThoughtImportance {
   thought_id: string
@@ -14,17 +13,6 @@ export function getThoughtImportance(db: Database, thoughtId: string): ThoughtIm
     | ThoughtImportance
     | undefined
   return row
-}
-
-export function batchGetImportance(db: Database, ids: string[]): Map<string, ThoughtImportance> {
-  const map = new Map<string, ThoughtImportance>()
-  if (ids.length === 0) return map
-  const ph = sqlIn(ids)
-  const rows = db
-    .prepare(`SELECT * FROM thought_importance WHERE thought_id IN (${ph})`)
-    .all(...ids) as ThoughtImportance[]
-  for (const r of rows) map.set(r.thought_id, r)
-  return map
 }
 
 export function ensureImportanceRow(db: Database, thoughtId: string): void {
@@ -50,17 +38,6 @@ export function incrementHitCount(db: Database, thoughtId: string): void {
     SET hit_count = hit_count + 1, last_decay = ?
     WHERE thought_id = ?
   `).run(new Date().toISOString(), thoughtId)
-}
-
-export function boostImportanceBatch(db: Database, ids: string[], delta: number): void {
-  if (ids.length === 0) return
-  const now = new Date().toISOString()
-  const ph = sqlIn(ids)
-  db.prepare(`
-    UPDATE thought_importance
-    SET importance = MIN(importance + ?, 1.0), last_decay = ?
-    WHERE thought_id IN (${ph})
-  `).run(delta, now, ...ids)
 }
 
 /**

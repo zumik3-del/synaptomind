@@ -5,6 +5,7 @@ import * as searchDb from '../db/search'
 import * as vectorSearchDb from '../db/search-vector'
 import { config, DEFAULTS } from '../config'
 import { findComponents, generateClusterTitle, groupCandidates, runAutoClusterJob } from './auto-cluster.service'
+import type { AutoClusterOptions } from './auto-cluster.service'
 import type { ClusterCandidate } from '../db/thoughts'
 import { getDb } from '../db/container'
 
@@ -79,7 +80,7 @@ test('groupCandidates filters groups smaller than minMembers', () => {
 // ── runAutoClusterJob ────────────────────────────────────────────────────────
 
 test('runAutoClusterJob returns empty when no candidates', async () => {
-  const result = await runAutoClusterJob({ minAgeDays: 999 })
+  const result = await runAutoClusterJob({ minAgeDays: 999, dryRun: true })
   expect(result.candidates).toBe(0)
   expect(result.clusters_created).toBe(0)
 })
@@ -88,6 +89,60 @@ test('runAutoClusterJob dry run does not create clusters', async () => {
   const result = await runAutoClusterJob({ dryRun: true, minAgeDays: 0 })
   expect(result.dry_run).toBeTrue()
   expect(result.clusters_created).toBe(0)
+})
+
+// ── runAutoClusterJob: the option is explicit (#2201) ────────────────────────
+
+test('runAutoClusterJob requires an explicit dryRun', () => {
+  // `undefined extends …` is false only while the member is required, so this
+  // line stops compiling the moment `dryRun?:` comes back — `bun run tsc
+  // --noEmit` is the gate for the type half. A run may never inherit its mode
+  // from config: the removed `autoCluster.dryRun` knob did exactly that.
+  const DRY_RUN_IS_REQUIRED: undefined extends AutoClusterOptions['dryRun'] ? false : true = true
+
+  expect(DRY_RUN_IS_REQUIRED).toBe(true)
+})
+
+// ── runAutoClusterJob: no write-only _meta job replay (#2201) ────────────────
+
+/** `_meta` keys shaped like the removed job replay (`<job>_run` / `<job>_result`). */
+function jobReplayKeys(): string[] {
+  const rows = getDb().prepare(`SELECT key FROM _meta`).all() as { key: string }[]
+  return rows.map(row => row.key).filter(key => key.endsWith('_run') || key.endsWith('_result')).sort()
+}
+
+test('runAutoClusterJob writes no _meta job-run/result keys', async () => {
+  const db = getDb()
+
+  // Positive control on the detector: the exact keys the deleted `recordJobRun`
+  // wrote are recognised, so an empty answer below is evidence, not a dead query.
+  for (const key of ['last_auto_cluster_run', 'last_auto_cluster_result']) {
+    db.prepare(`INSERT INTO _meta (key, value) VALUES (?, ?)`).run(key, key === 'last_auto_cluster_run' ? new Date().toISOString() : '{}')
+  }
+  expect(jobReplayKeys()).toEqual(['last_auto_cluster_result', 'last_auto_cluster_run'])
+  db.prepare(`DELETE FROM _meta WHERE key LIKE 'last_auto_cluster%'`).run()
+  expect(jobReplayKeys()).toEqual([])
+
+  // Former recordRun() call site 1: the empty-candidate early return.
+  const empty = await runAutoClusterJob({ minAgeDays: 999, dryRun: true })
+  expect(empty.candidates).toBe(0)
+  expect(jobReplayKeys()).toEqual([])
+
+  // Former recordRun() call site 2: a run that actually creates a cluster.
+  const ids = seedFourThoughts()
+  const deps = {
+    embed: async (texts: string[]) => texts.map(() => new Float32Array(384)),
+    searchNeighbors: (id: string) => ids.filter(x => x !== id).map(x => ({ id: x, distance: 0 }))
+  }
+  const applied = await runAutoClusterJob(
+    { minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: false },
+    deps
+  )
+  expect(applied.dry_run).toBe(false)
+  expect(applied.clusters_created).toBe(1)
+  expect(db.prepare(`SELECT COUNT(*) AS cnt FROM thoughts WHERE is_cluster = 1 AND source = 'auto_cluster'`).get()).toEqual({ cnt: 1 })
+
+  expect(jobReplayKeys()).toEqual([])
 })
 
 // ── runAutoClusterJob with injected embed + searchNeighbors ───────────────────
@@ -222,8 +277,8 @@ function seedClusterCandidates(count: number, past: string): string[] {
   vector[0] = 1
   const buffer = Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength)
   const insertThought = db.prepare(`
-    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_profile, is_protected, is_global, created_at, updated_at)
-    VALUES (?, ?, 'active', 'test', 'default', 0, 0, 1, 0, ?, ?)
+    INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_protected, is_global, created_at, updated_at)
+    VALUES (?, ?, 'active', 'test', 'default', 0, 1, 0, ?, ?)
   `)
   const insertVec = db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`)
   db.transaction(() => {

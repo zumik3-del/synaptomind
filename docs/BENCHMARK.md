@@ -65,7 +65,7 @@
 
 ## Methodology
 
-- Benchmarks run via HTTP API (100 queries per mode, 10 warmup)
+- Query methodology of the recorded run: 100 queries per mode, 10 warmup. That run went through the HTTP search route, which 0.20 removed; today's retrieval gates run in-process through the eval harness (`bun run eval`, see [EVAL.md](EVAL.md)) and measure recall/MRR, not latency.
 - Embeddings: Xenova/multilingual-e5-small (384d, local)
 - Database: SQLite with WAL mode, vec0 + FTS5
 - Write tests: sequential single-threaded, no concurrent embedder

@@ -2,10 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { getDb } from "../db/container";
 import { closeDb } from "../db/init";
 import {
-	deleteThoughtUrlLink,
 	deleteThoughtUrlLinksNotIn,
 	extractLinkKeys,
-	getThoughtUrlLinks,
 	getThoughtUrlLinksForThoughts,
 	pruneThoughtUrlLinks,
 	upsertThoughtUrlLink,
@@ -26,25 +24,18 @@ test("upsertThoughtUrlLink creates then updates in place", () => {
 	expect(second.id).toBe(first.id);
 	expect(second.url).toBe("https://b.com");
 
-	expect(getThoughtUrlLinks(db, id)).toHaveLength(1);
+	// The single-thought read path goes through the batch reader (task #2207
+	// deleted the separate `getThoughtUrlLinks` export).
+	expect(getThoughtUrlLinksForThoughts(db, [id])).toHaveLength(1);
 });
 
-test("getThoughtUrlLinks orders by sort_order then created_at", () => {
+test("getThoughtUrlLinksForThoughts orders a single thought's rows by sort_order then created_at", () => {
 	const db = getDb();
 	const id = seedThought();
 	upsertThoughtUrlLink(db, id, "k2", "https://b.com", "B", 2);
 	upsertThoughtUrlLink(db, id, "k1", "https://a.com", "A", 1);
-	const links = getThoughtUrlLinks(db, id);
+	const links = getThoughtUrlLinksForThoughts(db, [id]);
 	expect(links.map((l) => l.key)).toEqual(["k1", "k2"]);
-});
-
-test("deleteThoughtUrlLink removes by thought_id + key", () => {
-	const db = getDb();
-	const id = seedThought();
-	upsertThoughtUrlLink(db, id, "k1", "https://a.com", "A");
-	expect(deleteThoughtUrlLink(db, id, "k1")).toBeTrue();
-	expect(deleteThoughtUrlLink(db, id, "k1")).toBeFalse();
-	expect(getThoughtUrlLinks(db, id)).toHaveLength(0);
 });
 
 test("deleteThoughtUrlLinksNotIn drops orphans only", () => {
@@ -54,7 +45,7 @@ test("deleteThoughtUrlLinksNotIn drops orphans only", () => {
 	upsertThoughtUrlLink(db, id, "drop", "https://b.com", "B");
 	const removed = deleteThoughtUrlLinksNotIn(db, id, ["keep"]);
 	expect(removed).toBe(1);
-	expect(getThoughtUrlLinks(db, id).map((l) => l.key)).toEqual(["keep"]);
+	expect(getThoughtUrlLinksForThoughts(db, [id]).map((l) => l.key)).toEqual(["keep"]);
 });
 
 test("extractLinkKeys parses [[key|label]] and [[key]]", () => {
@@ -69,7 +60,7 @@ test("pruneThoughtUrlLinks keeps rows whose marker is in content, drops the rest
 	upsertThoughtUrlLink(db, id, "drop", "https://b.com", "B");
 	const removed = pruneThoughtUrlLinks(db, id, "see [[keep|Keep]] marker");
 	expect(removed).toBe(1);
-	expect(getThoughtUrlLinks(db, id).map((l) => l.key)).toEqual(["keep"]);
+	expect(getThoughtUrlLinksForThoughts(db, [id]).map((l) => l.key)).toEqual(["keep"]);
 });
 
 test("getThoughtUrlLinksForThoughts returns rows for many thoughts", () => {

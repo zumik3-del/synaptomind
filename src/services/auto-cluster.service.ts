@@ -1,6 +1,5 @@
 import { config } from '../config'
 import { getDb } from '../db'
-import { recordJobRun } from '../db/meta'
 import { type ClusterCandidate, listClusterCandidates } from '../db/thoughts'
 import { generateEmbeddings } from '../embedder/client'
 import { insertLog } from '../logging/log'
@@ -13,7 +12,8 @@ export interface AutoClusterOptions {
   minAgeDays?: number
   minSimilarity?: number
   minMembers?: number
-  dryRun?: boolean
+  /** Required: a run always states whether it applies or only previews. */
+  dryRun: boolean
 }
 
 interface AutoClusterGroup {
@@ -110,10 +110,6 @@ const defaultSearchNeighbors = (
   return (_candidateId, _embedding, topK) => lookup(_candidateId, topK)
 }
 
-function recordRun(result: AutoClusterResult, db: Database): void {
-  recordJobRun(db, 'last_auto_cluster', result)
-}
-
 /**
  * Batch auto-clustering (issue #196). Candidates are draft/active thoughts older
  * than minAgeDays without cluster edges; groups are connected components of
@@ -122,21 +118,20 @@ function recordRun(result: AutoClusterResult, db: Database): void {
  * computes groups without creating anything.
  */
 export async function runAutoClusterJob(
-  options: AutoClusterOptions = {},
+  options: AutoClusterOptions,
   deps: AutoClusterDeps = {},
   d: Database = getDb()
 ): Promise<AutoClusterResult> {
   const minAgeDays = options.minAgeDays ?? config.autoCluster.minAgeDays
   const minSimilarity = options.minSimilarity ?? config.autoCluster.minSimilarity
   const minMembers = options.minMembers ?? config.autoCluster.minMembers
-  const dryRun = options.dryRun ?? config.autoCluster.dryRun
+  const dryRun = options.dryRun
 
   const embed = deps.embed ?? generateEmbeddings
 
   const candidates = listClusterCandidates(d, minAgeDays)
   if (candidates.length === 0) {
     const empty: AutoClusterResult = { dry_run: dryRun, candidates: 0, groups: [], clusters_created: 0 }
-    recordRun(empty, d)
     return empty
   }
 
@@ -181,7 +176,6 @@ export async function runAutoClusterJob(
     groups: clusterGroups,
     clusters_created: created
   }
-  recordRun(result, d)
   insertLog(
     'info',
     'auto_cluster',

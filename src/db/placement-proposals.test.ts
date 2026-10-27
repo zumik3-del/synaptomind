@@ -3,7 +3,6 @@ import { createTestDb, seedThought } from '../test/helpers'
 import { getDb } from './container'
 import { closeDb } from './init'
 import {
-  countLivePendingProposals,
   deleteExpired,
   getProposal,
   insertProposal,
@@ -210,17 +209,6 @@ test('deleteExpired stamps decided_at so an expired row is pruned one window lat
   const afterWindow = new Date(Date.parse(row.decided_at as string) + 1).toISOString()
   expect(deleteExpired(db, afterWindow)).toBe(1)
   expect(listProposals(db, { state: 'expired' })).toHaveLength(0)
-})
-
-test('countLivePendingProposals ignores overdue rows', () => {
-  const db = getDb()
-  const now = '2026-01-10T00:00:00.000Z'
-  const overdue = new Date(Date.parse(now) - 86400_000).toISOString()
-  const live = new Date(Date.parse(now) + 86400_000).toISOString()
-  insertProposal(db, makeInput({ source_thought_id: seedThought(), expires_at: overdue }))
-  insertProposal(db, makeInput({ source_thought_id: seedThought(), expires_at: live }))
-  insertProposal(db, makeInput({ source_thought_id: seedThought(), expires_at: null }))
-  expect(countLivePendingProposals(db, now)).toBe(2)
 })
 
 test('listAcceptedProposalsByRun orders by applied_at, not created_at', () => {

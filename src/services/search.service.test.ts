@@ -10,7 +10,7 @@ import {
 	seedThought,
 	withVecDb,
 } from "../test/helpers";
-import { searchThoughts, searchThoughtsGrouped } from "./search.service";
+import { groupResultsByCluster, searchThoughts, searchThoughtsOutcome } from "./search.service";
 
 mock.module("../embedder/client", () => ({
 	generateEmbedding: () => new Float32Array(384),
@@ -101,7 +101,7 @@ describe("searchThoughts", () => {
 });
 
 describe("groupResultsByCluster", () => {
-  test("groups results", () => {
+  test("groups results", async () => {
     const db = getDb();
     const m1 = seedThought({ content: "member one" });
     const m2 = seedThought({ content: "member two" });
@@ -119,6 +119,17 @@ describe("groupResultsByCluster", () => {
     try {
       createEdge(db, clusterId, m2, "cluster");
     } catch {}
+
+    // `groupResultsByCluster` is the grouping the MCP recall surface applies
+    // (`recall.ts`, group_by_cluster) since `searchThoughtsGrouped` died with
+    // the HTTP search route (ADR 2026-10-26).
+    const grouped = groupResultsByCluster(
+      await searchThoughts({ query: "member", topK: 10 }),
+    );
+    const clusterGroup = grouped.find((g) => g.cluster !== undefined);
+    expect(clusterGroup?.cluster?.id).toBe(clusterId);
+    const memberIds = (clusterGroup?.items ?? []).map((r) => r.thought.id);
+    expect(memberIds.sort()).toEqual([m1, m2].sort());
   });
 });
 
@@ -298,14 +309,17 @@ describe("recency boost — service layer", () => {
     createEdge(db, clusterId, memberOld, "cluster");
     createEdge(db, clusterId, memberNew, "cluster");
 
-    // searchThoughtsGrouped internally calls searchThoughts then groupResultsByCluster.
-    const results = await searchThoughtsGrouped({
-      query: "REC_GC cluster topic",
-      topK: 10,
-      hybrid: true,
-      recencyWeight: 0.5,
-      recencyHalfLifeDays: 30,
-    });
+    // The MCP recall surface groups with `searchThoughts` + `groupResultsByCluster`
+    // (the deleted `searchThoughtsGrouped` wrapper did exactly this pair).
+    const results = groupResultsByCluster(
+      await searchThoughts({
+        query: "REC_GC cluster topic",
+        topK: 10,
+        hybrid: true,
+        recencyWeight: 0.5,
+        recencyHalfLifeDays: 30,
+      }),
+    );
 
     const clusterGroup = results.find((r) => r.cluster !== undefined);
     expect(clusterGroup).toBeDefined();
@@ -385,6 +399,9 @@ describe("low_confidence + min_relevance — service layer", () => {
         topK: 10,
         hybrid: true,
         embedding: weakQuery,
+        // Ungated reference: the default gate is ON since #2178, so a baseline
+        // that must contain the weak vector hit has to turn it off explicitly.
+        minRelevance: 0,
       },
       db,
     );
@@ -665,6 +682,25 @@ describe("low_confidence + min_relevance — service layer", () => {
     expect(ids).toContain(bm25Id);
     expect(ids).toContain(exactId);
     expect(ids).not.toContain(weakId);
+  });
+
+  test("min_relevance>0 never gates an id hit: the id path answers before the gate", async () => {
+    const db = getDb();
+    const id = seedThought({ content: "id-gate target with no shared marker" });
+
+    // A full uuid is an explicit reference: `runSearch` resolves it before the
+    // embedding/BM25 legs and before the gate (search.service.ts:113-116), so a
+    // thought with no cosine and no lexical overlap still comes back even at
+    // minRelevance=1 — and it was never a candidate the gate could drop.
+    // No embedding or vec0 fixture is needed for exactly that reason.
+    const outcome = await searchThoughtsOutcome(
+      { query: id, minRelevance: 1, topK: 5 },
+      db,
+    );
+
+    expect(outcome.items.map((r) => r.thought.id)).toEqual([id]);
+    expect(outcome.matched).toBe(1);
+    expect(outcome.filtered_out).toBe(0);
   });
 });
 

@@ -63,8 +63,8 @@ describe('memory_primers list', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(Array.isArray(data)).toBe(true)
-    expect(data.map((p: { thought_id: string }) => p.thought_id)).toContain(thoughtId)
+    expect(Array.isArray(data.items)).toBe(true)
+    expect(data.items.map((p: { thought_id: string }) => p.thought_id)).toContain(thoughtId)
   })
 
   test('list returns an empty array when there is no primer', async () => {
@@ -74,7 +74,7 @@ describe('memory_primers list', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(data).toEqual([])
+    expect(data.items).toEqual([])
   })
 })
 
@@ -90,10 +90,10 @@ describe('memory_primers delete', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(data.status).toBe('preview')
-    expect(data.primer_id).toBe(primerId)
-    expect(data.primer.thought_id).toBe(thoughtId)
-    expect(data.instruction).toContain('confirm=true')
+    expect(data.item.status).toBe('preview')
+    expect(data.item.primer_id).toBe(primerId)
+    expect(data.item.primer.thought_id).toBe(thoughtId)
+    expect(data.item.instruction).toContain('confirm=true')
     // The refusal is the point: nothing was deleted.
     expect(primerExists(primerId)).toBe(true)
   })
@@ -109,7 +109,7 @@ describe('memory_primers delete', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(data.status).toBe('preview')
+    expect(data.item.status).toBe('preview')
     expect(primerExists(primerId)).toBe(true)
   })
 
@@ -121,7 +121,7 @@ describe('memory_primers delete', () => {
       name: 'memory_primers',
       arguments: { action: 'delete', primer_id: primerId }
     })
-    const token = (JSON.parse((preview as any).content[0].text)).preview_token
+    const token = (JSON.parse((preview as any).content[0].text)).item.preview_token
     const result = await client.callTool({
       name: 'memory_primers',
       arguments: { action: 'delete', primer_id: primerId, confirm: true, preview_token: token }
@@ -129,8 +129,8 @@ describe('memory_primers delete', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(data.status).toBe('deleted')
-    expect(data.primer_id).toBe(primerId)
+    expect(data.item.status).toBe('deleted')
+    expect(data.item.primer_id).toBe(primerId)
     expect(primerExists(primerId)).toBe(false)
   })
 
@@ -144,8 +144,8 @@ describe('memory_primers delete', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(data.status).toBe('not_found')
-    expect(data.primer_id).toBe('no-such-primer')
+    expect(data.item.status).toBe('not_found')
+    expect(data.item.primer_id).toBe('no-such-primer')
   })
 
   test('delete of an unknown primer id without confirm also reports not_found', async () => {
@@ -158,7 +158,7 @@ describe('memory_primers delete', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(data.status).toBe('not_found')
+    expect(data.item.status).toBe('not_found')
   })
 
   test('delete without primer_id is refused with an error envelope', async () => {

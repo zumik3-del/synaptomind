@@ -9,7 +9,7 @@
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://ghcr.io/zumik3-del/synaptomind)
 [![Bun](https://img.shields.io/badge/bun-runtime-%23000000?logo=bun)](https://bun.sh)
 
-**Local persistent memory for AI agents.** Your agent remembers decisions, goals, and context across sessions — via MCP or HTTP API. Data stays on your machine.
+**Local persistent memory for AI agents.** Your agent remembers decisions, goals, and context across sessions — over MCP (stdio or HTTP). Data stays on your machine. The HTTP listener on port 3005 is an ops plane (health and graph repair), not a second agent API.
 
 <p align="center">
   <img src="docs/images/synaptomind-hero.png" alt="SynaptoMind" width="100%" />
@@ -29,11 +29,11 @@ A piped script has no sibling files, so the shared helpers and config are fetche
 from the published base by default — no environment variables are needed.
 `DEPLOY_RAW_URL` overrides that base (forks/mirrors); an explicit `APP_ENV_URL`
 or `LIB_RAW_URL` still wins. The installer downloads and extracts the release
-tarball (`DIST=binary`); the server starts on `http://127.0.0.1:3105` (API) and
+tarball (`DIST=binary`); the server starts on `http://127.0.0.1:3105` (HTTP ops) and
 `http://127.0.0.1:3106/mcp` (MCP). Config lives in `/var/lib/synaptomind/config.json`,
 reached via the `/opt/synaptomind/config.json` symlink. The installer seeds
-ports 3105/3106; the client-config and API examples in this README use the
-built-in defaults (3005 API / 3006 MCP).
+ports 3105/3106; the client-config and endpoint examples in this README use the
+built-in defaults (3005 HTTP ops / 3006 MCP).
 
 For the full install & update guide (flags, channels, rollback, uninstall), see
 [docs/DEPLOY.md](docs/DEPLOY.md). For the deployment convention shared with
@@ -161,14 +161,17 @@ sequenceDiagram
 
 ## Architecture
 
-SynaptoMind runs as a single Bun process: the HTTP API on port 3005, the MCP
-server on port 3006 (stdio or HTTP), and a child process that serves local
-embeddings over IPC. Storage is one SQLite database using the `vec0` extension
-for vector search, FTS5 for full-text search, and an edges table for the graph.
+SynaptoMind runs as a single Bun process: the HTTP server on port 3005 (health and
+health-check ops endpoints), the MCP server on port 3006 (stdio or HTTP), and a child
+process that serves local embeddings over IPC. Every thought operation is served over MCP;
+the HTTP listener is an ops plane, documented in [docs/API.md](docs/API.md). Storage is one
+SQLite database using the `vec0` extension for vector search, FTS5 for full-text search, and
+an edges table for the graph.
 
 ```mermaid
 graph LR
-    A[AI Agent] -->|MCP / HTTP| B[SynaptoMind]
+    A[AI Agent] -->|MCP| B[SynaptoMind]
+    O[Ops / monitoring] -->|HTTP health| B
     B --> C[(SQLite)]
     C --> D[vec0 — vector search]
     C --> E[FTS5 — full-text search]
@@ -283,14 +286,14 @@ and the security boundary.
 
 All settings in `config.json`. Priority: env vars > config.json > defaults.
 
-The HTTP API port resolves in that order too: `SYNAPTOMIND_PORT` overrides
+The HTTP listener port resolves in that order too: `SYNAPTOMIND_PORT` overrides
 `config.json` `server.port`, which overrides the built-in `3005`
 (default `src/config.ts:58`, env mapping `src/config.ts:138`, applied in
 `applyEnvOverrides()` `src/config.ts:283-301`).
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `server.port` | 3005 | HTTP API port |
+| `server.port` | 3005 | HTTP ops port (health, health-check) |
 | `server.host` | 127.0.0.1 | Bind address |
 | `mcp.httpPort` | 3006 | MCP HTTP transport port |
 | `mcp.stdioStandalone` | false | Let a `--stdio` process own the embedder + background jobs (default: shared HTTP server owns them) |
@@ -301,7 +304,7 @@ Auth tokens via env vars only:
 
 | Env var | Purpose |
 |---------|---------|
-| `SYNAPTOMIND_SECRET` | Primary auth token (API + MCP) |
+| `SYNAPTOMIND_SECRET` | Primary auth token (HTTP ops + MCP) |
 | `SYNAPTOMIND_SERVICE_TOKEN` | Secondary token (optional) |
 
 Without these, the server fails closed: authenticated API and MCP requests are
@@ -360,31 +363,34 @@ For full Docker guide (updating, backup, troubleshooting), see [docs/DOCKER.md](
 </details>
 
 <details>
-<summary><strong>API examples</strong></summary>
+<summary><strong>Storing and recalling: MCP examples</strong></summary>
 
-All `/api/*` endpoints require `Authorization: Bearer <token>` header.
-Full endpoint reference: [docs/API.md](docs/API.md).
+Every thought operation is an MCP tool call (stdio or `POST /mcp` on port 3006). The
+HTTP listener serves the ops endpoints only — `/health` and the two `/api/health-check`
+routes — and answers `404` for everything else; see [docs/API.md](docs/API.md).
 
-### Create a thought
+```text
+Agent: [memory_store action=create
+        content="First session went well" tags=["retrospective"]
+        cwd="/path/to/project"]
 
-```bash
-curl -X POST http://127.0.0.1:3005/api/thoughts \
-  -H "Authorization: Bearer $SYNAPTOMIND_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{"content": "First session went well", "tags": ["retrospective"]}'
+Agent: [memory_recall action=search query="session retrospective" limit=5
+        cwd="/path/to/project"]
 ```
 
-### Search thoughts
-
-```bash
-curl "http://127.0.0.1:3005/api/thoughts/search?q=session+retrospective&k=5" \
-  -H "Authorization: Bearer $SYNAPTOMIND_SECRET"
-```
+Arguments, envelopes and per-action examples: [docs/mcp-tools.md](docs/mcp-tools.md).
 
 ### Health check
 
 ```bash
 curl http://127.0.0.1:3005/health
+```
+
+### Graph health report
+
+```bash
+curl "http://127.0.0.1:3005/api/health-check?severity=warning" \
+  -H "Authorization: Bearer $SYNAPTOMIND_SECRET"
 ```
 
 </details>
@@ -395,22 +401,28 @@ curl http://127.0.0.1:3005/health
 | Category | Tools |
 |----------|-------|
 | Recall | `memory_recall` (search, get, context, chain, clusters, list) |
-| Store | `memory_store` (create, update, link, link_batch, unlink, unlink_batch, retype) |
+| Store | `memory_store` (create, update, link, link_batch, unlink, unlink_batch, retype, bulk_create) |
 | Supersede | `memory_supersede` (archive, archive_batch, merge) |
-| Status | `memory_status` (slots, frontier, config, health, propose, cleanup) |
+| Status | `memory_status` (slots, frontier, config, health, propose) |
 | Projects | `memory_manage` (list, create, update, delete, resolve) |
 | Consolidate | `memory_crystallize` (graph, cluster, auto_cluster) |
 | Reflect | `memory_reflect` (reflect, timeline) |
 | Primers | `memory_primers` (list, delete) |
 | Review | `edge_review` (enqueue, list, apply, apply_batch, rollback, reject) |
+| Retention | `retention_review` (list, protect, delete, compact) |
 | Guide | `memory_guide` |
 
-For action-level detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
+Every action answers in one response envelope — `{ items, meta }` for collections, `{ item, meta }`
+for single objects — and the project-scoped actions require a `cwd` argument. For action-level
+detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
 
 **Breaking 0.x changes:** this release prunes several 0.x subsystems from the MCP tools,
-the HTTP API and the configuration surface. [CHANGELOG.md](CHANGELOG.md) records every
-removal per release; the pages linked here document only the surface that still exists, and
-a configuration file that still carries retired keys loads unchanged and ignores them.
+the HTTP surface and the configuration surface. The 0.20 release shrinks HTTP to the three
+ops endpoints: every `/api/*` thought route is gone and answers `404`, with the route → MCP
+tool map and the dropped capabilities in [docs/API.md](docs/API.md#removed-routes-020).
+[CHANGELOG.md](CHANGELOG.md) records every removal per release; the pages linked here
+document only the surface that still exists, and a configuration file that still carries
+retired keys loads unchanged and ignores them.
 
 </details>
 

@@ -108,7 +108,7 @@ function loadInstructions(): string | undefined {
 // Intentional: the MCP surface is tools-only — no resources or prompts are
 // registered. Agents drive SynaptoMind exclusively through the action-multiplexed
 // tools, whose schemas/descriptions are self-contained; MCP resources/prompts
-// would only duplicate the HTTP API without adding capability (F12).
+// would add no capability (F12).
 export function createMcpServer(): McpServer {
   const server = new McpServer(
     {
