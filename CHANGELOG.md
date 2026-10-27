@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.20.0
+
+> October 26, 2026
+
+- [`9e303db`](https://github.com/zumik3-del/synaptomind/commit/9e303dbefd3ee2ba5a53029af62efcd34b30794a): test(mcp): pin the update-status enum split
+- [`18c9286`](https://github.com/zumik3-del/synaptomind/commit/18c92863a9382ee110d1c25f96b28496f1333b1a): fix(mcp): apply review fixes for docs, store text and enum message
+- [`2ca2572`](https://github.com/zumik3-del/synaptomind/commit/2ca25720d0a7ab6f785b39a6b33e474a6bd8af95): test(api): pin all 43 removed routes as plain 404s
+- [`2428264`](https://github.com/zumik3-del/synaptomind/commit/2428264257692761fffd20e420190346aea52e75): test(mcp): pin the update->archived gate and repair the url-link tests
+- [`8688a67`](https://github.com/zumik3-del/synaptomind/commit/8688a67a9c87fa7e5b1e154df30dcbfd3d13b75c): fix(mcp): reject update -> archived; archive only via supersede
+- [`734cebf`](https://github.com/zumik3-del/synaptomind/commit/734cebf907f9f62fb646d687b8f0457b776aa42c): test(api): move the HTTP suite to MCP and pin the removed routes
+- [`39cb65e`](https://github.com/zumik3-del/synaptomind/commit/39cb65ef7895f716f47b2f0c9d8f9ff9651d234c): docs(api): shrink the HTTP reference to the ops plane and document include_url_links
+- [`37a196f`](https://github.com/zumik3-del/synaptomind/commit/37a196f49b0cef00367ad4bd8fdfc35467307751): feat(api)!: shrink HTTP to three ops endpoints and add include_url_links to MCP
+- [`8ff997f`](https://github.com/zumik3-del/synaptomind/commit/8ff997f547c884c5bf68cd467d276cdabd0fac73): test(profiles): pin the profile-vestige removal and v047
+- [`0716a85`](https://github.com/zumik3-del/synaptomind/commit/0716a852fa84dd76cece9c046f2f199b8edf24d3): test(cleanup): pin the #2201 removals
+- [`86def54`](https://github.com/zumik3-del/synaptomind/commit/86def54d2bbecfebac1f4ee82cfddbe450441766): chore(config): set retention_review importanceFloor default to 0.3
+- [`0b00d71`](https://github.com/zumik3-del/synaptomind/commit/0b00d717725df61e5ce5cb5bd96c2bb263e173a4): refactor(profiles): clear is_profile in v047 and remove the retired profile surface
+- [`81bfb8b`](https://github.com/zumik3-del/synaptomind/commit/81bfb8b3b902b708f72da94ab6f24d01d96ea84a): refactor(cleanup): remove dead exports, write-only meta and inert knobs
+- [`ad27e41`](https://github.com/zumik3-del/synaptomind/commit/ad27e41fd4ae94b6b8b51426fd0608658526c9ca): test(search,mcp): pin the gate-vs-id rule and harden two brittle assertions
+- [`ec29554`](https://github.com/zumik3-del/synaptomind/commit/ec29554616fc3c821a8a45b26a95d54ac7742f30): chore(eval,docs): round-3 review nits
+- [`3340922`](https://github.com/zumik3-del/synaptomind/commit/3340922c22821e108ccf0d0bd1d3eba123076ac3): test(db): amortise the vec test database setup with a migrated template
+- [`7f9d961`](https://github.com/zumik3-del/synaptomind/commit/7f9d9617c8a085302fa90f12bd60e342beae17e3): test(search,eval): pin prefix scope isolation and the gated eval pass
+- [`f3f4153`](https://github.com/zumik3-del/synaptomind/commit/f3f41535e457e1ed9e01c3df059e2113032ef058): docs: prefix scoping, clusters id rule and low_confidence semantics
+- [`40f154b`](https://github.com/zumik3-del/synaptomind/commit/40f154b824d617808590f35e1ae434c123e7e953): fix(search): scope prefix lookups and close the round-2 review findings
+- [`036c1f3`](https://github.com/zumik3-del/synaptomind/commit/036c1f3f3d09eca4fd655c5127481600aa581081): feat(eval): report-only gated pass beside the ungated baseline
+- [`9a5e284`](https://github.com/zumik3-del/synaptomind/commit/9a5e28446c192afe385870864b177e6df883c02d): docs: align the id-lookup, context and counts contracts with the fixes
+- [`cf2ee11`](https://github.com/zumik3-del/synaptomind/commit/cf2ee1136c67325450da5af6cd46457c5e8c5a6b): test(search,mcp): pin the id-lookup fallback, prefix cap and scope warnings
+- [`f0ccd5b`](https://github.com/zumik3-del/synaptomind/commit/f0ccd5b70a36a7e76b4e46d534e528a07326904f): fix(search): id-lookup fallback, 13-hex prefix floor and standing on id hits
+- [`34c077d`](https://github.com/zumik3-del/synaptomind/commit/34c077dacff6192578d1966c0634c8224c6c6891): fix(mcp): context gate opt-out, scope warnings and envelope polish
+- [`4894817`](https://github.com/zumik3-del/synaptomind/commit/4894817973ed98373595668f97fa2d6cfcc76ec1): fix(mcp): envelope for primers delete and hygiene for reflect timeline
+- [`3dd8e27`](https://github.com/zumik3-del/synaptomind/commit/3dd8e2727d26192a122768086b9832467bf5c8f5): docs(mcp): response envelope, id lookup, relevance gate and the cwd rule
+- [`9d0592c`](https://github.com/zumik3-del/synaptomind/commit/9d0592c39314dc213f16e34fa0f2035d91e7b10a): test(mcp): table-driven envelope conformance for all action tools
+- [`a7f1369`](https://github.com/zumik3-del/synaptomind/commit/a7f1369dd7b5acf38d9726d52accb7b8826e8fb3): feat(mcp)!: unified response envelope for write-side tools
+- [`58f08ff`](https://github.com/zumik3-del/synaptomind/commit/58f08ff36628ab6577dffc667d92c2216fc94f08): feat(mcp)!: unified response envelope for read-side tools
+- [`3dc2291`](https://github.com/zumik3-del/synaptomind/commit/3dc229128f2a314e66673809031f63f96f540021): test(search): lock id lookup, calibrated relevance and the default gate
+- [`682afad`](https://github.com/zumik3-del/synaptomind/commit/682afad486de68bf5dc1965983f124e85b51406d): feat(search): exact thought-id lookup, calibrated relevance and a default noise gate
+
 ## v0.19.1
 
 > October 25, 2026
