@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { assertEmbedderDtype, DEFAULTS, EMBEDDER_DTYPES, ENV_MAPPINGS } from './config'
+import { loadFreshConfig } from './test/fresh-config'
 
 /**
  * The `embedder.dtype` contract.
@@ -14,13 +15,12 @@ import { assertEmbedderDtype, DEFAULTS, EMBEDDER_DTYPES, ENV_MAPPINGS } from './
  * would pull 449 MB nobody asked for. Both directions are pinned here.
  *
  * The env/file override is asserted through `applyEnvOverrides`, which runs at
- * module-import time — importing `./config` in-process would freeze one
- * combination forever, so the load-time cases run the real module in a child
- * process with a scratch cwd (config.json is read from cwd) and read back
- * `config.embedder.dtype`. No model, no network, no DB.
+ * module-import time — importing `./config` directly would freeze one
+ * combination forever, so the load-time cases evaluate a cache-busted fresh
+ * module instance with a scratch `config.json` and environment
+ * (`loadFreshConfig`) and read back `config.embedder.dtype`. No model, no
+ * network, no DB.
  */
-
-const CONFIG_TS = resolve(import.meta.dir, 'config.ts')
 
 let SCRATCH = ''
 
@@ -53,24 +53,24 @@ interface LoadResult {
 }
 
 /**
- * Load `src/config.ts` as a fresh process in `cwd` and report what it resolved.
- * The child prints the effective dtype only when the module loaded, so a
- * missing `DTYPE=` line is the observable "no silent fallback".
+ * Load `src/config.ts` with `cwd`'s `config.json` (when it has one) and report
+ * what it resolved. A `DTYPE=` line is printed only when the module loaded, so
+ * its absence is the observable "no silent fallback".
  */
 async function loadConfig(cwd: string, dtype: string | undefined): Promise<LoadResult> {
   const env = baseEnv()
   if (dtype !== undefined) env.SYNAPTOMIND_EMBEDDER_DTYPE = dtype
 
-  const proc = Bun.spawn(
-    ['bun', '-e', `const m = await import(${JSON.stringify(CONFIG_TS)}); console.log('DTYPE=' + m.config.embedder.dtype)`],
-    { cwd, env, stdout: 'pipe', stderr: 'pipe' }
-  )
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited
-  ])
-  return { code, out: stdout + stderr }
+  const file = join(cwd, 'config.json')
+  const probe = await loadFreshConfig({
+    env,
+    configFile: existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as unknown) : undefined
+  })
+  if (probe.error !== undefined) {
+    return { code: 1, out: `${probe.stderr}\n${probe.error}` }
+  }
+  const resolved = probe.config as { embedder: { dtype: string } }
+  return { code: 0, out: `DTYPE=${resolved.embedder.dtype}\n${probe.stderr}` }
 }
 
 describe('embedder.dtype — declared contract', () => {
