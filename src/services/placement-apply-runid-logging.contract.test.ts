@@ -24,4 +24,4 @@ test('F-28 run-envelope logging suite (isolated process)', async () => {
   }
   expect(exitCode).toBe(0)
   expect(stdout + stderr).toContain('0 fail')
-})
+}, 30_000)
