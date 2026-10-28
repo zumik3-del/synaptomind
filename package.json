@@ -29,13 +29,16 @@
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.31.0",
-    "hono": "^4.13.5"
+    "hono": "^4.13.5",
+    "zod": "^4.6.7"
   },
   "overrides": {
     "adm-zip": "0.6.1",
+    "body-parser": "2.4.0",
     "fast-uri": "3.1.7",
     "proxy-addr": "2.0.8",
-    "sharp": "0.35.5"
+    "sharp": "0.35.5",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",

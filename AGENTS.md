@@ -81,7 +81,8 @@ Rollback is never automatic: restore the pre-update DB backup, then check out th
 - Project slug `synaptomind`; always pass `cwd`
 - Common tags: `decision`, `fact`, `gotcha`, `testing`, `architecture`
 - Durable knowledge ≤600 chars → `memory_store` (orchestrator only); search first
-  (`memory_recall` search, top_k=5)
+  (`memory_recall` search, `limit=5` — `top_k` was removed in 0.20 and is rejected
+  by the schema)
 
 ## 8. Known pitfalls & test gotchas
 
