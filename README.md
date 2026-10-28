@@ -454,7 +454,10 @@ Falls back to default instructions if file not found.
 ## Development
 
 ```bash
-bun run test             # canonical fast suite (src/)
+bun run test             # canonical suite (src/), sharded across parallel processes
+bun run test:unit        # fast lane: everything except the entry-point/child-boot tests
+bun run test:integration # slow lane: those entry-point/child-boot tests only
+bun run test:serial      # single-process oracle (`bun test src`), same file set
 bun run test:all         # full suite (src/ + deploy/ + eval/ + scripts/)
 bun run test:deploy      # deploy shell integration (deploy/)
 bun run test:eval        # retrieval quality gates (eval/)
@@ -465,7 +468,12 @@ bunx biome check src/ eval/   # lint (advisory)
 ```
 
 `bun test` (without a script) still runs the full suite; the canonical developer
-gate is `bun run test` (`bun test src`).
+gate is `bun run test`, which runs exactly the same `src/**/*.test.ts` set as
+`bun test src` but splits the files across several `bun test` processes — Bun
+runs test files sequentially in one process, so sharding is what uses the extra
+cores. `bun run test:serial` is the single-process fallback for bisecting a
+failure, and `--shards N` (or a `--` passthrough, e.g. `bun run test -- --bail`)
+is honoured by the runner. Lanes and shard weights live in `src/test/lanes.ts`.
 
 `vec0.so` is installed by `bun install` into the checkout that ran it, so a fresh
 git worktree has no copy of its own. `bunfig.toml` preloads `src/test/preload.ts`
