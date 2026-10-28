@@ -344,25 +344,42 @@ function filesUnder(dir: string): string[] {
 }
 
 describe('the sources carry no trace of the removed subsystem', () => {
-  test('no file under src/ mentions it — this guard file included', () => {
-    const hits: string[] = []
-    for (const file of filesUnder(SRC_DIR)) {
-      const text = readFileSync(file, 'utf8').toLowerCase()
-      for (const needle of NEEDLES) {
-        if (text.includes(needle.toLowerCase())) hits.push(`${relative(SRC_DIR, file)} :: ${needle}`)
+  // Both cases below walk the same tree. Reading every file under src/ costs
+  // ~2 s on a cold/slow filesystem (it was ~4.4 s per suite run when each case
+  // read the tree itself), so the text is loaded once per process and reused.
+  // The first read is also I/O-bound, so a parallel run on a slow mount can take
+  // several seconds: the per-case budget is raised instead of racing bun's 5 s.
+  let sources: Array<{ path: string; text: string }> | null = null
+  function sourceFiles(): Array<{ path: string; text: string }> {
+    sources ??= filesUnder(SRC_DIR).map(file => ({
+      path: relative(SRC_DIR, file),
+      text: readFileSync(file, 'utf8')
+    }))
+    return sources
+  }
+
+  test(
+    'no file under src/ mentions it — this guard file included',
+    () => {
+      const hits: string[] = []
+      for (const { path, text } of sourceFiles()) {
+        const lower = text.toLowerCase()
+        for (const needle of NEEDLES) {
+          if (lower.includes(needle.toLowerCase())) hits.push(`${path} :: ${needle}`)
+        }
       }
-    }
-    expect(hits).toEqual([])
-  })
+      expect(hits).toEqual([])
+    },
+    30_000
+  )
 
   test('no file under src/ mentions it under a looser spelling either', () => {
     // The needles above are the three spellings the project greps for. A
     // looser grep — a word boundary, a space, no separator at all — must find
     // nothing either, so the tree stays clean under any reasonable grep.
-    const hits: string[] = []
-    for (const file of filesUnder(SRC_DIR)) {
-      if (LOOSE.test(readFileSync(file, 'utf8'))) hits.push(relative(SRC_DIR, file))
-    }
+    const hits = sourceFiles()
+      .filter(({ text }) => LOOSE.test(text))
+      .map(({ path }) => path)
     expect(hits).toEqual([])
   })
 })
