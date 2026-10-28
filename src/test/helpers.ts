@@ -3,13 +3,70 @@ import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "../config";
-import { getDb } from "../db/container";
+import { getDb, setDb } from "../db/container";
 import { closeDb, initDb } from "../db/init";
 import { vec0Path } from "../runtime-mode";
 
+/**
+ * A migrated `:memory:` image, serialized once per test process.
+ *
+ * Why: `createTestDb` runs on the order of a thousand times per suite, and a
+ * fresh migration of all 42 steps costs ~4.7 ms each (~5.7 s of pure setup per
+ * run). `db.serialize()` costs ~0.4 ms and `Database.deserialize` ~0.02 ms, so
+ * every case still gets its own unshared database at a fraction of the price.
+ *
+ * The image is invalidated when `config.embedder.dimensions` changes, because
+ * the `vec_thoughts` DDL is rendered with it (same guard as `withVecDb`).
+ */
+let memoryImage: Uint8Array | null = null;
+let memoryImageDimensions: number | null = null;
+
+/** `Database.deserialize` landed after some Bun releases; keep the old path as a fallback. */
+const deserialize = (
+	Database as unknown as {
+		deserialize?: (serialized: Uint8Array) => Database;
+	}
+).deserialize;
+
+function buildMemoryImage(): Uint8Array {
+	initDb({ dbPath: ":memory:", runMigrations: true });
+	// Copy: the source view dies with the template connection below.
+	const image = new Uint8Array(getDb().serialize());
+	closeDb();
+	return image;
+}
+
+function memoryTemplate(): Uint8Array {
+	const dimensions = config.embedder.dimensions;
+	if (memoryImage !== null && memoryImageDimensions === dimensions) {
+		return memoryImage;
+	}
+	closeDb();
+	memoryImage = buildMemoryImage();
+	memoryImageDimensions = dimensions;
+	return memoryImage;
+}
+
+/**
+ * Fresh database for one test: the full migrated schema, no shared state.
+ *
+ * A copy of `memoryTemplate()` through `Database.deserialize` — not a second
+ * migration run. Falls back to a real migration on a Bun without
+ * `Database.deserialize`.
+ */
 export function createTestDb(): void {
 	closeDb();
-	initDb({ dbPath: ":memory:", runMigrations: true });
+	if (deserialize === undefined) {
+		initDb({ dbPath: ":memory:", runMigrations: true });
+		return;
+	}
+	const db = deserialize(memoryTemplate());
+	const busyTimeout = Number.isFinite(config.db.busyTimeout)
+		? Math.max(0, Math.floor(config.db.busyTimeout))
+		: 5000;
+	db.run(`PRAGMA busy_timeout = ${busyTimeout}`);
+	db.run("PRAGMA foreign_keys = ON");
+	setDb(db);
 }
 
 /**

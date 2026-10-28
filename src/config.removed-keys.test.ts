@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { DEFAULTS, ENV_MAPPINGS } from './config'
+import { loadFreshConfig } from './test/fresh-config'
 
 /**
  * The config surface left behind by the pruning tasks.
@@ -65,8 +66,6 @@ function readPath(obj: unknown, path: string): unknown {
   return current
 }
 
-const CONFIG_TS = resolve(import.meta.dir, 'config.ts')
-
 let SCRATCH = ''
 
 afterEach(() => {
@@ -90,27 +89,26 @@ function baseEnv(): Record<string, string> {
 }
 
 /**
- * Load `src/config.ts` as a fresh process in `cwd` (it reads `config.json` from
- * the working directory) and report the resolved config plus the module's
- * `DEFAULTS`. A failed load exits non-zero and prints no `RESOLVED=` line.
+ * Load `src/config.ts` with `cwd`'s `config.json` (when it has one) and report
+ * the resolved config plus the module's `DEFAULTS`. A failed load reports
+ * `code !== 0` and prints no `RESOLVED=` line.
  */
 async function loadConfig(cwd: string, env: Record<string, string> = {}): Promise<{ code: number; out: string }> {
-  const proc = Bun.spawn(
-    [
-      'bun',
-      '-e',
-      `const m = await import(${JSON.stringify(CONFIG_TS)});` +
-        `console.log('RESOLVED=' + JSON.stringify(m.config));` +
-        `console.log('DEFAULTS=' + JSON.stringify(m.DEFAULTS))`
-    ],
-    { cwd, env: { ...baseEnv(), ...env }, stdout: 'pipe', stderr: 'pipe' }
-  )
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited
-  ])
-  return { code, out: stdout + stderr }
+  const file = join(cwd, 'config.json')
+  const probe = await loadFreshConfig({
+    env: { ...baseEnv(), ...env },
+    configFile: existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as unknown) : undefined
+  })
+  if (probe.error !== undefined) {
+    return { code: 1, out: `${probe.stderr}\n${probe.error}` }
+  }
+  return {
+    code: 0,
+    out:
+      `RESOLVED=${JSON.stringify(probe.config)}\n` +
+      `DEFAULTS=${JSON.stringify(probe.defaults)}\n` +
+      probe.stderr
+  }
 }
 
 function parsedLine(out: string, prefix: string): Record<string, unknown> | null {

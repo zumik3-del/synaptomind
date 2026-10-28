@@ -16,7 +16,10 @@ Bun + Hono + SQLite (vec0 + FTS5); local embeddings via `@huggingface/transforme
 
 ## 3. Verification
 
-- tests: `bun run test` (`bun test src`, canonical "done" gate); full suite via `bun run test:all`
+- tests: `bun run test` (canonical "done" gate) — `scripts/test-parallel.ts`, the same
+  `src/**/*.test.ts` set as `bun test src`, sharded across parallel `bun test` processes
+  (`test:unit` fast lane / `test:integration` slow lane / `test:serial` single-process oracle);
+  full suite via `bun run test:all`
 - lint (advisory): `bunx biome check src/`
 - typecheck: `bun run tsc --noEmit`
 
@@ -41,7 +44,14 @@ orchestration in services). Error classes in `src/errors.ts` (neutral, cycle-fre
 ## 5. Testing setup
 
 - Helpers: `src/test/helpers.ts` — `createTestDb()`, `seedThought()`, `seedEdge()`, `seedEmbedding()`
-- Fresh DB per suite: `beforeEach(createTestDb)`
+- Fresh DB per suite: `beforeEach(createTestDb)` — a `Database.deserialize` copy of one migrated
+  `:memory:` image per test process (~0.1 ms, not a 42-migration run), so a migration is only
+  exercised by the migration tests themselves
+- Config load-time guards: `src/test/fresh-config.ts` (`loadFreshConfig`) re-evaluates `config.ts`
+  in-process with a scratch env/`config.json`; never spawn `bun -e` for one assertion
+- Runner: `scripts/test-parallel.ts` shards the files (Bun runs them sequentially in one process);
+  `src/test/lanes.ts` holds the lanes and shard weights, and `src/test/lanes.test.ts` fails when a
+  test that boots the entry point or binds a listener is missing from the slow lane
 - Glob: `*.test.ts` runs; `*.suite.ts` is excluded (isolated subprocess suites)
 - Gotchas → §8
 

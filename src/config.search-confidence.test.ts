@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { DEFAULTS, ENV_MAPPINGS } from './config'
+import { loadFreshConfig } from './test/fresh-config'
 
 /**
  * Task #2178: `search.confidence.unrelatedFloor` — the zero point of the
@@ -10,15 +11,10 @@ import { DEFAULTS, ENV_MAPPINGS } from './config'
  * `SYNAPTOMIND_SEARCH_CONFIDENCE_UNRELATED_FLOOR`.
  *
  * The key is resolved on the FINAL merged config (config.json, then env), so the
- * load-time cases run the real module in a child process with a scratch cwd —
- * the same pattern as `src/config.primer-bounds.test.ts`. No model, no DB.
+ * load-time cases evaluate the real module with a scratch `config.json` and a
+ * scratch environment (`loadFreshConfig`) — the same pattern as
+ * `src/config.primer-bounds.test.ts`. No model, no DB.
  */
-
-const CONFIG_TS = resolve(import.meta.dir, 'config.ts')
-
-const PROBE = `const m = await import(${JSON.stringify(CONFIG_TS)});
-console.log('FLOOR=' + m.config.search.confidence.unrelatedFloor);
-console.log('VECTORFLOOR=' + m.config.search.confidence.vectorFloor);`
 
 const FLOOR_ENV = 'SYNAPTOMIND_SEARCH_CONFIDENCE_UNRELATED_FLOOR'
 const VECTOR_ENV = 'SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR'
@@ -55,18 +51,22 @@ interface LoadResult {
 }
 
 async function loadConfig(cwd: string, env: Record<string, string> = {}): Promise<LoadResult> {
-  const proc = Bun.spawn([process.execPath, '-e', PROBE], {
-    cwd,
+  const file = join(cwd, 'config.json')
+  const probe = await loadFreshConfig({
     env: { ...baseEnv(), ...env },
-    stdout: 'pipe',
-    stderr: 'pipe'
+    configFile: existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as unknown) : undefined
   })
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited
-  ])
-  return { code, out: stdout, err: stderr }
+  if (probe.error !== undefined) {
+    return { code: 1, out: '', err: `${probe.stderr}\n${probe.error}` }
+  }
+  const resolved = probe.config as {
+    search: { confidence: { unrelatedFloor: number; vectorFloor: number } }
+  }
+  return {
+    code: 0,
+    out: `FLOOR=${resolved.search.confidence.unrelatedFloor}\nVECTORFLOOR=${resolved.search.confidence.vectorFloor}`,
+    err: probe.stderr
+  }
 }
 
 function resolved(out: string, key: string): string {

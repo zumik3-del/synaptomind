@@ -50,8 +50,22 @@ afterEach(async () => {
   delete process.env.SYNAPTOMIND_STUB_ATTEMPT_FILE
   delete process.env.SYNAPTOMIND_STUB_REQUEST_FILE
   delete process.env.SYNAPTOMIND_STUB_EXIT_FILE
+  delete process.env.EMBEDDER_BACKOFF_BASE_MS
   for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
+
+/**
+ * Shrink the client's start-failure backoff for the crash/cooldown cases.
+ *
+ * The production window is one second and doubles per attempt, so the three
+ * cases below used to sleep ~5 s each (15.6 s of a 19 s suite). The window's
+ * LENGTH is not under test — that the client backs off, latches and resumes is.
+ * `EMBEDDER_BACKOFF_BASE_MS` is the supervisor's own override (same shape as
+ * `EMBEDDER_START_TIMEOUT_MS`, which the deadline case injects).
+ */
+function shrinkBackoff(baseMs = 25): void {
+  process.env.EMBEDDER_BACKOFF_BASE_MS = String(baseMs)
+}
 
 /**
  * Point the client at the lifecycle stub; `attempts()` counts its spawns and
@@ -172,7 +186,8 @@ test('a crashed child latches getEmbedderState as failed until a real ready clea
   // LD_LIBRARY_PATH): attempt 1 dies, attempt 2 is the in-flight retry,
   // attempt 3 recovers. Expected stderr noise from the client's crash guard:
   // "[embedder] process exited unexpectedly with code 1".
-  const stub = useLifecycleStub('crash-then-recover', 2_000)
+  shrinkBackoff()
+  const stub = useLifecycleStub('crash-then-recover', 300)
 
   const started = startEmbedderProcess()
 
@@ -180,9 +195,10 @@ test('a crashed child latches getEmbedderState as failed until a real ready clea
   await waitFor(() => getEmbedderState() === 'failed', "getEmbedderState to latch 'failed'")
   expect(getHealthService().checks.embedder).toBe('failed')
 
-  // The retry loop respawns once a second. The live-but-not-ready retry must not
-  // read as 'starting' again — an unlatched state flaps back here, and the gate
-  // would then see a healthy-looking "not ready" forever.
+  // The retry loop respawns after the (injected, ~25 ms) backoff. The
+  // live-but-not-ready retry must not read as 'starting' again — an unlatched
+  // state flaps back here, and the gate would then see a healthy-looking "not
+  // ready" forever.
   await waitFor(() => stub.attempts() >= 2, 'the retry attempt to spawn')
   expect(getEmbedderState()).toBe('failed')
 
@@ -269,9 +285,10 @@ test('a deliberate teardown rejects an in-flight request with EmbedderUnavailabl
 // is what makes that late exit inert. A private client keeps a regressed guard's
 // damage out of the shared singleton the rest of the suite uses.
 test('a superseded idle-exit child cannot clobber its respawned successor (#1784)', async () => {
-  // Attempt 1 lingers 1.5 s after 'exiting', so the successor is spawned and
-  // ready well inside the window and the stale `exited` races a LIVE successor.
-  const stub = useLifecycleStub('idle-exit-once', 1_500)
+  // Attempt 1 lingers 0.5 s after 'exiting' — several times the ~60 ms a stub
+  // spawn plus its 'ready' takes, so the successor is live well inside the
+  // window and the stale `exited` races a LIVE successor.
+  const stub = useLifecycleStub('idle-exit-once', 500)
   const client = new EmbedderClient()
   await client.startEmbedderProcess()
   expect(client.getEmbedderState()).toBe('ok')
@@ -288,7 +305,7 @@ test('a superseded idle-exit child cannot clobber its respawned successor (#1784
 
   // (3) attempt 1 has since exited: its late `exited` must have been ignored
   await waitFor(() => stub.exited(), 'the superseded child to exit')
-  await new Promise(r => setTimeout(r, 150))
+  await new Promise(r => setTimeout(r, 50))
 
   expect(client.getEmbedderState()).toBe('ok')
   expect(Array.from(await client.generateEmbedding('hello'))).toEqual([5, 1, 2])
@@ -323,7 +340,8 @@ test('second concurrent ensureReady() reuses the same promise (single-flight)', 
 })
 
 test('startFailed latches backoffAttempt and a cooldown window before respawn', async () => {
-  useLifecycleStub('crash-then-recover', 2_000)
+  shrinkBackoff()
+  useLifecycleStub('crash-then-recover', 300)
   const client = new EmbedderClient()
   const started = client.startEmbedderProcess()
   started.catch(() => {})
@@ -414,27 +432,33 @@ test('teardown does not kill a newer live child', async () => {
   await teardownPromise
 
   expect(newProc).not.toBeNull()
-  await new Promise(r => setTimeout(r, 50))
-  expect(client.getEmbedderState()).toBe('ok')
+  await waitFor(() => client.getEmbedderState() === 'ok', 'the successor to report ready')
   await client.stopEmbedderProcess().catch(() => {})
 }, 15_000)
 
 test('cooldown branch is reachable and waits before respawn', async () => {
-  useLifecycleStub('crash-then-recover', 2_000)
+  // A window the poller can observe, still far below the production second: the
+  // behaviour under test is the WAIT, not its duration.
+  shrinkBackoff(300)
+  const stub = useLifecycleStub('crash-then-recover', 300)
   const client = new EmbedderClient()
   const started = client.startEmbedderProcess()
   started.catch(() => {})
 
   // Wait until the first crash has set a future cooldown.
-  await waitFor(() => {
-    const i = client as unknown as { cooldownUntil: number }
-    return i.cooldownUntil > Date.now()
-  }, 'cooldownUntil to be set in the future')
+  const internals = client as unknown as { backoffAttempt: number; cooldownUntil: number }
+  await waitFor(() => internals.cooldownUntil > Date.now(), 'cooldownUntil to be set in the future')
 
-  const i = client as unknown as { backoffAttempt: number; cooldownUntil: number }
-  expect(i.backoffAttempt).toBeGreaterThanOrEqual(1)
-  expect(i.cooldownUntil).toBeGreaterThan(Date.now() - 1)
+  expect(internals.backoffAttempt).toBeGreaterThanOrEqual(1)
 
-  await started.catch(() => {})
+  // Reachable is not enough: the loop must really sleep. While the window is
+  // still open, no respawn may happen (attempt 1 is the only one on disk). Sleep
+  // only half of what is left, so scheduling jitter cannot land us past the edge.
+  const attemptsAtLatch = stub.attempts()
+  const remaining = internals.cooldownUntil - Date.now()
+  await new Promise(r => setTimeout(r, Math.max(0, Math.floor(remaining / 2))))
+  expect(stub.attempts()).toBe(attemptsAtLatch)
+
   await client.stopEmbedderProcess().catch(() => {})
+  await started.catch(() => {})
 }, 30_000)

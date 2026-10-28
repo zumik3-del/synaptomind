@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { DEFAULTS } from './config'
+import { loadFreshConfig } from './test/fresh-config'
 
 /**
  * The `primer.topN` / `primer.promoteThreshold` bounds.
@@ -20,16 +21,11 @@ import { DEFAULTS } from './config'
  * ordering is the whole point of these cases: an earlier sanitizer would be
  * bypassed by `SYNAPTOMIND_PRIMER_TOP_N`.
  *
- * The load-time cases run the real module in a child process with a scratch
- * cwd (config.json is read from cwd) and read back the resolved knobs — the
- * same pattern as `src/config.dtype.test.ts`. No model, no network, no DB.
+ * The load-time cases evaluate the real module with a scratch `config.json` and
+ * a scratch environment (`loadFreshConfig`), in this process: a child `bun -e`
+ * per case cost ~60 ms of start-up for assertions that take microseconds. Still
+ * no model, no network, no DB.
  */
-
-const CONFIG_TS = resolve(import.meta.dir, 'config.ts')
-
-const PROBE = `const m = await import(${JSON.stringify(CONFIG_TS)});
-console.log('TOPN=' + m.config.primer.topN);
-console.log('PROMOTE=' + m.config.primer.promoteThreshold);`
 
 let SCRATCH = ''
 
@@ -66,21 +62,24 @@ interface LoadResult {
 }
 
 /**
- * Load `src/config.ts` as a fresh process in `cwd` and report what it resolved.
+ * Load `src/config.ts` with `cwd`'s config.json (when it has one) and report
+ * what it resolved.
  */
 async function loadConfig(cwd: string, env: Record<string, string> = {}): Promise<LoadResult> {
-  const proc = Bun.spawn([process.execPath, '-e', PROBE], {
-    cwd,
+  const file = join(cwd, 'config.json')
+  const probe = await loadFreshConfig({
     env: { ...baseEnv(), ...env },
-    stdout: 'pipe',
-    stderr: 'pipe'
+    configFile: existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as unknown) : undefined
   })
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited
-  ])
-  return { code, out: stdout, err: stderr }
+  if (probe.error !== undefined) {
+    return { code: 1, out: '', err: `${probe.stderr}\n${probe.error}` }
+  }
+  const resolved = probe.config as { primer: { topN: number; promoteThreshold: number } }
+  return {
+    code: 0,
+    out: `TOPN=${resolved.primer.topN}\nPROMOTE=${resolved.primer.promoteThreshold}`,
+    err: probe.stderr
+  }
 }
 
 /** The value the child printed for `key` ('TOPN' / 'PROMOTE'). */

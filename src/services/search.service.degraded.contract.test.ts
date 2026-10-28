@@ -19,4 +19,4 @@ test('search.service degraded suite (isolated process)', async () => {
   expect(exitCode).toBe(0)
   expect(stdout + stderr).toContain('0 fail')
   expect(stdout + stderr).not.toContain('skip')
-})
+}, 30_000)

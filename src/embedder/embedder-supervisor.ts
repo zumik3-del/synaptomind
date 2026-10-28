@@ -35,6 +35,12 @@ export type EmbedderState = 'ok' | 'starting' | 'failed' | 'stopped'
 // biome-ignore lint/style/useConst: mutable for test injection of the deadline
 export let EMBEDDER_START_TIMEOUT_MS = 300_000
 
+/** Ceiling of the exponential start-failure backoff (see `backoffBaseMs`). */
+const MAX_BACKOFF_MS = 30_000
+
+/** Production first backoff window; overridable via `EMBEDDER_BACKOFF_BASE_MS`. */
+const BACKOFF_BASE_MS = 1_000
+
 export function sleepUnref(ms: number): Promise<void> {
   return new Promise<void>(r => {
     const t = setTimeout(r, ms)
@@ -196,6 +202,23 @@ export class EmbedderSupervisor {
     return EMBEDDER_START_TIMEOUT_MS
   }
 
+  /**
+   * First backoff window after a failed start, doubled per attempt and capped at
+   * MAX_BACKOFF_MS. `EMBEDDER_BACKOFF_BASE_MS` overrides the production second:
+   * the lifecycle suite shrinks it (with the full second its three
+   * crash/cooldown cases spend ~5 s each asleep, which dominated the whole test
+   * run), and an operator can tune a pathological restart loop without a
+   * rebuild.
+   */
+  protected backoffBaseMs(): number {
+    const env = process.env.EMBEDDER_BACKOFF_BASE_MS
+    if (env) {
+      const n = Number(env)
+      if (Number.isFinite(n) && n > 0) return n
+    }
+    return BACKOFF_BASE_MS
+  }
+
   protected async runEnsureReady(): Promise<void> {
     const deadline = Date.now() + this.startTimeoutMs()
     while (Date.now() < deadline) {
@@ -258,7 +281,7 @@ export class EmbedderSupervisor {
         }
         if (this.startFailed) {
           this.backoffAttempt += 1
-          const delay = Math.min(1000 * 2 ** (this.backoffAttempt - 1), 30000)
+          const delay = Math.min(this.backoffBaseMs() * 2 ** (this.backoffAttempt - 1), MAX_BACKOFF_MS)
           this.cooldownUntil = Date.now() + delay
           this.deps.insertLog('warning', 'embedder', 'Embedder start failed; backing off', {
             backoffAttempt: this.backoffAttempt,

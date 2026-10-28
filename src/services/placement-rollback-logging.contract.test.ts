@@ -24,4 +24,4 @@ test('placement-rollback logging suite (isolated process)', async () => {
   }
   expect(exitCode).toBe(0)
   expect(stdout + stderr).toContain('0 fail')
-})
+}, 30_000)
