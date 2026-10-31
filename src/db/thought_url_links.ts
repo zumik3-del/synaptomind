@@ -68,11 +68,9 @@ export function deleteThoughtUrlLinksNotIn(db: Database, thoughtId: string, keys
 export function extractLinkKeys(content: string): string[] {
   const re = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
   const keys: string[] = []
-  let m: RegExpExecArray | null = re.exec(content)
-  while (m !== null) {
+  for (const m of content.matchAll(re)) {
     const k = m[1].trim()
     if (k) keys.push(k)
-    m = re.exec(content)
   }
   return keys
 }

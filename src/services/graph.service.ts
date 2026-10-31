@@ -65,18 +65,10 @@ export function getGraphDataService(
   projectId?: string | null,
   status: string = 'active',
   limit: number | null = null,
-  offsetOrDb?: number | Database | null,
+  offset: number | null = null,
   d: Database = getDb()
 ): GraphData {
-  // Backward-compatible: a Database passed as the 4th arg (legacy DI style) is
-  // treated as the db handle with offset 0.
-  let offset: number | null = null
-  let db: Database = d
-  if (offsetOrDb !== null && offsetOrDb !== undefined && typeof offsetOrDb === 'object' && 'prepare' in (offsetOrDb as object)) {
-    db = offsetOrDb as Database
-  } else {
-    offset = offsetOrDb as number | null
-  }
+  const db = d
 
   const effectiveLimit = resolveGraphLimit(limit)
   const effectiveOffset = resolveGraphOffset(offset)
