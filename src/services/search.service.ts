@@ -3,7 +3,7 @@ import { getDb } from '../db'
 import { type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
 export type { SearchResult } from '../db/search'
 import { getThoughtTagsBatch } from '../db/tags'
-import { getThought } from '../db/thoughts'
+import type { Thought } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
 import { generateEmbedding } from '../embedder/client'
 import { parseTags } from '../utils'
@@ -263,6 +263,13 @@ export function groupResultsByCluster(results: SearchResult[], d: Database = get
 
   const clusterByThought = getClusterForThoughtBatch(d, results.map(r => r.thought.id))
 
+  // `getClusterForThoughtBatch` already returns the cluster Thought objects, so
+  // build a lookup by cluster id and avoid a second SELECT per cluster below.
+  const clusterThoughtById = new Map<string, Thought>()
+  for (const cluster of clusterByThought.values()) {
+    if (!clusterThoughtById.has(cluster.id)) clusterThoughtById.set(cluster.id, cluster)
+  }
+
   for (const r of results) {
     const cluster = clusterByThought.get(r.thought.id)
     if (cluster) {
@@ -277,7 +284,7 @@ export function groupResultsByCluster(results: SearchResult[], d: Database = get
   const grouped: GroupedResult[] = [...nonCluster]
 
   for (const [clusterId, items] of clusterMap) {
-    const clusterThought = getThought(d, clusterId)
+    const clusterThought = clusterThoughtById.get(clusterId)
     if (clusterThought) {
       grouped.push({
         cluster: { id: clusterThought.id, content: clusterThought.content },
