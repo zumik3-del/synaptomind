@@ -5,6 +5,7 @@ import { config } from '../config'
 import { vec0Path } from '../runtime-mode'
 import { clearDb, getDb, setDb } from './container'
 import { MIGRATIONS } from './migrations'
+import { backupDatabase } from './backup'
 
 function loadVecExtension(database: Database, isMemory: boolean): void {
   if (isMemory) return
@@ -147,6 +148,18 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
     } catch (err) {
       if (isMemory) return
       throw err
+    }
+  }
+
+  // Back up the database before any pending migration runs: migrations are the
+  // only irreversible step, so a snapshot is only taken when there is work to
+  // do. `:memory:` databases and the test bootstrap path (runMigrations=false,
+  // which returns earlier) never reach here.
+  if (!isMemory) {
+    const pendingMigrations = MIGRATIONS.filter(m => m.version > current)
+    if (pendingMigrations.length > 0) {
+      const targetVersion = Math.max(...pendingMigrations.map(m => m.version))
+      backupDatabase(db, resolvedPath, targetVersion)
     }
   }
 
