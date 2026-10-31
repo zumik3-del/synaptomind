@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.20.1
+
+> October 31, 2026
+
+- [`f0c6f5fe`](https://github.com/zumik3-del/synaptomind/commit/f0c6f5fe590e10fe7db67ad3002cd017b4babdb3): refactor(graph,db): drop legacy DI compat and use matchAll for link keys
+- [`c77a5664`](https://github.com/zumik3-del/synaptomind/commit/c77a5664143173a72ab8c976c9951a2bfb343333): refactor(search,jobs): avoid cluster N+1 and add interval reentrancy guard
+- [`36fc5411`](https://github.com/zumik3-del/synaptomind/commit/36fc54113144932e79dd0fe89b5b68f3b7ac2389): docs: document the parallel test runner and the test lanes
+- [`62c339be`](https://github.com/zumik3-del/synaptomind/commit/62c339be480ee0691af7c75c4e87226d9d6d490c): test: shard the suite across parallel bun test processes
+- [`276ab9fc`](https://github.com/zumik3-del/synaptomind/commit/276ab9fcc53d63665434814fe0ad764b89dd6e40): test: shrink the embedder start-backoff waits via an env knob
+- [`911db002`](https://github.com/zumik3-del/synaptomind/commit/911db0022720c713ac6d92e215df1a67bd68ef36): test: scan the source tree once in the removed-subsystem guard
+- [`1a957a27`](https://github.com/zumik3-del/synaptomind/commit/1a957a2780fb18cbf39a24aa51aad9d2a56c8f7c): test: load config guards in-process instead of spawning a probe
+- [`1115edce`](https://github.com/zumik3-del/synaptomind/commit/1115edce92770cc8a7d35982cf33a2571011d39a): refactor(embedder): inject the model into the request handler
+- [`12e1f4af`](https://github.com/zumik3-del/synaptomind/commit/12e1f4af08c87dddf5afd3ad20d608d84927cdfe): test: build fresh test databases from a serialized snapshot
+- [`d0c27e86`](https://github.com/zumik3-del/synaptomind/commit/d0c27e8690441be41ad7b76991981da79697e8a3): chore(deps): declare zod as a direct dependency
+- [`f689bb9d`](https://github.com/zumik3-del/synaptomind/commit/f689bb9d63e81c8199b6bbb37c2d324d88d8028a): chore(deps): pin body-parser 2.4.0 and zod 4.6.7
+- [`5925fc10`](https://github.com/zumik3-del/synaptomind/commit/5925fc10f8f0140d60c138f8b411dcc082902b20): docs(agents): use limit instead of the removed top_k in the memory rule
+
 ## v0.20.0
 
 > October 26, 2026
