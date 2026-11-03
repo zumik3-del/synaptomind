@@ -29,7 +29,19 @@ interface DbEntry {
 
 function openAllDbs(): DbEntry[] {
   if (Array.isArray(config.users) && config.users.length > 0) {
-    return config.users.map(u => ({ id: u.id, db: openDatabase({ dbPath: u.dbPath }) }))
+    // Mirror boot fan-out (src/db/registry.ts): one bad DB must not kill the
+    // whole embedder child — skip it and keep serving the remaining ones.
+    const registered: DbEntry[] = []
+    for (const u of config.users) {
+      try {
+        const db = openDatabase({ dbPath: u.dbPath })
+        registered.push({ id: u.id, db })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[synaptomind] user ${u.id} database unavailable: ${msg}`)
+      }
+    }
+    return registered
   }
   // Legacy single-user mode: keep the singleton published so closeDb() works.
   initDb()
