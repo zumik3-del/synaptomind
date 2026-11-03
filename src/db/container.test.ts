@@ -1,31 +1,31 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { als, clearDb, clearRegistry, getDb, isMultiUser, register, setDb, setMultiUserMode } from '../db/container'
+import { als, clearDb, clearRegistry, getDb, isMultiUser, register, setDb } from '../db/container'
 import { config } from '../config'
+
+const DUMMY_USER = { id: 'u', dbPath: '/tmp/opencode/dummy.db', tokenSha256: 'a'.repeat(64) }
 
 describe('container fail-closed', () => {
   beforeEach(() => {
     clearRegistry()
     clearDb()
-    setMultiUserMode(false)
     config.users = []
   })
 
   afterEach(() => {
     clearRegistry()
     clearDb()
-    setMultiUserMode(false)
     config.users = []
   })
 
   test('unbound getDb throws in multi-user mode', () => {
-    setMultiUserMode(true)
+    config.users = [DUMMY_USER as any]
     expect(isMultiUser()).toBe(true)
     expect(() => getDb()).toThrow()
   })
 
   test('ALS binding works', () => {
-    setMultiUserMode(true)
+    config.users = [DUMMY_USER as any]
     const db = new Database(':memory:')
     register('u', db)
     als.run({ userId: 'u', db }, () => {
@@ -35,7 +35,7 @@ describe('container fail-closed', () => {
   })
 
   test('single-user fallback works', () => {
-    setMultiUserMode(false)
+    config.users = []
     clearRegistry()
     const db = new Database(':memory:')
     setDb(db)
