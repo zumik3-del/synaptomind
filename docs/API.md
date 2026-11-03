@@ -62,6 +62,10 @@ first load (model download), and the deploy/update gate fetches `/health` with `
 a `503` there would discard the very payload that explains the failure
 (`src/services/health.service.ts`).
 
+When `users` is configured, each user has a separate SQLite database
+(`users[].dbPath`); `/health` reports only the primary `db.path` database. See
+[CONFIG.md](CONFIG.md#users-multi-user).
+
 ### GET /api/health-check
 
 Graph health audit: broken links, orphans, duplicates, structural issues. Requires auth
