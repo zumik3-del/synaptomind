@@ -73,10 +73,10 @@ cp .env.example .env
 Exposure model: inside the container the server binds `0.0.0.0`; what the host —
 and therefore the network — can reach is controlled by `BIND_ADDR`.
 
-Without `SYNAPTOMIND_SECRET` (and with no `SYNAPTOMIND_SERVICE_TOKEN`), the
-server fails closed: authenticated API and MCP requests are rejected with
-`401`. `SYNAPTOMIND_ALLOW_INSECURE=true` disables auth for local development
-only.
+Without `SYNAPTOMIND_SECRET` in single-user mode (or a per-user token when
+`config.json` has a `users` list), the server fails closed: authenticated API
+and MCP requests are rejected with `401`. `SYNAPTOMIND_ALLOW_INSECURE=true`
+disables auth for local development only (single-user mode).
 
 For full configuration reference (all settings, env vars, defaults), see [CONFIG.md](CONFIG.md).
 

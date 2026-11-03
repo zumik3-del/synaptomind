@@ -304,12 +304,14 @@ Auth tokens via env vars only:
 
 | Env var | Purpose |
 |---------|---------|
-| `SYNAPTOMIND_SECRET` | Primary auth token (HTTP ops + MCP) |
-| `SYNAPTOMIND_SERVICE_TOKEN` | Secondary token (optional) |
+| `SYNAPTOMIND_SECRET` | Bearer token in single-user mode (`users: []`, the default) |
+| `SYNAPTOMIND_USER_TOKEN_<ID>` | Per-user bearer token when `config.json` has a `users` list; `SYNAPTOMIND_SECRET` is then inert |
 
-Without these, the server fails closed: authenticated API and MCP requests are
-rejected with `401` and a warning is logged at startup. For local development
-only, `SYNAPTOMIND_ALLOW_INSECURE=true` disables auth entirely.
+In multi-user mode every HTTP request must present one of the configured users'
+tokens and is served that user's database. Without a token the server fails
+closed: authenticated API and MCP requests are rejected with `401` and a warning
+is logged at startup. For local development only, `SYNAPTOMIND_ALLOW_INSECURE=true`
+disables auth entirely in single-user mode.
 
 See `config.json.example` for all options. Full reference: [docs/CONFIG.md](docs/CONFIG.md). Custom MCP instructions: [docs below](#custom-instructions).
 
@@ -353,10 +355,11 @@ chmod 644 config.json            # config.json must be readable by uid 10001
 echo "SYNAPTOMIND_SECRET=your-secret-token" > .env
 ```
 
-See `.env.example` for all variables. Without a token (`SYNAPTOMIND_SECRET`, or
-`SYNAPTOMIND_SERVICE_TOKEN`) the server fails closed — authenticated requests
-are rejected with `401`. Use `SYNAPTOMIND_ALLOW_INSECURE=true` for local
-development only.
+See `.env.example` for all variables. Without a token (`SYNAPTOMIND_SECRET` in
+single-user mode, or a configured user's token when `config.json` has a `users`
+list) the server fails closed — authenticated requests are rejected with `401`.
+Use `SYNAPTOMIND_ALLOW_INSECURE=true` for local development only (single-user
+mode).
 
 For full Docker guide (updating, backup, troubleshooting), see [docs/DOCKER.md](docs/DOCKER.md).
 
