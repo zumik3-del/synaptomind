@@ -5,9 +5,6 @@ import { VERSION } from '../version'
 
 // Per-DB probe results are cached for this long (task #2286).
 export const HEALTH_PROBE_TTL_MS = 30_000
-export const PROBE_TTL_MS = HEALTH_PROBE_TTL_MS
-export const HEALTH_PROBE_CACHE_TTL_MS = HEALTH_PROBE_TTL_MS
-export const HEALTH_PROBE_CACHE_TTL = HEALTH_PROBE_TTL_MS
 
 interface HealthCheckResult {
   status: 'ok' | 'degraded'
@@ -71,21 +68,11 @@ export function probeDatabase(db: Database, now: number = Date.now()): DbProbeRe
   return ok ? { status: 'ok' } : { status: 'degraded', error }
 }
 
-// Aliases for callers / tests that guess the name.
-export const probeDb = probeDatabase
-export const checkDatabase = probeDatabase
-export const probeDatabaseHealth = probeDatabase
-export const getDatabaseHealth = probeDatabase
-export const checkDb = probeDatabase
-
 export function clearHealthProbeCache(): void {
   probeCache.clear()
   lastRegistryFingerprint = registryFingerprint()
 }
 
-export const resetHealthProbeCache = clearHealthProbeCache
-export const invalidateHealthProbeCache = clearHealthProbeCache
-export const clearProbeCache = clearHealthProbeCache
 
 function collectDatabases(d?: Database): Array<{ userId?: string; db: Database }> {
   invalidateCacheIfRegistryChanged()
