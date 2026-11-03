@@ -115,6 +115,12 @@ fi
 # provides it.
 INSTALL_DIR="${INSTALL_DIR:-/opt/${APP_NAME:-app}}"
 
+if [ "${APP_BACKUP_ALREADY_DONE:-0}" = "1" ]; then
+  info "pre-update: built-in backup already performed; skipping duplicate."
+  info "pre-update: done."
+  exit 0
+fi
+
 info "pre-update: backing up databases..."
 while IFS= read -r rel; do
   [ -n "$rel" ] || continue

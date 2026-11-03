@@ -42,12 +42,14 @@ trap cleanup_run EXIT
 
 ARG_VERSION=""
 ASSUME_YES=false
+CHECK_BACKUP=false
 
 parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --version) ARG_VERSION="$2"; shift 2 ;;
       --yes|-y)  ASSUME_YES=true;  shift   ;;
+      --check-backup) CHECK_BACKUP=true; shift ;;
       --help|-h) sed -n '2,16p' "$0" 2>/dev/null || echo "See the comment header of update.sh"; exit 0 ;;
       *) error "unknown option: $1 (try --help)" ;;
     esac
@@ -97,7 +99,8 @@ DB_BACKUPS=()
 # wrong for any host whose database lives elsewhere.
 collect_db_backups() {
   local file="$1" line path
-  DB_BACKUPS=()
+  # Append to any backups already recorded by the built-in backup_databases
+  # (task #2297), deduping by canonical path.
   if [ ! -f "$file" ]; then return 0; fi
   while IFS= read -r line; do
     case "$line" in
@@ -106,7 +109,14 @@ collect_db_backups() {
         # Strip trailing whitespace, never a leading one: a path may contain a
         # space, and a mangled path is worse than none.
         path="${path%"${path##*[![:space:]]}"}"
-        if [ -n "$path" ]; then DB_BACKUPS+=("$path"); fi
+        if [ -n "$path" ]; then
+          # dedupe by canonical path
+          local _dup=0 _b
+          for _b in "${DB_BACKUPS[@]:-}"; do
+            if [ "$_b" = "$path" ]; then _dup=1; break; fi
+          done
+          [ "$_dup" -eq 0 ] && DB_BACKUPS+=("$path")
+        fi
         ;;
     esac
   done < "$file"
@@ -826,6 +836,28 @@ main() {
    # ${RUN_DIR}/scripts/app.env even when update.sh does not pass it explicitly.
    export RUN_DIR
 
+  if [ "$CHECK_BACKUP" = "true" ]; then
+    service_unit_context || true
+    service_environment || true
+    local tmp
+    tmp="$(mktemp)" || error "cannot create temp file"
+    if ! effective_db_paths > "$tmp" 2>"$tmp.err"; then
+      cat "$tmp.err" >&2 2>/dev/null || true
+      rm -f "$tmp" "$tmp.err"
+      error "backup resolution failed"
+      exit 1
+    fi
+    if [ -s "$tmp.err" ]; then cat "$tmp.err" >&2; fi
+    echo "CONTEXT_SOURCE=${CONTEXT_SOURCE:-unknown}"
+    echo "ENV_SOURCE=${ENV_SOURCE:-unknown}"
+    echo "RESOLVER_AGREEMENT=${RESOLVER_AGREEMENT:-bash-only}"
+    echo "EFFECTIVE_CONFIG_PATH=${EFFECTIVE_CONFIG_PATH:-}"
+    echo "DATABASES:"
+    cat "$tmp"
+    rm -f "$tmp" "$tmp.err"
+    exit 0
+  fi
+
   if [ "$DIST" = "source" ]; then
     [ -d "${INSTALL_DIR}/.git" ] || error "not installed at ${INSTALL_DIR} — run install.sh first"
     need_cmd git
@@ -917,6 +949,13 @@ main() {
   # service is still running the code it was running a minute ago, so there is
   # nothing to recover — print_recovery would only name backups of an install
   # that is untouched.
+  # Built-in fail-closed backup (task #2297): runs before the hook, in the
+  # release code every update fetches. Aborts before any swap on failure.
+  if ! backup_databases; then
+    error "pre-update backup failed — aborting before switching code"
+  fi
+  export APP_BACKUP_ALREADY_DONE=1
+
   if ! run_hook pre-update; then
     error "pre-update hook failed — aborting before switching code"
   fi

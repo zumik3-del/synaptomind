@@ -1986,3 +1986,697 @@ load_app_env() {
 
   error "app.env not found — copy app.env.example to app.env next to the scripts, or set APP_ENV_URL for curl|bash"
 }
+# ════════════════════════════════════════════════════════════════════════════
+#  Fail-closed pre-update database backup (task #2297, ADR 2026-11-03)
+# ════════════════════════════════════════════════════════════════════════════
+
+# Defaults (no new app.env keys required).
+: "${BACKUP_KEEP:=5}"
+: "${BACKUP_INTEGRITY:=quick}"
+
+# ── JSON config scanner (portable awk) ──────────────────────────────────────
+# Prints every database path found in a config.json (db.path + users[].dbPath),
+# one per line, with JSON escapes decoded. Returns non-zero on unreadable /
+# directory / unparseable input.
+_json_scan_config() {
+  local file="$1"
+  [ -e "$file" ] || return 0
+  if [ -d "$file" ]; then return 1; fi
+  [ -f "$file" ] || return 1
+  if [ ! -r "$file" ]; then return 1; fi
+
+  # Optional JSON validity check when a parser is available; falls back to awk.
+  if command -v node >/dev/null 2>&1; then
+    if ! node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" "$file" >/dev/null 2>&1; then
+      return 1
+    fi
+  elif command -v python3 >/dev/null 2>&1; then
+    if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$file" >/dev/null 2>&1; then
+      return 1
+    fi
+  fi
+
+  awk '
+  BEGIN { RS="\0" }
+  {
+    s=$0
+    n=length(s)
+    nt=0
+    i=1
+    while (i<=n) {
+      c=substr(s,i,1)
+      if (c==" "||c=="\t"||c=="\n"||c=="\r") { i++; continue }
+      if (c=="{"||c=="}"||c=="["||c=="]"||c==":"||c==",") {
+        nt++; tok[nt]=c; i++; continue
+      }
+      if (c=="\"") {
+        j=i+1; raw=""
+        while (j<=n) {
+          ch=substr(s,j,1)
+          if (ch=="\\") { raw=raw "\\" substr(s,j+1,1); j+=2; continue }
+          if (ch=="\"") break
+          raw=raw ch; j++
+        }
+        val=decode(raw)
+        nt++; tok[nt]="S:" val
+        i=j+1
+        continue
+      }
+      j=i
+      while (j<=n) {
+        ch=substr(s,j,1)
+        if (ch==" "||ch=="\t"||ch=="\n"||ch=="\r"||ch=="{"||ch=="}"||ch=="["||ch=="]"||ch==":"||ch==",") break
+        j++
+      }
+      nt++; tok[nt]="L:" substr(s,i,j-i)
+      i=j
+      continue
+    }
+
+    depth=0; pathDepth=0; keyPos=0; pending=""
+    capturePath=0; captureUser=0
+    mainPath=""; userCount=0
+    for (t=1; t<=nt; t++) {
+      x=tok[t]
+      if (x=="{") {
+        if (pending != "") { pathDepth++; path[pathDepth]=pending; pending="" }
+        depth++
+        frame[depth]="obj"
+        keyPos=1
+        capturePath=0; captureUser=0
+        continue
+      }
+      if (x=="}") {
+        if (pathDepth>0) pathDepth--
+        depth--
+        if (depth<0) depth=0
+        keyPos=0
+        capturePath=0; captureUser=0
+        continue
+      }
+      if (x=="[") {
+        if (pending != "") { pathDepth++; path[pathDepth]=pending; pending="" }
+        depth++
+        frame[depth]="arr"
+        idx[depth]=0
+        keyPos=0
+        capturePath=0; captureUser=0
+        continue
+      }
+      if (x=="]") {
+        if (pathDepth>0) pathDepth--
+        depth--
+        if (depth<0) depth=0
+        keyPos=0
+        capturePath=0; captureUser=0
+        continue
+      }
+      if (x==":") { keyPos=0; continue }
+      if (x==",") {
+        if (depth>0 && frame[depth]=="obj") keyPos=1
+        capturePath=0; captureUser=0
+        continue
+      }
+      if (substr(x,1,2)=="S:" || substr(x,1,2)=="L:") {
+        v=substr(x,3)
+        if (keyPos==1) {
+          pending=v
+          if (v=="dbPath") captureUser=1
+          if (v=="path") {
+            if (pathDepth>=1 && path[pathDepth]=="db") capturePath=1
+            else capturePath=0
+          }
+          keyPos=0
+          continue
+        }
+        if (capturePath) { mainPath=v; capturePath=0 }
+        if (captureUser) { userCount++; userPaths[userCount]=v; captureUser=0 }
+        if (pending != "") pending=""
+        continue
+      }
+    }
+    if (mainPath != "") print mainPath
+    for (u=1; u<=userCount; u++) print userPaths[u]
+  }
+  function decode(raw,   i, c, out, c2, hex, cp, n) {
+    out=""
+    n=length(raw)
+    i=1
+    while (i<=n) {
+      c=substr(raw,i,1)
+      if (c=="\\") {
+        c2=substr(raw,i+1,1)
+        if (c2=="\"") { out=out "\""; i+=2; continue }
+        if (c2=="\\") { out=out "\\"; i+=2; continue }
+        if (c2=="/") { out=out "/"; i+=2; continue }
+        if (c2=="n") { out=out "\n"; i+=2; continue }
+        if (c2=="t") { out=out "\t"; i+=2; continue }
+        if (c2=="r") { out=out "\r"; i+=2; continue }
+        if (c2=="b") { out=out "\b"; i+=2; continue }
+        if (c2=="f") { out=out "\f"; i+=2; continue }
+        if (c2=="u") {
+          hex=substr(raw,i+2,4)
+          cp=hex2dec(hex)
+          if (cp < 128) {
+            out=out sprintf("%c", cp)
+          } else if (cp < 2048) {
+            out=out sprintf("%c%c", 192+int(cp/64), 128+(cp%64))
+          } else {
+            out=out sprintf("%c%c%c", 224+int(cp/4096), 128+int((cp/64)%64), 128+(cp%64))
+          }
+          i+=6
+          continue
+        }
+        out=out c2; i+=2; continue
+      }
+      out=out c; i++
+    }
+    return out
+  }
+  function hex2dec(h,   i, d, v) {
+    v=0
+    for (i=1; i<=length(h); i++) {
+      d=substr(h,i,1)
+      if (d>="0" && d<="9") d=index("0123456789",d)-1
+      else if (d>="a" && d<="f") d=index("abcdef",d)+9
+      else if (d>="A" && d<="F") d=index("ABCDEF",d)+9
+      else d=0
+      v=v*16+d
+    }
+    return v
+  }
+  ' "$file"
+}
+
+# ── Service context resolver ────────────────────────────────────────────────
+UNIT_MAINPID=""
+UNIT_CWD=""
+UNIT_USER=""
+UNIT_EXEC=""
+CONTEXT_SOURCE=""
+ENV_IMAGE=""
+ENV_SOURCE=""
+ENV_PARTIAL=0
+
+service_unit_context() {
+  local unit="${APP_NAME:-synaptomind}.service"
+  UNIT_MAINPID=""; UNIT_CWD=""; UNIT_USER=""; UNIT_EXEC=""; CONTEXT_SOURCE=""
+
+  # layer 1: running process
+  local pid=""
+  pid="$(systemctl show "$unit" -p MainPID 2>/dev/null | sed -n 's/^MainPID=//p')" || pid=""
+  case "$pid" in ''|0|*[!0-9]*) pid="" ;; esac
+  if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then
+    UNIT_MAINPID="$pid"
+    UNIT_CWD="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || readlink "/proc/$pid/cwd" 2>/dev/null || true)"
+    UNIT_USER="$(stat -c '%U' "/proc/$pid" 2>/dev/null || true)"
+    UNIT_EXEC="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    CONTEXT_SOURCE="observed"
+    return 0
+  fi
+
+  # layer 2: systemctl show
+  local wd user execp
+  wd="$(systemctl show "$unit" -p WorkingDirectory 2>/dev/null | sed -n 's/^WorkingDirectory=//p')" || wd=""
+  user="$(systemctl show "$unit" -p User 2>/dev/null | sed -n 's/^User=//p')" || user=""
+  execp="$(systemctl show "$unit" -p ExecStart 2>/dev/null | sed -n 's/^ExecStart=//p')" || execp=""
+  if [ -n "$wd" ]; then
+    UNIT_CWD="$wd"
+    UNIT_USER="$user"
+    UNIT_EXEC="$execp"
+    CONTEXT_SOURCE="derived"
+    return 0
+  fi
+
+  # layer 3: unit file on disk
+  local uf="${UNIT_FILE:-}"
+  if [ -z "$uf" ]; then
+    # try FragmentPath
+    local fp
+    fp="$(systemctl show "$unit" -p FragmentPath 2>/dev/null | sed -n 's/^FragmentPath=//p')" || fp=""
+    [ -n "$fp" ] && uf="$fp"
+  fi
+  if [ -n "$uf" ] && [ -r "$uf" ]; then
+    UNIT_CWD="$(sed -n 's/^[[:space:]]*WorkingDirectory=//p' "$uf" | tail -1)"
+    UNIT_USER="$(sed -n 's/^[[:space:]]*User=//p' "$uf" | tail -1)"
+    UNIT_EXEC="$(sed -n 's/^[[:space:]]*ExecStart=//p' "$uf" | tail -1)"
+    CONTEXT_SOURCE="derived"
+    return 0
+  fi
+
+  # layer 4: app.env only
+  UNIT_CWD="${INSTALL_DIR:-}"
+  UNIT_USER="${TARGET_USER:-}"
+  UNIT_EXEC="${EXEC_START:-}"
+  CONTEXT_SOURCE="assumed"
+  return 0
+}
+
+service_environment() {
+  # Ensure context resolved.
+  [ -n "$CONTEXT_SOURCE" ] || service_unit_context
+  ENV_IMAGE=""; ENV_SOURCE=""; ENV_PARTIAL=0
+
+  if [ "$CONTEXT_SOURCE" = "observed" ] && [ -n "$UNIT_MAINPID" ] && [ -r "/proc/$UNIT_MAINPID/environ" ]; then
+    ENV_IMAGE="$(tr '\0' '\n' < "/proc/$UNIT_MAINPID/environ" 2>/dev/null || true)"
+    ENV_SOURCE="observed"
+    return 0
+  fi
+
+  # derived from unit
+  if [ "$CONTEXT_SOURCE" = "derived" ] || [ "$CONTEXT_SOURCE" = "assumed" ]; then
+    local unit="${APP_NAME:-synaptomind}.service"
+    # Environment= lines from systemctl show
+    local envline envfiles
+    envline="$(systemctl show "$unit" -p Environment 2>/dev/null | sed -n 's/^Environment=//p')" || envline=""
+    envfiles="$(systemctl show "$unit" -p EnvironmentFiles 2>/dev/null | sed -n 's/^EnvironmentFiles=//p')" || envfiles=""
+
+    # Also parse unit file on disk for Environment=/EnvironmentFile=
+    local uf="${UNIT_FILE:-}"
+    if [ -z "$uf" ]; then
+      local fp
+      fp="$(systemctl show "$unit" -p FragmentPath 2>/dev/null | sed -n 's/^FragmentPath=//p')" || fp=""
+      [ -n "$fp" ] && uf="$fp"
+    fi
+
+    # Build env map: start with Environment= (space-separated KEY=VALUE)
+    declare -A envmap 2>/dev/null || true
+    local k v pair
+    for pair in $envline; do
+      k="${pair%%=*}"
+      v="${pair#*=}"
+      envmap["$k"]="$v"
+    done
+
+    # Unit file Environment= lines
+    if [ -n "$uf" ] && [ -r "$uf" ]; then
+      while IFS= read -r line; do
+        case "$line" in
+          Environment=*)
+            local rest="${line#Environment=}"
+            # rest may be KEY=VALUE (single) per unit; but render emits one per line
+            k="${rest%%=*}"
+            v="${rest#*=}"
+            envmap["$k"]="$v"
+            ;;
+          EnvironmentFile=*)
+            envfiles="${envfiles} ${line#EnvironmentFile=}"
+            ;;
+        esac
+      done < "$uf"
+    fi
+
+    # EnvironmentFiles
+    for f in $envfiles; do
+      [ -z "$f" ] && continue
+      local optional=0
+      case "$f" in -*) optional=1; f="${f#-}" ;; esac
+      if [ ! -r "$f" ]; then
+        if [ "$optional" -eq 0 ]; then ENV_PARTIAL=1; fi
+        continue
+      fi
+      while IFS= read -r line; do
+        case "$line" in
+          ''|\#*) continue ;;
+          *=*) 
+            k="${line%%=*}"
+            v="${line#*=}"
+            envmap["$k"]="$v"
+            ;;
+        esac
+      done < "$f"
+    done
+
+    # Emit
+    for k in "${!envmap[@]}"; do
+      ENV_IMAGE="${ENV_IMAGE}${k}=${envmap[$k]}"$'\n'
+    done
+    ENV_SOURCE="derived"
+    # If systemctl show returned nothing at all, mark unknown.
+    if [ -z "$envline" ] && [ -z "$envfiles" ] && [ -z "$uf" ]; then
+      # check if any env present in current process? 
+      if [ -z "$ENV_IMAGE" ]; then ENV_SOURCE="unknown"; fi
+    fi
+    return 0
+  fi
+
+  # fallback assumed
+  ENV_SOURCE="assumed"
+  return 0
+}
+
+# ── Environment value lookup helper ─────────────────────────────────────────
+_env_get() {
+  # look up KEY in ENV_IMAGE or current environment
+  local key="$1"
+  local val
+  val="$(printf '%s\n' "$ENV_IMAGE" | sed -n "s/^${key}=//p" | tail -1)"
+  if [ -z "$val" ] && [ -n "${!key:-}" ]; then val="${!key}"; fi
+  # also current env
+  if [ -z "$val" ]; then
+    case "$key" in
+      SYNAPTOMIND_CONFIG) val="${SYNAPTOMIND_CONFIG:-}" ;;
+      SYNAPTOMIND_DB_PATH) val="${SYNAPTOMIND_DB_PATH:-}" ;;
+      NODE_ENV) val="${NODE_ENV:-}" ;;
+    esac
+  fi
+  printf '%s' "$val"
+}
+
+# ── Effective DB paths ──────────────────────────────────────────────────────
+EFFECTIVE_CONFIG_PATH=""
+RESOLVER_AGREEMENT="bash-only"
+
+effective_db_paths() {
+  [ -n "$CONTEXT_SOURCE" ] || service_unit_context
+  [ -n "$ENV_SOURCE" ] || service_environment
+
+  local cwd="${UNIT_CWD:-${INSTALL_DIR:-.}}"
+  [ -n "$cwd" ] || cwd="."
+
+  # Collect env values
+  local syn_config syn_db_path node_env
+  syn_config="$(_env_get SYNAPTOMIND_CONFIG)"
+  syn_db_path="$(_env_get SYNAPTOMIND_DB_PATH)"
+  node_env="$(_env_get NODE_ENV)"
+  # trim
+  syn_config="$(printf '%s' "$syn_config" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+
+  # Config candidates
+  local -a candidates=()
+  if [ -n "$syn_config" ]; then candidates+=("$syn_config"); fi
+  candidates+=("/config.json")
+  candidates+=("${cwd}/config.json")
+
+  # DATA dirs for discovery
+  local data_dir="${DATA_DIR:-${INSTALL_DIR:+${INSTALL_DIR}/data}}"
+  [ -n "$data_dir" ] || data_dir="${cwd}/data"
+
+  # Collect paths in a temp file
+  local tmp
+  tmp="$(mktemp)" || { warn "cannot create temp file"; return 1; }
+  # track canonical set
+  local -A seen_inode=() seen_canon=()
+  local -a result=()
+
+  add_path() {
+    local p="$1"
+    [ -n "$p" ] || return 0
+    # resolve relative to cwd
+    case "$p" in
+      /*) : ;;
+      *) p="${cwd}/${p}" ;;
+    esac
+    # canonicalize directory
+    local dir base canon inode
+    dir="$(dirname -- "$p")"
+    base="$(basename -- "$p")"
+    if [ -d "$dir" ]; then
+      dir="$(cd -P -- "$dir" 2>/dev/null && pwd -P)" || true
+    fi
+    canon="${dir}/${base}"
+    if [ -n "${seen_canon[$canon]:-}" ]; then return 0; fi
+    seen_canon[$canon]=1
+    if [ -e "$p" ]; then
+      inode="$(stat -c '%d:%i' "$p" 2>/dev/null || true)"
+      if [ -n "$inode" ] && [ -n "${seen_inode[$inode]:-}" ]; then return 0; fi
+      [ -n "$inode" ] && seen_inode[$inode]=1
+    fi
+    result+=("$canon")
+    printf '%s\n' "$canon" >> "$tmp"
+  }
+
+  # Parse config candidates
+  local first_config=""
+  local -a config_paths_found=()
+  for c in "${candidates[@]}"; do
+    [ -e "$c" ] || continue
+    if [ -z "$first_config" ]; then first_config="$c"; fi
+    EFFECTIVE_CONFIG_PATH="$first_config"
+    if ! _json_scan_config "$c" >/dev/null 2>&1; then
+      # parse failure on existing candidate -> abort
+      rm -f "$tmp"
+      warn "config candidate cannot be read or parsed: $c"
+      return 1
+    fi
+    while IFS= read -r dbp; do
+      [ -n "$dbp" ] && add_path "$dbp"
+    done < <(_json_scan_config "$c")
+  done
+
+  # If no candidate found, first_config empty
+  if [ -z "$first_config" ]; then
+    # maybe SYNAPTOMIND_CONFIG was set but missing -> F4? 
+    EFFECTIVE_CONFIG_PATH=""
+  else
+    EFFECTIVE_CONFIG_PATH="$first_config"
+  fi
+
+  # SYNAPTOMIND_DB_PATH overrides db.path: add it (already covers main)
+  if [ -n "$syn_db_path" ]; then
+    add_path "$syn_db_path"
+  fi
+
+  # dotenv additive
+  local -a dotenv_files=("${cwd}/.env" "${cwd}/.env.local")
+  if [ -n "$node_env" ]; then
+    dotenv_files+=("${cwd}/.env.${node_env}" "${cwd}/.env.${node_env}.local")
+  fi
+  for df in "${dotenv_files[@]}"; do
+    [ -f "$df" ] && [ -r "$df" ] || continue
+    while IFS= read -r line; do
+      case "$line" in
+        SYNAPTOMIND_DB_PATH=*|SYNAPTOMIND_CONFIG=*)
+          local val="${line#*=}"
+          # strip quotes
+          val="${val%\"}"; val="${val#\"}"; val="${val%\'}"; val="${val#\'}"
+          if [ "${line%%=*}" = "SYNAPTOMIND_DB_PATH" ]; then
+            [ -n "$val" ] && add_path "$val"
+          else
+            # config path from dotenv
+            if [ -n "$val" ] && [ -e "$val" ]; then
+              if _json_scan_config "$val" >/dev/null 2>&1; then
+                while IFS= read -r dbp; do
+                  [ -n "$dbp" ] && add_path "$dbp"
+                done < <(_json_scan_config "$val")
+              fi
+            fi
+          fi
+          ;;
+      esac
+    done < "$df"
+  done
+
+  # Discovery net: find *.db/*.sqlite under data dirs and parents, maxdepth 2, magic filter
+  local -a search_dirs=("$data_dir" "${INSTALL_DIR:-}/data" "$cwd/data")
+  # parent dirs of found paths
+  local p
+  for p in "${result[@]}"; do
+    search_dirs+=("$(dirname -- "$p")")
+  done
+  # dedupe search_dirs
+  local -a uniq_dirs=()
+  local d
+  for d in "${search_dirs[@]}"; do
+    [ -n "$d" ] || continue
+    [ -d "$d" ] || continue
+    local dup=0
+    for u in "${uniq_dirs[@]}"; do [ "$u" = "$d" ] && dup=1; done
+    [ "$dup" -eq 0 ] && uniq_dirs+=("$d")
+  done
+
+  local f
+  for d in "${uniq_dirs[@]}"; do
+    while IFS= read -r -d '' f; do
+      # magic number check
+      local magic
+      magic="$(head -c 16 "$f" 2>/dev/null | tr -d '\0' || true)"
+      # expected "SQLite format 3" (15 chars + NUL)
+      local first15
+      first15="$(head -c 15 "$f" 2>/dev/null || true)"
+      if [ "$first15" = "SQLite format 3" ]; then
+        add_path "$f"
+      fi
+    done < <(find "$d" -maxdepth 2 -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -print0 2>/dev/null)
+  done
+
+  # Fail-closed rules for empty result
+  if [ "${#result[@]}" -eq 0 ]; then
+    # determine if unit active
+    local active="no"
+    if systemctl is-active "${APP_NAME:-synaptomind}" >/dev/null 2>&1; then active="yes"; fi
+    # Only fail closed when there is evidence that a database SHOULD exist:
+    # a resolved config file, or an observed (live) service environment. A
+    # synthetic/derived environment with no config is a clean or pre-install
+    # state, not a missed database.
+    if [ "$active" = "yes" ] && { [ -n "${first_config:-}" ] || [ "${ENV_SOURCE:-}" = "observed" ]; }; then
+      rm -f "$tmp"
+      warn "no database found while the service is active — refusing to proceed"
+      return 1
+    fi
+    if [ "$ENV_PARTIAL" -eq 1 ]; then
+      rm -f "$tmp"
+      warn "environment is partial (unreadable EnvironmentFile) and no database was found"
+      return 1
+    fi
+    if [ "$ENV_SOURCE" = "unknown" ]; then
+      rm -f "$tmp"
+      warn "environment source is unknown and no database was found"
+      return 1
+    fi
+    # skip (clean pre-install)
+    rm -f "$tmp"
+    return 0
+  fi
+
+  # Print result
+  for p in "${result[@]}"; do
+    printf '%s\n' "$p"
+  done
+
+  rm -f "$tmp"
+  return 0
+}
+
+# ── Backup a single database ───────────────────────────────────────────────
+backup_one_db() {
+  local db="$1"
+  local ts out backup_dir escaped src_ver copy_check copy_ver n
+  # n is global counter; ensure set
+  : "${_BACKUP_COUNTER:=0}"
+  _BACKUP_COUNTER=$((_BACKUP_COUNTER + 1))
+  n="$_BACKUP_COUNTER"
+
+  # Must exist to back up
+  if [ ! -e "$db" ]; then
+    info "No database at ${db} — skipping backup."
+    return 0
+  fi
+  if [ ! -f "$db" ]; then
+    info "Not a regular file at ${db} — skipping backup."
+    return 0
+  fi
+  # magic number
+  local first15
+  first15="$(head -c 15 "$db" 2>/dev/null || true)"
+  if [ "$first15" != "SQLite format 3" ]; then
+    info "Not a SQLite database at ${db} — skipping backup."
+    return 0
+  fi
+
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    error "sqlite3 not found — cannot back up ${db}; aborting before switching code"
+    return 1
+  fi
+
+  # resolve symlink
+  if [ -L "$db" ]; then
+    db="$(readlink -f "$db")"
+  fi
+
+  backup_dir="${db}.backup"
+  if ! mkdir -p "$backup_dir"; then
+    error "cannot create backup directory ${backup_dir}; aborting before switching code"
+    return 1
+  fi
+
+  ts="$(date +%Y%m%d-%H%M%S)"
+  out="${backup_dir}/$(basename "$db").${ts}-$$-${n}.bak"
+
+  if [ -e "$out" ]; then
+    error "backup destination already exists: ${out}; aborting before switching code"
+    return 1
+  fi
+
+  escaped="${out//\'/\'\'}"
+  if ! sqlite3 -cmd ".timeout 10000" "$db" ".backup '${escaped}'"; then
+    rm -f "$out"
+    error "failed to back up ${db} — aborting before switching code"
+    return 1
+  fi
+
+  # verify
+  copy_check="$(sqlite3 "$out" 'PRAGMA quick_check;' 2>/dev/null || true)"
+  if [ "$copy_check" != "ok" ]; then
+    rm -f "$out"
+    error "backup verification (quick_check) failed for ${db} — aborting before switching code"
+    return 1
+  fi
+  src_ver="$(sqlite3 "$db" 'PRAGMA user_version;' 2>/dev/null || true)"
+  copy_ver="$(sqlite3 "$out" 'PRAGMA user_version;' 2>/dev/null || true)"
+  if [ "$src_ver" != "$copy_ver" ]; then
+    rm -f "$out"
+    error "backup verification (user_version) failed for ${db} — aborting before switching code"
+    return 1
+  fi
+
+  info "Database backed up: ${out}"
+  DB_BACKUPS+=("$out")
+
+  # retention
+  if [ "${BACKUP_KEEP:-5}" -gt 0 ] 2>/dev/null; then
+    local keep="${BACKUP_KEEP}"
+    # collect matching files
+    local -a files=()
+    while IFS= read -r f; do
+      [ -n "$f" ] && files+=("$f")
+    done < <(find "$backup_dir" -maxdepth 1 -type f -name "$(basename "$db").[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.bak" 2>/dev/null | sort)
+    if [ "${#files[@]}" -gt "$keep" ]; then
+      local remove_count=$((${#files[@]} - keep))
+      local i
+      for ((i=0; i<remove_count; i++)); do
+        rm -f "${files[$i]}" 2>/dev/null || warn "could not prune ${files[$i]}"
+      done
+    fi
+  fi
+
+  return 0
+}
+
+# ── Orchestrate backups ─────────────────────────────────────────────────────
+backup_databases() {
+  DB_BACKUPS=()
+  _BACKUP_COUNTER=0
+
+  local tmp
+  tmp="$(mktemp)" || { warn "cannot create temp file"; return 1; }
+  if ! effective_db_paths > "$tmp" 2>"$tmp.err"; then
+    # print stderr
+    cat "$tmp.err" >&2 2>/dev/null || true
+    rm -f "$tmp" "$tmp.err"
+    return 1
+  fi
+  # collect
+  dbs=()
+  while IFS= read -r p; do
+    [ -n "$p" ] && dbs+=("$p")
+  done < "$tmp"
+  # stderr messages
+  if [ -s "$tmp.err" ]; then cat "$tmp.err" >&2; fi
+  rm -f "$tmp" "$tmp.err"
+
+  # sqlite3 check if any db exists
+  local has_db=0
+  for p in "${dbs[@]}"; do
+    if [ -f "$p" ]; then has_db=1; fi
+  done
+  if [ "$has_db" -eq 1 ] && ! command -v sqlite3 >/dev/null 2>&1; then
+    error "sqlite3 not found — cannot back up databases; aborting before switching code"
+    return 1
+  fi
+
+  local rc=0
+  for p in "${dbs[@]}"; do
+    if ! backup_one_db "$p"; then
+      rc=1
+      break
+    fi
+  done
+
+  export APP_BACKUP_ALREADY_DONE=1
+  return "$rc"
+}
+
+# ── Compatibility aliases ──────────────────────────────────────────────────
+resolve_db_paths() { effective_db_paths "$@"; }
+service_context() { service_unit_context "$@"; }
