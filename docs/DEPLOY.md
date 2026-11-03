@@ -213,6 +213,22 @@ The health URL resolves from `config.json` `server.port` / `PORT` (default
 `http://127.0.0.1:3105/health`); override it with `HEALTH_URL` in
 `deploy/app.env`.
 
+If a configured database is unavailable, `/health` returns HTTP 503. The deploy
+gate accepts this as **running but degraded**, not healthy, only when the body
+passes strict JSON and health-contract validation, its version matches the
+expected version, and the embedder has not failed. It warns the operator to
+investigate the database. This 503 path requires `curl` and `python3` and a known
+expected version; without them it fails closed as an unverified timeout. Wrong
+versions, malformed responses, and embedder failure do not pass. A timeout can
+also mean the service did not respond; inspect the endpoint and logs before
+taking recovery action. No recovery is automatic.
+
+The Dockerfile and Compose health checks also use `curl -f`: HTTP 503 counts as
+a failed probe, so partial or total database unavailability eventually makes the
+container unhealthy after the configured retries. Docker health status does not
+itself restart the container; investigate the unavailable database rather than
+assuming the health check repaired it.
+
 ### Rollback
 
 Schema migrations are **forward-only** (`src/db/init.ts:127`): the server applies

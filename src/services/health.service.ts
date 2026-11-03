@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { getDb, registry } from '../db'
+import { config } from '../config'
 import { getEmbedderState, type EmbedderState } from '../embedder/client-core'
 import { VERSION } from '../version'
 
@@ -91,7 +92,7 @@ export function getHealthService(d?: Database): HealthCheckResult {
   const checks: Record<string, string> = {}
 
   const dbs = collectDatabases(d)
-  let allOk = true
+  let allOk = !(config.users?.length && config.users.some(user => !registry.has(user.id)))
   if (dbs.length === 0) {
     checks.database = 'degraded'
     allOk = false
@@ -113,8 +114,8 @@ export function getHealthService(d?: Database): HealthCheckResult {
   // (model download), and the Docker healthcheck start_period (10s) is shorter,
   // so counting it would mark healthy containers unhealthy during startup. A
   // FAILED embedder is reported in checks.embedder instead, never in `status`:
-  // the deploy gate fetches /health with `curl -f`, so a 503 would discard the
-  // very payload that explains the failure (deploy/lib/common.sh wait_health).
+  // the deploy gate inspects this field separately (deploy/lib/common.sh
+  // wait_health).
   const ok = checks.database === 'ok'
   return { status: ok ? 'ok' : 'degraded', version: VERSION, checks }
 }
