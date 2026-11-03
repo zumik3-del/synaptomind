@@ -34,11 +34,10 @@ describe('shared auth middleware behaviour', () => {
   const previous: Record<string, string | undefined> = {}
 
   beforeAll(() => {
-    for (const key of ['SYNAPTOMIND_SECRET', 'SYNAPTOMIND_SERVICE_TOKEN', 'SYNAPTOMIND_ALLOW_INSECURE']) {
+    for (const key of ['SYNAPTOMIND_SECRET', 'SYNAPTOMIND_ALLOW_INSECURE']) {
       previous[key] = process.env[key]
     }
     process.env.SYNAPTOMIND_SECRET = SECRET
-    delete process.env.SYNAPTOMIND_SERVICE_TOKEN
     delete process.env.SYNAPTOMIND_ALLOW_INSECURE
   })
 
