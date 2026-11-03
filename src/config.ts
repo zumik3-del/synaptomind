@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'fs'
-import { join } from 'path'
+import { isAbsolute, join } from 'path'
 import { sanitizePrimerBounds } from './config.primer-bounds'
 import { sanitizeRetentionReviewBounds } from './config.retention-review-bounds'
 
@@ -20,6 +21,12 @@ export function assertEmbedderDtype(dtype: unknown, source: string): void {
   throw new Error(
     `[config] invalid embedder.dtype from ${source}: "${String(dtype)}" (allowed values: ${EMBEDDER_DTYPES.join(', ')})`
   )
+}
+
+export interface UserConfig {
+  id: string
+  dbPath: string
+  tokenSha256: string
 }
 
 interface Config {
@@ -56,6 +63,7 @@ interface Config {
   search: { confidence: { vectorFloor: number; unrelatedFloor: number } }
   rateLimit: { max: number; windowMs: number; trustProxy: boolean }
   retentionReview: { minAgeDays: number; importanceFloor: number; pageSize: number }
+  users: UserConfig[]
 }
 
 export const DEFAULTS: Config = {
@@ -112,7 +120,8 @@ export const DEFAULTS: Config = {
   // (`DEFAULT_MIN_RELEVANCE` in `search-normalize.ts`) is set from the same run.
   search: { confidence: { vectorFloor: 0.9, unrelatedFloor: 0.8 } },
   rateLimit: { max: 200, windowMs: 60_000, trustProxy: false },
-  retentionReview: { minAgeDays: 30, importanceFloor: 0.3, pageSize: 20 }
+  retentionReview: { minAgeDays: 30, importanceFloor: 0.3, pageSize: 20 },
+  users: []
 }
 
 type EnvType = 'string' | 'int' | 'float' | 'bool' | 'list'
@@ -297,8 +306,85 @@ function applyEnvOverrides(fileConfig: Partial<Config>): Config {
   // would be bypassed by it.
   merged.primer = sanitizePrimerBounds(merged.primer, DEFAULTS.primer)
   merged.retentionReview = sanitizeRetentionReviewBounds(merged.retentionReview, DEFAULTS.retentionReview)
+  merged.users = validateUsers(merged.users, 'config.json')
 
   return merged as unknown as Config
 }
+
+export function hashUserToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
+
+export function validateUsers(input: unknown, source = 'config.json'): UserConfig[] {
+  let raw: unknown = input
+  if (raw === undefined || raw === null) raw = []
+  if (isPlainObject(raw) && Array.isArray((raw as Record<string, unknown>).users)) {
+    raw = (raw as Record<string, unknown>).users
+  }
+  if (!Array.isArray(raw)) {
+    throw new Error(`[config] invalid users from ${source}: expected an array, got ${typeof raw}`)
+  }
+  const ids = new Set<string>()
+  const paths = new Set<string>()
+  const hashes = new Set<string>()
+  const result: UserConfig[] = []
+  for (const entry of raw) {
+    if (!isPlainObject(entry)) {
+      throw new Error(`[config] invalid user entry from ${source}: expected an object`)
+    }
+    if ('token' in entry || 'password' in entry || 'secret' in entry) {
+      throw new Error(
+        `[config] plaintext token in users entry from ${source} is not allowed; use tokenSha256 or SYNAPTOMIND_USER_TOKEN_<ID>`
+      )
+    }
+    const id = entry.id
+    if (typeof id !== 'string' || id.trim() === '') {
+      throw new Error(`[config] invalid user id from ${source}: ${String(id)}`)
+    }
+    const dbPath = entry.dbPath
+    if (typeof dbPath !== 'string' || dbPath.trim() === '') {
+      throw new Error(`[config] invalid user dbPath from ${source}: ${String(dbPath)}`)
+    }
+    if (!isAbsolute(dbPath)) {
+      throw new Error(`[config] user dbPath must be absolute from ${source}: ${dbPath}`)
+    }
+    let tokenSha256 = entry.tokenSha256
+    const envName = `SYNAPTOMIND_USER_TOKEN_${id.toUpperCase().replace(/[^A-Za-z0-9]/g, '_')}`
+    const envToken = process.env[envName]
+    if (typeof envToken === 'string' && envToken !== '') {
+      tokenSha256 = hashUserToken(envToken)
+    }
+    if (typeof tokenSha256 !== 'string' || tokenSha256.trim() === '') {
+      throw new Error(`[config] missing token for user "${id}" from ${source}: set tokenSha256 or ${envName}`)
+    }
+    if (ids.has(id)) {
+      throw new Error(`[config] duplicate user id from ${source}: ${id}`)
+    }
+    if (paths.has(dbPath)) {
+      throw new Error(`[config] duplicate user dbPath from ${source}: ${dbPath}`)
+    }
+    if (hashes.has(tokenSha256)) {
+      throw new Error(`[config] duplicate user token hash from ${source}`)
+    }
+    for (const p of paths) {
+      if (dbPath === p) continue
+      if (dbPath.startsWith(p + '/') || p.startsWith(dbPath + '/')) {
+        throw new Error(`[config] overlapping user dbPath from ${source}: ${dbPath} and ${p}`)
+      }
+    }
+    ids.add(id)
+    paths.add(dbPath)
+    hashes.add(tokenSha256)
+    result.push({ id, dbPath, tokenSha256 })
+  }
+  return result
+}
+
+export const sanitizeUsers = validateUsers
+export const assertUsers = validateUsers
+export const validateUserList = validateUsers
+export const assertUserList = validateUsers
+export const sanitizeUserList = validateUsers
+export const validateUsersConfig = validateUsers
 
 export const config: Config = applyEnvOverrides(loadFileConfig())
