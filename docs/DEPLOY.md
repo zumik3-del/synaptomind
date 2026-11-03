@@ -181,6 +181,24 @@ Configure candidate age, importance threshold, and page size with
 [API.md](API.md)).
 The database migration installs indexes used by candidate lookup.
 
+### Multi-user deployments
+
+`config.json` may list `users[]`: one SQLite database and one bearer token per
+user, all served by the single process. Upgrading changes nothing while the list
+is empty; switching an existing install, adding users and rotating tokens are in
+[CONFIG.md](CONFIG.md#users-multi-user).
+
+Operationally:
+
+- `/health` probes every configured database and returns HTTP 503 `degraded`
+  when any is unavailable. The update gate accepts an expected-version 503 as a
+  warning (see [Upgrade safety](#upgrade-safety)); containers report unhealthy.
+- The pre-update backup covers each `users[].dbPath` and prints one snapshot per
+  database; [Rollback](#rollback) restores each database separately.
+- `mcp.maxSessions` is a per-user cap.
+- MCP stdio stays single-user: it opens `db.path` only and refuses to start when
+  that path aliases a user database.
+
 ### Advanced: direct `update.sh`
 
 The installed `update.sh` stays available and is required on hosts that track a

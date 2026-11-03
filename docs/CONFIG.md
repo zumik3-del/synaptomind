@@ -344,18 +344,98 @@ SYNAPTOMIND_USER_TOKEN_ALICE=plaintext-token-alice
 SYNAPTOMIND_USER_TOKEN_BOB=plaintext-token-bob
 ```
 
+### Adopting multi-user on an existing install
+
+`users: []` is the default and keeps the current single-user behaviour, so
+upgrading SynaptoMind does **not** change authentication, data location or the
+database it opens until you opt in.
+
+To switch an existing installation over:
+
+1. Back up the current database (`<db>.backup/` after an update, or
+   `sqlite3 <db> ".backup '<copy>'"`).
+2. Give the existing file to a user: set that user's `dbPath` to the absolute
+   path the service opens today (`db.path`).
+3. Add the other users with their own absolute `dbPath` files; missing files are
+   created and migrated on boot.
+4. Add each user's `tokenSha256` (or `SYNAPTOMIND_USER_TOKEN_<ID>`) and restart.
+   From then on every HTTP client (`/api/*`, `/mcp`) must send that user's own
+   token — `SYNAPTOMIND_SECRET` stops being accepted.
+5. `db.path` is no longer opened by the HTTP server in multi-user mode. It is
+   still the database of the MCP **stdio** transport, which stays single-user
+   and unauthenticated; stdio refuses to start if that path aliases a user
+   database, so keep it separate (or unused) if you run `--stdio`.
+
+### Adding, rotating and removing users
+
+The user list is read once at startup. There is no user-management API, CLI or
+hot reload: every change below is a `config.json` (or environment) edit plus a
+service restart.
+
+**Add a user**
+
+1. Generate a token and its digest:
+
+   ```bash
+   TOKEN="$(openssl rand -hex 24)"
+   printf '%s' "$TOKEN" | sha256sum | awk '{print $1}'
+   ```
+
+2. Append an entry to `users` with a unique `id`, an absolute `dbPath` that is
+   not shared with or a directory-prefix of another user's path, and the
+   `tokenSha256` from step 1. Keep the plaintext token for the client; it is not
+   stored in `config.json`.
+
+3. Restart the service. A missing database file is created and migrated on
+   boot. If it cannot be opened, that user is marked unavailable — the other
+   users keep serving — and `/health` reports `degraded` with HTTP 503.
+
+4. Verify with the read-only ops check, run with the service's config:
+
+   ```bash
+   cd /opt/synaptomind && ./synaptomind ops health-check --user <id>
+   # or, from elsewhere:
+   SYNAPTOMIND_CONFIG=/var/lib/synaptomind/config.json /opt/synaptomind/synaptomind ops health-check --user <id>
+   ```
+
+   It prints that user's health report (it never creates or migrates a
+   database). `/health` stays public and aggregate; `/api/health-check` with
+   the user's token reports the same data over HTTP.
+
+**Rotate a token.** Replace that user's `tokenSha256` (or its
+`SYNAPTOMIND_USER_TOKEN_<ID>`) and restart. The old token stops authenticating
+at the first request after the restart. An MCP session created by that user
+stays bound to the user id, so it works again as soon as the client presents
+the new token.
+
+**Remove a user.** Delete the entry and restart. The database file is left on
+disk, and the backup step's discovery pass still covers it while it sits in
+`DATA_DIR`; delete it yourself once its data is no longer needed.
+
 ---
 ## Authentication
 
 Auth applies to the HTTP ops endpoints under `/api/*` and the MCP HTTP transport (`/mcp`); the MCP stdio transport is local and unauthenticated by design.
 
-When **neither** `SYNAPTOMIND_SECRET` nor `SYNAPTOMIND_SERVICE_TOKEN` is set the server **fails closed**: authenticated requests are rejected with `401`. Set a secret for any non-local deployment.
+Authentication depends on the mode:
+
+- **Single-user** (`users: []`, the default): the bearer token is
+  `SYNAPTOMIND_SECRET`. Without it the server **fails closed**: authenticated
+  requests are rejected with `401`. `SYNAPTOMIND_ALLOW_INSECURE=true` disables
+  auth for local development only.
+- **Multi-user** (`users` non-empty): every request must present one of the
+  configured users' own tokens (see [Users](#users-multi-user)), and is served
+  that user's database. `SYNAPTOMIND_SECRET` and `SYNAPTOMIND_ALLOW_INSECURE`
+  are inert — the server logs a warning at startup if either is set.
+
+`SYNAPTOMIND_SERVICE_TOKEN` has been removed: every token belongs to a user.
+Use `SYNAPTOMIND_USER_TOKEN_<ID>` for a user's plaintext token.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `SYNAPTOMIND_SECRET` | (none) | Primary bearer token. Required unless `SYNAPTOMIND_SERVICE_TOKEN` is set |
-| `SYNAPTOMIND_SERVICE_TOKEN` | `SYNAPTOMIND_SECRET` | Optional secondary bearer token (e.g. for MCP service clients) |
-| `SYNAPTOMIND_ALLOW_INSECURE` | `false` | **Local-development only.** When `true`, disables auth entirely and allows anonymous access. Never enable in production |
+| `SYNAPTOMIND_SECRET` | (none) | Single-user bearer token. Ignored when `users` is configured |
+| `SYNAPTOMIND_USER_TOKEN_<ID>` | (none) | Plaintext token for the configured user `<id>`; overrides that entry's `tokenSha256` |
+| `SYNAPTOMIND_ALLOW_INSECURE` | `false` | **Local-development only.** Single-user only: when `true`, disables auth entirely and allows anonymous access. Never enable in production |
 
 Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is unauthenticated and returns minimal liveness. The MCP HTTP `/health` does not disclose the server version or transport details.
 
@@ -379,8 +459,8 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `BIND_ADDR` | `127.0.0.1` | Docker port bind address. `0.0.0.0` for network access |
-| `SYNAPTOMIND_SECRET` | (none) | Auth token for the HTTP ops endpoints and MCP. **Required** — without it the server fails closed with `401` |
-| `SYNAPTOMIND_SERVICE_TOKEN` | (none) | Secondary auth token (optional) |
+| `SYNAPTOMIND_SECRET` | (none) | Single-user auth token for the HTTP ops endpoints and MCP. **Required** — without it the server fails closed with `401` |
+| `SYNAPTOMIND_USER_TOKEN_<ID>` | (none) | Per-user token when `config.json` has a `users` list; `SYNAPTOMIND_SECRET` is then inert |
 
 ---
 

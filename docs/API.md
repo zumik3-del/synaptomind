@@ -22,10 +22,11 @@ A removed route fails loudly with Hono's default `404` — there is no deprecati
 no `410 Gone` window.
 
 - **Auth:** the two `/api/*` endpoints require `Authorization: Bearer <token>` (`401
-  {"error":"Unauthorized"}` otherwise). The token is `SYNAPTOMIND_SECRET` (or the optional
-  `SYNAPTOMIND_SERVICE_TOKEN`). Without either token the server fails closed;
-  `SYNAPTOMIND_ALLOW_INSECURE=true` disables auth for local development only. `GET /health`
-  is public.
+  {"error":"Unauthorized"}` otherwise). In single-user mode (`users: []`, the default) the
+  token is `SYNAPTOMIND_SECRET`; in multi-user mode it is one of the configured users'
+  own tokens, and the request is served that user's database. Without a valid token the
+  server fails closed; `SYNAPTOMIND_ALLOW_INSECURE=true` disables auth for local
+  development only (single-user mode). `GET /health` is public.
 - **Rate limit:** `/api/*` is rate limited per client address (`rateLimit.max` per
   `rateLimit.windowMs`; `429 {"error":"Rate limit exceeded"}`). The API keeps its own
   counter store, separate from the MCP transport's. `/health` is not rate limited — it must
