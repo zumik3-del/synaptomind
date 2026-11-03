@@ -341,6 +341,9 @@ export function validateUsers(input: unknown, source = 'config.json'): UserConfi
     if (typeof id !== 'string' || id.trim() === '') {
       throw new Error(`[config] invalid user id from ${source}: ${String(id)}`)
     }
+    if (id === 'legacy') {
+      throw new Error(`[config] reserved user id "legacy" from ${source} is not allowed`)
+    }
     const dbPath = entry.dbPath
     if (typeof dbPath !== 'string' || dbPath.trim() === '') {
       throw new Error(`[config] invalid user dbPath from ${source}: ${String(dbPath)}`)
@@ -356,6 +359,9 @@ export function validateUsers(input: unknown, source = 'config.json'): UserConfi
     }
     if (typeof tokenSha256 !== 'string' || tokenSha256.trim() === '') {
       throw new Error(`[config] missing token for user "${id}" from ${source}: set tokenSha256 or ${envName}`)
+    }
+    if (!/^[0-9a-f]{64}$/.test(tokenSha256)) {
+      throw new Error(`[config] invalid tokenSha256 for user "${id}" from ${source}: expected 64 lowercase hex characters`)
     }
     if (ids.has(id)) {
       throw new Error(`[config] duplicate user id from ${source}: ${id}`)
