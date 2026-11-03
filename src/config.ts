@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'fs'
 import { isAbsolute, join } from 'path'
+import { assertDistinctDatabasePaths } from './config.db-identity'
 import { sanitizePrimerBounds } from './config.primer-bounds'
 import { sanitizeRetentionReviewBounds } from './config.retention-review-bounds'
 
@@ -383,6 +384,7 @@ export function validateUsers(input: unknown, source = 'config.json'): UserConfi
     hashes.add(tokenSha256)
     result.push({ id, dbPath, tokenSha256 })
   }
+  assertDistinctDatabasePaths(result.map(user => user.dbPath))
   return result
 }
 

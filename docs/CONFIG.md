@@ -309,10 +309,24 @@ update; see [DEPLOY.md](DEPLOY.md#rollback).
 
 Validation (applied at startup, aborts load on failure):
 - `id` values must be unique
-- `dbPath` values must be absolute, unique, and must not overlap (one path
-  must not be a prefix of another)
+- `dbPath` values must be absolute and must identify distinct, non-overlapping
+  paths (one path must not be a directory-prefix of another)
 - `tokenSha256` values must be unique
 - plaintext `token`/`password`/`secret` keys in a user entry are rejected
+
+For user database paths, startup validation resolves path components in
+filesystem order, including symlinks and `..`. It compares the resolved paths
+and, for existing files, their device and inode numbers, rejecting aliases
+including hard links. A database file need not exist yet; missing path
+components are allowed. Dangling symlinks and filesystem inspection errors
+other than a missing component abort configuration loading. These comparisons
+are between user database paths; the main `db.path` is not included.
+
+**Filesystem trust:** This check is a startup snapshot, not a lock. A path or
+file changed after validation, including between validation and opening the
+database, can invalidate the result. Keep database files and their parent
+directories trusted and non-writable by untrusted users, and restart after path
+changes.
 
 Example:
 ```json
