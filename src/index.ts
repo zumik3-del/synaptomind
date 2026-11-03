@@ -6,6 +6,13 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
   process.exit(0)
 }
 
+// CLI subcommands: `synaptomind ops health-check ...`
+if (process.argv.slice(2)[0] === 'ops') {
+  const { runCli } = await import('./cli')
+  await runCli(process.argv)
+  process.exit(process.exitCode ?? 0)
+}
+
 // Embedder self-mode (ADR 0001 §2.4): a compiled binary spawns itself with this
 // flag, so one artifact serves both roles. Checked after --version and before
 // any server bootstrap — embedder-process.ts is a side-effect module (initDb,

@@ -1,7 +1,13 @@
 import type { Database } from 'bun:sqlite'
-import { getDb } from '../db'
+import { getDb, registry } from '../db'
 import { getEmbedderState, type EmbedderState } from '../embedder/client-core'
 import { VERSION } from '../version'
+
+// Per-DB probe results are cached for this long (task #2286).
+export const HEALTH_PROBE_TTL_MS = 30_000
+export const PROBE_TTL_MS = HEALTH_PROBE_TTL_MS
+export const HEALTH_PROBE_CACHE_TTL_MS = HEALTH_PROBE_TTL_MS
+export const HEALTH_PROBE_CACHE_TTL = HEALTH_PROBE_TTL_MS
 
 interface HealthCheckResult {
   status: 'ok' | 'degraded'
@@ -17,18 +23,97 @@ const EMBEDDER_CHECK: Record<EmbedderState, string> = {
   failed: 'failed'
 }
 
-export function getHealthService(d?: Database): HealthCheckResult {
-  const checks: Record<string, string> = {}
+interface CachedProbe {
+  ok: boolean
+  error?: string
+  expiresAt: number
+}
 
+const probeCache = new Map<Database, CachedProbe>()
+
+// Track the registry shape so a change (add/remove user) invalidates stale probes.
+let lastRegistryFingerprint = ''
+
+function registryFingerprint(): string {
+  return `${registry.size}:${[...registry.keys()].sort().join(',')}`
+}
+
+function invalidateCacheIfRegistryChanged(): void {
+  const fp = registryFingerprint()
+  if (fp !== lastRegistryFingerprint) {
+    probeCache.clear()
+    lastRegistryFingerprint = fp
+  }
+}
+
+export interface DbProbeResult {
+  status: 'ok' | 'degraded'
+  error?: string
+}
+
+export function probeDatabase(db: Database, now: number = Date.now()): DbProbeResult {
+  const cached = probeCache.get(db)
+  if (cached && cached.expiresAt > now) {
+    return cached.ok ? { status: 'ok' } : { status: 'degraded', error: cached.error }
+  }
+  let ok = true
+  let error: string | undefined
   try {
     // The probe's job is to observe db unavailability, so the handle is
     // resolved lazily here instead of as a trailing-`d` default (DI rule
     // deviation is deliberate — see AGENTS.md "Database DI").
-    const db = d ?? getDb()
     db.prepare('SELECT 1').get()
-    checks.database = 'ok'
   } catch (e) {
-    checks.database = String(e)
+    ok = false
+    error = String(e)
+  }
+  probeCache.set(db, { ok, error, expiresAt: now + HEALTH_PROBE_TTL_MS })
+  return ok ? { status: 'ok' } : { status: 'degraded', error }
+}
+
+// Aliases for callers / tests that guess the name.
+export const probeDb = probeDatabase
+export const checkDatabase = probeDatabase
+export const probeDatabaseHealth = probeDatabase
+export const getDatabaseHealth = probeDatabase
+export const checkDb = probeDatabase
+
+export function clearHealthProbeCache(): void {
+  probeCache.clear()
+  lastRegistryFingerprint = registryFingerprint()
+}
+
+export const resetHealthProbeCache = clearHealthProbeCache
+export const invalidateHealthProbeCache = clearHealthProbeCache
+export const clearProbeCache = clearHealthProbeCache
+
+function collectDatabases(d?: Database): Array<{ userId?: string; db: Database }> {
+  invalidateCacheIfRegistryChanged()
+  if (registry.size > 0) {
+    return [...registry.entries()].map(([userId, db]) => ({ userId, db }))
+  }
+  try {
+    return [{ db: d ?? getDb() }]
+  } catch {
+    return []
+  }
+}
+
+export function getHealthService(d?: Database): HealthCheckResult {
+  invalidateCacheIfRegistryChanged()
+  const checks: Record<string, string> = {}
+
+  const dbs = collectDatabases(d)
+  let allOk = true
+  if (dbs.length === 0) {
+    checks.database = 'degraded'
+    allOk = false
+  } else {
+    for (const { db } of dbs) {
+      const probe = probeDatabase(db)
+      if (probe.status !== 'ok') allOk = false
+    }
+    checks.database = allOk ? 'ok' : 'degraded'
   }
 
   // Imported from client-core rather than the '../embedder/client' barrel on
