@@ -276,6 +276,49 @@ disables the gate and keeps the pre-calibration fail-open result set.
 
 ---
 
+## Users (multi-user)
+
+Optional list of per-user tenants. An empty list (`users: []`, the default)
+preserves today's single-user behaviour (`config.db.path`).
+
+Each entry: `{ id, dbPath, tokenSha256 }`.
+
+| Field | Description |
+|-------|-------------|
+| `id` | Unique user identifier. Used to derive the env var name for token injection |
+| `dbPath` | Absolute path to that user's SQLite database file |
+| `tokenSha256` | SHA-256 hex digest of the user's bearer token |
+
+Tokens are never stored in plaintext in `config.json`: provide `tokenSha256`
+(the SHA-256 of the bearer token) or inject the plaintext token through the
+environment as `SYNAPTOMIND_USER_TOKEN_<ID>` (the id is upper-cased and
+non-alphanumeric characters become `_`). When the env var is set it overrides
+any `tokenSha256` in the file.
+
+Validation (applied at startup, aborts load on failure):
+- `id` values must be unique
+- `dbPath` values must be absolute, unique, and must not overlap (one path
+  must not be a prefix of another)
+- `tokenSha256` values must be unique
+- plaintext `token`/`password`/`secret` keys in a user entry are rejected
+
+Example:
+```json
+{
+  "users": [
+    { "id": "alice", "dbPath": "/var/lib/synaptomind/alice.db", "tokenSha256": "..." },
+    { "id": "bob", "dbPath": "/var/lib/synaptomind/bob.db", "tokenSha256": "..." }
+  ]
+}
+```
+
+With env injection:
+```bash
+SYNAPTOMIND_USER_TOKEN_ALICE=plaintext-token-alice
+SYNAPTOMIND_USER_TOKEN_BOB=plaintext-token-bob
+```
+
+---
 ## Authentication
 
 Auth applies to the HTTP ops endpoints under `/api/*` and the MCP HTTP transport (`/mcp`); the MCP stdio transport is local and unauthenticated by design.
@@ -354,6 +397,7 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
   "slots": { "defaultMaxChars": 2000 },
   "graph": { "maxDegree": 50 },
   "search": { "confidence": { "vectorFloor": 0.9, "unrelatedFloor": 0.8 } },
-  "rateLimit": { "max": 200, "windowMs": 60000, "trustProxy": false }
+  "rateLimit": { "max": 200, "windowMs": 60000, "trustProxy": false },
+  "users": []
 }
 ```
