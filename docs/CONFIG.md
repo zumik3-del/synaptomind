@@ -295,6 +295,18 @@ environment as `SYNAPTOMIND_USER_TOKEN_<ID>` (the id is upper-cased and
 non-alphanumeric characters become `_`). When the env var is set it overrides
 any `tokenSha256` in the file.
 
+Generate a token hash (the digest must be lowercase hex, 64 characters):
+
+```bash
+printf '%s' 'your-bearer-token' | sha256sum | awk '{print $1}'
+# or, without sha256sum:
+node -e "console.log(require('crypto').createHash('sha256').update(process.argv[1]).digest('hex'))" 'your-bearer-token'
+```
+
+Each user's `dbPath` is a separate SQLite database. Deployments back up every
+configured database (the main `db.path` plus each `users[].dbPath`) before an
+update; see [DEPLOY.md](DEPLOY.md#rollback).
+
 Validation (applied at startup, aborts load on failure):
 - `id` values must be unique
 - `dbPath` values must be absolute, unique, and must not overlap (one path

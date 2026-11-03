@@ -30,16 +30,27 @@ load_common
 
 # ── Resolve configured DB paths from config.json ────────────────────────────
 # Paths in config.json are relative to INSTALL_DIR (the systemd
-# WorkingDirectory); absolute paths are used as-is.
+# WorkingDirectory); absolute paths are used as-is.  Every configured database
+# is backed up: the main `db.path` plus each user's `users[].dbPath`.  Parsing
+# is grep-based (no jq dependency) and tolerates the pretty-printed and
+# compact forms config.json can take.
 resolve_db_paths() {
-  local main="./data/synaptomind.db" cfg=""
-  cfg="${INSTALL_DIR:-}/config.json"
+  local cfg="${INSTALL_DIR:-}/config.json"
+  local main="./data/synaptomind.db"
+  local user_path
   if [ -f "$cfg" ]; then
     local cfg_main
-    cfg_main="$(grep -o '"path": *"[^"]*"' "$cfg" 2>/dev/null | head -1 | sed 's/.*"path": *"//;s/"//' || true)"
+    cfg_main="$(grep -o '"path"[[:space:]]*:[[:space:]]*"[^"]*"' "$cfg" 2>/dev/null | head -1 | sed 's/.*"path"[[:space:]]*:[[:space:]]*"//;s/"$//' || true)"
     [ -n "$cfg_main" ] && main="$cfg_main"
   fi
   printf '%s\n' "$main"
+  if [ -f "$cfg" ]; then
+    grep -o '"dbPath"[[:space:]]*:[[:space:]]*"[^"]*"' "$cfg" 2>/dev/null \
+      | sed 's/.*"dbPath"[[:space:]]*:[[:space:]]*"//;s/"$//' \
+      | while IFS= read -r user_path; do
+          [ -n "$user_path" ] && printf '%s\n' "$user_path"
+        done || true
+  fi
 }
 
 # ── Back up a single DB ────────────────────────────────────────────────────

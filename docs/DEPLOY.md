@@ -223,10 +223,15 @@ supported rollback restores that backup and restores the `.prev` payload files:
 
 ```bash
 sudo systemctl stop synaptomind
-# Restore the database backup (path printed by the pre-update hook)
+# Restore EVERY database the pre-update hook backed up. The hook prints one
+# "Database backed up: ..." line per configured database (the main db.path plus
+# each users[].dbPath); run the printed cp/rm pair for each of them. Example for
+# the default single database:
 sudo cp -p /opt/synaptomind/data/synaptomind.db.backup/synaptomind.db.<timestamp>.bak \
           /opt/synaptomind/data/synaptomind.db
 sudo rm -f /opt/synaptomind/data/synaptomind.db-wal /opt/synaptomind/data/synaptomind.db-shm
+# Repeat the two lines above for each per-user database, using the path the hook
+# printed for it (e.g. .../alice.db.backup/alice.db.<timestamp>.bak -> alice.db).
 # Restore the previous payload from .prev
 sudo mv -f /opt/synaptomind/vec0.so.prev /opt/synaptomind/vec0.so
 sudo mv -f /opt/synaptomind/lib/libonnxruntime.so.1.prev /opt/synaptomind/lib/libonnxruntime.so.1
