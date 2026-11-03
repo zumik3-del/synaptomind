@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.21.0
+
+> November 3, 2026
+
+- [`abcfdeda`](https://github.com/zumik3-del/synaptomind/commit/abcfdeda98d88f62f4e69222e9417473819def4a): docs(multi-user): document adding, rotating and removing users
+- [`22d139ca`](https://github.com/zumik3-del/synaptomind/commit/22d139cab38a3d7765753cfd0e76d35bea62f8c7): docs(auth): document per-user tokens, drop removed service token
+- [`7fbcdb13`](https://github.com/zumik3-del/synaptomind/commit/7fbcdb130fc922ab1c83c86614ce225bcf1ae818): chore: address optional multi-user review findings
+- [`2241a0ba`](https://github.com/zumik3-del/synaptomind/commit/2241a0bae58ac8076d225d57f6b3426a3d8eb239): docs(deploy): document built-in pre-update backup
+- [`c4f5ee72`](https://github.com/zumik3-del/synaptomind/commit/c4f5ee72d9cd3482e738338e8cb968cc09474e7a): test(multi-user): pin N-database backup, embedder and HTTP isolation (task #2299)
+- [`140c8728`](https://github.com/zumik3-del/synaptomind/commit/140c8728ad754d1fe4004ed506bdb3bebe2170aa): fix(mcp): bind stdio runtime to legacy database with isolation checks (task #2295)
+- [`eea41264`](https://github.com/zumik3-del/synaptomind/commit/eea412648285181bae7c75e11b8404afd3252c42): feat(deploy): fail-closed pre-update database backup (task #2297)
+- [`6461c4ba`](https://github.com/zumik3-del/synaptomind/commit/6461c4ba30284ba2ff0c2e98dbf77a817cdb321c): feat(embedder): poll each user DB on its own backoff schedule
+- [`be03f745`](https://github.com/zumik3-del/synaptomind/commit/be03f745d3100b8d1c749037e271471ecc2c1e6c): feat(health): gate degraded 503 and read-only ops check
+- [`c236a188`](https://github.com/zumik3-del/synaptomind/commit/c236a18805f9c134c5575d9bfe75a27cac3f7413): feat(config): reject aliased user database paths at startup
+- [`a8878be1`](https://github.com/zumik3-del/synaptomind/commit/a8878be1762201b36960aaf549eab3f0e5473ba5): test(db): align container test with canonical exports (task #2291)
+- [`e1c10be4`](https://github.com/zumik3-del/synaptomind/commit/e1c10be45e2009ffaced4beb709ab7dc5ae2f2bb): fix(embedder): skip unavailable user DBs (task #2290)
+- [`6c89a6e4`](https://github.com/zumik3-del/synaptomind/commit/6c89a6e4ca42dd3e1a4318e74883a733e599aac0): feat(stdio): bind ALS in multi-user mode (task #2289)
+- [`ed2c40df`](https://github.com/zumik3-del/synaptomind/commit/ed2c40df732550c5c97794366c8e2901d9d60aa8): feat(config): stricter token validation (task #2292)
+- [`40722a68`](https://github.com/zumik3-del/synaptomind/commit/40722a68b5725b3d31fa6bc2e33d10ff9ae3cf64): test(db): fail-closed container tests (task #2291)
+- [`337c1ddb`](https://github.com/zumik3-del/synaptomind/commit/337c1ddba4aaac938a711e8319a773e1edca2437): fix(db): close openDatabase handle on throw (task #2288)
+- [`01cd2ace`](https://github.com/zumik3-del/synaptomind/commit/01cd2ace20e98b6249ee77220c46fef5f5551a74): refactor(db): remove alias padding (task #2287)
+- [`b181bd5c`](https://github.com/zumik3-del/synaptomind/commit/b181bd5c095f6e2798c1fcebe1203f478147eb92): feat(mcp): session↔user binding + ALS (task #2285)
+- [`ce3a4a3b`](https://github.com/zumik3-del/synaptomind/commit/ce3a4a3b905b731a741f80eebe796f4804042aab): feat(boot): fan-out over N user DBs (task #2281)
+- [`7156f357`](https://github.com/zumik3-del/synaptomind/commit/7156f357da518bae6c82571117b2685f24e621d6): feat(auth): resolveUser + per-user binding (task #2280)
+- [`345909e5`](https://github.com/zumik3-del/synaptomind/commit/345909e536342cda6b63c2e43321766a9b40b9c3): feat(health): aggregate probe + CLI ops health-check (task #2286)
+- [`ff1fed7f`](https://github.com/zumik3-del/synaptomind/commit/ff1fed7fe98b574431ef8855572329585d5e8334): feat(jobs): iterate registry (task #2283)
+- [`ec744bc4`](https://github.com/zumik3-del/synaptomind/commit/ec744bc4d70913d3612138a07bfdaa556b7c211d): feat(embedder): round-robin over N DBs (task #2282)
+- [`422daf43`](https://github.com/zumik3-del/synaptomind/commit/422daf43834bb2a850c0c448e51126443cc2e40e): feat(deploy): backup fan-out for N user DBs + docs (task #2284)
+- [`a49bcbf2`](https://github.com/zumik3-del/synaptomind/commit/a49bcbf2dcf8a6852dc0d58bae81aad7b6ca2d47): feat(db): container registry + ALS + fail-closed getDb (task #2278)
+- [`a8560784`](https://github.com/zumik3-del/synaptomind/commit/a8560784f6f96331a170431a7c49d71f0fcef865): feat(config): users block + validation + token hashes (task #2279)
+- [`1917b3d5`](https://github.com/zumik3-del/synaptomind/commit/1917b3d50fa41d6986696f5c6305ed21077af476): feat(db): initDb returns handle (task #2277)
+
 ## v0.20.1
 
 > October 31, 2026
