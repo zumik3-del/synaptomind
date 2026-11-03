@@ -41,8 +41,7 @@ const { dirname } = await import('path')
 const { serve } = await import('bun')
 const { app } = await import('./app')
 const { config } = await import('./config')
-const { openDatabase, closeDb } = await import('./db/init')
-const { setDb } = await import('./db/container')
+const { closeDb } = await import('./db/init')
 const { startEmbedderProcess, stopEmbedderProcess } = await import('./embedder/client')
 const { closeLogDb } = await import('./logging')
 const { startMcpHttpServer } = await import('./mcp/http-transport')
@@ -77,8 +76,18 @@ try {
   mkdirSync(dirname(config.db.path), { recursive: true })
 } catch {}
 
+let bootResult: { registered: string[]; unavailable: Array<{ userId: string; error: string }> } | undefined
 try {
-  setDb(openDatabase({ runMigrations: true }))
+  const { bootFanOut } = await import('./db/registry')
+  bootResult = bootFanOut()
+  if (bootResult.unavailable.length > 0) {
+    for (const u of bootResult.unavailable) {
+      console.error(`[synaptomind] user ${u.userId} is unavailable: ${u.error}`)
+    }
+  }
+  console.error(
+    `[synaptomind] boot fan-out complete: ${bootResult.registered.length} registered, ${bootResult.unavailable.length} unavailable`
+  )
 } catch (err) {
   console.error(`[synaptomind] failed to init database: ${err}`)
   process.exit(1)
@@ -112,6 +121,13 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   await stopEmbedderProcess()
   closeLogDb()
   if (extra) await extra()
+  try {
+    const { registry } = await import('./db/container')
+    for (const [, db] of registry) {
+      try { db.close(true) } catch {}
+    }
+    registry.clear()
+  } catch {}
   closeDb()
   process.exit(0)
 }
