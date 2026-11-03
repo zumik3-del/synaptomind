@@ -42,6 +42,7 @@ const { serve } = await import('bun')
 const { app } = await import('./app')
 const { config } = await import('./config')
 const { closeDb } = await import('./db/init')
+const { als, isMultiUser, listRegisteredUsers, getUserDb } = await import('./db/registry')
 const { startEmbedderProcess, stopEmbedderProcess } = await import('./embedder/client')
 const { closeLogDb } = await import('./logging')
 const { startMcpHttpServer } = await import('./mcp/http-transport')
@@ -141,6 +142,25 @@ function registerShutdownSignals(extra?: () => void | Promise<void>): void {
 }
 
 if (isStdio) {
+  // Multi-user mode has no per-request auth on the stdio transport, so bind the
+  // whole process to the first registered user's DB via ALS (mirroring the HTTP
+  // per-request binding) instead of leaving getDb() unbound -> 500 on every call.
+  if (isMultiUser()) {
+    const users = listRegisteredUsers()
+    if (users.length === 0) {
+      console.error('[synaptomind] stdio mode: no user database available in multi-user mode; refusing to start')
+      process.exit(1)
+    }
+    const userId = users[0]
+    const db = getUserDb(userId)
+    if (!db) {
+      console.error(`[synaptomind] stdio mode: user database unavailable for ${userId}; refusing to start`)
+      process.exit(1)
+    }
+    als.enterWith({ userId, db })
+    console.error(`[synaptomind] stdio mode: bound to user ${userId}`)
+  }
+
   const mcpServer = createMcpServer()
   const transport = new StdioServerTransport()
 

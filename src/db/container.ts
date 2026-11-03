@@ -12,14 +12,20 @@ export interface UserContext {
 export const als: AsyncLocalStorage<UserContext> = new AsyncLocalStorage<UserContext>()
 
 let db: Database | null = null
+let multiUserMode = false
 
 export function isMultiUser(): boolean {
+  if (multiUserMode) return true
   if (registry.size > 0) return true
   try {
     return Array.isArray(config?.users) && config.users.length > 0
   } catch {
     return false
   }
+}
+
+export function setMultiUserMode(enabled: boolean): void {
+  multiUserMode = !!enabled
 }
 
 export function register(userId: string, database: Database): void { registry.set(userId, database) }
