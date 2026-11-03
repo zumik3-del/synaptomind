@@ -66,12 +66,15 @@ export function resolveUser(auth: string | undefined): UserRef | null {
   if (!auth?.startsWith('Bearer ')) return null
 
   const token = auth.slice('Bearer '.length)
-  const presented = hashUserToken(token)
-
+  const presented = token
+  
   // Configured users: match by token hash (evaluate every entry, no short-circuit).
+  // Hash the stored digest and the presented token's hash through safeTokenEqual so
+  // a malformed (non-hex / wrong-length) digest compares as a normal mismatch and
+  // yields 401 instead of throwing (timingSafeEqual throws on length mismatch).
   let matchedUserId: string | null = null
   for (const entry of users) {
-    if (safeTokenEqual(String(entry?.tokenSha256 ?? '').toLowerCase(), presented)) {
+    if (safeTokenEqual(String(entry?.tokenSha256 ?? ''), hashUserToken(presented))) {
       matchedUserId = entry.id
     }
   }
