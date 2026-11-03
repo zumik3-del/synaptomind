@@ -34,7 +34,8 @@ const { dirname } = await import('path')
 const { serve } = await import('bun')
 const { app } = await import('./app')
 const { config } = await import('./config')
-const { initDb, closeDb } = await import('./db/init')
+const { openDatabase, closeDb } = await import('./db/init')
+const { setDb } = await import('./db/container')
 const { startEmbedderProcess, stopEmbedderProcess } = await import('./embedder/client')
 const { closeLogDb } = await import('./logging')
 const { startMcpHttpServer } = await import('./mcp/http-transport')
@@ -70,7 +71,7 @@ try {
 } catch {}
 
 try {
-  initDb({ runMigrations: true })
+  setDb(openDatabase({ runMigrations: true }))
 } catch (err) {
   console.error(`[synaptomind] failed to init database: ${err}`)
   process.exit(1)

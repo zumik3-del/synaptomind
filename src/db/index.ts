@@ -1,2 +1,3 @@
 export { getDb } from './container'
-export { initDb, closeDb } from './init'
+export { initDb, openDatabase, closeDb } from './init'
+export type { InitOptions } from './init'

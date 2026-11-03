@@ -21,12 +21,12 @@ function loadVecExtension(database: Database, isMemory: boolean): void {
   }
 }
 
-interface InitOptions {
+export interface InitOptions {
   dbPath?: string
   runMigrations?: boolean
 }
 
-export function initDb(dbPathOrOptions?: string | InitOptions): void {
+export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
   const opts: InitOptions = typeof dbPathOrOptions === 'string' ? { dbPath: dbPathOrOptions } : (dbPathOrOptions ?? {})
   const resolvedPath = opts.dbPath ?? config.db.path
   const runMigrations = opts.runMigrations ?? false
@@ -134,8 +134,7 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
   `)
 
   if (!runMigrations) {
-    setDb(db)
-    return
+    return db
   }
 
   const dimensions = config.embedder.dimensions
@@ -222,7 +221,13 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
     d.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, 'Default', ?)`).run(id, new Date().toISOString())
   }
 
+  return db
+}
+
+export function initDb(dbPathOrOptions?: string | InitOptions): Database {
+  const db = openDatabase(dbPathOrOptions)
   setDb(db)
+  return db
 }
 
 export function closeDb(): void {
