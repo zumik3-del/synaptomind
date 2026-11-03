@@ -313,6 +313,11 @@ closed: authenticated API and MCP requests are rejected with `401` and a warning
 is logged at startup. For local development only, `SYNAPTOMIND_ALLOW_INSECURE=true`
 disables auth entirely in single-user mode.
 
+Multi-user: `config.json` may carry a `users` list — one SQLite database and one
+bearer token per user, all served by the same process. Adding, rotating and
+removing users, and switching an existing install over, is in
+[CONFIG.md § Users](docs/CONFIG.md#users-multi-user).
+
 See `config.json.example` for all options. Full reference: [docs/CONFIG.md](docs/CONFIG.md). Custom MCP instructions: [docs below](#custom-instructions).
 
 ---

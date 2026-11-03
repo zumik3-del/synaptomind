@@ -366,6 +366,52 @@ To switch an existing installation over:
    and unauthenticated; stdio refuses to start if that path aliases a user
    database, so keep it separate (or unused) if you run `--stdio`.
 
+### Adding, rotating and removing users
+
+The user list is read once at startup. There is no user-management API, CLI or
+hot reload: every change below is a `config.json` (or environment) edit plus a
+service restart.
+
+**Add a user**
+
+1. Generate a token and its digest:
+
+   ```bash
+   TOKEN="$(openssl rand -hex 24)"
+   printf '%s' "$TOKEN" | sha256sum | awk '{print $1}'
+   ```
+
+2. Append an entry to `users` with a unique `id`, an absolute `dbPath` that is
+   not shared with or a directory-prefix of another user's path, and the
+   `tokenSha256` from step 1. Keep the plaintext token for the client; it is not
+   stored in `config.json`.
+
+3. Restart the service. A missing database file is created and migrated on
+   boot. If it cannot be opened, that user is marked unavailable — the other
+   users keep serving — and `/health` reports `degraded` with HTTP 503.
+
+4. Verify with the read-only ops check, run with the service's config:
+
+   ```bash
+   cd /opt/synaptomind && ./synaptomind ops health-check --user <id>
+   # or, from elsewhere:
+   SYNAPTOMIND_CONFIG=/var/lib/synaptomind/config.json /opt/synaptomind/synaptomind ops health-check --user <id>
+   ```
+
+   It prints that user's health report (it never creates or migrates a
+   database). `/health` stays public and aggregate; `/api/health-check` with
+   the user's token reports the same data over HTTP.
+
+**Rotate a token.** Replace that user's `tokenSha256` (or its
+`SYNAPTOMIND_USER_TOKEN_<ID>`) and restart. The old token stops authenticating
+at the first request after the restart. An MCP session created by that user
+stays bound to the user id, so it works again as soon as the client presents
+the new token.
+
+**Remove a user.** Delete the entry and restart. The database file is left on
+disk, and the backup step's discovery pass still covers it while it sits in
+`DATA_DIR`; delete it yourself once its data is no longer needed.
+
 ---
 ## Authentication
 
