@@ -37,12 +37,12 @@ if (process.argv.includes('--embedder')) {
 }
 
 const { mkdirSync } = await import('fs')
-const { dirname } = await import('path')
+const { dirname, isAbsolute } = await import('path')
 const { serve } = await import('bun')
 const { app } = await import('./app')
 const { config } = await import('./config')
-const { closeDb } = await import('./db/init')
-const { als, isMultiUser, listRegisteredUsers, getUserDb } = await import('./db/registry')
+const { closeDb, openDatabase } = await import('./db/init')
+const { als } = await import('./db/registry')
 const { startEmbedderProcess, stopEmbedderProcess } = await import('./embedder/client')
 const { closeLogDb } = await import('./logging')
 const { startMcpHttpServer } = await import('./mcp/http-transport')
@@ -79,16 +79,34 @@ try {
 
 let bootResult: { registered: string[]; unavailable: Array<{ userId: string; error: string }> } | undefined
 try {
-  const { bootFanOut } = await import('./db/registry')
-  bootResult = bootFanOut()
-  if (bootResult.unavailable.length > 0) {
-    for (const u of bootResult.unavailable) {
-      console.error(`[synaptomind] user ${u.userId} is unavailable: ${u.error}`)
+  if (isStdio && config.users.length > 0) {
+    // Multi-user background workers operate on user databases, not the legacy
+    // stdio database. Do not start them under this unauthenticated transport.
+    if (stdioStandalone) throw new Error('stdio standalone is unavailable with multi-user configuration')
+    if (config.db.path !== ':memory:') {
+      const { assertDistinctDatabasePaths } = await import('./config.db-identity')
+      const legacyPath = isAbsolute(config.db.path) ? config.db.path : `${process.cwd()}/${config.db.path}`
+      try {
+        assertDistinctDatabasePaths([legacyPath, ...config.users.map(user => user.dbPath)])
+      } catch (err) {
+        throw new Error(`stdio legacy database cannot be safely isolated from user databases: ${err}`)
+      }
     }
+    const db = openDatabase({ dbPath: config.db.path, runMigrations: true })
+    als.enterWith({ userId: 'stdio-legacy', db })
+    console.error('[synaptomind] stdio mode: bound to legacy config.db.path')
+  } else {
+    const { bootFanOut } = await import('./db/registry')
+    bootResult = bootFanOut()
+    if (bootResult.unavailable.length > 0) {
+      for (const u of bootResult.unavailable) {
+        console.error(`[synaptomind] user ${u.userId} is unavailable: ${u.error}`)
+      }
+    }
+    console.error(
+      `[synaptomind] boot fan-out complete: ${bootResult.registered.length} registered, ${bootResult.unavailable.length} unavailable`
+    )
   }
-  console.error(
-    `[synaptomind] boot fan-out complete: ${bootResult.registered.length} registered, ${bootResult.unavailable.length} unavailable`
-  )
 } catch (err) {
   console.error(`[synaptomind] failed to init database: ${err}`)
   process.exit(1)
@@ -142,25 +160,6 @@ function registerShutdownSignals(extra?: () => void | Promise<void>): void {
 }
 
 if (isStdio) {
-  // Multi-user mode has no per-request auth on the stdio transport, so bind the
-  // whole process to the first registered user's DB via ALS (mirroring the HTTP
-  // per-request binding) instead of leaving getDb() unbound -> 500 on every call.
-  if (isMultiUser()) {
-    const users = listRegisteredUsers()
-    if (users.length === 0) {
-      console.error('[synaptomind] stdio mode: no user database available in multi-user mode; refusing to start')
-      process.exit(1)
-    }
-    const userId = users[0]
-    const db = getUserDb(userId)
-    if (!db) {
-      console.error(`[synaptomind] stdio mode: user database unavailable for ${userId}; refusing to start`)
-      process.exit(1)
-    }
-    als.enterWith({ userId, db })
-    console.error(`[synaptomind] stdio mode: bound to user ${userId}`)
-  }
-
   const mcpServer = createMcpServer()
   const transport = new StdioServerTransport()
 
