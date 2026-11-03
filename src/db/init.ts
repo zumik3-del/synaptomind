@@ -21,12 +21,12 @@ function loadVecExtension(database: Database, isMemory: boolean): void {
   }
 }
 
-interface InitOptions {
+export interface InitOptions {
   dbPath?: string
   runMigrations?: boolean
 }
 
-export function initDb(dbPathOrOptions?: string | InitOptions): void {
+export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
   const opts: InitOptions = typeof dbPathOrOptions === 'string' ? { dbPath: dbPathOrOptions } : (dbPathOrOptions ?? {})
   const resolvedPath = opts.dbPath ?? config.db.path
   const runMigrations = opts.runMigrations ?? false
@@ -35,7 +35,9 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
   mkdirSync(dirname(resolvedPath), { recursive: true })
   const db = new Database(resolvedPath)
 
-  const busyTimeout = Number.isFinite(config.db.busyTimeout) ? Math.max(0, Math.floor(config.db.busyTimeout)) : 5000
+  let success = false
+  try {
+    const busyTimeout = Number.isFinite(config.db.busyTimeout) ? Math.max(0, Math.floor(config.db.busyTimeout)) : 5000
   db.run(`PRAGMA busy_timeout = ${busyTimeout}`)
   db.run('PRAGMA foreign_keys = ON')
 
@@ -68,9 +70,7 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
   const maxVersion = MIGRATIONS.length > 0 ? Math.max(...MIGRATIONS.map(m => m.version)) : 0
   if (current > maxVersion) {
     // The handle was never published through `setDb`, so `closeDb()` cannot
-    // reach it: close it here or the connection (and its file handle) leaks
-    // for the lifetime of the process.
-    db.close(true)
+    // reach it: the finally block below closes it before rethrowing.
     throw new Error(
       `Database schema version ${current} is newer than this binary supports (max ${maxVersion}). ` +
         'Restore from a backup taken before the upgrade or upgrade the binary.'
@@ -134,8 +134,8 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
   `)
 
   if (!runMigrations) {
-    setDb(db)
-    return
+    success = true
+    return db
   }
 
   const dimensions = config.embedder.dimensions
@@ -222,7 +222,23 @@ export function initDb(dbPathOrOptions?: string | InitOptions): void {
     d.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, 'Default', ?)`).run(id, new Date().toISOString())
   }
 
+  success = true
+  return db
+  } finally {
+    if (!success) {
+      try {
+        db.close(true)
+      } catch {
+        // best-effort cleanup on throw path
+      }
+    }
+  }
+}
+
+export function initDb(dbPathOrOptions?: string | InitOptions): Database {
+  const db = openDatabase(dbPathOrOptions)
   setDb(db)
+  return db
 }
 
 export function closeDb(): void {

@@ -6,6 +6,13 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
   process.exit(0)
 }
 
+// CLI subcommands: `synaptomind ops health-check ...`
+if (process.argv.slice(2)[0] === 'ops') {
+  const { runCli } = await import('./cli')
+  await runCli(process.argv)
+  process.exit(process.exitCode ?? 0)
+}
+
 // Embedder self-mode (ADR 0001 §2.4): a compiled binary spawns itself with this
 // flag, so one artifact serves both roles. Checked after --version and before
 // any server bootstrap — embedder-process.ts is a side-effect module (initDb,
@@ -30,11 +37,12 @@ if (process.argv.includes('--embedder')) {
 }
 
 const { mkdirSync } = await import('fs')
-const { dirname } = await import('path')
+const { dirname, isAbsolute } = await import('path')
 const { serve } = await import('bun')
 const { app } = await import('./app')
 const { config } = await import('./config')
-const { initDb, closeDb } = await import('./db/init')
+const { closeDb, openDatabase } = await import('./db/init')
+const { als } = await import('./db/registry')
 const { startEmbedderProcess, stopEmbedderProcess } = await import('./embedder/client')
 const { closeLogDb } = await import('./logging')
 const { startMcpHttpServer } = await import('./mcp/http-transport')
@@ -69,8 +77,36 @@ try {
   mkdirSync(dirname(config.db.path), { recursive: true })
 } catch {}
 
+let bootResult: { registered: string[]; unavailable: Array<{ userId: string; error: string }> } | undefined
 try {
-  initDb({ runMigrations: true })
+  if (isStdio && config.users.length > 0) {
+    // Multi-user background workers operate on user databases, not the legacy
+    // stdio database. Do not start them under this unauthenticated transport.
+    if (stdioStandalone) throw new Error('stdio standalone is unavailable with multi-user configuration')
+    if (config.db.path !== ':memory:') {
+      const { assertDistinctDatabasePaths } = await import('./config.db-identity')
+      const legacyPath = isAbsolute(config.db.path) ? config.db.path : `${process.cwd()}/${config.db.path}`
+      try {
+        assertDistinctDatabasePaths([legacyPath, ...config.users.map(user => user.dbPath)])
+      } catch (err) {
+        throw new Error(`stdio legacy database cannot be safely isolated from user databases: ${err}`)
+      }
+    }
+    const db = openDatabase({ dbPath: config.db.path, runMigrations: true })
+    als.enterWith({ userId: 'stdio-legacy', db })
+    console.error('[synaptomind] stdio mode: bound to legacy config.db.path')
+  } else {
+    const { bootFanOut } = await import('./db/registry')
+    bootResult = bootFanOut()
+    if (bootResult.unavailable.length > 0) {
+      for (const u of bootResult.unavailable) {
+        console.error(`[synaptomind] user ${u.userId} is unavailable: ${u.error}`)
+      }
+    }
+    console.error(
+      `[synaptomind] boot fan-out complete: ${bootResult.registered.length} registered, ${bootResult.unavailable.length} unavailable`
+    )
+  }
 } catch (err) {
   console.error(`[synaptomind] failed to init database: ${err}`)
   process.exit(1)
@@ -104,6 +140,13 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   await stopEmbedderProcess()
   closeLogDb()
   if (extra) await extra()
+  try {
+    const { registry } = await import('./db/container')
+    for (const [, db] of registry) {
+      try { db.close(true) } catch {}
+    }
+    registry.clear()
+  } catch {}
   closeDb()
   process.exit(0)
 }

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { getHealthService } from '../services/health.service'
 import { authMiddleware } from '../middleware/auth'
+import { bindUserContext } from '../middleware/user-context'
 import { apiRateLimitMiddleware } from '../middleware/rate-limit'
 import { errorHandler } from './error-handler'
 import { healthCheckRouter } from './health-check'
@@ -21,6 +22,7 @@ export function createApp(): Hono {
   // Auth, rate limiting and the 5 MB body guard still protect the two surviving
   // /api routes; /health stays public and uninstrumented (see below).
   app.use('/api/*', authMiddleware)
+  app.use('/api/*', bindUserContext)
   app.use('/api/*', apiRateLimitMiddleware)
 
   app.use('/api/*', async (c, next) => {

@@ -37,7 +37,7 @@ cp .env.example .env
 | `mcp.instructionsFile` | `SYNAPTOMIND_MCP_INSTRUCTIONS_FILE` | `""` | Path to custom MCP instructions file (markdown). Falls back to built-in instructions |
 | `mcp.stdioStandalone` | `SYNAPTOMIND_MCP_STDIO_STANDALONE` | `false` | When `true`, a `--stdio` process also starts the embedder and background jobs. Default `false` keeps them single-owner: the shared HTTP server runs them and stdio clients only hold an MCP session. See [Stdio ownership](#stdio-ownership) |
 | `mcp.corsOrigins` | `SYNAPTOMIND_MCP_CORS_ORIGINS` | `[]` | Comma-separated allowed CORS origins for the MCP HTTP transport. Empty = no CORS headers |
-| `mcp.maxSessions` | `SYNAPTOMIND_MCP_MAX_SESSIONS` | `100` | Max concurrent MCP sessions |
+| `mcp.maxSessions` | `SYNAPTOMIND_MCP_MAX_SESSIONS` | `100` | Max concurrent MCP sessions **per user** (one user exhausting it cannot lock out the others) |
 | `mcp.sessionTtlMs` | `SYNAPTOMIND_MCP_SESSION_TTL_MS` | `3600000` | Session idle timeout in ms (1h) |
 | `mcp.keepAliveMs` | `SYNAPTOMIND_MCP_KEEPALIVE_MS` | `10000` | Keep-alive interval in ms |
 | `mcp.maxEventsPerSession` | `SYNAPTOMIND_MCP_MAX_EVENTS_PER_SESSION` | `1000` | Max events buffered per session |
@@ -276,6 +276,75 @@ disables the gate and keeps the pre-calibration fail-open result set.
 
 ---
 
+## Users (multi-user)
+
+Optional list of per-user tenants. An empty list (`users: []`, the default)
+preserves today's single-user behaviour (`config.db.path`).
+
+Each entry: `{ id, dbPath, tokenSha256 }`.
+
+| Field | Description |
+|-------|-------------|
+| `id` | Unique user identifier. Used to derive the env var name for token injection |
+| `dbPath` | Absolute path to that user's SQLite database file |
+| `tokenSha256` | SHA-256 hex digest of the user's bearer token |
+
+Tokens are never stored in plaintext in `config.json`: provide `tokenSha256`
+(the SHA-256 of the bearer token) or inject the plaintext token through the
+environment as `SYNAPTOMIND_USER_TOKEN_<ID>` (the id is upper-cased and
+non-alphanumeric characters become `_`). When the env var is set it overrides
+any `tokenSha256` in the file.
+
+Generate a token hash (the digest must be lowercase hex, 64 characters):
+
+```bash
+printf '%s' 'your-bearer-token' | sha256sum | awk '{print $1}'
+# or, without sha256sum:
+node -e "console.log(require('crypto').createHash('sha256').update(process.argv[1]).digest('hex'))" 'your-bearer-token'
+```
+
+Each user's `dbPath` is a separate SQLite database. Deployments back up every
+configured database (the main `db.path` plus each `users[].dbPath`) before an
+update; see [DEPLOY.md](DEPLOY.md#rollback).
+
+Validation (applied at startup, aborts load on failure):
+- `id` values must be unique
+- `dbPath` values must be absolute and must identify distinct, non-overlapping
+  paths (one path must not be a directory-prefix of another)
+- `tokenSha256` values must be unique
+- plaintext `token`/`password`/`secret` keys in a user entry are rejected
+
+For user database paths, startup validation resolves path components in
+filesystem order, including symlinks and `..`. It compares the resolved paths
+and, for existing files, their device and inode numbers, rejecting aliases
+including hard links. A database file need not exist yet; missing path
+components are allowed. Dangling symlinks and filesystem inspection errors
+other than a missing component abort configuration loading. These comparisons
+are between user database paths; the main `db.path` is not included.
+
+**Filesystem trust:** This check is a startup snapshot, not a lock. A path or
+file changed after validation, including between validation and opening the
+database, can invalidate the result. Keep database files and their parent
+directories trusted and non-writable by untrusted users, and restart after path
+changes.
+
+Example:
+```json
+{
+  "users": [
+    { "id": "alice", "dbPath": "/var/lib/synaptomind/alice.db", "tokenSha256": "..." },
+    { "id": "bob", "dbPath": "/var/lib/synaptomind/bob.db", "tokenSha256": "..." }
+  ]
+}
+```
+
+With env injection:
+```bash
+SYNAPTOMIND_USER_TOKEN_ALICE=plaintext-token-alice
+SYNAPTOMIND_USER_TOKEN_BOB=plaintext-token-bob
+```
+
+---
 ## Authentication
 
 Auth applies to the HTTP ops endpoints under `/api/*` and the MCP HTTP transport (`/mcp`); the MCP stdio transport is local and unauthenticated by design.
@@ -354,6 +423,7 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
   "slots": { "defaultMaxChars": 2000 },
   "graph": { "maxDegree": 50 },
   "search": { "confidence": { "vectorFloor": 0.9, "unrelatedFloor": 0.8 } },
-  "rateLimit": { "max": 200, "windowMs": 60000, "trustProxy": false }
+  "rateLimit": { "max": 200, "windowMs": 60000, "trustProxy": false },
+  "users": []
 }
 ```

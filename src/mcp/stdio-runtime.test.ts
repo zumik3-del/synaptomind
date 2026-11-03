@@ -1,8 +1,10 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { openDatabase } from '../db/init'
+import { Database } from 'bun:sqlite'
 
 // Regression coverage for the MCP stdio runtime (tasks #127-#134).
 //
@@ -144,4 +146,118 @@ describe('MCP stdio runtime', () => {
     // Standalone opts into local job ownership — no delegation message.
     expect(stderr).not.toContain('background jobs delegated to the shared server')
   }, 30_000)
+})
+
+// Exercise an actual tool call, not just tools/list: only the former accesses
+// the database and checks async context propagation through the stdio SDK.
+describe('stdio database boundary', () => {
+  const id = '01900000-0000-7000-8000-000000000001'
+
+  function seed(path: string, content: string) {
+    const db = openDatabase({ dbPath: path, runMigrations: true })
+    const now = new Date().toISOString()
+    db.run('INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, ?, ?)', ['default', 'Default', now])
+    db.run('INSERT INTO thoughts (id, content, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, content, 'active', 'default', now, now])
+    db.close(true)
+  }
+
+  function runBoundary(root: string, users: Array<{ id: string; dbPath: string }>, standalone = false): Promise<StdioRun> {
+    const configPath = join(root, 'config.json')
+    writeFileSync(configPath, JSON.stringify({ db: { path: join(root, 'legacy.db') }, users: users.map((u, i) => ({ ...u, tokenSha256: String(i + 1).repeat(64) })) }))
+    const env = { ...process.env, SYNAPTOMIND_CONFIG: configPath, SYNAPTOMIND_DB_PATH: join(root, 'legacy.db'), SYNAPTOMIND_EMBEDDER_ENABLED: 'false', SYNAPTOMIND_MCP_STDIO_STANDALONE: standalone ? 'true' : 'false' }
+    return new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['src/index.ts', '--stdio'], { cwd: repoRoot, env, stdio: ['pipe', 'pipe', 'pipe'] })
+      let stdout = ''
+      let stderr = ''
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`stdio timed out: ${stderr}`)) }, 20000)
+      child.stdout.on('data', chunk => {
+        stdout += chunk.toString()
+        if (stdout.includes('"id":3')) child.stdin.end()
+      })
+      child.stderr.on('data', chunk => { stderr += chunk.toString() })
+      child.on('error', reject)
+      child.on('close', exitCode => { clearTimeout(timer); resolve({ stdout, stderr, exitCode }) })
+      child.stdin.on('error', () => {})
+      for (const msg of [INIT, INITIALIZED, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'memory_recall', arguments: { action: 'get', thought_id: id } } }]) {
+        child.stdin.write(`${JSON.stringify(msg)}\n`)
+      }
+    })
+  }
+
+  function fixture() {
+    const root = mkdtempSync(join(tmpdir(), 'synaptomind-stdio-boundary-'))
+    tempDirs.push(root)
+    const legacy = join(root, 'legacy.db')
+    const alice = join(root, 'alice.db')
+    const bob = join(root, 'bob.db')
+    seed(legacy, 'legacy-only-marker')
+    seed(alice, 'alice-private-marker')
+    seed(bob, 'bob-private-marker')
+    return { root, legacy, alice, bob }
+  }
+
+  for (const reverse of [false, true]) {
+    test(`reads legacy through real stdio regardless of user order ${reverse}`, async () => {
+      const f = fixture()
+      const users = [{ id: 'alice', dbPath: f.alice }, { id: 'bob', dbPath: f.bob }]
+      const result = await runBoundary(f.root, reverse ? users.reverse() : users)
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toContain('legacy-only-marker')
+      expect(result.stdout).not.toContain('alice-private-marker')
+      expect(result.stdout).not.toContain('bob-private-marker')
+    }, 30000)
+  }
+
+  test('an unavailable first user never becomes a fallback to another user', async () => {
+    const f = fixture()
+    // A directory cannot be opened as a SQLite database but has a resolvable identity.
+    const unavailable = join(f.root, 'unavailable.db')
+    mkdirSync(unavailable)
+    const result = await runBoundary(f.root, [{ id: 'alice', dbPath: unavailable }, { id: 'bob', dbPath: f.bob }])
+    if (result.exitCode !== 0) throw new Error(`stdio failed: ${result.stderr}`)
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('legacy-only-marker')
+    expect(result.stdout).not.toContain('bob-private-marker')
+  }, 30000)
+
+  test('single-user stdio retains legacy access', async () => {
+    const f = fixture()
+    const result = await runBoundary(f.root, [])
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('legacy-only-marker')
+  }, 30000)
+
+  test('hardlinked legacy and user databases fail closed', async () => {
+    const f = fixture()
+    const alias = join(f.root, 'alias.db')
+    linkSync(f.legacy, alias)
+    const result = await runBoundary(f.root, [{ id: 'alice', dbPath: alias }])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('cannot be safely isolated')
+    expect(result.stdout).not.toContain('legacy-only-marker')
+    const db = new Database(f.legacy, { readonly: true })
+    expect(db.query('SELECT content FROM thoughts WHERE id = ?').get(id)).toEqual({ content: 'legacy-only-marker' })
+    db.close()
+  }, 30000)
+
+  test('legacy open failure is explicit and never selects a user database', async () => {
+    const f = fixture()
+    rmSync(f.legacy)
+    mkdirSync(f.legacy)
+    const result = await runBoundary(f.root, [{ id: 'alice', dbPath: f.alice }])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('failed to init database')
+    expect(result.stdout).not.toContain('alice-private-marker')
+    const db = new Database(f.alice, { readonly: true })
+    expect(db.query('SELECT content FROM thoughts WHERE id = ?').get(id)).toEqual({ content: 'alice-private-marker' })
+    db.close()
+  }, 30000)
+
+  test('multi-user standalone refuses to start', async () => {
+    const f = fixture()
+    const result = await runBoundary(f.root, [{ id: 'alice', dbPath: f.alice }], true)
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('stdio standalone is unavailable')
+  }, 30000)
 })

@@ -1,5 +1,5 @@
 import { config } from '../config'
-import { getDb } from '../db'
+import { getDb, registry } from '../db'
 import { decayImportance } from '../db/importance'
 import { createIntervalJob } from './jobs'
 import type { Database } from 'bun:sqlite'
@@ -11,14 +11,44 @@ import type { Database } from 'bun:sqlite'
  * thoughts created with `is_protected = 1`, so it only archived the few
  * unprotected thoughts the decay job has no business touching.
  */
-export function runDecayJob(d: Database = getDb()): void {
-  decayImportance(d, config.decay.rate)
+
+const onError = (err: unknown): void => console.error('[decay] job error:', err)
+
+/**
+ * Resolve the databases the decay job must touch this tick: every registered
+ * user DB when running multi-user, falling back to the legacy singleton (or
+ * none, when no DB is bound) in single-user / closed-DB situations.
+ */
+function jobDatabases(): Database[] {
+  if (registry.size > 0) return [...registry.values()]
+  try {
+    return [getDb()]
+  } catch {
+    return []
+  }
+}
+
+export function runDecayJob(d?: Database): void {
+  if (d) {
+    decayImportance(d, config.decay.rate)
+    return
+  }
+  // Iterate the registry (or the singleton fallback) sequentially. bun:sqlite
+  // is synchronous, so a single synchronous pass keeps the reentrancy guard
+  // meaningful: the guard wraps this whole tick, not individual DBs.
+  for (const db of jobDatabases()) {
+    try {
+      decayImportance(db, config.decay.rate)
+    } catch (err) {
+      onError(err)
+    }
+  }
 }
 
 const job = createIntervalJob({
   name: 'decay',
   intervalMs: config.decay.intervalMs,
-  onError: (err) => console.error('[decay] job error:', err)
+  onError
 }, () => { runDecayJob() })
 
 export function startDecayJob(): void { job.start() }

@@ -1,9 +1,11 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve } from 'bun'
-import { getValidTokens } from '../auth'
+import { getValidTokens, resolveUser, type UserRef } from '../auth'
 import { config } from '../config'
 import { authMiddleware } from '../middleware/auth'
+import { als, getDb, getUserDb } from '../db/container'
+import type { Database } from 'bun:sqlite'
 import { mcpRateLimitMiddleware } from '../middleware/rate-limit'
 import { createMcpServer } from './server'
 import { disposePair, InMemoryEventStore, probeInitializeRequest } from './in-memory-event-store'
@@ -11,10 +13,13 @@ import type { Context } from 'hono'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 
-interface Session {
+export interface Session {
   server: McpServer
   transport: WebStandardStreamableHTTPServerTransport
   lastAccess: number
+  // Immutable identity of the user who created this session. Compared against
+  // the re-resolved caller on every follow-up request (security: no hijack).
+  userId: string
 }
 
 export interface McpHttpHandle {
@@ -28,6 +33,8 @@ interface McpHttpOptions {
 }
 
 // Transport limits are config-driven (F16); see config.mcp.
+// MAX_SESSIONS is a per-user cap: one authenticated user cannot exhaust the
+// budget and get 429 for everyone else.
 const MAX_SESSIONS = config.mcp.maxSessions
 const SESSION_TTL_MS = config.mcp.sessionTtlMs
 const KEEPALIVE_MS = config.mcp.keepAliveMs
@@ -39,6 +46,12 @@ export const MAX_REQUEST_BODY_BYTES = 5_242_880
 export function mcpErrorHandler(err: Error, c: Context): Response {
   console.error('[synaptomind] MCP HTTP unhandled error:', err)
   return c.json({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null }, 500)
+}
+
+function countUserSessions(sessions: Map<string, Session>, userId: string): number {
+  let count = 0
+  for (const session of sessions.values()) if (session.userId === userId) count++
+  return count
 }
 
 /**
@@ -84,6 +97,27 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
 
   app.use('/mcp', authMiddleware)
 
+  // Per-request user binding (task #2285): re-resolve the bearer token on every
+  // request and bind { userId, db } to ALS for the whole /mcp handler chain,
+  // including server construction on the session-creation path. Fail-closed:
+  // unknown token -> 401 (already enforced above, repeated here defensively),
+  // resolved-but-unregistered user DB -> 503.
+  app.use('/mcp', async (c, next) => {
+    const ref = resolveUser(c.req.header('Authorization'))
+    if (!ref) return c.json({ error: 'Unauthorized' }, 401)
+
+    let db: Database | undefined
+    try {
+      db = ref.kind === 'legacy' ? getDb() : getUserDb(ref.userId)
+    } catch {
+      db = undefined
+    }
+    if (!db && ref.kind !== 'legacy') return new Response(JSON.stringify({ error: "Database unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
+
+    (c as any).set('mcpUser', ref)
+    return als.run({ userId: ref.userId, db: db as Database }, next)
+  })
+
   app.use('/mcp', mcpRateLimitMiddleware)
 
   app.use('/mcp', async (c, next) => {
@@ -111,6 +145,17 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
   sessionCleanup.unref()
 
   app.all('/mcp', async (c) => {
+    const ref = ((c as any).get('mcpUser') as UserRef | undefined) ?? resolveUser(c.req.header('Authorization'))
+    if (!ref) return c.json({ error: 'Unauthorized' }, 401)
+
+    let db: Database | undefined
+    try {
+      db = ref.kind === 'legacy' ? getDb() : getUserDb(ref.userId)
+    } catch {
+      db = undefined
+    }
+    if (!db && ref.kind !== 'legacy') return new Response(JSON.stringify({ error: "Database unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
+
     const sessionId = c.req.header('mcp-session-id')
 
     if (sessionId) {
@@ -118,8 +163,15 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
       if (!session) {
         return c.json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null }, 404)
       }
+      // Re-resolve identity on every request: a session id alone never grants
+      // access. Check before touching lastAccess so a mismatched caller cannot
+      // keep the victim's session alive (and never delete the session on
+      // mismatch — that would be a cross-user DoS).
+      if (session.userId !== ref.userId) {
+        return c.json({ jsonrpc: '2.0', error: { code: -32002, message: 'Session does not belong to the presented token' }, id: null }, 403)
+      }
       session.lastAccess = Date.now()
-      return trackStreamActivity(await session.transport.handleRequest(c.req.raw), session)
+      return trackStreamActivity(await als.run({ userId: ref.userId, db: db as Database }, () => session.transport.handleRequest(c.req.raw)), session)
     }
 
     // Sessionless: only an initialize request may create a session. Rejecting
@@ -130,37 +182,41 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
       return c.json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: Mcp-Session-Id header is required' }, id: null }, 400)
     }
 
-    if (sessions.size >= MAX_SESSIONS) {
+    if (countUserSessions(sessions, ref.userId) >= MAX_SESSIONS) {
       return c.json({ error: 'Too many sessions' }, 429)
     }
 
-    const mcpServer = createMcpServer()
-    const transport = new WebStandardStreamableHTTPServerTransport({
-      sessionIdGenerator: () => crypto.randomUUID(),
-      keepAliveMs: KEEPALIVE_MS,
-      eventStore: new InMemoryEventStore(),
-      onsessioninitialized: (id) => {
-        sessions.set(id, { server: mcpServer, transport, lastAccess: Date.now() })
-      },
-      onsessionclosed: (id) => {
-        sessions.delete(id)
+    // Bind ALS before building the server so registration-time DB reads
+    // (e.g. store.ts soft-limit description) resolve per user.
+    return als.run({ userId: ref.userId, db: db as Database }, async () => {
+      const mcpServer = createMcpServer()
+      const transport = new WebStandardStreamableHTTPServerTransport({
+        sessionIdGenerator: () => crypto.randomUUID(),
+        keepAliveMs: KEEPALIVE_MS,
+        eventStore: new InMemoryEventStore(),
+        onsessioninitialized: (id) => {
+          sessions.set(id, { server: mcpServer, transport, lastAccess: Date.now(), userId: ref.userId })
+        },
+        onsessionclosed: (id) => {
+          sessions.delete(id)
+        }
+      })
+
+      try {
+        await mcpServer.connect(transport)
+        const response = await transport.handleRequest(c.req.raw, { parsedBody: probe.body })
+        const session = transport.sessionId ? sessions.get(transport.sessionId) : undefined
+        // A request that failed to register a session must not leak its pair.
+        if (!session) {
+          await disposePair(mcpServer, transport)
+          return response
+        }
+        return trackStreamActivity(response, session)
+      } catch (err) {
+        await disposePair(mcpServer, transport)
+        throw err
       }
     })
-
-    try {
-      await mcpServer.connect(transport)
-      const response = await transport.handleRequest(c.req.raw, { parsedBody: probe.body })
-      const session = transport.sessionId ? sessions.get(transport.sessionId) : undefined
-      // A request that failed to register a session must not leak its pair.
-      if (!session) {
-        await disposePair(mcpServer, transport)
-        return response
-      }
-      return trackStreamActivity(response, session)
-    } catch (err) {
-      await disposePair(mcpServer, transport)
-      throw err
-    }
   })
 
   // Liveness only: no version or build/transport details for unauthenticated callers.

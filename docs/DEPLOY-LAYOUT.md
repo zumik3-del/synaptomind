@@ -71,8 +71,9 @@ a fourth rule beyond code/data/state. From the ADR addendum:
 
 - **R1 — app config home = `DATA_DIR`.** The app's own settings file lives in
   `/var/lib/<app>/`, beside its database. It is the only config location
-  writable at runtime (`ProtectSystem=strict`), and it is inside the backup
-  boundary the pre-update hooks search. Seeded with `SEED_FILES_DATA`
+  writable at runtime (`ProtectSystem=strict`), and it sits beside the database
+  the built-in pre-update backup snapshots (`update.sh` → `backup_databases`).
+  Seeded with `SEED_FILES_DATA`
   (`install.sh:382`); the location is declared per app in `CONFIG_FILE`, which
   is documentation and assertion material only — no framework code reads it
   (verified: `grep -rn CONFIG_FILE deploy/` matches `app.env` alone).
@@ -211,10 +212,10 @@ runs the same `install_deps_and_build()` pair the installer runs.
 
 ### Shared by both modes
 
-pre-update hook → fetch → swap → refresh unit → restart → health gate →
-post-update hook; `apply_ownership`; the health contract; and the same
-`install_helper_scripts` / `install_hook_scripts` / `uninstall.sh` surface in
-`~/.<app>/scripts`.
+built-in pre-update backup → pre-update hook → fetch → swap → refresh unit →
+restart → health gate → post-update hook; `apply_ownership`; the health
+contract; and the same `install_helper_scripts` / `install_hook_scripts` /
+`uninstall.sh` surface in `~/.<app>/scripts`.
 
 ### Which `app.env` an entry point reads
 
@@ -252,6 +253,15 @@ One implementation, three vendored copies, one `app.env` per app.
   | `updater.sh` | staging dir `${APP_NAME}-updater` | same |
   | `uninstall.sh`, `hooks/post-update` | byte-identical | comment-only / gated no-op |
   | `hooks/pre-update` | resolves `settings.json`'s `dbPath`, searching `DATA_DIR` **first** (`hooks/pre-update:64`) | honest no-op, with the three reasons printed on every run |
+
+  The database backup itself is **not** the hook's job. `update.sh` runs the
+  built-in `backup_databases` (from `lib/common.sh`) before `run_hook pre-update`
+  in every app, aborts the update when it fails, and then exports
+  `APP_BACKUP_ALREADY_DONE=1`; the per-app hooks are extension points layered on
+  top of that guarantee (`DEPLOY.md` "Pre-update backup"). A re-vendored
+  `hooks/pre-update` is still copied by `install.sh` only — `update.sh` never
+  refreshes installed hooks, so the built-in backup is what an existing host
+  gets on its first update.
 
   The `DEPLOY_RAW_URL` change is the one that is a bug rather than cosmetics if
   left alone: a piped run with a foreign base fetches *that* app's `app.env` and
@@ -303,7 +313,7 @@ The keys below are the ones whose value is not obvious from the name.
 | **`HEALTH_STATUS_FIELD`** | `ok` | The framework's default is `status` compared against `ok degraded` — synaptomind's own shape. Applied unchanged it declares a contract violation on a healthy ziptask and **aborts every install and update**. |
 | **`HEALTH_OK_VALUES`** | `true` | Both a quoted string and a bare token are accepted by the reader (`json_field_value()` `common.sh:779-793`). |
 | **`HEALTH_VERSION_FIELD`** | empty | Disables the version comparison and prints one explicit warning. The body carries no version, so the gate rests on the status field alone — it cannot tell ziptask from any other process on the port. |
-| `SYSTEM_DEP_CMDS` | `git tar sqlite3` | `sqlite3` is required: the pre-update hook aborts the swap without a WAL-safe `.backup` of the database first. |
+| `SYSTEM_DEP_CMDS` | `git tar sqlite3` | `sqlite3` is required: the built-in pre-update backup (`update.sh` → `backup_databases`) aborts the swap without a WAL-safe `.backup` of the database first. |
 
 ### subagentix — `deploy/app.env`
 

@@ -197,14 +197,17 @@ bash ${HOME}/.synaptomind/scripts/update.sh --yes            # non-interactive (
 
 `update.sh` is upgrade-safe and never reverts automatically:
 
-1. Runs the pre-update hook — a WAL-safe `sqlite3 .backup` of every configured
-   database to `<db>.backup/<name>.<timestamp>.bak` (skipped when no database
-   exists; aborts before switching code if an existing database cannot be backed
-   up).
-2. Downloads the release tarball, extracts it, verifies the payload, copies
+1. Backs up every database the service will open with a WAL-safe
+   `sqlite3 .backup` into `<db>.backup/`, and aborts before the payload is
+   downloaded or swapped when a database it found cannot be copied or verified.
+   The step is built into `update.sh` and `lib/common.sh`, not delegated to the
+   hook — see [Pre-update backup](#pre-update-backup).
+2. Runs the installed `pre-update` hook. Its failure is fatal too, but it is an
+   extension point: the shipped hook skips its own copy when step 1 already ran.
+3. Downloads the release tarball, extracts it, verifies the payload, copies
    `.prev` rollback points, and swaps the new payload into `/opt/synaptomind`.
-3. Refreshes the systemd unit (full re-render in binary mode) and restarts it.
-4. Polls `/health` until it reports the target version; on timeout or version
+4. Refreshes the systemd unit (full re-render in binary mode) and restarts it.
+5. Polls `/health` until it reports the target version; on timeout or version
    mismatch it exits non-zero and prints recovery instructions (the `.prev`
    rollback points + the DB restore command) without reverting. If no systemd
    service is running, health verification is skipped with a notice.
@@ -213,20 +216,143 @@ The health URL resolves from `config.json` `server.port` / `PORT` (default
 `http://127.0.0.1:3105/health`); override it with `HEALTH_URL` in
 `deploy/app.env`.
 
+If a configured database is unavailable, `/health` returns HTTP 503. The deploy
+gate accepts this as **running but degraded**, not healthy, only when the body
+passes strict JSON and health-contract validation, its version matches the
+expected version, and the embedder has not failed. It warns the operator to
+investigate the database. This 503 path requires `curl` and `python3` and a known
+expected version; without them it fails closed as an unverified timeout. Wrong
+versions, malformed responses, and embedder failure do not pass. A timeout can
+also mean the service did not respond; inspect the endpoint and logs before
+taking recovery action. No recovery is automatic.
+
+The Dockerfile and Compose health checks also use `curl -f`: HTTP 503 counts as
+a failed probe, so partial or total database unavailability eventually makes the
+container unhealthy after the configured retries. Docker health status does not
+itself restart the container; investigate the unavailable database rather than
+assuming the health check repaired it.
+
+### Pre-update backup
+
+The backup is taken by the code every update fetches, not by the installed
+hook. `deploy/update.sh:954` calls `backup_databases`
+(`deploy/lib/common.sh:2637`) before the pre-update hook and before the release
+payload is downloaded or swapped; a failure aborts the run, so no code moves
+without a copy. On the default path that is the **target release's** own copy of
+both files: the frozen bootstrap stages `update.sh`, `lib/common.sh` and your
+`app.env` from the tag it is installing (`deploy/updater.sh:116-118`).
+
+**What is covered.** Every database the service actually opens: `db.path`, each
+`users[].dbPath`, `SYNAPTOMIND_DB_PATH`, any `SYNAPTOMIND_CONFIG` /
+`SYNAPTOMIND_DB_PATH` declared in the payload `.env` files (read in addition to
+the service environment), plus a bounded discovery pass (`-maxdepth 2`, SQLite
+magic number) over `DATA_DIR` (`/var/lib/synaptomind` by default, falling back
+to `${INSTALL_DIR}/data` when the key is empty), the unit's working directory's
+`data/`, and the parent directories of the resolved paths.
+Candidates are deduplicated by canonical path and inode, so a symlink and its
+target are one database. The configuration is read from the running service
+where possible (`/proc/<pid>/environ`, `/proc/<pid>/cwd`), then from the unit,
+then from the installed `app.env`.
+
+**Snapshots.** `sqlite3 -cmd ".timeout 10000" <db> ".backup '<out>'"`, written
+next to the real file as
+`<db>.backup/<basename>.<YYYYMMDD-HHMMSS>-<pid>-<n>.bak`, where `<n>` is a
+per-run counter over the candidate paths — e.g.
+`/var/lib/synaptomind/synaptomind.db.backup/synaptomind.db.20261103-111142-417429-1.bak`
+for the default database (`/opt/synaptomind/data` is a symlink, and a symlinked
+database is resolved first). The `.backup` API includes WAL content. Each copy
+is then verified: `PRAGMA quick_check` must answer `ok`, and the copy's
+`PRAGMA user_version` must equal the source's.
+
+**Skip and abort rules.** A path that does not exist, is not a regular file, or
+does not begin with `SQLite format 3` is skipped with an `info` line naming it —
+a fresh install has nothing to copy, and a 0-byte or foreign file at a
+configured path is reported rather than copied. Everything that would leave a
+database uncopied fails closed and aborts before the swap: `sqlite3` missing
+while at least one database exists, a backup directory that cannot be created, a
+backup destination that already exists, a failed `.backup`, a failed
+`quick_check` or `user_version` check (the partial file is removed), and a run
+where the service is active and a config file was resolved but no database could
+be enumerated at all.
+
+**Retention.** After a successful backup the same step prunes, per database and
+oldest first, everything beyond the newest `BACKUP_KEEP` copies — default `5`,
+set it in `deploy/app.env` or the environment. `BACKUP_KEEP=0` disables pruning
+(a non-numeric value also disables it, silently). The pattern is
+`<basename>.[0-9]{8}-[0-9]{6}*.bak`, which also matches the older hook-written
+`<basename>.<timestamp>.bak`: on a host that has been updated before, the first
+run of this code counts every historical pre-update backup of a database and
+deletes all but the newest `BACKUP_KEEP` of them, without a prompt. Copy
+anything older you mean to keep before that first update.
+
+**The hook is an extension point.** `update.sh` still runs
+`${HOOKS_DIR}/pre-update` after the built-in backup and still treats a non-zero
+exit as fatal, but the guarantee does not depend on it: `update.sh` never
+installs or refreshes hooks (`install_hook_scripts()` is called only from
+`deploy/install.sh:856`), so an existing host keeps whatever hook it installed —
+possibly a release-old copy with its own `grep`-based resolver. The shipped hook
+exits 0 with `pre-update: built-in backup already performed` when
+`APP_BACKUP_ALREADY_DONE=1` (`deploy/hooks/pre-update:118`), which
+`backup_databases` and `deploy/update.sh:957` export before the hook runs. A
+custom hook that backs up on its own should honour that variable as well;
+otherwise it adds a second set of copies, subject to the same retention.
+Re-running `install.sh` is what refreshes the installed hook.
+
+**Dry run.** `update.sh --check-backup` prints what the backup step would
+protect — no backup taken, nothing downloaded or swapped, no unit touched —
+and exits non-zero when resolution would have refused. Typical output on a
+running host with the default single database:
+
+```text
+CONTEXT_SOURCE=observed
+ENV_SOURCE=observed
+RESOLVER_AGREEMENT=bash-only
+EFFECTIVE_CONFIG_PATH=/opt/synaptomind/config.json
+DATABASES:
+/var/lib/synaptomind/synaptomind.db
+```
+
+`CONTEXT_SOURCE` and `ENV_SOURCE` name the layer that answered (`observed` = the
+running process, `derived` = `systemctl show` or the unit file, `assumed` =
+`app.env` only), `RESOLVER_AGREEMENT` is always `bash-only` because nothing
+inside the application is probed, and the `DATABASES:` lines are absolute paths
+with an existing parent directory canonicalised, so
+`/opt/synaptomind/data/…` prints as `/var/lib/synaptomind/…`. The flag is
+handled before the version guards, so it works on a host that is already
+current. `updater.sh` rejects unknown flags, so run it on an `update.sh`
+directly:
+
+```bash
+bash ${HOME}/.synaptomind/scripts/update.sh --check-backup
+```
+
+The installed `update.sh` in `${HOME}/.synaptomind/scripts/` learns the flag only
+when a re-install refreshes it; until then run the same command from a checkout
+of the release you intend to deploy — `bash deploy/update.sh --check-backup`,
+where the checkout's `app.env` supplies `INSTALL_DIR`/`DATA_DIR` just as the
+installed copy does.
+
 ### Rollback
 
-Schema migrations are **forward-only** (`src/db/init.ts:127`): the server applies
+Schema migrations are **forward-only** (`src/db/init.ts:166`): the server applies
 every migration it has not seen and never reverses one. Running an older binary
 against a database that a newer version has already migrated is therefore
-**unsafe**. The pre-update hook has already copied the database, so the
-supported rollback restores that backup and restores the `.prev` payload files:
+**unsafe**. The pre-update backup ([above](#pre-update-backup)) has already
+copied every database, so the supported rollback restores those copies and the
+`.prev` payload files:
 
 ```bash
 sudo systemctl stop synaptomind
-# Restore the database backup (path printed by the pre-update hook)
+# Restore EVERY database the backup step copied. It prints one
+# "Database backed up: ..." line per database (the main db.path plus each
+# users[].dbPath); run the printed cp/rm pair for each of them. Example for
+# the default single database:
 sudo cp -p /opt/synaptomind/data/synaptomind.db.backup/synaptomind.db.<timestamp>.bak \
           /opt/synaptomind/data/synaptomind.db
 sudo rm -f /opt/synaptomind/data/synaptomind.db-wal /opt/synaptomind/data/synaptomind.db-shm
+# Repeat the two lines above for each per-user database, using the path the
+# backup step printed for it (e.g. .../alice.db.backup/alice.db.<timestamp>.bak
+# -> alice.db).
 # Restore the previous payload from .prev
 sudo mv -f /opt/synaptomind/vec0.so.prev /opt/synaptomind/vec0.so
 sudo mv -f /opt/synaptomind/lib/libonnxruntime.so.1.prev /opt/synaptomind/lib/libonnxruntime.so.1
@@ -234,9 +360,10 @@ sudo mv -f /opt/synaptomind/synaptomind.prev /opt/synaptomind/synaptomind
 sudo systemctl start synaptomind
 ```
 
-The hook prints the exact backup path (`Database backed up: …`), and
-`update.sh` repeats the `.prev` restore loop and the DB restore commands in its
-recovery block.
+The backup step prints the exact path (`Database backed up: …`), and
+`update.sh` repeats the per-database `cp`/`rm` pair and the `.prev` restore
+commands in its recovery block — for the copies it made itself and for any an
+operator hook reported.
 
 `/opt/synaptomind/data` is a symlink to `/var/lib/synaptomind`, so the real
 database file is `/var/lib/synaptomind/synaptomind.db` — there is no `data/`
@@ -282,6 +409,25 @@ curl http://127.0.0.1:3105/health   # should report the target version
 
 Re-run `bash ${HOME}/.synaptomind/scripts/update.sh --yes` to re-refresh and
 restart.
+
+### Update aborts with `pre-update backup failed`
+
+`[synaptomind] ERROR: pre-update backup failed — aborting before switching
+code` means the backup step refused to continue: the payload was not downloaded,
+nothing was swapped, and the service is still running the code it ran a minute
+ago. Find out what the step resolved and from where:
+
+```bash
+bash ${HOME}/.synaptomind/scripts/update.sh --check-backup
+```
+
+The usual causes are a missing `sqlite3` while a database exists, a `.backup`
+directory the update user cannot write, a config file that cannot be read or
+parsed, and a host where the service is active but no database could be
+enumerated — the step refuses rather than backing up nothing. Also check the
+filesystem: retention keeps up to `BACKUP_KEEP` copies of every database, so the
+`<db>.backup/` directories are part of the disk budget. Fix the cause and re-run;
+a copy that fails verification is deleted, so nothing partial stays behind.
 
 ---
 
