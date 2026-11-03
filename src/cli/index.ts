@@ -5,7 +5,6 @@ import { runHealthCheckService, type HealthReport } from '../services/health-che
 
 export interface OpsHealthCheckOptions {
   user?: string
-  all?: boolean
 }
 
 export interface OpsHealthCheckUserResult {
@@ -69,19 +68,16 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   }
 
   let user: string | undefined
-  let all = false
   for (let i = 2; i < args.length; i++) {
     const a = args[i]
     if (a === '--user') {
       user = args[++i]
-      if (user === 'all') all = true
     } else if (a === 'all') {
-      all = true
+      user = 'all'
     }
   }
-  if (all) user = 'all'
 
-  const result = await runOpsHealthCheck({ user, all })
+  const result = await runOpsHealthCheck({ user })
   console.log(JSON.stringify(result, null, 2))
   process.exitCode = result.aggregate === 'ok' ? 0 : 1
 }

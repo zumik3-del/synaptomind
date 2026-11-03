@@ -33,6 +33,8 @@ interface McpHttpOptions {
 }
 
 // Transport limits are config-driven (F16); see config.mcp.
+// MAX_SESSIONS is a per-user cap: one authenticated user cannot exhaust the
+// budget and get 429 for everyone else.
 const MAX_SESSIONS = config.mcp.maxSessions
 const SESSION_TTL_MS = config.mcp.sessionTtlMs
 const KEEPALIVE_MS = config.mcp.keepAliveMs
@@ -44,6 +46,12 @@ export const MAX_REQUEST_BODY_BYTES = 5_242_880
 export function mcpErrorHandler(err: Error, c: Context): Response {
   console.error('[synaptomind] MCP HTTP unhandled error:', err)
   return c.json({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null }, 500)
+}
+
+function countUserSessions(sessions: Map<string, Session>, userId: string): number {
+  let count = 0
+  for (const session of sessions.values()) if (session.userId === userId) count++
+  return count
 }
 
 /**
@@ -174,7 +182,7 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
       return c.json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: Mcp-Session-Id header is required' }, id: null }, 400)
     }
 
-    if (sessions.size >= MAX_SESSIONS) {
+    if (countUserSessions(sessions, ref.userId) >= MAX_SESSIONS) {
       return c.json({ error: 'Too many sessions' }, 429)
     }
 

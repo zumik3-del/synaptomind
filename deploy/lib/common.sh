@@ -1990,9 +1990,8 @@ load_app_env() {
 #  Fail-closed pre-update database backup (task #2297, ADR 2026-11-03)
 # ════════════════════════════════════════════════════════════════════════════
 
-# Defaults (no new app.env keys required).
+# Default (no new app.env key required).
 : "${BACKUP_KEEP:=5}"
-: "${BACKUP_INTEGRITY:=quick}"
 
 # ── JSON config scanner (portable awk) ──────────────────────────────────────
 # Prints every database path found in a config.json (db.path + users[].dbPath),
@@ -2676,7 +2675,3 @@ backup_databases() {
   export APP_BACKUP_ALREADY_DONE=1
   return "$rc"
 }
-
-# ── Compatibility aliases ──────────────────────────────────────────────────
-resolve_db_paths() { effective_db_paths "$@"; }
-service_context() { service_unit_context "$@"; }

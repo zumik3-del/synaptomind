@@ -9,7 +9,10 @@ test('multi-user HTTP isolation over real database files (isolated process)', as
     new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited
   ])
   clearTimeout(deadline)
-  if (code !== 0) console.error(stdout + stderr)
+  const output = stdout + stderr
+  if (code !== 0) console.error(output)
   expect(code).toBe(0)
-  expect(stdout + stderr).toContain('0 fail')
+  // A fully skipped suite also ends in "0 fail"; require real assertions to run.
+  expect(Number(output.match(/(\d+)\s+pass/)?.[1] ?? 0)).toBeGreaterThan(0)
+  expect(output).toContain('0 fail')
 }, 30_000)

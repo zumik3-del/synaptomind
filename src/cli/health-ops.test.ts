@@ -15,7 +15,7 @@ afterEach(() => { config.users = users; config.db.path = path })
 test('all configured missing users fail without creating databases', async () => {
   const missing = join(dir, 'missing.db')
   config.users = [{ id: 'alice', dbPath: missing, tokenSha256: 'a' }]
-  const result = await runOpsHealthCheck({ all: true })
+  const result = await runOpsHealthCheck()
   expect(result.aggregate).toBe('degraded')
   expect(result.users.map(u => [u.userId, u.status])).toEqual([['alice', 'degraded']])
   expect(existsSync(missing)).toBe(false)
@@ -96,7 +96,7 @@ test('partial availability runs substantive diagnostics without altering the exi
     { id: 'alice', dbPath: existing, tokenSha256: 'a' },
     { id: 'bob', dbPath: join(dir, 'absent.db'), tokenSha256: 'b' }
   ]
-  const result = await runOpsHealthCheck({ all: true })
+  const result = await runOpsHealthCheck()
   expect(result.aggregate).toBe('degraded')
   expect(result.users[0].report?.summary).toBeDefined()
   expect(result.users[1].status).toBe('degraded')

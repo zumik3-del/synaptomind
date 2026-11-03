@@ -146,6 +146,9 @@ function fileSlotContent(path: string): string {
 }
 
 beforeAll(async () => {
+  // One session per user is enough here, and a cap of 1 makes the per-user
+  // limit testable without opening a hundred sessions.
+  config.mcp.maxSessions = 1
   startMcpHttpServer = (await import('./http-transport')).startMcpHttpServer
 
   config.users = [
@@ -289,6 +292,34 @@ describe('multi-user isolation over real database files', () => {
 
       await (await destroy(base, ALICE_TOKEN, aliceSession)).body?.cancel()
       await (await destroy(base, BOB_TOKEN, bobSession)).body?.cancel()
+    } finally {
+      await server.stop()
+    }
+  })
+
+  test('the session cap is per user: exhausting it for one user leaves the other usable', async () => {
+    const port = await freePort()
+    const server = startMcpHttpServer('127.0.0.1', port)
+    const base = `http://127.0.0.1:${port}`
+    try {
+      // maxSessions is 1 for this suite (see beforeAll).
+      await initialize(base, ALICE_TOKEN)
+
+      const overflow = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: authHeaders(ALICE_TOKEN, {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream'
+        }),
+        body: JSON.stringify(INIT_MESSAGE)
+      })
+      expect(overflow.status).toBe(429)
+      await overflow.body?.cancel()
+
+      // A global cap would refuse bob here; a per-user cap must not.
+      const bobSession = await initialize(base, BOB_TOKEN)
+      expect(bobSession).toBeTruthy()
+      expect(server.getSessions().size).toBe(2)
     } finally {
       await server.stop()
     }
