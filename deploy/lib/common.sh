@@ -854,8 +854,8 @@ HEALTH_FAILURE=""
 # SynaptoMind deviation: accepts status "ok" OR "degraded". The upstream
 # template requires exactly "ok", but SynaptoMind returns "degraded" when
 # non-fatal checks fail (e.g. embedder not yet ready) — getHealthService() in
-# src/services/health.service.ts. A reachable service must not fail
-# install/update.
+# src/services/health.service.ts. A strictly parsed 503 for the expected version
+# is accepted as running but degraded, with an explicit operator warning.
 #
 # Second SynaptoMind deviation: `checks.embedder` is read as well, because
 # status alone cannot separate a first install from a dead one. A fresh binary
@@ -896,7 +896,7 @@ wait_health() {
   # still reaches the verdict below, and `set -u` treats an unset `local` as an
   # error — which turned "the service never answered" into a crash instead of
   # the `timeout` verdict it is.
-  local body="" status="" version="" embedder=""
+  local body="" status="" version="" embedder="" response="" code="" parsed=""
   local embedder_dead=false foreign=false
   HEALTH_FAILURE=""
   if [ "$expected" = "unknown" ]; then expected=""; fi
@@ -965,6 +965,58 @@ wait_health() {
 
   while [ "$SECONDS" -lt "$deadline" ]; do
     body="$(url_get "$url" 2>/dev/null || true)"
+    # url_get intentionally rejects HTTP errors. Probe 503 separately without
+    # -f, retaining the body only after a complete transfer. Fail closed when
+    # curl, python3, or a concrete expected version is unavailable.
+    if [ -z "$body" ] && [ -n "$expected" ] && [ "$version_check" = true ] \
+      && command -v curl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+      response="$(curl -sS --max-time 30 --max-filesize 65536 -w '\n%{http_code}' "$url" 2>/dev/null)" || response=""
+      code="${response##*$'\n'}"
+      if [ "$code" = 503 ]; then
+        body="${response%$'\n'*}"
+        parsed="$(printf '%s' "$body" | python3 -c '
+import json, sys
+def unique(pairs):
+    d = {}
+    for k, v in pairs:
+        if k in d: raise ValueError("duplicate key")
+        d[k] = v
+    return d
+try:
+    x = json.load(sys.stdin, object_pairs_hook=unique)
+    c = x["checks"]
+    if (not isinstance(x, dict) or not isinstance(c, dict) or
+        x.get("status") != "degraded" or c.get("database") != "degraded" or
+        c.get("embedder") not in ("ok", "not ready", "failed") or
+        not isinstance(x.get("version"), str)):
+        raise ValueError("invalid health contract")
+    print(json.dumps([x["version"], c["embedder"]]))
+except (ValueError, KeyError, TypeError):
+    sys.exit(1)
+' 2>/dev/null)" || parsed=""
+        # Compare JSON-encoded values, not shell fragments from untrusted input.
+        if [ -n "$parsed" ]; then
+          if [ "$parsed" = "$(python3 -c 'import json,sys; print(json.dumps([sys.argv[1], "failed"]))' "$expected")" ]; then
+            body='{"status":"degraded","version":"'"$expected"'","embedder":"failed"}'
+          elif [ "$parsed" = "$(python3 -c 'import json,sys; print(json.dumps([sys.argv[1], "ok"]))' "$expected")" ] || \
+               [ "$parsed" = "$(python3 -c 'import json,sys; print(json.dumps([sys.argv[1], "not ready"]))' "$expected")" ]; then
+            warn "Service version ${expected} is running but HTTP 503 reports a degraded database; investigate ${url} and service logs."
+            return 0
+          else
+            # A valid but unexpected version must reach the normal verdict.
+            version="$(printf '%s' "$parsed" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0])')"
+            HEALTH_FAILURE="version"
+            warn "health check reports a different version than ${expected}; refusing degraded response."
+            return 1
+          fi
+        else
+          # A complete 503 with malformed or foreign JSON is not a timeout.
+          HEALTH_FAILURE="contract"
+          warn "HTTP 503 did not contain a valid ${APP_NAME:-app} degraded health response."
+          return 1
+        fi
+      fi
+    fi
     # Every signal is re-derived from THIS sample, and a poll that read NO body
     # derives none of them (task #1099). They used to be latched across samples,
     # which turned one partial answer into a verdict about the whole window: a
@@ -1023,6 +1075,9 @@ wait_health() {
       # on the status field alone.
       if [ "$embedder_dead" != true ] && [ "$foreign" != true ] \
         && { [ "$version_check" != true ] || [ -z "$expected" ] || [ "$version" = "$expected" ]; }; then
+        if [ "$status" = "degraded" ]; then
+          warn "Service responded with ${status_field}=degraded over a successful HTTP response; inspect ${url}."
+        fi
         if [ "$version_check" = true ]; then
           info "Service is healthy, reported version ${version}."
         else
@@ -1068,6 +1123,8 @@ wait_health() {
   else
     warn "health check timed out after ${timeout}s (no expected version)"
   fi
+  warn "  No expected health response was verified."
+  warn "  Check ${url} and the service logs before taking recovery action."
   return 1
 }
 

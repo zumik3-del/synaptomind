@@ -1,7 +1,7 @@
-import { closeDb, initDb, openDatabase } from '../db/init'
-import { clearRegistry, getDb, register, registry } from '../db/container'
+import { Database } from 'bun:sqlite'
 import { config } from '../config'
-import { clearHealthProbeCache, probeDatabase } from '../services/health.service'
+import { vec0Path } from '../runtime-mode'
+import { runHealthCheckService, type HealthReport } from '../services/health-check.service'
 
 export interface OpsHealthCheckOptions {
   user?: string
@@ -12,6 +12,7 @@ export interface OpsHealthCheckUserResult {
   userId: string
   status: 'ok' | 'degraded'
   error?: string
+  report?: HealthReport
 }
 
 export interface OpsHealthCheckResult {
@@ -20,79 +21,38 @@ export interface OpsHealthCheckResult {
 }
 
 export async function runOpsHealthCheck(opts: OpsHealthCheckOptions = {}): Promise<OpsHealthCheckResult> {
-  clearRegistry()
-  clearHealthProbeCache()
+  const configured = config.users?.length
+    ? config.users.map(user => ({ userId: user.id, path: user.dbPath }))
+    : [{ userId: 'default', path: config.db.path }]
+  const selected = opts.user && opts.user !== 'all'
+    ? configured.filter(target => target.userId === opts.user)
+    : configured
 
-  const users = Array.isArray(config.users) ? config.users : []
-
-  if (users.length > 0) {
-    for (const u of users as Array<{ id: string; dbPath: string }>) {
-      try {
-        const db = openDatabase({ dbPath: u.dbPath, runMigrations: false })
-        register(u.id, db)
-      } catch {
-        // Unavailable user DBs are simply not registered; reported as absent.
+  const results: OpsHealthCheckUserResult[] = selected.map(({ userId, path }) => {
+    let db: Database | undefined
+    try {
+      // Read-only opening refuses missing files and never bootstraps or migrates.
+      db = new Database(path, { readonly: true })
+      db.loadExtension(vec0Path())
+      const report = runHealthCheckService({}, db)
+      return {
+        userId,
+        status: report.summary.critical || report.summary.warning ? 'degraded' : 'ok',
+        report
       }
-    }
-  } else {
-    try {
-      initDb()
-    } catch {
-      // ignore; probed below
-    }
-  }
-
-  let targets: Array<[string, ReturnType<typeof getDb>]> = []
-  if (registry.size > 0) {
-    targets = [...registry.entries()]
-  } else {
-    try {
-      targets = [['default', getDb()]]
-    } catch {
-      targets = []
-    }
-  }
-
-  if (opts.user && opts.user !== 'all') {
-    targets = targets.filter(([id]) => id === opts.user)
-  }
-
-  const results: OpsHealthCheckUserResult[] = targets.map(([userId, db]) => {
-    const probe = probeDatabase(db)
-    return {
-      userId,
-      status: probe.status,
-      ...(probe.error ? { error: probe.error } : {})
+    } catch (error) {
+      return { userId, status: 'degraded', error: String(error) }
+    } finally {
+      db?.close()
     }
   })
-
-  // If a specific user was requested but not found, report it as degraded.
-  if (opts.user && opts.user !== 'all' && results.length === 0) {
-    results.push({ userId: opts.user, status: 'degraded', error: 'not registered' })
+  if (selected.length === 0 && opts.user && opts.user !== 'all') {
+    results.push({ userId: opts.user, status: 'degraded', error: 'not configured' })
   }
-
-  const aggregate: 'ok' | 'degraded' =
-    results.length > 0 && results.every(r => r.status === 'ok') ? 'ok' : 'degraded'
-
-  // Tear down connections we opened.
-  if (registry.size > 0) {
-    for (const [, db] of targets) {
-      try {
-        db.close(true)
-      } catch {
-        // ignore
-      }
-    }
-  } else {
-    try {
-      closeDb()
-    } catch {
-      // ignore
-    }
+  return {
+    users: results,
+    aggregate: results.length > 0 && results.every(result => result.status === 'ok') ? 'ok' : 'degraded'
   }
-  clearRegistry()
-
-  return { users: results, aggregate }
 }
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
