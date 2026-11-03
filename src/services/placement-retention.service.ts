@@ -1,5 +1,5 @@
 import { config } from '../config'
-import { getDb } from '../db'
+import { getDb, registry } from '../db'
 import { deleteExpired } from '../db/placement-proposals'
 import { deleteExpiredPreviewTokens } from '../db/preview-tokens'
 import { insertLog } from '../logging/log'
@@ -44,21 +44,53 @@ export function cleanupPlacementProposals(d: Database = getDb()): PlacementReten
 const onError = (err: unknown): void =>
   insertLog('warning', 'placement-retention', 'Placement retention job failed', { error: String(err) })
 
-const sweep = (): void => {
-  // `cleanupPlacementProposals` already logs the affected counts.
-  cleanupPlacementProposals()
+/**
+ * Resolve the databases the retention job must touch this tick: every registered
+ * user DB when running multi-user, falling back to the legacy singleton (or
+ * none, when no DB is bound) in single-user / closed-DB situations.
+ */
+function jobDatabases(): Database[] {
+  if (registry.size > 0) return [...registry.values()]
+  try {
+    return [getDb()]
+  } catch {
+    return []
+  }
 }
 
-const job = createIntervalJob({ name: 'placement-retention', intervalMs: 86400000, onError }, sweep)
+/**
+ * One tick: run the retention sweep once per registered DB, sequentially.
+ * bun:sqlite is synchronous, so a single synchronous pass keeps the reentrancy
+ * guard (in `createIntervalJob`) wrapping the whole tick rather than each DB.
+ */
+const sweepAll = (): void => {
+  for (const db of jobDatabases()) {
+    try {
+      // `cleanupPlacementProposals` already logs the affected counts.
+      cleanupPlacementProposals(db)
+    } catch (err) {
+      onError(err)
+    }
+  }
+}
+
+const job = createIntervalJob({ name: 'placement-retention', intervalMs: 86400000, onError }, sweepAll)
 
 export function startPlacementRetentionJob(): void {
   // Sweep once at boot: the interval is daily, so a host that restarts more
   // often than that would otherwise never prune anything.
   try {
-    sweep()
+    sweepAll()
   } catch (err) {
     onError(err)
   }
   job.start()
 }
 export function stopPlacementRetentionJob(): void { job.stop() }
+
+// Aliases for tests / callers that want to drive a single tick directly.
+export const runPlacementRetentionSweep = sweepAll
+export const runPlacementRetentionTick = sweepAll
+export const runPlacementRetentionJob = sweepAll
+export const runPlacementRetentionJobs = sweepAll
+export const runPlacementRetentionAll = sweepAll
