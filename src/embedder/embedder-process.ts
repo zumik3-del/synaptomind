@@ -24,29 +24,20 @@ const SWEEP_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
 
 interface DbEntry {
   id: string
-  db: Database
+  db: Database | null
+  dbPath?: string
+  nextPollAt: number
 }
 
 function openAllDbs(): DbEntry[] {
   if (Array.isArray(config.users) && config.users.length > 0) {
-    // Mirror boot fan-out (src/db/registry.ts): one bad DB must not kill the
-    // whole embedder child — skip it and keep serving the remaining ones.
-    const registered: DbEntry[] = []
-    for (const u of config.users) {
-      try {
-        const db = openDatabase({ dbPath: u.dbPath })
-        registered.push({ id: u.id, db })
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        console.error(`[synaptomind] user ${u.id} database unavailable: ${msg}`)
-      }
-    }
-    return registered
+    // Open lazily so a temporarily unavailable database can be retried.
+    return config.users.map(u => ({ id: u.id, db: null, dbPath: u.dbPath, nextPollAt: 0 }))
   }
   // Legacy single-user mode: keep the singleton published so closeDb() works.
   initDb()
   const db = getDb()
-  return [{ id: 'default', db }]
+  return [{ id: 'default', db, nextPollAt: 0 }]
 }
 
 const entries: DbEntry[] = openAllDbs()
@@ -60,7 +51,6 @@ let sweepTimer: ReturnType<typeof setInterval> | null = null
 let idleTimer: ReturnType<typeof setTimeout> | null = null
 let batchInFlight = false
 let dbStartIndex = 0
-let globalBackoff = 1
 
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer)
@@ -80,24 +70,11 @@ function resetIdleTimer() {
     if (sweepTimer) clearInterval(sweepTimer)
     resetExtractor()
     for (const e of entries) {
-      try { e.db.close(true) } catch { /* ignore */ }
+      try { e.db?.close(true) } catch { /* ignore */ }
     }
     closeDb()
     process.exit(0)
   }, config.embedder.idleTimeoutMs)
-}
-
-function recomputeGlobalBackoff() {
-  const next = currentBackoffByDb.reduce((a, b) => Math.max(a, b), 1)
-  if (next === globalBackoff) return
-  globalBackoff = next
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-  pollTimer = setInterval(() => {
-    void processBatch()
-  }, config.embedder.pollIntervalMs * globalBackoff)
 }
 
 /** Store one row through `insertEmbedding` and map its outcome for `classifyBatch`. */
@@ -111,15 +88,15 @@ function storeRow(db: Database, row: EmbeddingRow, embedding: Float32Array): Row
 
 async function processOneDb(idx: number): Promise<boolean> {
   const entry = entries[idx]
-  const db = entry.db
   let didWork = false
   try {
+    if (!entry.db) entry.db = openDatabase({ dbPath: entry.dbPath })
+    const db = entry.db
     const rows = findPendingEmbeddings(db, BATCH_SIZE)
     if (rows.length === 0) {
       consecutiveFailuresByDb[idx] = 0
       if (currentBackoffByDb[idx] !== 1) {
         currentBackoffByDb[idx] = 1
-        recomputeGlobalBackoff()
       }
       return false
     }
@@ -195,7 +172,6 @@ async function processOneDb(idx: number): Promise<boolean> {
         })
         resetExtractor()
       }
-      recomputeGlobalBackoff()
     }
     return true
   } catch (err) {
@@ -217,7 +193,6 @@ async function processOneDb(idx: number): Promise<boolean> {
         consecutiveFailures: consecutiveFailuresByDb[idx]
       })
       resetExtractor()
-      recomputeGlobalBackoff()
     }
     return didWork
   }
@@ -232,7 +207,10 @@ async function processBatch(): Promise<void> {
     dbStartIndex = (dbStartIndex + 1) % entries.length
     let didWork = false
     for (const idx of order) {
+      const now = Date.now()
+      if (now < entries[idx].nextPollAt) continue
       const w = await processOneDb(idx)
+      entries[idx].nextPollAt = now + config.embedder.pollIntervalMs * currentBackoffByDb[idx]
       if (w) didWork = true
     }
     if (didWork) resetIdleTimer()
@@ -246,6 +224,7 @@ async function processSweep(): Promise<void> {
   for (const idx of order) {
     const entry = entries[idx]
     const db = entry.db
+    if (!db) continue
     try {
       const orphans = sweepOrphanedThoughts(db, BATCH_SIZE)
       if (orphans.length > 0) {
@@ -288,7 +267,7 @@ process.on('message', async (raw: unknown) => {
     if (sweepTimer) clearInterval(sweepTimer)
     resetExtractor()
     for (const e of entries) {
-      try { e.db.close(true) } catch { /* ignore */ }
+      try { e.db?.close(true) } catch { /* ignore */ }
     }
     closeDb()
     process.exit(0)
