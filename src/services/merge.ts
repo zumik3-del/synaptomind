@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { getDb } from '../db'
-import { createEdge, deleteEdge, getEdgesForThought } from '../db/edges'
+import { createEdge, deleteEdge, getEdgesForThought, type Edge } from '../db/edges'
 import { getThoughtRow, type Thought } from '../db/thoughts'
 import { insertLog } from '../logging/log'
 import { EdgeAlreadyExistsError, ValidationError } from '../errors'
@@ -8,6 +8,54 @@ import { EdgeAlreadyExistsError, ValidationError } from '../errors'
 export function validateMergePreconditions(source: Thought, allowArchivedSource = false): void {
   if (source.status === 'archived' && !allowArchivedSource) {
     throw new ValidationError('Source thought is already archived')
+  }
+}
+
+/**
+ * Log that a remapped edge is a duplicate on the target and was skipped. Shared
+ * by the cluster and non-cluster branches (DRY).
+ */
+function logSkippedDuplicateEdge(
+  edge: Edge,
+  newSourceId: string,
+  newTargetId: string,
+  targetId: string,
+  sourceId: string
+): void {
+  insertLog(
+    'warning',
+    'thought',
+    `Merge: edge ${edge.id} (${edge.type}) already exists between ${newSourceId} and ${newTargetId} — skipped`,
+    {
+      target_id: targetId,
+      source_id: sourceId,
+      edge_id: edge.id,
+      edge_type: edge.type
+    }
+  )
+}
+
+/**
+ * Attempt to create a remapped edge; returns true on success, false on a
+ * duplicate (logged). Any other error propagates. Shared by the cluster and
+ * non-cluster branches (DRY).
+ */
+function tryCreateRemappedEdge(
+  d: Database,
+  newSourceId: string,
+  newTargetId: string,
+  type: string,
+  edge: Edge,
+  targetId: string,
+  sourceId: string
+): boolean {
+  try {
+    createEdge(d, newSourceId, newTargetId, type)
+    return true
+  } catch (err) {
+    if (!(err instanceof EdgeAlreadyExistsError)) throw err
+    logSkippedDuplicateEdge(edge, newSourceId, newTargetId, targetId, sourceId)
+    return false
   }
 }
 
@@ -40,53 +88,16 @@ export function transferEdgesFromSource(sourceId: string, targetId: string, d: D
       // Fall through to the uniform delete below.
     } else if (isClusterEdge) {
       const srcRow = getThoughtRow(d, newSourceId)
-      if (!srcRow?.is_cluster) {
-        // Fall through to the uniform delete below.
-      } else {
-        const tgtRow = getThoughtRow(d, newTargetId)
-        if (tgtRow?.is_cluster) {
-          // Fall through to the uniform delete below.
-        } else {
-          try {
-            createEdge(d, newSourceId, newTargetId, edge.type)
-            transferredEdges++
-          } catch (err) {
-            // A duplicate edge on the target is expected dedup — skip, don't
-            // silently swallow. Anything else fails the merge atomically.
-            if (!(err instanceof EdgeAlreadyExistsError)) throw err
-            insertLog(
-              'warning',
-              'thought',
-              `Merge: edge ${edge.id} (${edge.type}) already exists between ${newSourceId} and ${newTargetId} — skipped`,
-              {
-                target_id: targetId,
-                source_id: sourceId,
-                edge_id: edge.id,
-                edge_type: edge.type
-              }
-            )
-          }
+      const tgtRow = srcRow?.is_cluster ? getThoughtRow(d, newTargetId) : undefined
+      if (srcRow?.is_cluster && !tgtRow?.is_cluster) {
+        if (tryCreateRemappedEdge(d, newSourceId, newTargetId, edge.type, edge, targetId, sourceId)) {
+          transferredEdges++
         }
       }
+      // Otherwise fall through to the uniform delete below.
     } else {
-      try {
-        createEdge(d, newSourceId, newTargetId, edge.type)
+      if (tryCreateRemappedEdge(d, newSourceId, newTargetId, edge.type, edge, targetId, sourceId)) {
         transferredEdges++
-      } catch (err) {
-        // A duplicate edge on the target is expected dedup — skip, don't
-        // silently swallow. Anything else fails the merge atomically.
-        if (!(err instanceof EdgeAlreadyExistsError)) throw err
-        insertLog(
-          'warning',
-          'thought',
-          `Merge: edge ${edge.id} (${edge.type}) already exists between ${newSourceId} and ${newTargetId} — skipped`,
-          {
-            target_id: targetId,
-            source_id: sourceId,
-            edge_id: edge.id,
-            edge_type: edge.type
-          }
-        )
       }
     }
 

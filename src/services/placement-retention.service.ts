@@ -1,9 +1,9 @@
 import { config } from '../config'
-import { getDb, registry } from '../db'
+import { getDb } from '../db'
 import { deleteExpired } from '../db/placement-proposals'
 import { deleteExpiredPreviewTokens } from '../db/preview-tokens'
 import { insertLog } from '../logging/log'
-import { createIntervalJob } from './jobs'
+import { createIntervalJob, jobDatabases } from './jobs'
 import type { Database } from 'bun:sqlite'
 
 /** What one retention sweep removed, per kind: the two counts are unrelated. */
@@ -43,20 +43,6 @@ export function cleanupPlacementProposals(d: Database = getDb()): PlacementReten
 
 const onError = (err: unknown): void =>
   insertLog('warning', 'placement-retention', 'Placement retention job failed', { error: String(err) })
-
-/**
- * Resolve the databases the retention job must touch this tick: every registered
- * user DB when running multi-user, falling back to the legacy singleton (or
- * none, when no DB is bound) in single-user / closed-DB situations.
- */
-function jobDatabases(): Database[] {
-  if (registry.size > 0) return [...registry.values()]
-  try {
-    return [getDb()]
-  } catch {
-    return []
-  }
-}
 
 /**
  * One tick: run the retention sweep once per registered DB, sequentially.

@@ -52,6 +52,12 @@ let idleTimer: ReturnType<typeof setTimeout> | null = null
 let batchInFlight = false
 let dbStartIndex = 0
 
+function clearTimers(): void {
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null }
+}
+
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer)
   if (config.embedder.precache) {
@@ -65,9 +71,7 @@ function resetIdleTimer() {
       idleMinutes: config.embedder.idleTimeoutMs / 60000
     })
     process.send?.({ type: 'exiting' })
-    if (idleTimer) clearTimeout(idleTimer)
-    if (pollTimer) clearInterval(pollTimer)
-    if (sweepTimer) clearInterval(sweepTimer)
+    clearTimers()
     resetExtractor()
     for (const e of entries) {
       try { e.db?.close(true) } catch { /* ignore */ }
@@ -262,9 +266,7 @@ process.on('message', async (raw: unknown) => {
   const message = raw as IpcMessage
   if (message.type === 'shutdown') {
     console.log('[embedder] shutdown requested, exiting')
-    if (idleTimer) clearTimeout(idleTimer)
-    if (pollTimer) clearInterval(pollTimer)
-    if (sweepTimer) clearInterval(sweepTimer)
+    clearTimers()
     resetExtractor()
     for (const e of entries) {
       try { e.db?.close(true) } catch { /* ignore */ }

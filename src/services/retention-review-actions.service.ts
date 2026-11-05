@@ -1,6 +1,6 @@
 /** Retention-review destructive and protective actions. */
 import type { Database } from 'bun:sqlite'
-import { countIncomingActiveRetentionReviewEdges, countRetentionReviewDependents, findActiveOrDraftRetentionReviewThoughtByHash, getRetentionReviewCreatedSummaryState, getRetentionReviewEligibilityThought, type RetentionReviewDependentCounts } from '../db/retention-review'
+import { countIncomingActiveRetentionReviewEdges, countRetentionReviewDependents, findActiveOrDraftRetentionReviewThoughtByHash, getRetentionReviewCreatedSummaryState, getRetentionReviewEligibilityThought, type RetentionReviewDependentCounts, type RetentionReviewEligibilityThought } from '../db/retention-review'
 import { config } from '../config'
 import { getDb } from '../db'
 import { createThought as dbCreateThought, deleteThought, updateThought } from '../db/thoughts'
@@ -66,19 +66,7 @@ function resolveFloor(opts: RetentionReviewDeleteOptions): number {
 interface EligibilityDetail {
   eligible: boolean
   reasons: string[]
-  thought: {
-    id: string
-    content: string
-    status: string
-    project_id: string
-    is_protected: number
-    is_global: number
-    created_at: string
-    archived_at: string | null
-    surface_after: string | null
-    importance: number
-    hit_count: number
-  }
+  thought: RetentionReviewEligibilityThought
   incomingActiveEdges: number
 }
 

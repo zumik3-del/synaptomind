@@ -74,6 +74,30 @@ export interface PlacementOptions {
   precomputedPairs?: ReturnType<typeof findEmbeddingNeighborPairs>
 }
 
+/**
+ * Shared normalisation of the placement option defaults. Used by both
+ * {@link proposePlacement} and the placement engine so the defaults are
+ * defined once (DRY).
+ */
+export function resolvePlacementBaseOptions(
+  options: PlacementOptions,
+  thought: Thought
+): {
+  projectId: string
+  maxClusterSize: number
+  minSimilarity: number
+  topK: number
+  maxCandidates: number
+} {
+  return {
+    projectId: options.projectId ?? thought.project_id,
+    maxClusterSize: options.maxClusterSize ?? config.placement.maxClusterSize,
+    minSimilarity: options.minSimilarity ?? config.edgeDetect.minSimilarity,
+    topK: options.topK ?? config.edgeDetect.topK,
+    maxCandidates: options.maxCandidates ?? config.edgeDetect.maxCandidates
+  }
+}
+
 /** Injectable dependencies, mirroring `EdgeDetectDeps` for deterministic tests. */
 export interface PlacementDeps {
   embed?: (texts: string[]) => Promise<Float32Array[]>
@@ -243,11 +267,7 @@ export async function proposePlacement(
   deps: PlacementDeps = {},
   d: Database = getDb()
 ): Promise<PlacementDecision> {
-  const projectId = options.projectId ?? thought.project_id
-  const maxClusterSize = options.maxClusterSize ?? config.placement.maxClusterSize
-  const minSimilarity = options.minSimilarity ?? config.edgeDetect.minSimilarity
-  const topK = options.topK ?? config.edgeDetect.topK
-  const maxCandidates = options.maxCandidates ?? config.edgeDetect.maxCandidates
+  const { projectId, maxClusterSize, minSimilarity, topK, maxCandidates } = resolvePlacementBaseOptions(options, thought)
 
   if (thought.is_cluster) return noPlacement('source is a cluster thought')
 
