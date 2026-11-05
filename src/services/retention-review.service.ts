@@ -33,16 +33,12 @@ interface RetentionReviewCandidate {
 
 export interface RetentionReviewQueryOptions {
   minAgeDays?: number
-  min_age_days?: number
   importanceFloor?: number
-  importance_floor?: number
   limit?: number
   offset?: number
   pageSize?: number
-  page_size?: number
   /** Clock override (ISO-8601) for deterministic tests. */
   now?: string
-  clock?: string
 }
 
 export interface RetentionReviewResult {
@@ -88,22 +84,22 @@ export function listRetentionReviewCandidatesService(
   options: RetentionReviewQueryOptions = {},
   d: Database = getDb()
 ): RetentionReviewResult {
-  const now = (options.now ?? options.clock ?? new Date().toISOString()) as string
+  const now = (options.now ?? new Date().toISOString()) as string
   const nowMs = Date.parse(now)
 
-  const minAgeDays = asNumber(options.minAgeDays ?? options.min_age_days)
+  const minAgeDays = asNumber(options.minAgeDays)
   const resolvedMinAge = minAgeDays === undefined ? config.retentionReview.minAgeDays : minAgeDays
   if (!Number.isFinite(resolvedMinAge) || resolvedMinAge <= 0) {
     throw new ValidationError('minAgeDays must be a positive number')
   }
 
-  const importanceFloor = asNumber(options.importanceFloor ?? options.importance_floor)
+  const importanceFloor = asNumber(options.importanceFloor)
   const resolvedFloor = importanceFloor === undefined ? config.retentionReview.importanceFloor : importanceFloor
   if (!Number.isFinite(resolvedFloor) || resolvedFloor < 0 || resolvedFloor > 1) {
     throw new ValidationError('importanceFloor must be in [0, 1]')
   }
 
-  const limitRaw = asNumber(options.limit ?? options.pageSize ?? options.page_size)
+  const limitRaw = asNumber(options.limit ?? options.pageSize)
   const resolvedLimit = limitRaw === undefined ? config.retentionReview.pageSize : Math.floor(limitRaw)
   if (!Number.isFinite(resolvedLimit) || resolvedLimit < 1 || resolvedLimit > 100) {
     throw new ValidationError('limit must be between 1 and 100')
