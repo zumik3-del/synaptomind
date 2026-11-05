@@ -25,28 +25,22 @@ function asNumber(value: unknown): number | undefined {
 export interface RetentionReviewDeleteOptions extends RetentionReviewQueryOptions {
   confirm?: boolean
   minAgeDays?: number
-  min_age_days?: number
   importanceFloor?: number
-  importance_floor?: number
   now?: string
-  clock?: string
 }
 
 export interface RetentionReviewProtectOptions {
   minAgeDays?: number
-  min_age_days?: number
   importanceFloor?: number
-  importance_floor?: number
   now?: string
-  clock?: string
 }
 
-function resolveNow(opts: { now?: string; clock?: string }): string {
-  return (opts.now ?? opts.clock ?? new Date().toISOString()) as string
+function resolveNow(opts: { now?: string }): string {
+  return (opts.now ?? new Date().toISOString()) as string
 }
 
 function resolveMinAge(opts: RetentionReviewDeleteOptions): number {
-  const v = asNumber(opts.minAgeDays ?? opts.min_age_days)
+  const v = asNumber(opts.minAgeDays)
   const resolved = v === undefined ? config.retentionReview.minAgeDays : v
   if (!Number.isFinite(resolved) || resolved <= 0) {
     throw new ValidationError('minAgeDays must be a positive number')
@@ -55,7 +49,7 @@ function resolveMinAge(opts: RetentionReviewDeleteOptions): number {
 }
 
 function resolveFloor(opts: RetentionReviewDeleteOptions): number {
-  const v = asNumber(opts.importanceFloor ?? opts.importance_floor)
+  const v = asNumber(opts.importanceFloor)
   const resolved = v === undefined ? config.retentionReview.importanceFloor : v
   if (!Number.isFinite(resolved) || resolved < 0 || resolved > 1) {
     throw new ValidationError('importanceFloor must be in [0, 1]')
