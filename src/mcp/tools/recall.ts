@@ -78,6 +78,37 @@ function searchUrlLinks(items: Array<SearchResult | GroupedResult>, requested: u
   return loadUrlLinks(thoughts)
 }
 
+/**
+ * Shared post-processing for the `search` and `clusters` actions: degrade flag,
+ * optional cluster grouping, post-processing, shaping and the collection
+ * envelope. Keeps the two actions in sync (DRY).
+ */
+function finalizeSearchAction(
+  action: 'search' | 'clusters',
+  outcome: SearchOutcome,
+  args: ActionArgs,
+  scope: ReturnType<typeof requireEnvelopeScope>['scope'],
+  warnings: string[],
+  groupByCluster: boolean
+) {
+  const degraded = degradedOf(outcome.items)
+  const results = groupByCluster ? groupResultsByCluster(outcome.items) : outcome.items
+  const processed = postProcessSearchResults(results, { showPrimers: true })
+  const compact = args.compact !== false
+  const fields = args.fields
+  const hits = Array.isArray(processed) ? processed : []
+  const urlLinks = searchUrlLinks(hits, args.include_url_links)
+  const items = hits.map((r: SearchResult | GroupedResult) => shapeSearchItem(r, compact, fields, urlLinks))
+  return collectionEnvelope(action, items, {
+    scope,
+    warnings: [...warnings, ...(outcome.warnings ?? [])],
+    degraded,
+    total: outcome.matched,
+    filtered_out: outcome.filtered_out,
+    reason: searchReason(outcome)
+  })
+}
+
 const handlers = {
   get: getRecallGetHandler,
 
@@ -103,24 +134,7 @@ const handlers = {
         minRelevance: args.min_relevance as number | undefined
       })
       const outcome = await searchThoughtsOutcome(baseOptions)
-      const degraded = degradedOf(outcome.items)
-      const results = args.group_by_cluster
-        ? groupResultsByCluster(outcome.items)
-        : outcome.items
-      const processed = postProcessSearchResults(results, { showPrimers: true })
-      const compact = args.compact !== false
-      const fields = args.fields
-      const hits = Array.isArray(processed) ? processed : []
-      const urlLinks = searchUrlLinks(hits, args.include_url_links)
-      const items = hits.map((r: SearchResult | GroupedResult) => shapeSearchItem(r, compact, fields, urlLinks))
-      return collectionEnvelope('search', items, {
-        scope,
-        warnings: [...warnings, ...(outcome.warnings ?? [])],
-        degraded,
-        total: outcome.matched,
-        filtered_out: outcome.filtered_out,
-        reason: searchReason(outcome)
-      })
+      return finalizeSearchAction('search', outcome, args, scope, warnings, args.group_by_cluster === true)
     }
   },
 
@@ -164,21 +178,7 @@ const handlers = {
         recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
         minRelevance: args.min_relevance as number | undefined
       }))
-      const degraded = degradedOf(outcome.items)
-      const processed = postProcessSearchResults(outcome.items, { showPrimers: true })
-      const compact = args.compact !== false
-      const fields = args.fields
-      const results = Array.isArray(processed) ? processed : []
-      const urlLinks = searchUrlLinks(results, args.include_url_links)
-      const items = results.map((r: SearchResult | GroupedResult) => shapeSearchItem(r, compact, fields, urlLinks))
-      return collectionEnvelope('clusters', items, {
-        scope,
-        warnings: [...warnings, ...(outcome.warnings ?? [])],
-        degraded,
-        total: outcome.matched,
-        filtered_out: outcome.filtered_out,
-        reason: searchReason(outcome)
-      })
+      return finalizeSearchAction('clusters', outcome, args, scope, warnings, false)
     }
   },
 

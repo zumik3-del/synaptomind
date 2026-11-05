@@ -1,8 +1,26 @@
+import type { Database } from 'bun:sqlite'
+import { getDb, registry } from '../db'
+
 interface IntervalJobOptions {
   name: string
   intervalMs: number
   guard?: () => boolean
   onError?: (err: unknown) => void
+}
+
+/**
+ * Resolve the databases a background job must touch this tick: every registered
+ * user DB when running multi-user, falling back to the legacy singleton (or
+ * none, when no DB is bound) in single-user / closed-DB situations.
+ * Shared by all interval jobs to avoid copy-pasted resolution logic (DRY).
+ */
+export function jobDatabases(): Database[] {
+  if (registry.size > 0) return [...registry.values()]
+  try {
+    return [getDb()]
+  } catch {
+    return []
+  }
 }
 
 export function createIntervalJob(opts: IntervalJobOptions, fn: () => void | Promise<void>): {

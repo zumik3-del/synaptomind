@@ -37,7 +37,7 @@ import {
 } from '../edge-candidates.service'
 import { classifyEdgeType } from './edge-type-rules'
 import { decideLifecycle, findMergeTarget, keepLifecycle } from './lifecycle'
-import { buildCandidatePool, proposePlacement } from './placement'
+import { buildCandidatePool, proposePlacement, resolvePlacementBaseOptions } from './placement'
 import { extractPairSignals } from './signals'
 import type { EdgeProposal, PlacementPlan, PlacementProposal } from './types'
 
@@ -143,11 +143,7 @@ export async function proposePlacementPlan(
     }
   }
 
-  const projectId = options.projectId ?? thought.project_id
-  const maxClusterSize = options.maxClusterSize ?? config.placement.maxClusterSize
-  const minSimilarity = options.minSimilarity ?? config.edgeDetect.minSimilarity
-  const topK = options.topK ?? config.edgeDetect.topK
-  const maxCandidates = options.maxCandidates ?? config.edgeDetect.maxCandidates
+  const { projectId, maxClusterSize, minSimilarity, topK, maxCandidates } = resolvePlacementBaseOptions(options, thought)
   const maxProposals = options.maxProposals ?? config.edgeDetect.maxProposals
   const embed = deps.embed ?? generateEmbeddings
 

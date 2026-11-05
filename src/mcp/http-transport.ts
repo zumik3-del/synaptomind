@@ -97,6 +97,17 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
 
   app.use('/mcp', authMiddleware)
 
+  // Resolve the DB handle for a resolved user ref (legacy singleton or per-user
+  // DB). Returns undefined when the per-user DB is unavailable. Shared by both
+  // middleware paths below (DRY).
+  const resolveRequestDb = (ref: UserRef): Database | undefined => {
+    try {
+      return ref.kind === 'legacy' ? getDb() : getUserDb(ref.userId)
+    } catch {
+      return undefined
+    }
+  }
+
   // Per-request user binding (task #2285): re-resolve the bearer token on every
   // request and bind { userId, db } to ALS for the whole /mcp handler chain,
   // including server construction on the session-creation path. Fail-closed:
@@ -106,12 +117,7 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
     const ref = resolveUser(c.req.header('Authorization'))
     if (!ref) return c.json({ error: 'Unauthorized' }, 401)
 
-    let db: Database | undefined
-    try {
-      db = ref.kind === 'legacy' ? getDb() : getUserDb(ref.userId)
-    } catch {
-      db = undefined
-    }
+    const db = resolveRequestDb(ref)
     if (!db && ref.kind !== 'legacy') return new Response(JSON.stringify({ error: "Database unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
 
     (c as any).set('mcpUser', ref)
@@ -148,12 +154,7 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
     const ref = ((c as any).get('mcpUser') as UserRef | undefined) ?? resolveUser(c.req.header('Authorization'))
     if (!ref) return c.json({ error: 'Unauthorized' }, 401)
 
-    let db: Database | undefined
-    try {
-      db = ref.kind === 'legacy' ? getDb() : getUserDb(ref.userId)
-    } catch {
-      db = undefined
-    }
+    const db = resolveRequestDb(ref)
     if (!db && ref.kind !== 'legacy') return new Response(JSON.stringify({ error: "Database unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
 
     const sessionId = c.req.header('mcp-session-id')
