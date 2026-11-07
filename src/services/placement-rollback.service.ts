@@ -28,10 +28,9 @@ import { deleteEdgeService } from './edges.service'
 import type { RollbackItemReport, RollbackOptions, RollbackReport } from './placement-apply.types'
 import { isProposalStale } from './placement-proposals.service'
 import { parseResult, planWriterCalls } from './writer-calls'
+import { MS_PER_DAY } from '../utils'
 
 type Decision = { action: 'revert' } | { action: 'skipped' | 'refused'; reason: string }
-
-const MS_PER_DAY = 86400000
 
 /**
  * Refuse a row decided outside the rollback window (ADR 2026-09-29 §2.8, OQ-3:

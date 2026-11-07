@@ -32,10 +32,17 @@ export interface MergeThoughtsOptions {
   allowArchivedSource?: boolean
 }
 
-export function getMergePreviewService(sourceId: string, targetId: string, d: Database = getDb()): MergePreview | null {
+function lookupMergeSourceTarget(sourceId: string, targetId: string, d: Database): { source: Thought; target: Thought } | null {
   const source = getThoughtByIdService(sourceId, d)
   const target = getThoughtByIdService(targetId, d)
   if (!source || !target) return null
+  return { source, target }
+}
+
+export function getMergePreviewService(sourceId: string, targetId: string, d: Database = getDb()): MergePreview | null {
+  const found = lookupMergeSourceTarget(sourceId, targetId, d)
+  if (!found) return null
+  const { source, target } = found
   return {
     mode: 'preview',
     source: { ...source, edges: getEdgesForThought(d, sourceId).map(toEdgeView) },
@@ -49,9 +56,9 @@ export function getBoundedMergePreviewService(
   edgeLimit: number,
   d: Database = getDb()
 ): (Omit<MergePreview, 'source'> & { source: Omit<MergePreview['source'], 'edges'> & { edges: EdgeView[] }; sourceEdgeCount: number }) | null {
-  const source = getThoughtByIdService(sourceId, d)
-  const target = getThoughtByIdService(targetId, d)
-  if (!source || !target) return null
+  const found = lookupMergeSourceTarget(sourceId, targetId, d)
+  if (!found) return null
+  const { source, target } = found
   const { edges, count } = getSourceEdgesForThoughtBounded(d, sourceId, edgeLimit)
   return { mode: 'preview', source: { ...source, edges: edges.map(toEdgeView) }, target, sourceEdgeCount: count }
 }

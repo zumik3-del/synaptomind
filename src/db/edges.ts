@@ -70,18 +70,23 @@ export function createEdge(db: Database, sourceId: string, targetId: string, typ
   return insertEdge(db, sourceId, targetId, type)
 }
 
+function insertEdgeSql(db: Database, id: string, sourceId: string, targetId: string, type: string, createdAt: string): number {
+  const res = db.prepare(`
+    INSERT INTO edges (id, source_id, target_id, type, created_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT (min(source_id, target_id), max(source_id, target_id)) DO NOTHING
+  `).run(id, sourceId, targetId, type, createdAt)
+  return res.changes
+}
+
 function insertEdge(db: Database, sourceId: string, targetId: string, type: string): Edge {
   const id = Bun.randomUUIDv7()
   const now = new Date().toISOString()
 
   let inserted = false
   const insertInTx = db.transaction(() => {
-    const res = db.prepare(`
-      INSERT INTO edges (id, source_id, target_id, type, created_at)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT (min(source_id, target_id), max(source_id, target_id)) DO NOTHING
-    `).run(id, sourceId, targetId, type, now)
-    if (res.changes > 0) {
+    const changes = insertEdgeSql(db, id, sourceId, targetId, type, now)
+    if (changes > 0) {
       inserted = true
       boostImportance(db, sourceId, 0.1)
     }
@@ -107,11 +112,7 @@ function insertEdgeRow(
   createdAt: string
 ): void {
   try {
-    db.prepare(`
-      INSERT INTO edges (id, source_id, target_id, type, created_at)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT (min(source_id, target_id), max(source_id, target_id)) DO NOTHING
-    `).run(id, sourceId, targetId, type, createdAt)
+    insertEdgeSql(db, id, sourceId, targetId, type, createdAt)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes('UNIQUE')) throw new EdgeAlreadyExistsError()

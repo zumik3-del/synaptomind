@@ -35,6 +35,7 @@ test('runHealthCheckService returns valid structure on empty DB', () => {
   expect(report.summary.score_components).toBe(report.summary.score_breakdown)
   expect(report.summary.score_details).toBe(report.summary.score_breakdown)
   expect(report.summary.formula).toBe(report.summary.score_formula)
+  expect(report.summary.formula).toBe('100 - (critical_categories * 40) - (warning_categories * 15) - (info_scored_occurrences * 0.25), clamped to [0, 100]')
   expect(report.categories.length).toBe(6)
 })
 
@@ -69,6 +70,13 @@ test('detects self-loop edges', () => {
   const selfLoop = structural!.checks.find(c => c.name === 'self_loop_edges')
   expect(selfLoop!.count).toBe(1)
   expect(selfLoop!.severity).toBe('critical')
+  const breakdown = report.summary.score_breakdown
+  expect(breakdown.critical_categories).toBeGreaterThan(0)
+  expect(breakdown.penalty_critical).toBe(breakdown.critical_categories * 40)
+  expect(breakdown.penalty_warning).toBe(breakdown.warning_categories * 15)
+  expect(breakdown.penalty_info).toBe(breakdown.info_scored_occurrences * 0.25)
+  const expectedScore = Math.max(0, Math.min(100, 100 - breakdown.penalty_critical - breakdown.penalty_warning - breakdown.penalty_info))
+  expect(report.summary.health_score).toBe(Math.round(expectedScore * 10) / 10)
 })
 
 function clusterViolationCount(): number {

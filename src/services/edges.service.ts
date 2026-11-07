@@ -135,7 +135,7 @@ export interface UnlinkBatchResult {
  * Delete (or preview) several edges in one call (task #1972).
  *
  * Runs in ONE transaction. In confirm mode every `edge_id` is validated to exist
- * BEFORE any deletion happens, so a missing id aborts the whole batch instead
+ * and checked for duplicates BEFORE any deletion happens, so an invalid batch aborts instead
  * of leaving a partial prune behind. Preview mode (confirm=false) never mutates
  * and reports per-edge preview details.
  */
@@ -176,6 +176,15 @@ export function deleteEdgesBatchService(
             results.push({ edge_id: id, status: 'failed', error: err })
             errors.push({ index, edge_id: id, error: err })
           }
+        })
+        return
+      }
+      if (new Set(edgeIds).size !== edgeIds.length) {
+        edgeIds.forEach((id, index) => {
+          failed++
+          const err = 'batch aborted: duplicate edge_ids (no edges deleted)'
+          results.push({ edge_id: id, status: 'failed', error: err })
+          errors.push({ index, edge_id: id, error: err })
         })
         return
       }

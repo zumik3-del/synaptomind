@@ -4,6 +4,7 @@ import { isAbsolute, join } from 'path'
 import { assertDistinctDatabasePaths } from './config.db-identity'
 import { sanitizePrimerBounds } from './config.primer-bounds'
 import { sanitizeRetentionReviewBounds } from './config.retention-review-bounds'
+import { MS_PER_DAY } from './utils'
 
 // ONNX precision of the local embedder model. `q8` downloads the quantized
 // ONNX (~118 MB) instead of the fp32 one (~449 MB); transformers.js picks the
@@ -83,7 +84,7 @@ export const DEFAULTS: Config = {
     resetDeadLetters: false
   },
   thoughts: { softLimit: 600, hardLimitBufferPercent: 20 },
-  decay: { rate: 0.95, intervalMs: 86400000 },
+  decay: { rate: 0.95, intervalMs: MS_PER_DAY },
   primer: { promoteThreshold: 5, topN: 3 },
   // `minSimilarity` is a cosine DISTANCE (see auto-cluster.service.ts
   // `r.distance < minSimilarity`), so lower = tighter. The distance is now
