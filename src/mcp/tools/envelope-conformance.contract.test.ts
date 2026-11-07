@@ -29,9 +29,8 @@
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
-import { Client } from '@modelcontextprotocol/sdk/client'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { getDb, closeDb } from '../../db'
 import { getEdgePairBetween } from '../../db/edges'
 import { getThoughtRow } from '../../db/thoughts'

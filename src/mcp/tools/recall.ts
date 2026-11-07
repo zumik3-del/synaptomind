@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { McpServer } from "@modelcontextprotocol/server";
 import { NotFoundError, ValidationError } from '../../errors'
 import { thoughtStatusSchema, timelineLimitSchema } from '../../validation'
 import {

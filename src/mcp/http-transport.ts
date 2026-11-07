@@ -10,8 +10,8 @@ import { mcpRateLimitMiddleware } from '../middleware/rate-limit'
 import { createMcpServer } from './server'
 import { disposePair, InMemoryEventStore, probeInitializeRequest } from './in-memory-event-store'
 import type { Context } from 'hono'
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server";
+import type { McpServer } from "@modelcontextprotocol/server";
 
 export interface Session {
   server: McpServer

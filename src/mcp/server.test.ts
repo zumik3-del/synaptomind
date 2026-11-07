@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { Client } from '@modelcontextprotocol/sdk/client'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { createTestDb } from '../test/helpers'
 import { createMcpServer } from './server'
 
@@ -47,12 +47,14 @@ describe('MCP surface is tools-only (F12)', () => {
     expect(tools.map(t => t.name).sort()).toEqual([...EXPECTED_TOOLS].sort())
   })
 
-  test('prompts/list is refused because no prompts capability is advertised', async () => {
-    // The SDK answers -32601 (method not found) when no handler is registered.
-    await expect(client.listPrompts()).rejects.toThrow(/-32601|method not found/i)
+  test('prompts/list returns an empty list because no prompts capability is advertised', async () => {
+    // In SDK v2 the client short-circuits to an empty list when the capability is absent.
+    const { prompts } = await client.listPrompts()
+    expect(prompts).toEqual([])
   })
 
-  test('resources/list is refused because no resources capability is advertised', async () => {
-    await expect(client.listResources()).rejects.toThrow(/-32601|method not found/i)
+  test('resources/list returns an empty list because no resources capability is advertised', async () => {
+    const { resources } = await client.listResources()
+    expect(resources).toEqual([])
   })
 })

@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { McpServer } from "@modelcontextprotocol/server";
 import { listRetentionReviewCandidatesService, type RetentionReviewResult } from '../../services/retention-review.service'
 import { getThoughtByIdService } from '../../services/thoughts.service'
 import {

@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { McpServer } from "@modelcontextprotocol/server";
 import { listPrimersService, getPrimerService, deletePrimerService } from '../../services/primers.service'
 import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
 import { collectionEnvelope, itemEnvelope } from './envelope'
