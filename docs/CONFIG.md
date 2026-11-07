@@ -253,12 +253,12 @@ Context windows for agent startup.
 | `search.confidence.unrelatedFloor` | `SYNAPTOMIND_SEARCH_CONFIDENCE_UNRELATED_FLOOR` | `0.8` | Unitless cosine similarity (0–1) of an unrelated query/thought pair; the zero point of the calibrated `relevance` scale (`(similarity - unrelatedFloor) / (vectorFloor - unrelatedFloor)`). The default noise gate drops cosine-only rows below calibrated `relevance` 0.4 |
 
 The calibrated scale maps `unrelatedFloor` to `relevance` 0 and `vectorFloor` to 1, clamped to
-`[0, 1]` (`src/services/text-similarity.ts`). The measurement behind the defaults (200 sampled
+`[0, 1]` (`src/services/text-similarity.service.ts`). The measurement behind the defaults (200 sampled
 thoughts, 20 unrelated queries, real e5-small embedder): unrelated pairs reach p50 0.7627,
 p95 0.8002, max 0.8355.
 
 **Noise gate.** Cosine-only hits are dropped below calibrated `relevance` **0.4** by default
-(`DEFAULT_MIN_RELEVANCE` in `src/services/search-normalize.ts`, a raw similarity of 0.84 on the
+(`DEFAULT_MIN_RELEVANCE` in `src/services/search-normalize.service.ts`, a raw similarity of 0.84 on the
 default scale). A row with a lexical (BM25) anchor or an id is never gated. The threshold is not a
 config file setting and has no environment variable: it is overridden per request —
 `min_relevance` on the MCP `memory_recall` `search`/`clusters` actions — where `0`

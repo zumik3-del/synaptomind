@@ -17,7 +17,7 @@
  */
 
 import type { PlacementProposalRow } from '../db/placement-proposals'
-import type { PlannedEdge } from './apply-gates'
+import type { PlannedEdge } from './apply-gates.service'
 
 /** Which way a plan runs: forward apply or inverse rollback. */
 export type WriterDirection = 'apply' | 'rollback'

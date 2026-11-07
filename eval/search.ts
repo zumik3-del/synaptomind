@@ -66,7 +66,7 @@ export const HARNESS_MIN_RELEVANCE = 0
  * constant, so the harness reports the value production actually applies.
  */
 export async function resolveDefaultMinRelevance(): Promise<number> {
-  const { normalizeSearchOptions } = await import('../src/services/search-normalize')
+  const { normalizeSearchOptions } = await import('../src/services/search-normalize.service')
   return normalizeSearchOptions({ query: '' }).minRelevance
 }
 

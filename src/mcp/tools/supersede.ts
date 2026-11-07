@@ -8,7 +8,7 @@ import {
 } from '../../services/thoughts.service'
 import { getBoundedMergePreviewService, mergeThoughtsService } from '../../services/merge.service'
 import { createPreviewTokenService, consumePreviewTokenService } from '../../services/preview-tokens.service'
-import { validateMergePreconditions } from '../../services/merge'
+import { validateMergePreconditions } from '../../services/merge-helpers.service'
 import { BATCH_ITEMS_MAX } from '../../validation'
 import { collectionEnvelope, itemEnvelope, writeEnvelopeScope } from './envelope'
 import { resolveProjectId, shapeThought } from './utils'

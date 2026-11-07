@@ -15,7 +15,7 @@ import { annotateGraphStanding } from '../../db/graph-annotations'
 import { searchThoughts } from '../../db/search'
 import type { Thought } from '../../db/thoughts'
 import type { SearchNeighborsFn } from '../edge-candidates.service'
-import { jaccard, normalise } from '../text-similarity'
+import { jaccard, normalise } from '../text-similarity.service'
 import { clamp01 } from '../../utils'
 import type { PairSignals, TemporalOrder, ThoughtSignals } from './types'
 

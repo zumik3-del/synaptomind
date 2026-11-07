@@ -11,7 +11,7 @@
 
 import type { Thought } from '../../db/thoughts'
 import { clamp01 } from '../../utils'
-import { jaccard, normalise } from '../text-similarity'
+import { jaccard, normalise } from '../text-similarity.service'
 import type { EdgeProposal, LifecycleProposal } from './types'
 
 /** Near-duplicate threshold; mirrors `session-reflection.service.ts` (Jaccard 0.6). */

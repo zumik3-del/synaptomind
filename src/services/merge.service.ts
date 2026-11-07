@@ -9,7 +9,7 @@ import {
 } from '../db/thoughts'
 import { pruneThoughtUrlLinks } from '../db/thought_url_links'
 import { NotFoundError, ValidationError } from '../errors'
-import { transferEdgesFromSource, validateMergePreconditions } from './merge'
+import { transferEdgesFromSource, validateMergePreconditions } from './merge-helpers.service'
 import { getThoughtByIdService } from './thoughts.service'
 
 export interface MergePreview {

@@ -601,7 +601,7 @@ describe('no-new-writer static assertion', () => {
     expect(imports).toContain('./edges.service')
     // Read-only db helper the orchestrator still needs (queue row lookup). The
     // fingerprint snapshot reads (source/target row + pair edge) now live in
-    // `placement-proposals.mapping.ts` (`pairFingerprint`), so `../db/edges` and
+    // `placement-proposals.mapping.service.ts` (`pairFingerprint`), so `../db/edges` and
     // `../db/thoughts` are no longer imported here.
     expect(imports).toContain('../db/placement-proposals')
     // Disallowed: no lower-level writer functions (createEdge, mergeThoughts, archiveThought)

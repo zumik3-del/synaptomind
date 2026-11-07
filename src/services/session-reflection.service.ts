@@ -5,7 +5,7 @@ import { findActiveDecisionThoughts } from '../db/session-reflection'
 import { getSlotRow, upsertSlot } from '../db/slots'
 import { createThought } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
-import { jaccard, normalise } from './text-similarity'
+import { jaccard, normalise } from './text-similarity.service'
 import { MS_PER_DAY } from '../utils'
 import type { Database } from 'bun:sqlite'
 

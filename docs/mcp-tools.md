@@ -388,7 +388,7 @@ A compact hit is `{ "thought": { ... } }`; `meta` is the envelope meta described
 #### Id lookup
 
 A `query` that is a thought id resolves that thought directly, without touching the embedding or
-BM25 legs (`src/db/search-id.ts`, `src/services/search-outcome.ts`):
+BM25 legs (`src/db/search-id.ts`, `src/services/search-outcome.service.ts`):
 
 - **Shape.** A full UUID (32 hex digits, hyphens optional and accepted in any position,
   case-insensitive) or a hex **prefix of at least 13 characters**. The floor is 13 because a UUIDv7
@@ -467,7 +467,7 @@ through the semantic and lexical legs.
 
 The raw e5-small cosine scale is compressed, so a raw similarity is not a usable threshold. Each
 vector-leg hit therefore also carries a calibrated `relevance` in `[0, 1]`
-(`calibrateRelevance`, `src/services/text-similarity.ts`):
+(`calibrateRelevance`, `src/services/text-similarity.service.ts`):
 
 ```
 relevance = clamp01((similarity - unrelatedFloor) / (vectorFloor - unrelatedFloor))
@@ -492,7 +492,7 @@ and the per-query maximum of unrelated hits reaches 0.8319 (p95) / 0.8355 (max);
 self-relevant similarity is 0.8435.
 
 The default noise gate is **0.4 on that calibrated scale** (a raw similarity of 0.84,
-`DEFAULT_MIN_RELEVANCE` in `src/services/search-normalize.ts`): it clears every unrelated pair
+`DEFAULT_MIN_RELEVANCE` in `src/services/search-normalize.service.ts`): it clears every unrelated pair
 observed in the measurement while dropping 2 of 200 self-relevant top-1 hits.
 
 - A row with a lexical (BM25) anchor or an id is **never** gated; only cosine-only rows must clear

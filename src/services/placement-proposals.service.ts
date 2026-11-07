@@ -43,7 +43,7 @@ import {
   pairFingerprint,
   proposalExpiry,
   toItemKey
-} from './placement-proposals.mapping'
+} from './placement-proposals.mapping.service'
 import type {
   EnqueueOutcome,
   EnqueuePlanOptions,
@@ -51,10 +51,10 @@ import type {
   ListOptions,
   RejectOptions
 } from './placement-proposals.types'
-import { clampListLimit, resolveMaxProposalsPerEnqueue } from './placement-proposals.helpers'
+import { clampListLimit, resolveMaxProposalsPerEnqueue } from './placement-proposals.helpers.service'
 
-export { computeFingerprint, pairFingerprint } from './placement-proposals.mapping'
-export type { FingerprintInput } from './placement-proposals.mapping'
+export { computeFingerprint, pairFingerprint } from './placement-proposals.mapping.service'
+export type { FingerprintInput } from './placement-proposals.mapping.service'
 export { isLegacyItemKind } from '../db/placement-proposals'
 export type { PlacementProposalRow } from '../db/placement-proposals'
 

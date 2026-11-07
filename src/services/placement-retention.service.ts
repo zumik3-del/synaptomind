@@ -4,7 +4,7 @@ import { MS_PER_DAY } from '../utils'
 import { deleteExpired } from '../db/placement-proposals'
 import { deleteExpiredPreviewTokens } from '../db/preview-tokens'
 import { insertLog } from '../logging/log'
-import { createIntervalJob, jobDatabases } from './jobs'
+import { createIntervalJob, jobDatabases } from './jobs.service'
 import type { Database } from 'bun:sqlite'
 
 /** What one retention sweep removed, per kind: the two counts are unrelated. */

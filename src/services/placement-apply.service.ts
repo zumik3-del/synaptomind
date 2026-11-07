@@ -15,7 +15,7 @@
  *
  * Every row this service accepts carries a run envelope (ADR 2026-09-29 §2.7,
  * §2.8): the caller's `run_id` verbatim, or — for an item the caller left
- * un-enveloped — one synthesized by `apply-run-envelope.ts` and handed back, so
+ * un-enveloped — one synthesized by `apply-run-envelope.service.ts` and handed back, so
  * no committed mutation is unreachable by `rollback(run_id)`.
  * `applyBatchService` shares one envelope across the whole batch.
  */
@@ -38,12 +38,12 @@ import {
   ValidationError
 } from '../errors'
 import { insertLog } from '../logging/log'
-import { evaluateGates, plannedEdge } from './apply-gates'
-import { resolveApplyRunId, resolveBatchRunId } from './apply-run-envelope'
+import { evaluateGates, plannedEdge } from './apply-gates.service'
+import { resolveApplyRunId, resolveBatchRunId } from './apply-run-envelope.service'
 import { createEdgeService } from './edges.service'
 import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriterCall } from './placement-apply.types'
 import { pairFingerprint } from './placement-proposals.service'
-import { type ApplyWriterCall, planWriterCalls, type WriterCall } from './writer-calls'
+import { type ApplyWriterCall, planWriterCalls, type WriterCall } from './writer-calls.service'
 
 export type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriter, PlannedWriterCall, RefusedApplyResult, RunRefusal } from './placement-apply.types'
 
