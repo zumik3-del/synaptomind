@@ -108,27 +108,6 @@ sequenceDiagram
     S-->>A: ranked next actions
 ```
 
----
-
-## SynaptoMind vs Alternatives
-
-| Feature | SynaptoMind | Basic Memory | Mem0 | Zep | Cognee |
-|---------|:-----------:|:------------:|:----:|:---:|:------:|
-| **Self-hosted** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Local-first** | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **No API keys needed** | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Knowledge graph** | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Vector search** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Full-text search** | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **MCP server** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Frontier (next-action ranking)** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Local embeddings** | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Runtime** | Bun | Python | Python | Python | Python |
-| **License** | MIT | AGPL-3.0 | Apache-2.0 | Apache-2.0 | Apache-2.0 |
-
-**What makes SynaptoMind different:** Graph-native thought storage with semantic search and Frontier ranking — all running locally with zero external dependencies. MIT licensed.
-
----
 
 ## Features
 
