@@ -41,7 +41,7 @@ export function listPendingCandidates(projectId?: string, d: Database = getDb())
  * priority ∈ [0,1] = 0.5·importance + 0.15·unblocked + age bonus.
  */
 export function getFrontierService(input: FrontierInput = {}, d: Database = getDb()): { items: FrontierItem[] } {
-  const k = Math.min(Math.max(input.k ?? 10, 1), 50)
+  const limit = Math.min(Math.max(input.k ?? 10, 1), 50)
 
   const candidates = new Map<string, FrontierCandidateRow>()
 
@@ -79,5 +79,5 @@ export function getFrontierService(input: FrontierInput = {}, d: Database = getD
   }
 
   items.sort((a, b) => b.priority - a.priority || a.thought_id.localeCompare(b.thought_id))
-  return { items: items.slice(0, k) }
+  return { items: items.slice(0, limit) }
 }

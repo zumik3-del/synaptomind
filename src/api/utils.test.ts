@@ -44,6 +44,12 @@ test('a payload that violates the schema throws ValidationError naming the field
   await expect(jsonBodyOrDefault(makeContext('{"severity":"loud"}'), DEFAULT, schema)).rejects.toThrow(ValidationError)
 })
 
+test('multiple validation issues are joined in schema order', async () => {
+  const input = z.object({ a: z.string('first issue'), b: z.number('second issue') })
+  await expect(jsonBodyOrDefault(makeContext('{"a":1,"b":"x"}'), { a: '', b: 0 }, input))
+    .rejects.toThrow('first issue; second issue')
+})
+
 test('a valid payload is parsed and validated', async () => {
   expect(await jsonBodyOrDefault(makeContext('{"confirm":true,"severity":"critical"}'), DEFAULT, schema)).toEqual({
     confirm: true,

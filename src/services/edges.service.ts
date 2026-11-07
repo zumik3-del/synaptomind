@@ -7,8 +7,7 @@ import type { Database } from 'bun:sqlite'
 // Re-export the canonical edge-type list so the MCP layer (store.ts) derives its
 // zod enums from the db-layer source of truth without importing db directly
 // (AGENTS.md §4 layering: api/mcp -> services -> db).
-export { EDGE_TYPES, type EdgeType } from '../db/edges'
-export type { EdgeView } from '../db/edges'
+export { EDGE_TYPES, type EdgeType, type EdgeView } from '../db/edges'
 
 export function createEdgeService(sourceId: string, targetId: string, type?: string, d: Database = getDb()) {
   if (!targetId) {
@@ -85,8 +84,8 @@ export function createEdgesBatchService(links: LinkBatchItem[], d: Database = ge
   return { linked, failed: errors.length, errors }
 }
 
-export function deleteEdgeService(id: string, d: Database = getDb()): boolean {
-  return deleteEdge(d, id)
+export function deleteEdgeService(edgeId: string, d: Database = getDb()): boolean {
+  return deleteEdge(d, edgeId)
 }
 
 /** One `unlink_batch` item result (task #1972). */
@@ -248,8 +247,8 @@ export function deleteEdgesBatchService(
   return result
 }
 
-export function findEdgeService(id: string, d: Database = getDb()): Edge | undefined {
-  return findEdge(d, id)
+export function findEdgeService(edgeId: string, d: Database = getDb()): Edge | undefined {
+  return findEdge(d, edgeId)
 }
 
 export function retypeEdgeService(edgeId: string, newType: string, d: Database = getDb()): Edge {

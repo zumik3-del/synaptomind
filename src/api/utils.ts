@@ -1,11 +1,7 @@
 import type { Context } from 'hono'
 import type { z } from 'zod/v4'
 import { ValidationError } from '../errors'
-
-/** Join zod issue messages into the single message a 400 body carries. */
-function formatZodIssues(error: z.ZodError): string {
-  return error.issues.map(issue => issue.message).join('; ')
-}
+import { formatZodIssues } from '../zod-utils'
 
 function parseJson(raw: string): unknown {
   try {

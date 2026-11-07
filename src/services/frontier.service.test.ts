@@ -73,6 +73,13 @@ test('getFrontierService respects k limit', () => {
   expect(result.items).toHaveLength(2)
 })
 
+test('getFrontierService applies default and lower and upper k bounds', () => {
+  for (let i = 0; i < 55; i++) tagThought(seedThought({ content: `bound ${i}` }), 'directive')
+  expect(getFrontierService().items).toHaveLength(10)
+  expect(getFrontierService({ k: 0 }).items).toHaveLength(1)
+  expect(getFrontierService({ k: 100 }).items).toHaveLength(50)
+})
+
 test('getFrontierService filters by project_id', () => {
   const id = seedThought({ content: 'project thought', project_id: 'proj-x' })
   tagThought(id, 'directive')

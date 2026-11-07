@@ -14,6 +14,7 @@
  */
 
 import { config } from '../config'
+import { clamp01 } from '../utils'
 import type { SearchServiceOptions, SupersessionMode } from './search.service'
 
 const SEARCH_MAX_TOP_K = 1000
@@ -66,8 +67,7 @@ function clampMinImportance(value: number | undefined): number | undefined {
  * default before clamping.
  */
 function clampUnitInterval(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) return 0
-  return Math.min(Math.max(value, 0), 1)
+  return clamp01(value ?? 0)
 }
 
 function clampRecencyWeight(value: number | undefined): number {

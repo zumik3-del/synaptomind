@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { sqlIn } from './utils'
 
 export interface FrontierCandidateRow {
   id: string
@@ -21,7 +22,7 @@ export const FRONTIER_EXCLUDED_SOURCES = ['profile-summary']
  * project (pushed into SQL to avoid an N+1 filter in the service).
  */
 export function findFrontierCandidates(db: Database, projectId?: string): FrontierCandidateRow[] {
-  const excludedPlaceholders = FRONTIER_EXCLUDED_SOURCES.map(() => '?').join(', ')
+  const excludedPlaceholders = sqlIn(FRONTIER_EXCLUDED_SOURCES)
   let sql = `
     SELECT DISTINCT t.id, t.content, t.created_at,
       EXISTS (
