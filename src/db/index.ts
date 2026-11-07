@@ -1,3 +1,2 @@
 export * from './registry'
-export { initDb, openDatabase, closeDb } from './init'
-export type { InitOptions } from './init'
+export { initDb, openDatabase, closeDb, type InitOptions } from './init'

@@ -10,11 +10,11 @@ import {
   buildSearchOptions,
   parseContradictionMode,
   parseSupersessionMode
-} from '../../services/search-options'
+} from '../../services/search-options.service'
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
 import { getChainService } from '../../services/graph.service'
 import { contextHandler } from './recall/context'
-import type { SearchOutcome } from '../../services/search-outcome'
+import type { SearchOutcome } from '../../services/search-outcome.service'
 import type { SearchResult } from '../../services/search.service'
 import type { GroupedResult } from '../../services/search.service'
 import type { Thought } from '../../services/thoughts.service'

@@ -1,6 +1,6 @@
 import { expect, test, describe } from 'bun:test'
 import { DEFAULTS } from '../config'
-import { calibrateRelevance, normalise, jaccard } from './text-similarity'
+import { calibrateRelevance, normalise, jaccard } from './text-similarity.service'
 
 describe('normalise', () => {
   test('lowercases', () => {

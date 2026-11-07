@@ -70,6 +70,7 @@ export function resolveProjectId(cwd?: string): string | undefined {
   return undefined
 }
 
+// Output formatting accepts heterogeneous values; parseTags instead normalizes input filters.
 function stringifyTags(tags: unknown): string[] {
   if (!Array.isArray(tags)) return []
   return tags.map((t) => {
@@ -86,6 +87,7 @@ function stringifyTags(tags: unknown): string[] {
 /** Thought columns stored as SQLite 0/1 that the read surface exposes as booleans. */
 const BOOLEAN_FIELDS = new Set(['is_protected', 'is_global', 'is_cluster'])
 
+// Decode stored/read values; db's toBit encodes optional boolean inputs instead.
 function toBoolean(value: unknown): boolean {
   return value === true || value === 1
 }

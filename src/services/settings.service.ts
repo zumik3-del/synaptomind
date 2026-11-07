@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { getDb } from '../db/container'
+import { getDb } from '../db'
 import {
   configuredSoftLimit,
   getAdvertisedSoftLimit as resolveAdvertisedSoftLimit

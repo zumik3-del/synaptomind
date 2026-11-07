@@ -27,7 +27,7 @@ import { insertLog } from '../logging/log'
 import { deleteEdgeService } from './edges.service'
 import type { RollbackItemReport, RollbackOptions, RollbackReport } from './placement-apply.types'
 import { isProposalStale } from './placement-proposals.service'
-import { parseResult, planWriterCalls } from './writer-calls'
+import { parseResult, planWriterCalls } from './writer-calls.service'
 import { MS_PER_DAY } from '../utils'
 
 type Decision = { action: 'revert' } | { action: 'skipped' | 'refused'; reason: string }

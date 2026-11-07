@@ -5,7 +5,7 @@ import { getDb } from '../db/container'
 import { closeDb } from '../db/init'
 import { getThoughtRow } from '../db/thoughts'
 import { ValidationError } from '../errors'
-import { transferEdgesFromSource, validateMergePreconditions } from './merge'
+import { transferEdgesFromSource, validateMergePreconditions } from './merge-helpers.service'
 
 beforeEach(createTestDb)
 afterEach(closeDb)

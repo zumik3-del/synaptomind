@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { SearchResult } from '../db/search'
-import { keepsUnderRelevanceGate } from './search-outcome'
+import { keepsUnderRelevanceGate } from './search-outcome.service'
 
 /**
  * Task #2178: the relevance-gate predicate, in isolation.

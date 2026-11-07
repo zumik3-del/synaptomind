@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod/v4'
+import { formatZodIssues } from '../../zod-utils'
 import { errorResult, jsonResult, toolOutputShape } from './utils'
 
 /** Arguments passed to an action handler after the advertised schema has parsed them. */
@@ -37,10 +38,6 @@ export interface ActionToolConfig {
 
 function isToolResult(value: unknown): value is CallToolResult {
   return typeof value === 'object' && value !== null && Array.isArray((value as { content?: unknown }).content)
-}
-
-function formatIssues(error: z.ZodError): string {
-  return error.issues.map(issue => issue.message).join('; ')
 }
 
 /** Read the HTTP-style `statusCode` a domain error carries (`src/errors.ts`), if any. */
@@ -86,7 +83,7 @@ export function registerActionTool(server: McpServer, config: ActionToolConfig):
         let effectiveArgs: ActionArgs = args
         if (handler.input) {
           const parsed = handler.input.safeParse(args)
-          if (!parsed.success) return errorResult(formatIssues(parsed.error))
+          if (!parsed.success) return errorResult(formatZodIssues(parsed.error))
           // Overlay the action schema's normalized values on the full argument
           // object: handlers read fields the conditional schema does not
           // declare, so raw args must survive while declared fields (with any

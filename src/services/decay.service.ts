@@ -1,6 +1,6 @@
 import { config } from '../config'
 import { decayImportance } from '../db/importance'
-import { createIntervalJob, jobDatabases } from './jobs'
+import { createIntervalJob, jobDatabases } from './jobs.service'
 import type { Database } from 'bun:sqlite'
 
 /**

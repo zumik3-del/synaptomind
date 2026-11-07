@@ -6,7 +6,7 @@ import { bm25SearchIds, type SearchResult } from "../db/search";
 import type { GraphStanding } from "../db/graph-annotations";
 import { createTestDb, seedThought } from "../test/helpers";
 import { searchThoughts } from "./search.service";
-import { orderByStanding } from "./search-standing";
+import { orderByStanding } from "./search-standing.service";
 
 // The search service only needs *an* embedding to pass to the DB layer; graph
 // standing is computed from edges. A fixed zero vector keeps BM25 as the

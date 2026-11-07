@@ -22,7 +22,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { closeDb, getDb, initDb } from '../src/db'
-import { DEFAULT_MIN_RELEVANCE } from '../src/services/search-normalize'
+import { DEFAULT_MIN_RELEVANCE } from '../src/services/search-normalize.service'
 import { DEFAULT_TOP_K, runEvalWithGate } from './runner'
 import {
   createDeterministicOutcomeSearcher,

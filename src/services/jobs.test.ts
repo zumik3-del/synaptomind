@@ -6,7 +6,7 @@
  * never be cleared by `stop()`.
  */
 import { afterEach, describe, expect, test } from 'bun:test'
-import { createIntervalJob } from './jobs'
+import { createIntervalJob } from './jobs.service'
 
 const started: Array<{ stop: () => void }> = []
 

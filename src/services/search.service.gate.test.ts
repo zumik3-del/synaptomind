@@ -4,7 +4,7 @@ import { config } from '../config'
 import { createEdge } from '../db/edges'
 import { closeDb } from '../db/init'
 import { createTestDb, isVecExtensionAvailable, seedThought, withVecDb } from '../test/helpers'
-import { DEFAULT_MIN_RELEVANCE } from './search-normalize'
+import { DEFAULT_MIN_RELEVANCE } from './search-normalize.service'
 import { searchThoughts, searchThoughtsOutcome } from './search.service'
 
 /**

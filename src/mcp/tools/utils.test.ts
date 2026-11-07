@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { jsonResult } from './utils'
+import { toBit } from '../../db/utils'
+import { parseTags } from '../../utils'
+import { jsonResult, shapeThought } from './utils'
 
 // Runtime assertion for #2135 AC-3: no tool result may be a bare string.
 // `jsonResult` wraps a bare string payload as `{ text }` so the shared
@@ -33,4 +35,17 @@ describe('jsonResult envelope', () => {
     expect(result.structuredContent.result).toEqual({ text: 'hello world' })
     expect(JSON.parse(result.content[0].text)).toEqual({ text: 'hello world' })
   })
+})
+
+test('thought output stringifies heterogeneous tags and strictly decodes boolean fields', () => {
+  expect(shapeThought({ tags: [' a ', { name: 'Name', tag: 'other' }, { tag: 'Tag' }, { id: 3 }, 4], is_protected: 1, is_global: '1', is_cluster: true })).toEqual({
+    tags: [' a ', 'Name', 'Tag', '3', '4'], is_protected: true, is_global: false, is_cluster: true
+  })
+})
+
+test('input tag filtering and boolean encoding retain their distinct contracts', () => {
+  expect(parseTags(' a , , b ')).toEqual(['a', 'b'])
+  expect(parseTags(' , ')).toBeUndefined()
+  expect(parseTags([' ', ' a '])).toEqual(['a'])
+  expect([toBit(undefined), toBit(false), toBit(true)]).toEqual([0, 0, 1])
 })

@@ -119,7 +119,7 @@ export const DEFAULTS: Config = {
   // p95 0.8002, p99 0.8123, max 0.8355 over 4000 pairs). It is the zero point of
   // the calibrated `relevance` scale: `(similarity - unrelatedFloor) /
   // (vectorFloor - unrelatedFloor)`, clamped to `[0, 1]`. The default noise gate
-  // (`DEFAULT_MIN_RELEVANCE` in `search-normalize.ts`) is set from the same run.
+  // (`DEFAULT_MIN_RELEVANCE` in `search-normalize.service.ts`) is set from the same run.
   search: { confidence: { vectorFloor: 0.9, unrelatedFloor: 0.8 } },
   rateLimit: { max: 200, windowMs: 60_000, trustProxy: false },
   retentionReview: { minAgeDays: 30, importanceFloor: 0.3, pageSize: 20 },

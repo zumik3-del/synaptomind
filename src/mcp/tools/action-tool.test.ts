@@ -118,6 +118,16 @@ describe('registerActionTool dispatch mechanics', () => {
     expect(result.content[0].text).toBe('content is required for create action')
   })
 
+  test('multiple action validation issues are joined in schema order', async () => {
+    const handler = captureTool(server => registerActionTool(server, {
+      name: 'multi', description: 'validation probe', inputSchema: { action: z.string() },
+      handlers: { check: { input: z.object({ a: z.string('first issue'), b: z.number('second issue') }), run: () => ({ ok: true }) } }
+    }))
+    const result = (await handler({ action: 'check', a: 1, b: 'x' })) as ToolResult
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toBe('first issue; second issue')
+  })
+
   test('action-conditional input schema rejects an empty required field', async () => {
     const handler = captureTool(server => registerActionTool(server, demoConfig))
     const result = (await handler({ action: 'needs_content', content: '' })) as ToolResult

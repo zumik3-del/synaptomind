@@ -7,12 +7,12 @@ import type { Thought } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
 import { generateEmbedding } from '../embedder/client'
 import { parseTags } from '../utils'
-import { type IdLookup, idNotFoundWarning, keepsUnderRelevanceGate, runIdLookup, type SearchOutcome } from './search-outcome'
-import { normalizeSearchOptions, type NormalizedSearchOptions } from './search-normalize'
-import { applyGraphStanding } from './search-standing'
-import { calibrateRelevance } from './text-similarity'
+import { type IdLookup, idNotFoundWarning, keepsUnderRelevanceGate, runIdLookup, type SearchOutcome } from './search-outcome.service'
+import { normalizeSearchOptions, type NormalizedSearchOptions } from './search-normalize.service'
+import { applyGraphStanding } from './search-standing.service'
+import { calibrateRelevance } from './text-similarity.service'
 
-export type { SearchOutcome, SearchOutcomeReason } from './search-outcome'
+export type { SearchOutcome, SearchOutcomeReason } from './search-outcome.service'
 
 const EMBEDDING_TIMEOUT_MS = 5_000
 
@@ -69,7 +69,7 @@ export interface SearchServiceOptions {
   /**
    * Relevance gate on the calibrated `relevance` scale, clamped to `[0, 1]`.
    * Omitted → the measured default (`DEFAULT_MIN_RELEVANCE` in
-   * `search-normalize.ts`): a row without a lexical (BM25) anchor is kept only
+   * `search-normalize.service.ts`): a row without a lexical (BM25) anchor is kept only
    * when its calibrated `relevance` clears the threshold. An explicit `0`
    * disables the gate and keeps the pre-#2178 result set byte-identically (same
    * rows, same order). The candidate pool is widened when the gate can drop rows
