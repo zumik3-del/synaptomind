@@ -42,7 +42,7 @@ const { serve } = await import('bun')
 const { app } = await import('./app')
 const { config } = await import('./config')
 const { closeDb, openDatabase } = await import('./db/init')
-const { als } = await import('./db/registry')
+const { als, bootFanOut } = await import('./db/registry')
 const { startEmbedderProcess, stopEmbedderProcess } = await import('./embedder/client')
 const { closeLogDb } = await import('./logging')
 const { startMcpHttpServer } = await import('./mcp/http-transport')
@@ -96,7 +96,6 @@ try {
     als.enterWith({ userId: 'stdio-legacy', db })
     console.error('[synaptomind] stdio mode: bound to legacy config.db.path')
   } else {
-    const { bootFanOut } = await import('./db/registry')
     bootResult = bootFanOut()
     if (bootResult.unavailable.length > 0) {
       for (const u of bootResult.unavailable) {
@@ -141,7 +140,7 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   closeLogDb()
   if (extra) await extra()
   try {
-    const { registry } = await import('./db/container')
+    const { registry } = await import('./db/registry')
     for (const [, db] of registry) {
       try { db.close(true) } catch {}
     }
