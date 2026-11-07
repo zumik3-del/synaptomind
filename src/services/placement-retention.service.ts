@@ -1,5 +1,6 @@
 import { config } from '../config'
 import { getDb } from '../db'
+import { MS_PER_DAY } from '../utils'
 import { deleteExpired } from '../db/placement-proposals'
 import { deleteExpiredPreviewTokens } from '../db/preview-tokens'
 import { insertLog } from '../logging/log'
@@ -25,7 +26,7 @@ export function cleanupPlacementProposals(d: Database = getDb()): PlacementReten
   let proposals = 0
   if (ttlDays >= 0) {
     const now = new Date().toISOString()
-    const cutoff = new Date(Date.now() - ttlDays * 86400000).toISOString()
+    const cutoff = new Date(Date.now() - ttlDays * MS_PER_DAY).toISOString()
     proposals = deleteExpired(d, cutoff, now)
     if (proposals > 0) {
       insertLog('info', 'placement-retention', `Expired/pruned ${proposals} placement proposals`)
@@ -60,7 +61,7 @@ const sweepAll = (): void => {
   }
 }
 
-const job = createIntervalJob({ name: 'placement-retention', intervalMs: 86400000, onError }, sweepAll)
+const job = createIntervalJob({ name: 'placement-retention', intervalMs: MS_PER_DAY, onError }, sweepAll)
 
 export function startPlacementRetentionJob(): void {
   // Sweep once at boot: the interval is daily, so a host that restarts more

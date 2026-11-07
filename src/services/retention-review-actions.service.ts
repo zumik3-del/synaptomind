@@ -7,16 +7,10 @@ import { createThought as dbCreateThought, deleteThought, updateThought } from '
 import { getThoughtTags } from '../db/tags'
 import { RetentionReviewIneligibleError, ValidationError, NotFoundError } from '../errors'
 import { mergeThoughtsService } from './merge.service'
-import { computeContentHash } from '../utils'
+import { computeContentHash, asNumber, MS_PER_DAY } from '../utils'
 import { BATCH_ITEMS_MAX } from '../validation'
 import { insertLog } from '../logging/log'
 import type { RetentionReviewQueryOptions } from './retention-review.service'
-function asNumber(value: unknown): number | undefined {
-  if (value === undefined || value === null) return undefined
-  if (typeof value === 'number') return value
-  if (typeof value === 'string') { const n = Number(value); return Number.isFinite(n) ? n : undefined }
-  return undefined
-}
 
 // ---------------------------------------------------------------------------
 // Retention-review actions: hard delete (cascade, preview-first) and protect.
@@ -79,7 +73,7 @@ function evaluateEligibility(id: string, d: Database, opts: RetentionReviewDelet
   if (row.is_global) reasons.push('is_global')
 
   const anchor = row.archived_at ?? row.created_at
-  const cutoffMs = nowMs - minAgeDays * 86400000
+  const cutoffMs = nowMs - minAgeDays * MS_PER_DAY
   if (!(Date.parse(anchor) < cutoffMs)) reasons.push('age < minAgeDays')
 
   if (!(row.importance < floor)) reasons.push('importance >= floor')

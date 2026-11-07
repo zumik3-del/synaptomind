@@ -154,7 +154,7 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
     const ref = ((c as any).get('mcpUser') as UserRef | undefined) ?? resolveUser(c.req.header('Authorization'))
     if (!ref) return c.json({ error: 'Unauthorized' }, 401)
 
-    const db = resolveRequestDb(ref)
+    const db = (als.getStore() as { db?: Database } | undefined)?.db
     if (!db && ref.kind !== 'legacy') return new Response(JSON.stringify({ error: "Database unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
 
     const sessionId = c.req.header('mcp-session-id')

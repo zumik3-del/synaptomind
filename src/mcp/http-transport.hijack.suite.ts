@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { openDatabase } from '../db/init'
-import { clearRegistry, register } from '../db/container'
+import { clearDb, clearRegistry, register } from '../db/container'
 import { config, hashUserToken } from '../config'
 import { upsertSlot } from '../db/slots'
 
@@ -268,6 +268,24 @@ describe('legacy single-user regression', () => {
       const session = await initialize(base, LEGACY_SECRET)
       const r = await toolCall(base, LEGACY_SECRET, session, { action: 'slots', cwd: '/tmp' })
       expect(r.status).toBe(200)
+      await destroy(base, LEGACY_SECRET, session)
+    } finally {
+      await server.stop()
+    }
+  })
+
+  test('legacy mode can initialize with an unavailable database', async () => {
+    config.users = []
+    clearRegistry()
+    clearDb()
+    process.env.SYNAPTOMIND_SECRET = LEGACY_SECRET
+
+    const port = await freePort()
+    const server = startMcpHttpServer('127.0.0.1', port)
+    const base = `http://127.0.0.1:${port}`
+    try {
+      const session = await initialize(base, LEGACY_SECRET)
+      expect(server.getSessions().has(session)).toBe(true)
       await destroy(base, LEGACY_SECRET, session)
     } finally {
       await server.stop()

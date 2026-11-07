@@ -11,6 +11,7 @@ import type { Database } from 'bun:sqlite'
 import { countRetentionReviewCandidates, listRetentionReviewCandidates as queryRetentionReviewCandidateRows } from '../db/retention-review'
 import { config } from '../config'
 import { getDb } from '../db'
+import { asNumber, MS_PER_DAY } from '../utils'
 
 import { getThoughtTagsBatch, type Tag } from '../db/tags'
 import { ValidationError } from '../errors'
@@ -46,16 +47,6 @@ export interface RetentionReviewResult {
   limit: number
   offset: number
   candidates: RetentionReviewCandidate[]
-}
-
-function asNumber(value: unknown): number | undefined {
-  if (value === undefined || value === null) return undefined
-  if (typeof value === 'number') return value
-  if (typeof value === 'string') {
-    const n = Number(value)
-    return Number.isFinite(n) ? n : undefined
-  }
-  return undefined
 }
 
 const CONTENT_TRUNCATE = 200
@@ -111,7 +102,7 @@ export function listRetentionReviewCandidatesService(
     throw new ValidationError('offset must be >= 0')
   }
 
-  const cutoff = new Date(nowMs - resolvedMinAge * 86400000).toISOString()
+  const cutoff = new Date(nowMs - resolvedMinAge * MS_PER_DAY).toISOString()
 
   const filters = { cutoff, importanceFloor: resolvedFloor, now }
   const total = countRetentionReviewCandidates(d, filters)
@@ -121,7 +112,7 @@ export function listRetentionReviewCandidatesService(
 
   const candidates: RetentionReviewCandidate[] = rows.map(r => {
     const anchor = r.archived_at ?? r.created_at
-    const ageDays = Math.max(0, Math.floor((nowMs - Date.parse(anchor)) / 86400000))
+    const ageDays = Math.max(0, Math.floor((nowMs - Date.parse(anchor)) / MS_PER_DAY))
     return {
       id: r.id,
       content: truncate(r.content),

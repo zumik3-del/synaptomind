@@ -1,3 +1,5 @@
+import { clamp01 } from '../utils'
+
 /**
  * Shared pure text-similarity helpers.
  *
@@ -22,11 +24,7 @@ export function jaccard(a: string, b: string): number {
   return overlap / (setA.size + setB.size - overlap)
 }
 
-/** Clamp a possibly non-finite number into `[0, 1]` (`NaN` → `0`). */
-export function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0
-  return Math.min(Math.max(value, 0), 1)
-}
+export { clamp01 }
 
 /**
  * Calibrated cosine relevance on the measured unrelated→strong-match band.

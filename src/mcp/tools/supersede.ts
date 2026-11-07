@@ -35,6 +35,13 @@ function thoughtFingerprint(thought: { id: string; status: string; updated_at: s
   return `${thought.id}:${thought.status}:${thought.updated_at}:${thought.is_protected}`
 }
 
+function buildArchiveBatchFingerprint(ids: string[]): string {
+  return ids.map(id => {
+    const t = getThoughtByIdService(id)
+    return t ? thoughtFingerprint(t as unknown as Parameters<typeof thoughtFingerprint>[0]) : `missing:${id}`
+  }).join('|')
+}
+
 const handlers = {
   archive: {
     input: z.object({ thought_id: requiredString('thought_id is required for archive action'), preview_token: z.string().optional() }),
@@ -80,10 +87,7 @@ const handlers = {
           const outcome = !thought ? 'not_found' : thought.status === 'archived' || duplicate ? 'already_archived' : 'would_archive'
           return { thought_id, outcome }
         })
-        const fingerprint = ids.map(id => {
-          const t = getThoughtByIdService(id)
-          return t ? thoughtFingerprint(t as unknown as Parameters<typeof thoughtFingerprint>[0]) : `missing:${id}`
-        }).join('|')
+        const fingerprint = buildArchiveBatchFingerprint(ids)
         const token = createPreviewTokenService('archive_batch', ids.join(','), fingerprint)
         // One counter per previewed outcome, so a caller sees the aggregate
         // without scanning the rows (task #2181).
@@ -91,10 +95,7 @@ const handlers = {
         for (const item of items) counts[item.outcome] = (counts[item.outcome] ?? 0) + 1
         return collectionEnvelope('archive_batch', items, { total: ids.length, counts, preview: { token } })
       }
-      const fingerprint = ids.map(id => {
-        const t = getThoughtByIdService(id)
-        return t ? thoughtFingerprint(t as unknown as Parameters<typeof thoughtFingerprint>[0]) : `missing:${id}`
-      }).join('|')
+      const fingerprint = buildArchiveBatchFingerprint(ids)
       if (!previewToken) throw new Error('preview_token is required')
       const verification = consumePreviewTokenService(previewToken, 'archive_batch', ids.join(','), fingerprint)
       if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)

@@ -6,6 +6,7 @@ import { getSlotRow, upsertSlot } from '../db/slots'
 import { createThought } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
 import { jaccard, normalise } from './text-similarity'
+import { MS_PER_DAY } from '../utils'
 import type { Database } from 'bun:sqlite'
 
 export interface ReflectInput {
@@ -184,7 +185,7 @@ export function reflectSessionService(input: ReflectInput, d: Database = getDb()
     }
     // Delay is per-reflection and set only on newly created pending thoughts;
     // the content-hash dedup branch leaves an existing schedule untouched.
-    const surfaceAfter = new Date(Date.now() + wakeDays * 86_400_000).toISOString()
+    const surfaceAfter = new Date(Date.now() + wakeDays * MS_PER_DAY).toISOString()
     for (const item of input.pending ?? []) {
       if (typeof item !== 'string' || !item.trim()) {
         throw new ValidationError('pending entries must be non-empty strings')

@@ -7,6 +7,7 @@
 
 import type { Database } from 'bun:sqlite'
 import { getThoughtTagsBatch, type Tag } from './tags'
+import { MS_PER_DAY } from '../utils'
 
 export interface ClusterCandidate {
   id: string
@@ -27,7 +28,7 @@ export interface ClusterCandidate {
  * thoughts (task #1569, O5).
  */
 export function listClusterCandidates(db: Database, minAgeDays: number): ClusterCandidate[] {
-  const cutoff = new Date(Date.now() - minAgeDays * 86400000).toISOString()
+  const cutoff = new Date(Date.now() - minAgeDays * MS_PER_DAY).toISOString()
   const rows = db
     .prepare(`
     SELECT t.id, t.content, t.status, t.source, t.project_id, t.created_at

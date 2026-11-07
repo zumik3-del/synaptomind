@@ -16,6 +16,7 @@
 import { createHash } from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
+import { MS_PER_DAY } from '../utils'
 import { getEdgePairBetween } from '../db/edges'
 import type {
   LegacyProposalItemKind,
@@ -118,7 +119,7 @@ export function toItemKey(row: PlacementProposalRow): string {
 export function proposalExpiry(now: string): string | null {
   const ttlDays = config.placement.proposalTtlDays
   if (ttlDays < 0) return null
-  return new Date(Date.parse(now) + ttlDays * 86400000).toISOString()
+  return new Date(Date.parse(now) + ttlDays * MS_PER_DAY).toISOString()
 }
 
 /**

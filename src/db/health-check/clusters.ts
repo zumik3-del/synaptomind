@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../../config'
+import { MS_PER_DAY } from '../../utils'
 import type {
   ClusterlessDense,
   EmptyCluster,
@@ -57,7 +58,7 @@ export function findClusterlessDense(
   minEdges: number = 5,
   minAgeDays: number = config.autoCluster.minAgeDays
 ): ClusterlessDense[] {
-  const cutoff = new Date(Date.now() - minAgeDays * 86400000).toISOString()
+  const cutoff = new Date(Date.now() - minAgeDays * MS_PER_DAY).toISOString()
   return db.prepare(`
     SELECT t.id, t.content, COUNT(e.id) AS edge_count
     FROM ${THOUGHTS}

@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { MS_PER_DAY } from '../utils'
 
 export interface ThoughtImportance {
   thought_id: string
@@ -51,7 +52,7 @@ export function incrementHitCount(db: Database, thoughtId: string): void {
  * creates with `is_protected = false`.
  */
 export function decayImportance(db: Database, rate: number): void {
-  const oneDayAgo = new Date(Date.now() - 86400000).toISOString()
+  const oneDayAgo = new Date(Date.now() - MS_PER_DAY).toISOString()
   const now = new Date().toISOString()
   db.prepare(`
     UPDATE thought_importance
