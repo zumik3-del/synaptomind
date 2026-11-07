@@ -12,6 +12,9 @@ export { bm25SearchIds } from './search-bm25'
 export { isStrongMatch } from './search-hydrate'
 export { rrfMerge } from './search-rrf'
 
+const CANDIDATE_POOL_MAX = 1000
+const CANDIDATE_POOL_MULTIPLIER = 10
+
 export function searchThoughts(db: Database, options: SearchOptions): SearchResult[] {
   const {
     embedding,
@@ -23,7 +26,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     clusterFilter,
     minImportance
   } = options
-  const pool = Math.min(1000, Math.max(topK * 10, topK))
+  const pool = Math.min(CANDIDATE_POOL_MAX, Math.max(topK * CANDIDATE_POOL_MULTIPLIER, topK))
 
   // Defensive normalisation (the service clamps first): a non-positive or
   // non-finite weight disables the boost; a non-positive/non-finite half-life

@@ -91,6 +91,9 @@ interface CheckDef {
 }
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, info: 2 }
+const CRITICAL_CATEGORY_PENALTY = 40
+const WARNING_CATEGORY_PENALTY = 15
+const INFO_OCCURRENCE_PENALTY = 0.25
 
 /**
  * `info` findings that report graph *coverage* rather than a defect: their
@@ -241,13 +244,12 @@ export function runHealthCheckService(options: HealthCheckOptions = {}, d: Datab
   // a reflection of structural health and prevents it from being zeroed out by
   // many harmless warning cases (like parent->draft). Info occurrences of
   // coverage findings (`INFO_CHECKS_NOT_SCORED`) are reported but not charged.
+  const penaltyCritical = criticalCats * CRITICAL_CATEGORY_PENALTY
+  const penaltyWarning = warningCats * WARNING_CATEGORY_PENALTY
+  const penaltyInfo = scoredInfo * INFO_OCCURRENCE_PENALTY
   const health_score = Math.max(0, Math.min(100,
-    100 - (criticalCats * 40) - (warningCats * 15) - (scoredInfo * 0.25)
+    100 - penaltyCritical - penaltyWarning - penaltyInfo
   ))
-
-  const penaltyCritical = criticalCats * 40
-  const penaltyWarning = warningCats * 15
-  const penaltyInfo = scoredInfo * 0.25
   const scoreBreakdown: ScoreBreakdown = {
     critical_categories: criticalCats,
     warning_categories: warningCats,
@@ -257,7 +259,7 @@ export function runHealthCheckService(options: HealthCheckOptions = {}, d: Datab
     penalty_critical: penaltyCritical,
     penalty_warning: penaltyWarning,
     penalty_info: penaltyInfo,
-    formula: '100 - (critical_categories * 40) - (warning_categories * 15) - (info_scored_occurrences * 0.25), clamped to [0, 100]'
+    formula: `100 - (critical_categories * ${CRITICAL_CATEGORY_PENALTY}) - (warning_categories * ${WARNING_CATEGORY_PENALTY}) - (info_scored_occurrences * ${INFO_OCCURRENCE_PENALTY}), clamped to [0, 100]`
   }
 
   return {
