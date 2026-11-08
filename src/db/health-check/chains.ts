@@ -1,17 +1,26 @@
 import type { Database } from 'bun:sqlite'
 import type { BrokenParentChain, CircularChain, ReplacesChain } from './types'
 
+/**
+ * Source → targets adjacency map of `source_id`/`target_id` edge rows, keeping
+ * the row order a query returned.
+ */
+function buildAdjacency(edges: Array<{ source_id: string; target_id: string }>): Map<string, string[]> {
+  const adj = new Map<string, string[]>()
+  for (const e of edges) {
+    if (!adj.has(e.source_id)) adj.set(e.source_id, [])
+    adj.get(e.source_id)!.push(e.target_id)
+  }
+  return adj
+}
+
 export function findCircularChains(db: Database): CircularChain[] {
   const edges = db.prepare(`
     SELECT source_id, target_id FROM edges
     WHERE type IN ('parent', 'develops')
   `).all() as Array<{ source_id: string; target_id: string }>
 
-  const adj = new Map<string, string[]>()
-  for (const e of edges) {
-    if (!adj.has(e.source_id)) adj.set(e.source_id, [])
-    adj.get(e.source_id)!.push(e.target_id)
-  }
+  const adj = buildAdjacency(edges)
 
   const cycles: string[][] = []
   const visited = new Set<string>()
@@ -54,11 +63,7 @@ export function findReplacesChains(db: Database): ReplacesChain[] {
     SELECT source_id, target_id FROM edges WHERE type = 'replaces'
   `).all() as Array<{ source_id: string; target_id: string }>
 
-  const adj = new Map<string, string[]>()
-  for (const e of edges) {
-    if (!adj.has(e.source_id)) adj.set(e.source_id, [])
-    adj.get(e.source_id)!.push(e.target_id)
-  }
+  const adj = buildAdjacency(edges)
 
   const chains: string[][] = []
   const visited = new Set<string>()
