@@ -1,5 +1,5 @@
-import { Glob } from "bun";
-import { join, resolve } from "node:path";
+import { Glob } from 'bun'
+import { join, resolve } from 'node:path'
 
 /**
  * Test lanes and shard weights for `scripts/test-parallel.ts`.
@@ -11,17 +11,17 @@ import { join, resolve } from "node:path";
  * expensive and which lane they belong to.
  */
 
-export const REPO_ROOT = resolve(import.meta.dir, "..", "..");
+export const REPO_ROOT = resolve(import.meta.dir, '..', '..')
 
-export type Lane = "unit" | "integration";
+export type Lane = 'unit' | 'integration'
 
 // Assembled from parts on purpose: the removed-subsystem guard under `src/api/`
 // fails on any file under `src/` that spells its subject, and this manifest is
 // under `src/` too. Same trick as that guard's own header.
-const REMOVED_STEM = "self";
+const REMOVED_STEM = 'self'
 
 /** The removed-subsystem guard: expensive (it reads the whole `src/` tree). */
-const REMOVED_SUBSYSTEM_GUARD = `src/api/${REMOVED_STEM}-improve-removed.test.ts`;
+const REMOVED_SUBSYSTEM_GUARD = `src/api/${REMOVED_STEM}-improve-removed.test.ts`
 
 /**
  * The slow lane: files that boot the REAL entry point (`src/index.ts`), bind a
@@ -36,19 +36,19 @@ const REMOVED_SUBSYSTEM_GUARD = `src/api/${REMOVED_STEM}-improve-removed.test.ts
  * point (or binding a listener) without being listed here.
  */
 export const INTEGRATION_TESTS: readonly string[] = [
-	"src/embedder/client.test.ts",
-	"src/embedder/embedder-shutdown-closeDb.test.ts",
-	"src/index.mcp-port.test.ts",
-	"src/mcp/http-transport.lifecycle.test.ts",
-	"src/mcp/http-transport.limits.test.ts",
-	"src/mcp/http-transport.test.ts",
-	"src/mcp/stdio-runtime.test.ts",
-	REMOVED_SUBSYSTEM_GUARD,
-	"src/shutdown-closeDb.test.ts",
-	"src/version.test.ts",
-];
+  'src/embedder/client.test.ts',
+  'src/embedder/embedder-shutdown-closeDb.test.ts',
+  'src/index.mcp-port.test.ts',
+  'src/mcp/http-transport.lifecycle.test.ts',
+  'src/mcp/http-transport.limits.test.ts',
+  'src/mcp/http-transport.test.ts',
+  'src/mcp/stdio-runtime.test.ts',
+  REMOVED_SUBSYSTEM_GUARD,
+  'src/shutdown-closeDb.test.ts',
+  'src/version.test.ts'
+]
 
-const INTEGRATION = new Set(INTEGRATION_TESTS);
+const INTEGRATION = new Set(INTEGRATION_TESTS)
 
 /**
  * Rough relative cost of the expensive files (seconds × 2, from a
@@ -58,38 +58,38 @@ const INTEGRATION = new Set(INTEGRATION_TESTS);
  * unbalances one.
  */
 const WEIGHTS: Readonly<Record<string, number>> = {
-	[REMOVED_SUBSYSTEM_GUARD]: 4,
-	"src/embedder/client.test.ts": 8,
-	"src/index.mcp-port.test.ts": 6,
-	"src/mcp/http-transport.lifecycle.test.ts": 4,
-	"src/mcp/http-transport.limits.test.ts": 3,
-	"src/mcp/http-transport.test.ts": 2,
-	"src/mcp/stdio-runtime.test.ts": 6,
-	"src/mcp/tools/propose-degraded.contract.test.ts": 2,
-	"src/mcp/tools/recall-context-semantic.contract.test.ts": 2,
-	"src/mcp/tools/recall-degraded.contract.test.ts": 3,
-	"src/shutdown-closeDb.test.ts": 3,
-};
+  [REMOVED_SUBSYSTEM_GUARD]: 4,
+  'src/embedder/client.test.ts': 8,
+  'src/index.mcp-port.test.ts': 6,
+  'src/mcp/http-transport.lifecycle.test.ts': 4,
+  'src/mcp/http-transport.limits.test.ts': 3,
+  'src/mcp/http-transport.test.ts': 2,
+  'src/mcp/stdio-runtime.test.ts': 6,
+  'src/mcp/tools/propose-degraded.contract.test.ts': 2,
+  'src/mcp/tools/recall-context-semantic.contract.test.ts': 2,
+  'src/mcp/tools/recall-degraded.contract.test.ts': 3,
+  'src/shutdown-closeDb.test.ts': 3
+}
 
 /** Every `src/**\/*.test.ts`, repo-relative with forward slashes, sorted. */
 export function allTestFiles(): string[] {
-	return [...new Glob("**/*.test.ts").scanSync({ cwd: join(REPO_ROOT, "src") })]
-		.map((file) => `src/${file.replaceAll("\\", "/")}`)
-		.sort();
+  return [...new Glob('**/*.test.ts').scanSync({ cwd: join(REPO_ROOT, 'src') })]
+    .map(file => `src/${file.replaceAll('\\', '/')}`)
+    .sort()
 }
 
 export function laneOf(file: string): Lane {
-	return INTEGRATION.has(file) ? "integration" : "unit";
+  return INTEGRATION.has(file) ? 'integration' : 'unit'
 }
 
 /** The files of one lane, or of both when `lane` is omitted. */
 export function testFiles(lane?: Lane): string[] {
-	const files = allTestFiles();
-	return lane === undefined ? files : files.filter((file) => laneOf(file) === lane);
+  const files = allTestFiles()
+  return lane === undefined ? files : files.filter(file => laneOf(file) === lane)
 }
 
 export function weightOf(file: string): number {
-	return WEIGHTS[file] ?? 1;
+  return WEIGHTS[file] ?? 1
 }
 
 /**
@@ -98,13 +98,15 @@ export function weightOf(file: string): number {
  * this suite needs (154 of ~157 files cost well under a second).
  */
 export function splitIntoShards(files: readonly string[], shards: number): string[][] {
-	const count = Math.max(1, Math.min(shards, files.length));
-	const buckets = Array.from({ length: count }, () => ({ weight: 0, files: [] as string[] }));
-	const order = [...files].sort((a, b) => weightOf(b) - weightOf(a) || a.localeCompare(b));
-	for (const file of order) {
-		const target = buckets.reduce((lightest, bucket) => (bucket.weight < lightest.weight ? bucket : lightest));
-		target.files.push(file);
-		target.weight += weightOf(file);
-	}
-	return buckets.filter((bucket) => bucket.files.length > 0).map((bucket) => bucket.files.sort());
+  const count = Math.max(1, Math.min(shards, files.length))
+  const buckets = Array.from({ length: count }, () => ({ weight: 0, files: [] as string[] }))
+  const order = [...files].sort((a, b) => weightOf(b) - weightOf(a) || a.localeCompare(b))
+  for (const file of order) {
+    const target = buckets.reduce((lightest, bucket) =>
+      bucket.weight < lightest.weight ? bucket : lightest
+    )
+    target.files.push(file)
+    target.weight += weightOf(file)
+  }
+  return buckets.filter(bucket => bucket.files.length > 0).map(bucket => bucket.files.sort())
 }

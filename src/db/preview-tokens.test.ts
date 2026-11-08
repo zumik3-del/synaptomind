@@ -11,12 +11,12 @@ import {
   createPreviewToken,
   consumePreviewToken,
   deleteExpiredPreviewTokens,
-  isPreviewTokenExpired,
+  isPreviewTokenExpired
 } from './preview-tokens'
 import {
   createPreviewTokenService,
   consumePreviewTokenService,
-  type VerifyPreviewTokenResult,
+  type VerifyPreviewTokenResult
 } from '../services/preview-tokens.service'
 
 beforeEach(createTestDb)
@@ -63,7 +63,7 @@ test('two confirms of one token: exactly one is valid, the other reads not_found
 
   const results = [
     consumePreviewTokenService(token, 'kind', 'target', 'fp', db),
-    consumePreviewTokenService(token, 'kind', 'target', 'fp', db),
+    consumePreviewTokenService(token, 'kind', 'target', 'fp', db)
   ]
 
   expect(results.filter(r => r.valid)).toHaveLength(1)
@@ -75,42 +75,53 @@ test('two confirms of one token: exactly one is valid, the other reads not_found
 test('a rejected claim still burns the token: a stale or misdirected confirm cannot be replayed', () => {
   const db = getDb()
   type RejectionReason = NonNullable<VerifyPreviewTokenResult['reason']>
-  const cases: Array<{ label: string; token: string; args: [string, string, string]; reason: RejectionReason }> = [
+  const cases: Array<{
+    label: string
+    token: string
+    args: [string, string, string]
+    reason: RejectionReason
+  }> = [
     {
       label: 'fingerprint drifted since the preview',
       token: createPreviewTokenService('kind', 'target', 'fp', db),
       args: ['kind', 'target', 'fp-changed'],
-      reason: 'stale',
+      reason: 'stale'
     },
     {
       label: 'token issued for another action',
       token: createPreviewTokenService('kind', 'target', 'fp', db),
       args: ['other-kind', 'target', 'fp'],
-      reason: 'kind_mismatch',
+      reason: 'kind_mismatch'
     },
     {
       label: 'token issued for another target',
       token: createPreviewTokenService('kind', 'target', 'fp', db),
       args: ['kind', 'other-target', 'fp'],
-      reason: 'target_mismatch',
+      reason: 'target_mismatch'
     },
     {
       label: 'token already expired',
       // db-layer helper: the service pins its own TTL, this one takes the expiry.
       token: createPreviewToken(db, 'kind', 'target', 'fp', -1),
       args: ['kind', 'target', 'fp'],
-      reason: 'expired',
-    },
+      reason: 'expired'
+    }
   ]
 
   for (const item of cases) {
-    expect({ label: item.label, result: consumePreviewTokenService(item.token, item.args[0], item.args[1], item.args[2], db) }).toEqual({
+    expect({
       label: item.label,
-      result: { valid: false, reason: item.reason },
+      result: consumePreviewTokenService(item.token, item.args[0], item.args[1], item.args[2], db)
+    }).toEqual({
+      label: item.label,
+      result: { valid: false, reason: item.reason }
     })
     // Fail closed: the refused confirm consumed the row, so the same token
     // cannot be replayed even with the correct arguments.
-    expect(consumePreviewTokenService(item.token, 'kind', 'target', 'fp', db)).toEqual({ valid: false, reason: 'not_found' })
+    expect(consumePreviewTokenService(item.token, 'kind', 'target', 'fp', db)).toEqual({
+      valid: false,
+      reason: 'not_found'
+    })
     expect(storedToken(item.token)).toBeNull()
   }
 })

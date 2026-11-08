@@ -1,5 +1,9 @@
 import type { Database } from 'bun:sqlite'
-import { findThoughtsByIdQuery, type IdLookupFilters, ID_PREFIX_MATCH_HARD_CAP } from '../db/search-id'
+import {
+  findThoughtsByIdQuery,
+  type IdLookupFilters,
+  ID_PREFIX_MATCH_HARD_CAP
+} from '../db/search-id'
 import type { SearchResult } from '../db/search'
 
 /**
@@ -83,8 +87,16 @@ export function idNotFoundWarning(query: string): string {
  * nothing inside the scope is an id miss like any other. Standing annotation and
  * suppression stay with the caller.
  */
-export function runIdLookup(query: string, d: Database, limit?: number, filters?: IdLookupFilters): IdLookup | null {
-  const cap = limit === undefined ? ID_PREFIX_MATCH_HARD_CAP : Math.min(Math.max(Math.floor(limit), 1), ID_PREFIX_MATCH_HARD_CAP)
+export function runIdLookup(
+  query: string,
+  d: Database,
+  limit?: number,
+  filters?: IdLookupFilters
+): IdLookup | null {
+  const cap =
+    limit === undefined
+      ? ID_PREFIX_MATCH_HARD_CAP
+      : Math.min(Math.max(Math.floor(limit), 1), ID_PREFIX_MATCH_HARD_CAP)
   // One row past the cap tells "exactly cap matches" apart from "more than the
   // caller asked to see", so a truncated prefix still reports as ambiguous.
   const hits = findThoughtsByIdQuery(d, query, cap + 1, filters)

@@ -1,4 +1,4 @@
-import type { McpServer, CallToolResult } from "@modelcontextprotocol/server";
+import type { McpServer, CallToolResult } from '@modelcontextprotocol/server'
 import { z } from 'zod/v4'
 import { formatZodIssues } from '../../zod-utils'
 import { errorResult, jsonResult, toolOutputShape } from './utils'
@@ -36,7 +36,11 @@ export interface ActionToolConfig {
 }
 
 function isToolResult(value: unknown): value is CallToolResult {
-  return typeof value === 'object' && value !== null && Array.isArray((value as { content?: unknown }).content)
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    Array.isArray((value as { content?: unknown }).content)
+  )
 }
 
 /** Read the HTTP-style `statusCode` a domain error carries (`src/errors.ts`), if any. */
@@ -73,7 +77,7 @@ export function registerActionTool(server: McpServer, config: ActionToolConfig):
       inputSchema: config.inputSchema,
       outputSchema: toolOutputShape
     },
-    async (args) => {
+    async args => {
       const action = String(args.action)
       try {
         const handler = config.handlers[action]
@@ -100,7 +104,7 @@ export function registerActionTool(server: McpServer, config: ActionToolConfig):
         // unclassified error keeps the plain message-only envelope.
         return errorResult(
           err instanceof Error ? err.message : `${config.name} failed`,
-          statusCode === undefined ? {} : { statusCode, retryable: statusCode === 503 },
+          statusCode === undefined ? {} : { statusCode, retryable: statusCode === 503 }
         )
       }
     }

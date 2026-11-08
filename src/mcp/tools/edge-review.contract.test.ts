@@ -11,7 +11,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { getDb, closeDb } from '../../db'
@@ -45,7 +45,11 @@ function parseResult(result: unknown): { data: any; isError: boolean; text: stri
   const r = result as { content: Array<{ type: string; text: string }>; isError?: boolean }
   const text = r.content?.[0]?.text ?? '{}'
   let parsed: unknown = text
-  try { parsed = JSON.parse(text) } catch { /* keep text */ }
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    /* keep text */
+  }
   return { data: parsed, isError: r.isError === true, text }
 }
 
@@ -63,7 +67,7 @@ function insertPendingEdge(src: string, tgt: string): PlacementProposalRow {
     targetId: tgt,
     targetUpdatedAt: target.updated_at,
     targetStatus: target.status,
-    existingEdgeType: existing?.type ?? null,
+    existingEdgeType: existing?.type ?? null
   })
   return insertProposal(db, {
     source_thought_id: src,
@@ -74,7 +78,7 @@ function insertPendingEdge(src: string, tgt: string): PlacementProposalRow {
     rationale: 'contract test edge',
     payload: '{}',
     fingerprint: fp,
-    direction: 'symmetric',
+    direction: 'symmetric'
   })
 }
 
@@ -83,7 +87,11 @@ function insertPendingEdge(src: string, tgt: string): PlacementProposalRow {
  * install upgraded from an older version still holds it: `pending`, no target
  * resolution path — the queue only has to keep it readable.
  */
-function insertRetiredRow(id: string, itemKind: 'triage_activate' | 'triage_archive', src: string): void {
+function insertRetiredRow(
+  id: string,
+  itemKind: 'triage_activate' | 'triage_archive',
+  src: string
+): void {
   getDb()
     .prepare(`
       INSERT INTO placement_proposals
@@ -95,7 +103,9 @@ function insertRetiredRow(id: string, itemKind: 'triage_activate' | 'triage_arch
 }
 
 function propState(db: Database, id: string): string {
-  const row = db.prepare('SELECT state FROM placement_proposals WHERE id = ?').get(id) as { state: string } | undefined
+  const row = db.prepare('SELECT state FROM placement_proposals WHERE id = ?').get(id) as
+    | { state: string }
+    | undefined
   return row?.state ?? 'missing'
 }
 
@@ -124,11 +134,18 @@ describe('edge_review enqueue', () => {
     // Task #1942: the response reports the queued rows plus the skipped count;
     // task #2181 wraps it in the shared envelope and mirrors the counts in meta.
     expect(data.meta.action).toBe('enqueue')
-    const outcome = data.item as { proposals: unknown[]; skipped: number; skipped_kinds: Record<string, number> }
+    const outcome = data.item as {
+      proposals: unknown[]
+      skipped: number
+      skipped_kinds: Record<string, number>
+    }
     expect(Array.isArray(outcome.proposals)).toBe(true)
     expect(typeof outcome.skipped).toBe('number')
     expect(typeof outcome.skipped_kinds).toBe('object')
-    expect(data.meta.counts).toMatchObject({ proposals: outcome.proposals.length, skipped: outcome.skipped })
+    expect(data.meta.counts).toMatchObject({
+      proposals: outcome.proposals.length,
+      skipped: outcome.skipped
+    })
   })
 
   test('canonical max_proposals is accepted and max_items is rejected with migration hint', async () => {
@@ -210,9 +227,13 @@ describe('edge_review list', () => {
     const tgt = seedThought({ content: 'list-ro target' })
     const row = insertPendingEdge(src, tgt)
 
-    const beforeCount = (db.prepare('SELECT COUNT(*) AS n FROM placement_proposals').get() as { n: number }).n
+    const beforeCount = (
+      db.prepare('SELECT COUNT(*) AS n FROM placement_proposals').get() as { n: number }
+    ).n
     await client.callTool({ name: 'edge_review', arguments: { action: 'list' } })
-    const afterCount = (db.prepare('SELECT COUNT(*) AS n FROM placement_proposals').get() as { n: number }).n
+    const afterCount = (
+      db.prepare('SELECT COUNT(*) AS n FROM placement_proposals').get() as { n: number }
+    ).n
 
     expect(afterCount).toBe(beforeCount)
     expect(propState(db, row.id)).toBe('pending')
@@ -230,7 +251,9 @@ describe('edge_review list', () => {
       expect(JSON.stringify(data)).toContain('limit')
     }
 
-    const ok = parseResult(await client.callTool({ name: 'edge_review', arguments: { action: 'list', limit: 1 } }))
+    const ok = parseResult(
+      await client.callTool({ name: 'edge_review', arguments: { action: 'list', limit: 1 } })
+    )
     expect(ok.isError).toBe(false)
   })
 
@@ -241,7 +264,10 @@ describe('edge_review list', () => {
     const row = insertPendingEdge(src, tgt)
 
     // Reject one so it becomes terminal.
-    await client.callTool({ name: 'edge_review', arguments: { action: 'reject', proposal_id: row.id } })
+    await client.callTool({
+      name: 'edge_review',
+      arguments: { action: 'reject', proposal_id: row.id }
+    })
     expect(propState(db, row.id)).toBe('rejected')
 
     const result = await client.callTool({
@@ -342,7 +368,9 @@ describe('edge_review apply_batch', () => {
     expect(isError).toBe(false)
     // One row per proposal, with per-proposal errors folded in as failed rows.
     expect(Array.isArray(data.items)).toBe(true)
-    const missing = data.items.filter((row: { proposal_id: string; status: string }) => row.proposal_id === 'missing-id')
+    const missing = data.items.filter(
+      (row: { proposal_id: string; status: string }) => row.proposal_id === 'missing-id'
+    )
     expect(missing.length).toBe(1)
     expect(missing[0].status).toBe('failed')
     expect(data.meta.counts.failed).toBeGreaterThanOrEqual(1)
@@ -395,7 +423,10 @@ describe('edge_review reject', () => {
     const tgt = seedThought({ content: 'double-reject target' })
     const row = insertPendingEdge(src, tgt)
 
-    await client.callTool({ name: 'edge_review', arguments: { action: 'reject', proposal_id: row.id } })
+    await client.callTool({
+      name: 'edge_review',
+      arguments: { action: 'reject', proposal_id: row.id }
+    })
     const result = await client.callTool({
       name: 'edge_review',
       arguments: { action: 'reject', proposal_id: row.id }
@@ -433,7 +464,10 @@ describe('edge_review: stored triage_* rows from an older install', () => {
     const src = seedThought({ content: 'retired triage list source' })
     insertRetiredRow('retired-list-activate', 'triage_activate', src)
 
-    const result = await client.callTool({ name: 'edge_review', arguments: { action: 'list', include_retired: true } })
+    const result = await client.callTool({
+      name: 'edge_review',
+      arguments: { action: 'list', include_retired: true }
+    })
 
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -455,7 +489,12 @@ describe('edge_review: stored triage_* rows from an older install', () => {
     const token = parseResult(preview).data.item.preview_token
     const result = await client.callTool({
       name: 'edge_review',
-      arguments: { action: 'apply', proposal_id: 'retired-apply-archive', confirm: true, preview_token: token }
+      arguments: {
+        action: 'apply',
+        proposal_id: 'retired-apply-archive',
+        confirm: true,
+        preview_token: token
+      }
     })
 
     const { data, isError } = parseResult(result)

@@ -64,7 +64,12 @@ export function planWriterCalls(
       return edgeId ? [{ writer: 'deleteEdgeService', args: { id: edgeId } }] : []
     }
     if (!edge) return undefined
-    return [{ writer: 'createEdgeService', args: { sourceId: edge.sourceId, targetId: edge.targetId, type: edge.type } }]
+    return [
+      {
+        writer: 'createEdgeService',
+        args: { sourceId: edge.sourceId, targetId: edge.targetId, type: edge.type }
+      }
+    ]
   }
 
   return undefined

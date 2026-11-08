@@ -96,7 +96,9 @@ describe('getThoughtEmbeddingsBatch', () => {
     createTestDb()
     const db = getDb()
     const exists = db
-      .prepare(`SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name = 'vec_thoughts'`)
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name = 'vec_thoughts'`
+      )
       .get()
     expect(exists ?? undefined).toBeUndefined()
 

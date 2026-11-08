@@ -26,7 +26,9 @@ export function asNumber(value: unknown): number | undefined {
 
 /** SHA-256 hex digest of `content` scoped to a project (dedupe key). */
 export function computeContentHash(content: string, projectId: string): string {
-  return createHash('sha256').update(content + projectId).digest('hex')
+  return createHash('sha256')
+    .update(content + projectId)
+    .digest('hex')
 }
 
 /**

@@ -50,13 +50,17 @@ test('createThoughtWithParentService creates thought with parent edge', () => {
   const parentId = seedThought()
   const child = createThoughtWithParentService({ content: 'child' }, parentId, 'develops')
   const db = getDb()
-  const edges = db.prepare('SELECT * FROM edges WHERE source_id = ? AND target_id = ?').all(parentId, child.id)
+  const edges = db
+    .prepare('SELECT * FROM edges WHERE source_id = ? AND target_id = ?')
+    .all(parentId, child.id)
   expect(edges).toHaveLength(1)
   expect((edges[0] as { type: string }).type).toBe('develops')
 })
 
 test('createThoughtWithParentService validates status', () => {
-  expect(() => createThoughtWithParentService({ content: 'x', status: 'bogus' as any })).toThrow(ValidationError)
+  expect(() => createThoughtWithParentService({ content: 'x', status: 'bogus' as any })).toThrow(
+    ValidationError
+  )
 })
 
 test('createThoughtWithParentService rejects content over hard limit', () => {
@@ -115,18 +119,24 @@ test('mergeThoughtsService throws for same source and target', () => {
 
 test('mergeThoughtsService throws for missing source', () => {
   const target = seedThought()
-  expect(() => mergeThoughtsService({ targetId: target, sourceId: 'nonexistent' })).toThrow(NotFoundError)
+  expect(() => mergeThoughtsService({ targetId: target, sourceId: 'nonexistent' })).toThrow(
+    NotFoundError
+  )
 })
 
 test('mergeThoughtsService throws for missing target', () => {
   const source = seedThought()
-  expect(() => mergeThoughtsService({ targetId: 'nonexistent', sourceId: source })).toThrow(NotFoundError)
+  expect(() => mergeThoughtsService({ targetId: 'nonexistent', sourceId: source })).toThrow(
+    NotFoundError
+  )
 })
 
 test('mergeThoughtsService throws for archived source', () => {
   const source = seedThought({ status: 'archived' })
   const target = seedThought()
-  expect(() => mergeThoughtsService({ targetId: target, sourceId: source })).toThrow(ValidationError)
+  expect(() => mergeThoughtsService({ targetId: target, sourceId: source })).toThrow(
+    ValidationError
+  )
 })
 
 test('mergeThoughtsService merges content and transfers edges', () => {
@@ -134,7 +144,12 @@ test('mergeThoughtsService merges content and transfers edges', () => {
   const target = seedThought({ content: 'target thought' })
   const third = seedThought()
   seedEdge(source, third, 'related')
-  const result = mergeThoughtsService({ targetId: target, sourceId: source, mergedContent: 'merged content', mergedTags: ['tag1'] })
+  const result = mergeThoughtsService({
+    targetId: target,
+    sourceId: source,
+    mergedContent: 'merged content',
+    mergedTags: ['tag1']
+  })
   expect(result.target.content).toBe('merged content')
   expect(result.transferredEdges).toBe(1)
   // Source should be archived
@@ -188,7 +203,9 @@ test('createThoughtWithParentService rejects content one char over the derived h
   config.thoughts.hardLimitBufferPercent = 50
   const { hardLimit } = getThoughtLimits(getDb())
 
-  expect(() => createThoughtWithParentService({ content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
+  expect(() => createThoughtWithParentService({ content: 'x'.repeat(hardLimit + 1) })).toThrow(
+    ValidationError
+  )
 })
 
 test('content between soft and hard limit is accepted (soft limit is advisory)', () => {
@@ -208,8 +225,12 @@ test('updateThoughtByIdService enforces the derived hard limit and accepts the e
   config.thoughts.hardLimitBufferPercent = 50
   const { hardLimit } = getThoughtLimits(getDb())
 
-  expect(() => updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(ValidationError)
-  expect(updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit) })?.content).toHaveLength(hardLimit)
+  expect(() => updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(
+    ValidationError
+  )
+  expect(updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit) })?.content).toHaveLength(
+    hardLimit
+  )
 })
 
 // ── v046 content dedupe on update (moved off the deleted PUT route) ──────────
@@ -224,9 +245,9 @@ test('updating onto live content throws the 409-class conflict and writes nothin
   const target = createThoughtWithUrlLinksService({ content: 'my own content' })
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    expect(() => updateThoughtByIdService(target.id, { content: 'content already in use' })).toThrow(
-      ThoughtContentConflictError
-    )
+    expect(() =>
+      updateThoughtByIdService(target.id, { content: 'content already in use' })
+    ).toThrow(ThoughtContentConflictError)
   }
 
   expect(getThoughtByIdService(target.id)?.content).toBe('my own content')
@@ -239,14 +260,18 @@ test('re-activating a thought whose content is live again throws the conflict', 
   const live = createThoughtWithUrlLinksService({ content: 'recycled content' })
   expect(live.id).not.toBe(archived.id)
 
-  expect(() => updateThoughtByIdService(archived.id, { status: 'active' })).toThrow(ThoughtContentConflictError)
+  expect(() => updateThoughtByIdService(archived.id, { status: 'active' })).toThrow(
+    ThoughtContentConflictError
+  )
   expect(getThoughtByIdService(archived.id)?.status).toBe('archived')
 })
 
 test('an ordinary update, activation and archive still succeed', () => {
   const thought = createThoughtWithUrlLinksService({ content: 'ordinary content' })
 
-  expect(updateThoughtByIdService(thought.id, { content: 'rewritten content' })?.content).toBe('rewritten content')
+  expect(updateThoughtByIdService(thought.id, { content: 'rewritten content' })?.content).toBe(
+    'rewritten content'
+  )
   expect(updateThoughtByIdService(thought.id, { status: 'active' })?.status).toBe('active')
   expect(archiveThoughtByIdService(thought.id)?.status).toBe('archived')
 })

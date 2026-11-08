@@ -3,7 +3,13 @@ import { getDb } from '../db/container'
 import { closeDb } from '../db/init'
 import { resolveCandidateEmbeddings } from '../services/candidate-embeddings.service'
 import { createTestDb, seedThought } from '../test/helpers'
-import { type BatchOutcome, type EmbeddingRow, type FailedRow, type RowOutcome, classifyBatch } from './batch'
+import {
+  type BatchOutcome,
+  type EmbeddingRow,
+  type FailedRow,
+  type RowOutcome,
+  classifyBatch
+} from './batch'
 import {
   CONTENT_CHANGED_REASON,
   deleteFromQueue,
@@ -27,7 +33,9 @@ beforeEach(() => {
   createTestDb()
   // vec_thoughts is a vec0 virtual table — v002 skips it on `:memory:` databases,
   // so stub it as a plain table (same approach as queue.test.ts).
-  getDb().prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)').run()
+  getDb()
+    .prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)')
+    .run()
 })
 
 afterEach(closeDb)
@@ -156,15 +164,26 @@ function vecMarker(id: string): number | undefined {
     | { embedding: Uint8Array }
     | undefined
   if (!stored) return undefined
-  return new Float32Array(stored.embedding.buffer, stored.embedding.byteOffset, stored.embedding.byteLength / 4)[0]
+  return new Float32Array(
+    stored.embedding.buffer,
+    stored.embedding.byteOffset,
+    stored.embedding.byteLength / 4
+  )[0]
 }
 
-function pendingRowOrNull(
-  id: string
-): { attempts: number; is_error: number; last_error: string | null; content_hash: string | null } | null {
+function pendingRowOrNull(id: string): {
+  attempts: number
+  is_error: number
+  last_error: string | null
+  content_hash: string | null
+} | null {
   const found = getDb()
-    .prepare('SELECT attempts, is_error, last_error, content_hash FROM pending_embeddings WHERE thought_id = ?')
-    .get(id) as { attempts: number; is_error: number; last_error: string | null; content_hash: string | null } | undefined
+    .prepare(
+      'SELECT attempts, is_error, last_error, content_hash FROM pending_embeddings WHERE thought_id = ?'
+    )
+    .get(id) as
+    | { attempts: number; is_error: number; last_error: string | null; content_hash: string | null }
+    | undefined
   return found ?? null
 }
 
@@ -185,7 +204,10 @@ function midBatchFixture(): { id: string; oldHash: string; newHash: string; rows
   // — the v046 content-dedupe index — and one test seeds several fixtures.
   const oldHash = `hash-old-${id}`
   const newHash = `hash-new-${id}`
-  db.prepare(`UPDATE thoughts SET content = 'OLD content', content_hash = ? WHERE id = ?`).run(oldHash, id)
+  db.prepare(`UPDATE thoughts SET content = 'OLD content', content_hash = ? WHERE id = ?`).run(
+    oldHash,
+    id
+  )
   // the vector a previous pass wrote for OLD content — now stale, still on disk
   storeVec(id, vec(1))
 
@@ -195,7 +217,10 @@ function midBatchFixture(): { id: string; oldHash: string; newHash: string; rows
 
   // mid-batch edit: NEW content + NEW hash; the v035 trigger re-queues the row
   // with the NEW hash — the FRESH queue row the pre-fix loop deleted.
-  db.prepare(`UPDATE thoughts SET content = 'NEW content', content_hash = ? WHERE id = ?`).run(newHash, id)
+  db.prepare(`UPDATE thoughts SET content = 'NEW content', content_hash = ? WHERE id = ?`).run(
+    newHash,
+    id
+  )
   return { id, oldHash, newHash, rows }
 }
 
@@ -211,7 +236,10 @@ function midBatchFixture(): { id: string; oldHash: string; newHash: string; rows
 function runBatchComposition(rows: EmbeddingRow[], embeddings: Float32Array[]): BatchOutcome {
   const db = getDb()
   const { succeeded, failed, contentChanged } = classifyBatch(rows, (r, i) =>
-    storeRowMirror(() => (insertEmbedding(db, r.id, embeddings[i]!, r.contentHash) ? 'stored' : 'skipped'), r.id)
+    storeRowMirror(
+      () => (insertEmbedding(db, r.id, embeddings[i]!, r.contentHash) ? 'stored' : 'skipped'),
+      r.id
+    )
   )
 
   for (const f of failed) handleFailedItem(db, f.id, f.error)
@@ -325,7 +353,10 @@ describe('delete-only-succeeded invariant (#1572)', () => {
     const skippedId = seedThought({ content: 'OLD content' })
     for (const id of [storedId, skippedId]) {
       // One hash per thought: the v046 content-dedupe index covers live rows.
-      db.prepare(`UPDATE thoughts SET content = content, content_hash = ? WHERE id = ?`).run(`hash-old-${id}`, id)
+      db.prepare(`UPDATE thoughts SET content = content, content_hash = ? WHERE id = ?`).run(
+        `hash-old-${id}`,
+        id
+      )
     }
     storeVec(skippedId, vec(7))
 
@@ -333,7 +364,10 @@ describe('delete-only-succeeded invariant (#1572)', () => {
     expect(rows.map(r => r.id).sort()).toEqual([storedId, skippedId].sort())
 
     // Only `skippedId` is edited mid-batch; `storedId` keeps the hash the batch read.
-    db.prepare(`UPDATE thoughts SET content = 'NEW content', content_hash = ? WHERE id = ?`).run(`hash-new-${skippedId}`, skippedId)
+    db.prepare(`UPDATE thoughts SET content = 'NEW content', content_hash = ? WHERE id = ?`).run(
+      `hash-new-${skippedId}`,
+      skippedId
+    )
 
     const embeddingsByRow = new Map(rows.map(r => [r.id, r.id === skippedId ? vec(7) : vec(42)]))
     const outcome = runBatchComposition(
@@ -347,7 +381,10 @@ describe('delete-only-succeeded invariant (#1572)', () => {
     expect(pendingRowOrNull(storedId)).toBeNull()
     expect(vecMarker(storedId)).toBe(42)
     // the skipped row keeps its queue row and its stale vector
-    expect(pendingRowOrNull(skippedId)).toMatchObject({ attempts: 1, last_error: CONTENT_CHANGED_REASON })
+    expect(pendingRowOrNull(skippedId)).toMatchObject({
+      attempts: 1,
+      last_error: CONTENT_CHANGED_REASON
+    })
     expect(vecMarker(skippedId)).toBe(7)
   })
 
@@ -359,7 +396,10 @@ describe('delete-only-succeeded invariant (#1572)', () => {
       outcome.failed.length === rowCount ? current + 1 : 0
 
     const allSkipped = classifyBatch([row('a', 'A', 'h'), row('b', 'B', 'h')], () => 'skipped')
-    const allFailed = classifyBatch([row('a', 'A', 'h'), row('b', 'B', 'h')], r => ({ id: r.id, error: 'boom' }))
+    const allFailed = classifyBatch([row('a', 'A', 'h'), row('b', 'B', 'h')], r => ({
+      id: r.id,
+      error: 'boom'
+    }))
     const partial = classifyBatch([row('a', 'A', 'h'), row('b', 'B', 'h')], (r, i) =>
       i === 0 ? 'stored' : { id: r.id, error: 'boom' }
     )

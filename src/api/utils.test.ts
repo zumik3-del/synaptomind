@@ -19,7 +19,10 @@ function makeContext(body?: string): Context {
   } as unknown as Context
 }
 
-const schema = z.object({ confirm: z.boolean().optional(), severity: z.enum(['critical', 'warning', 'info']).optional() })
+const schema = z.object({
+  confirm: z.boolean().optional(),
+  severity: z.enum(['critical', 'warning', 'info']).optional()
+})
 const DEFAULT = { confirm: false }
 
 test('an absent body returns the default', async () => {
@@ -37,27 +40,37 @@ test('a JSON null literal returns the default instead of dereferencing null', as
 })
 
 test('a malformed body throws ValidationError, not a 500', async () => {
-  await expect(jsonBodyOrDefault(makeContext('{not json'), DEFAULT)).rejects.toThrow(ValidationError)
+  await expect(jsonBodyOrDefault(makeContext('{not json'), DEFAULT)).rejects.toThrow(
+    ValidationError
+  )
 })
 
 test('a payload that violates the schema throws ValidationError naming the field', async () => {
-  await expect(jsonBodyOrDefault(makeContext('{"severity":"loud"}'), DEFAULT, schema)).rejects.toThrow(ValidationError)
+  await expect(
+    jsonBodyOrDefault(makeContext('{"severity":"loud"}'), DEFAULT, schema)
+  ).rejects.toThrow(ValidationError)
 })
 
 test('multiple validation issues are joined in schema order', async () => {
   const input = z.object({ a: z.string('first issue'), b: z.number('second issue') })
-  await expect(jsonBodyOrDefault(makeContext('{"a":1,"b":"x"}'), { a: '', b: 0 }, input))
-    .rejects.toThrow('first issue; second issue')
+  await expect(
+    jsonBodyOrDefault(makeContext('{"a":1,"b":"x"}'), { a: '', b: 0 }, input)
+  ).rejects.toThrow('first issue; second issue')
 })
 
 test('a valid payload is parsed and validated', async () => {
-  expect(await jsonBodyOrDefault(makeContext('{"confirm":true,"severity":"critical"}'), DEFAULT, schema)).toEqual({
+  expect(
+    await jsonBodyOrDefault(makeContext('{"confirm":true,"severity":"critical"}'), DEFAULT, schema)
+  ).toEqual({
     confirm: true,
     severity: 'critical'
   })
 })
 
 test('without a schema the payload is returned as parsed', async () => {
-  const parsed = await jsonBodyOrDefault<Record<string, unknown>>(makeContext('{"anything":[1,2]}'), {})
+  const parsed = await jsonBodyOrDefault<Record<string, unknown>>(
+    makeContext('{"anything":[1,2]}'),
+    {}
+  )
   expect(parsed).toEqual({ anything: [1, 2] })
 })

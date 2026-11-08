@@ -46,7 +46,9 @@ export default {
     // Same hash as the write path (`computeContentHash`), so the backfill and
     // the runtime key can never drift. A NULL project_id has no runtime
     // equivalent (the write path always resolves a project) and hashes as ''.
-    const rows = db.prepare(`SELECT id, content, project_id FROM thoughts WHERE content_hash IS NULL`).all() as Array<{
+    const rows = db
+      .prepare(`SELECT id, content, project_id FROM thoughts WHERE content_hash IS NULL`)
+      .all() as Array<{
       id: string
       content: string
       project_id: string | null
@@ -76,7 +78,9 @@ export default {
 
     // --- Indexes ---
 
-    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_edges_pair ON edges (min(source_id, target_id), max(source_id, target_id))`)
+    db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_edges_pair ON edges (min(source_id, target_id), max(source_id, target_id))`
+    )
     db.run(
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_thoughts_content_dedupe ON thoughts (content_hash, project_id) WHERE status IN ('draft', 'active')`
     )

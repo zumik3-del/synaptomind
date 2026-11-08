@@ -46,7 +46,15 @@ export interface GroupedSearchItem {
 }
 
 /** Score keys, in the documented order. */
-const SCORE_KEYS = ['similarity', 'distance', 'rrf_score', 'bm25_score', 'relevance', 'recency_score', 'final_score'] as const
+const SCORE_KEYS = [
+  'similarity',
+  'distance',
+  'rrf_score',
+  'bm25_score',
+  'relevance',
+  'recency_score',
+  'final_score'
+] as const
 
 function buildScores(result: SearchResult): SearchScores {
   const scores: SearchScores = {}
@@ -70,10 +78,12 @@ function applyAnnotations(item: SearchItem, result: SearchResult, full: boolean)
   if (standing !== undefined && (full || standing !== 'current')) item.standing = standing
 
   const supersededBy = result.superseded_by
-  if (supersededBy !== undefined && (full || supersededBy.length > 0)) item.superseded_by = supersededBy
+  if (supersededBy !== undefined && (full || supersededBy.length > 0))
+    item.superseded_by = supersededBy
 
   const contradictedBy = result.contradicted_by
-  if (contradictedBy !== undefined && (full || contradictedBy.length > 0)) item.contradicted_by = contradictedBy
+  if (contradictedBy !== undefined && (full || contradictedBy.length > 0))
+    item.contradicted_by = contradictedBy
 
   const lowConfidence = result.low_confidence
   if (lowConfidence !== undefined && (full || lowConfidence)) item.low_confidence = lowConfidence
@@ -91,13 +101,15 @@ export function shapeSearchItem(
   if ('cluster' in result) {
     return {
       cluster: result.cluster,
-      items: (result.items ?? []).map((inner) => shapeSearchItem(inner, compact, fields, urlLinks) as SearchItem)
+      items: (result.items ?? []).map(
+        inner => shapeSearchItem(inner, compact, fields, urlLinks) as SearchItem
+      )
     }
   }
   const thought = shapeThought(result.thought, compact, fields, urlLinks)
   const explicitFields = Array.isArray(fields)
     ? fields.length > 0
-    : (typeof fields === 'string' && fields.trim().length > 0)
+    : typeof fields === 'string' && fields.trim().length > 0
   const full = !compact && !explicitFields
   const flat = result as SearchResult
   const item: SearchItem = { thought }

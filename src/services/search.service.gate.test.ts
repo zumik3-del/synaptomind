@@ -50,33 +50,45 @@ function itVec(name: string, fn: (db: Database) => void | Promise<void>): void {
 
 /** Vector-only options: the BM25 leg is off, so the gate is the only filter. */
 function vectorOptions(extra: Record<string, unknown> = {}) {
-  return { query: 'a query with no lexical overlap', embedding: QUERY, hybrid: false, topK: 10, ...extra }
+  return {
+    query: 'a query with no lexical overlap',
+    embedding: QUERY,
+    hybrid: false,
+    topK: 10,
+    ...extra
+  }
 }
 
 describe('default relevance gate', () => {
-  itVec('a nonsense query returns zero rows and reports every candidate as filtered_out', async db => {
-    // Every candidate sits far below the unrelated floor (0.8) → calibrated
-    // relevance 0. The vec0 leg still returns them (KNN has no distance cutoff),
-    // so the gate is what empties the result set.
-    const ids = [
-      seedThought({ content: 'WEEKDAY_CORPUS alpha note' }),
-      seedThought({ content: 'WEEKDAY_CORPUS beta note' }),
-      seedThought({ content: 'WEEKDAY_CORPUS gamma note' })
-    ]
-    seedVector(db, ids[0], 0.3)
-    seedVector(db, ids[1], 0.2)
-    seedVector(db, ids[2], 0.1)
+  itVec(
+    'a nonsense query returns zero rows and reports every candidate as filtered_out',
+    async db => {
+      // Every candidate sits far below the unrelated floor (0.8) → calibrated
+      // relevance 0. The vec0 leg still returns them (KNN has no distance cutoff),
+      // so the gate is what empties the result set.
+      const ids = [
+        seedThought({ content: 'WEEKDAY_CORPUS alpha note' }),
+        seedThought({ content: 'WEEKDAY_CORPUS beta note' }),
+        seedThought({ content: 'WEEKDAY_CORPUS gamma note' })
+      ]
+      seedVector(db, ids[0], 0.3)
+      seedVector(db, ids[1], 0.2)
+      seedVector(db, ids[2], 0.1)
 
-    const outcome = await searchThoughtsOutcome(vectorOptions({ query: 'how do I grill a steak' }), db)
+      const outcome = await searchThoughtsOutcome(
+        vectorOptions({ query: 'how do I grill a steak' }),
+        db
+      )
 
-    expect(outcome.items).toEqual([])
-    expect(outcome.matched).toBe(3)
-    expect(outcome.filtered_out).toBe(3)
-    // `reason` is reserved for `id_not_found` (SearchOutcomeReason): a gate-empty
-    // result is explained by `matched`/`filtered_out`, not by `reason`. This
-    // pins that contract — see the #2180 report note.
-    expect(outcome.reason).toBeUndefined()
-  })
+      expect(outcome.items).toEqual([])
+      expect(outcome.matched).toBe(3)
+      expect(outcome.filtered_out).toBe(3)
+      // `reason` is reserved for `id_not_found` (SearchOutcomeReason): a gate-empty
+      // result is explained by `matched`/`filtered_out`, not by `reason`. This
+      // pins that contract — see the #2180 report note.
+      expect(outcome.reason).toBeUndefined()
+    }
+  )
 
   itVec('five realistic queries land on their expected top-1 without losing recall', async db => {
     const target = [
@@ -181,47 +193,53 @@ describe('default relevance gate', () => {
     expect(gated.items.map(r => r.thought.id)).toEqual([atCeil])
   })
 
-  itVec('low_confidence stays meaningful: kept rows below the strong floor are flagged', async db => {
-    const weakKept = seedThought({ content: 'LOWCONF weak-but-kept note' })
-    const strongKept = seedThought({ content: 'LOWCONF strong-kept note' })
-    seedVector(db, weakKept, 0.85) // relevance 0.5 → kept, but below vectorFloor 0.9
-    seedVector(db, strongKept, 0.95) // relevance 1 → kept and strong
+  itVec(
+    'low_confidence stays meaningful: kept rows below the strong floor are flagged',
+    async db => {
+      const weakKept = seedThought({ content: 'LOWCONF weak-but-kept note' })
+      const strongKept = seedThought({ content: 'LOWCONF strong-kept note' })
+      seedVector(db, weakKept, 0.85) // relevance 0.5 → kept, but below vectorFloor 0.9
+      seedVector(db, strongKept, 0.95) // relevance 1 → kept and strong
 
-    const outcome = await searchThoughtsOutcome(vectorOptions(), db)
-    const byId = new Map(outcome.items.map(r => [r.thought.id, r]))
+      const outcome = await searchThoughtsOutcome(vectorOptions(), db)
+      const byId = new Map(outcome.items.map(r => [r.thought.id, r]))
 
-    expect(byId.get(weakKept)?.low_confidence).toBe(true)
-    expect(byId.get(strongKept)?.low_confidence).toBe(false)
-  })
+      expect(byId.get(weakKept)?.low_confidence).toBe(true)
+      expect(byId.get(strongKept)?.low_confidence).toBe(false)
+    }
+  )
 
-  itVec('a contested id hit keeps low_confidence false while a weak cosine-only hit keeps it true (task #2192)', async db => {
-    // One corpus, two ways of reaching a thought. The round-3 decision: an id
-    // hit has no cosine at all, so `low_confidence` ("weak retrieval") stays
-    // false and the contested state rides in standing/superseded_by — even
-    // though a client-facing default would suppress a superseded row. A weak
-    // cosine-only search hit keeps the flag, so the pairing proves the id path
-    // did not simply switch the annotation off everywhere.
-    const contested = seedThought({ content: 'LOWCONF contested claim' })
-    const superseder = seedThought({ content: 'LOWCONF superseding claim' })
-    createEdge(db, superseder, contested, 'replaces')
-    const weak = seedThought({ content: 'LOWCONF weak-but-kept note' })
-    seedVector(db, weak, 0.85) // relevance 0.5 → kept by the gate, below the vector floor
+  itVec(
+    'a contested id hit keeps low_confidence false while a weak cosine-only hit keeps it true (task #2192)',
+    async db => {
+      // One corpus, two ways of reaching a thought. The round-3 decision: an id
+      // hit has no cosine at all, so `low_confidence` ("weak retrieval") stays
+      // false and the contested state rides in standing/superseded_by — even
+      // though a client-facing default would suppress a superseded row. A weak
+      // cosine-only search hit keeps the flag, so the pairing proves the id path
+      // did not simply switch the annotation off everywhere.
+      const contested = seedThought({ content: 'LOWCONF contested claim' })
+      const superseder = seedThought({ content: 'LOWCONF superseding claim' })
+      createEdge(db, superseder, contested, 'replaces')
+      const weak = seedThought({ content: 'LOWCONF weak-but-kept note' })
+      seedVector(db, weak, 0.85) // relevance 0.5 → kept by the gate, below the vector floor
 
-    const byId = await searchThoughtsOutcome(
-      { query: contested, topK: 10, supersessionMode: 'suppress' },
-      db
-    )
-    expect(byId.items.map(r => r.thought.id)).toEqual([contested])
-    expect(byId.items[0].standing).toBe('superseded')
-    expect(byId.items[0].superseded_by).toEqual([superseder])
-    expect(byId.items[0].low_confidence).toBe(false)
+      const byId = await searchThoughtsOutcome(
+        { query: contested, topK: 10, supersessionMode: 'suppress' },
+        db
+      )
+      expect(byId.items.map(r => r.thought.id)).toEqual([contested])
+      expect(byId.items[0].standing).toBe('superseded')
+      expect(byId.items[0].superseded_by).toEqual([superseder])
+      expect(byId.items[0].low_confidence).toBe(false)
 
-    // Positive control on the same corpus: the weak cosine-only search hit is
-    // still flagged, so the flag itself is alive.
-    const searched = await searchThoughtsOutcome(vectorOptions(), db)
-    const weakHit = searched.items.find(r => r.thought.id === weak)
-    expect(weakHit?.low_confidence).toBe(true)
-  })
+      // Positive control on the same corpus: the weak cosine-only search hit is
+      // still flagged, so the flag itself is alive.
+      const searched = await searchThoughtsOutcome(vectorOptions(), db)
+      const weakHit = searched.items.find(r => r.thought.id === weak)
+      expect(weakHit?.low_confidence).toBe(true)
+    }
+  )
 
   itVec('a BM25-only hit survives the gate and keeps relevance undefined', async db => {
     const bm25Only = seedThought({ content: 'VACUUM_TUNING maintenance notes' })

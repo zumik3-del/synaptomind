@@ -43,7 +43,9 @@ export function cleanupPlacementProposals(d: Database = getDb()): PlacementReten
 }
 
 const onError = (err: unknown): void =>
-  insertLog('warning', 'placement-retention', 'Placement retention job failed', { error: String(err) })
+  insertLog('warning', 'placement-retention', 'Placement retention job failed', {
+    error: String(err)
+  })
 
 /**
  * One tick: run the retention sweep once per registered DB, sequentially.
@@ -61,7 +63,10 @@ const sweepAll = (): void => {
   }
 }
 
-const job = createIntervalJob({ name: 'placement-retention', intervalMs: MS_PER_DAY, onError }, sweepAll)
+const job = createIntervalJob(
+  { name: 'placement-retention', intervalMs: MS_PER_DAY, onError },
+  sweepAll
+)
 
 export function startPlacementRetentionJob(): void {
   // Sweep once at boot: the interval is daily, so a host that restarts more
@@ -73,7 +78,9 @@ export function startPlacementRetentionJob(): void {
   }
   job.start()
 }
-export function stopPlacementRetentionJob(): void { job.stop() }
+export function stopPlacementRetentionJob(): void {
+  job.stop()
+}
 
 // Aliases for tests / callers that want to drive a single tick directly.
 export const runPlacementRetentionSweep = sweepAll

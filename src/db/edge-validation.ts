@@ -24,8 +24,15 @@ import type { Edge } from './edges'
  * docs all derive from it, so the list can never drift again.
  */
 export const EDGE_TYPES = [
-  'related', 'parent', 'replaces', 'develops', 'cluster', 'references', 'depends_on',
-  'contradicts', 'supports',
+  'related',
+  'parent',
+  'replaces',
+  'develops',
+  'cluster',
+  'references',
+  'depends_on',
+  'contradicts',
+  'supports'
 ] as const
 
 export type EdgeType = (typeof EDGE_TYPES)[number]
@@ -60,11 +67,18 @@ export function validateRetype(db: Database, edge: Edge, newType: string): void 
 }
 
 function isClusterThought(db: Database, id: string): boolean {
-  const row = db.prepare('SELECT is_cluster FROM thoughts WHERE id = ?').get(id) as { is_cluster: number } | undefined
+  const row = db.prepare('SELECT is_cluster FROM thoughts WHERE id = ?').get(id) as
+    | { is_cluster: number }
+    | undefined
   return row?.is_cluster === 1
 }
 
-export function validateClusterConstraint(db: Database, sourceId: string, targetId: string, type: string): void {
+export function validateClusterConstraint(
+  db: Database,
+  sourceId: string,
+  targetId: string,
+  type: string
+): void {
   const srcCluster = isClusterThought(db, sourceId)
   const tgtCluster = isClusterThought(db, targetId)
 

@@ -47,7 +47,13 @@ function makeInput(overrides?: Partial<InsertProposalInput>): InsertProposalInpu
  */
 function withClock(nowMs: number, fn: () => void): void {
   const OrigDate = globalThis.Date
-  Object.assign(globalThis, { Date: class extends OrigDate { static now() { return nowMs } } })
+  Object.assign(globalThis, {
+    Date: class extends OrigDate {
+      static now() {
+        return nowMs
+      }
+    }
+  })
   try {
     fn()
   } finally {
@@ -57,10 +63,10 @@ function withClock(nowMs: number, fn: () => void): void {
 
 /** Run `bun -e script` in a subprocess with optional env overrides. */
 async function runInSubprocess(script: string, env: Record<string, string> = {}): Promise<string> {
-  const proc = Bun.spawnSync(
-    [process.execPath, '-e', script],
-    { env: { ...process.env, ...env }, cwd: join(import.meta.dir, '..', '..') }
-  )
+  const proc = Bun.spawnSync([process.execPath, '-e', script], {
+    env: { ...process.env, ...env },
+    cwd: join(import.meta.dir, '..', '..')
+  })
   return proc.stdout.toString().trim()
 }
 
@@ -190,18 +196,23 @@ describe('cleanupPlacementProposals', () => {
     withClock(Date.now(), () => {
       const db = getDb()
       const src = seedThought()
-      insertProposal(db, makeInput({
-        source_thought_id: src,
-        expires_at: new Date(Date.now() - 10 * 86400000).toISOString(),
-        item_kind: 'edge',
-        edge_type: 'develops'
-      }))
+      insertProposal(
+        db,
+        makeInput({
+          source_thought_id: src,
+          expires_at: new Date(Date.now() - 10 * 86400000).toISOString(),
+          item_kind: 'edge',
+          edge_type: 'develops'
+        })
+      )
       const removed = cleanupPlacementProposals(db)
       expect(removed.proposals).toBe(1)
       // No longer pending
       expect(listProposals(db)).toHaveLength(0)
       // Row still exists in state=expired
-      const expiredRows = db.prepare("SELECT id FROM placement_proposals WHERE state = 'expired'").all() as { id: string }[]
+      const expiredRows = db
+        .prepare("SELECT id FROM placement_proposals WHERE state = 'expired'")
+        .all() as { id: string }[]
       expect(expiredRows).toHaveLength(1)
     })
   })
@@ -211,7 +222,9 @@ describe('cleanupPlacementProposals', () => {
     withClock(Date.now(), () => {
       const db = getDb()
       const past = new Date(Date.now() - 60000).toISOString()
-      db.prepare(`INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`).run('expired-tok', 'kind', 'target', 'fp', past, past)
+      db.prepare(
+        `INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run('expired-tok', 'kind', 'target', 'fp', past, past)
       const removed = cleanupPlacementProposals(db)
       expect(removed).toEqual({ proposals: 0, tokens: 1 })
     })
@@ -222,7 +235,10 @@ describe('cleanupPlacementProposals', () => {
     withClock(Date.now(), () => {
       const db = getDb()
       const src = seedThought()
-      const accepted = insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'edge', edge_type: 'parent' }))
+      const accepted = insertProposal(
+        db,
+        makeInput({ source_thought_id: src, item_kind: 'edge', edge_type: 'parent' })
+      )
       updateProposalState(db, accepted.id, {
         state: 'accepted',
         decided_at: new Date(Date.now() - 60 * 86400000).toISOString()
@@ -230,7 +246,7 @@ describe('cleanupPlacementProposals', () => {
       const removed = cleanupPlacementProposals(db)
       expect(removed.proposals).toBe(1)
       // Row physically deleted
-      const remaining = db.prepare("SELECT id FROM placement_proposals").all() as { id: string }[]
+      const remaining = db.prepare('SELECT id FROM placement_proposals').all() as { id: string }[]
       expect(remaining).toHaveLength(0)
     })
   })
@@ -242,14 +258,20 @@ describe('cleanupPlacementProposals', () => {
       const src1 = seedThought()
       const src2 = seedThought()
       // Pending with expires_at 10 days in the future — should stay pending.
-      insertProposal(db, makeInput({
-        source_thought_id: src1,
-        expires_at: new Date(Date.now() + 10 * 86400000).toISOString(),
-        item_kind: 'edge',
-        edge_type: 'parent'
-      }))
+      insertProposal(
+        db,
+        makeInput({
+          source_thought_id: src1,
+          expires_at: new Date(Date.now() + 10 * 86400000).toISOString(),
+          item_kind: 'edge',
+          edge_type: 'parent'
+        })
+      )
       // Terminal row decided 1 day ago — should stay in the table.
-      const accepted = insertProposal(db, makeInput({ source_thought_id: src2, item_kind: 'edge', edge_type: 'parent' }))
+      const accepted = insertProposal(
+        db,
+        makeInput({ source_thought_id: src2, item_kind: 'edge', edge_type: 'parent' })
+      )
       updateProposalState(db, accepted.id, {
         state: 'accepted',
         decided_at: new Date(Date.now() - 1 * 86400000).toISOString()
@@ -257,7 +279,9 @@ describe('cleanupPlacementProposals', () => {
       const removed = cleanupPlacementProposals(db)
       expect(removed).toEqual({ proposals: 0, tokens: 0 })
       // Both rows still exist
-      const all = db.prepare('SELECT id, state FROM placement_proposals ORDER BY id').all() as Array<{ id: string; state: string }>
+      const all = db
+        .prepare('SELECT id, state FROM placement_proposals ORDER BY id')
+        .all() as Array<{ id: string; state: string }>
       expect(all).toHaveLength(2)
       const states = all.map(r => r.state).sort()
       expect(states).toEqual(['accepted', 'pending'])
@@ -269,12 +293,15 @@ describe('cleanupPlacementProposals', () => {
     withClock(Date.now(), () => {
       const db = getDb()
       const src = seedThought()
-      insertProposal(db, makeInput({
-        source_thought_id: src,
-        expires_at: new Date(Date.now() - 100 * 86400000).toISOString(),
-        item_kind: 'edge',
-        edge_type: 'related'
-      }))
+      insertProposal(
+        db,
+        makeInput({
+          source_thought_id: src,
+          expires_at: new Date(Date.now() - 100 * 86400000).toISOString(),
+          item_kind: 'edge',
+          edge_type: 'related'
+        })
+      )
       const removed = cleanupPlacementProposals(db)
       expect(removed).toEqual({ proposals: 0, tokens: 0 })
       // Row still pending despite being stale.
@@ -291,26 +318,37 @@ describe('cleanupPlacementProposals', () => {
       const srcFresh = seedThought()
 
       // Pending → expires in the past.
-      insertProposal(db, makeInput({
-        source_thought_id: srcExpire,
-        expires_at: new Date(Date.now() - 10 * 86400000).toISOString(),
-        item_kind: 'edge',
-        edge_type: 'develops'
-      }))
+      insertProposal(
+        db,
+        makeInput({
+          source_thought_id: srcExpire,
+          expires_at: new Date(Date.now() - 10 * 86400000).toISOString(),
+          item_kind: 'edge',
+          edge_type: 'develops'
+        })
+      )
       // Terminal → accepted 60 days ago.
-      const accepted = insertProposal(db, makeInput({ source_thought_id: srcPrune, item_kind: 'edge', edge_type: 'parent' }))
+      const accepted = insertProposal(
+        db,
+        makeInput({ source_thought_id: srcPrune, item_kind: 'edge', edge_type: 'parent' })
+      )
       updateProposalState(db, accepted.id, {
         state: 'accepted',
         decided_at: new Date(Date.now() - 60 * 86400000).toISOString()
       })
       // Fresh: pending with no expires_at (survives).
-      insertProposal(db, makeInput({ source_thought_id: srcFresh, item_kind: 'edge', edge_type: 'develops' }))
+      insertProposal(
+        db,
+        makeInput({ source_thought_id: srcFresh, item_kind: 'edge', edge_type: 'develops' })
+      )
 
       const removed = cleanupPlacementProposals(db)
       expect(removed.proposals).toBe(2)
       // Only the fresh one remains, and it is still pending.
       expect(listProposals(db)).toHaveLength(1)
-      const freshRow = db.prepare("SELECT state FROM placement_proposals WHERE state = 'pending'").all() as { state: string }[]
+      const freshRow = db
+        .prepare("SELECT state FROM placement_proposals WHERE state = 'pending'")
+        .all() as { state: string }[]
       expect(freshRow).toHaveLength(1)
     })
   })
@@ -336,16 +374,25 @@ describe('expired preview token sweep', () => {
     withClock(Date.now(), () => {
       const db = getDb()
       const expiredToken = 'expired-token'
-      db.prepare(`INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
-        expiredToken, 'kind', 'target', 'fp',
+      db.prepare(
+        `INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(
+        expiredToken,
+        'kind',
+        'target',
+        'fp',
         new Date(Date.now() - 10000).toISOString(),
-        new Date(Date.now() - 1000).toISOString(),
+        new Date(Date.now() - 1000).toISOString()
       )
       const freshToken = createPreviewToken(db, 'kind', 'target', 'fp', 5)
       const removed = cleanupPlacementProposals(db)
       expect(removed).toEqual({ proposals: 0, tokens: 1 })
-      expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(expiredToken)).toBeNull()
-      expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(freshToken)).toBeDefined()
+      expect(
+        db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(expiredToken)
+      ).toBeNull()
+      expect(
+        db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(freshToken)
+      ).toBeDefined()
     })
   })
 
@@ -354,14 +401,21 @@ describe('expired preview token sweep', () => {
     withClock(Date.now(), () => {
       const db = getDb()
       const expiredToken = 'expired-token-2'
-      db.prepare(`INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
-        expiredToken, 'kind', 'target', 'fp',
+      db.prepare(
+        `INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(
+        expiredToken,
+        'kind',
+        'target',
+        'fp',
         new Date(Date.now() - 10000).toISOString(),
-        new Date(Date.now() - 1000).toISOString(),
+        new Date(Date.now() - 1000).toISOString()
       )
       const removed = cleanupPlacementProposals(db)
       expect(removed).toEqual({ proposals: 0, tokens: 1 })
-      expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(expiredToken)).toBeNull()
+      expect(
+        db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(expiredToken)
+      ).toBeNull()
     })
   })
 })
@@ -401,23 +455,34 @@ describe('boot-time sweep', () => {
     withClock(Date.now(), () => {
       const db = getDb()
       const src = seedThought()
-      insertProposal(db, makeInput({
-        source_thought_id: src,
-        expires_at: new Date(Date.now() - 10 * 86400000).toISOString()
-      }))
+      insertProposal(
+        db,
+        makeInput({
+          source_thought_id: src,
+          expires_at: new Date(Date.now() - 10 * 86400000).toISOString()
+        })
+      )
       const past = new Date(Date.now() - 60000).toISOString()
-      db.prepare(`INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`).run('boot-token', 'kind', 'target', 'fp', past, past)
+      db.prepare(
+        `INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run('boot-token', 'kind', 'target', 'fp', past, past)
 
       // Nothing has been swept yet: the timer alone would leave both rows for a day.
       expect(listProposals(db)).toHaveLength(1)
-      expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get('boot-token')).toBeDefined()
+      expect(
+        db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get('boot-token')
+      ).toBeDefined()
 
       startPlacementRetentionJob()
       try {
         expect(listProposals(db)).toHaveLength(0)
-        const expired = db.prepare(`SELECT COUNT(*) AS c FROM placement_proposals WHERE state = 'expired'`).get() as { c: number }
+        const expired = db
+          .prepare(`SELECT COUNT(*) AS c FROM placement_proposals WHERE state = 'expired'`)
+          .get() as { c: number }
         expect(expired.c).toBe(1)
-        expect(db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get('boot-token')).toBeNull()
+        expect(
+          db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get('boot-token')
+        ).toBeNull()
       } finally {
         stopPlacementRetentionJob()
       }

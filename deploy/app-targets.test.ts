@@ -48,7 +48,7 @@ installCleanup()
  * looks at.
  */
 const HOME_DIR = spawnSync('bash', ['-c', 'getent passwd "$(id -un)" | cut -d: -f6'], {
-  encoding: 'utf8',
+  encoding: 'utf8'
 }).stdout.trim()
 
 /**
@@ -74,20 +74,20 @@ function expectedPaths(target: AppTarget): string[] {
     join(HOME_DIR, `.${label}`, 'scripts'),
     join(HOME_DIR, `.${label}`, 'hooks'),
     join('/etc/systemd/system', `${label}.service`),
-    join(target.deployDir, 'app.env'),
+    join(target.deployDir, 'app.env')
   ]
 }
 
-describe('productionWatchPaths — a live service\'s data dir is not a tripwire', () => {
+describe("productionWatchPaths — a live service's data dir is not a tripwire", () => {
   test('a live unit drops its DATA_DIR, and only its DATA_DIR', () => {
     const target = seedTarget('ziptask', 'APP_NAME="ziptask"\nDATA_DIR="/var/lib/ziptask"\n')
-    const watched = productionWatchPaths([target], (unit) => unit === 'ziptask.service')
+    const watched = productionWatchPaths([target], unit => unit === 'ziptask.service')
 
     expect(watched).not.toContain('/var/lib/ziptask')
     // Everything else, in order. Asserted as the exact list rather than by
     // subtraction, so a path that quietly DISAPPEARS from the watch list is a
     // failure here rather than a tripwire nobody notices is gone.
-    expect(watched).toEqual(expectedPaths(target).filter((p) => p !== '/var/lib/ziptask'))
+    expect(watched).toEqual(expectedPaths(target).filter(p => p !== '/var/lib/ziptask'))
   })
 
   test('an inactive unit keeps its DATA_DIR watched', () => {
@@ -111,7 +111,7 @@ describe('productionWatchPaths — a live service\'s data dir is not a tripwire'
     // And the conventional path is NOT excluded for an app that does not use it:
     // a fixture writing /var/lib/oddapp is still an escape.
     expect(watched, '/var/lib/<label> must stay watched when the app.env says otherwise').toContain(
-      '/var/lib/oddapp',
+      '/var/lib/oddapp'
     )
   })
 
@@ -119,7 +119,7 @@ describe('productionWatchPaths — a live service\'s data dir is not a tripwire'
     const target = seedTarget('ziptask', 'APP_NAME="ziptask"\nDATA_DIR="/var/lib/ziptask"\n')
     const watched = productionWatchPaths([target], () => true)
 
-    expect(watched.some((p) => p.startsWith('/var/lib/ziptask/'))).toBe(false)
+    expect(watched.some(p => p.startsWith('/var/lib/ziptask/'))).toBe(false)
   })
 
   test('an app.env that cannot be sourced leaves the path WATCHED', () => {
@@ -148,7 +148,7 @@ describe('productionWatchPaths — a live service\'s data dir is not a tripwire'
     // other app on the host.
     const live = seedTarget('liveapp', 'APP_NAME="liveapp"\nDATA_DIR="/var/lib/liveapp"\n')
     const idle = seedTarget('idleapp', 'APP_NAME="idleapp"\nDATA_DIR="/var/lib/idleapp"\n')
-    const watched = productionWatchPaths([live, idle], (unit) => unit === 'liveapp.service')
+    const watched = productionWatchPaths([live, idle], unit => unit === 'liveapp.service')
 
     expect(watched).not.toContain('/var/lib/liveapp')
     expect(watched).toContain('/var/lib/idleapp')
@@ -167,7 +167,9 @@ const ZIPTASK_DEPLOY = '/mnt/external/zum/PROJECTS/local/ziptask/deploy'
 
 describe('productionWatchPaths — the live ziptask service on this host', () => {
   const installed = existsSync(join(ZIPTASK_DEPLOY, 'app.env'))
-  const live = spawnSync('systemctl', ['is-active', '--quiet', 'ziptask.service'], { encoding: 'utf8' }).status === 0
+  const live =
+    spawnSync('systemctl', ['is-active', '--quiet', 'ziptask.service'], { encoding: 'utf8' })
+      .status === 0
 
   test.skipIf(!installed || !live)(
     'its DATA_DIR is not watched, while the paths a fixture would escape to are',
@@ -175,7 +177,7 @@ describe('productionWatchPaths — the live ziptask service on this host', () =>
       const target: AppTarget = {
         label: 'ziptask',
         deployDir: ZIPTASK_DEPLOY,
-        appEnvPath: join(ZIPTASK_DEPLOY, 'app.env'),
+        appEnvPath: join(ZIPTASK_DEPLOY, 'app.env')
       }
       expect(liveServiceDataDirs([target])).toEqual(['/var/lib/ziptask'])
       const watched = productionWatchPaths([target])
@@ -186,26 +188,32 @@ describe('productionWatchPaths — the live ziptask service on this host', () =>
         join(HOME_DIR, '.ziptask', 'scripts'),
         join(HOME_DIR, '.ziptask', 'hooks'),
         '/etc/systemd/system/ziptask.service',
-        join(ZIPTASK_DEPLOY, 'app.env'),
+        join(ZIPTASK_DEPLOY, 'app.env')
       ]) {
         expect(watched, `${path} must stay watched`).toContain(path)
       }
-    },
+    }
   )
 
-  test.skipIf(!installed)('the watch list is what the app.env declares, read from the real file', () => {
-    // The service's data dir really does hold the state the tracker writes: this
-    // is the path the R1 config home put the database and settings.json in, and
-    // therefore the path that moves on every task update.
-    const target: AppTarget = {
-      label: 'ziptask',
-      deployDir: ZIPTASK_DEPLOY,
-      appEnvPath: join(ZIPTASK_DEPLOY, 'app.env'),
+  test.skipIf(!installed)(
+    'the watch list is what the app.env declares, read from the real file',
+    () => {
+      // The service's data dir really does hold the state the tracker writes: this
+      // is the path the R1 config home put the database and settings.json in, and
+      // therefore the path that moves on every task update.
+      const target: AppTarget = {
+        label: 'ziptask',
+        deployDir: ZIPTASK_DEPLOY,
+        appEnvPath: join(ZIPTASK_DEPLOY, 'app.env')
+      }
+      const dirs = liveServiceDataDirs([target], () => true)
+      expect(dirs).toEqual(['/var/lib/ziptask'])
+      expect(
+        existsSync(join(dirs[0], 'ziptask.db')),
+        'the live database is in that directory'
+      ).toBe(true)
     }
-    const dirs = liveServiceDataDirs([target], () => true)
-    expect(dirs).toEqual(['/var/lib/ziptask'])
-    expect(existsSync(join(dirs[0], 'ziptask.db')), 'the live database is in that directory').toBe(true)
-  })
+  )
 })
 
 // ── The composition itself ───────────────────────────────────────────────────
@@ -225,6 +233,6 @@ describe('productionWatchPaths — the list as a whole', () => {
     const target = seedTarget('ziptask', 'APP_NAME="ziptask"\nDATA_DIR="/var/lib/ziptask"\n')
     const watched = productionWatchPaths([target], () => true)
     expect(new Set(watched).size).toBe(watched.length)
-    expect(watched.filter((p) => p === '')).toEqual([])
+    expect(watched.filter(p => p === '')).toEqual([])
   })
 })

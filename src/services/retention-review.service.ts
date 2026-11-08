@@ -8,7 +8,10 @@
  */
 
 import type { Database } from 'bun:sqlite'
-import { countRetentionReviewCandidates, listRetentionReviewCandidates as queryRetentionReviewCandidateRows } from '../db/retention-review'
+import {
+  countRetentionReviewCandidates,
+  listRetentionReviewCandidates as queryRetentionReviewCandidateRows
+} from '../db/retention-review'
 import { config } from '../config'
 import { getDb } from '../db'
 import { asNumber, MS_PER_DAY } from '../utils'
@@ -85,13 +88,15 @@ export function listRetentionReviewCandidatesService(
   }
 
   const importanceFloor = asNumber(options.importanceFloor)
-  const resolvedFloor = importanceFloor === undefined ? config.retentionReview.importanceFloor : importanceFloor
+  const resolvedFloor =
+    importanceFloor === undefined ? config.retentionReview.importanceFloor : importanceFloor
   if (!Number.isFinite(resolvedFloor) || resolvedFloor < 0 || resolvedFloor > 1) {
     throw new ValidationError('importanceFloor must be in [0, 1]')
   }
 
   const limitRaw = asNumber(options.limit ?? options.pageSize)
-  const resolvedLimit = limitRaw === undefined ? config.retentionReview.pageSize : Math.floor(limitRaw)
+  const resolvedLimit =
+    limitRaw === undefined ? config.retentionReview.pageSize : Math.floor(limitRaw)
   if (!Number.isFinite(resolvedLimit) || resolvedLimit < 1 || resolvedLimit > 100) {
     throw new ValidationError('limit must be between 1 and 100')
   }
@@ -106,9 +111,16 @@ export function listRetentionReviewCandidatesService(
 
   const filters = { cutoff, importanceFloor: resolvedFloor, now }
   const total = countRetentionReviewCandidates(d, filters)
-  const rows = queryRetentionReviewCandidateRows(d, { ...filters, limit: resolvedLimit, offset: resolvedOffset })
+  const rows = queryRetentionReviewCandidateRows(d, {
+    ...filters,
+    limit: resolvedLimit,
+    offset: resolvedOffset
+  })
 
-  const tagMap = getThoughtTagsBatch(d, rows.map(r => r.id))
+  const tagMap = getThoughtTagsBatch(
+    d,
+    rows.map(r => r.id)
+  )
 
   const candidates: RetentionReviewCandidate[] = rows.map(r => {
     const anchor = r.archived_at ?? r.created_at

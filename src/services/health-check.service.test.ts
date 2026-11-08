@@ -14,12 +14,34 @@ afterEach(() => {
 test('runHealthCheckService returns valid structure on empty DB', () => {
   const report = runHealthCheckService()
   expect(Object.keys(report).sort()).toEqual(['categories', 'summary'])
-  expect(Object.keys(report.summary).sort()).toEqual([
-    'active', 'archived', 'critical', 'critical_count', 'critical_issues', 'draft', 'formula',
-    'health_score', 'info', 'info_count', 'info_issues', 'issues', 'score_breakdown',
-    'score_components', 'score_details', 'score_explanation', 'score_formula', 'score_composition',
-    'total_clusters', 'total_edges', 'total_thoughts', 'warning', 'warning_count', 'warning_issues'
-  ].sort())
+  expect(Object.keys(report.summary).sort()).toEqual(
+    [
+      'active',
+      'archived',
+      'critical',
+      'critical_count',
+      'critical_issues',
+      'draft',
+      'formula',
+      'health_score',
+      'info',
+      'info_count',
+      'info_issues',
+      'issues',
+      'score_breakdown',
+      'score_components',
+      'score_details',
+      'score_explanation',
+      'score_formula',
+      'score_composition',
+      'total_clusters',
+      'total_edges',
+      'total_thoughts',
+      'warning',
+      'warning_count',
+      'warning_issues'
+    ].sort()
+  )
   expect(report.summary.total_thoughts).toBe(0)
   expect(report.summary.total_edges).toBe(0)
   expect(report.summary.health_score).toBe(100)
@@ -35,7 +57,9 @@ test('runHealthCheckService returns valid structure on empty DB', () => {
   expect(report.summary.score_components).toBe(report.summary.score_breakdown)
   expect(report.summary.score_details).toBe(report.summary.score_breakdown)
   expect(report.summary.formula).toBe(report.summary.score_formula)
-  expect(report.summary.formula).toBe('100 - (critical_categories * 40) - (warning_categories * 15) - (info_scored_occurrences * 0.25), clamped to [0, 100]')
+  expect(report.summary.formula).toBe(
+    '100 - (critical_categories * 40) - (warning_categories * 15) - (info_scored_occurrences * 0.25), clamped to [0, 100]'
+  )
   expect(report.categories.length).toBe(6)
 })
 
@@ -46,7 +70,9 @@ test('detects orphan edges', () => {
   // Insert edge directly to avoid FK, then delete thought
   const db = getDb()
   const edgeId = crypto.randomUUID()
-  db.prepare('INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)').run(edgeId, a, b, 'related', new Date().toISOString())
+  db.prepare(
+    'INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(edgeId, a, b, 'related', new Date().toISOString())
   // Disable FK temporarily to allow orphan
   db.run('PRAGMA foreign_keys = OFF')
   db.prepare('DELETE FROM thoughts WHERE id = ?').run(a)
@@ -63,7 +89,9 @@ test('detects self-loop edges', () => {
   const a = seedThought({ content: 'self loop' })
   const db = getDb()
   const id = crypto.randomUUID()
-  db.prepare('INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)').run(id, a, a, 'related', new Date().toISOString())
+  db.prepare(
+    'INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, a, a, 'related', new Date().toISOString())
 
   const report = runHealthCheckService()
   const structural = report.categories.find(c => c.name === 'structural_integrity')
@@ -75,7 +103,13 @@ test('detects self-loop edges', () => {
   expect(breakdown.penalty_critical).toBe(breakdown.critical_categories * 40)
   expect(breakdown.penalty_warning).toBe(breakdown.warning_categories * 15)
   expect(breakdown.penalty_info).toBe(breakdown.info_scored_occurrences * 0.25)
-  const expectedScore = Math.max(0, Math.min(100, 100 - breakdown.penalty_critical - breakdown.penalty_warning - breakdown.penalty_info))
+  const expectedScore = Math.max(
+    0,
+    Math.min(
+      100,
+      100 - breakdown.penalty_critical - breakdown.penalty_warning - breakdown.penalty_info
+    )
+  )
   expect(report.summary.health_score).toBe(Math.round(expectedScore * 10) / 10)
 })
 
@@ -203,7 +237,9 @@ test('detects stale drafts', () => {
   const db = getDb()
   const id = crypto.randomUUID()
   const oldDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
-  db.prepare('INSERT INTO thoughts (id, content, status, project_id, is_cluster, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, 'old draft', 'draft', 'default', 0, oldDate, oldDate)
+  db.prepare(
+    'INSERT INTO thoughts (id, content, status, project_id, is_cluster, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, 'old draft', 'draft', 'default', 0, oldDate, oldDate)
 
   const report = runHealthCheckService()
   const contentCat = report.categories.find(c => c.name === 'content_quality')
@@ -240,8 +276,16 @@ test('fix mode does not repair duplicate_drafts', () => {
   const db = getDb()
   // Unprotected on purpose: a repair hook would really delete them, so the
   // count assertion below pins the absence of a repair rather than a guard.
-  const active = seedThought({ content: 'alpha beta gamma delta', status: 'active', is_protected: 0 })
-  const draft = seedThought({ content: 'alpha beta gamma delta epsilon', status: 'draft', is_protected: 0 })
+  const active = seedThought({
+    content: 'alpha beta gamma delta',
+    status: 'active',
+    is_protected: 0
+  })
+  const draft = seedThought({
+    content: 'alpha beta gamma delta epsilon',
+    status: 'draft',
+    is_protected: 0
+  })
 
   expect(duplicateDraftCheck(runHealthCheckService()).count).toBe(1)
 
@@ -251,7 +295,10 @@ test('fix mode does not repair duplicate_drafts', () => {
   // The count is unchanged and neither side was merged, archived or deleted:
   // a duplicate draft needs a human decision.
   expect(duplicateDraftCheck(runHealthCheckService()).count).toBe(1)
-  const rows = db.prepare('SELECT id, status FROM thoughts ORDER BY id').all() as Array<{ id: string; status: string }>
+  const rows = db.prepare('SELECT id, status FROM thoughts ORDER BY id').all() as Array<{
+    id: string
+    status: string
+  }>
   expect(rows).toEqual(
     [
       { id: active, status: 'active' },
@@ -311,7 +358,9 @@ test('health score decreases with issues', () => {
   const b = seedThought({ content: 'B' })
   const db = getDb()
   const edgeId = crypto.randomUUID()
-  db.prepare('INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)').run(edgeId, a, b, 'related', new Date().toISOString())
+  db.prepare(
+    'INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(edgeId, a, b, 'related', new Date().toISOString())
   db.run('PRAGMA foreign_keys = OFF')
   db.prepare('DELETE FROM thoughts WHERE id = ?').run(a)
   db.run('PRAGMA foreign_keys = ON')
@@ -326,7 +375,9 @@ test('fix mode removes orphan edges', () => {
   const b = seedThought({ content: 'B' })
   const db = getDb()
   const edgeId = crypto.randomUUID()
-  db.prepare('INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)').run(edgeId, a, b, 'related', new Date().toISOString())
+  db.prepare(
+    'INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(edgeId, a, b, 'related', new Date().toISOString())
   db.run('PRAGMA foreign_keys = OFF')
   db.prepare('DELETE FROM thoughts WHERE id = ?').run(a)
   db.run('PRAGMA foreign_keys = ON')
@@ -344,13 +395,17 @@ test('fix mode removes empty clusters', () => {
   seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
 
   const before = runHealthCheckService()
-  const emptyBefore = before.categories.find(c => c.name === 'cluster_health')!.checks.find(c => c.name === 'empty_clusters')!
+  const emptyBefore = before.categories
+    .find(c => c.name === 'cluster_health')!
+    .checks.find(c => c.name === 'empty_clusters')!
   expect(emptyBefore.count).toBe(1)
 
   const _repairPreview = runHealthRepairService()
   runHealthRepairService({ confirm: true, preview_token: _repairPreview.preview_token })
   const after = runHealthCheckService()
-  const emptyAfter = after.categories.find(c => c.name === 'cluster_health')!.checks.find(c => c.name === 'empty_clusters')!
+  const emptyAfter = after.categories
+    .find(c => c.name === 'cluster_health')!
+    .checks.find(c => c.name === 'empty_clusters')!
   expect(emptyAfter.count).toBe(0)
 })
 
@@ -400,7 +455,9 @@ test('repair throws ValidationError on missing preview token', () => {
 
 test('repair throws ValidationError on bogus preview token', () => {
   seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
-  expect(() => runHealthRepairService({ confirm: true, preview_token: 'bogus-token' })).toThrow(ValidationError)
+  expect(() => runHealthRepairService({ confirm: true, preview_token: 'bogus-token' })).toThrow(
+    ValidationError
+  )
 })
 
 test('repair throws ValidationError on stale preview token', () => {
@@ -410,7 +467,9 @@ test('repair throws ValidationError on stale preview token', () => {
   // Change state so the fingerprint no longer matches.
   seedThought({ content: 'another empty cluster', is_cluster: 1, is_protected: 0 })
 
-  expect(() => runHealthRepairService({ confirm: true, preview_token: preview.preview_token })).toThrow(ValidationError)
+  expect(() =>
+    runHealthRepairService({ confirm: true, preview_token: preview.preview_token })
+  ).toThrow(ValidationError)
 })
 
 test('repair throws ValidationError on replayed preview token', () => {
@@ -422,17 +481,29 @@ test('repair throws ValidationError on replayed preview token', () => {
   seedThought({ content: 'empty cluster 2', is_cluster: 1, is_protected: 0 })
   const preview2 = runHealthRepairService()
   // Use the already-consumed first token against the new fingerprint context: still invalid.
-  expect(() => runHealthRepairService({ confirm: true, preview_token: preview.preview_token })).toThrow(ValidationError)
+  expect(() =>
+    runHealthRepairService({ confirm: true, preview_token: preview.preview_token })
+  ).toThrow(ValidationError)
   // sanity: a fresh token works
   runHealthRepairService({ confirm: true, preview_token: preview2.preview_token })
 })
 
 test('repaired count reflects actually repaired targets (protected skipped)', () => {
-  const protectedId = seedThought({ content: 'protected empty cluster', is_cluster: 1, is_protected: 1 })
-  const unprotectedId = seedThought({ content: 'unprotected empty cluster', is_cluster: 1, is_protected: 0 })
+  const protectedId = seedThought({
+    content: 'protected empty cluster',
+    is_cluster: 1,
+    is_protected: 1
+  })
+  const unprotectedId = seedThought({
+    content: 'unprotected empty cluster',
+    is_cluster: 1,
+    is_protected: 0
+  })
 
   const before = runHealthCheckService()
-  const emptyBefore = before.categories.find(c => c.name === 'cluster_health')!.checks.find(c => c.name === 'empty_clusters')!
+  const emptyBefore = before.categories
+    .find(c => c.name === 'cluster_health')!
+    .checks.find(c => c.name === 'empty_clusters')!
   // Both are counted as repairable before (including protected).
   expect(emptyBefore.count).toBe(2)
 
@@ -445,8 +516,12 @@ test('repaired count reflects actually repaired targets (protected skipped)', ()
   expect(emptyRepaired?.count).toBe(1)
 
   const db = getDb()
-  const protectedRow = db.prepare('SELECT status FROM thoughts WHERE id = ?').get(protectedId) as { status: string }
-  const unprotectedRow = db.prepare('SELECT status FROM thoughts WHERE id = ?').get(unprotectedId) as { status: string }
+  const protectedRow = db.prepare('SELECT status FROM thoughts WHERE id = ?').get(protectedId) as {
+    status: string
+  }
+  const unprotectedRow = db
+    .prepare('SELECT status FROM thoughts WHERE id = ?')
+    .get(unprotectedId) as { status: string }
   expect(protectedRow.status).toBe('active')
   expect(unprotectedRow.status).toBe('archived')
 })

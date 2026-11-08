@@ -1,5 +1,10 @@
 import type { Subprocess } from 'bun'
-import { EmbedderNotReadyError, EmbedderOverloadedError, EmbedderSendError, EmbedderTimeoutError } from '../errors'
+import {
+  EmbedderNotReadyError,
+  EmbedderOverloadedError,
+  EmbedderSendError,
+  EmbedderTimeoutError
+} from '../errors'
 import type { IpcMessage } from './ipc-protocol'
 
 interface PendingRequest {
@@ -38,7 +43,11 @@ export class IpcClient {
   sendRequest(method: string, params: unknown): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (this.pending.size >= MAX_PENDING) {
-        reject(new EmbedderOverloadedError(`Embedder queue full (${this.pending.size}/${MAX_PENDING}); try again later`))
+        reject(
+          new EmbedderOverloadedError(
+            `Embedder queue full (${this.pending.size}/${MAX_PENDING}); try again later`
+          )
+        )
         return
       }
       const id = String(this.nextId++)

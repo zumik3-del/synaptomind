@@ -63,10 +63,10 @@ function projectHealthReport(report: unknown, includeDetails: boolean = false): 
                 const { details, ...restCheck } = ch
                 return {
                   ...restCheck,
-                  details: Array.isArray(details) ? details.map(slimDetail) : details,
+                  details: Array.isArray(details) ? details.map(slimDetail) : details
                 }
               })
-            : checks,
+            : checks
         }
       })
     : categories
@@ -76,7 +76,9 @@ function projectHealthReport(report: unknown, includeDetails: boolean = false): 
 
 export const healthHandler: ActionHandler = {
   run(args: ActionArgs) {
-    const report = runHealthCheckService({ severity: args.severity as 'critical' | 'warning' | 'info' | undefined })
+    const report = runHealthCheckService({
+      severity: args.severity as 'critical' | 'warning' | 'info' | undefined
+    })
     return itemEnvelope('health', projectHealthReport(report, args.include_details === true))
   }
 }

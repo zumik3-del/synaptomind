@@ -59,7 +59,11 @@ function tryCreateRemappedEdge(
   }
 }
 
-export function transferEdgesFromSource(sourceId: string, targetId: string, d: Database = getDb()): number {
+export function transferEdgesFromSource(
+  sourceId: string,
+  targetId: string,
+  d: Database = getDb()
+): number {
   const edgesToTransfer = getEdgesForThought(d, sourceId)
   let transferredEdges = 0
 
@@ -90,7 +94,9 @@ export function transferEdgesFromSource(sourceId: string, targetId: string, d: D
       const srcRow = getThoughtRow(d, newSourceId)
       const tgtRow = srcRow?.is_cluster ? getThoughtRow(d, newTargetId) : undefined
       if (srcRow?.is_cluster && !tgtRow?.is_cluster) {
-        if (tryCreateRemappedEdge(d, newSourceId, newTargetId, edge.type, edge, targetId, sourceId)) {
+        if (
+          tryCreateRemappedEdge(d, newSourceId, newTargetId, edge.type, edge, targetId, sourceId)
+        ) {
           transferredEdges++
         }
       }

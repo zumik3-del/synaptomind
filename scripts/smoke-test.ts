@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/client'
-import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 
 const MARKER = `SMOKE_MARKER_${Date.now()}`
 
@@ -92,7 +92,8 @@ async function main() {
   } finally {
     await client.close()
     await transport.close()
-    if (serverStderr && process.exitCode === 1) console.error(`[smoke] server stderr:\n${serverStderr}`)
+    if (serverStderr && process.exitCode === 1)
+      console.error(`[smoke] server stderr:\n${serverStderr}`)
   }
 }
 

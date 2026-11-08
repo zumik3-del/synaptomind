@@ -31,7 +31,9 @@ describe('keepsUnderRelevanceGate', () => {
   })
 
   test('a lexical (BM25) anchor always passes, whatever its relevance', () => {
-    expect(keepsUnderRelevanceGate(result({ match_source: ['bm25'], relevance: 0 }), 0.9)).toBe(true)
+    expect(keepsUnderRelevanceGate(result({ match_source: ['bm25'], relevance: 0 }), 0.9)).toBe(
+      true
+    )
     expect(keepsUnderRelevanceGate(result({ match_source: ['bm25'] }), 0.9)).toBe(true)
     expect(
       keepsUnderRelevanceGate(result({ match_source: ['embedding', 'bm25'], relevance: 0 }), 0.9)

@@ -46,9 +46,14 @@ export const contextHandler: ActionHandler = {
         maxDegree
       )
       if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-      const urlLinks = args.include_url_links === true
-        ? loadUrlLinks([chain.thought, ...chain.upstream.map(e => e.thought), ...chain.downstream.map(e => e.thought)])
-        : undefined
+      const urlLinks =
+        args.include_url_links === true
+          ? loadUrlLinks([
+              chain.thought,
+              ...chain.upstream.map(e => e.thought),
+              ...chain.downstream.map(e => e.thought)
+            ])
+          : undefined
       // An id-addressed lookup is project-free, so it reports no scope and no
       // scope warning even when the caller passed a cwd.
       return itemEnvelope('context', {
@@ -58,7 +63,10 @@ export const contextHandler: ActionHandler = {
     }
 
     const { scope, warnings } = resolveEnvelopeScope(args.cwd as string | undefined)
-    const context = await getContextService(args.query as string, { maxDegree, projectFilter: scopeProjectId(scope) })
+    const context = await getContextService(args.query as string, {
+      maxDegree,
+      projectFilter: scopeProjectId(scope)
+    })
     if (!context) throw new NotFoundError(`No context found for query '${args.query}'`)
     if (!context.best_match) {
       // Degraded result with no best match: surface it as an empty item instead
@@ -70,16 +78,21 @@ export const contextHandler: ActionHandler = {
         reason: 'no_match'
       })
     }
-    const urlLinks = args.include_url_links === true
-      ? loadUrlLinks([
-          context.best_match,
-          ...(context.chain?.upstream ?? []).map(e => e.thought),
-          ...(context.chain?.downstream ?? []).map(e => e.thought)
-        ])
-      : undefined
-    return itemEnvelope('context', {
-      thought: shapeThought(context.best_match, compact, fields, urlLinks),
-      chain: shapeChain(context.chain, compact, fields, urlLinks)
-    }, { scope, warnings, degraded: context.degraded === true })
+    const urlLinks =
+      args.include_url_links === true
+        ? loadUrlLinks([
+            context.best_match,
+            ...(context.chain?.upstream ?? []).map(e => e.thought),
+            ...(context.chain?.downstream ?? []).map(e => e.thought)
+          ])
+        : undefined
+    return itemEnvelope(
+      'context',
+      {
+        thought: shapeThought(context.best_match, compact, fields, urlLinks),
+        chain: shapeChain(context.chain, compact, fields, urlLinks)
+      },
+      { scope, warnings, degraded: context.degraded === true }
+    )
   }
 }

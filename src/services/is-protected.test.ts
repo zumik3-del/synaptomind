@@ -1,10 +1,18 @@
 import { beforeEach, afterEach, expect, test, describe } from 'bun:test'
 import { createTestDb } from '../test/helpers'
 import { closeDb, getDb } from '../db'
-import { archiveThought, createThought, deleteThought, getThoughtRow, updateThought } from '../db/thoughts'
+import {
+  archiveThought,
+  createThought,
+  deleteThought,
+  getThoughtRow,
+  updateThought
+} from '../db/thoughts'
 
 beforeEach(createTestDb)
-afterEach(() => { closeDb() })
+afterEach(() => {
+  closeDb()
+})
 
 describe('is_protected', () => {
   test('new thought defaults to is_protected = 1', () => {

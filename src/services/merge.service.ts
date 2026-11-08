@@ -1,5 +1,11 @@
 import type { Database } from 'bun:sqlite'
-import { createEdge, getEdgesForThought, getSourceEdgesForThoughtBounded, toEdgeView, type EdgeView } from '../db/edges'
+import {
+  createEdge,
+  getEdgesForThought,
+  getSourceEdgesForThoughtBounded,
+  toEdgeView,
+  type EdgeView
+} from '../db/edges'
 import { getDb } from '../db'
 import {
   archiveThought as dbArchiveThought,
@@ -32,14 +38,22 @@ export interface MergeThoughtsOptions {
   allowArchivedSource?: boolean
 }
 
-function lookupMergeSourceTarget(sourceId: string, targetId: string, d: Database): { source: Thought; target: Thought } | null {
+function lookupMergeSourceTarget(
+  sourceId: string,
+  targetId: string,
+  d: Database
+): { source: Thought; target: Thought } | null {
   const source = getThoughtByIdService(sourceId, d)
   const target = getThoughtByIdService(targetId, d)
   if (!source || !target) return null
   return { source, target }
 }
 
-export function getMergePreviewService(sourceId: string, targetId: string, d: Database = getDb()): MergePreview | null {
+export function getMergePreviewService(
+  sourceId: string,
+  targetId: string,
+  d: Database = getDb()
+): MergePreview | null {
   const found = lookupMergeSourceTarget(sourceId, targetId, d)
   if (!found) return null
   const { source, target } = found
@@ -55,16 +69,36 @@ export function getBoundedMergePreviewService(
   targetId: string,
   edgeLimit: number,
   d: Database = getDb()
-): (Omit<MergePreview, 'source'> & { source: Omit<MergePreview['source'], 'edges'> & { edges: EdgeView[] }; sourceEdgeCount: number }) | null {
+):
+  | (Omit<MergePreview, 'source'> & {
+      source: Omit<MergePreview['source'], 'edges'> & { edges: EdgeView[] }
+      sourceEdgeCount: number
+    })
+  | null {
   const found = lookupMergeSourceTarget(sourceId, targetId, d)
   if (!found) return null
   const { source, target } = found
   const { edges, count } = getSourceEdgesForThoughtBounded(d, sourceId, edgeLimit)
-  return { mode: 'preview', source: { ...source, edges: edges.map(toEdgeView) }, target, sourceEdgeCount: count }
+  return {
+    mode: 'preview',
+    source: { ...source, edges: edges.map(toEdgeView) },
+    target,
+    sourceEdgeCount: count
+  }
 }
 
-export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database = getDb()): MergeResult {
-  const { targetId, sourceId, mergedContent, mergedTags, projectId, allowArchivedSource = false } = options
+export function mergeThoughtsService(
+  options: MergeThoughtsOptions,
+  d: Database = getDb()
+): MergeResult {
+  const {
+    targetId,
+    sourceId,
+    mergedContent,
+    mergedTags,
+    projectId,
+    allowArchivedSource = false
+  } = options
   if (sourceId === targetId) {
     throw new ValidationError('source_id and target_id must be different')
   }
@@ -86,7 +120,8 @@ export function mergeThoughtsService(options: MergeThoughtsOptions, d: Database 
 
   const run = d.transaction(() => {
     const currentSource = getThoughtByIdService(sourceId, d)
-    if (!currentSource) throw new NotFoundError(`Source thought '${sourceId}' not found during merge`)
+    if (!currentSource)
+      throw new NotFoundError(`Source thought '${sourceId}' not found during merge`)
     validateMergePreconditions(currentSource, allowArchivedSource)
 
     if (Object.keys(updateData).length > 0) {

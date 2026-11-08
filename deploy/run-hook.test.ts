@@ -68,7 +68,7 @@ function hookFragment(): string {
   if (start < 0 || end < 0 || end <= start) {
     throw new Error(
       `cannot locate the hook block in ${UPDATE_SH}: DB_BACKUPS=() at ${start}, ` +
-        `'# ── Rollback guidance' at ${end}`,
+        `'# ── Rollback guidance' at ${end}`
     )
   }
   const fragment = src.slice(start, end)
@@ -81,7 +81,13 @@ function hookFragment(): string {
 }
 
 /** What run_hook reported, and what it left behind. */
-type HookRun = { status: number | null; stdout: string; stderr: string; rc: string; backups: string[] }
+type HookRun = {
+  status: number | null
+  stdout: string
+  stderr: string
+  rc: string
+  backups: string[]
+}
 
 /**
  * Run the REAL run_hook against one hook script.
@@ -129,7 +135,7 @@ function runHook(opts: {
     'printf \'RC=%s\\n\' "$rc"',
     // Biome's noTemplateCurlyInString flags the `${…}` below; it is bash, not a JS
     // template literal, and the advisory lint (AGENTS.md §3) is left as it lands.
-    'printf \'BACKUPS=%s\\n\' "${DB_BACKUPS[*]-}"',
+    'printf \'BACKUPS=%s\\n\' "${DB_BACKUPS[*]-}"'
   ].join('\n')
 
   const res = spawnSync('bash', ['-c', script, 'run-hook-harness', opts.name ?? 'pre-update'], {
@@ -140,9 +146,9 @@ function runHook(opts: {
     // pin from depending on the script's own prologue staying as it is.
     env: isolatedEnv(root, {
       PATH: process.env.PATH!,
-      TMPDIR: opts.tempRoot === undefined ? ownedTmp : (opts.tempRoot ?? noTempRoot),
+      TMPDIR: opts.tempRoot === undefined ? ownedTmp : (opts.tempRoot ?? noTempRoot)
     }),
-    timeout: 30_000,
+    timeout: 30_000
   })
   const rc = /^RC=(\d+)$/m.exec(res.stdout)?.[1] ?? ''
   const backupsLine = /^BACKUPS=(.*)$/m.exec(res.stdout)?.[1] ?? ''
@@ -151,7 +157,7 @@ function runHook(opts: {
     stdout: res.stdout,
     stderr: res.stderr,
     rc,
-    backups: backupsLine === '' ? [] : backupsLine.split(' '),
+    backups: backupsLine === '' ? [] : backupsLine.split(' ')
   }
 }
 
@@ -192,7 +198,7 @@ describe('update.sh — run_hook carries the hook exit status out of the tee (ta
     const res = runHook({ body: PRINTS_BACKUP, code: 7 })
 
     expect(res.backups, res.stdout + res.stderr).toEqual([
-      '/var/lib/synaptomind/synaptomind.db.backup/synaptomind.db.20260101-000000.bak',
+      '/var/lib/synaptomind/synaptomind.db.backup/synaptomind.db.20260101-000000.bak'
     ])
   })
 
@@ -220,7 +226,11 @@ describe('update.sh — run_hook carries the hook exit status out of the tee (ta
     for (const code of [0, 7]) {
       for (const tempRoot of ['owned', null] as const) {
         const root = mkTempTree(`synapto-hook-leak-${code}-${tempRoot === null ? 'notmp' : 'tmp'}-`)
-        const res = runHook({ body: PRINTS_BACKUP, code, tempRoot: tempRoot === null ? null : root })
+        const res = runHook({
+          body: PRINTS_BACKUP,
+          code,
+          tempRoot: tempRoot === null ? null : root
+        })
         expect(res.rc, res.stdout + res.stderr).toBe(String(code))
         // cleanup_run ran on the harness's EXIT, so the transcript is gone.
         const leftover = tempRoot === null ? [] : readdirSync(root)

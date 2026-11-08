@@ -33,8 +33,8 @@ afterEach(closeDb)
 // ── time constants ────────────────────────────────────────────────────────────
 
 const NOW = '2026-01-01T00:00:00.000Z'
-const T0  = '2025-01-01T00:00:00.000Z'
-const T1  = '2025-02-01T00:00:00.000Z'
+const T0 = '2025-01-01T00:00:00.000Z'
+const T1 = '2025-02-01T00:00:00.000Z'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -61,7 +61,8 @@ function makeReplaceEdge(sourceId: string, targetId: string, targetStatus: strin
     type: 'replaces',
     direction: 'directed',
     confidence: 0.85,
-    rationale: 'source is newer, near-duplicate and carries an evolution cue; propose replaces (+ archive)',
+    rationale:
+      'source is newer, near-duplicate and carries an evolution cue; propose replaces (+ archive)',
     review_required: true,
     rule_id: 'supersede.newer_replaces_older',
     signals: {
@@ -90,10 +91,34 @@ function makeReplaceEdge(sourceId: string, targetId: string, targetStatus: strin
 describe('decideLifecycle — replaces+archive endpoint matrix', () => {
   const table = [
     // Each row: { targetStatus, sourceStatus (for merge-path clarity), expectedAction, expectedBlocked, expectReplace }
-    { targetStatus: 'active',    sourceStatus: 'active',   expectedAction: 'replaces+archive' as LifecycleAction, expectedBlocked: [] as string[], expectReplace: true  },
-    { targetStatus: 'active',    sourceStatus: 'archived', expectedAction: 'replaces+archive' as LifecycleAction, expectedBlocked: [] as string[], expectReplace: true  },
-    { targetStatus: 'archived',  sourceStatus: 'active',   expectedAction: 'replaces+archive' as LifecycleAction, expectedBlocked: ['target is archived'], expectReplace: true  },
-    { targetStatus: 'archived',  sourceStatus: 'archived', expectedAction: 'replaces+archive' as LifecycleAction, expectedBlocked: ['target is archived'], expectReplace: true  },
+    {
+      targetStatus: 'active',
+      sourceStatus: 'active',
+      expectedAction: 'replaces+archive' as LifecycleAction,
+      expectedBlocked: [] as string[],
+      expectReplace: true
+    },
+    {
+      targetStatus: 'active',
+      sourceStatus: 'archived',
+      expectedAction: 'replaces+archive' as LifecycleAction,
+      expectedBlocked: [] as string[],
+      expectReplace: true
+    },
+    {
+      targetStatus: 'archived',
+      sourceStatus: 'active',
+      expectedAction: 'replaces+archive' as LifecycleAction,
+      expectedBlocked: ['target is archived'],
+      expectReplace: true
+    },
+    {
+      targetStatus: 'archived',
+      sourceStatus: 'archived',
+      expectedAction: 'replaces+archive' as LifecycleAction,
+      expectedBlocked: ['target is archived'],
+      expectReplace: true
+    }
   ]
 
   test.each(table)(
@@ -104,7 +129,21 @@ describe('decideLifecycle — replaces+archive endpoint matrix', () => {
       const replaceEdge = makeReplaceEdge(sourceId, targetId, targetStatus)
 
       const result = decideLifecycle(
-        { id: sourceId, content: 'now postgres for storage persists data', created_at: T1, status: sourceStatus, project_id: 'default', tags: [], source: null, is_cluster: 0, is_protected: 1, is_global: 0, updated_at: T1, archived_at: null, surface_after: null },
+        {
+          id: sourceId,
+          content: 'now postgres for storage persists data',
+          created_at: T1,
+          status: sourceStatus,
+          project_id: 'default',
+          tags: [],
+          source: null,
+          is_cluster: 0,
+          is_protected: 1,
+          is_global: 0,
+          updated_at: T1,
+          archived_at: null,
+          surface_after: null
+        },
         replaceEdge,
         [],
         undefined,
@@ -122,13 +161,24 @@ describe('decideLifecycle — replaces+archive endpoint matrix', () => {
 describe('replaces+archive direction vs merge precedent', () => {
   test('edge source_id = newer survivor, target_id = older superseded', async () => {
     const db = getDb()
-    const olderId = seedThought({ id: 'dir-old', content: 'postgres for storage persists data', created_at: T0 })
-    const newerId = seedThought({ id: 'dir-new', content: 'postgres now for storage persists data', created_at: T1 })
+    const olderId = seedThought({
+      id: 'dir-old',
+      content: 'postgres for storage persists data',
+      created_at: T0
+    })
+    const newerId = seedThought({
+      id: 'dir-new',
+      content: 'postgres now for storage persists data',
+      created_at: T1
+    })
 
     const p = await proposePlacementPlan(
       { thoughtId: newerId },
       { now: NOW },
-      { embed: okEmbed(), searchNeighbors: stubSearch({ [newerId]: [{ id: olderId, similarity: 0.9 }] }) },
+      {
+        embed: okEmbed(),
+        searchNeighbors: stubSearch({ [newerId]: [{ id: olderId, similarity: 0.9 }] })
+      },
       db
     )
 
@@ -153,13 +203,24 @@ describe('replaces+archive direction vs merge precedent', () => {
     //   createEdge(d, targetId /* survivor */, sourceId /* archived */, 'replaces')
     // The placed-engine edge mirrors this: source=newer(survivor), target=older(archived).
     const db = getDb()
-    const olderId = seedThought({ id: 'mp-old', content: 'postgres for storage persists data', created_at: T0 })
-    const newerId = seedThought({ id: 'mp-new', content: 'postgres now for storage persists data', created_at: T1 })
+    const olderId = seedThought({
+      id: 'mp-old',
+      content: 'postgres for storage persists data',
+      created_at: T0
+    })
+    const newerId = seedThought({
+      id: 'mp-new',
+      content: 'postgres now for storage persists data',
+      created_at: T1
+    })
 
     const p = await proposePlacementPlan(
       { thoughtId: newerId },
       { now: NOW },
-      { embed: okEmbed(), searchNeighbors: stubSearch({ [newerId]: [{ id: olderId, similarity: 0.9 }] }) },
+      {
+        embed: okEmbed(),
+        searchNeighbors: stubSearch({ [newerId]: [{ id: olderId, similarity: 0.9 }] })
+      },
       db
     )
 
@@ -172,13 +233,24 @@ describe('replaces+archive direction vs merge precedent', () => {
     // Consistency check: `getReplacedTargetIds` queries `target_id FROM edges WHERE type='replaces'`.
     // Our engine emits source=newer → target=older, so the returned ids must be the older ones.
     const db = getDb()
-    const olderId = seedThought({ id: 'grt-old', content: 'postgres for storage persists data', created_at: T0 })
-    const newerId = seedThought({ id: 'grt-new', content: 'postgres now for storage persists data', created_at: T1 })
+    const olderId = seedThought({
+      id: 'grt-old',
+      content: 'postgres for storage persists data',
+      created_at: T0
+    })
+    const newerId = seedThought({
+      id: 'grt-new',
+      content: 'postgres now for storage persists data',
+      created_at: T1
+    })
 
     const p = await proposePlacementPlan(
       { thoughtId: newerId },
       { now: NOW },
-      { embed: okEmbed(), searchNeighbors: stubSearch({ [newerId]: [{ id: olderId, similarity: 0.9 }] }) },
+      {
+        embed: okEmbed(),
+        searchNeighbors: stubSearch({ [newerId]: [{ id: olderId, similarity: 0.9 }] })
+      },
       db
     )
 
@@ -192,13 +264,25 @@ describe('proposePlacementPlan — archived target drops supersede edge', async 
   test('archived target: supersede edge is gated out, lifecycle falls through', async () => {
     const db = getDb()
     // Target is already archived — the engine gates replaceEdge on targetStatus==='active'.
-    const olderId = seedThought({ id: 'eng-old', content: 'postgres for storage persists data', created_at: T0, status: 'archived' })
-    const newerId = seedThought({ id: 'eng-new', content: 'postgres now for storage persists data', created_at: T1 })
+    const olderId = seedThought({
+      id: 'eng-old',
+      content: 'postgres for storage persists data',
+      created_at: T0,
+      status: 'archived'
+    })
+    const newerId = seedThought({
+      id: 'eng-new',
+      content: 'postgres now for storage persists data',
+      created_at: T1
+    })
 
     const p = await proposePlacementPlan(
       { thoughtId: newerId },
       { now: NOW },
-      { embed: okEmbed(), searchNeighbors: stubSearch({ [newerId]: [{ id: olderId, similarity: 0.9 }] }) },
+      {
+        embed: okEmbed(),
+        searchNeighbors: stubSearch({ [newerId]: [{ id: olderId, similarity: 0.9 }] })
+      },
       db
     )
 
@@ -212,12 +296,20 @@ describe('proposePlacementPlan — archived target drops supersede edge', async 
     const db = getDb()
     const olderId = seedThought({ id: 'as-old', content: 'x y z', created_at: T0 })
     // Source is archived but the rule cares about the target, not the source.
-    const newerId = seedThought({ id: 'as-new', content: 'x y z updated w', created_at: T1, status: 'archived' })
+    const newerId = seedThought({
+      id: 'as-new',
+      content: 'x y z updated w',
+      created_at: T1,
+      status: 'archived'
+    })
 
     const p = await proposePlacementPlan(
       { thoughtId: newerId },
       { now: NOW },
-      { embed: okEmbed(), searchNeighbors: stubSearch({ [newerId]: [{ id: olderId, similarity: 0.9 }] }) },
+      {
+        embed: okEmbed(),
+        searchNeighbors: stubSearch({ [newerId]: [{ id: olderId, similarity: 0.9 }] })
+      },
       db
     )
 

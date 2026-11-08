@@ -51,7 +51,11 @@ const FORMER_ROUTES: FormerRoute[] = [
   { method: 'POST', path: '/api/thoughts/:targetId/merge', router: 'thoughts-merge' },
   { method: 'GET', path: '/api/thoughts/retention-review', router: 'retention-review' },
   { method: 'POST', path: '/api/thoughts/retention-review/compact', router: 'retention-review' },
-  { method: 'POST', path: '/api/thoughts/:id/retention-review/protect', router: 'retention-review' },
+  {
+    method: 'POST',
+    path: '/api/thoughts/:id/retention-review/protect',
+    router: 'retention-review'
+  },
   { method: 'POST', path: '/api/thoughts/:id/retention-review/delete', router: 'retention-review' },
   { method: 'GET', path: '/api/thoughts/:id/links', router: 'thoughts-links' },
   { method: 'GET', path: '/api/thoughts/links/batch', router: 'thoughts-links' },

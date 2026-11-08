@@ -19,7 +19,12 @@ import {
   THOUGHTS_PAGE_LIMIT_DEFAULT
 } from '../db/thoughts'
 import { insertLog } from '../logging/log'
-import { validateContentLength, validateStatus, BATCH_ITEMS_MAX, isoDateTimeSchema } from '../validation'
+import {
+  validateContentLength,
+  validateStatus,
+  BATCH_ITEMS_MAX,
+  isoDateTimeSchema
+} from '../validation'
 import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from '../errors'
 
 export function getThoughtByIdService(id: string, d: Database = getDb()): Thought | null {
@@ -61,14 +66,23 @@ export function createThoughtWithParentService(
   return { ...thought, content_language: config.contentLanguage } as Thought
 }
 
-export function updateThoughtByIdService(id: string, data: UpdateThoughtInput, d: Database = getDb()): Thought | null {
+export function updateThoughtByIdService(
+  id: string,
+  data: UpdateThoughtInput,
+  d: Database = getDb()
+): Thought | null {
   validateStatus(data.status)
   if (data.content !== undefined) {
     validateContentLength(data.content, getThoughtLimitsDB(d), id)
   }
   if (data.surface_after !== undefined && data.surface_after !== null) {
-    if (typeof data.surface_after !== 'string' || !isoDateTimeSchema.safeParse(data.surface_after).success) {
-      throw new ValidationError(`Invalid surface_after: ${String(data.surface_after)}. Must be a valid ISO timestamp or null.`)
+    if (
+      typeof data.surface_after !== 'string' ||
+      !isoDateTimeSchema.safeParse(data.surface_after).success
+    ) {
+      throw new ValidationError(
+        `Invalid surface_after: ${String(data.surface_after)}. Must be a valid ISO timestamp or null.`
+      )
     }
   }
   const run = d.transaction(() => {
@@ -116,12 +130,17 @@ export interface ArchiveBatchResult {
  * already uses: a failure is collected, the items that succeeded still commit,
  * and nothing is swallowed silently.
  */
-export function archiveThoughtsBatchService(ids: string[], d: Database = getDb()): ArchiveBatchResult {
+export function archiveThoughtsBatchService(
+  ids: string[],
+  d: Database = getDb()
+): ArchiveBatchResult {
   if (!Array.isArray(ids) || ids.length === 0) {
     throw new ValidationError('thought_ids is required and must not be empty')
   }
   if (ids.length > BATCH_ITEMS_MAX) {
-    throw new ValidationError(`thought_ids accepts at most ${BATCH_ITEMS_MAX} ids per call (got ${ids.length})`)
+    throw new ValidationError(
+      `thought_ids accepts at most ${BATCH_ITEMS_MAX} ids per call (got ${ids.length})`
+    )
   }
 
   let archived = 0
@@ -160,7 +179,10 @@ export interface ThoughtPage {
  * Paginated thought inventory: the page (newest first) together with the total
  * count for the same filters, so a caller can page without a second request.
  */
-export function listThoughtsPageService(options: ListThoughtsOptions = {}, d: Database = getDb()): ThoughtPage {
+export function listThoughtsPageService(
+  options: ListThoughtsOptions = {},
+  d: Database = getDb()
+): ThoughtPage {
   const limit = options.limit === undefined ? THOUGHTS_PAGE_LIMIT_DEFAULT : options.limit
   const offset = options.offset ?? 0
   const thoughts = dbListThoughts(d, { ...options, limit, offset })

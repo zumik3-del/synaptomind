@@ -13,7 +13,7 @@ import {
   cpSync,
   statSync,
   symlinkSync,
-  utimesSync,
+  utimesSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -55,7 +55,7 @@ const STUB_CURL = [
   '    fi',
   '    ;;',
   'esac',
-  'exit 22',
+  'exit 22'
 ].join('\n')
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ function testEnv(extra: Record<string, string> = {}): Record<string, string> {
     ...env,
     PATH: `${STUB_BIN}:${process.env.PATH}`,
     STUB_CURL_LOG: CURL_LOG,
-    STUB_CURL_SERVE_COMMON: REAL_COMMON_SH,
+    STUB_CURL_SERVE_COMMON: REAL_COMMON_SH
   } as Record<string, string>
 }
 
@@ -122,7 +122,7 @@ function runPiped(extra: Record<string, string> = {}) {
     input: readFileSync(INSTALL_SH, 'utf8'),
     env: testEnv(extra),
     cwd: FIXTURE_DIR,
-    timeout: 15_000,
+    timeout: 15_000
   })
   return { res, calls: curlCalls() }
 }
@@ -133,7 +133,7 @@ function runLocal() {
     encoding: 'utf8',
     env: testEnv(),
     cwd: FIXTURE_DIR,
-    timeout: 15_000,
+    timeout: 15_000
   })
   return { res, calls: curlCalls() }
 }
@@ -191,7 +191,12 @@ describe('install.sh — piped raw-base derivation', () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 const APP = 'synaptomind'
-const REAL_TARBALL = resolve(import.meta.dir, '..', 'dist', 'synaptomind-v0.8.0-linux-x86_64.tar.gz')
+const REAL_TARBALL = resolve(
+  import.meta.dir,
+  '..',
+  'dist',
+  'synaptomind-v0.8.0-linux-x86_64.tar.gz'
+)
 
 /**
  * A stub payload: `synaptomind --version` prints the expected line.
@@ -210,7 +215,7 @@ function stubPayload(version: string): Record<string, string> {
     'lib/libonnxruntime.so.1': 'stub onnxruntime\n',
     'config.json.example':
       '{ "server": { "port": 3005, "host": "127.0.0.1" }, "mcp": { "httpPort": 3006 } }\n',
-    '.env.example': 'SYNAPTOMIND_SECRET=\n',
+    '.env.example': 'SYNAPTOMIND_SECRET=\n'
   }
 }
 
@@ -314,7 +319,7 @@ function statefulSystemctlStub(opts: { stateDir: string; payload: string }): str
     `    printf 'stop\\n' >> ${state('events')}`,
     '    ;;',
     'esac',
-    'exit 0',
+    'exit 0'
   ].join('\n')
 }
 
@@ -340,7 +345,7 @@ function seedRelease(
   root: string,
   tag: string,
   payload: Record<string, string>,
-  opts: { topDir?: string; asset?: string } = {},
+  opts: { topDir?: string; asset?: string } = {}
 ): string {
   const version = tag.replace(/^v/, '')
   const topDir = opts.topDir ?? `${APP}-${version}-linux-x86_64`
@@ -356,7 +361,7 @@ function seedRelease(
   mkdirSync(join(root, tag), { recursive: true })
   const tarball = join(root, tag, asset)
   const res = spawnSync('tar', ['-czf', tarball, '-C', join(root, '.build'), topDir], {
-    encoding: 'utf8',
+    encoding: 'utf8'
   })
   expect(res.status, res.stderr).toBe(0)
   return tarball
@@ -381,7 +386,7 @@ function seedBinaryTree(
      * words on the command line.
      */
     unitState?: boolean
-  },
+  }
 ): { deployDir: string; stubsDir: string; sudoLog: string; stateDir: string } {
   const deployDir = join(root, 'deploy')
   const stubsDir = join(root, 'stubs')
@@ -407,7 +412,7 @@ function seedBinaryTree(
       '#!/usr/bin/env bash',
       'printf \'%s\' "$0" >> "$STUB_PRIV_LOG"',
       'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done',
-      'printf \'\\n\' >> "$STUB_PRIV_LOG"',
+      'printf \'\\n\' >> "$STUB_PRIV_LOG"'
     ]
     if (name === 'systemctl') {
       if (opts.unitState) {
@@ -415,8 +420,8 @@ function seedBinaryTree(
           stub,
           statefulSystemctlStub({
             stateDir,
-            payload: join(root, 'opt', APP, APP),
-          }),
+            payload: join(root, 'opt', APP, APP)
+          })
         )
         chmodSync(stub, 0o755)
         continue
@@ -450,7 +455,7 @@ function seedBinaryTree(
         '  touch|chmod|cp|mv|rm|install|systemctl) ;;',
         '  *) echo "STUB: refused command ${1:-}" >&2; exit 99 ;;',
         'esac',
-        'exec "$@"',
+        'exec "$@"'
       )
     } else {
       lines.push(':', 'exit 0')
@@ -481,7 +486,7 @@ function seedBinaryTree(
     SEED_FILES: 'config.json.example:config.json .env.example:.env',
     GENERATE_SECRET_IN: '.env',
     HOOKS_DIR: '',
-    ...opts.appEnv,
+    ...opts.appEnv
   }
   // load_app_env() SOURCES this file, so every value needs its own quoting.
   // The two template keys are single-quoted for the documented reason: a
@@ -490,14 +495,14 @@ function seedBinaryTree(
   const SINGLE_QUOTED = new Set(['ASSET_PATTERN', 'APP_VERSION_CMD'])
   const defaults = {
     ASSET_PATTERN: '${APP_NAME}-${TAG}-${OS}-${ARCH}.tar.gz',
-    APP_VERSION_CMD: '${BIN} --version',
+    APP_VERSION_CMD: '${BIN} --version'
   }
   const merged: Record<string, string> = { ...defaults, ...env }
   writeFileSync(
     join(deployDir, 'app.env'),
     Object.entries(merged)
       .map(([k, v]) => `${k}=${SINGLE_QUOTED.has(k) ? `'${v}'` : `"${v}"`}`)
-      .join('\n') + '\n',
+      .join('\n') + '\n'
   )
   return { deployDir, stubsDir, sudoLog, stateDir }
 }
@@ -519,7 +524,7 @@ function runBinaryInstall(
   stubsDir: string,
   sudoLog: string,
   args: string[],
-  extraEnv: Record<string, string> = {},
+  extraEnv: Record<string, string> = {}
 ) {
   const fixtureRoot = dirname(deployDir)
   return spawnSync('bash', [join(deployDir, 'install.sh'), ...args], {
@@ -530,16 +535,17 @@ function runBinaryInstall(
       // Keep a stray APP_ENV_URL/LIB_RAW_URL from the outer env out of the way.
       APP_ENV_URL: '',
       LIB_RAW_URL: '',
-      ...extraEnv,
+      ...extraEnv
     }),
-    timeout: 60_000,
+    timeout: 60_000
   })
 }
 
 /** Temporary download/staging artefacts that must never survive a run. */
 function tempLeftovers(dir: string): string[] {
   return readdirSync(dir).filter(
-    (f) => f.startsWith('.stage.') || f === `.${APP}.tar.gz` || /^\.synaptomind\.\d+\.tar\.gz$/.test(f),
+    f =>
+      f.startsWith('.stage.') || f === `.${APP}.tar.gz` || /^\.synaptomind\.\d+\.tar\.gz$/.test(f)
   )
 }
 
@@ -560,13 +566,13 @@ describe('install.sh — DIST=binary tarball install', () => {
   test('extracts the payload: executable at the root, vec0.so, lib/libonnxruntime.so.1', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
-      releasesBase: `file://${RELEASES}`,
+      releasesBase: `file://${RELEASES}`
     })
 
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     const installDir = join(ROOT, 'opt', APP)
     expect(res.status, res.stderr + res.stdout).toBe(0)
@@ -584,13 +590,13 @@ describe('install.sh — DIST=binary tarball install', () => {
   test('a fresh install leaves no tarball or staging dir behind', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
-      releasesBase: `file://${RELEASES}`,
+      releasesBase: `file://${RELEASES}`
     })
 
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status, res.stderr + res.stdout).toBe(0)
     // A ~119 MB tarball per install would otherwise leak into INSTALL_DIR.
@@ -624,7 +630,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
       releasesBase: `file://${RELEASES}`,
-      execSudo: true,
+      execSudo: true
     })
     const installDir = join(ROOT, 'opt', APP)
     const args = ['--version', 'v0.8.0', '--force', '--no-service']
@@ -638,7 +644,9 @@ describe('install.sh — DIST=binary tarball install', () => {
     const prevs = ['vec0.so.prev', 'lib/libonnxruntime.so.1.prev', `${APP}.prev`]
     const STAMP = new Date('2001-02-03T04:05:06Z')
     for (const rel of prevs) {
-      expect(existsSync(join(installDir, rel)), `${rel} must exist after the second install`).toBe(true)
+      expect(existsSync(join(installDir, rel)), `${rel} must exist after the second install`).toBe(
+        true
+      )
       utimesSync(join(installDir, rel), STAMP, STAMP)
     }
 
@@ -648,7 +656,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     for (const rel of prevs) {
       expect(
         statSync(join(installDir, rel)).mtimeMs,
-        `${rel} was rewritten with byte-identical content`,
+        `${rel} was rewritten with byte-identical content`
       ).toBe(STAMP.getTime())
     }
     // The story is told, not left to be inferred: the kept copy describes THIS
@@ -667,7 +675,7 @@ describe('install.sh — DIST=binary tarball install', () => {
       releasesBase: `file://${RELEASES}`,
       // The .prev write runs through the shared atomic writer, so the sudo stub
       // has to execute for it (see the test above).
-      execSudo: true,
+      execSudo: true
     })
     const installDir = join(ROOT, 'opt', APP)
     const args = ['--version', 'v0.8.0', '--force', '--no-service']
@@ -676,7 +684,7 @@ describe('install.sh — DIST=binary tarball install', () => {
       seedRelease(RELEASES, 'v0.8.0', {
         ...stubPayload('v0.8.0'),
         'vec0.so': vec,
-        'lib/libonnxruntime.so.1': onnx,
+        'lib/libonnxruntime.so.1': onnx
       })
     }
 
@@ -704,7 +712,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     expect(readFileSync(join(installDir, 'vec0.so'), 'utf8')).toBe('rebuilt2 vec0\n')
     expect(readFileSync(join(installDir, 'vec0.so.prev'), 'utf8')).toBe('rebuilt vec0\n')
     expect(readFileSync(join(installDir, 'lib/libonnxruntime.so.1.prev'), 'utf8')).toBe(
-      'rebuilt onnxruntime\n',
+      'rebuilt onnxruntime\n'
     )
   }, 60_000)
 
@@ -724,13 +732,13 @@ describe('install.sh — DIST=binary tarball install', () => {
   test('no bare version is written to stdout (F5)', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
-      releasesBase: `file://${RELEASES}`,
+      releasesBase: `file://${RELEASES}`
     })
 
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status, res.stderr + res.stdout).toBe(0)
 
@@ -740,7 +748,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     for (const line of res.stdout.split('\n')) {
       if (line.trim() === '') continue
       expect(line, `unprefixed stdout line: ${JSON.stringify(line)}`).toMatch(
-        /^\[synaptomind\]|^\[app\]|^===|^  [A-Za-z]|^$/,
+        /^\[synaptomind\]|^\[app\]|^===|^  [A-Za-z]|^$/
       )
     }
     expect(res.stdout).not.toMatch(/^0\.8\.2/)
@@ -754,13 +762,13 @@ describe('install.sh — DIST=binary tarball install', () => {
     delete payload['lib/libonnxruntime.so.1']
     seedRelease(RELEASES, 'v0.8.0', payload)
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
-      releasesBase: `file://${RELEASES}`,
+      releasesBase: `file://${RELEASES}`
     })
 
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status).toBe(1)
     expect(res.stderr).toContain('lib/libonnxruntime.so.1')
@@ -774,13 +782,13 @@ describe('install.sh — DIST=binary tarball install', () => {
   test('a payload whose binary reports the wrong version aborts, with nothing swapped', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.7.1'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
-      releasesBase: `file://${RELEASES}`,
+      releasesBase: `file://${RELEASES}`
     })
 
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status).toBe(1)
     expect(res.stderr).toContain('version check')
@@ -813,9 +821,9 @@ describe('install.sh — DIST=binary tarball install', () => {
         '-C',
         build,
         `${APP}-0.8.0-linux-x86_64`,
-        'spill',
+        'spill'
       ],
-      { encoding: 'utf8' },
+      { encoding: 'utf8' }
     )
     expect(res.status, res.stderr).toBe(0)
 
@@ -823,7 +831,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const res2 = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res2.status).toBe(1)
     expect(res2.stderr).toContain('exactly one top-level directory')
@@ -835,21 +843,24 @@ describe('install.sh — DIST=binary tarball install', () => {
   test('a platform with no published asset fails by name, not with a 404', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
-      releasesBase: `file://${RELEASES}`,
+      releasesBase: `file://${RELEASES}`
     })
     // detect_os/detect_arch read `uname`; stubbing it puts the installer on an
     // arm64 host, which v1 has no asset for (ADR §2.7).
     const unameStub = join(stubsDir, 'uname')
     writeFileSync(
       unameStub,
-      ['#!/usr/bin/env bash', 'case "$1" in -s) echo Linux ;; -m) echo aarch64 ;; *) echo Linux ;; esac'].join('\n'),
+      [
+        '#!/usr/bin/env bash',
+        'case "$1" in -s) echo Linux ;; -m) echo aarch64 ;; *) echo Linux ;; esac'
+      ].join('\n')
     )
     chmodSync(unameStub, 0o755)
 
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     // Must be the named preflight error, not a 404 from url_get a few lines later.
     expect(res.status).toBe(1)
@@ -862,7 +873,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
       releasesBase: `file://${RELEASES}`,
-      appEnv: { CHECKOUT_POLICY: 'dev' },
+      appEnv: { CHECKOUT_POLICY: 'dev' }
     })
     // --version short-circuits resolution, so resolution must be exercised.
     // isolatedEnv, not a bare `...process.env`: this is one of the two spawn
@@ -873,9 +884,9 @@ describe('install.sh — DIST=binary tarball install', () => {
       encoding: 'utf8',
       env: isolatedEnv(dirname(deployDir), {
         PATH: `${stubsDir}:${process.env.PATH}`,
-        STUB_PRIV_LOG: sudoLog,
+        STUB_PRIV_LOG: sudoLog
       }),
-      timeout: 60_000,
+      timeout: 60_000
     })
     expect(res.status).toBe(1)
     expect(res.stderr).toContain('requires DIST=source')
@@ -884,12 +895,12 @@ describe('install.sh — DIST=binary tarball install', () => {
   test('--no-service never reaches sudo or systemctl', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
-      releasesBase: `file://${RELEASES}`,
+      releasesBase: `file://${RELEASES}`
     })
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status, res.stderr + res.stdout).toBe(0)
     expect(readFileSync(sudoLog, 'utf8')).toBe('')
@@ -912,7 +923,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     writeFileSync(unitFile, stale)
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
       releasesBase: `file://${RELEASES}`,
-      appEnv: { UNIT_FILE: unitFile, APP_DESC: 'Synaptomind — thought-graph engine' },
+      appEnv: { UNIT_FILE: unitFile, APP_DESC: 'Synaptomind — thought-graph engine' }
     })
     // sudo that refuses every write primitive (no tty for a password) and does
     // nothing else. Nothing privileged is executed, exactly as in the other
@@ -926,8 +937,8 @@ describe('install.sh — DIST=binary tarball install', () => {
         'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done',
         'printf \'\\n\' >> "$STUB_PRIV_LOG"',
         'case " $* " in *" cp "*|*" chmod "*|*" mv "*|*" touch "*) exit 1 ;; esac',
-        'exit 0',
-      ].join('\n'),
+        'exit 0'
+      ].join('\n')
     )
     chmodSync(join(stubsDir, 'sudo'), 0o755)
 
@@ -971,7 +982,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     '',
     '[Install]',
     'WantedBy=multi-user.target',
-    '',
+    ''
   ].join('\n')
 
   /**
@@ -992,15 +1003,15 @@ describe('install.sh — DIST=binary tarball install', () => {
         ': > "$dst"                     # cp(1) opens the destination O_TRUNC...',
         'head -c 24 "$src" > "$dst"     # ...and only part of the payload lands',
         'echo "cp: error writing $dst: No space left on device" >&2',
-        'exit 1',
-      ].join('\n'),
+        'exit 1'
+      ].join('\n')
     )
     chmodSync(p, 0o755)
   }
 
   /** Staging files left in the unit directory (a name systemd never loads). */
   function stagedLeftovers(unitFile: string): string[] {
-    return readdirSync(dirname(unitFile)).filter((f) => f.includes('.new.'))
+    return readdirSync(dirname(unitFile)).filter(f => f.includes('.new.'))
   }
 
   /**
@@ -1012,7 +1023,9 @@ describe('install.sh — DIST=binary tarball install', () => {
    * download still happens for real.
    */
   function stubHealth(stubsDir: string, body: string, log?: string): void {
-    const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
+    const realCurl = spawnSync('bash', ['-c', 'command -v curl'], {
+      encoding: 'utf8'
+    }).stdout.trim()
     const p = join(stubsDir, 'curl')
     const lines = ['#!/usr/bin/env bash', 'for a in "$@"; do', '  case "$a" in', '    */health)']
     // Record what was served BEFORE answering. A stub that cannot record is
@@ -1050,7 +1063,9 @@ describe('install.sh — DIST=binary tarball install', () => {
    * and reaches its timeout verdict rather than a fabricated body.
    */
   function stubServingHealth(stubsDir: string, stateDir: string, log?: string): void {
-    const realCurl = spawnSync('bash', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim()
+    const realCurl = spawnSync('bash', ['-c', 'command -v curl'], {
+      encoding: 'utf8'
+    }).stdout.trim()
     const p = join(stubsDir, 'curl')
     const running = JSON.stringify(join(stateDir, 'running'))
     const lines = [
@@ -1060,10 +1075,10 @@ describe('install.sh — DIST=binary tarball install', () => {
       '    */health)',
       `    if [ ! -f ${running} ]; then`,
       // rc 7 = CURLE_COULDNT_CONNECT, so an unserved port is unserved.
-      '      printf \'curl: (7) Failed to connect\\n\' >&2',
+      "      printf 'curl: (7) Failed to connect\\n' >&2",
       '      exit 7',
       '    fi',
-      '    v="$(cat ' + running + ')"',
+      '    v="$(cat ' + running + ')"'
     ]
     if (log) {
       // Recorded before answering, and it records the SERVED version, so a test
@@ -1076,7 +1091,7 @@ describe('install.sh — DIST=binary tarball install', () => {
       '    exit 0 ;;',
       '  esac',
       'done',
-      `exec ${realCurl} "$@"`,
+      `exec ${realCurl} "$@"`
     )
     writeFileSync(p, lines.join('\n'))
     chmodSync(p, 0o755)
@@ -1097,8 +1112,6 @@ describe('install.sh — DIST=binary tarball install', () => {
     writeFileSync(path, src.replace(from, to))
   }
 
-
-
   test('a copy that dies partway leaves the existing unit byte-identical', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const unitDir = join(ROOT, 'unit')
@@ -1109,7 +1122,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
       releasesBase: `file://${RELEASES}`,
       appEnv: { UNIT_FILE: unitFile, APP_DESC: 'Synaptomind — thought-graph engine' },
-      execSudo: true,
+      execSudo: true
     })
     breakCpForTheUnitDir(stubsDir, unitDir)
 
@@ -1142,7 +1155,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
       releasesBase: `file://${RELEASES}`,
       appEnv: { UNIT_FILE: unitFile, APP_DESC: 'Synaptomind — thought-graph engine' },
-      execSudo: true,
+      execSudo: true
     })
     stubHealthy(stubsDir, '0.8.0')
 
@@ -1162,7 +1175,8 @@ describe('install.sh — DIST=binary tarball install', () => {
     expect(readFileSync(sudoLog, 'utf8')).toContain('daemon-reload')
   })
 
-  test('a symlinked unit is written through, not replaced by a regular file at 777', () => {    // The `systemctl link` shape. DECIDED (task #1094): follow the link and swap
+  test('a symlinked unit is written through, not replaced by a regular file at 777', () => {
+    // The `systemctl link` shape. DECIDED (task #1094): follow the link and swap
     // the file it points at. `mv -f` over a link would replace the link with a
     // regular file — changing the unit's shape, orphaning the file systemd was
     // NOT loading — and `stat -c '%a'` without -L reports the LINK's own mode
@@ -1181,7 +1195,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
       releasesBase: `file://${RELEASES}`,
       appEnv: { UNIT_FILE: unitFile, APP_DESC: 'Synaptomind — thought-graph engine' },
-      execSudo: true,
+      execSudo: true
     })
     stubHealthy(stubsDir, '0.8.0')
 
@@ -1189,7 +1203,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     expect(res.status, res.stderr + res.stdout).toBe(0)
     expect(lstatSync(unitFile).isSymbolicLink(), 'the link must survive the install').toBe(true)
     expect(readFileSync(real, 'utf8')).toContain(
-      `Environment=LD_LIBRARY_PATH=${join(ROOT, 'opt', APP)}/lib`,
+      `Environment=LD_LIBRARY_PATH=${join(ROOT, 'opt', APP)}/lib`
     )
     // The target's own mode, never the link's 777.
     expect(statSync(real).mode & 0o777).toBe(0o600)
@@ -1215,7 +1229,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
       releasesBase: `file://${RELEASES}`,
       appEnv: { UNIT_FILE: unitFile, APP_DESC: 'Synaptomind — thought-graph engine' },
-      execSudo: true,
+      execSudo: true
     })
     // DATA_DIR ending in a backslash: `ReadWritePaths=<install> <data>\` swallows
     // the PrivateTmp=true that follows it. Single-quoted, because the file is
@@ -1224,7 +1238,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const envFile = join(deployDir, 'app.env')
     writeFileSync(
       envFile,
-      readFileSync(envFile, 'utf8').replace(/^DATA_DIR=.*$/m, `DATA_DIR='${join(ROOT, 'data')}\\'`),
+      readFileSync(envFile, 'utf8').replace(/^DATA_DIR=.*$/m, `DATA_DIR='${join(ROOT, 'data')}\\'`)
     )
 
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, ['--version', 'v0.8.0'])
@@ -1258,8 +1272,7 @@ describe('install.sh — DIST=binary tarball install', () => {
   // ══════════════════════════════════════════════════════════════════════════
 
   /** The mcp.httpPort alignment line in seed_files(), as it reads in install.sh. */
-  const HTTPPORT_ALIGNMENT =
-    `      align_config_port "\${INSTALL_DIR}/\${dest}" '"httpPort"' "\$MCP_PORT"`
+  const HTTPPORT_ALIGNMENT = `      align_config_port "\${INSTALL_DIR}/\${dest}" '"httpPort"' "\$MCP_PORT"`
 
   /** The MCP_PORT == PORT guard in main(), as it reads in install.sh. */
   const COLLISION_GUARD = `  if [ "\$MCP_PORT" = "\$PORT" ]; then
@@ -1269,7 +1282,7 @@ describe('install.sh — DIST=binary tarball install', () => {
   test('an empty MCP_PORT seeds mcp.httpPort = PORT + 1', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
-      releasesBase: `file://${RELEASES}`,
+      releasesBase: `file://${RELEASES}`
     })
     // The default, spelled the way app.env spells it: MCP_PORT is absent, so
     // resolve_mcp_port() must derive the value from PORT alone.
@@ -1279,7 +1292,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status, res.stderr + res.stdout).toBe(0)
 
@@ -1298,13 +1311,13 @@ describe('install.sh — DIST=binary tarball install', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
       releasesBase: `file://${RELEASES}`,
-      appEnv: { MCP_PORT: '4321' },
+      appEnv: { MCP_PORT: '4321' }
     })
 
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status, res.stderr + res.stdout).toBe(0)
 
@@ -1321,13 +1334,13 @@ describe('install.sh — DIST=binary tarball install', () => {
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
       releasesBase: `file://${RELEASES}`,
-      appEnv: { MCP_PORT: String(FIXTURE_PORT) },
+      appEnv: { MCP_PORT: String(FIXTURE_PORT) }
     })
 
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status, res.stderr + res.stdout).toBe(1)
     // Both ports are named, so the operator knows which value to change.
@@ -1350,7 +1363,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     // from a --force re-run that would otherwise stamp PORT+1 over it.
     seedRelease(RELEASES, 'v0.8.0', stubPayload('v0.8.0'))
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
-      releasesBase: `file://${RELEASES}`,
+      releasesBase: `file://${RELEASES}`
     })
     const args = ['--version', 'v0.8.0', '--force', '--no-service']
     const first = runBinaryInstall(deployDir, stubsDir, sudoLog, args)
@@ -1434,13 +1447,13 @@ describe('install.sh — DIST=binary tarball install', () => {
     mutateInstallScript(
       mut.deployDir,
       `    if [ -e "\${INSTALL_DIR}/\${dest}" ]; then`,
-      `    if false; then`,
+      `    if false; then`
     )
 
     const args = ['--version', 'v0.8.0', '--force', '--no-service']
     for (const [root, tree] of [
       [realRoot, real],
-      [mutRoot, mut],
+      [mutRoot, mut]
     ] as const) {
       expect(runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, args).status).toBe(0)
       const configPath = join(root, 'opt', APP, 'config.json')
@@ -1470,11 +1483,11 @@ describe('install.sh — DIST=binary tarball install', () => {
     mkdirSync(mutRoot, { recursive: true })
     const real = seedBinaryTree(realRoot, {
       releasesBase: `file://${RELEASES}`,
-      appEnv: { MCP_PORT: String(FIXTURE_PORT) },
+      appEnv: { MCP_PORT: String(FIXTURE_PORT) }
     })
     const mut = seedBinaryTree(mutRoot, {
       releasesBase: `file://${RELEASES}`,
-      appEnv: { MCP_PORT: String(FIXTURE_PORT) },
+      appEnv: { MCP_PORT: String(FIXTURE_PORT) }
     })
     // The mutation: the collision check is removed from main(), so both
     // listeners are seeded with the SAME port and the install proceeds.
@@ -1539,8 +1552,8 @@ describe('install.sh — DIST=binary tarball install', () => {
         CONFIG_LINK_NAME: 'config.json',
         SEED_FILES: '.env.example:.env',
         SEED_FILES_DATA: 'config.json.example:config.json',
-        ...appEnv,
-      },
+        ...appEnv
+      }
     })
   }
 
@@ -1560,7 +1573,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status, res.stdout + res.stderr).toBe(0)
 
@@ -1580,7 +1593,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     expect(cfg.mcp.httpPort).toBe(FIXTURE_PORT + 1)
   }, 60_000)
 
-  test('the config is seeded ONCE: a re-install preserves the operator\'s DATA_DIR config', () => {
+  test("the config is seeded ONCE: a re-install preserves the operator's DATA_DIR config", () => {
     const tree = configLinkTree(ROOT, RELEASES)
     const target = join(ROOT, 'data', 'config.json')
     const args = ['--version', 'v0.8.0', '--force', '--no-service']
@@ -1629,7 +1642,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status, res.stdout + res.stderr).toBe(0)
 
@@ -1657,7 +1670,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     // The refusal is a WARNING, not an abort: everything else this install owes
     // the operator — the DATA_DIR seed included — still happens.
@@ -1684,7 +1697,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status, res.stdout + res.stderr).toBe(0)
     const link = join(installDir, 'config.json')
@@ -1710,14 +1723,14 @@ describe('install.sh — DIST=binary tarball install', () => {
     const mutRoot = join(ROOT, 'mut')
     mkdirSync(realRoot, { recursive: true })
     mkdirSync(mutRoot, { recursive: true })
-    const appEnv = { CONFIG_LINK_NAME: '', SEED_FILES: '.env.example:.env', SEED_FILES_DATA: 'config.json.example:config.json' }
+    const appEnv = {
+      CONFIG_LINK_NAME: '',
+      SEED_FILES: '.env.example:.env',
+      SEED_FILES_DATA: 'config.json.example:config.json'
+    }
     const real = seedBinaryTree(realRoot, { releasesBase: `file://${RELEASES}`, appEnv })
     const mut = seedBinaryTree(mutRoot, { releasesBase: `file://${RELEASES}`, appEnv })
-    mutateInstallScript(
-      mut.deployDir,
-      `  [ -n "\${CONFIG_LINK_NAME:-}" ] || return 0\n`,
-      '',
-    )
+    mutateInstallScript(mut.deployDir, `  [ -n "\${CONFIG_LINK_NAME:-}" ] || return 0\n`, '')
 
     const args = ['--version', 'v0.8.0', '--no-service']
     const realRes = runBinaryInstall(real.deployDir, real.stubsDir, real.sudoLog, args)
@@ -1752,7 +1765,7 @@ describe('install.sh — DIST=binary tarball install', () => {
       ['empty DATA_DIR', { DATA_DIR: '', CONFIG_LINK_NAME: 'config.json', SEED_FILES_DATA: '' }],
       ['a name with a separator', { CONFIG_LINK_NAME: 'etc/config.json' }],
       ['a relative traversal', { CONFIG_LINK_NAME: '../../config.json' }],
-      ['a bare dot', { CONFIG_LINK_NAME: '.' }],
+      ['a bare dot', { CONFIG_LINK_NAME: '.' }]
     ]
     cases.forEach(([label, appEnv], i) => {
       const root = join(ROOT, `refuse-${i}`)
@@ -1761,7 +1774,7 @@ describe('install.sh — DIST=binary tarball install', () => {
       const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
         '--version',
         'v0.8.0',
-        '--no-service',
+        '--no-service'
       ])
       expect(res.status, `${label} must abort the install:\n${res.stdout}${res.stderr}`).toBe(1)
       expect(res.stderr).toContain('CONFIG_LINK_NAME')
@@ -1814,7 +1827,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     // Each stub logs its own $0, so a line opens with the stub's PATH. Reduce it
     // to the command name: what is under assertion is WHICH command ran, not
     // where the stub that recorded it happens to live.
-    return raw.split('\n').map((l) => l.replace(/^\S*\/(sudo|systemctl)(?=\s|$)/, '$1'))
+    return raw.split('\n').map(l => l.replace(/^\S*\/(sudo|systemctl)(?=\s|$)/, '$1'))
   }
 
   /**
@@ -1824,8 +1837,8 @@ describe('install.sh — DIST=binary tarball install', () => {
    */
   function privPaths(sudoLog: string): string[] {
     return privCalls(sudoLog)
-      .flatMap((line) => line.split(' ').slice(1))
-      .filter((arg) => arg.startsWith('/'))
+      .flatMap(line => line.split(' ').slice(1))
+      .filter(arg => arg.startsWith('/'))
   }
 
   /**
@@ -1839,7 +1852,7 @@ describe('install.sh — DIST=binary tarball install', () => {
    */
   const CONTRACT_CHECK = [
     '      if [ -n "$status" ] && [ "$status_ok" = true ] \\',
-    '        && { [ "$version_check" != true ] || [ -n "$version" ]; }; then',
+    '        && { [ "$version_check" != true ] || [ -n "$version" ]; }; then'
   ].join('\n')
 
   /** The /health samples the stub actually served, in order. */
@@ -1863,7 +1876,7 @@ describe('install.sh — DIST=binary tarball install', () => {
       appEnv: { UNIT_FILE: unitFile, APP_DESC: 'Synaptomind — thought-graph engine' },
       // The unit write goes through write_file_atomically → run_root, so the
       // sudo stub has to execute for the service path to be exercised at all.
-      execSudo: true,
+      execSudo: true
     })
     stubHealth(tree.stubsDir, body, healthLog)
     return { ...tree, unitFile }
@@ -1875,16 +1888,11 @@ describe('install.sh — DIST=binary tarball install', () => {
     // refused unit write, an unseeded payload — and would still be green. This
     // run is byte-identical in setup and passes, so the non-zero below is the
     // gate and nothing else.
-    const tree = healthGateTree(
-      ROOT,
-      RELEASES,
-      healthyBody('0.8.0'),
-      join(ROOT, 'health.log'),
-    )
+    const tree = healthGateTree(ROOT, RELEASES, healthyBody('0.8.0'), join(ROOT, 'health.log'))
 
     const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
       '--version',
-      'v0.8.0',
+      'v0.8.0'
     ])
     expect(res.status, res.stdout + res.stderr).toBe(0)
     // The gate really ran and really passed: the endpoint was polled, and the
@@ -1911,13 +1919,13 @@ describe('install.sh — DIST=binary tarball install', () => {
     const body = JSON.stringify({
       status: 'failed',
       version: '0.8.0',
-      checks: { database: 'ok', embedder: 'ok' },
+      checks: { database: 'ok', embedder: 'ok' }
     })
     const tree = healthGateTree(ROOT, RELEASES, body, healthLog)
 
     const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
       '--version',
-      'v0.8.0',
+      'v0.8.0'
     ])
 
     // Non-zero, and for the named reason — not some unrelated failure earlier in
@@ -1950,16 +1958,11 @@ describe('install.sh — DIST=binary tarball install', () => {
     // The other arm the contract check exists for, and the one a status-only read
     // also waves through: status ok, a version present — just not the payload
     // this run installed.
-    const tree = healthGateTree(
-      ROOT,
-      RELEASES,
-      healthyBody('0.7.9'),
-      join(ROOT, 'health.log'),
-    )
+    const tree = healthGateTree(ROOT, RELEASES, healthyBody('0.7.9'), join(ROOT, 'health.log'))
 
     const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
       '--version',
-      'v0.8.0',
+      'v0.8.0'
     ])
     expect(res.status, res.stdout + res.stderr).toBe(1)
     expect(res.stderr).toContain('reports version 0.7.9, expected 0.8.0')
@@ -1970,16 +1973,11 @@ describe('install.sh — DIST=binary tarball install', () => {
     // The boundary, asserted rather than assumed — this host has a real
     // /etc/systemd/system/synaptomind.service, so "the fixture does not touch
     // it" is a claim that has to be checked, not a comment.
-    const tree = healthGateTree(
-      ROOT,
-      RELEASES,
-      healthyBody('0.8.0'),
-      join(ROOT, 'health.log'),
-    )
+    const tree = healthGateTree(ROOT, RELEASES, healthyBody('0.8.0'), join(ROOT, 'health.log'))
 
     const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
       '--version',
-      'v0.8.0',
+      'v0.8.0'
     ])
     expect(res.status, res.stdout + res.stderr).toBe(0)
 
@@ -1994,7 +1992,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     // exercised for real, so this is a sandbox, not a bypass.
     expect(existsSync(tree.unitFile)).toBe(true)
     expect(readFileSync(tree.unitFile, 'utf8')).toContain(
-      `Environment=LD_LIBRARY_PATH=${join(ROOT, 'opt', APP)}/lib`,
+      `Environment=LD_LIBRARY_PATH=${join(ROOT, 'opt', APP)}/lib`
     )
     // Every path any privileged call named is inside the fixture root, or the
     // mktemp -d render directory install.sh stages the unit through. Nothing
@@ -2009,7 +2007,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     for (const p of privPaths(tree.sudoLog)) {
       expect(
         p.startsWith(`${ROOT}/`) || p.startsWith(renderRoot),
-        `privileged call touched a path outside the fixture: ${p}`,
+        `privileged call touched a path outside the fixture: ${p}`
       ).toBe(true)
     }
     expect(readFileSync(tree.sudoLog, 'utf8')).not.toContain('/etc/systemd')
@@ -2034,7 +2032,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const body = JSON.stringify({
       status: 'failed',
       version: '0.8.0',
-      checks: { database: 'ok', embedder: 'ok' },
+      checks: { database: 'ok', embedder: 'ok' }
     })
     const real = healthGateTree(realRoot, RELEASES, body, join(realRoot, 'health.log'))
     const mut = healthGateTree(mutRoot, RELEASES, body, join(mutRoot, 'health.log'))
@@ -2101,7 +2099,11 @@ describe('install.sh — DIST=binary tarball install', () => {
    * systemctl stub stands in for systemd, so nothing privileged and nothing
    * outside the fixture is touched.
    */
-  function reinstallTree(root: string, releases: string, opts: { mutate?: (deployDir: string) => void } = {}) {
+  function reinstallTree(
+    root: string,
+    releases: string,
+    opts: { mutate?: (deployDir: string) => void } = {}
+  ) {
     seedRelease(releases, 'v0.8.0', stubPayload('v0.8.0'))
     seedRelease(releases, 'v0.9.0', stubPayload('v0.9.0'))
     const unitFile = join(root, 'unit', `${APP}.service`)
@@ -2113,7 +2115,7 @@ describe('install.sh — DIST=binary tarball install', () => {
       // The unit write goes through run_root, so the sudo stub must execute for
       // the service path to be exercised at all.
       execSudo: true,
-      unitState: true,
+      unitState: true
     })
     stubServingHealth(tree.stubsDir, tree.stateDir, healthLog)
     opts.mutate?.(tree.deployDir)
@@ -2126,9 +2128,14 @@ describe('install.sh — DIST=binary tarball install', () => {
 
     // Run 1: the fresh install. The unit is not active yet, so this is also the
     // FIRST-INSTALL case: whatever verb the fix uses has to start it here.
-    const first = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, ['--version', 'v0.8.0'])
+    const first = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0'
+    ])
     expect(first.status, first.stdout + first.stderr).toBe(0)
-    expect(servingVersion(tree.stateDir), 'the first install must have started the unit').toBe('0.8.0')
+    expect(servingVersion(tree.stateDir), 'the first install must have started the unit').toBe(
+      '0.8.0'
+    )
     // Run 1's own polls saw 0.8.0 — so the samples asserted below can only be 0.9.0
     // if run 2 really did put the new payload on the port.
     const afterFirst = healthSamples(healthLog).length
@@ -2140,7 +2147,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const second = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
       '--version',
       'v0.9.0',
-      '--force',
+      '--force'
     ])
 
     // The observable the defect denied: the SERVING payload is the new one.
@@ -2177,7 +2184,12 @@ describe('install.sh — DIST=binary tarball install', () => {
       // The mutation is the historical code, not a weakened gate: the health
       // check is untouched, so the only variable is the verb that puts the
       // service on the new payload.
-      mutate: (deployDir) => mutateInstallScript(deployDir, RESTART_CALL, '  if run_root systemctl start "$APP_NAME"; then'),
+      mutate: deployDir =>
+        mutateInstallScript(
+          deployDir,
+          RESTART_CALL,
+          '  if run_root systemctl start "$APP_NAME"; then'
+        )
     })
 
     const first = ['--version', 'v0.8.0']
@@ -2211,7 +2223,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     for (const s of mutSamples) expect(s).toContain(' 0.8.0')
     expect(
       readFileSync(join(mutRoot, 'opt', APP, APP), 'utf8'),
-      'the payload on disk was replaced anyway',
+      'the payload on disk was replaced anyway'
     ).toContain('synaptomind v0.9.0')
 
     // Shipped: the opposite on every one of those points.
@@ -2230,7 +2242,10 @@ describe('install.sh — DIST=binary tarball install', () => {
     const tree = reinstallTree(ROOT, RELEASES)
     expect(existsSync(join(tree.stateDir, 'active')), 'precondition: nothing is active').toBe(false)
 
-    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, ['--version', 'v0.8.0'])
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0'
+    ])
 
     expect(res.status, res.stdout + res.stderr).toBe(0)
     expect(res.stdout).toContain('Done.')
@@ -2244,10 +2259,18 @@ describe('install.sh — DIST=binary tarball install', () => {
     // `restart` does, so a test that only covered the re-install could not tell
     // them apart; on a FIRST install it is inert and the service never comes up.
     const tree = reinstallTree(ROOT, RELEASES, {
-      mutate: (deployDir) => mutateInstallScript(deployDir, RESTART_CALL, '  if run_root systemctl try-restart "$APP_NAME"; then'),
+      mutate: deployDir =>
+        mutateInstallScript(
+          deployDir,
+          RESTART_CALL,
+          '  if run_root systemctl try-restart "$APP_NAME"; then'
+        )
     })
 
-    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, ['--version', 'v0.8.0'])
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0'
+    ])
 
     // The payload and the unit are on disk and complete — the ONLY thing missing
     // is a running process, which is the whole point.
@@ -2266,7 +2289,10 @@ describe('install.sh — DIST=binary tarball install', () => {
     // version this install did NOT put there must still fail the run, even though
     // the restart succeeded and the summary was printed.
     const tree = healthGateTree(ROOT, RELEASES, healthyBody('0.7.9'), join(ROOT, 'health.log'))
-    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, ['--version', 'v0.8.0'])
+    const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
+      '--version',
+      'v0.8.0'
+    ])
     expect(res.status, res.stdout + res.stderr).toBe(1)
     expect(res.stderr).toContain('reports version 0.7.9, expected 0.8.0')
     expect(res.stdout).not.toContain('Done.')
@@ -2276,7 +2302,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     // that ordering moved — pinned here so a future reorder surfaces as a diff.
     expect(res.stdout).toContain(`=== ${APP} installed ===`)
     expect(res.stdout.indexOf(`=== ${APP} installed ===`)).toBeLessThan(
-      res.stdout.indexOf('Done.') === -1 ? res.stdout.length : res.stdout.indexOf('Done.'),
+      res.stdout.indexOf('Done.') === -1 ? res.stdout.length : res.stdout.indexOf('Done.')
     )
   }, 60_000)
 
@@ -2288,7 +2314,7 @@ describe('install.sh — DIST=binary tarball install', () => {
     const res = runBinaryInstall(tree.deployDir, tree.stubsDir, tree.sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(res.status, res.stdout + res.stderr).toBe(0)
     expect(readFileSync(tree.sudoLog, 'utf8')).toBe('')
@@ -2325,12 +2351,12 @@ describe.skipIf(!existsSync(REAL_TARBALL))('install.sh — the real published ta
 
   test('installs the real payload and the binary reports v0.8.0 with no bun', () => {
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
-      releasesBase: `file://${RELEASES}`,
+      releasesBase: `file://${RELEASES}`
     })
     const res = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     const installDir = join(ROOT, 'opt', APP)
     expect(res.status, res.stderr + res.stdout).toBe(0)
@@ -2339,11 +2365,7 @@ describe.skipIf(!existsSync(REAL_TARBALL))('install.sh — the real published ta
     }
     // The version check in the installer already ran the binary; assert the
     // contract directly under `env -i` so no bun on PATH can answer for it.
-    const ver = spawnSync(
-      'env',
-      ['-i', join(installDir, APP), '--version'],
-      { encoding: 'utf8' },
-    )
+    const ver = spawnSync('env', ['-i', join(installDir, APP), '--version'], { encoding: 'utf8' })
     expect(ver.stdout.trim(), ver.stderr).toBe('synaptomind v0.8.0')
     expect(tempLeftovers(installDir)).toEqual([])
   }, 60_000)
@@ -2352,18 +2374,18 @@ describe.skipIf(!existsSync(REAL_TARBALL))('install.sh — the real published ta
     // Regression: ver_cmp "v0.8.0" "0.8.0" answers "newer", so an up-to-date
     // binary install used to fail with "use --force to override" (ADR §2.6).
     const { deployDir, stubsDir, sudoLog } = seedBinaryTree(ROOT, {
-      releasesBase: `file://${RELEASES}`,
+      releasesBase: `file://${RELEASES}`
     })
     const first = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(first.status, first.stderr + first.stdout).toBe(0)
     const second = runBinaryInstall(deployDir, stubsDir, sudoLog, [
       '--version',
       'v0.8.0',
-      '--no-service',
+      '--no-service'
     ])
     expect(second.status, second.stderr + second.stdout).toBe(0)
     expect(second.stdout).toContain('up to date')

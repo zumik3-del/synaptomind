@@ -15,7 +15,9 @@ beforeEach(() => {
   createTestDb()
   // vec_thoughts is a vec0 virtual table — unavailable in :memory: databases.
   // Stub it as a plain table like the verify/health-check tests do.
-  getDb().prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)').run()
+  getDb()
+    .prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)')
+    .run()
 })
 
 afterEach(closeDb)
@@ -28,10 +30,22 @@ function enqueue(id: string, createdAt: string): void {
     .run(id, createdAt)
 }
 
-function pendingRow(id: string): { attempts: number; is_error: number; last_error: string | null; error: string | null } {
+function pendingRow(id: string): {
+  attempts: number
+  is_error: number
+  last_error: string | null
+  error: string | null
+} {
   return getDb()
-    .prepare('SELECT attempts, is_error, last_error, error FROM pending_embeddings WHERE thought_id = ?')
-    .get(id) as { attempts: number; is_error: number; last_error: string | null; error: string | null }
+    .prepare(
+      'SELECT attempts, is_error, last_error, error FROM pending_embeddings WHERE thought_id = ?'
+    )
+    .get(id) as {
+    attempts: number
+    is_error: number
+    last_error: string | null
+    error: string | null
+  }
 }
 
 test('findPendingEmbeddings returns non-error rows ordered by created_at', () => {
@@ -74,7 +88,10 @@ test('sweepOrphanedThoughts returns only thoughts with no vec row and no pending
     // the insert trigger queued every seeded thought — clear non-orphans
     db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(id)
   }
-  db.prepare('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)').run(embedded, Buffer.alloc(0))
+  db.prepare('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)').run(
+    embedded,
+    Buffer.alloc(0)
+  )
 
   const swept = sweepOrphanedThoughts(db, 10)
 
@@ -158,7 +175,11 @@ test('insertEmbedding stores the payload bytes on hash match', () => {
   const row = db.prepare('SELECT embedding FROM vec_thoughts WHERE id = ?').get(id) as {
     embedding: Uint8Array
   }
-  const floats = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4)
+  const floats = new Float32Array(
+    row.embedding.buffer,
+    row.embedding.byteOffset,
+    row.embedding.byteLength / 4
+  )
   expect(Array.from(floats)).toEqual([1.5, -2.5, 3.25])
 })
 
@@ -174,7 +195,11 @@ test('insertEmbedding replaces an existing vec row instead of duplicating it', (
     embedding: Uint8Array
   }[]
   expect(rows).toHaveLength(1)
-  const floats = new Float32Array(rows[0]!.embedding.buffer, rows[0]!.embedding.byteOffset, rows[0]!.embedding.byteLength / 4)
+  const floats = new Float32Array(
+    rows[0]!.embedding.buffer,
+    rows[0]!.embedding.byteOffset,
+    rows[0]!.embedding.byteLength / 4
+  )
   expect(Array.from(floats)).toEqual([2, 2, 2])
 })
 

@@ -46,7 +46,10 @@ async function freePort(): Promise<number> {
 function rpc(base: string, body: unknown): Promise<Response> {
   return fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: authHeaders({ 'content-type': 'application/json', accept: 'application/json, text/event-stream' }),
+    headers: authHeaders({
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream'
+    }),
     body: JSON.stringify(body)
   })
 }
@@ -73,7 +76,9 @@ test('transport constants are assigned from config.mcp', () => {
   expect(transportSource).toContain('const MAX_SESSIONS = config.mcp.maxSessions')
   expect(transportSource).toContain('const SESSION_TTL_MS = config.mcp.sessionTtlMs')
   expect(transportSource).toContain('const KEEPALIVE_MS = config.mcp.keepAliveMs')
-  expect(storeSource).toContain('export const MAX_EVENTS_PER_SESSION = config.mcp.maxEventsPerSession')
+  expect(storeSource).toContain(
+    'export const MAX_EVENTS_PER_SESSION = config.mcp.maxEventsPerSession'
+  )
   expect(MAX_EVENTS_PER_SESSION).toBe(config.mcp.maxEventsPerSession)
 })
 
@@ -85,7 +90,11 @@ test('the event-store cap follows the configured maxEventsPerSession', async () 
   }
 
   const sent: string[] = []
-  const streamId = await store.replayEventsAfter(first, { send: async id => { sent.push(id) } })
+  const streamId = await store.replayEventsAfter(first, {
+    send: async id => {
+      sent.push(id)
+    }
+  })
   expect(streamId).toBe('')
   expect(sent).toEqual([])
 })
@@ -105,7 +114,9 @@ test('maxSessions caps concurrent sessions with 429 and keepAlive is forwarded',
     expect(server.getSessions().size).toBe(2)
 
     // KEEPALIVE_MS flows into the SDK transport (private field of the pinned SDK).
-    const transport = server.getSessions().get(firstId)!.transport as unknown as { _keepAliveMs?: number }
+    const transport = server.getSessions().get(firstId)!.transport as unknown as {
+      _keepAliveMs?: number
+    }
     expect(transport._keepAliveMs).toBe(config.mcp.keepAliveMs)
   } finally {
     await server.stop()

@@ -169,7 +169,11 @@ export function reflectSessionService(input: ReflectInput, d: Database = getDb()
         throw new ValidationError('decisions entries must be non-empty strings')
       }
       const projectId = input.project_id || resolveDefaultProjectId(d)
-      if (hasDuplicateDecision(d, decision, projectId) || hasLiveReflectionContent(d, decision.trim(), projectId)) continue
+      if (
+        hasDuplicateDecision(d, decision, projectId) ||
+        hasLiveReflectionContent(d, decision.trim(), projectId)
+      )
+        continue
       createThought(d, {
         content: decision.trim(),
         status: 'active',
@@ -191,7 +195,8 @@ export function reflectSessionService(input: ReflectInput, d: Database = getDb()
       if (typeof item !== 'string' || !item.trim()) {
         throw new ValidationError('pending entries must be non-empty strings')
       }
-      if (hasLiveReflectionContent(d, item.trim(), input.project_id || resolveDefaultProjectId(d))) continue
+      if (hasLiveReflectionContent(d, item.trim(), input.project_id || resolveDefaultProjectId(d)))
+        continue
       createThought(d, {
         content: item.trim(),
         status: 'draft',

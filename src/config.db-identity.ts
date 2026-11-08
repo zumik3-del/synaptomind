@@ -58,10 +58,16 @@ export function assertDistinctDatabasePaths(paths: string[]): void {
       throw new Error('[config] cannot safely resolve user dbPath')
     }
     for (const previous of identities) {
-      if (identity.path === previous.path || (identity.inode !== undefined && identity.inode === previous.inode)) {
+      if (
+        identity.path === previous.path ||
+        (identity.inode !== undefined && identity.inode === previous.inode)
+      ) {
         throw new Error('[config] duplicate user dbPath')
       }
-      if (identity.path.startsWith(`${previous.path}/`) || previous.path.startsWith(`${identity.path}/`)) {
+      if (
+        identity.path.startsWith(`${previous.path}/`) ||
+        previous.path.startsWith(`${identity.path}/`)
+      ) {
         throw new Error('[config] overlapping user dbPath')
       }
     }

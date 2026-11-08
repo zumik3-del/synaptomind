@@ -13,7 +13,9 @@ beforeEach(createTestDb)
 afterEach(closeDb)
 
 function setImportance(id: string, value: number): void {
-  getDb().prepare('UPDATE thought_importance SET importance = ? WHERE thought_id = ?').run(value, id)
+  getDb()
+    .prepare('UPDATE thought_importance SET importance = ? WHERE thought_id = ?')
+    .run(value, id)
 }
 
 test('getThoughtImportance returns null for unknown id', () => {
@@ -58,7 +60,10 @@ test('decayImportance decays old rows', () => {
   setImportance(id, 0.8)
   const db = getDb()
   const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString()
-  db.prepare('UPDATE thought_importance SET last_decay = ? WHERE thought_id = ?').run(twoDaysAgo, id)
+  db.prepare('UPDATE thought_importance SET last_decay = ? WHERE thought_id = ?').run(
+    twoDaysAgo,
+    id
+  )
   decayImportance(getDb(), 0.5)
   expect(getThoughtImportance(getDb(), id)!.importance).toBeCloseTo(0.4)
 })

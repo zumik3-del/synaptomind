@@ -6,12 +6,20 @@ export const DEFAULT_LIST_LIMIT = 100
 export const MAX_LIST_LIMIT = 1000
 
 /** Resolve the per-enqueue proposal cap from options/config (first defined wins). */
-export function resolveMaxProposalsPerEnqueue(options: EnqueuePlanOptions | EnqueueThoughtOptions = {}): number {
+export function resolveMaxProposalsPerEnqueue(
+  options: EnqueuePlanOptions | EnqueueThoughtOptions = {}
+): number {
   const o = options as Record<string, unknown>
   const candidates = [
-    o.maxProposals, o.max_proposals, o.maxItems, o.max_items,
-    o.maxItemsPerEnqueue, o.max_items_per_enqueue,
-    o.maxProposalsPerEnqueue, o.max_proposals_per_enqueue, o.limit
+    o.maxProposals,
+    o.max_proposals,
+    o.maxItems,
+    o.max_items,
+    o.maxItemsPerEnqueue,
+    o.max_items_per_enqueue,
+    o.maxProposalsPerEnqueue,
+    o.max_proposals_per_enqueue,
+    o.limit
   ]
   for (const c of candidates) {
     if (c !== undefined && c !== null && Number.isFinite(c as number)) {
@@ -20,7 +28,10 @@ export function resolveMaxProposalsPerEnqueue(options: EnqueuePlanOptions | Enqu
   }
   const cfg = config.placement as Record<string, unknown>
   const cfgCandidates = [
-    cfg.maxProposalsPerEnqueue, cfg.maxProposals, cfg.maxItemsPerEnqueue, cfg.maxItemsPerRun,
+    cfg.maxProposalsPerEnqueue,
+    cfg.maxProposals,
+    cfg.maxItemsPerEnqueue,
+    cfg.maxItemsPerRun,
     (config.edgeDetect as Record<string, unknown>)?.maxProposals
   ]
   for (const c of cfgCandidates) {

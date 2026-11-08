@@ -31,8 +31,12 @@ export default {
         result            TEXT
       )
     `)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_pp_pending ON placement_proposals(state, project_id, created_at)`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_pp_source ON placement_proposals(source_thought_id, state)`)
+    db.run(
+      `CREATE INDEX IF NOT EXISTS idx_pp_pending ON placement_proposals(state, project_id, created_at)`
+    )
+    db.run(
+      `CREATE INDEX IF NOT EXISTS idx_pp_source ON placement_proposals(source_thought_id, state)`
+    )
     // One live proposal per item: the partial unique index makes enqueue
     // idempotent at the DB level (ADR §2.3).
     db.run(`

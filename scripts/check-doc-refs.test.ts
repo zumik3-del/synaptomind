@@ -27,7 +27,12 @@ interface LintRun {
 }
 
 async function runLint(scriptPath: string, cwd: string): Promise<LintRun> {
-  const proc = Bun.spawn(['bun', scriptPath], { cwd, env: process.env, stdout: 'pipe', stderr: 'pipe' })
+  const proc = Bun.spawn(['bun', scriptPath], {
+    cwd,
+    env: process.env,
+    stdout: 'pipe',
+    stderr: 'pipe'
+  })
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -89,7 +94,8 @@ describe('check-doc-refs lint #1757/#1780', () => {
       '# see docs/adr/0001-self-contained-binary-tarball-deployment.md\nDIST="binary"\n'
     )
     const { stderr, exitCode } = await runLint(script, cwd)
-    if (exitCode === 0) console.error('[check-doc-refs] deploy/ seed unexpectedly clean:\n' + stderr)
+    if (exitCode === 0)
+      console.error('[check-doc-refs] deploy/ seed unexpectedly clean:\n' + stderr)
     expect(exitCode).not.toBe(0)
     expect(stderr).toContain('docs/adr/')
     expect(stderr).toContain('deploy/app.env')

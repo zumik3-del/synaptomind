@@ -38,7 +38,16 @@
  */
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { chownSync, chmodSync, copyFileSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chownSync,
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { join } from 'node:path'
 import { guardRealStateDir, installCleanup, mkTempTree } from './tmp-fixtures'
 
@@ -107,7 +116,7 @@ function runOwnership(opts: RunOpts): Run {
       // The privilege boundary, recorded rather than crossed. run_root is
       // `sudo "$@"` for a non-root caller, and the DECISION under test (which
       // path, which spec, or none at all) is entirely upstream of it.
-      'run_root() { printf \'RUN_ROOT %s\\n\' "$*"; return "${OWNERSHIP_SPY_RC:-0}"; }',
+      'run_root() { printf \'RUN_ROOT %s\\n\' "$*"; return "${OWNERSHIP_SPY_RC:-0}"; }'
     )
   }
   const path = [...(opts.stubs ?? []), process.env.PATH].join(':')
@@ -123,10 +132,10 @@ function runOwnership(opts: RunOpts): Run {
         TARGET_USER: ME,
         TARGET_GROUP: MY_GROUP,
         OWNERSHIP_SPY_RC: String(opts.spyRc ?? 0),
-        ...opts.env,
+        ...opts.env
       } as Record<string, string>,
-      timeout: 30_000,
-    },
+      timeout: 30_000
+    }
   )
   return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' }
 }
@@ -135,14 +144,14 @@ function runOwnership(opts: RunOpts): Run {
 function chowns(res: Run): { spec: string; path: string }[] {
   return res.stdout
     .split('\n')
-    .filter((l) => l.startsWith('RUN_ROOT chown'))
-    .map((l) => l.replace('RUN_ROOT chown -R ', '').split(' '))
+    .filter(l => l.startsWith('RUN_ROOT chown'))
+    .map(l => l.replace('RUN_ROOT chown -R ', '').split(' '))
     .map(([spec, path]) => ({ spec, path }))
 }
 
 /** Just the paths, which is what most of these assertions read. */
 function chownedPaths(res: Run): string[] {
-  return chowns(res).map((c) => c.path)
+  return chowns(res).map(c => c.path)
 }
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -211,8 +220,8 @@ function seedForeignOwnerStat(root: string): string {
       // preserve an operator's 600, and forwarding the rest keeps that path real.
       '  if [ "$a" = "%U:%G" ]; then printf \'root:root\\n\'; exit 0; fi',
       'done',
-      `exec ${JSON.stringify(REAL_STAT)} "$@"`,
-    ].join('\n'),
+      `exec ${JSON.stringify(REAL_STAT)} "$@"`
+    ].join('\n')
   )
   chmodSync(join(stubs, 'stat'), 0o755)
   return stubs
@@ -238,8 +247,8 @@ function seedSudoStub(root: string): { stubs: string; log: string } {
       // `exec`, so the chown really happens: what is under test is the shipped
       // `chown -R <spec> <path>` and its EFFECT, and a stub that swallowed the
       // command would prove nothing about the repair.
-      'exec "$@"',
-    ].join('\n'),
+      'exec "$@"'
+    ].join('\n')
   )
   chmodSync(join(stubs, 'sudo'), 0o755)
   return { stubs, log }
@@ -260,7 +269,11 @@ function seedFindWrapper(root: string): { stubs: string; log: string } {
   writeFileSync(log, '')
   writeFileSync(
     join(stubs, 'find'),
-    ['#!/usr/bin/env bash', 'printf \'%s\\n\' "$*" >> "$FIND_LOG"', `exec ${JSON.stringify(REAL_FIND)} "$@"`].join('\n'),
+    [
+      '#!/usr/bin/env bash',
+      'printf \'%s\\n\' "$*" >> "$FIND_LOG"',
+      `exec ${JSON.stringify(REAL_FIND)} "$@"`
+    ].join('\n')
   )
   chmodSync(join(stubs, 'find'), 0o755)
   return { stubs, log }
@@ -270,7 +283,10 @@ function seedFindWrapper(root: string): { stubs: string; log: string } {
 function seedFailingFind(root: string): string {
   const stubs = join(root, 'failfind-stubs')
   mkdirSync(stubs, { recursive: true })
-  writeFileSync(join(stubs, 'find'), ['#!/usr/bin/env bash', 'echo "find: unsupported" >&2', 'exit 1'].join('\n'))
+  writeFileSync(
+    join(stubs, 'find'),
+    ['#!/usr/bin/env bash', 'echo "find: unsupported" >&2', 'exit 1'].join('\n')
+  )
   chmodSync(join(stubs, 'find'), 0o755)
   return stubs
 }
@@ -334,13 +350,20 @@ describe('ownership_mismatch — a correct top directory is not the question', (
       const child = seedForeignOwnedEntry(tree, 'sub', FOREIGN!)
       const { stubs, log } = seedSudoStub(root)
       const find = seedFindWrapper(root)
-      expect(statSync(child).gid, 'the fixture must start out mismatched').not.toBe(statSync(tree).gid)
+      expect(statSync(child).gid, 'the fixture must start out mismatched').not.toBe(
+        statSync(tree).gid
+      )
 
       const res = runOwnership({
         call: ['apply_ownership'],
         stubs: [find.stubs, stubs],
         spyRoot: false,
-        env: { FIND_LOG: find.log, SUDO_LOG: log, INSTALL_DIR: tree, DATA_DIR: join(root, 'absent-data') },
+        env: {
+          FIND_LOG: find.log,
+          SUDO_LOG: log,
+          INSTALL_DIR: tree,
+          DATA_DIR: join(root, 'absent-data')
+        }
       })
 
       expect(res.status, res.stdout + res.stderr).toBe(0)
@@ -349,8 +372,10 @@ describe('ownership_mismatch — a correct top directory is not the question', (
       // The chown named the tree — and the REAL chown ran, through the stub.
       expect(readFileSync(log, 'utf8'), res.stdout).toContain(`chown -R ${ME}:${MY_GROUP} ${tree}`)
       // And the tree is actually repaired, which an argv assertion alone cannot show.
-      expect(statSync(child).gid, 'the child is still in the foreign group').toBe(statSync(tree).gid)
-    },
+      expect(statSync(child).gid, 'the child is still in the foreign group').toBe(
+        statSync(tree).gid
+      )
+    }
   )
 
   test('a fully owned tree is NOT chowned — the walk finds nothing', () => {
@@ -366,7 +391,7 @@ describe('ownership_mismatch — a correct top directory is not the question', (
     const res = runOwnership({
       call: ['apply_ownership'],
       stubs: [find.stubs],
-      env: { FIND_LOG: find.log, INSTALL_DIR: tree, DATA_DIR: join(root, 'absent-data') },
+      env: { FIND_LOG: find.log, INSTALL_DIR: tree, DATA_DIR: join(root, 'absent-data') }
     })
 
     expect(res.status, res.stdout + res.stderr).toBe(0)
@@ -395,12 +420,14 @@ describe('ownership_mismatch — a correct top directory is not the question', (
         call: ['apply_ownership'],
         lib,
         stubs: [find.stubs],
-        env: { FIND_LOG: find.log, INSTALL_DIR: tree, DATA_DIR: join(root, 'absent-data') },
+        env: { FIND_LOG: find.log, INSTALL_DIR: tree, DATA_DIR: join(root, 'absent-data') }
       })
 
       expect(res.status, res.stdout + res.stderr).toBe(0)
-      expect(res.stdout, 'the top-directory-only decision still chowned the tree').not.toContain('RUN_ROOT chown')
-    },
+      expect(res.stdout, 'the top-directory-only decision still chowned the tree').not.toContain(
+        'RUN_ROOT chown'
+      )
+    }
   )
 })
 
@@ -415,7 +442,7 @@ describe('ownership_mismatch — an unverifiable tree is a mismatch', () => {
     const res = runOwnership({
       call: ['apply_ownership'],
       stubs: [seedFailingFind(root)],
-      env: { INSTALL_DIR: tree, DATA_DIR: join(root, 'absent-data') },
+      env: { INSTALL_DIR: tree, DATA_DIR: join(root, 'absent-data') }
     })
 
     expect(res.status, res.stdout + res.stderr).toBe(0)
@@ -441,7 +468,7 @@ describe('ownership_mismatch — an unverifiable tree is a mismatch', () => {
 
     const res = runOwnership({
       call: ['apply_ownership'],
-      env: { PATH: stubs, INSTALL_DIR: tree, DATA_DIR: join(root, 'absent-data') },
+      env: { PATH: stubs, INSTALL_DIR: tree, DATA_DIR: join(root, 'absent-data') }
     })
 
     expect(res.status, res.stdout + res.stderr).toBe(0)
@@ -463,7 +490,7 @@ describe('apply_ownership — both trees', () => {
     const res = runOwnership({
       call: ['apply_ownership'],
       stubs: [seedForeignOwnerStat(root)],
-      env: { INSTALL_DIR: install, DATA_DIR: data },
+      env: { INSTALL_DIR: install, DATA_DIR: data }
     })
 
     expect(res.status, res.stdout + res.stderr).toBe(0)
@@ -483,7 +510,9 @@ describe('apply_ownership — both trees', () => {
     const res = runOwnership({ call: ['apply_ownership'], env: { INSTALL_DIR: install } })
 
     expect(res.status, res.stdout + res.stderr).toBe(0)
-    expect(res.stderr, 'set -u must not abort on an unset DATA_DIR').not.toContain('unbound variable')
+    expect(res.stderr, 'set -u must not abort on an unset DATA_DIR').not.toContain(
+      'unbound variable'
+    )
   })
 })
 
@@ -500,7 +529,7 @@ describe('chown_target — a chown that fails is reported, and is never fatal', 
       call: ['apply_ownership'],
       stubs: [seedForeignOwnerStat(root)],
       spyRc: 1,
-      env: { INSTALL_DIR: tree, DATA_DIR: join(root, 'absent-data') },
+      env: { INSTALL_DIR: tree, DATA_DIR: join(root, 'absent-data') }
     })
 
     expect(res.status, res.stdout + res.stderr).toBe(0)
@@ -531,16 +560,18 @@ describe('apply_run_dir_ownership — RUN_DIR, scripts/ and hooks/ only', () => 
     const res = runOwnership({
       call: ['apply_run_dir_ownership'],
       stubs: [seedForeignOwnerStat(root)],
-      env: { RUN_DIR: runDir },
+      env: { RUN_DIR: runDir }
     })
 
     expect(res.status, res.stdout + res.stderr).toBe(0)
     expect(chownedPaths(res), 'the three documented paths, in order').toEqual([
       runDir,
       join(runDir, 'scripts'),
-      join(runDir, 'hooks'),
+      join(runDir, 'hooks')
     ])
-    expect(res.stdout, "RUN_DIR/data is not the framework's to chown").not.toContain(join(runDir, 'data'))
+    expect(res.stdout, "RUN_DIR/data is not the framework's to chown").not.toContain(
+      join(runDir, 'data')
+    )
   })
 
   test.skipIf(FOREIGN === null)(
@@ -561,16 +592,16 @@ describe('apply_run_dir_ownership — RUN_DIR, scripts/ and hooks/ only', () => 
       const res = runOwnership({
         call: ['apply_run_dir_ownership'],
         stubs: [find.stubs],
-        env: { FIND_LOG: find.log, RUN_DIR: runDir },
+        env: { FIND_LOG: find.log, RUN_DIR: runDir }
       })
 
       expect(res.status, res.stdout + res.stderr).toBe(0)
-      expect(chownedPaths(res), 'the mismatched path and its scanned parent, in loop order').toEqual([
-        runDir,
-        join(runDir, 'scripts'),
-      ])
+      expect(
+        chownedPaths(res),
+        'the mismatched path and its scanned parent, in loop order'
+      ).toEqual([runDir, join(runDir, 'scripts')])
       expect(readFileSync(find.log, 'utf8')).toContain(join(runDir, 'scripts'))
-    },
+    }
   )
 
   test('an empty RUN_DIR returns 0 without tripping set -u', () => {
@@ -596,7 +627,7 @@ describe('apply_run_dir_ownership — RUN_DIR, scripts/ and hooks/ only', () => 
     const res = runOwnership({
       call: ['apply_run_dir_ownership'],
       stubs: [seedForeignOwnerStat(root)],
-      env: { RUN_DIR: runDir },
+      env: { RUN_DIR: runDir }
     })
 
     expect(res.status, res.stdout + res.stderr).toBe(0)
@@ -610,7 +641,13 @@ describe('lib/common.sh — the ownership helpers are the ones under test', () =
   test('every helper this file calls is defined in the shipped lib', () => {
     // A renamed or dropped helper would otherwise surface as "command not found"
     // in one spawn's stderr, which a status-0 assertion elsewhere could hide.
-    const helpers = ['ownership_target', 'ownership_mismatch', 'chown_target', 'apply_ownership', 'apply_run_dir_ownership']
+    const helpers = [
+      'ownership_target',
+      'ownership_mismatch',
+      'chown_target',
+      'apply_ownership',
+      'apply_run_dir_ownership'
+    ]
     const res = runOwnership({ call: ['declare', '-F', ...helpers] })
     for (const fn of helpers) expect(res.stdout, `${fn} is not defined in ${LIB}`).toContain(fn)
   })

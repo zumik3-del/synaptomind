@@ -8,6 +8,8 @@ export default {
     } catch {
       // column already exists
     }
-    db.run(`CREATE INDEX IF NOT EXISTS idx_thoughts_profile ON thoughts(is_profile) WHERE is_profile = 1`)
+    db.run(
+      `CREATE INDEX IF NOT EXISTS idx_thoughts_profile ON thoughts(is_profile) WHERE is_profile = 1`
+    )
   }
 }

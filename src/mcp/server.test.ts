@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport } from "@modelcontextprotocol/server";
+import { InMemoryTransport } from '@modelcontextprotocol/server'
 import { createTestDb } from '../test/helpers'
 import { createMcpServer } from './server'
 

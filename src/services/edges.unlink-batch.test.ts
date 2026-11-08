@@ -28,7 +28,9 @@ describe('unlink batch atomicity', () => {
     const b = seedEdge(seedThought(), seedThought())
     const ids = [a, 'missing', a, b]
     const result = deleteEdgesBatchService(ids, true, db)
-    expect(result.results.map(item => [item.edge_id, item.status])).toEqual(ids.map(id => [id, 'failed']))
+    expect(result.results.map(item => [item.edge_id, item.status])).toEqual(
+      ids.map(id => [id, 'failed'])
+    )
     expect(result.errors.map(item => item.index)).toEqual([0, 1, 2, 3])
     expect(result.errors[1].error).toContain('Edge not found')
     expect([result.deleted, result.failed, result.total]).toEqual([0, 4, 4])
@@ -52,7 +54,14 @@ describe('unlink batch atomicity', () => {
     const result = deleteEdgesBatchService([a, a, 'missing'], false, db)
     expect(result.results.map(item => item.status)).toEqual(['preview', 'preview', 'failed'])
     expect(result.results.slice(0, 2).map(item => item.edge?.id)).toEqual([a, a])
-    expect([result.preview, result.previews, result.failed, result.failures, result.deleted, result.total]).toEqual([2, 2, 1, 1, 0, 3])
+    expect([
+      result.preview,
+      result.previews,
+      result.failed,
+      result.failures,
+      result.deleted,
+      result.total
+    ]).toEqual([2, 2, 1, 1, 0, 3])
     expect(result.items).toEqual(result.results)
     expect(result.edges).toEqual(result.results)
     expect(result.errors.map(item => item.index)).toEqual([2])

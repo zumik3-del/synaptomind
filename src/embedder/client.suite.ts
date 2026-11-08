@@ -75,7 +75,13 @@ function shrinkBackoff(baseMs = 25): void {
  * has already registered it in its pending map at that point).
  */
 function useLifecycleStub(
-  mode: 'hang' | 'crash-then-recover' | 'ready-no-answer' | 'idle-exit-on-request' | 'crash-on-request' | 'idle-exit-once',
+  mode:
+    | 'hang'
+    | 'crash-then-recover'
+    | 'ready-no-answer'
+    | 'idle-exit-on-request'
+    | 'crash-on-request'
+    | 'idle-exit-once',
   hangMs?: number
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'synaptomind-embedder-'))
@@ -410,7 +416,7 @@ test('startFailed latches backoffAttempt and a cooldown window before respawn', 
   await waitFor(() => {
     const internals = client as unknown as { startFailed: boolean }
     return internals.startFailed === true
-  }, "startFailed to latch")
+  }, 'startFailed to latch')
 
   const internals = client as unknown as {
     startFailed: boolean
@@ -480,9 +486,12 @@ test('teardown does not kill a newer live child', async () => {
     waitForExit: (p: unknown) => Promise<void>
   }
   const origWaitForExit = internals.waitForExit.bind(internals)
-  internals.waitForExit = (p: unknown) => new Promise<void>(resolve => {
-    setTimeout(() => { void origWaitForExit(p).then(resolve) }, 200)
-  })
+  internals.waitForExit = (p: unknown) =>
+    new Promise<void>(resolve => {
+      setTimeout(() => {
+        void origWaitForExit(p).then(resolve)
+      }, 200)
+    })
 
   const teardownPromise = client.stopEmbedderProcess()
   await new Promise(r => setTimeout(r, 50))

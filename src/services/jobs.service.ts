@@ -23,7 +23,10 @@ export function jobDatabases(): Database[] {
   }
 }
 
-export function createIntervalJob(opts: IntervalJobOptions, fn: () => void | Promise<void>): {
+export function createIntervalJob(
+  opts: IntervalJobOptions,
+  fn: () => void | Promise<void>
+): {
   start: () => void
   stop: () => void
 } {

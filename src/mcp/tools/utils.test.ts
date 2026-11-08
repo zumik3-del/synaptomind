@@ -38,8 +38,18 @@ describe('jsonResult envelope', () => {
 })
 
 test('thought output stringifies heterogeneous tags and strictly decodes boolean fields', () => {
-  expect(shapeThought({ tags: [' a ', { name: 'Name', tag: 'other' }, { tag: 'Tag' }, { id: 3 }, 4], is_protected: 1, is_global: '1', is_cluster: true })).toEqual({
-    tags: [' a ', 'Name', 'Tag', '3', '4'], is_protected: true, is_global: false, is_cluster: true
+  expect(
+    shapeThought({
+      tags: [' a ', { name: 'Name', tag: 'other' }, { tag: 'Tag' }, { id: 3 }, 4],
+      is_protected: 1,
+      is_global: '1',
+      is_cluster: true
+    })
+  ).toEqual({
+    tags: [' a ', 'Name', 'Tag', '3', '4'],
+    is_protected: true,
+    is_global: false,
+    is_cluster: true
   })
 })
 

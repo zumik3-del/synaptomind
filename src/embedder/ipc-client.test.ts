@@ -41,8 +41,15 @@ describe('IpcClient typed transient failures', () => {
     let sendFailure = false
     const client = new IpcClient(
       deps({
-        getProc: () => ({ send: () => { throw new Error('pipe closed') } }) as unknown as Subprocess,
-        onSendFailure: () => { sendFailure = true }
+        getProc: () =>
+          ({
+            send: () => {
+              throw new Error('pipe closed')
+            }
+          }) as unknown as Subprocess,
+        onSendFailure: () => {
+          sendFailure = true
+        }
       })
     )
 

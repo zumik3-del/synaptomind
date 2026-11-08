@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db/container'
 import { closeDb } from '../db/init'
-import { getThoughtByIdService, archiveThoughtByIdService, archiveThoughtsBatchService } from './thoughts.service'
+import {
+  getThoughtByIdService,
+  archiveThoughtByIdService,
+  archiveThoughtsBatchService
+} from './thoughts.service'
 import { mergeThoughtsService } from './merge.service'
 import { validateMergePreconditions } from './merge-helpers.service'
 import { getThoughtRow } from '../db/thoughts'
@@ -89,7 +93,11 @@ test('merging a legacy-flagged source archives it like any other source', () => 
   const neighbor = seedThought({ content: 'neighbor', status: 'active' })
   seedEdge(source, neighbor, 'develops')
 
-  const result = mergeThoughtsService({ sourceId: source, targetId: target, mergedContent: 'merged content' })
+  const result = mergeThoughtsService({
+    sourceId: source,
+    targetId: target,
+    mergedContent: 'merged content'
+  })
 
   expect(result.target.content).toBe('merged content')
   expect(getThoughtByIdService(source)?.status).toBe('archived')
@@ -98,7 +106,13 @@ test('merging a legacy-flagged source archives it like any other source', () => 
 
 test('a legacy-flagged archived thought is a retention-review candidate and stays protectable', () => {
   const id = leaveLegacyFlag(
-    seedThought({ content: 'legacy persona', status: 'archived', is_protected: 0, importance: 0.1, created_at: old })
+    seedThought({
+      content: 'legacy persona',
+      status: 'archived',
+      is_protected: 0,
+      importance: 0.1,
+      created_at: old
+    })
   )
   getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
   getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run(old, id)
@@ -111,5 +125,7 @@ test('a legacy-flagged archived thought is a retention-review candidate and stay
 
   // Used to be refused with a "profile" reason instead of being protected.
   protectRetentionReviewCandidateService(id, options, getDb())
-  expect(getDb().prepare('SELECT is_protected FROM thoughts WHERE id = ?').get(id)).toEqual({ is_protected: 1 })
+  expect(getDb().prepare('SELECT is_protected FROM thoughts WHERE id = ?').get(id)).toEqual({
+    is_protected: 1
+  })
 })

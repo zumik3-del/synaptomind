@@ -26,7 +26,7 @@ if (!process.env.SYNAPTOMIND_VEC0_PATH) {
         ? 'from the main checkout'
         : 'from the working directory'
     process.stderr.write(
-      `[test] vec0.so: no copy in ${repoRoot}; using ${resolution.path} (${origin})\n`,
+      `[test] vec0.so: no copy in ${repoRoot}; using ${resolution.path} (${origin})\n`
     )
   }
 }

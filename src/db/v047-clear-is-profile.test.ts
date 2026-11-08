@@ -78,21 +78,31 @@ function schemaVersion(db: Database): string | undefined {
 }
 
 function indexNames(db: Database): string[] {
-  return (db.prepare(`PRAGMA index_list(thoughts)`).all() as Array<{ name: string }>).map(i => i.name)
+  return (db.prepare(`PRAGMA index_list(thoughts)`).all() as Array<{ name: string }>).map(
+    i => i.name
+  )
 }
 
 function columnNames(db: Database): string[] {
-  return (db.prepare(`PRAGMA table_info(thoughts)`).all() as Array<{ name: string }>).map(c => c.name)
+  return (db.prepare(`PRAGMA table_info(thoughts)`).all() as Array<{ name: string }>).map(
+    c => c.name
+  )
 }
 
 function flaggedIds(db: Database): string[] {
   return (
-    db.prepare(`SELECT id FROM thoughts WHERE COALESCE(is_profile, 0) != 0 ORDER BY id`).all() as Array<{ id: string }>
+    db
+      .prepare(`SELECT id FROM thoughts WHERE COALESCE(is_profile, 0) != 0 ORDER BY id`)
+      .all() as Array<{ id: string }>
   ).map(r => r.id)
 }
 
 function insertProject(db: Database, id: string, name: string): void {
-  db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)`).run(id, name, '2020-01-01T00:00:00.000Z')
+  db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)`).run(
+    id,
+    name,
+    '2020-01-01T00:00:00.000Z'
+  )
 }
 
 function insertThought(
@@ -128,12 +138,41 @@ test('v047 clears the flag on seeded legacy rows and drops the profile index', (
     insertProject(db, 'proj-b', 'Project B')
     // Three legacy persona rows across statuses and projects: the flag is not a
     // property of one status, so a single-status fixture would under-test it.
-    insertThought(db, { id: 'th-active', content: 'persona fact', project_id: 'proj-a', status: 'active', is_profile: 1 })
-    insertThought(db, { id: 'th-draft', content: 'draft persona', project_id: 'proj-b', status: 'draft', is_profile: 1 })
-    insertThought(db, { id: 'th-archived', content: 'old persona', project_id: 'proj-a', status: 'archived', is_profile: 1 })
+    insertThought(db, {
+      id: 'th-active',
+      content: 'persona fact',
+      project_id: 'proj-a',
+      status: 'active',
+      is_profile: 1
+    })
+    insertThought(db, {
+      id: 'th-draft',
+      content: 'draft persona',
+      project_id: 'proj-b',
+      status: 'draft',
+      is_profile: 1
+    })
+    insertThought(db, {
+      id: 'th-archived',
+      content: 'old persona',
+      project_id: 'proj-a',
+      status: 'archived',
+      is_profile: 1
+    })
     // An unflagged row and a row with a NULL flag: neither may be rewritten.
-    insertThought(db, { id: 'th-plain', content: 'ordinary thought', project_id: 'proj-a', status: 'active' })
-    insertThought(db, { id: 'th-null', content: 'null flag', project_id: 'proj-b', status: 'active', is_profile: null })
+    insertThought(db, {
+      id: 'th-plain',
+      content: 'ordinary thought',
+      project_id: 'proj-a',
+      status: 'active'
+    })
+    insertThought(db, {
+      id: 'th-null',
+      content: 'null flag',
+      project_id: 'proj-b',
+      status: 'active',
+      is_profile: null
+    })
     expect(flaggedIds(db)).toEqual(['th-active', 'th-archived', 'th-draft'])
   })
 
@@ -147,12 +186,34 @@ test('v047 clears the flag on seeded legacy rows and drops the profile index', (
     // Content and status survive untouched: the 7 production rows kept their text.
     // A NULL flag stays NULL — the UPDATE only rewrites truthy values, so the
     // migration is a value fix, not a table rewrite.
-    expect(db.prepare(`SELECT id, content, status, is_profile, is_protected FROM thoughts ORDER BY id`).all()).toEqual([
-      { id: 'th-active', content: 'persona fact', status: 'active', is_profile: 0, is_protected: 1 },
-      { id: 'th-archived', content: 'old persona', status: 'archived', is_profile: 0, is_protected: 1 },
+    expect(
+      db
+        .prepare(`SELECT id, content, status, is_profile, is_protected FROM thoughts ORDER BY id`)
+        .all()
+    ).toEqual([
+      {
+        id: 'th-active',
+        content: 'persona fact',
+        status: 'active',
+        is_profile: 0,
+        is_protected: 1
+      },
+      {
+        id: 'th-archived',
+        content: 'old persona',
+        status: 'archived',
+        is_profile: 0,
+        is_protected: 1
+      },
       { id: 'th-draft', content: 'draft persona', status: 'draft', is_profile: 0, is_protected: 1 },
       { id: 'th-null', content: 'null flag', status: 'active', is_profile: null, is_protected: 1 },
-      { id: 'th-plain', content: 'ordinary thought', status: 'active', is_profile: 0, is_protected: 1 }
+      {
+        id: 'th-plain',
+        content: 'ordinary thought',
+        status: 'active',
+        is_profile: 0,
+        is_protected: 1
+      }
     ])
 
     expect(indexNames(db)).not.toContain('idx_thoughts_profile')
@@ -187,7 +248,9 @@ test('replaying v047 on an already-upgraded database changes nothing', () => {
     openRaw(path, db => ({
       version: schemaVersion(db),
       indexes: indexNames(db).sort(),
-      thoughts: db.prepare(`SELECT id, content, status, is_profile, updated_at FROM thoughts ORDER BY id`).all()
+      thoughts: db
+        .prepare(`SELECT id, content, status, is_profile, updated_at FROM thoughts ORDER BY id`)
+        .all()
     }))
 
   const upgraded = snapshot()

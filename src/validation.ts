@@ -30,7 +30,11 @@ export const graphOffsetSchema = z.coerce.number().int().min(GRAPH_OFFSET_MIN).m
 /** Page size for the timeline surface (`memory_reflect timeline`). */
 const TIMELINE_LIMIT_MIN = 1
 const TIMELINE_LIMIT_MAX = 500
-export const timelineLimitSchema = z.coerce.number().int().min(TIMELINE_LIMIT_MIN).max(TIMELINE_LIMIT_MAX)
+export const timelineLimitSchema = z.coerce
+  .number()
+  .int()
+  .min(TIMELINE_LIMIT_MIN)
+  .max(TIMELINE_LIMIT_MAX)
 
 /**
  * Item ceiling for the batch write actions (`memory_supersede action=archive_batch`,
@@ -46,7 +50,11 @@ export const BATCH_ITEMS_MAX = 1000
 /** Page size for the proposal queue (`edge_review action=list`). */
 const PROPOSALS_LIMIT_MIN = 1
 const PROPOSALS_LIMIT_MAX = 1000
-export const proposalsLimitSchema = z.coerce.number().int().min(PROPOSALS_LIMIT_MIN).max(PROPOSALS_LIMIT_MAX)
+export const proposalsLimitSchema = z.coerce
+  .number()
+  .int()
+  .min(PROPOSALS_LIMIT_MIN)
+  .max(PROPOSALS_LIMIT_MAX)
 
 /** ISO-8601 UTC datetime (the format stored timestamps use). */
 export const isoDateTimeSchema = z.iso.datetime()
@@ -57,7 +65,11 @@ export function validateStatus(status: string | undefined): void {
   }
 }
 
-export function validateContentLength(content: string, limits: ThoughtLimits, thoughtId?: string): void {
+export function validateContentLength(
+  content: string,
+  limits: ThoughtLimits,
+  thoughtId?: string
+): void {
   const { softLimit, hardLimit } = limits
   if (content.length > hardLimit) {
     throw new ValidationError(

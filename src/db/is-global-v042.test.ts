@@ -35,9 +35,9 @@ test('v042: is_global is INTEGER NOT NULL DEFAULT 0', () => {
 })
 
 test('v042: schema_version is 42 after fresh init', () => {
-  const row = getDb()
-    .prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`)
-    .get() as { value: string } | undefined
+  const row = getDb().prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
+    | { value: string }
+    | undefined
   expect(row?.value).toBe('47')
 })
 
@@ -45,12 +45,15 @@ test('v042: a row inserted without is_global defaults to 0', () => {
   const db = getDb()
   const now = new Date().toISOString()
   // Omit is_global entirely so the column DEFAULT is the only source of truth.
-  db.prepare(
-    `INSERT INTO thoughts (id, content, created_at, updated_at) VALUES (?, ?, ?, ?)`,
-  ).run('v042-default-row', 'default row', now, now)
-  const row = db
-    .prepare(`SELECT is_global FROM thoughts WHERE id = ?`)
-    .get('v042-default-row') as { is_global: number }
+  db.prepare(`INSERT INTO thoughts (id, content, created_at, updated_at) VALUES (?, ?, ?, ?)`).run(
+    'v042-default-row',
+    'default row',
+    now,
+    now
+  )
+  const row = db.prepare(`SELECT is_global FROM thoughts WHERE id = ?`).get('v042-default-row') as {
+    is_global: number
+  }
   expect(row.is_global).toBe(0)
 })
 
@@ -89,8 +92,8 @@ test('v042: re-running init on the same DB keeps is_global and schema_version 42
   const db2 = getDb()
   const cols = db2.prepare(`PRAGMA table_info(thoughts)`).all() as { name: string }[]
   expect(cols.map(c => c.name)).toContain('is_global')
-  const row = db2
-    .prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`)
-    .get() as { value: string } | undefined
+  const row = db2.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
+    | { value: string }
+    | undefined
   expect(row?.value).toBe('47')
 })

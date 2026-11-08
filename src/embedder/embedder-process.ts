@@ -53,9 +53,18 @@ let batchInFlight = false
 let dbStartIndex = 0
 
 function clearTimers(): void {
-  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-  if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null }
+  if (idleTimer) {
+    clearTimeout(idleTimer)
+    idleTimer = null
+  }
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+  if (sweepTimer) {
+    clearInterval(sweepTimer)
+    sweepTimer = null
+  }
 }
 
 function resetIdleTimer() {
@@ -74,7 +83,11 @@ function resetIdleTimer() {
     clearTimers()
     resetExtractor()
     for (const e of entries) {
-      try { e.db?.close(true) } catch { /* ignore */ }
+      try {
+        e.db?.close(true)
+      } catch {
+        /* ignore */
+      }
     }
     closeDb()
     process.exit(0)
@@ -82,7 +95,11 @@ function resetIdleTimer() {
 }
 
 /** Store one row through `insertEmbedding` and map its outcome for `classifyBatch`. */
-function storeRow(db: Database, row: EmbeddingRow, embedding: Float32Array): RowOutcome | FailedRow {
+function storeRow(
+  db: Database,
+  row: EmbeddingRow,
+  embedding: Float32Array
+): RowOutcome | FailedRow {
   try {
     return insertEmbedding(db, row.id, embedding, row.contentHash) ? 'stored' : 'skipped'
   } catch (err) {
@@ -107,19 +124,26 @@ async function processOneDb(idx: number): Promise<boolean> {
     didWork = true
 
     const embeddings = await generateEmbeddings(rows.map(r => r.content))
-    const { succeeded, failed, contentChanged } = classifyBatch(rows, (row, i) => storeRow(db, row, embeddings[i]))
+    const { succeeded, failed, contentChanged } = classifyBatch(rows, (row, i) =>
+      storeRow(db, row, embeddings[i])
+    )
 
     for (const f of failed) handleFailedItem(db, f.id, f.error)
     for (const id of contentChanged) handleFailedItem(db, id, CONTENT_CHANGED_REASON)
     if (succeeded.length > 0) deleteFromQueue(db, succeeded)
 
     if (failed.length > 0 && succeeded.length > 0) {
-      insertLog('warning', 'embedding', `${failed.length} of ${rows.length} thought(s) failed, requeued`, {
-        db: entry.id,
-        failedCount: failed.length,
-        total: rows.length,
-        errors: failed.map(f => ({ id: f.id, error: f.error }))
-      })
+      insertLog(
+        'warning',
+        'embedding',
+        `${failed.length} of ${rows.length} thought(s) failed, requeued`,
+        {
+          db: entry.id,
+          failedCount: failed.length,
+          total: rows.length,
+          errors: failed.map(f => ({ id: f.id, error: f.error }))
+        }
+      )
     } else if (failed.length === rows.length) {
       insertLog('error', 'embedding', `Batch failed: all ${rows.length} items`, {
         db: entry.id,
@@ -127,13 +151,18 @@ async function processOneDb(idx: number): Promise<boolean> {
         errors: failed.map(f => ({ id: f.id, error: f.error }))
       })
     } else if (contentChanged.length === rows.length) {
-      insertLog('warning', 'embedding', `Batch skipped: all ${rows.length} thought(s) changed content mid-batch, requeued`, {
-        db: entry.id,
-        skippedCount: contentChanged.length,
-        total: rows.length,
-        reason: CONTENT_CHANGED_REASON,
-        ids: contentChanged
-      })
+      insertLog(
+        'warning',
+        'embedding',
+        `Batch skipped: all ${rows.length} thought(s) changed content mid-batch, requeued`,
+        {
+          db: entry.id,
+          skippedCount: contentChanged.length,
+          total: rows.length,
+          reason: CONTENT_CHANGED_REASON,
+          ids: contentChanged
+        }
+      )
     } else if (contentChanged.length > 0) {
       insertLog(
         'warning',
@@ -158,7 +187,8 @@ async function processOneDb(idx: number): Promise<boolean> {
     }
 
     // Backoff tracks EMBEDDER health, so a content change is not counted.
-    consecutiveFailuresByDb[idx] = failed.length === rows.length ? consecutiveFailuresByDb[idx] + 1 : 0
+    consecutiveFailuresByDb[idx] =
+      failed.length === rows.length ? consecutiveFailuresByDb[idx] + 1 : 0
     const newBackoff =
       consecutiveFailuresByDb[idx] >= MAX_CONSECUTIVE_FAILURES
         ? Math.min(currentBackoffByDb[idx] * 2, 64)
@@ -181,7 +211,10 @@ async function processOneDb(idx: number): Promise<boolean> {
   } catch (err) {
     consecutiveFailuresByDb[idx]++
     const msg = err instanceof Error ? err.message : String(err)
-    console.error(`[embedder] batch failed (${consecutiveFailuresByDb[idx]}/${MAX_CONSECUTIVE_FAILURES}):`, err)
+    console.error(
+      `[embedder] batch failed (${consecutiveFailuresByDb[idx]}/${MAX_CONSECUTIVE_FAILURES}):`,
+      err
+    )
     insertLog('error', 'embedding', `Batch failed: ${msg}`, {
       db: entry.id,
       error: msg,
@@ -190,7 +223,9 @@ async function processOneDb(idx: number): Promise<boolean> {
     if (consecutiveFailuresByDb[idx] >= MAX_CONSECUTIVE_FAILURES) {
       currentBackoffByDb[idx] = Math.min(currentBackoffByDb[idx] * 2, 64)
       consecutiveFailuresByDb[idx] = 0
-      console.error(`[embedder] too many failures, backing off to ${currentBackoffByDb[idx]}x interval`)
+      console.error(
+        `[embedder] too many failures, backing off to ${currentBackoffByDb[idx]}x interval`
+      )
       insertLog('warning', 'embedding', `Backing off to ${currentBackoffByDb[idx]}x interval`, {
         db: entry.id,
         backoff: currentBackoffByDb[idx],
@@ -269,7 +304,11 @@ process.on('message', async (raw: unknown) => {
     clearTimers()
     resetExtractor()
     for (const e of entries) {
-      try { e.db?.close(true) } catch { /* ignore */ }
+      try {
+        e.db?.close(true)
+      } catch {
+        /* ignore */
+      }
     }
     closeDb()
     process.exit(0)

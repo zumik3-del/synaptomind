@@ -32,7 +32,9 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
   // non-finite weight disables the boost; a non-positive/non-finite half-life
   // falls back to 30 so the decay never divides by zero.
   const recencyWeight =
-    options.recencyWeight !== undefined && Number.isFinite(options.recencyWeight) && options.recencyWeight > 0
+    options.recencyWeight !== undefined &&
+    Number.isFinite(options.recencyWeight) &&
+    options.recencyWeight > 0
       ? options.recencyWeight
       : 0
   const recencyHalfLifeDays =
@@ -41,7 +43,8 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     options.recencyHalfLifeDays > 0
       ? options.recencyHalfLifeDays
       : FALLBACK_RECENCY_HALF_LIFE_DAYS
-  const nowMs = options.nowMs !== undefined && Number.isFinite(options.nowMs) ? options.nowMs : Date.now()
+  const nowMs =
+    options.nowMs !== undefined && Number.isFinite(options.nowMs) ? options.nowMs : Date.now()
   const recency = { recencyActive: recencyWeight > 0, recencyWeight, recencyHalfLifeDays, nowMs }
   // Floor applied when `confidenceFloor` is omitted/non-finite. Reads the
   // canonical `search.confidence.vectorFloor` default straight from `DEFAULTS`

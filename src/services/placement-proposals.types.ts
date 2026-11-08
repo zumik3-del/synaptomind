@@ -1,4 +1,8 @@
-import type { PlacementProposalRow, ProposalState, StoredProposalItemKind } from '../db/placement-proposals'
+import type {
+  PlacementProposalRow,
+  ProposalState,
+  StoredProposalItemKind
+} from '../db/placement-proposals'
 
 /**
  * The result of one enqueue: the queued rows plus what was *not* queued.

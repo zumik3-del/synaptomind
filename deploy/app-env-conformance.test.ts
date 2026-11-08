@@ -38,7 +38,15 @@
 
 import { describe, expect, test, afterEach } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readAppEnvValues, sandboxAppEnvText } from './app-env-targets'
@@ -103,10 +111,14 @@ function replaceAssignment(text: string, key: string, line: string): string {
  * through its output.
  */
 function unitValueDefect(value: string): string {
-  const res = spawnSync('bash', ['-c', `. ${q(LIB)}\nunit_value_defect "$1"\n`, 'unit-value', value], {
-    encoding: 'utf8',
-    timeout: 30_000,
-  })
+  const res = spawnSync(
+    'bash',
+    ['-c', `. ${q(LIB)}\nunit_value_defect "$1"\n`, 'unit-value', value],
+    {
+      encoding: 'utf8',
+      timeout: 30_000
+    }
+  )
   return (res.stdout ?? '').trim()
 }
 
@@ -128,12 +140,18 @@ afterEach(() => {
  * feature rather than that the feature works. The target contributes app.env —
  * which is the artifact these tests are actually about — plus nothing else.
  */
-function seedTarget(target: { label: string; appEnvPath: string }, opts: { env?: Record<string, string> } = {}) {
+function seedTarget(
+  target: { label: string; appEnvPath: string },
+  opts: { env?: Record<string, string> } = {}
+) {
   const root = ensureRoot(`conform-${target.label}-`)
   const deployDir = join(root, 'deploy')
   cpSync(DEPLOY_DIR, deployDir, {
     recursive: true,
-    filter: (src) => !src.endsWith('.test.ts') && !src.endsWith('app-targets.ts') && !src.endsWith('app-env-targets.ts'),
+    filter: src =>
+      !src.endsWith('.test.ts') &&
+      !src.endsWith('app-targets.ts') &&
+      !src.endsWith('app-env-targets.ts')
   })
   const installDir = join(root, 'opt')
   const dataDir = join(root, 'data')
@@ -147,7 +165,7 @@ function seedTarget(target: { label: string; appEnvPath: string }, opts: { env?:
     RUN_DIR: runDir,
     HOOKS_DIR: join(runDir, 'hooks'),
     EXEC_START: `${installDir}/bin`,
-    ...opts.env,
+    ...opts.env
   }
   // Every path this suite redirects must land inside the fixture root. A value
   // copied verbatim out of a shipped app.env (/opt/ziptask, /var/lib/…) would
@@ -155,7 +173,14 @@ function seedTarget(target: { label: string; appEnvPath: string }, opts: { env?:
   assertOverridesInside(overrides, root)
   writeFileSync(join(deployDir, 'app.env'), sandboxAppEnvText(target.appEnvPath, overrides))
 
-  return { deployDir, installDir, dataDir, runDir, unitFile, appEnvPath: join(deployDir, 'app.env') }
+  return {
+    deployDir,
+    installDir,
+    dataDir,
+    runDir,
+    unitFile,
+    appEnvPath: join(deployDir, 'app.env')
+  }
 }
 
 /**
@@ -199,7 +224,12 @@ function seedPrivStubs(root: string, opts: { execSudo?: boolean; chownSnapshot?:
   mkdirSync(stubsDir, { recursive: true })
   writeFileSync(log, '')
   for (const name of ['sudo', 'systemctl']) {
-    const lines = ['#!/usr/bin/env bash', 'printf \'%s\' "$0" >> "$STUB_PRIV_LOG"', 'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done', 'printf \'\\n\' >> "$STUB_PRIV_LOG"']
+    const lines = [
+      '#!/usr/bin/env bash',
+      'printf \'%s\' "$0" >> "$STUB_PRIV_LOG"',
+      'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done',
+      'printf \'\\n\' >> "$STUB_PRIV_LOG"'
+    ]
     if (name === 'systemctl') {
       lines.push('[ "$1" = "is-system-running" ] && echo running')
     } else if (opts.execSudo) {
@@ -225,7 +255,7 @@ function seedPrivStubs(root: string, opts: { execSudo?: boolean; chownSnapshot?:
         // refusal path has its own stub (refuseChownInSudoStub).
         '  touch|chmod|cp|mv|rm|install|systemctl|mkdir|ln|chown) ;;',
         '  *) echo "STUB: refused command ${1:-}" >&2; exit 99 ;;',
-        'esac',
+        'esac'
       )
       if (opts.chownSnapshot) {
         // What was in each chowned directory AT THE MOMENT the chown ran, as one
@@ -247,7 +277,7 @@ function seedPrivStubs(root: string, opts: { execSudo?: boolean; chownSnapshot?:
           '      esac',
           '    done',
           '    ;;',
-          'esac',
+          'esac'
         )
       }
       lines.push('exec "$@"')
@@ -293,8 +323,8 @@ function seedForeignOwnerStat(stubsDir: string): void {
       '  if [ "$a" = "%U:%G" ]; then printf \'root:root\\n\'; exit 0; fi',
       'done',
       // Everything else (notably `-L -c %a`) is the REAL stat.
-      `exec /usr/bin/stat "$@"`,
-    ].join('\n'),
+      `exec /usr/bin/stat "$@"`
+    ].join('\n')
   )
   chmodSync(path, 0o755)
 }
@@ -316,8 +346,8 @@ function refuseChownInSudoStub(stubsDir: string): void {
       'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_PRIV_LOG"; done',
       'printf \'\\n\' >> "$STUB_PRIV_LOG"',
       'case "${1:-}" in chown) echo "chown: cannot change ownership: Operation not permitted" >&2; exit 1 ;; esac',
-      'exit 0',
-    ].join('\n'),
+      'exit 0'
+    ].join('\n')
   )
   chmodSync(stub, 0o755)
 }
@@ -334,7 +364,11 @@ function refuseChownInSudoStub(stubsDir: string): void {
  * that looked exactly like a framework defect, and cost a full round of
  * debugging before the log line showed it.
  */
-function seedHealthStub(stubsDir: string, body: string, opts: { log?: string; asset?: string } = {}) {
+function seedHealthStub(
+  stubsDir: string,
+  body: string,
+  opts: { log?: string; asset?: string } = {}
+) {
   const path = join(stubsDir, 'curl')
   const lines = [
     '#!/usr/bin/env bash',
@@ -343,7 +377,7 @@ function seedHealthStub(stubsDir: string, body: string, opts: { log?: string; as
     '  case "$a" in *://*) url="$a" ;; esac',
     '  if [ "$prev" = "-o" ]; then out="$a"; fi',
     '  prev="$a"',
-    'done',
+    'done'
   ]
   if (opts.log) lines.push(`printf '%s\\n' "$url" >> ${q(opts.log)}`)
   lines.push('case "$url" in')
@@ -351,7 +385,7 @@ function seedHealthStub(stubsDir: string, body: string, opts: { log?: string; as
     lines.push(
       `  file://*) cp ${q(opts.asset)} "\$out"; exit \$? ;;`,
       `  *) printf '%s' ${q(body)}; exit 0 ;;`,
-      'esac',
+      'esac'
     )
   } else {
     lines.push(`  *) printf '%s' ${q(body)}; exit 0 ;;`, 'esac')
@@ -375,7 +409,7 @@ function runInstall(
   stubsDir: string,
   privLog: string,
   args: string[] = [],
-  extra: Record<string, string> = {},
+  extra: Record<string, string> = {}
 ) {
   return spawnSync('bash', [join(fx.deployDir, 'install.sh'), ...args], {
     encoding: 'utf8',
@@ -398,10 +432,10 @@ function runInstall(
       // than on the shipped 60 s wait.
       HEALTH_TIMEOUT: '2',
       HEALTH_CONFIRM_TIMEOUT: '1',
-      ...extra,
+      ...extra
     }),
     cwd: ROOT,
-    timeout: 90_000,
+    timeout: 90_000
   })
 }
 
@@ -451,7 +485,7 @@ describe('deploy/app-targets — coverage of the requested targets', () => {
 
 describe('deploy/app.env — the shipped key contract', () => {
   for (const target of TARGETS.resolved) {
-  declareExercised(TARGETS.resolved)
+    declareExercised(TARGETS.resolved)
     test(`${target.label}: declares the keys its mode depends on, all inside a sandbox`, () => {
       const values = readAppEnvValues(target.appEnvPath)
       const binary = values.DIST === 'binary'
@@ -465,9 +499,15 @@ describe('deploy/app.env — the shipped key contract', () => {
       // /health is `{"ok":true}` pass the gate at all (ADR §3d); without them the
       // install fails at its OWN health check on every run.
       expect(values.APP_NAME).toBe(target.label)
-      expect(values.HEALTH_STATUS_FIELD, 'HEALTH_STATUS_FIELD must not be blank — blank falls back to "status"').not.toBe('')
+      expect(
+        values.HEALTH_STATUS_FIELD,
+        'HEALTH_STATUS_FIELD must not be blank — blank falls back to "status"'
+      ).not.toBe('')
       expect(values.HEALTH_OK_VALUES).not.toBe('')
-      expect(values.HEALTH_VERSION_FIELD, 'the key must be PRESENT: empty disables the version check').toBe('')
+      expect(
+        values.HEALTH_VERSION_FIELD,
+        'the key must be PRESENT: empty disables the version check'
+      ).toBe('')
 
       // Canonical layout (ADR §4/§5): code under /opt/<app>, data under
       // /var/lib/<app>, state under ~/.<app>. These are the HOST paths the
@@ -490,7 +530,12 @@ describe('deploy/app.env — the shipped key contract', () => {
         // The per-app binary lists. Without them the payload check looks for
         // synaptomind's own file names, which #1110 measured as a hard abort:
         // "release payload is incomplete: missing synaptomind".
-        for (const key of ['BINARY_SUPPORTED_PLATFORMS', 'BINARY_REQUIRED_FILES', 'BINARY_ROLLBACK_FILES', 'BINARY_SWAP_ORDER']) {
+        for (const key of [
+          'BINARY_SUPPORTED_PLATFORMS',
+          'BINARY_REQUIRED_FILES',
+          'BINARY_ROLLBACK_FILES',
+          'BINARY_SWAP_ORDER'
+        ]) {
           expect(values[key], `${target.label} ${key} is required for DIST=binary`).toBeTruthy()
         }
         for (const key of ['BINARY_REQUIRED_FILES', 'BINARY_ROLLBACK_FILES', 'BINARY_SWAP_ORDER']) {
@@ -517,7 +562,11 @@ describe('deploy/app.env — the shipped key contract', () => {
 
 describe('deploy/health contract — one gate, several contracts', () => {
   /** wait_health against a scripted body, with the target's own health keys. */
-  function runGate(target: { label: string; appEnvPath: string }, body: string, opts: { keys?: Record<string, string>; expected?: string } = {}) {
+  function runGate(
+    target: { label: string; appEnvPath: string },
+    body: string,
+    opts: { keys?: Record<string, string>; expected?: string } = {}
+  ) {
     const dir = mkTempTree('gate-')
     // The sandboxed app.env goes to a FILE and is sourced from there. Inlining
     // the text into the script (`. "$text"`) sources it as a FILENAME, which
@@ -533,8 +582,8 @@ describe('deploy/health contract — one gate, several contracts', () => {
         INSTALL_DIR: join(dir, 'opt'),
         DATA_DIR: join(dir, 'data'),
         RUN_DIR: join(dir, 'run'),
-        ...opts.keys,
-      }),
+        ...opts.keys
+      })
     )
     const script = `
 . ${q(LIB)}
@@ -558,7 +607,7 @@ exit $__rc
         stderr: res.stderr,
         // A source that fails (a missing file, a bad key) leaves no marker at
         // all, which must be distinguishable from the empty SUCCESS value.
-        failure: /HEALTH_FAILURE=(.*)/.exec(res.stdout)?.[1] ?? '<no marker>',
+        failure: /HEALTH_FAILURE=(.*)/.exec(res.stdout)?.[1] ?? '<no marker>'
       }
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -566,7 +615,7 @@ exit $__rc
   }
 
   for (const target of TARGETS.resolved) {
-  declareExercised(TARGETS.resolved)
+    declareExercised(TARGETS.resolved)
     test(`${target.label}: {"ok":true} passes the gate, with ONE version-disabled warning`, () => {
       const gate = runGate(target, HEALTHY_BODY)
       expect(gate.status, gate.stdout + gate.stderr).toBe(0)
@@ -574,7 +623,7 @@ exit $__rc
       // The warning is the whole point of the empty HEALTH_VERSION_FIELD: a
       // missing contract reported by silence is a vacuous pass. Exactly ONE, so
       // an operator sees a stated caveat rather than a wall of noise.
-      const warnings = gate.stderr.split('\n').filter((l) => l.includes('version check is DISABLED'))
+      const warnings = gate.stderr.split('\n').filter(l => l.includes('version check is DISABLED'))
       expect(warnings).toHaveLength(1)
       expect(warnings[0]).toContain(target.label)
     })
@@ -590,7 +639,11 @@ exit $__rc
       // version) the very same body is a CONTRACT failure: the app's three keys
       // are what make this cutover possible, not decoration.
       const gate = runGate(target, HEALTHY_BODY, {
-        keys: { HEALTH_STATUS_FIELD: 'status', HEALTH_OK_VALUES: 'ok degraded', HEALTH_VERSION_FIELD: 'version' },
+        keys: {
+          HEALTH_STATUS_FIELD: 'status',
+          HEALTH_OK_VALUES: 'ok degraded',
+          HEALTH_VERSION_FIELD: 'version'
+        }
       })
       expect(gate.status).toBe(1)
       expect(gate.failure).toBe('contract')
@@ -622,7 +675,9 @@ exit $__rc
       // called from main() before the payload is fetched, which is the whole
       // point of doing it there — the host is still untouched when the refusal
       // lands.
-      expect(existsSyncSafe(fx.installDir), 'INSTALL_DIR exists, so the payload was fetched').toBe(false)
+      expect(existsSyncSafe(fx.installDir), 'INSTALL_DIR exists, so the payload was fetched').toBe(
+        false
+      )
     })
   }
 })
@@ -636,7 +691,7 @@ exit $__rc
 
 describe('deploy/apply_ownership — both trees, before the service starts', () => {
   for (const target of TARGETS.resolved) {
-  declareExercised(TARGETS.resolved)
+    declareExercised(TARGETS.resolved)
     /**
      * A full install for the target's own mode: a real git origin for
      * DIST=source, a real release tarball for DIST=binary, `bun` stubbed only
@@ -647,7 +702,9 @@ describe('deploy/apply_ownership — both trees, before the service starts', () 
      * `--no-service` run that stopped at the clone would report no chown and the
      * assertion would be measuring the fixture rather than the framework.
      */
-    function fullInstall(opts: { execSudo?: boolean; refuseChown?: boolean; chownSnapshot?: boolean } = {}) {
+    function fullInstall(
+      opts: { execSudo?: boolean; refuseChown?: boolean; chownSnapshot?: boolean } = {}
+    ) {
       const values = readAppEnvValues(target.appEnvPath)
       const binary = values.DIST === 'binary'
       const origin = binary ? null : seedGitOrigin(target.label)
@@ -656,7 +713,10 @@ describe('deploy/apply_ownership — both trees, before the service starts', () 
         ? { RELEASES_BASE: `file://${release!.dir}`, RELEASE_API: '' }
         : { REPO_URL: origin!.url, CHECKOUT_POLICY: 'stable' }
       const fx = seedTarget(target, { env })
-      const { stubsDir, log } = seedPrivStubs(ensureRoot(), { execSudo: opts.execSudo, chownSnapshot: opts.chownSnapshot })
+      const { stubsDir, log } = seedPrivStubs(ensureRoot(), {
+        execSudo: opts.execSudo,
+        chownSnapshot: opts.chownSnapshot
+      })
       // A root-owned-looking tree, so apply_ownership takes the branch it added
       // instead of correctly skipping a no-op chown.
       seedForeignOwnerStat(stubsDir)
@@ -664,7 +724,11 @@ describe('deploy/apply_ownership — both trees, before the service starts', () 
       if (!binary) seedBunStub(stubsDir, join(ensureRoot(), 'bun.log'))
       // For a binary install the SAME curl stub must serve the asset too, or the
       // run dies in tar before reaching anything these tests are about.
-      seedHealthStub(stubsDir, HEALTHY_BODY, { asset: release ? join(release.dir, release.tag, `${target.label}-${release.tag}-linux-x86_64.tar.gz`) : undefined })
+      seedHealthStub(stubsDir, HEALTHY_BODY, {
+        asset: release
+          ? join(release.dir, release.tag, `${target.label}-${release.tag}-linux-x86_64.tar.gz`)
+          : undefined
+      })
       const args = binary ? ['--version', release!.tag] : ['--version', origin!.tag]
       const res = runInstall(fx, stubsDir, log, args)
       return { res, log, stubsDir, origin, release, binary, fx }
@@ -675,12 +739,15 @@ describe('deploy/apply_ownership — both trees, before the service starts', () 
       expect(res.status, res.stdout + res.stderr).toBe(0)
 
       const calls = privCalls(log)
-      const chowns = calls.filter((c) => c.includes('chown') && c.includes('-R'))
+      const chowns = calls.filter(c => c.includes('chown') && c.includes('-R'))
       expect(chowns.length, `no recursive chown in:\n${calls.join('\n')}`).toBeGreaterThanOrEqual(2)
       // Both trees, and named by path — the whole point of the gap, since
       // DATA_DIR is where the service writes.
       for (const dir of [join(ROOT, 'opt'), join(ROOT, 'data')]) {
-        expect(chowns.some((c) => c.includes(` ${dir}`)), `no chown for ${dir} in:\n${calls.join('\n')}`).toBe(true)
+        expect(
+          chowns.some(c => c.includes(` ${dir}`)),
+          `no chown for ${dir} in:\n${calls.join('\n')}`
+        ).toBe(true)
       }
       // To the user the unit runs as, not root and not an empty field.
       const me = process.env.USER ?? 'root'
@@ -691,10 +758,13 @@ describe('deploy/apply_ownership — both trees, before the service starts', () 
       const { res, log } = fullInstall({ execSudo: true })
       expect(res.status, res.stdout + res.stderr).toBe(0)
       const calls = privCalls(log)
-      const lastChown = calls.findLastIndex((c) => c.includes('chown') && c.includes('-R'))
-      const firstStart = calls.findIndex((c) => c.includes('systemctl') && c.includes(' restart '))
+      const lastChown = calls.findLastIndex(c => c.includes('chown') && c.includes('-R'))
+      const firstStart = calls.findIndex(c => c.includes('systemctl') && c.includes(' restart '))
       expect(lastChown, 'no chown was issued at all').toBeGreaterThanOrEqual(0)
-      expect(firstStart, `no systemctl restart in:\n${calls.join('\n')}\n--- install output ---\n${res.stdout}\n${res.stderr}`).toBeGreaterThan(lastChown)
+      expect(
+        firstStart,
+        `no systemctl restart in:\n${calls.join('\n')}\n--- install output ---\n${res.stdout}\n${res.stderr}`
+      ).toBeGreaterThan(lastChown)
     })
 
     test(`${target.label}: a chown that FAILS warns and the install still finishes`, () => {
@@ -726,25 +796,36 @@ describe('deploy/apply_ownership — both trees, before the service starts', () 
       const { res, log, fx } = fullInstall({ execSudo: true, chownSnapshot: true })
       expect(res.status, res.stdout + res.stderr).toBe(0)
       const calls = privCalls(log)
-      const chowns = calls.filter((c) => c.includes('chown') && c.includes('-R'))
+      const chowns = calls.filter(c => c.includes('chown') && c.includes('-R'))
       for (const dir of [fx.runDir, join(fx.runDir, 'scripts'), join(fx.runDir, 'hooks')]) {
-        expect(chowns.some((c) => c.includes(` ${dir}`)), `no chown for ${dir} in:\n${calls.join('\n')}`).toBe(true)
+        expect(
+          chowns.some(c => c.includes(` ${dir}`)),
+          `no chown for ${dir} in:\n${calls.join('\n')}`
+        ).toBe(true)
       }
       // Scoped: RUN_DIR may also hold app state the framework does not own, so a
       // blind `chown -R ${RUN_DIR}` would silently take that too.
-      const owned = chowns.map((c) => c.trim().split(/\s+/).pop())
-      expect(owned.filter((p) => p?.startsWith(fx.runDir)).sort()).toEqual(
-        [fx.runDir, join(fx.runDir, 'hooks'), join(fx.runDir, 'scripts')].sort(),
+      const owned = chowns.map(c => c.trim().split(/\s+/).pop())
+      expect(owned.filter(p => p?.startsWith(fx.runDir)).sort()).toEqual(
+        [fx.runDir, join(fx.runDir, 'hooks'), join(fx.runDir, 'scripts')].sort()
       )
       // And the files were already there when the chown ran.
-      const snapshot = (dir: string) => calls.find((c) => c.startsWith(`LS ${dir}:`))
+      const snapshot = (dir: string) => calls.find(c => c.startsWith(`LS ${dir}:`))
       const scripts = snapshot(join(fx.runDir, 'scripts'))
-      expect(scripts, `no snapshot of ${join(fx.runDir, 'scripts')} in:\n${calls.join('\n')}`).toBeDefined()
+      expect(
+        scripts,
+        `no snapshot of ${join(fx.runDir, 'scripts')} in:\n${calls.join('\n')}`
+      ).toBeDefined()
       for (const helper of ['app.env', 'common.sh', 'update.sh', 'updater.sh', 'uninstall.sh']) {
-        expect(scripts, `${helper} was not installed yet when scripts/ was chowned`).toContain(helper)
+        expect(scripts, `${helper} was not installed yet when scripts/ was chowned`).toContain(
+          helper
+        )
       }
       const hooks = snapshot(join(fx.runDir, 'hooks'))
-      expect(hooks, `no snapshot of ${join(fx.runDir, 'hooks')} in:\n${calls.join('\n')}`).toContain('pre-update')
+      expect(
+        hooks,
+        `no snapshot of ${join(fx.runDir, 'hooks')} in:\n${calls.join('\n')}`
+      ).toContain('pre-update')
       // The mode-600 app.env is the whole reason this pass exists.
       expect(statSync(join(fx.runDir, 'scripts', 'app.env')).mode & 0o777).toBe(0o600)
     })
@@ -770,9 +851,13 @@ function seedReleaseDirIn(root: string, label: string): { dir: string; tag: stri
   chmodSync(join(stage, label), 0o755)
   const dir = join(root, 'releases')
   mkdirSync(join(dir, tag), { recursive: true })
-  const tar = spawnSync('tar', ['-czf', join(dir, tag, asset), '-C', join(root, '.payload'), topDir], {
-    encoding: 'utf8',
-  })
+  const tar = spawnSync(
+    'tar',
+    ['-czf', join(dir, tag, asset), '-C', join(root, '.payload'), topDir],
+    {
+      encoding: 'utf8'
+    }
+  )
   expect(tar.status, tar.stderr).toBe(0)
   return { dir, tag }
 }
@@ -818,7 +903,7 @@ describe('deploy/unit extras — rendering and rejection', () => {
   function renderUnit(
     target: { label: string; appEnvPath: string },
     keys: Record<string, string> = {},
-    opts: { rawAppEnvLines?: Record<string, string>; files?: readonly string[] } = {},
+    opts: { rawAppEnvLines?: Record<string, string>; files?: readonly string[] } = {}
   ) {
     const dir = mkTempTree('unit-')
     // A FILE, sourced — never the text inlined into the script. See runGate.
@@ -827,7 +912,7 @@ describe('deploy/unit extras — rendering and rejection', () => {
       INSTALL_DIR: join(dir, 'opt'),
       DATA_DIR: join(dir, 'data'),
       RUN_DIR: join(dir, 'run'),
-      ...keys,
+      ...keys
     })
     for (const [key, line] of Object.entries(opts.rawAppEnvLines ?? {})) {
       if ((SANDBOX_PATH_KEYS as readonly string[]).includes(key)) {
@@ -861,7 +946,7 @@ exit 0
   }
 
   for (const target of TARGETS.resolved) {
-  declareExercised(TARGETS.resolved)
+    declareExercised(TARGETS.resolved)
     const values = readAppEnvValues(target.appEnvPath)
 
     test(`${target.label}: renders exactly the extras its app.env asks for`, () => {
@@ -894,7 +979,9 @@ exit 0
 
       const pairs = extraEnv.split(/\s+/).filter(Boolean)
       for (const pair of pairs) {
-        expect(body, `UNIT_EXTRA_ENV pair ${pair} did not reach the unit`).toContain(`Environment=${pair}`)
+        expect(body, `UNIT_EXTRA_ENV pair ${pair} did not reach the unit`).toContain(
+          `Environment=${pair}`
+        )
       }
       if (pairs.length === 0) {
         // The framework's OWN lines and nothing else. Asserting the exact set is
@@ -905,9 +992,14 @@ exit 0
         // it is emitted for DIST=binary only (ADR §2.2, so a compiled payload can
         // dlopen its embedded addon). Keying the expectation on DIST rather than
         // hardcoding it is what keeps this correct for an app of either mode.
-        const own = ['NODE_ENV', 'HOME', 'PATH', ...(values.DIST === 'binary' ? ['LD_LIBRARY_PATH'] : [])]
-        const envLines = body.split('\n').filter((l) => l.startsWith('Environment='))
-        const ownLines = envLines.filter((l) => own.some((k) => l.startsWith(`Environment=${k}=`)))
+        const own = [
+          'NODE_ENV',
+          'HOME',
+          'PATH',
+          ...(values.DIST === 'binary' ? ['LD_LIBRARY_PATH'] : [])
+        ]
+        const envLines = body.split('\n').filter(l => l.startsWith('Environment='))
+        const ownLines = envLines.filter(l => own.some(k => l.startsWith(`Environment=${k}=`)))
         expect(envLines, `unexpected Environment= lines:\n${envLines.join('\n')}`).toEqual(ownLines)
         expect(ownLines).toContain(`Environment=HOME=${process.env.HOME ?? ''}`)
         // And the mode actually decided it, rather than the list being right by
@@ -953,7 +1045,9 @@ exit 0
     // whole, so the guard sees the line break and refuses.
     for (const key of ['UNIT_STATE_DIRECTORY', 'UNIT_ENV_FILE'] as const) {
       test(`${target.label}: ${key} with a value systemd would fold is REFUSED, and no unit is printed`, () => {
-        const { rc, body, stderr } = renderUnit(target, { [key]: 'app\nExecStartPre=/bin/rm -rf /' })
+        const { rc, body, stderr } = renderUnit(target, {
+          [key]: 'app\nExecStartPre=/bin/rm -rf /'
+        })
         expect(rc, `render accepted a newline-bearing ${key}`).not.toBe('0')
         // The contract is that it returns 1 WITHOUT printing a partial body: a
         // half-written unit is what the caller would install.
@@ -992,10 +1086,14 @@ exit 0
       // So the security property this test originally asserted is now the STRONGEST
       // form available: not "nothing escaped the directive" but "nothing was
       // printed at all", because the refusal happens before the body is emitted.
-      const { rc, body, stderr } = renderUnit(target, { UNIT_EXTRA_ENV: 'GOOD=1\nExecStartPre=/bin/rm -rf /' })
+      const { rc, body, stderr } = renderUnit(target, {
+        UNIT_EXTRA_ENV: 'GOOD=1\nExecStartPre=/bin/rm -rf /'
+      })
       expect(rc, 'render accepted a multi-line UNIT_EXTRA_ENV').not.toBe('0')
       expect(body, 'a partial unit was printed before the refusal').not.toContain('[Service]')
-      expect(body, 'a forged ExecStartPre= line appeared in the unit').not.toMatch(/^ExecStartPre=/m)
+      expect(body, 'a forged ExecStartPre= line appeared in the unit').not.toMatch(
+        /^ExecStartPre=/m
+      )
       // The valid pair is NOT rendered either, and that is the property the old
       // behaviour got wrong: it printed what it could and dropped the rest, so the
       // caller installed a unit missing the variable an operator believed was
@@ -1018,7 +1116,9 @@ exit 0
       expect(body).not.toContain('[Service]')
       expect(stderr).toContain('UNIT_EXTRA_ENV entry')
       expect(stderr).toMatch(/control character/)
-      expect(stderr, 'a TAB is not a line break; the wrong defect was named').not.toMatch(/line break/)
+      expect(stderr, 'a TAB is not a line break; the wrong defect was named').not.toMatch(
+        /line break/
+      )
     })
 
     test(`${target.label}: a blob of several VALID pairs still renders, one Environment= line each`, () => {
@@ -1033,8 +1133,8 @@ exit 0
           expect(body, `${JSON.stringify(blob)} lost ${pair}`).toContain(`Environment=${pair}`)
         }
         expect(
-          body.split('\n').filter((l) => l === 'Environment='),
-          `${JSON.stringify(blob)} rendered an empty pair`,
+          body.split('\n').filter(l => l === 'Environment='),
+          `${JSON.stringify(blob)} rendered an empty pair`
         ).toEqual([])
       }
     })
@@ -1052,7 +1152,11 @@ exit 0
       // assertion fails; in a directory holding unrelated files it would leave
       // `FOO=*` unexpanded and this test would pass for the wrong reason. A glob
       // is not a defect, so the render must still SUCCEED — first assertion.
-      const { rc, body } = renderUnit(target, { UNIT_EXTRA_ENV: 'FOO=*' }, { files: ['FOO=leaked.txt'] })
+      const { rc, body } = renderUnit(
+        target,
+        { UNIT_EXTRA_ENV: 'FOO=*' },
+        { files: ['FOO=leaked.txt'] }
+      )
       expect(rc, 'a glob is not a defect and must not be refused').toBe('0')
       expect(body).toContain('Environment=FOO=*')
       expect(body, 'the glob was expanded against the working directory').not.toContain('leaked')
@@ -1093,7 +1197,7 @@ exit 0
       const { rc, body, stderr } = renderUnit(
         target,
         {},
-        { rawAppEnvLines: { UNIT_EXTRA_ENV: 'UNIT_EXTRA_ENV="GOOD=1 FOO=ba\\"r"' } },
+        { rawAppEnvLines: { UNIT_EXTRA_ENV: 'UNIT_EXTRA_ENV="GOOD=1 FOO=ba\\"r"' } }
       )
       expect(rc, 'render accepted a quoted UNIT_EXTRA_ENV pair').not.toBe('0')
       expect(body, 'a partial unit was printed before the refusal').not.toContain('[Service]')
@@ -1111,8 +1215,10 @@ exit 0
 // has no devDependencies, and the failure names nothing that points at the cause.
 
 describe('deploy/build step — flags, order, and a bounded build', () => {
-  for (const target of TARGETS.resolved.filter((t) => readAppEnvValues(t.appEnvPath).DIST === 'source')) {
-  declareExercised(TARGETS.resolved.filter((t) => readAppEnvValues(t.appEnvPath).DIST === 'source'))
+  for (const target of TARGETS.resolved.filter(
+    t => readAppEnvValues(t.appEnvPath).DIST === 'source'
+  )) {
+    declareExercised(TARGETS.resolved.filter(t => readAppEnvValues(t.appEnvPath).DIST === 'source'))
     const values = readAppEnvValues(target.appEnvPath)
     /**
      * A real source install against the app's own BUILD_CMD, with `bun` stubbed
@@ -1125,7 +1231,9 @@ describe('deploy/build step — flags, order, and a bounded build', () => {
      */
     function sourceInstall(opts: { env?: Record<string, string>; buildExit?: number } = {}) {
       const origin = seedGitOrigin(target.label)
-      const fx = seedTarget(target, { env: { REPO_URL: origin.url, CHECKOUT_POLICY: 'stable', ...opts.env } })
+      const fx = seedTarget(target, {
+        env: { REPO_URL: origin.url, CHECKOUT_POLICY: 'stable', ...opts.env }
+      })
       const { stubsDir, log } = seedPrivStubs(ensureRoot())
       const trace = join(ROOT, 'bun.log')
       seedBunStub(stubsDir, trace, { buildExit: opts.buildExit })
@@ -1145,7 +1253,7 @@ describe('deploy/build step — flags, order, and a bounded build', () => {
         expect(calls[0], `INSTALL_FLAGS value ${flag} did not reach bun install`).toContain(flag)
       }
       // Then the build, as the app's own command, and only after.
-      const buildIdx = calls.findIndex((c) => c.startsWith('build '))
+      const buildIdx = calls.findIndex(c => c.startsWith('build '))
       expect(buildIdx, `BUILD_CMD never ran; calls:\n${calls.join('\n')}`).toBeGreaterThan(0)
       // The stub records bun's ARGV, so the recorded line is the app's command
       // without the leading `bun`. Comparing against `bun ${argv}` compares the
@@ -1175,7 +1283,7 @@ describe('deploy/build step — flags, order, and a bounded build', () => {
       expect(res.stderr + res.stdout).toContain('build failed')
       expect(res.stderr + res.stdout).toMatch(/Nothing was installed/)
       // And no service was started on top of an unbuilt tree.
-      expect(privCalls(log).some((c) => c.includes('systemctl') && c.includes('restart'))).toBe(false)
+      expect(privCalls(log).some(c => c.includes('systemctl') && c.includes('restart'))).toBe(false)
     })
 
     test(`${target.label}: a build that HANGS is killed at BUILD_TIMEOUT instead of hanging the install`, () => {
@@ -1190,7 +1298,9 @@ describe('deploy/build step — flags, order, and a bounded build', () => {
       // The bound is the assertion: 120s of sleep, 2s of budget. Without the
       // timeout this run would sit until the suite's own spawn timeout and fail
       // for a completely different reason.
-      expect(elapsed, `install ran for ${elapsed}ms, so the build was not bounded`).toBeLessThan(30_000)
+      expect(elapsed, `install ran for ${elapsed}ms, so the build was not bounded`).toBeLessThan(
+        30_000
+      )
       expect(res.stderr + res.stdout).toMatch(/build failed|timed out|124/)
     })
   }
@@ -1202,8 +1312,10 @@ describe('deploy/build step — flags, order, and a bounded build', () => {
 // install AT ALL, because the payload check looks for synaptomind's artefacts.
 
 describe('deploy/BINARY_* — per-app payload shape', () => {
-  for (const target of TARGETS.resolved.filter((t) => readAppEnvValues(t.appEnvPath).DIST === 'binary')) {
-  declareExercised(TARGETS.resolved.filter((t) => readAppEnvValues(t.appEnvPath).DIST === 'binary'))
+  for (const target of TARGETS.resolved.filter(
+    t => readAppEnvValues(t.appEnvPath).DIST === 'binary'
+  )) {
+    declareExercised(TARGETS.resolved.filter(t => readAppEnvValues(t.appEnvPath).DIST === 'binary'))
     const values = readAppEnvValues(target.appEnvPath)
 
     /**
@@ -1221,11 +1333,18 @@ describe('deploy/BINARY_* — per-app payload shape', () => {
      * `appEnvOverride` is where the BINARY_* keys are swapped, which is how the
      * negative control below turns the framework defaults back on.
      */
-    function stagePayload(appEnvOverride: Record<string, string> = {}): { ok: boolean; output: string } {
+    function stagePayload(appEnvOverride: Record<string, string> = {}): {
+      ok: boolean
+      output: string
+    } {
       const dir = mkTempTree('payload-')
       try {
         const release = seedReleaseDirIn(dir, target.label)
-        const asset = join(release.dir, release.tag, `${target.label}-${release.tag}-linux-x86_64.tar.gz`)
+        const asset = join(
+          release.dir,
+          release.tag,
+          `${target.label}-${release.tag}-linux-x86_64.tar.gz`
+        )
         const appEnvFile = join(dir, 'app.env')
         writeFileSync(
           appEnvFile,
@@ -1235,14 +1354,23 @@ describe('deploy/BINARY_* — per-app payload shape', () => {
             RUN_DIR: join(dir, 'run'),
             RELEASES_BASE: `file://${release.dir}`,
             RELEASE_API: '',
-            ...appEnvOverride,
-          }),
+            ...appEnvOverride
+          })
         )
         const stubs = join(dir, 'stubs')
         mkdirSync(stubs, { recursive: true })
         writeFileSync(
           join(stubs, 'curl'),
-          ['#!/usr/bin/env bash', 'out=""; prev=""', 'for a in "$@"; do', '  if [ "$prev" = "-o" ]; then out="$a"; fi', '  prev="$a"', 'done', `cp ${q(asset)} "$out"`, 'exit $?'].join('\n'),
+          [
+            '#!/usr/bin/env bash',
+            'out=""; prev=""',
+            'for a in "$@"; do',
+            '  if [ "$prev" = "-o" ]; then out="$a"; fi',
+            '  prev="$a"',
+            'done',
+            `cp ${q(asset)} "$out"`,
+            'exit $?'
+          ].join('\n')
         )
         chmodSync(join(stubs, 'curl'), 0o755)
         const script = `
@@ -1257,7 +1385,7 @@ exit 0
         const res = spawnSync('bash', ['-c', script], {
           encoding: 'utf8',
           env: { ...process.env, PATH: `${stubs}:${process.env.PATH}` },
-          timeout: 60_000,
+          timeout: 60_000
         })
         return { ok: /STAGED=\S/.test(res.stdout), output: `${res.stdout}${res.stderr}` }
       } finally {
@@ -1287,9 +1415,11 @@ exit 0
         BINARY_SUPPORTED_PLATFORMS: 'linux-x86_64',
         BINARY_REQUIRED_FILES: 'synaptomind vec0.so lib/libonnxruntime.so.1',
         BINARY_ROLLBACK_FILES: 'synaptomind vec0.so lib/libonnxruntime.so.1',
-        BINARY_SWAP_ORDER: 'synaptomind vec0.so lib/libonnxruntime.so.1',
+        BINARY_SWAP_ORDER: 'synaptomind vec0.so lib/libonnxruntime.so.1'
       })
-      expect(res.ok, 'a payload with none of the framework default names passed the check').toBe(false)
+      expect(res.ok, 'a payload with none of the framework default names passed the check').toBe(
+        false
+      )
       expect(res.output).toMatch(/release payload is incomplete: missing/)
       // It names the file it wanted, which is what makes the message actionable.
       expect(res.output).toContain('synaptomind')
@@ -1335,8 +1465,8 @@ describe('deploy/update.sh — the two-call-site claim is true', () => {
       })
     }
     expect(callers, `call sites found: ${callers.join(' | ')}`).toHaveLength(2)
-    expect(callers.some((c) => c.startsWith('install.sh'))).toBe(true)
-    expect(callers.some((c) => c.startsWith('update.sh'))).toBe(true)
+    expect(callers.some(c => c.startsWith('install.sh'))).toBe(true)
+    expect(callers.some(c => c.startsWith('update.sh'))).toBe(true)
   })
 
   test('the comment above refresh_unit states TWO, and does not still claim ONE', () => {
@@ -1352,13 +1482,19 @@ describe('deploy/update.sh — the two-call-site claim is true', () => {
     // and the claim then cannot be read at all.
     const before = src.slice(0, start)
     const sectionAt = before.lastIndexOf('# ── systemd unit')
-    expect(sectionAt, 'the systemd-unit section header above refresh_unit is gone').toBeGreaterThan(-1)
+    expect(sectionAt, 'the systemd-unit section header above refresh_unit is gone').toBeGreaterThan(
+      -1
+    )
     const header = before.slice(sectionAt)
     // The corrected wording, and the absence of the claim that was wrong. The
     // wrong count was harmful in one direction: an audit reading "one call site"
     // concludes the update path cannot change the unit body and stops looking.
-    expect(header, 'the paragraph above refresh_unit does not state the count').toMatch(/TWO call sites/)
-    expect(header, 'the paragraph above refresh_unit still claims ONE').not.toMatch(/exactly ONE call site/)
+    expect(header, 'the paragraph above refresh_unit does not state the count').toMatch(
+      /TWO call sites/
+    )
+    expect(header, 'the paragraph above refresh_unit still claims ONE').not.toMatch(
+      /exactly ONE call site/
+    )
     // And it names the two sites, so the claim is falsifiable by a reader rather
     // than only by this test.
     expect(header).toContain('install_service()')
@@ -1387,19 +1523,35 @@ function existsSyncSafe(path: string): boolean {
  * `git clone --depth=1` refuses a local path on some git versions, and the point
  * here is to be an ordinary origin.
  */
-function seedGitOrigin(label: string, opts: { tag?: string; version?: string } = {}): { url: string; tag: string; version: string } {
+function seedGitOrigin(
+  label: string,
+  opts: { tag?: string; version?: string } = {}
+): { url: string; tag: string; version: string } {
   const tag = opts.tag ?? 'v9.9.9-test'
   const version = opts.version ?? '9.9.9-test'
   const root = ensureRoot()
   const origin = join(root, 'origin.git')
   const work = join(root, 'origin-work')
   const git = (...args: string[]) => {
-    const res = spawnSync('git', args, { encoding: 'utf8', cwd: work, env: { ...process.env, GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'fixture@test', GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'fixture@test' } })
+    const res = spawnSync('git', args, {
+      encoding: 'utf8',
+      cwd: work,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'fixture',
+        GIT_AUTHOR_EMAIL: 'fixture@test',
+        GIT_COMMITTER_NAME: 'fixture',
+        GIT_COMMITTER_EMAIL: 'fixture@test'
+      }
+    })
     if (res.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${res.stderr}`)
     return res
   }
   mkdirSync(work, { recursive: true })
-  writeFileSync(join(work, 'package.json'), JSON.stringify({ name: label, version }, null, 2) + '\n')
+  writeFileSync(
+    join(work, 'package.json'),
+    JSON.stringify({ name: label, version }, null, 2) + '\n'
+  )
   writeFileSync(join(work, '.env.example'), `${label.toUpperCase()}_SETTING=\n`)
   git('init', '--quiet', '--initial-branch=main')
   git('add', '-A')
@@ -1430,8 +1582,8 @@ function seedBunStub(stubsDir: string, trace: string, opts: { buildExit?: number
       ...(opts.buildExit ? [`    exit ${opts.buildExit}`] : []),
       '    ;;',
       'esac',
-      'exit 0',
-    ].join('\n'),
+      'exit 0'
+    ].join('\n')
   )
   chmodSync(path, 0o755)
 }

@@ -32,7 +32,13 @@ function quote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-type Gate = { status: number | null; stdout: string; stderr: string; polls: number; failure: string }
+type Gate = {
+  status: number | null
+  stdout: string
+  stderr: string
+  polls: number
+  failure: string
+}
 
 /**
  * One /health sample. A bare string is a complete answer (url_get exits 0).
@@ -80,12 +86,12 @@ function runGate(
     cwd?: string
     /** A lib to source instead of the shipped one (mutations only). */
     lib?: string
-  } = {},
+  } = {}
 ): Gate {
   const expected = opts.expected === undefined ? '0.8.0' : opts.expected
   const timeout = opts.timeout ?? 1
   const installDir = opts.installDir ?? '/opt/synaptomind-gate-test'
-  const samples = bodies.map((b) => (typeof b === 'string' ? { body: b, rc: 0 } : b))
+  const samples = bodies.map(b => (typeof b === 'string' ? { body: b, rc: 0 } : b))
   const dir = mkTempTree('synaptomind-gate-')
   const pollFile = join(dir, 'polls')
   const keyExports = Object.entries(opts.keys ?? {})
@@ -96,8 +102,8 @@ APP_NAME=synaptomind
 INSTALL_DIR=${quote(installDir)}
 ${keyExports}
 . ${quote(opts.lib ?? LIB)}
-__bodies=(${samples.map((s) => quote(s.body)).join(' ')})
-__rcs=(${samples.map((s) => String(s.rc)).join(' ')})
+__bodies=(${samples.map(s => quote(s.body)).join(' ')})
+__rcs=(${samples.map(s => String(s.rc)).join(' ')})
 __repeat=${quote(opts.repeatLast ? 'true' : 'false')}
 __poll=${quote(pollFile)}
 url_get() {
@@ -123,7 +129,7 @@ exit $__rc
     const res = spawnSync('bash', ['-c', script], {
       encoding: 'utf8',
       timeout: 60_000,
-      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      ...(opts.cwd ? { cwd: opts.cwd } : {})
     })
     const polls = readFileSync(pollFile, 'utf8').trim()
     const failure = /HEALTH_FAILURE=(.*)/.exec(res.stdout)?.[1] ?? '<unset>'
@@ -132,7 +138,7 @@ exit $__rc
       stdout: res.stdout,
       stderr: res.stderr,
       polls: Number(polls || 0),
-      failure,
+      failure
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -331,11 +337,11 @@ describe('wait_health — a body that dies mid-transfer, then silence, is unveri
       [
         {
           body: '{"status":"ok","version":"0.8.0","checks":{"database":"ok","embedder":"failed"}',
-          rc: 18,
+          rc: 18
         },
-        SILENCE,
+        SILENCE
       ],
-      { timeout: 6, repeatLast: true },
+      { timeout: 6, repeatLast: true }
     )
 
     expect(gate.status, gate.stdout + gate.stderr).toBe(1)
@@ -447,12 +453,12 @@ describe('wait_health — HEALTH_OK_VALUES is a list of literals, not a pattern'
     const gate = runGate([JSON.stringify({ status: 'alpha', version: '0.8.0' })], {
       keys: { HEALTH_OK_VALUES: 'ok * *' },
       cwd,
-      expected: '0.8.0',
+      expected: '0.8.0'
     })
 
     expect(gate.status, gate.stdout + gate.stderr).toBe(1)
     expect(gate.stdout, 'a body whose status is a filename in CWD passed the gate').not.toContain(
-      'Service is healthy',
+      'Service is healthy'
     )
     // The diagnosis must be the CONTRACT, not a timeout: the body did answer,
     // it simply is not this app's /health payload.
@@ -467,7 +473,7 @@ describe('wait_health — HEALTH_OK_VALUES is a list of literals, not a pattern'
     const gate = runGate([payload('ok')], {
       keys: { HEALTH_OK_VALUES: 'ok * *' },
       cwd,
-      expected: '0.8.0',
+      expected: '0.8.0'
     })
 
     expect(gate.status, gate.stdout + gate.stderr).toBe(0)
@@ -485,7 +491,7 @@ describe('wait_health — HEALTH_OK_VALUES is a list of literals, not a pattern'
       const gate = runGate([JSON.stringify({ ...status, status: 'a' })], {
         keys: { HEALTH_OK_VALUES: okValues },
         cwd,
-        expected: '0.8.0',
+        expected: '0.8.0'
       })
       expect(gate.status, `${okValues}: ${gate.stdout}${gate.stderr}`).toBe(1)
       expect(gate.stdout, `${okValues} widened the gate`).not.toContain('Service is healthy')
@@ -505,7 +511,7 @@ describe('wait_health — HEALTH_OK_VALUES is a list of literals, not a pattern'
       keys: { HEALTH_OK_VALUES: 'ok * *' },
       cwd,
       expected: '0.8.0',
-      lib,
+      lib
     })
 
     expect(gate.status, gate.stdout + gate.stderr).toBe(0)
@@ -522,7 +528,7 @@ describe('wait_health — HEALTH_OK_VALUES is a list of literals, not a pattern'
     const runsOfSpaces = runGate([body], {
       keys: { HEALTH_OK_VALUES: 'ok   degraded' },
       cwd,
-      expected: '0.8.0',
+      expected: '0.8.0'
     })
     expect(runsOfSpaces.status, runsOfSpaces.stdout + runsOfSpaces.stderr).toBe(0)
 
@@ -531,7 +537,7 @@ describe('wait_health — HEALTH_OK_VALUES is a list of literals, not a pattern'
     const literal = runGate([JSON.stringify({ status: 'we*rd', version: '0.8.0' })], {
       keys: { HEALTH_OK_VALUES: 'ok we*rd' },
       cwd,
-      expected: '0.8.0',
+      expected: '0.8.0'
     })
     expect(literal.status, literal.stdout + literal.stderr).toBe(0)
   }, 60_000)

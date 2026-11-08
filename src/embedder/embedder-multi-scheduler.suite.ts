@@ -3,7 +3,9 @@ import { afterAll, expect, mock, test } from 'bun:test'
 
 // Drive the actual side-effect worker in an isolated module registry with a
 // deterministic clock. Database identities remain distinct at every queue call.
-const dbs = Object.fromEntries(['bad', 'healthy', 'opening'].map(id => [id, { id } as unknown as Database]))
+const dbs = Object.fromEntries(
+  ['bad', 'healthy', 'opening'].map(id => [id, { id } as unknown as Database])
+)
 const idOf = (db: Database) => (db as unknown as { id: string }).id
 const polls: { id: string; at: number }[] = []
 const writes: { db: string; row: string }[] = []
@@ -18,25 +20,43 @@ globalThis.setInterval = ((fn: () => void, ms?: number) => {
   if (ms === 10) {
     // Focused repro of the old shared-backoff defect: suppress every other
     // entire poll after the fifth failure, instead of delaying just one DB.
-    poll = process.env.TEST_SHARED_BACKOFF_REPRO === '1'
-      ? () => { if (now < 50 || now % 20 === 0) fn() }
-      : fn
+    poll =
+      process.env.TEST_SHARED_BACKOFF_REPRO === '1'
+        ? () => {
+            if (now < 50 || now % 20 === 0) fn()
+          }
+        : fn
   }
   return 1 as unknown as ReturnType<typeof setInterval>
 }) as typeof setInterval
 
-mock.module('../config', () => ({ config: {
-  users: ['bad', 'healthy', 'opening'].map(id => ({ id, dbPath: id })),
-  embedder: { batchSize: 1, pollIntervalMs: 10, precache: true, idleTimeoutMs: 1000,
-    cacheDir: '', model: '', dtype: 'q8' }
-} }))
+mock.module('../config', () => ({
+  config: {
+    users: ['bad', 'healthy', 'opening'].map(id => ({ id, dbPath: id })),
+    embedder: {
+      batchSize: 1,
+      pollIntervalMs: 10,
+      precache: true,
+      idleTimeoutMs: 1000,
+      cacheDir: '',
+      model: '',
+      dtype: 'q8'
+    }
+  }
+}))
 mock.module('../db/init', () => ({
-  initDb: () => {}, closeDb: () => {}, openDatabase: ({ dbPath }: { dbPath: string }) => {
+  initDb: () => {},
+  closeDb: () => {},
+  openDatabase: ({ dbPath }: { dbPath: string }) => {
     if (dbPath === 'opening' && openFails) throw new Error('open failure')
     return dbs[dbPath]
   }
 }))
-mock.module('../db/container', () => ({ getDb: () => { throw new Error('unexpected legacy mode') } }))
+mock.module('../db/container', () => ({
+  getDb: () => {
+    throw new Error('unexpected legacy mode')
+  }
+}))
 mock.module('../logging', () => ({ insertLog: () => {} }))
 mock.module('./model-validator', () => ({ ensureModelFiles: async () => {} }))
 mock.module('./handle-request', () => ({ handleEmbedderRequest: async () => {} }))
@@ -54,15 +74,29 @@ mock.module('../db/pending-embeddings', () => ({
     polls.push({ id, at: now })
     return [{ id, content: id, contentHash: id }]
   },
-  insertEmbedding: (db: Database, row: string) => { writes.push({ db: idOf(db), row }); return true },
-  deleteFromQueue: () => {}, handleFailedItem: () => {}, requeueEmbeddings: () => {},
+  insertEmbedding: (db: Database, row: string) => {
+    writes.push({ db: idOf(db), row })
+    return true
+  },
+  deleteFromQueue: () => {},
+  handleFailedItem: () => {},
+  requeueEmbeddings: () => {},
   sweepOrphanedThoughts: () => []
 }))
 
 await import('./embedder-process')
-async function flush() { for (let i = 0; i < 20; i++) await Promise.resolve() }
-async function tick() { now += 10; poll?.(); await flush() }
-afterAll(() => { Date.now = originalNow; globalThis.setInterval = originalInterval })
+async function flush() {
+  for (let i = 0; i < 20; i++) await Promise.resolve()
+}
+async function tick() {
+  now += 10
+  poll?.()
+  await flush()
+}
+afterAll(() => {
+  Date.now = originalNow
+  globalThis.setInterval = originalInterval
+})
 
 test('failed opens and processing back off independently while healthy work continues, then recover', async () => {
   await flush()

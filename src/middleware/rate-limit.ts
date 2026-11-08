@@ -24,7 +24,10 @@ function clientIdentity(c: Context): string {
   if (TRUST_PROXY) {
     const forwarded = c.req.header('x-forwarded-for')
     if (forwarded) {
-      const hops = forwarded.split(',').map(h => h.trim()).filter(Boolean)
+      const hops = forwarded
+        .split(',')
+        .map(h => h.trim())
+        .filter(Boolean)
       const last = hops[hops.length - 1]
       if (last) return last
     }

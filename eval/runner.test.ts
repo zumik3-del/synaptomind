@@ -264,7 +264,9 @@ describe('buildThresholdEntry', () => {
 
   test('builds per-category floors alongside the overall floor', () => {
     const entry = buildThresholdEntry(
-      result({ categories: { 'multi-hop': { recall: 1, precision: 0.3, mrr: 1, hitRate: 1, queries: 2 } } })
+      result({
+        categories: { 'multi-hop': { recall: 1, precision: 0.3, mrr: 1, hitRate: 1, queries: 2 } }
+      })
     )
 
     expect(entry.thresholds.categories['multi-hop']).toEqual({
@@ -348,7 +350,12 @@ describe('evaluateThresholds', () => {
   test('xpass scenarios never gate: their assertions are not evaluated', () => {
     const res = result({
       scenarios: [
-        scenarioRun({ name: 'closed-gap', category: 'contradiction', outcome: 'xfail', status: 'xpass' })
+        scenarioRun({
+          name: 'closed-gap',
+          category: 'contradiction',
+          outcome: 'xfail',
+          status: 'xpass'
+        })
       ]
     })
 
@@ -379,7 +386,12 @@ describe('evaluateThresholds', () => {
     const res = result({
       overall: { recall: 1, precision: 1, mrr: 1, hitRate: 1, queries: 1 },
       scenarios: [
-        scenarioRun({ name: 'closed-gap', category: 'contradiction', outcome: 'xfail', status: 'xpass' })
+        scenarioRun({
+          name: 'closed-gap',
+          category: 'contradiction',
+          outcome: 'xfail',
+          status: 'xpass'
+        })
       ]
     })
 
@@ -456,12 +468,9 @@ describe('collectGatingRegressions', () => {
       }
     ])
     // The default entry floor is 1, so every overall metric is below it too.
-    expect(regressions.filter(entry => entry.metric !== 'assertion').map(entry => entry.metric)).toEqual([
-      'recall',
-      'precision',
-      'mrr',
-      'hitRate'
-    ])
+    expect(
+      regressions.filter(entry => entry.metric !== 'assertion').map(entry => entry.metric)
+    ).toEqual(['recall', 'precision', 'mrr', 'hitRate'])
   })
 
   test('xfail assertion failures never gate, with or without a baseline', () => {
@@ -486,7 +495,12 @@ describe('collectGatingRegressions', () => {
     const res = result({
       overall: { recall: 1, precision: 1, mrr: 1, hitRate: 1, queries: 1 },
       scenarios: [
-        scenarioRun({ name: 'closed-gap', category: 'contradiction', outcome: 'xfail', status: 'xpass' })
+        scenarioRun({
+          name: 'closed-gap',
+          category: 'contradiction',
+          outcome: 'xfail',
+          status: 'xpass'
+        })
       ]
     })
 

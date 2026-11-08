@@ -53,7 +53,9 @@ function writeFutureOnlyDatabase(path: string): void {
 function tableNames(path: string): string[] {
   const raw = new Database(path)
   try {
-    return (raw.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(r => r.name)
+    return (
+      raw.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]
+    ).map(r => r.name)
   } finally {
     raw.close(true)
   }

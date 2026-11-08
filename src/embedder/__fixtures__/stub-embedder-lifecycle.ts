@@ -73,7 +73,8 @@ function answering(): void {
       // request is still pending, then the process leaves on its own. In
       // 'idle-exit-once' the exit is delayed by SYNAPTOMIND_STUB_HANG_MS so the
       // respawned successor is live before this stale `exited` fires (#1784).
-      const lingerMs = mode === 'idle-exit-once' ? Number(process.env.SYNAPTOMIND_STUB_HANG_MS ?? '1500') : 25
+      const lingerMs =
+        mode === 'idle-exit-once' ? Number(process.env.SYNAPTOMIND_STUB_HANG_MS ?? '1500') : 25
       setTimeout(() => {
         process.send?.({ type: 'exiting' })
         setTimeout(() => {
@@ -112,22 +113,39 @@ function serving(): void {
     const requestFile = process.env.SYNAPTOMIND_STUB_REQUEST_FILE
     if (requestFile) writeFileSync(requestFile, message.id ?? '')
     if (message.method === 'embed') {
-      process.send?.({ type: 'result', id: message.id, embedding: [(message.params?.text ?? '').length, 1, 2] })
+      process.send?.({
+        type: 'result',
+        id: message.id,
+        embedding: [(message.params?.text ?? '').length, 1, 2]
+      })
       return
     }
     if (message.method === 'embed_batch') {
       const texts = message.params?.texts ?? []
-      process.send?.({ type: 'result', id: message.id, embedding: texts.map(t => [t.length, 1, 2]) })
+      process.send?.({
+        type: 'result',
+        id: message.id,
+        embedding: texts.map(t => [t.length, 1, 2])
+      })
       return
     }
-    process.send?.({ type: 'error', id: message.id, error: `stub: unknown method ${message.method}` })
+    process.send?.({
+      type: 'error',
+      id: message.id,
+      error: `stub: unknown method ${message.method}`
+    })
   })
   setInterval(() => {}, 1_000)
 }
 
 if (mode === 'idle-exit-once' && attempt >= 2) {
   serving()
-} else if (mode === 'ready-no-answer' || mode === 'idle-exit-on-request' || mode === 'crash-on-request' || mode === 'idle-exit-once') {
+} else if (
+  mode === 'ready-no-answer' ||
+  mode === 'idle-exit-on-request' ||
+  mode === 'crash-on-request' ||
+  mode === 'idle-exit-once'
+) {
   answering()
 } else if (mode === 'crash-then-recover') {
   const hangMs = Number(process.env.SYNAPTOMIND_STUB_HANG_MS ?? '3000')

@@ -72,7 +72,9 @@ export async function validateModelFiles(
 
     const size = f.size
     if (size < file.minSizeBytes) {
-      console.log(`[embedder] corrupt model file: ${file.path} (${size} bytes, expected >= ${file.minSizeBytes})`)
+      console.log(
+        `[embedder] corrupt model file: ${file.path} (${size} bytes, expected >= ${file.minSizeBytes})`
+      )
       corrupt.push(file.path)
       continue
     }
@@ -93,7 +95,11 @@ export async function validateModelFiles(
   return { missing, corrupt, ok }
 }
 
-async function downloadFile(modelName: string, relativePath: string, destPath: string): Promise<void> {
+async function downloadFile(
+  modelName: string,
+  relativePath: string,
+  destPath: string
+): Promise<void> {
   const url = downloadUrl(modelName, relativePath)
   console.log(`[embedder] downloading ${relativePath}...`)
 
@@ -134,7 +140,11 @@ async function warnStaleSiblingOnnx(baseDir: string, dtype: EmbedderDtype): Prom
   }
 }
 
-export async function ensureModelFiles(cacheDir: string, modelName: string, dtype: EmbedderDtype): Promise<void> {
+export async function ensureModelFiles(
+  cacheDir: string,
+  modelName: string,
+  dtype: EmbedderDtype
+): Promise<void> {
   const expectedCount = expectedFiles(dtype).length
   const result = await validateModelFiles(cacheDir, modelName, dtype)
 
@@ -169,12 +179,16 @@ export async function ensureModelFiles(cacheDir: string, modelName: string, dtyp
       model: modelName,
       files: toDownload
     })
-    console.log(`[embedder] model files ready (${result.ok.length + toDownload.length}/${expectedCount}, dtype=${dtype})`)
+    console.log(
+      `[embedder] model files ready (${result.ok.length + toDownload.length}/${expectedCount}, dtype=${dtype})`
+    )
   } else {
     insertLog('info', 'embedding', 'Model files validated (cached, not loaded)', {
       model: modelName,
       filesOk: result.ok
     })
-    console.log(`[embedder] model files validated (${result.ok.length}/${expectedCount}, dtype=${dtype})`)
+    console.log(
+      `[embedder] model files validated (${result.ok.length}/${expectedCount}, dtype=${dtype})`
+    )
   }
 }

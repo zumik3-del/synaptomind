@@ -21,7 +21,10 @@ export function findPendingEmbeddings(
 
 // Archive-status thoughts are excluded from default search — re-embedding them
 // would be wasted compute on rows the search sweep keeps skipping.
-export function sweepOrphanedThoughts(db: Database, limit: number): { id: string; content: string }[] {
+export function sweepOrphanedThoughts(
+  db: Database,
+  limit: number
+): { id: string; content: string }[] {
   return db
     .prepare(`
     SELECT t.id, t.content FROM thoughts t
@@ -43,7 +46,9 @@ export function sweepOrphanedThoughts(db: Database, limit: number): { id: string
  */
 export function requeueEmbeddings(db: Database, ids: string[]): void {
   const createdAt = new Date().toISOString()
-  const insert = db.prepare('INSERT OR IGNORE INTO pending_embeddings (thought_id, created_at) VALUES (?, ?)')
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO pending_embeddings (thought_id, created_at) VALUES (?, ?)'
+  )
   const tx = db.transaction(() => {
     for (const id of ids) insert.run(id, createdAt)
   })
@@ -74,11 +79,9 @@ export function handleFailedItem(db: Database, id: string, error: string) {
       error
     })
   } else {
-    db.prepare('UPDATE pending_embeddings SET attempts = ?, last_error = ? WHERE thought_id = ?').run(
-      nextAttempt,
-      error,
-      id
-    )
+    db.prepare(
+      'UPDATE pending_embeddings SET attempts = ?, last_error = ? WHERE thought_id = ?'
+    ).run(nextAttempt, error, id)
   }
 }
 
@@ -92,7 +95,8 @@ export function handleFailedItem(db: Database, id: string, error: string) {
  * content that is already obsolete, and the next poll re-reads the row, so this
  * skip is retryable work rather than a fault (see `embedder-process.ts`).
  */
-export const CONTENT_CHANGED_REASON = 'content changed during batch — embedding skipped, re-queued for retry'
+export const CONTENT_CHANGED_REASON =
+  'content changed during batch — embedding skipped, re-queued for retry'
 
 /**
  * Write the vector for `id`, but only while its content still matches
@@ -105,16 +109,28 @@ export const CONTENT_CHANGED_REASON = 'content changed during batch — embeddin
  * that the (still stale) `vec_thoughts` vector no longer matches the content
  * (task #1572). The caller retries it on the next poll.
  */
-export function insertEmbedding(db: Database, id: string, embedding: Float32Array, expectedHash: string) {
-  const current = db.prepare('SELECT content_hash FROM thoughts WHERE id = ?').get(id) as { content_hash: string } | undefined
+export function insertEmbedding(
+  db: Database,
+  id: string,
+  embedding: Float32Array,
+  expectedHash: string
+) {
+  const current = db.prepare('SELECT content_hash FROM thoughts WHERE id = ?').get(id) as
+    | { content_hash: string }
+    | undefined
   if (current && current.content_hash !== expectedHash) {
-    insertLog('info', 'embedding', `Stale embedding skipped for ${id} — content changed during batch`, { thought_id: id })
+    insertLog(
+      'info',
+      'embedding',
+      `Stale embedding skipped for ${id} — content changed during batch`,
+      { thought_id: id }
+    )
     return false
   }
   db.run('DELETE FROM vec_thoughts WHERE id = ?', [id])
-  db.run(
-    'INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)',
-    [id, Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength)]
-  )
+  db.run('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)', [
+    id,
+    Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength)
+  ])
   return true
 }

@@ -3,7 +3,9 @@ import type { Database } from 'bun:sqlite'
 export default {
   version: 28,
   apply(db: Database): void {
-    db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS thoughts_fts USING fts5(thought_id UNINDEXED, content)`)
+    db.run(
+      `CREATE VIRTUAL TABLE IF NOT EXISTS thoughts_fts USING fts5(thought_id UNINDEXED, content)`
+    )
     db.exec(`
       CREATE TRIGGER IF NOT EXISTS trg_thoughts_fts_insert
       AFTER INSERT ON thoughts

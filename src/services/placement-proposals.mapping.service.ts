@@ -154,7 +154,8 @@ function assembleFingerprint(
 export function pairFingerprint(d: Database, sourceId: string, targetId: string | null): string {
   const source = getThoughtRow(d, sourceId)
   const target = targetId !== null ? getThoughtRow(d, targetId) : undefined
-  const existingEdgeType = targetId !== null ? (getEdgePairBetween(d, sourceId, targetId)?.type ?? null) : null
+  const existingEdgeType =
+    targetId !== null ? (getEdgePairBetween(d, sourceId, targetId)?.type ?? null) : null
   return assembleFingerprint(source, target, sourceId, targetId ?? '', existingEdgeType)
 }
 

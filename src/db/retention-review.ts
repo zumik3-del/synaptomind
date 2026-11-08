@@ -57,43 +57,61 @@ export function findActiveOrDraftRetentionReviewThoughtByHash(
   contentHash: string,
   projectId: string
 ): RetentionReviewExistingThought | undefined {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT id FROM thoughts
     WHERE content_hash = ? AND project_id = ? AND status IN ('draft', 'active')
     LIMIT 1
-  `).get(contentHash, projectId) as RetentionReviewExistingThought | undefined
+  `)
+    .get(contentHash, projectId) as RetentionReviewExistingThought | undefined
 }
 
 export function getRetentionReviewCreatedSummaryState(
   db: Database,
   thoughtId: string
 ): RetentionReviewCreatedSummaryState | undefined {
-  return db.prepare('SELECT status, is_protected FROM thoughts WHERE id = ?')
-    .get(thoughtId) as RetentionReviewCreatedSummaryState | undefined
+  return db.prepare('SELECT status, is_protected FROM thoughts WHERE id = ?').get(thoughtId) as
+    | RetentionReviewCreatedSummaryState
+    | undefined
 }
 
-export function countRetentionReviewDependents(db: Database, thoughtId: string): RetentionReviewDependentCounts {
+export function countRetentionReviewDependents(
+  db: Database,
+  thoughtId: string
+): RetentionReviewDependentCounts {
   const count = (sql: string): number => {
     const row = db.prepare(sql).get(thoughtId) as { count: number }
     return row.count
   }
-  const edgeRow = db.prepare(`SELECT COUNT(*) AS count FROM edges WHERE source_id = ? OR target_id = ?`)
+  const edgeRow = db
+    .prepare(`SELECT COUNT(*) AS count FROM edges WHERE source_id = ? OR target_id = ?`)
     .get(thoughtId, thoughtId) as { count: number }
   const edgeCount = edgeRow.count
   const importance = count(`SELECT COUNT(*) AS count FROM thought_importance WHERE thought_id = ?`)
   const url_links = count(`SELECT COUNT(*) AS count FROM thought_url_links WHERE thought_id = ?`)
-  const pending_embeddings = count(`SELECT COUNT(*) AS count FROM pending_embeddings WHERE thought_id = ?`)
+  const pending_embeddings = count(
+    `SELECT COUNT(*) AS count FROM pending_embeddings WHERE thought_id = ?`
+  )
   const primers = count(`SELECT COUNT(*) AS count FROM primers WHERE thought_id = ?`)
   const thought_tags = count(`SELECT COUNT(*) AS count FROM thought_tags WHERE thought_id = ?`)
   const total = edgeCount + importance + url_links + pending_embeddings + primers + thought_tags
-  return { edges: edgeCount, importance, url_links, pending_embeddings, primers, thought_tags, total }
+  return {
+    edges: edgeCount,
+    importance,
+    url_links,
+    pending_embeddings,
+    primers,
+    thought_tags,
+    total
+  }
 }
 
 export function getRetentionReviewEligibilityThought(
   db: Database,
   thoughtId: string
 ): RetentionReviewEligibilityThought | undefined {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT t.id, t.content, t.status, t.project_id, t.is_protected, t.is_global,
            t.created_at, t.archived_at, t.surface_after,
            COALESCE(ti.importance, 1.0) AS importance,
@@ -101,15 +119,18 @@ export function getRetentionReviewEligibilityThought(
     FROM thoughts t
     LEFT JOIN thought_importance ti ON ti.thought_id = t.id
     WHERE t.id = ?
-  `).get(thoughtId) as RetentionReviewEligibilityThought | undefined
+  `)
+    .get(thoughtId) as RetentionReviewEligibilityThought | undefined
 }
 
 export function countIncomingActiveRetentionReviewEdges(db: Database, thoughtId: string): number {
-  const row = db.prepare(`
+  const row = db
+    .prepare(`
     SELECT COUNT(*) AS count FROM edges e
     JOIN thoughts s ON s.id = e.source_id
     WHERE e.target_id = ? AND s.status = 'active'
-  `).get(thoughtId) as { count: number }
+  `)
+    .get(thoughtId) as { count: number }
   return row.count
 }
 
@@ -128,13 +149,18 @@ const where = `
     )
 `
 
-export function countRetentionReviewCandidates(db: Database, filters: RetentionReviewCandidateFilters): number {
-  const row = db.prepare(`
+export function countRetentionReviewCandidates(
+  db: Database,
+  filters: RetentionReviewCandidateFilters
+): number {
+  const row = db
+    .prepare(`
     SELECT COUNT(*) AS total
     FROM thoughts t
     LEFT JOIN thought_importance ti ON ti.thought_id = t.id
     ${where}
-  `).get(filters.cutoff, filters.importanceFloor, filters.now) as { total: number } | undefined
+  `)
+    .get(filters.cutoff, filters.importanceFloor, filters.now) as { total: number } | undefined
   return row?.total ?? 0
 }
 
@@ -142,7 +168,8 @@ export function listRetentionReviewCandidates(
   db: Database,
   filters: RetentionReviewCandidateFilters & { limit: number; offset: number }
 ): RetentionReviewCandidateRow[] {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT t.id, t.content, t.status, t.project_id, p.name AS project_name,
            t.created_at, t.archived_at, t.surface_after,
            COALESCE(ti.importance, 1.0) AS importance,
@@ -153,5 +180,12 @@ export function listRetentionReviewCandidates(
     ${where}
     ORDER BY COALESCE(t.archived_at, t.created_at) ASC, t.id ASC
     LIMIT ? OFFSET ?
-  `).all(filters.cutoff, filters.importanceFloor, filters.now, filters.limit, filters.offset) as RetentionReviewCandidateRow[]
+  `)
+    .all(
+      filters.cutoff,
+      filters.importanceFloor,
+      filters.now,
+      filters.limit,
+      filters.offset
+    ) as RetentionReviewCandidateRow[]
 }

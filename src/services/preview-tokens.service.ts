@@ -12,7 +12,7 @@ export function createPreviewTokenService(
   kind: string,
   targetId: string,
   fingerprint: string,
-  d: Database = getDb(),
+  d: Database = getDb()
 ): string {
   return dbCreatePreviewToken(d, kind, targetId, fingerprint, PREVIEW_TOKEN_TTL_MINUTES)
 }
@@ -40,7 +40,7 @@ export function consumePreviewTokenService(
   kind: string,
   targetId: string,
   currentFingerprint: string,
-  d: Database = getDb(),
+  d: Database = getDb()
 ): VerifyPreviewTokenResult {
   const row = dbConsumePreviewToken(d, token)
   if (!row) return { valid: false, reason: 'not_found' }

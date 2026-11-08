@@ -136,12 +136,20 @@ function buildMeta(action: string, returned: number, opts: EnvelopeOptions): Env
 }
 
 /** Build the `{ items, meta }` envelope of a collection action. */
-export function collectionEnvelope<T>(action: string, items: T[], opts: EnvelopeOptions = {}): CollectionEnvelope<T> {
+export function collectionEnvelope<T>(
+  action: string,
+  items: T[],
+  opts: EnvelopeOptions = {}
+): CollectionEnvelope<T> {
   return { items, meta: buildMeta(action, items.length, opts) }
 }
 
 /** Build the `{ item, meta }` envelope of a single-object action. */
-export function itemEnvelope<T>(action: string, item: T | null, opts: EnvelopeOptions = {}): ItemEnvelope<T> {
+export function itemEnvelope<T>(
+  action: string,
+  item: T | null,
+  opts: EnvelopeOptions = {}
+): ItemEnvelope<T> {
   return { item, meta: buildMeta(action, item === null ? 0 : 1, opts) }
 }
 
@@ -157,7 +165,10 @@ export function scopeProjectId(scope: EnvelopeScope | null): string | undefined 
  * `cwd` unknown to the project table → a global scope with a warning; the call
  * still answers, it just is not restricted to one project.
  */
-export function resolveEnvelopeScope(cwd: string | undefined): { scope: EnvelopeScope | null; warnings: string[] } {
+export function resolveEnvelopeScope(cwd: string | undefined): {
+  scope: EnvelopeScope | null
+  warnings: string[]
+} {
   if (cwd === undefined) {
     return { scope: null, warnings: ['no cwd — the answer spans every project'] }
   }
@@ -165,7 +176,9 @@ export function resolveEnvelopeScope(cwd: string | undefined): { scope: Envelope
   if (!project) {
     return {
       scope: { project: null, project_name: null, global: true },
-      warnings: [`cwd "${cwd}" matches no known project — the answer spans every project (check it with memory_manage action=resolve)`]
+      warnings: [
+        `cwd "${cwd}" matches no known project — the answer spans every project (check it with memory_manage action=resolve)`
+      ]
     }
   }
   return { scope: { project: project.id, project_name: project.name, global: false }, warnings: [] }
@@ -209,7 +222,10 @@ export function requireEnvelopeScope(
  * because the write lands in the resolved default project rather than spanning
  * every project.
  */
-export function writeEnvelopeScope(cwd: unknown): { scope: EnvelopeScope | null; warnings: string[] } {
+export function writeEnvelopeScope(cwd: unknown): {
+  scope: EnvelopeScope | null
+  warnings: string[]
+} {
   if (typeof cwd !== 'string' || cwd.trim().length === 0) return { scope: null, warnings: [] }
   return resolveEnvelopeScope(cwd)
 }

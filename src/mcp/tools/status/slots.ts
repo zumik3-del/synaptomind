@@ -18,9 +18,10 @@ export const slotsHandler: ActionHandler = {
       offset: args.offset as number | undefined
     })
     const fields = args.fields
-    const items = Array.isArray(fields) && fields.length > 0
-      ? (slots.map((s) => projectFields(s, { fields })) as unknown as typeof slots)
-      : slots
+    const items =
+      Array.isArray(fields) && fields.length > 0
+        ? (slots.map(s => projectFields(s, { fields })) as unknown as typeof slots)
+        : slots
     return collectionEnvelope('slots', items, { scope, warnings })
   }
 }

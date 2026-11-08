@@ -8,13 +8,22 @@ afterEach(closeDb)
 
 function tagThought(id: string, tag: string): void {
   const db = getDb()
-  let tagRow = db.prepare('SELECT id FROM tags WHERE name = ?').get(tag) as { id: string } | undefined
+  let tagRow = db.prepare('SELECT id FROM tags WHERE name = ?').get(tag) as
+    | { id: string }
+    | undefined
   if (!tagRow) {
     const tagId = Bun.randomUUIDv7()
-    db.prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)').run(tagId, tag, new Date().toISOString())
+    db.prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)').run(
+      tagId,
+      tag,
+      new Date().toISOString()
+    )
     tagRow = { id: tagId }
   }
-  db.prepare('INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)').run(id, tagRow.id)
+  db.prepare('INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)').run(
+    id,
+    tagRow.id
+  )
 }
 
 test('FRONTIER_EXCLUDED_SOURCES keeps only the legacy profile-summary source', () => {
@@ -124,6 +133,8 @@ test('findFrontierCandidates includes pending with NULL surface_after', () => {
 
 test('migrated DB has no smart_notes table', () => {
   const db = getDb()
-  const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='smart_notes'").get() as { name: string } | null
+  const table = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='smart_notes'")
+    .get() as { name: string } | null
   expect(table).toBeNull()
 })

@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { insertProposal } from '../../db/placement-proposals'
@@ -65,7 +65,12 @@ function seedTwoProjects(): { scopedId: string; otherId: string; projectId: stri
   }
 }
 
-function seedPendingProposal(projectId: string, sourceId: string, targetId: string, fingerprint: string): void {
+function seedPendingProposal(
+  projectId: string,
+  sourceId: string,
+  targetId: string,
+  fingerprint: string
+): void {
   insertProposal(getDb(), {
     project_id: projectId,
     source_thought_id: sourceId,
@@ -99,12 +104,19 @@ describe('memory_crystallize action=graph — scope is reported', () => {
     const { scopedId, projectId } = seedTwoProjects()
 
     const { data, isError } = parseResult(
-      await client.callTool({ name: 'memory_crystallize', arguments: { action: 'graph', cwd: CWD } })
+      await client.callTool({
+        name: 'memory_crystallize',
+        arguments: { action: 'graph', cwd: CWD }
+      })
     )
 
     expect(isError).toBe(false)
     expect(data.items.map((n: { id: string }) => n.id)).toEqual([scopedId])
-    expect(data.meta.scope).toEqual({ project: projectId, project_name: 'ReadScopeProject', global: false })
+    expect(data.meta.scope).toEqual({
+      project: projectId,
+      project_name: 'ReadScopeProject',
+      global: false
+    })
     expect(data.meta.warnings).toEqual([])
   })
 })
@@ -140,7 +152,11 @@ describe('edge_review action=list — scope is reported', () => {
     expect(isError).toBe(false)
     expect(data.items).toHaveLength(1)
     expect(data.items[0].project_id).toBe(projectId)
-    expect(data.meta.scope).toEqual({ project: project!.id, project_name: project!.name, global: false })
+    expect(data.meta.scope).toEqual({
+      project: project!.id,
+      project_name: project!.name,
+      global: false
+    })
     expect(data.meta.warnings).toEqual([])
   })
 })

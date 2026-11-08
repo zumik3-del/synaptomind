@@ -8,11 +8,7 @@
 
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
-import {
-  SYMMETRIC_EDGE_TYPES,
-  getEdgePairBetween,
-  isValidEdgeType
-} from '../db/edges'
+import { SYMMETRIC_EDGE_TYPES, getEdgePairBetween, isValidEdgeType } from '../db/edges'
 import { getClusterMembers, getClusterThought } from '../db/cluster-edges'
 import type { PlacementProposalRow } from '../db/placement-proposals'
 import { getThoughtRow } from '../db/thoughts'
@@ -26,7 +22,11 @@ export interface PlannedEdge {
   type: string
 }
 
-export type Gate = { kind: 'ok' } | { kind: 'already_applied' } | { kind: 'stale'; reason: string } | { kind: 'failed'; reason: string }
+export type Gate =
+  | { kind: 'ok' }
+  | { kind: 'already_applied' }
+  | { kind: 'stale'; reason: string }
+  | { kind: 'failed'; reason: string }
 
 /** Resolve the edge a proposal would create (ADR §2.5 / §2.6). */
 export function plannedEdge(row: PlacementProposalRow): PlannedEdge | undefined {
@@ -59,7 +59,8 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
   if (row.target_id && !target) return { kind: 'stale', reason: 'target thought no longer exists' }
 
   const edge = plannedEdge(row)
-  if (edge && !isValidEdgeType(edge.type)) return { kind: 'failed', reason: `invalid edge type '${edge.type}'` }
+  if (edge && !isValidEdgeType(edge.type))
+    return { kind: 'failed', reason: `invalid edge type '${edge.type}'` }
 
   // Already-applied / conflict detection for edge-creating items (ADR §2.6).
   if (edge && target) {
@@ -69,7 +70,10 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
       if (existing.source_id === edge.sourceId && existing.target_id === edge.targetId) {
         return { kind: 'already_applied' }
       }
-      return { kind: 'stale', reason: `a reverse '${edge.type}' edge already exists between the pair` }
+      return {
+        kind: 'stale',
+        reason: `a reverse '${edge.type}' edge already exists between the pair`
+      }
     }
     // A `related` placeholder is upgraded transactionally by `createEdge`.
     if (existing && existing.type !== 'related') {
@@ -78,8 +82,10 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
   }
 
   // Only active thoughts participate in a confirmed move (ADR §2.3).
-  if (source.status !== 'active') return { kind: 'stale', reason: `source is '${source.status}', not active` }
-  if (target && target.status !== 'active') return { kind: 'stale', reason: `target is '${target.status}', not active` }
+  if (source.status !== 'active')
+    return { kind: 'stale', reason: `source is '${source.status}', not active` }
+  if (target && target.status !== 'active')
+    return { kind: 'stale', reason: `target is '${target.status}', not active` }
 
   // Project isolation is state-dependent and re-checked at apply time.
   if (target && source.project_id && target.project_id && source.project_id !== target.project_id) {
@@ -92,11 +98,17 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
   // is gone, the gate now guards the `edge` items that carry a cluster edge).
   if (row.item_kind === 'edge' && row.edge_type === 'cluster' && row.target_id) {
     if (!getClusterThought(d, row.source_thought_id)) {
-      return { kind: 'failed', reason: `source '${row.source_thought_id}' is not a cluster thought` }
+      return {
+        kind: 'failed',
+        reason: `source '${row.source_thought_id}' is not a cluster thought`
+      }
     }
     const members = getClusterMembers(d, row.source_thought_id).length
     if (members >= config.placement.maxClusterSize) {
-      return { kind: 'stale', reason: `cluster '${row.source_thought_id}' has ${members} members >= maxClusterSize ${config.placement.maxClusterSize}` }
+      return {
+        kind: 'stale',
+        reason: `cluster '${row.source_thought_id}' has ${members} members >= maxClusterSize ${config.placement.maxClusterSize}`
+      }
     }
   }
 

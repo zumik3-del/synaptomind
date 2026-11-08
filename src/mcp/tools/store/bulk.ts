@@ -20,8 +20,16 @@ export const bulkCreateHandler: ActionHandler = {
     // One row per requested item, in input order, so a partial failure stays
     // readable: the aggregate lives in `meta.counts` (task #2181).
     const rows: BulkCreateRow[] = [
-      ...created.map(item => ({ index: item.index, status: 'created' as const, thought: shapeThought(item.thought) })),
-      ...errors.map(error => ({ index: error.index, status: 'failed' as const, error: error.error }))
+      ...created.map(item => ({
+        index: item.index,
+        status: 'created' as const,
+        thought: shapeThought(item.thought)
+      })),
+      ...errors.map(error => ({
+        index: error.index,
+        status: 'failed' as const,
+        error: error.error
+      }))
     ].sort((a, b) => a.index - b.index)
     return collectionEnvelope('bulk_create', rows, {
       ...writeEnvelopeScope(args.cwd),

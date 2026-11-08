@@ -41,7 +41,12 @@ test('all files present with sufficient sizes → everything ok', async () => {
 
   const result = await validateModelFiles(cacheDir, MODEL, 'fp32')
 
-  expect(result.ok).toEqual(['config.json', 'tokenizer.json', 'tokenizer_config.json', 'onnx/model.onnx'])
+  expect(result.ok).toEqual([
+    'config.json',
+    'tokenizer.json',
+    'tokenizer_config.json',
+    'onnx/model.onnx'
+  ])
   expect(result.missing).toEqual([])
   expect(result.corrupt).toEqual([])
 })
@@ -49,7 +54,12 @@ test('all files present with sufficient sizes → everything ok', async () => {
 test('empty cache dir → every file missing', async () => {
   const result = await validateModelFiles(cacheDir, MODEL, 'fp32')
 
-  expect(result.missing).toEqual(['config.json', 'tokenizer.json', 'tokenizer_config.json', 'onnx/model.onnx'])
+  expect(result.missing).toEqual([
+    'config.json',
+    'tokenizer.json',
+    'tokenizer_config.json',
+    'onnx/model.onnx'
+  ])
   expect(result.corrupt).toEqual([])
   expect(result.ok).toEqual([])
 })
@@ -121,11 +131,8 @@ async function writeTokenizerFiles(): Promise<void> {
 }
 
 /** Every path the validator reported, whatever its verdict. */
-const reportedPaths = (result: Awaited<ReturnType<typeof validateModelFiles>>, path: string) => [
-  ...result.ok,
-  ...result.missing,
-  ...result.corrupt
-].includes(path)
+const reportedPaths = (result: Awaited<ReturnType<typeof validateModelFiles>>, path: string) =>
+  [...result.ok, ...result.missing, ...result.corrupt].includes(path)
 
 describe('validateModelFiles — dtype selects the ONNX file', () => {
   for (const { dtype, onnx, sibling } of DTYPE_ONNX) {
@@ -260,9 +267,9 @@ describe('ensureModelFiles — a q8 fetch never asks for onnx/model.onnx', () =>
     const quantized = Bun.file(join(cacheDir, MODEL, 'onnx/model_quantized.onnx'))
     expect(quantized.size).toBe(ONNX_BYTES)
     // Replaced by the download, so the zero header is gone.
-    expect((await readFile(join(cacheDir, MODEL, 'onnx/model_quantized.onnx'))).subarray(0, 4)).toEqual(
-      Buffer.from([0x61, 0x61, 0x61, 0x61])
-    )
+    expect(
+      (await readFile(join(cacheDir, MODEL, 'onnx/model_quantized.onnx'))).subarray(0, 4)
+    ).toEqual(Buffer.from([0x61, 0x61, 0x61, 0x61]))
   })
 })
 
@@ -335,8 +342,10 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
   let restoreWarn: () => void = () => {}
   let restoreFetch: () => void = () => {}
 
-  const warnings = (): string[] => events.filter(e => e.startsWith('warn:')).map(e => e.slice('warn:'.length))
-  const fetches = (): string[] => events.filter(e => e.startsWith('fetch:')).map(e => e.slice('fetch:'.length))
+  const warnings = (): string[] =>
+    events.filter(e => e.startsWith('warn:')).map(e => e.slice('warn:'.length))
+  const fetches = (): string[] =>
+    events.filter(e => e.startsWith('fetch:')).map(e => e.slice('fetch:'.length))
 
   beforeEach(() => {
     events = []
@@ -435,13 +444,20 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
     const staleBytes = 2 * MIB
     await writeModelFile('onnx/model_quantized.onnx', staleBytes, 0x42)
 
-    await expect(ensureModelFiles(cacheDir, MODEL, 'fp32')).rejects.toThrow('offline: this suite must not download')
+    await expect(ensureModelFiles(cacheDir, MODEL, 'fp32')).rejects.toThrow(
+      'offline: this suite must not download'
+    )
 
     // The hint must not depend on a successful download: it is emitted before
     // the fetch that fails on an offline host.
     const [first] = events
     expect(first?.startsWith('warn:')).toBe(true)
-    expectStaleSiblingWarning(first?.slice('warn:'.length), 'onnx/model_quantized.onnx', staleBytes, 'fp32')
+    expectStaleSiblingWarning(
+      first?.slice('warn:'.length),
+      'onnx/model_quantized.onnx',
+      staleBytes,
+      'fp32'
+    )
     expect(fetches()).toHaveLength(1)
   })
 

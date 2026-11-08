@@ -98,12 +98,12 @@ export interface SearchResult {
    * (`recencyWeight > 0`); `1` = created at `nowMs`.
    */
   recency_score?: number
-   /**
-     * Combined ordering key `relevant + recencyWeight * recency_score`, in
-     * `[0, 1+w]`, where `relevant = rrf_score / rrfMax` on the fused path and
-     * `similarity` on the vector-only path. Present only when the recency boost
-     * is enabled. `rrf_score` stays raw/un-boosted.
-     */
+  /**
+   * Combined ordering key `relevant + recencyWeight * recency_score`, in
+   * `[0, 1+w]`, where `relevant = rrf_score / rrfMax` on the fused path and
+   * `similarity` on the vector-only path. Present only when the recency boost
+   * is enabled. `rrf_score` stays raw/un-boosted.
+   */
   final_score?: number
   /** Graph standing; present only when the caller enables graph annotation. */
   standing?: GraphStanding

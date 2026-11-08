@@ -164,7 +164,12 @@ describe('R1 freshness — a pending candidate is embedded live, never scored fr
       storeVec('b', vec(22))
       storeVec('c', vec(33))
       // Steady state precondition: no pending signal for any candidate.
-      expect(getPendingEmbeddingIds(db, candidates.map(c => c.id)).size).toBe(0)
+      expect(
+        getPendingEmbeddingIds(
+          db,
+          candidates.map(c => c.id)
+        ).size
+      ).toBe(0)
 
       let embedCalls = 0
       const result = await resolveCandidateEmbeddings(
@@ -189,10 +194,9 @@ describe('R1 freshness — a pending candidate is embedded live, never scored fr
       // behind. Re-embedding here is deliberate, harmless waste: it is the price
       // of the no-stale-use guarantee (pending-first read ordering, #1569).
       storeVec(id, vec(1))
-      db.prepare(`INSERT OR REPLACE INTO pending_embeddings (thought_id, created_at) VALUES (?, ?)`).run(
-        id,
-        new Date().toISOString()
-      )
+      db.prepare(
+        `INSERT OR REPLACE INTO pending_embeddings (thought_id, created_at) VALUES (?, ?)`
+      ).run(id, new Date().toISOString())
 
       let embedCalls = 0
       const result = await resolveCandidateEmbeddings(
@@ -222,10 +226,9 @@ describe('AC5 getPendingEmbeddingIds degradation (fail-closed AND available)', (
       const id = seedThought({ content: 'NEW content' })
       storeVec(id, vec(1))
       // A pending row is present, so production would embed this candidate live.
-      db.prepare(`INSERT OR REPLACE INTO pending_embeddings (thought_id, created_at) VALUES (?, ?)`).run(
-        id,
-        new Date().toISOString()
-      )
+      db.prepare(
+        `INSERT OR REPLACE INTO pending_embeddings (thought_id, created_at) VALUES (?, ?)`
+      ).run(id, new Date().toISOString())
       // Break the freshness read only.
       db.exec('ALTER TABLE pending_embeddings RENAME TO pending_embeddings_hidden')
 

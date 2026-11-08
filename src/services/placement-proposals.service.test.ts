@@ -11,7 +11,11 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { closeDb, getDb } from '../db'
-import { insertProposal, updateProposalState, type PlacementProposalRow } from '../db/placement-proposals'
+import {
+  insertProposal,
+  updateProposalState,
+  type PlacementProposalRow
+} from '../db/placement-proposals'
 import { NotFoundError, ValidationError } from '../errors'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { DRAFT_THOUGHT_ID, proposePlacementPlan } from './placement/engine'
@@ -20,7 +24,7 @@ import {
   enqueuePlanService,
   isProposalStale,
   listPlacementProposalsService as list,
-  rejectPlacementProposalService as reject,
+  rejectPlacementProposalService as reject
 } from './placement-proposals.service'
 import type {
   EdgeProposal,
@@ -28,7 +32,7 @@ import type {
   LifecycleProposal,
   PairSignals,
   PlacementPlan,
-  PlacementProposal,
+  PlacementProposal
 } from './placement/types'
 
 beforeEach(createTestDb)
@@ -58,11 +62,15 @@ function baseSignals(sourceId: string, targetId: string): PairSignals {
     targetStatus: 'active',
     sourceStanding: 'current',
     targetStanding: 'current',
-    sameProject: true,
+    sameProject: true
   }
 }
 
-function makeEdge(sourceId: string, targetId: string, overrides: Partial<EdgeProposal> = {}): EdgeProposal {
+function makeEdge(
+  sourceId: string,
+  targetId: string,
+  overrides: Partial<EdgeProposal> = {}
+): EdgeProposal {
   return {
     source_id: sourceId,
     target_id: targetId,
@@ -73,40 +81,51 @@ function makeEdge(sourceId: string, targetId: string, overrides: Partial<EdgePro
     review_required: false,
     rule_id: 'fallback.embedding_related',
     signals: baseSignals(sourceId, targetId),
-    ...overrides,
+    ...overrides
   }
 }
 
-function makePlacement(targetId: string, kind: PlacementProposal['kind'] = 'cluster', overrides: Partial<PlacementProposal> = {}): PlacementProposal {
+function makePlacement(
+  targetId: string,
+  kind: PlacementProposal['kind'] = 'cluster',
+  overrides: Partial<PlacementProposal> = {}
+): PlacementProposal {
   return {
     kind,
     target_id: targetId,
     confidence: 0.7,
     rationale: 'placement rationale',
     review_required: true,
-    ...overrides,
+    ...overrides
   }
 }
 
-function makeLifecycle(action: LifecycleAction, overrides: Partial<LifecycleProposal> = {}): LifecycleProposal {
+function makeLifecycle(
+  action: LifecycleAction,
+  overrides: Partial<LifecycleProposal> = {}
+): LifecycleProposal {
   return {
     action,
     confidence: 0.8,
     rationale: `lifecycle ${action}`,
     review_required: action !== 'keep',
     blocked_by: [],
-    ...overrides,
+    ...overrides
   }
 }
 
-function edgePlan(sourceId: string, targetId: string, overrides: Partial<EdgeProposal> = {}): PlacementPlan {
+function edgePlan(
+  sourceId: string,
+  targetId: string,
+  overrides: Partial<EdgeProposal> = {}
+): PlacementPlan {
   return {
     thought_id: sourceId,
     placement: null,
     edges: [makeEdge(sourceId, targetId, overrides)],
     lifecycle: makeLifecycle('keep'),
     degraded: false,
-    generated_at: NOW,
+    generated_at: NOW
   }
 }
 
@@ -152,7 +171,7 @@ describe('computeFingerprint', () => {
     targetId: 't',
     targetUpdatedAt: T_TGT,
     targetStatus: 'active',
-    existingEdgeType: null,
+    existingEdgeType: null
   }
 
   test('same inputs produce the same digest', () => {
@@ -188,7 +207,7 @@ describe('enqueuePlanService: plan → row mapping', () => {
       rule_id: 'evidence.cue_supports',
       confidence: 0.85,
       rationale: 'supports this',
-      review_required: true,
+      review_required: true
     })
     const rows = enqueueProposals(plan, { now: NOW }, db)
     expect(rows).toHaveLength(1)
@@ -208,23 +227,38 @@ describe('enqueuePlanService: plan → row mapping', () => {
     expect(payload.review_required).toBe(true)
     expect(payload.signals).toEqual(plan.edges[0].signals)
     expect(r.fingerprint).toBe(
-      computeFingerprint({ sourceId: src, sourceUpdatedAt: T_SRC, sourceStatus: 'active', targetId: tgt, targetUpdatedAt: T_TGT, targetStatus: 'active', existingEdgeType: null })
+      computeFingerprint({
+        sourceId: src,
+        sourceUpdatedAt: T_SRC,
+        sourceStatus: 'active',
+        targetId: tgt,
+        targetUpdatedAt: T_TGT,
+        targetStatus: 'active',
+        existingEdgeType: null
+      })
     )
-    expect(r.expires_at).toBe(new Date(Date.parse(NOW) + config.placement.proposalTtlDays * 86400_000).toISOString())
+    expect(r.expires_at).toBe(
+      new Date(Date.parse(NOW) + config.placement.proposalTtlDays * 86400_000).toISOString()
+    )
     expect(queueRowCount(db)).toBe(1)
   })
 
   test('placement-only plan queues nothing and reports the skipped placement', () => {
     const db = getDb()
     const src = seedThought({ id: 'cl-src', content: 'cluster source', created_at: T_SRC })
-    const cl = seedThought({ id: 'cl-target', content: 'the cluster', is_cluster: 1, created_at: T_TGT })
+    const cl = seedThought({
+      id: 'cl-target',
+      content: 'the cluster',
+      is_cluster: 1,
+      created_at: T_TGT
+    })
     const plan: PlacementPlan = {
       thought_id: src,
       placement: makePlacement(cl, 'cluster'),
       edges: [],
       lifecycle: makeLifecycle('keep'),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
     const outcome = enqueuePlanService(plan, { now: NOW }, db)
     expect(outcome.proposals).toEqual([])
@@ -243,7 +277,7 @@ describe('enqueuePlanService: plan → row mapping', () => {
       edges: [],
       lifecycle: makeLifecycle('merge', { target_id: par }),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
     const outcome = enqueuePlanService(plan, { now: NOW }, db)
     expect(outcome.proposals).toEqual([])
@@ -260,9 +294,13 @@ describe('enqueuePlanService: plan → row mapping', () => {
       thought_id: src,
       placement: null,
       edges: [],
-      lifecycle: makeLifecycle('merge', { target_id: tgt, confidence: 0.95, blocked_by: ['source is protected'] }),
+      lifecycle: makeLifecycle('merge', {
+        target_id: tgt,
+        confidence: 0.95,
+        blocked_by: ['source is protected']
+      }),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
     const outcome = enqueuePlanService(plan, { now: NOW }, db)
     expect(outcome.proposals).toEqual([])
@@ -277,10 +315,17 @@ describe('enqueuePlanService: plan → row mapping', () => {
     const plan: PlacementPlan = {
       thought_id: src,
       placement: null,
-      edges: [makeEdge(src, tgt, { type: 'replaces', direction: 'directed', rule_id: 'supersede.newer_replaces_older', confidence: 0.9 })],
+      edges: [
+        makeEdge(src, tgt, {
+          type: 'replaces',
+          direction: 'directed',
+          rule_id: 'supersede.newer_replaces_older',
+          confidence: 0.9
+        })
+      ],
       lifecycle: makeLifecycle('replaces+archive', { target_id: tgt, confidence: 0.9 }),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
     const outcome = enqueuePlanService(plan, { now: NOW }, db)
     expect(outcome.proposals).toHaveLength(1)
@@ -306,12 +351,12 @@ describe('enqueuePlanService: plan → row mapping', () => {
       edges: [makeEdge(src, t1, { type: 'supports' }), makeEdge(src, t2, { type: 'related' })],
       lifecycle: makeLifecycle('link'),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
     const rows = enqueueProposals(plan, { now: NOW }, db)
     expect(rows).toHaveLength(2)
-    expect(rows.every((r) => r.item_kind === 'edge')).toBe(true)
-    expect(rows.every((r) => r.lifecycle_action === null)).toBe(true)
+    expect(rows.every(r => r.item_kind === 'edge')).toBe(true)
+    expect(rows.every(r => r.lifecycle_action === null)).toBe(true)
   })
 
   test('keep with no edges/placement → no rows and an untouched queue', () => {
@@ -323,7 +368,7 @@ describe('enqueuePlanService: plan → row mapping', () => {
       edges: [],
       lifecycle: makeLifecycle('keep'),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
     const rows = enqueueProposals(plan, { now: NOW }, db)
     expect(rows).toEqual([])
@@ -354,20 +399,24 @@ describe('enqueuePlanService: plan → row mapping', () => {
     const src = seedThought({ id: 'mm-src', content: 'multi source', created_at: T_SRC })
     const t1 = seedThought({ id: 'mm-t1', content: 'multi first', created_at: T_TGT })
     const t2 = seedThought({ id: 'mm-t2', content: 'multi second', created_at: T_TGT })
-    const cl = seedThought({ id: 'mm-cl', content: 'the cluster', is_cluster: 1, created_at: T_TGT })
+    const cl = seedThought({
+      id: 'mm-cl',
+      content: 'the cluster',
+      is_cluster: 1,
+      created_at: T_TGT
+    })
     const plan: PlacementPlan = {
       thought_id: src,
       placement: makePlacement(cl, 'cluster'),
       edges: [makeEdge(src, t1), makeEdge(src, t2, { type: 'contradicts', direction: 'directed' })],
       lifecycle: makeLifecycle('link'),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
     const outcome = enqueuePlanService(plan, { now: NOW }, db)
-    expect(outcome.proposals.map((r) => `${r.item_kind}:${r.target_id}`).sort()).toEqual([
-      `edge:${t1}`,
-      `edge:${t2}`,
-    ].sort())
+    expect(outcome.proposals.map(r => `${r.item_kind}:${r.target_id}`).sort()).toEqual(
+      [`edge:${t1}`, `edge:${t2}`].sort()
+    )
     expect(outcome.skipped).toBe(1)
     expect(outcome.skipped_kinds).toEqual({ placement: 1 })
   })
@@ -391,7 +440,9 @@ describe('enqueuePlanService: dedup refresh', () => {
     expect(refreshed[0].created_at).toBe(first.created_at)
     expect(refreshed[0].rationale).toBe('second pass')
     expect(refreshed[0].confidence).toBe(0.8)
-    expect(refreshed[0].expires_at).toBe(new Date(Date.parse(NOW_LATER) + 30 * 86400_000).toISOString())
+    expect(refreshed[0].expires_at).toBe(
+      new Date(Date.parse(NOW_LATER) + 30 * 86400_000).toISOString()
+    )
     expect(queueRowCount(db)).toBe(1)
     expect(list({ now: NOW_LATER }, db)).toHaveLength(1)
   })
@@ -412,7 +463,15 @@ describe('enqueuePlanService: dedup refresh', () => {
     expect(refreshed[0].id).toBe(first.id)
     expect(refreshed[0].fingerprint).not.toBe(first.fingerprint)
     expect(refreshed[0].fingerprint).toBe(
-      computeFingerprint({ sourceId: src, sourceUpdatedAt: mutatedAt, sourceStatus: 'active', targetId: tgt, targetUpdatedAt: T_TGT, targetStatus: 'active', existingEdgeType: null })
+      computeFingerprint({
+        sourceId: src,
+        sourceUpdatedAt: mutatedAt,
+        sourceStatus: 'active',
+        targetId: tgt,
+        targetUpdatedAt: T_TGT,
+        targetStatus: 'active',
+        existingEdgeType: null
+      })
     )
   })
 
@@ -428,8 +487,16 @@ describe('enqueuePlanService: dedup refresh', () => {
   test('list clamps a hostile limit into 1..1000', () => {
     const db = getDb()
     for (let i = 0; i < 5; i++) {
-      const src = seedThought({ id: `cl-src-${i}`, content: `limit clamp source ${i}`, created_at: T_SRC })
-      const tgt = seedThought({ id: `cl-tgt-${i}`, content: `limit clamp target ${i}`, created_at: T_TGT })
+      const src = seedThought({
+        id: `cl-src-${i}`,
+        content: `limit clamp source ${i}`,
+        created_at: T_SRC
+      })
+      const tgt = seedThought({
+        id: `cl-tgt-${i}`,
+        content: `limit clamp target ${i}`,
+        created_at: T_TGT
+      })
       enqueueProposals(edgePlan(src, tgt), { now: NOW }, db)
     }
     // `LIMIT -1` means *no limit* in SQLite and `LIMIT 0` returns nothing, so
@@ -444,8 +511,16 @@ describe('enqueuePlanService: dedup refresh', () => {
 // ── fingerprint / staleness ───────────────────────────────────────────────────
 
 describe('isProposalStale', () => {
-  interface Fixture { db: Database; src: string; tgt: string; row: PlacementProposalRow }
-  function fixture(edgeOpts: Partial<EdgeProposal> = {}, withExistingEdge: string | null = null): Fixture {
+  interface Fixture {
+    db: Database
+    src: string
+    tgt: string
+    row: PlacementProposalRow
+  }
+  function fixture(
+    edgeOpts: Partial<EdgeProposal> = {},
+    withExistingEdge: string | null = null
+  ): Fixture {
     const db = getDb()
     const src = seedThought({ id: 'sl-src', content: 'staleness source', created_at: T_SRC })
     const tgt = seedThought({ id: 'sl-tgt', content: 'staleness target', created_at: T_TGT })
@@ -460,11 +535,29 @@ describe('isProposalStale', () => {
   })
 
   const mutations: Array<{ label: string; apply: (f: Fixture) => void }> = [
-    { label: 'source.updated_at changes', apply: (f) => f.db.prepare('UPDATE thoughts SET updated_at = ? WHERE id = ?').run('2026-06-01T00:00:00.000Z', f.src) },
-    { label: 'source.status changes', apply: (f) => f.db.prepare('UPDATE thoughts SET status = ? WHERE id = ?').run('draft', f.src) },
-    { label: 'target.updated_at changes', apply: (f) => f.db.prepare('UPDATE thoughts SET updated_at = ? WHERE id = ?').run('2026-06-01T00:00:00.000Z', f.tgt) },
-    { label: 'target.status changes', apply: (f) => f.db.prepare('UPDATE thoughts SET status = ? WHERE id = ?').run('archived', f.tgt) },
-    { label: 'a new edge appears on the pair', apply: (f) => seedEdge(f.src, f.tgt, 'contradicts') },
+    {
+      label: 'source.updated_at changes',
+      apply: f =>
+        f.db
+          .prepare('UPDATE thoughts SET updated_at = ? WHERE id = ?')
+          .run('2026-06-01T00:00:00.000Z', f.src)
+    },
+    {
+      label: 'source.status changes',
+      apply: f => f.db.prepare('UPDATE thoughts SET status = ? WHERE id = ?').run('draft', f.src)
+    },
+    {
+      label: 'target.updated_at changes',
+      apply: f =>
+        f.db
+          .prepare('UPDATE thoughts SET updated_at = ? WHERE id = ?')
+          .run('2026-06-01T00:00:00.000Z', f.tgt)
+    },
+    {
+      label: 'target.status changes',
+      apply: f => f.db.prepare('UPDATE thoughts SET status = ? WHERE id = ?').run('archived', f.tgt)
+    },
+    { label: 'a new edge appears on the pair', apply: f => seedEdge(f.src, f.tgt, 'contradicts') }
   ]
   for (const { label, apply } of mutations) {
     test(`${label} → stale`, () => {
@@ -476,7 +569,9 @@ describe('isProposalStale', () => {
 
   test('the existing edge type flipping on the pair → stale', () => {
     const f = fixture({}, 'supports')
-    const edge = f.db.prepare('SELECT id FROM edges WHERE source_id = ? AND target_id = ?').get(f.src, f.tgt) as { id: string }
+    const edge = f.db
+      .prepare('SELECT id FROM edges WHERE source_id = ? AND target_id = ?')
+      .get(f.src, f.tgt) as { id: string }
     f.db.prepare('UPDATE edges SET type = ? WHERE id = ?').run('contradicts', edge.id)
     expect(isProposalStale(f.row, f.db)).toBe(true)
   })
@@ -499,16 +594,28 @@ describe('isProposalStale', () => {
 describe('enqueuePlanService: maxPendingProposals cap', () => {
   test('maxProposals limits a multi-edge plan to one enqueued row', () => {
     const db = getDb()
-    const src = seedThought({ id: 'enqueue-cap-src', content: 'enqueue cap source', created_at: T_SRC })
-    const t1 = seedThought({ id: 'enqueue-cap-t1', content: 'enqueue cap target one', created_at: T_TGT })
-    const t2 = seedThought({ id: 'enqueue-cap-t2', content: 'enqueue cap target two', created_at: T_TGT })
+    const src = seedThought({
+      id: 'enqueue-cap-src',
+      content: 'enqueue cap source',
+      created_at: T_SRC
+    })
+    const t1 = seedThought({
+      id: 'enqueue-cap-t1',
+      content: 'enqueue cap target one',
+      created_at: T_TGT
+    })
+    const t2 = seedThought({
+      id: 'enqueue-cap-t2',
+      content: 'enqueue cap target two',
+      created_at: T_TGT
+    })
     const plan: PlacementPlan = {
       thought_id: src,
       placement: null,
       edges: [makeEdge(src, t1), makeEdge(src, t2, { type: 'contradicts' })],
       lifecycle: makeLifecycle('keep'),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
 
     const rows = enqueueProposals(plan, { now: NOW, maxProposals: 1 }, db)
@@ -526,14 +633,20 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
     const plan: PlacementPlan = {
       thought_id: src,
       placement: null,
-      edges: [makeEdge(src, t1), makeEdge(src, t2, { type: 'contradicts' }), makeEdge(src, t3, { type: 'develops' })],
+      edges: [
+        makeEdge(src, t1),
+        makeEdge(src, t2, { type: 'contradicts' }),
+        makeEdge(src, t3, { type: 'develops' })
+      ],
       lifecycle: makeLifecycle('keep'),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
     withPlacementConfig({ maxPendingProposals: 2 }, () => {
       expect(() => enqueueProposals(plan, { now: NOW }, db)).toThrow(ValidationError)
-      expect(() => enqueueProposals(plan, { now: NOW }, db)).toThrow(/maximum 2 pending placement proposals reached/)
+      expect(() => enqueueProposals(plan, { now: NOW }, db)).toThrow(
+        /maximum 2 pending placement proposals reached/
+      )
       expect(queueRowCount(db)).toBe(0) // transaction rolled back
     })
   })
@@ -550,12 +663,12 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       edges: [makeEdge(src, t1), makeEdge(src, t2, { type: 'contradicts' })],
       lifecycle: makeLifecycle('keep'),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
     withPlacementConfig({ maxPendingProposals: 2 }, () => {
       const first = enqueueProposals(plan, { now: NOW }, db)
       const second = enqueueProposals(structuredClone(plan), { now: NOW_LATER }, db)
-      expect(second.map((r) => r.id)).toEqual(first.map((r) => r.id))
+      expect(second.map(r => r.id)).toEqual(first.map(r => r.id))
       // genuinely new third item still blocks
       const fresh = edgePlan(src, t3, { type: 'develops' })
       expect(() => enqueueProposals(fresh, { now: NOW_LATER }, db)).toThrow(/maximum 2 pending/)
@@ -575,7 +688,7 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       edges: [makeEdge(src, t1), makeEdge(src, t2, { type: 'contradicts' })],
       lifecycle: makeLifecycle('keep'),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
     withPlacementConfig({ maxPendingProposals: 2 }, () => {
       const rows = enqueueProposals(plan, { now: NOW }, db)
@@ -675,30 +788,56 @@ describe('list', () => {
       rationale: 'pending but expired',
       payload: '{}',
       fingerprint: 'fp-old',
-      expires_at: '2000-01-01T00:00:00.000Z',
+      expires_at: '2000-01-01T00:00:00.000Z'
     })
     // Force deterministic ordering by rewriting created_at for a3 / a4.
-    db.prepare('UPDATE placement_proposals SET created_at = ? WHERE id = ?').run('2026-01-06T00:00:00.000Z', a4.id)
-    db.prepare('UPDATE placement_proposals SET created_at = ? WHERE id = ?').run('2026-01-04T00:00:00.000Z', a3.id)
-    expect(list({ now: NOW }, db).map((r) => r.id)).toEqual([a4.id, a3.id])
-    expect(list({ state: 'rejected', now: NOW }, db).map((r) => r.id)).toEqual([a1.id])
-    expect(list({ state: 'accepted', now: NOW }, db).map((r) => r.id)).toEqual([a2.id])
+    db.prepare('UPDATE placement_proposals SET created_at = ? WHERE id = ?').run(
+      '2026-01-06T00:00:00.000Z',
+      a4.id
+    )
+    db.prepare('UPDATE placement_proposals SET created_at = ? WHERE id = ?').run(
+      '2026-01-04T00:00:00.000Z',
+      a3.id
+    )
+    expect(list({ now: NOW }, db).map(r => r.id)).toEqual([a4.id, a3.id])
+    expect(list({ state: 'rejected', now: NOW }, db).map(r => r.id)).toEqual([a1.id])
+    expect(list({ state: 'accepted', now: NOW }, db).map(r => r.id)).toEqual([a2.id])
   })
 
   test('project filter and limit', () => {
     const db = getDb()
-    const pa = seedThought({ id: 'lp-a', project_id: 'proj-a', content: 'project a', created_at: T_SRC })
-    const pb = seedThought({ id: 'lp-b', project_id: 'proj-b', content: 'project b', created_at: T_SRC })
+    const pa = seedThought({
+      id: 'lp-a',
+      project_id: 'proj-a',
+      content: 'project a',
+      created_at: T_SRC
+    })
+    const pb = seedThought({
+      id: 'lp-b',
+      project_id: 'proj-b',
+      content: 'project b',
+      created_at: T_SRC
+    })
     const ta = seedThought({ id: 'lt-a', project_id: 'proj-a', content: 'ta', created_at: T_TGT })
     const tb = seedThought({ id: 'lt-b', project_id: 'proj-b', content: 'tb', created_at: T_TGT })
     const rowA = enqueueProposals(edgePlan(pa, ta), { now: NOW }, db)[0]
     enqueueProposals(edgePlan(pb, tb), { now: NOW }, db)
-    expect(list({ projectId: 'proj-a', now: NOW }, db).map((r) => r.id)).toEqual([rowA.id])
+    expect(list({ projectId: 'proj-a', now: NOW }, db).map(r => r.id)).toEqual([rowA.id])
     expect(list({ projectId: 'proj-b', now: NOW }, db)).toHaveLength(1)
     // limit
     for (let i = 0; i < 2; i++) {
-      const s = seedThought({ id: `lp-x${i}`, project_id: 'proj-a', content: `extra ${i}`, created_at: T_SRC })
-      const t = seedThought({ id: `lt-x${i}`, project_id: 'proj-a', content: `extra t ${i}`, created_at: T_TGT })
+      const s = seedThought({
+        id: `lp-x${i}`,
+        project_id: 'proj-a',
+        content: `extra ${i}`,
+        created_at: T_SRC
+      })
+      const t = seedThought({
+        id: `lt-x${i}`,
+        project_id: 'proj-a',
+        content: `extra t ${i}`,
+        created_at: T_TGT
+      })
       enqueueProposals(edgePlan(s, t), { now: NOW }, db)
     }
     expect(list({ projectId: 'proj-a', limit: 2, now: NOW }, db)).toHaveLength(2)
@@ -721,12 +860,18 @@ describe('list', () => {
 
 describe('enqueuePlanService: draft guard', () => {
   test('the draft sentinel id cannot be enqueued', () => {
-    expect(() => enqueueProposals(edgePlan(DRAFT_THOUGHT_ID, 'dg-tgt'), { now: NOW }, getDb())).toThrow(ValidationError)
-    expect(() => enqueueProposals(edgePlan(DRAFT_THOUGHT_ID, 'dg-tgt'), { now: NOW }, getDb())).toThrow(/draft or unknown thought/)
+    expect(() =>
+      enqueueProposals(edgePlan(DRAFT_THOUGHT_ID, 'dg-tgt'), { now: NOW }, getDb())
+    ).toThrow(ValidationError)
+    expect(() =>
+      enqueueProposals(edgePlan(DRAFT_THOUGHT_ID, 'dg-tgt'), { now: NOW }, getDb())
+    ).toThrow(/draft or unknown thought/)
   })
 
   test('an unknown thought id cannot be enqueued', () => {
-    expect(() => enqueueProposals(edgePlan('unknown-thought-id', 'dg-x'), { now: NOW }, getDb())).toThrow(ValidationError)
+    expect(() =>
+      enqueueProposals(edgePlan('unknown-thought-id', 'dg-x'), { now: NOW }, getDb())
+    ).toThrow(ValidationError)
   })
 })
 
@@ -745,7 +890,7 @@ describe('determinism', () => {
       edges: [makeEdge(src, t1), makeEdge(src, t2, { type: 'contradicts', direction: 'directed' })],
       lifecycle: makeLifecycle('link'),
       degraded: false,
-      generated_at: NOW,
+      generated_at: NOW
     }
     const first = enqueueProposals(plan, { now: NOW }, db)
     const second = enqueueProposals(structuredClone(plan), { now: NOW_LATER }, db)
@@ -771,11 +916,24 @@ describe('determinism', () => {
         edges: [makeEdge('fd-src', t1), makeEdge('fd-src', t2, { type: 'contradicts' })],
         lifecycle: makeLifecycle('keep'),
         degraded: false,
-        generated_at: NOW,
+        generated_at: NOW
       }
       return enqueueProposals(plan, { now: NOW }, getDb())
-        .map((r) =>
-          [r.source_thought_id, r.item_kind, r.target_id, r.edge_type, r.lifecycle_action, r.direction, r.confidence, r.rationale, r.rule_id, r.payload, r.fingerprint, r.expires_at].join('|')
+        .map(r =>
+          [
+            r.source_thought_id,
+            r.item_kind,
+            r.target_id,
+            r.edge_type,
+            r.lifecycle_action,
+            r.direction,
+            r.confidence,
+            r.rationale,
+            r.rule_id,
+            r.payload,
+            r.fingerprint,
+            r.expires_at
+          ].join('|')
         )
         .sort()
     }
@@ -791,13 +949,17 @@ describe('determinism', () => {
 describe('regression: proposePlacementPlan does not write to placement_proposals', () => {
   test('existing-thought propose writes no row; enqueuing the same plan does', async () => {
     const db = getDb()
-    const src = seedThought({ id: 'reg-src', content: 'regression source alpha', created_at: T_SRC })
+    const src = seedThought({
+      id: 'reg-src',
+      content: 'regression source alpha',
+      created_at: T_SRC
+    })
     const tgt = seedThought({ id: 'reg-tgt', content: 'regression target beta', created_at: T_TGT })
     const plan = await proposePlacementPlan(
       { thoughtId: src },
       { now: NOW },
       { embed: okEmbed, searchNeighbors: () => [{ id: tgt, similarity: 0.9 }] },
-      db,
+      db
     )
     expect(plan.edges.length).toBeGreaterThanOrEqual(1)
     expect(queueRowCount(db)).toBe(0)
@@ -808,12 +970,16 @@ describe('regression: proposePlacementPlan does not write to placement_proposals
 
   test('draft-content propose also leaves the queue empty', async () => {
     const db = getDb()
-    const tgt = seedThought({ id: 'reg-draft-tgt', content: 'the quick brown fox jumped', created_at: T_TGT })
+    const tgt = seedThought({
+      id: 'reg-draft-tgt',
+      content: 'the quick brown fox jumped',
+      created_at: T_TGT
+    })
     const plan = await proposePlacementPlan(
       { content: 'the quick brown fox', projectId: 'default' },
       { now: NOW },
       { embed: okEmbed, searchNeighbors: () => [{ id: tgt, similarity: 0.9 }] },
-      db,
+      db
     )
     expect(plan.thought_id).toBe(DRAFT_THOUGHT_ID)
     expect(queueRowCount(db)).toBe(0)

@@ -14,7 +14,7 @@ import { openDatabase } from './init'
 import {
   clearRegistry as clearRegistryContainer,
   register as registerContainer,
-  setDb,
+  setDb
 } from './container'
 
 // ---------------------------------------------------------------------------
@@ -24,10 +24,7 @@ import {
 const unavailable = new Map<string, string>()
 
 export function markUnavailable(userId: string, error?: unknown): void {
-  unavailable.set(
-    userId,
-    error instanceof Error ? error.message : String(error ?? '')
-  )
+  unavailable.set(userId, error instanceof Error ? error.message : String(error ?? ''))
 }
 
 export function isUnavailable(userId: string): boolean {

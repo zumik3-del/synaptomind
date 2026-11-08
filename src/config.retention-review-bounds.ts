@@ -17,7 +17,9 @@ function sanitizeNumber(
   const used = numeric === undefined ? fallback : normalize(numeric)
   if (used === numeric) return used
   const origin = numeric === undefined ? ' (default)' : ''
-  console.error(`[config] invalid value for ${label}: "${String(value)}" (expected ${expected}), using ${used}${origin}`)
+  console.error(
+    `[config] invalid value for ${label}: "${String(value)}" (expected ${expected}), using ${used}${origin}`
+  )
   return used
 }
 
@@ -38,16 +40,38 @@ export function sanitizeRetentionReviewBounds(
   defaults: RetentionReviewBounds
 ): RetentionReviewBounds {
   const section =
-    typeof retentionReview === 'object' && retentionReview !== null && !Array.isArray(retentionReview)
+    typeof retentionReview === 'object' &&
+    retentionReview !== null &&
+    !Array.isArray(retentionReview)
       ? (retentionReview as Record<string, unknown>)
       : null
   if (!section) {
-    console.error(`[config] invalid value for retentionReview: "${String(retentionReview)}" (expected an object), using the defaults`)
+    console.error(
+      `[config] invalid value for retentionReview: "${String(retentionReview)}" (expected an object), using the defaults`
+    )
     return { ...defaults }
   }
   return {
-    pageSize: sanitizeNumber(section.pageSize, defaults.pageSize, 'retentionReview.pageSize', 'an integer in [1,100]', clampPageSize),
-    importanceFloor: sanitizeNumber(section.importanceFloor, defaults.importanceFloor, 'retentionReview.importanceFloor', 'a number in [0,1]', clampImportanceFloor),
-    minAgeDays: sanitizeNumber(section.minAgeDays, defaults.minAgeDays, 'retentionReview.minAgeDays', 'a number greater than 0', positiveMinAgeDays)
+    pageSize: sanitizeNumber(
+      section.pageSize,
+      defaults.pageSize,
+      'retentionReview.pageSize',
+      'an integer in [1,100]',
+      clampPageSize
+    ),
+    importanceFloor: sanitizeNumber(
+      section.importanceFloor,
+      defaults.importanceFloor,
+      'retentionReview.importanceFloor',
+      'a number in [0,1]',
+      clampImportanceFloor
+    ),
+    minAgeDays: sanitizeNumber(
+      section.minAgeDays,
+      defaults.minAgeDays,
+      'retentionReview.minAgeDays',
+      'a number greater than 0',
+      positiveMinAgeDays
+    )
   }
 }

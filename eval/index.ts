@@ -5,7 +5,14 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runEval, runEvalWithGate } from './runner'
-import { buildThresholdEntry, collectGatingRegressions, loadThresholds, upsertThresholdEntry, writeThresholds, type ThresholdFile } from './thresholds'
+import {
+  buildThresholdEntry,
+  collectGatingRegressions,
+  loadThresholds,
+  upsertThresholdEntry,
+  writeThresholds,
+  type ThresholdFile
+} from './thresholds'
 import type { EvalMode, Regression, RunResult } from './types'
 
 interface CliOptions {

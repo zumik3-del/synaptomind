@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { closeDb } from '../../db/init'
 import { getThoughtByIdService } from '../../services/thoughts.service'
@@ -20,13 +20,17 @@ import { registerAllMemoryTools } from '.'
 
 interface ToolErrorEnvelope {
   content: Array<{ type: string; text: string }>
-  structuredContent?: { result?: { error?: { message: string; statusCode?: number; retryable?: boolean } } }
+  structuredContent?: {
+    result?: { error?: { message: string; statusCode?: number; retryable?: boolean } }
+  }
   isError?: boolean
 }
 
 interface ToolEnvelope {
   content: Array<{ type: string; text: string }>
-  structuredContent?: { result?: { item?: Record<string, unknown>; meta?: Record<string, unknown> } }
+  structuredContent?: {
+    result?: { item?: Record<string, unknown>; meta?: Record<string, unknown> }
+  }
   isError?: boolean
 }
 
@@ -47,21 +51,21 @@ beforeAll(async () => {
 async function updateThought(thoughtId: string, content: string): Promise<ToolErrorEnvelope> {
   return (await client.callTool({
     name: 'memory_store',
-    arguments: { action: 'update', thought_id: thoughtId, content },
+    arguments: { action: 'update', thought_id: thoughtId, content }
   })) as unknown as ToolErrorEnvelope
 }
 
 async function updateThoughtWith(args: Record<string, unknown>): Promise<ToolEnvelope> {
   return (await client.callTool({
     name: 'memory_store',
-    arguments: { action: 'update', ...args },
+    arguments: { action: 'update', ...args }
   })) as unknown as ToolEnvelope
 }
 
 async function archive(args: Record<string, unknown>): Promise<ToolEnvelope> {
   return (await client.callTool({
     name: 'memory_supersede',
-    arguments: { action: 'archive', ...args },
+    arguments: { action: 'archive', ...args }
   })) as unknown as ToolEnvelope
 }
 
@@ -94,7 +98,10 @@ test('memory_store update to unique content still succeeds', async () => {
 test('an unknown status answers the generic enum error instead of the archive detour', async () => {
   const thought = createThoughtWithUrlLinksService({ content: 'status probe', status: 'active' })
 
-  const rejected = (await updateThoughtWith({ thought_id: thought.id, status: 'bogus' })) as unknown as ToolErrorEnvelope
+  const rejected = (await updateThoughtWith({
+    thought_id: thought.id,
+    status: 'bogus'
+  })) as unknown as ToolErrorEnvelope
   expect(rejected.isError).toBe(true)
   const message = rejected.content[0]?.text ?? ''
   // A typo must never be told to take the supersede detour: the reply names the
@@ -113,7 +120,10 @@ test('an unknown status answers the generic enum error instead of the archive de
 })
 
 test('the split schema still accepts both writable statuses', async () => {
-  const thought = createThoughtWithUrlLinksService({ content: 'status happy path', status: 'active' })
+  const thought = createThoughtWithUrlLinksService({
+    content: 'status happy path',
+    status: 'active'
+  })
 
   for (const status of ['draft', 'active']) {
     const updated = await updateThoughtWith({ thought_id: thought.id, status })
@@ -125,7 +135,10 @@ test('the split schema still accepts both writable statuses', async () => {
 test('memory_store update to archived is rejected and names the supersede path', async () => {
   const thought = createThoughtWithUrlLinksService({ content: 'stays around', status: 'active' })
 
-  const rejected = (await updateThoughtWith({ thought_id: thought.id, status: 'archived' })) as unknown as ToolErrorEnvelope
+  const rejected = (await updateThoughtWith({
+    thought_id: thought.id,
+    status: 'archived'
+  })) as unknown as ToolErrorEnvelope
   expect(rejected.isError).toBe(true)
   // The rejection must be actionable: it names the only archive route, and it
   // stays the one value that gets this message instead of the bare enum text.
@@ -138,9 +151,16 @@ test('memory_store update to archived is rejected and names the supersede path',
 })
 
 test('a rejected status=archived update writes neither the status nor the bundled content', async () => {
-  const thought = createThoughtWithUrlLinksService({ content: 'original content', status: 'active' })
+  const thought = createThoughtWithUrlLinksService({
+    content: 'original content',
+    status: 'active'
+  })
 
-  const rejected = await updateThoughtWith({ thought_id: thought.id, content: 'replacement content', status: 'archived' })
+  const rejected = await updateThoughtWith({
+    thought_id: thought.id,
+    content: 'replacement content',
+    status: 'archived'
+  })
   expect(rejected.isError).toBe(true)
   expect(rejected.content[0]?.text).toContain('memory_supersede action=archive')
 
@@ -156,7 +176,11 @@ test('memory_supersede archive is the path a rejected update points at', async (
 
   const preview = await archive({ thought_id: thought.id })
   expect(preview.isError).toBeFalsy()
-  expect(preview.structuredContent?.result?.item).toMatchObject({ status: 'preview', current_status: 'active', outcome: 'would_archive' })
+  expect(preview.structuredContent?.result?.item).toMatchObject({
+    status: 'preview',
+    current_status: 'active',
+    outcome: 'would_archive'
+  })
   const token = preview.structuredContent?.result?.item?.preview_token as string | undefined
   expect(typeof token).toBe('string')
   // The preview writes nothing.
@@ -164,13 +188,22 @@ test('memory_supersede archive is the path a rejected update points at', async (
 
   const executed = await archive({ thought_id: thought.id, confirm: true, preview_token: token })
   expect(executed.isError).toBeFalsy()
-  expect(executed.structuredContent?.result?.item).toMatchObject({ status: 'executed', result: { id: thought.id, status: 'archived' } })
+  expect(executed.structuredContent?.result?.item).toMatchObject({
+    status: 'executed',
+    result: { id: thought.id, status: 'archived' }
+  })
   expect(getThoughtByIdService(thought.id)?.status).toBe('archived')
 
   // Edge cases stay inside the three-member outcome union.
   const again = await archive({ thought_id: thought.id })
-  expect(again.structuredContent?.result?.item).toMatchObject({ outcome: 'already_archived', current_status: 'archived' })
+  expect(again.structuredContent?.result?.item).toMatchObject({
+    outcome: 'already_archived',
+    current_status: 'archived'
+  })
   const missing = await archive({ thought_id: 'no-such-thought' })
   expect(missing.isError).toBeFalsy()
-  expect(missing.structuredContent?.result?.item).toMatchObject({ outcome: 'not_found', current_status: null })
+  expect(missing.structuredContent?.result?.item).toMatchObject({
+    outcome: 'not_found',
+    current_status: null
+  })
 })

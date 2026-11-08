@@ -10,7 +10,7 @@ import {
   listProposals,
   type InsertProposalInput,
   updateProposalState,
-  type ProposalState,
+  type ProposalState
 } from './placement-proposals'
 
 beforeEach(createTestDb)
@@ -26,7 +26,7 @@ function makeInput(overrides?: Partial<InsertProposalInput>): InsertProposalInpu
     rationale: overrides?.rationale ?? 'test rationale',
     payload: overrides?.payload ?? JSON.stringify({ foo: 'bar' }),
     fingerprint: overrides?.fingerprint ?? 'fp-1',
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -46,10 +46,8 @@ test('placement_proposals table exists after migration', () => {
 
 test('placement_proposals has expected columns', () => {
   const db = getDb()
-  const cols = db
-    .prepare(`PRAGMA table_info(placement_proposals)`)
-    .all() as { name: string }[]
-  expect(cols.map((c) => c.name)).toEqual(
+  const cols = db.prepare(`PRAGMA table_info(placement_proposals)`).all() as { name: string }[]
+  expect(cols.map(c => c.name)).toEqual(
     expect.arrayContaining([
       'id',
       'project_id',
@@ -70,37 +68,32 @@ test('placement_proposals has expected columns', () => {
       'decided_at',
       'decided_by',
       'applied_at',
-      'result',
+      'result'
     ])
   )
 })
 
 test('placement_proposals has idx_pp_pending index', () => {
   const db = getDb()
-  const indexes = db
-    .prepare(`PRAGMA index_list('placement_proposals')`)
-    .all() as { name: string }[]
-  expect(indexes.map((i) => i.name)).toContain('idx_pp_pending')
+  const indexes = db.prepare(`PRAGMA index_list('placement_proposals')`).all() as { name: string }[]
+  expect(indexes.map(i => i.name)).toContain('idx_pp_pending')
 })
 
 test('placement_proposals has idx_pp_source index', () => {
   const db = getDb()
-  const indexes = db
-    .prepare(`PRAGMA index_list('placement_proposals')`)
-    .all() as { name: string }[]
-  expect(indexes.map((i) => i.name)).toContain('idx_pp_source')
+  const indexes = db.prepare(`PRAGMA index_list('placement_proposals')`).all() as { name: string }[]
+  expect(indexes.map(i => i.name)).toContain('idx_pp_source')
 })
 
 test('placement_proposals has idx_pp_dedup partial unique index on pending state', () => {
   const db = getDb()
-  const indexes = db
-    .prepare(`PRAGMA index_list('placement_proposals')`)
-    .all() as { name: string }[]
-  expect(indexes.map((i) => i.name)).toContain('idx_pp_dedup')
+  const indexes = db.prepare(`PRAGMA index_list('placement_proposals')`).all() as { name: string }[]
+  expect(indexes.map(i => i.name)).toContain('idx_pp_dedup')
   // Verify it is partial: examine the index SQL
-  const info = db
-    .prepare(`PRAGMA index_info('idx_pp_dedup')`)
-    .all() as { cid: number; name: string }[]
+  const info = db.prepare(`PRAGMA index_info('idx_pp_dedup')`).all() as {
+    cid: number
+    name: string
+  }[]
   // The dedup index covers the five key columns
   expect(info).toHaveLength(5)
 })
@@ -155,19 +148,41 @@ test('listProposals returns pending rows', () => {
   const db = getDb()
   const src1 = seedThought()
   const src2 = seedThought()
-  insertProposal(db, makeInput({ source_thought_id: src1, payload: 'p1', item_kind: 'edge', edge_type: 'develops' }))
-  insertProposal(db, makeInput({ source_thought_id: src2, payload: 'p2', item_kind: 'edge', edge_type: 'parent' }))
+  insertProposal(
+    db,
+    makeInput({ source_thought_id: src1, payload: 'p1', item_kind: 'edge', edge_type: 'develops' })
+  )
+  insertProposal(
+    db,
+    makeInput({ source_thought_id: src2, payload: 'p2', item_kind: 'edge', edge_type: 'parent' })
+  )
   const rows = listProposals(db)
   expect(rows).toHaveLength(2)
-  expect(rows.every((r) => r.state === 'pending')).toBe(true)
+  expect(rows.every(r => r.state === 'pending')).toBe(true)
 })
 
 test('listProposals defaults to pending state, excludes accepted rows', () => {
   const db = getDb()
   const src1 = seedThought()
   const src2 = seedThought()
-  const p1 = insertProposal(db, makeInput({ source_thought_id: src1, payload: 'pending-one', item_kind: 'edge', edge_type: 'parent' }))
-  insertProposal(db, makeInput({ source_thought_id: src2, payload: 'accepted-one', item_kind: 'edge', edge_type: 'parent' }))
+  const p1 = insertProposal(
+    db,
+    makeInput({
+      source_thought_id: src1,
+      payload: 'pending-one',
+      item_kind: 'edge',
+      edge_type: 'parent'
+    })
+  )
+  insertProposal(
+    db,
+    makeInput({
+      source_thought_id: src2,
+      payload: 'accepted-one',
+      item_kind: 'edge',
+      edge_type: 'parent'
+    })
+  )
   updateProposalState(db, p1.id, { state: 'accepted', decided_by: 'user' })
   // p1 is now accepted; src2's proposal is still pending
   const pending = listProposals(db)
@@ -182,7 +197,10 @@ test('listProposals excludes expired rows by default', () => {
   const db = getDb()
   const src = seedThought()
   const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString()
-  insertProposal(db, makeInput({ source_thought_id: src, payload: 'expired-was-pending', expires_at: twoDaysAgo }))
+  insertProposal(
+    db,
+    makeInput({ source_thought_id: src, payload: 'expired-was-pending', expires_at: twoDaysAgo })
+  )
   // A retention cutoff in the past: the row expires but is still inside the
   // window, so it is hidden from the default list yet retained as `expired`.
   deleteExpired(db, new Date(Date.now() - 30 * 86400000).toISOString())
@@ -215,11 +233,22 @@ test('listAcceptedProposalsByRun orders by applied_at, not created_at', () => {
   const db = getDb()
   const src = seedThought()
   const first = insertProposal(db, makeInput({ source_thought_id: src, run_id: 'run-1' }))
-  const second = insertProposal(db, makeInput({ source_thought_id: src, item_kind: 'edge', edge_type: 'parent', run_id: 'run-1' }))
+  const second = insertProposal(
+    db,
+    makeInput({ source_thought_id: src, item_kind: 'edge', edge_type: 'parent', run_id: 'run-1' })
+  )
   // Applied in the opposite order to creation: the manifest must follow
   // `applied_at` (reverse application order), not `created_at`.
-  updateProposalState(db, first.id, { state: 'accepted', decided_at: '2026-01-02T00:00:00.000Z', applied_at: '2026-01-03T00:00:00.000Z' })
-  updateProposalState(db, second.id, { state: 'accepted', decided_at: '2026-01-01T00:00:00.000Z', applied_at: '2026-01-01T00:00:00.000Z' })
+  updateProposalState(db, first.id, {
+    state: 'accepted',
+    decided_at: '2026-01-02T00:00:00.000Z',
+    applied_at: '2026-01-03T00:00:00.000Z'
+  })
+  updateProposalState(db, second.id, {
+    state: 'accepted',
+    decided_at: '2026-01-01T00:00:00.000Z',
+    applied_at: '2026-01-01T00:00:00.000Z'
+  })
 
   const manifest = listAcceptedProposalsByRun(db, 'run-1')
   expect(manifest.map(row => row.id)).toEqual([first.id, second.id])
@@ -276,7 +305,7 @@ test('double pending insert of the same item → one row (dedup)', () => {
     rationale: 'first',
     payload: '{"a":1}',
     fingerprint: 'fp-a',
-    expires_at: null,
+    expires_at: null
   }
   const first = insertProposal(db, input)
   // Identical input again
@@ -319,7 +348,7 @@ test('re-insert refreshes payload/fingerprint/expires_at on the existing row', (
     rationale: 'original rationale',
     payload: '{"v":1}',
     fingerprint: 'fp-old',
-    expires_at: null,
+    expires_at: null
   }
   const first = insertProposal(db, input)
   // Re-insert with updated fields
@@ -329,7 +358,7 @@ test('re-insert refreshes payload/fingerprint/expires_at on the existing row', (
     fingerprint: 'fp-new',
     confidence: 0.95,
     rationale: 'updated rationale',
-    expires_at: new Date(Date.now() + 3600_000).toISOString(),
+    expires_at: new Date(Date.now() + 3600_000).toISOString()
   })
   expect(refreshed.id).toBe(first.id)
   expect(refreshed.payload).toBe('{"v":2}')
@@ -351,7 +380,7 @@ test('updateProposalState transitions pending → accepted and persists', () => 
     decided_at: now(),
     decided_by: 'agent',
     applied_at: now(),
-    result: 'done',
+    result: 'done'
   })
   expect(updated).toBeDefined()
   expect(updated!.state).toBe('accepted')
@@ -393,7 +422,7 @@ test('deleting a source thought cascades: proposal row is removed', () => {
   db.prepare('DELETE FROM thoughts WHERE id = ?').run(src)
   expect(getProposal(db, row.id)).toBeUndefined()
   // Also no rows left for this source
-  expect(listProposals(db).filter((r) => r.source_thought_id === src)).toHaveLength(0)
+  expect(listProposals(db).filter(r => r.source_thought_id === src)).toHaveLength(0)
 })
 
 test('deleting a target thought cascades: proposal row is removed', () => {
@@ -417,12 +446,23 @@ test('deleteExpired marks expired-past-pending rows as expired and deletes old t
   const tenDaysAgo = new Date(Date.now() - 10 * 86400000).toISOString()
 
   // Pending with expired-at in the past
-  insertProposal(db, makeInput({ source_thought_id: src1, expires_at: twoDaysAgo, item_kind: 'edge', edge_type: 'develops' }))
+  insertProposal(
+    db,
+    makeInput({
+      source_thought_id: src1,
+      expires_at: twoDaysAgo,
+      item_kind: 'edge',
+      edge_type: 'develops'
+    })
+  )
   // Terminal row decided long ago (different source to avoid dedup)
-  const accepted = insertProposal(db, makeInput({ source_thought_id: src2, item_kind: 'edge', edge_type: 'parent' }))
+  const accepted = insertProposal(
+    db,
+    makeInput({ source_thought_id: src2, item_kind: 'edge', edge_type: 'parent' })
+  )
   updateProposalState(db, accepted.id, {
     state: 'accepted',
-    decided_at: tenDaysAgo,
+    decided_at: tenDaysAgo
   })
 
   const removed = deleteExpired(db, twoDaysAgo)
@@ -430,10 +470,14 @@ test('deleteExpired marks expired-past-pending rows as expired and deletes old t
   // Pending-only listing no longer sees the expired or pruned rows
   expect(listProposals(db)).toHaveLength(0)
   // The expired row still exists but is no longer pending
-  const expiredRows = db.prepare("SELECT id FROM placement_proposals WHERE state = 'expired'").all() as { id: string }[]
+  const expiredRows = db
+    .prepare("SELECT id FROM placement_proposals WHERE state = 'expired'")
+    .all() as { id: string }[]
   expect(expiredRows).toHaveLength(1)
   // No terminal rows remain
-  const terminalRows = db.prepare("SELECT id FROM placement_proposals WHERE state != 'pending' AND state != 'expired'").all() as { id: string }[]
+  const terminalRows = db
+    .prepare("SELECT id FROM placement_proposals WHERE state != 'pending' AND state != 'expired'")
+    .all() as { id: string }[]
   expect(terminalRows).toHaveLength(0)
 })
 
@@ -483,7 +527,7 @@ test('idx_pp_dedup rejects a concurrent duplicate pending insert (UNIQUE violati
     confidence: 0.7,
     rationale: 'dup test',
     payload: '{"d":1}',
-    fingerprint: 'fp-dup',
+    fingerprint: 'fp-dup'
   }
   // The application-level dedup in insertProposal prevents a second row.
   // This test verifies the function itself does not throw and returns the same row.

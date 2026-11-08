@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import * as thoughtUrlLinksDb from '../../db/thought_url_links'
 import { upsertThoughtUrlLink } from '../../db/thought_url_links'
 import { getDb } from '../../db/container'
@@ -74,7 +74,13 @@ function timeline(args: Record<string, unknown> = {}): Promise<Envelope> {
 }
 
 /** One url link on a thought, with an explicit db order. */
-function addLink(thoughtId: string, key: string, url: string, label: string, sortOrder: number): void {
+function addLink(
+  thoughtId: string,
+  key: string,
+  url: string,
+  label: string,
+  sortOrder: number
+): void {
   upsertThoughtUrlLink(getDb(), thoughtId, key, url, label, sortOrder)
 }
 
@@ -106,9 +112,15 @@ describe('include_url_links is absent unless asked', () => {
     createEdge(getDb(), head, neighbour, 'related')
 
     const answers: Array<[string, Envelope]> = [
-      ['search', await recall({ action: 'search', query: QUERY, cwd: UNSCOPED_CWD, compact: false })],
+      [
+        'search',
+        await recall({ action: 'search', query: QUERY, cwd: UNSCOPED_CWD, compact: false })
+      ],
       ['list', await recall({ action: 'list', cwd: UNSCOPED_CWD, compact: false })],
-      ['get', await recall({ action: 'get', thought_id: head, include_edges: true, compact: false })],
+      [
+        'get',
+        await recall({ action: 'get', thought_id: head, include_edges: true, compact: false })
+      ],
       ['chain', await recall({ action: 'chain', thought_id: head, compact: false })],
       ['context', await recall({ action: 'context', thought_id: head, compact: false })],
       ['timeline', await timeline({ compact: false })]
@@ -132,7 +144,12 @@ describe('include_url_links: true with no links answers []', () => {
   test('search and get attach an empty array, not a missing key', async () => {
     const id = seedThought({ content: `${QUERY} unlinked` })
 
-    const search = await recall({ action: 'search', query: QUERY, cwd: UNSCOPED_CWD, include_url_links: true })
+    const search = await recall({
+      action: 'search',
+      query: QUERY,
+      cwd: UNSCOPED_CWD,
+      include_url_links: true
+    })
     expect(search.items?.[0]?.thought?.url_links).toEqual([])
 
     const get = await recall({ action: 'get', thought_id: id, include_url_links: true })
@@ -157,7 +174,9 @@ describe('the link shape is {text, url, label} in db order', () => {
     addLink(id, 'second', 'https://example.com/2', 'Second', 20)
 
     const answer = await recall({ action: 'list', cwd: UNSCOPED_CWD, include_url_links: true })
-    const links = (answer.items ?? []).flatMap(item => item.url_links as Array<Record<string, unknown>>)
+    const links = (answer.items ?? []).flatMap(
+      item => item.url_links as Array<Record<string, unknown>>
+    )
 
     expect(links.map(l => l.text)).toEqual(['first', 'second', 'third'])
     expect(links.map(l => l.url)).toEqual([
@@ -176,8 +195,15 @@ describe('the link shape is {text, url, label} in db order', () => {
     const one = seedLinked(`${QUERY} first thought`)
     const two = seedThought({ content: `${QUERY} second thought no links` })
 
-    const answer = await recall({ action: 'search', query: QUERY, cwd: UNSCOPED_CWD, include_url_links: true })
-    const thoughts = (answer.items ?? []).map(item => item.thought as { id: string; url_links: unknown })
+    const answer = await recall({
+      action: 'search',
+      query: QUERY,
+      cwd: UNSCOPED_CWD,
+      include_url_links: true
+    })
+    const thoughts = (answer.items ?? []).map(
+      item => item.thought as { id: string; url_links: unknown }
+    )
     expect(thoughts.find(t => t.id === one)?.url_links).toEqual([
       { text: 'docs', url: 'https://example.com/docs', label: 'Docs' }
     ])
@@ -190,16 +216,35 @@ describe('the link shape is {text, url, label} in db order', () => {
 describe('compact and fields never trim url_links', () => {
   test('compact: true keeps url_links beside the minimal field set', async () => {
     const id = seedLinked(`${QUERY} compact thought`)
-    const answer = await recall({ action: 'get', thought_id: id, compact: true, include_url_links: true })
+    const answer = await recall({
+      action: 'get',
+      thought_id: id,
+      compact: true,
+      include_url_links: true
+    })
     const item = answer.item as Record<string, unknown>
 
-    expect(Object.keys(item).sort()).toEqual(['content', 'id', 'project', 'status', 'tags', 'url_links'])
-    expect(item.url_links).toEqual([{ text: 'docs', url: 'https://example.com/docs', label: 'Docs' }])
+    expect(Object.keys(item).sort()).toEqual([
+      'content',
+      'id',
+      'project',
+      'status',
+      'tags',
+      'url_links'
+    ])
+    expect(item.url_links).toEqual([
+      { text: 'docs', url: 'https://example.com/docs', label: 'Docs' }
+    ])
   })
 
   test('fields: ["id"] answers {id, url_links}', async () => {
     const id = seedLinked(`${QUERY} selected fields`)
-    const answer = await recall({ action: 'get', thought_id: id, fields: ['id'], include_url_links: true })
+    const answer = await recall({
+      action: 'get',
+      thought_id: id,
+      fields: ['id'],
+      include_url_links: true
+    })
     const item = answer.item as Record<string, unknown>
 
     expect(Object.keys(item).sort()).toEqual(['id', 'url_links'])
@@ -208,7 +253,12 @@ describe('compact and fields never trim url_links', () => {
 
   test('fields do not trim the links of a list page either', async () => {
     const id = seedLinked(`${QUERY} media list row`)
-    const answer = await recall({ action: 'list', cwd: UNSCOPED_CWD, fields: ['id'], include_url_links: true })
+    const answer = await recall({
+      action: 'list',
+      cwd: UNSCOPED_CWD,
+      fields: ['id'],
+      include_url_links: true
+    })
     const rows = (answer.items ?? []).filter(item => item.id === id)
     expect(rows).toHaveLength(1)
     expect((rows[0].url_links as unknown[]).length).toBe(1)
@@ -225,7 +275,12 @@ describe('every thought the answer emits carries its links', () => {
     createEdge(getDb(), upstream, head, 'related')
     createEdge(getDb(), head, downstream, 'related')
 
-    const answer = await recall({ action: 'get', thought_id: head, include_edges: true, include_url_links: true })
+    const answer = await recall({
+      action: 'get',
+      thought_id: head,
+      include_edges: true,
+      include_url_links: true
+    })
     const item = answer.item as Record<string, any>
 
     expect(item.url_links).toHaveLength(1)
@@ -294,7 +349,9 @@ describe('one batch query per response', () => {
    * delegates to the real implementation and restores itself, so only the call
    * count is observed — the answer is still produced by real code.
    */
-  async function countingBatchReads(fn: () => Promise<unknown>): Promise<{ calls: number; idArgs: string[][] }> {
+  async function countingBatchReads(
+    fn: () => Promise<unknown>
+  ): Promise<{ calls: number; idArgs: string[][] }> {
     const real = thoughtUrlLinksDb.getThoughtUrlLinksForThoughts
     const idArgs: string[][] = []
     const spy = spyOn(thoughtUrlLinksDb, 'getThoughtUrlLinksForThoughts')
@@ -365,8 +422,9 @@ describe('the argument surface', () => {
     const { tools } = await client.listTools()
     for (const name of ['memory_recall', 'memory_reflect']) {
       const tool = tools.find(t => t.name === name)
-      const properties = (tool?.inputSchema as { properties?: Record<string, { type?: string }> } | undefined)
-        ?.properties
+      const properties = (
+        tool?.inputSchema as { properties?: Record<string, { type?: string }> } | undefined
+      )?.properties
       expect(properties?.include_url_links?.type).toBe('boolean')
     }
   })

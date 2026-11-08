@@ -31,7 +31,7 @@ function makeStubs(root: string): string {
   mkdirSync(stubs, { recursive: true })
   writeFileSync(
     join(stubs, 'systemctl'),
-    '#!/usr/bin/env bash\ncase "$*" in\n  *"is-active"*) exit 3 ;;\n  *) printf "\\n"; exit 0 ;;\nesac\n',
+    '#!/usr/bin/env bash\ncase "$*" in\n  *"is-active"*) exit 3 ;;\n  *) printf "\\n"; exit 0 ;;\nesac\n'
   )
   chmodSync(join(stubs, 'systemctl'), 0o755)
   writeFileSync(join(stubs, 'sqlite3'), '#!/usr/bin/env bash\nexec /usr/bin/sqlite3 "$@"\n')
@@ -43,7 +43,7 @@ function runCommon(root: string, script: string, envExtra: Record<string, string
   const env = isolatedEnv(root, {
     PATH: `${join(root, 'stubs')}:${process.env.PATH ?? ''}`,
     APP_NAME: 'synaptomind',
-    ...envExtra,
+    ...envExtra
   })
   const res = spawnSync('bash', ['-c', script], { encoding: 'utf8', env, timeout: 60_000 })
   return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' }
@@ -90,7 +90,7 @@ describe('deploy backup (task #2299) - all user databases', () => {
       // resolver's discovery net only walks data dirs, so a snapshot of these
       // can only come from the custom config's `users[].dbPath`.
       seedWalDb(join(root, 'volumes', 'alice', 'alice.db'), 'alice-private-marker', 'alice'),
-      seedWalDb(join(root, 'volumes', 'bob', 'bob.db'), 'bob-private-marker', 'bob'),
+      seedWalDb(join(root, 'volumes', 'bob', 'bob.db'), 'bob-private-marker', 'bob')
     ]
     try {
       // The open writer keeps the row in the WAL: the snapshot has to come from
@@ -107,9 +107,9 @@ describe('deploy backup (task #2299) - all user databases', () => {
           db: { path: './data/main.db' },
           users: [
             { id: 'alice', dbPath: dbs[1].path, tokenSha256: 'a'.repeat(64) },
-            { id: 'bob', dbPath: dbs[2].path, tokenSha256: 'b'.repeat(64) },
-          ],
-        }),
+            { id: 'bob', dbPath: dbs[2].path, tokenSha256: 'b'.repeat(64) }
+          ]
+        })
       )
 
       makeStubs(root)
@@ -122,7 +122,7 @@ describe('deploy backup (task #2299) - all user databases', () => {
         'backup_databases',
         'RC=$?',
         'echo "RC=$RC"',
-        'echo "BACKUPS=${DB_BACKUPS[*]}"',
+        'echo "BACKUPS=${DB_BACKUPS[*]}"'
       ].join('\n')
 
       const res = runCommon(root, script, { INSTALL_DIR: app, SYNAPTOMIND_CONFIG: cfg })
@@ -162,13 +162,16 @@ describe('deploy backup (task #2299) - all user databases', () => {
         expect(sqlite(restored, 'SELECT x FROM private;')).toBe(db.marker)
         for (const other of dbs) {
           if (other.id === db.id) continue
-          expect(sqlite(restored, `SELECT count(*) FROM private WHERE x = '${other.marker}';`)).toBe('0')
+          expect(
+            sqlite(restored, `SELECT count(*) FROM private WHERE x = '${other.marker}';`)
+          ).toBe('0')
         }
       }
 
       // Snapshot isolation: rows written after the backup must not appear in
       // it, and must not disturb any sibling's snapshot.
-      for (const db of dbs) db.writer.run('INSERT INTO private (x) VALUES (?)', [`${db.marker}-after`])
+      for (const db of dbs)
+        db.writer.run('INSERT INTO private (x) VALUES (?)', [`${db.marker}-after`])
       for (const db of dbs) {
         expect(sqlite(byId.get(db.id)!, 'SELECT count(*) FROM private;')).toBe('1')
         expect(sqlite(db.path, 'SELECT count(*) FROM private;')).toBe('2')

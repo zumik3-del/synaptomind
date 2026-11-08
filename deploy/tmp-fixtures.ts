@@ -190,7 +190,7 @@ export function installCleanup(): void {
  */
 export function realStateDir(): string | null {
   const probe = spawnSync('getent', ['passwd', String(process.getuid?.() ?? '')], {
-    encoding: 'utf8',
+    encoding: 'utf8'
   })
   // getent keyed by uid is the portable form; fall back to the username.
   const passwd = probe.stdout.trim() || lookupByName()
@@ -216,7 +216,9 @@ export function fingerprint(dir: string): string {
   const hash = createHash('sha256')
   const walk = (rel: string) => {
     const abs = join(dir, rel)
-    for (const entry of readdirSync(abs, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    for (const entry of readdirSync(abs, { withFileTypes: true }).sort((a, b) =>
+      a.name < b.name ? -1 : 1
+    )) {
       const childRel = rel ? `${rel}/${entry.name}` : entry.name
       if (entry.isDirectory()) {
         walk(childRel)
@@ -243,7 +245,10 @@ export function fingerprint(dir: string): string {
  * so an override that points back at the operator's real state dir fails the
  * fixture at BUILD time instead of destroying the file it aimed at.
  */
-export function isolatedEnv(root: string, extra: Record<string, string> = {}): Record<string, string> {
+export function isolatedEnv(
+  root: string,
+  extra: Record<string, string> = {}
+): Record<string, string> {
   const runDir = join(root, 'run')
   const env: Record<string, string> = {
     ...(process.env as Record<string, string | undefined>),
@@ -253,7 +258,7 @@ export function isolatedEnv(root: string, extra: Record<string, string> = {}): R
     HOOKS_DIR: join(runDir, 'hooks'),
     UNIT_FILE: join(root, 'unit', 'synaptomind.service'),
     DATA_DIR: join(root, 'data'),
-    ...extra,
+    ...extra
   }
   assertInsideRoot(env.RUN_DIR, root, 'RUN_DIR')
   assertInsideRoot(env.HOOKS_DIR, root, 'HOOKS_DIR')
@@ -269,7 +274,7 @@ function assertInsideRoot(value: string, root: string, key: string): void {
   if (real && (value === real || value.startsWith(`${real}/`))) {
     throw new Error(
       `isolatedEnv: ${key}=${value} points at the operator's REAL state dir ${real}. ` +
-        `A fixture must never target it — put the path inside the fixture root (${root}).`,
+        `A fixture must never target it — put the path inside the fixture root (${root}).`
     )
   }
 }
@@ -328,7 +333,7 @@ function report(message: string): void {
       `    A deploy fixture wrote outside its own temp tree. This is the #1101\n` +
       `    failure mode: the operator's app.env is the file the whole delivery\n` +
       `    mechanism reads. Use isolatedEnv() from ./tmp-fixtures for every spawn\n` +
-      `    of a deploy script.\n\n`,
+      `    of a deploy script.\n\n`
   )
   // A non-zero exit is what turns this into a FAILED run rather than a warning
   // someone scrolls past; the suite's own result stays visible either way.

@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { config, DEFAULTS, ENV_MAPPINGS } from '../config'
@@ -164,9 +164,7 @@ function differingLeaves(a: Record<string, unknown>, b: Record<string, unknown>)
   const flatA = flattenConfig(a)
   const flatB = flattenConfig(b)
   const paths = new Set([...Object.keys(flatA), ...Object.keys(flatB)])
-  return [...paths]
-    .filter(path => leafValue(flatA[path]) !== leafValue(flatB[path]))
-    .sort()
+  return [...paths].filter(path => leafValue(flatA[path]) !== leafValue(flatB[path])).sort()
 }
 
 /** A fresh instance of the config module, built from the current environment. */
@@ -196,7 +194,9 @@ describe('the removed config section', () => {
   })
 
   test('no env mapping points into the removed section', () => {
-    const offending = ENV_MAPPINGS.map(m => m.path).filter(p => p === CFG_KEY || p.startsWith(`${CFG_KEY}.`))
+    const offending = ENV_MAPPINGS.map(m => m.path).filter(
+      p => p === CFG_KEY || p.startsWith(`${CFG_KEY}.`)
+    )
     expect(offending).toEqual([])
   })
 
@@ -238,7 +238,9 @@ describe('the removed config section', () => {
 
   test('memory_status action=config does not advertise the removed section', async () => {
     const client = await setupClient()
-    const text = toolText(await client.callTool({ name: 'memory_status', arguments: { action: 'config' } }))
+    const text = toolText(
+      await client.callTool({ name: 'memory_status', arguments: { action: 'config' } })
+    )
 
     expect(text).not.toContain(SECTION_HEADING)
     expect(text.toLowerCase()).not.toContain(CFG_KEY.toLowerCase())
@@ -300,9 +302,9 @@ describe('the surviving promotion on the search path', () => {
   }
 
   function primerRow(thoughtId: string): { hit_count: number } | null {
-    return getDb()
-      .prepare('SELECT hit_count FROM primers WHERE thought_id = ?')
-      .get(thoughtId) as { hit_count: number } | null
+    return getDb().prepare('SELECT hit_count FROM primers WHERE thought_id = ?').get(thoughtId) as {
+      hit_count: number
+    } | null
   }
 
   test('a thought below the threshold is not promoted', async () => {
@@ -357,20 +359,16 @@ describe('the sources carry no trace of the removed subsystem', () => {
     return sources
   }
 
-  test(
-    'no file under src/ mentions it — this guard file included',
-    () => {
-      const hits: string[] = []
-      for (const { path, text } of sourceFiles()) {
-        const lower = text.toLowerCase()
-        for (const needle of NEEDLES) {
-          if (lower.includes(needle.toLowerCase())) hits.push(`${path} :: ${needle}`)
-        }
+  test('no file under src/ mentions it — this guard file included', () => {
+    const hits: string[] = []
+    for (const { path, text } of sourceFiles()) {
+      const lower = text.toLowerCase()
+      for (const needle of NEEDLES) {
+        if (lower.includes(needle.toLowerCase())) hits.push(`${path} :: ${needle}`)
       }
-      expect(hits).toEqual([])
-    },
-    30_000
-  )
+    }
+    expect(hits).toEqual([])
+  }, 30_000)
 
   test('no file under src/ mentions it under a looser spelling either', () => {
     // The needles above are the three spellings the project greps for. A

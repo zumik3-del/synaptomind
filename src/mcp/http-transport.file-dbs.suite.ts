@@ -55,7 +55,10 @@ async function freePort(): Promise<number> {
 async function initialize(base: string, token: string): Promise<string> {
   const res = await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: authHeaders(token, { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }),
+    headers: authHeaders(token, {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream'
+    }),
     body: JSON.stringify(INIT_MESSAGE)
   })
   const id = res.headers.get('mcp-session-id')
@@ -100,7 +103,12 @@ async function callTool(
       accept: 'application/json, text/event-stream',
       'mcp-session-id': sessionId
     }),
-    body: JSON.stringify({ jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name, arguments: args } })
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 11,
+      method: 'tools/call',
+      params: { name, arguments: args }
+    })
   })
   const rpc = await parseRpc(res)
   return { status: res.status, rpc }
@@ -113,9 +121,12 @@ async function readSlot(base: string, token: string, sessionId: string): Promise
     names: ['project_context']
   })
   const text = rpc?.result?.content?.[0]?.text
-  const envelope = typeof text === 'string' ? JSON.parse(text) : rpc?.result?.structuredContent?.result
+  const envelope =
+    typeof text === 'string' ? JSON.parse(text) : rpc?.result?.structuredContent?.result
   const items = envelope?.items ?? envelope?.result?.items ?? []
-  const slot = (items as Array<{ name: string; content: string }>).find(s => s.name === 'project_context')
+  const slot = (items as Array<{ name: string; content: string }>).find(
+    s => s.name === 'project_context'
+  )
   if (!slot) throw new Error(`slot not found in ${JSON.stringify(rpc).slice(0, 400)}`)
   return slot
 }
@@ -253,7 +264,7 @@ describe('multi-user isolation over real database files', () => {
     expect(fileSlotContent(bobPath)).not.toContain('ALICE-FILE-MARKER')
   })
 
-  test('a write through one token lands only in that user\'s file and is invisible to the other', async () => {
+  test("a write through one token lands only in that user's file and is invisible to the other", async () => {
     const port = await freePort()
     const server = startMcpHttpServer('127.0.0.1', port)
     const base = `http://127.0.0.1:${port}`
@@ -268,7 +279,8 @@ describe('multi-user isolation over real database files', () => {
       })
       expect(created.status).toBe(200)
       const text = created.rpc?.result?.content?.[0]?.text
-      const envelope = typeof text === 'string' ? JSON.parse(text) : created.rpc?.result?.structuredContent?.result
+      const envelope =
+        typeof text === 'string' ? JSON.parse(text) : created.rpc?.result?.structuredContent?.result
       const thoughtId = envelope?.item?.id ?? envelope?.result?.item?.id
       expect(thoughtId).toBeTruthy()
 

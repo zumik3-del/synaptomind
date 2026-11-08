@@ -122,23 +122,38 @@ function noPlacement(reason: string): PlacementDecision {
  * Exported so the placement engine can embed the exact same pool (one shared
  * embedding pass) instead of duplicating the candidate-selection logic.
  */
-export function buildCandidatePool(d: Database, thought: Thought, projectId: string, maxCandidates: number): Thought[] {
-  const pool = listThoughts(d, { status: 'active', project_id: projectId, limit: maxCandidates }).filter(
-    t => !t.is_cluster
-  )
+export function buildCandidatePool(
+  d: Database,
+  thought: Thought,
+  projectId: string,
+  maxCandidates: number
+): Thought[] {
+  const pool = listThoughts(d, {
+    status: 'active',
+    project_id: projectId,
+    limit: maxCandidates
+  }).filter(t => !t.is_cluster)
   if (!pool.some(t => t.id === thought.id)) pool.unshift(thought)
   return pool
 }
 
 /** The source's neighbours from the shared pair generator, best similarity first. */
-function neighborsOf(thoughtId: string, pairs: ReturnType<typeof findEmbeddingNeighborPairs>): ScoredNeighbor[] {
+function neighborsOf(
+  thoughtId: string,
+  pairs: ReturnType<typeof findEmbeddingNeighborPairs>
+): ScoredNeighbor[] {
   const byId = new Map<string, number>()
   for (const pair of pairs) {
     const other =
-      pair.source_id === thoughtId ? pair.target_id : pair.target_id === thoughtId ? pair.source_id : undefined
+      pair.source_id === thoughtId
+        ? pair.target_id
+        : pair.target_id === thoughtId
+          ? pair.source_id
+          : undefined
     if (other === undefined) continue
     const previous = byId.get(other)
-    if (previous === undefined || pair.embeddingSimilarity > previous) byId.set(other, pair.embeddingSimilarity)
+    if (previous === undefined || pair.embeddingSimilarity > previous)
+      byId.set(other, pair.embeddingSimilarity)
   }
   return [...byId.entries()]
     .map(([id, similarity]) => ({ id, similarity }))
@@ -184,13 +199,17 @@ function proposeCluster(
   const clusteredTotal = clustered.reduce((sum, entry) => sum + entry.count, 0)
   const best = clustered[0]
   if (best.count * 2 <= clusteredTotal) {
-    reasons.push(`no cluster majority (best ${best.count}/${clusteredTotal} in cluster ${best.clusterId})`)
+    reasons.push(
+      `no cluster majority (best ${best.count}/${clusteredTotal} in cluster ${best.clusterId})`
+    )
     return null
   }
 
   const memberCount = getClusterMembers(d, best.clusterId).length
   if (memberCount >= maxClusterSize) {
-    reasons.push(`cluster ${best.clusterId} has ${memberCount} members >= maxClusterSize ${maxClusterSize}`)
+    reasons.push(
+      `cluster ${best.clusterId} has ${memberCount} members >= maxClusterSize ${maxClusterSize}`
+    )
     return null
   }
 
@@ -210,11 +229,17 @@ function proposeCluster(
  * already participates in a `parent`/`develops` chain (`getThoughtEdges`).
  * Returns `null` and appends to `reasons` when no neighbour is a chain node.
  */
-function proposeParent(d: Database, neighbors: ScoredNeighbor[], reasons: string[]): PlacementProposal | null {
+function proposeParent(
+  d: Database,
+  neighbors: ScoredNeighbor[],
+  reasons: string[]
+): PlacementProposal | null {
   for (const neighbor of neighbors) {
     const edges = getThoughtEdges(d, neighbor.id, 'both')
     if (!edges) continue
-    const inChain = [...edges.upstream, ...edges.downstream].some(e => HIERARCHY_EDGE_TYPES.has(e.edge.type))
+    const inChain = [...edges.upstream, ...edges.downstream].some(e =>
+      HIERARCHY_EDGE_TYPES.has(e.edge.type)
+    )
     if (!inChain) continue
     return {
       kind: 'parent',
@@ -267,7 +292,8 @@ export async function proposePlacement(
   deps: PlacementDeps = {},
   d: Database = getDb()
 ): Promise<PlacementDecision> {
-  const { projectId, maxClusterSize, minSimilarity, topK, maxCandidates } = resolvePlacementBaseOptions(options, thought)
+  const { projectId, maxClusterSize, minSimilarity, topK, maxCandidates } =
+    resolvePlacementBaseOptions(options, thought)
 
   if (thought.is_cluster) return noPlacement('source is a cluster thought')
 
@@ -290,7 +316,9 @@ export async function proposePlacement(
     } catch (err) {
       console.error('[placement] embedding failed, no placement proposed:', err)
       return noPlacement(
-        observed.countMismatch() ? 'embedder returned a mismatched number of vectors' : 'embedder unavailable'
+        observed.countMismatch()
+          ? 'embedder returned a mismatched number of vectors'
+          : 'embedder unavailable'
       )
     }
 
@@ -304,7 +332,8 @@ export async function proposePlacement(
   }
 
   const neighbors = neighborsOf(thought.id, pairs)
-  if (neighbors.length === 0) return noPlacement('no embedding neighbours above the similarity threshold')
+  if (neighbors.length === 0)
+    return noPlacement('no embedding neighbours above the similarity threshold')
 
   const reasons: string[] = []
   const cluster = proposeCluster(d, neighbors, projectId, maxClusterSize, reasons)

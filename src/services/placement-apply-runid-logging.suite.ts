@@ -74,7 +74,9 @@ function placementLogs(): LogCall[] {
  * line" and "carries a run id" are deliberately different questions.
  */
 function runIdLogs(): LogCall[] {
-  return placementLogs().filter(c => typeof c.metadata?.run_id === 'string' && c.metadata.run_id !== '')
+  return placementLogs().filter(
+    c => typeof c.metadata?.run_id === 'string' && c.metadata.run_id !== ''
+  )
 }
 
 function clearLogs(): void {
@@ -87,7 +89,7 @@ function clearLogs(): void {
 function activePair(_db: Database, prefix: string): { source: string; target: string } {
   return {
     source: seedThought({ id: `${prefix}-s`, content: `${prefix} source`, created_at: NOW }),
-    target: seedThought({ id: `${prefix}-t`, content: `${prefix} target`, created_at: NOW }),
+    target: seedThought({ id: `${prefix}-t`, content: `${prefix} target`, created_at: NOW })
   }
 }
 
@@ -131,7 +133,10 @@ describe('AC-F28-8: the main accept log line carries the run envelope', () => {
     const { source, target } = activePair(db, 'log1')
     const row = insertPendingEdge(db, source, target, 'develops')
 
-    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<
+      ApplyResult,
+      { status: 'accepted' }
+    >
 
     expect(out.status).toBe('accepted')
     expect(placementLogs()).toHaveLength(1)
@@ -156,7 +161,10 @@ describe('AC-F28-8: the main accept log line carries the run envelope', () => {
     seedEdge(source, target, 'develops')
     const row = insertPendingEdge(db, source, target, 'develops')
 
-    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<ApplyResult, { status: 'accepted' }>
+    const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<
+      ApplyResult,
+      { status: 'accepted' }
+    >
 
     expect(out.status).toBe('accepted')
     expect((out as { idempotent: boolean }).idempotent).toBe(true)

@@ -1,4 +1,11 @@
-import { createEdge, deleteEdge, findEdge, retypeEdge, validateRetype, type Edge } from '../db/edges'
+import {
+  createEdge,
+  deleteEdge,
+  findEdge,
+  retypeEdge,
+  validateRetype,
+  type Edge
+} from '../db/edges'
 import { getDb } from '../db'
 import { NotFoundError, ValidationError } from '../errors'
 import { BATCH_ITEMS_MAX } from '../validation'
@@ -9,7 +16,12 @@ import type { Database } from 'bun:sqlite'
 // (AGENTS.md §4 layering: api/mcp -> services -> db).
 export { EDGE_TYPES, type EdgeType, type EdgeView } from '../db/edges'
 
-export function createEdgeService(sourceId: string, targetId: string, type?: string, d: Database = getDb()) {
+export function createEdgeService(
+  sourceId: string,
+  targetId: string,
+  type?: string,
+  d: Database = getDb()
+) {
   if (!targetId) {
     throw new ValidationError('target_id is required')
   }
@@ -51,12 +63,17 @@ export interface LinkBatchResult {
  * uses: a failure is collected, the items that succeeded still commit, and
  * nothing is swallowed silently.
  */
-export function createEdgesBatchService(links: LinkBatchItem[], d: Database = getDb()): LinkBatchResult {
+export function createEdgesBatchService(
+  links: LinkBatchItem[],
+  d: Database = getDb()
+): LinkBatchResult {
   if (!Array.isArray(links) || links.length === 0) {
     throw new ValidationError('links is required and must not be empty')
   }
   if (links.length > BATCH_ITEMS_MAX) {
-    throw new ValidationError(`links accepts at most ${BATCH_ITEMS_MAX} items per call (got ${links.length})`)
+    throw new ValidationError(
+      `links accepts at most ${BATCH_ITEMS_MAX} items per call (got ${links.length})`
+    )
   }
 
   let linked = 0
@@ -147,7 +164,9 @@ export function deleteEdgesBatchService(
     throw new ValidationError('edge_ids is required and must not be empty')
   }
   if (edgeIds.length > BATCH_ITEMS_MAX) {
-    throw new ValidationError(`edge_ids accepts at most ${BATCH_ITEMS_MAX} items per call (got ${edgeIds.length})`)
+    throw new ValidationError(
+      `edge_ids accepts at most ${BATCH_ITEMS_MAX} items per call (got ${edgeIds.length})`
+    )
   }
 
   let deleted = 0
@@ -169,14 +188,18 @@ export function deleteEdgesBatchService(
     // Transactional validation (confirm mode only): every id must resolve before
     // we touch a single row.
     if (confirm) {
-      const anyMissing = edgeIds.some((id) => !findEdge(d, id))
+      const anyMissing = edgeIds.some(id => !findEdge(d, id))
       if (anyMissing) {
         edgeIds.forEach((id, index) => {
           const edge = findEdge(d, id)
           if (!edge) {
             recordFailure(index, id, `Edge not found: ${id}`)
           } else {
-            recordFailure(index, id, 'batch aborted: not all edge_ids exist (transaction rolled back)')
+            recordFailure(
+              index,
+              id,
+              'batch aborted: not all edge_ids exist (transaction rolled back)'
+            )
           }
         })
         return
@@ -236,7 +259,8 @@ export function deleteEdgesBatchService(
     errors
   }
   if (preview > 0 && !confirm) {
-    result.instruction = 'Call memory_store again with action=unlink_batch, edge_ids=[...], confirm=true to proceed.'
+    result.instruction =
+      'Call memory_store again with action=unlink_batch, edge_ids=[...], confirm=true to proceed.'
   }
   return result
 }
@@ -255,7 +279,11 @@ export function retypeEdgeService(edgeId: string, newType: string, d: Database =
  * validateClusterConstraint) without mutating. Returns the edge so the
  * caller can build the preview.
  */
-export function validateRetypeService(edgeId: string, newType: string, d: Database = getDb()): Edge {
+export function validateRetypeService(
+  edgeId: string,
+  newType: string,
+  d: Database = getDb()
+): Edge {
   const edge = findEdge(d, edgeId)
   if (!edge) {
     throw new NotFoundError(`Edge not found: ${edgeId}`)

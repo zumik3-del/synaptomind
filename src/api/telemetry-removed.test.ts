@@ -31,7 +31,9 @@ afterEach(closeDb)
 
 /** Whether a primer row is still in the main db (raw SQL, no cut-only symbol). */
 function primerExists(id: string): boolean {
-  const row = getDb().prepare(`SELECT COUNT(*) AS c FROM primers WHERE id = ?`).get(id) as { c: number }
+  const row = getDb().prepare(`SELECT COUNT(*) AS c FROM primers WHERE id = ?`).get(id) as {
+    c: number
+  }
   return row.c > 0
 }
 
@@ -86,4 +88,3 @@ test('DELETE /api/primers/:id answers 404 after the HTTP shrink', async () => {
   // The removal must not have become a delete: the primer row is untouched.
   expect(primerExists(primer!.id)).toBe(true)
 })
-
