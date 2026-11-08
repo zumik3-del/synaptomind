@@ -1870,8 +1870,20 @@ describe('this file does not overstate what its own assertions prove (#1357 R5/R
     // And the honest comment must be kept honest by the assertion next to it: the
     // value has to be provably NOT the post-redirect scratch root, which is the one
     // thing it does establish. Dropping that assertion is what the R5 mutation did.
+    //
+    // Every gap in the pattern is `\s*` rather than a space or `[^\n]`, because
+    // this audits its OWN source: the formatter wraps a long call across lines, and
+    // a layout-pinned pattern then reports the assertion as absent while it sits
+    // right there — a false failure that invites deleting the audit rather than
+    // fixing it. Whitespace is the only thing relaxed. The audited value
+    // (`inNsHome`), the message, the negation itself and its target (`scratchHome`)
+    // all stay literal, because a loose substring check would also accept
+    // `.toBe(scratchHome)`, or this message attached to some other value — the two
+    // weakenings R5 is here to prevent. Leading `^\s*expect` keeps the match to a
+    // line-leading statement, so a commented-out copy of the assertion cannot
+    // satisfy it.
     expect(SRC, 'the pre-redirect assertion for IN_NS_HOME must be present').toMatch(
-      /^\s*expect\(inNsHome, 'IN_NS_HOME was echoed AFTER the fixture redirected HOME[^\n]*\)\.not\.toBe\(scratchHome\)/m
+      /^\s*expect\(\s*inNsHome\s*,\s*'IN_NS_HOME was echoed AFTER the fixture redirected HOME[^']*'\s*\)\s*\.not\s*\.\s*toBe\(\s*scratchHome\s*\)/m
     )
     // The honesty note has to sit in the REPRODUCTION's own body, not only in a
     // rationale above it — a rationale can be edited and leave a claim standing
