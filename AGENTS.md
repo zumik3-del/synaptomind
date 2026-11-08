@@ -31,6 +31,10 @@ Bun + Hono + SQLite (vec0 + FTS5); local embeddings via `@huggingface/transforme
 - SOLID, KISS, DRY where they matter; one thing per function; files ≤350 lines; clear names
 - Tests alongside source (`*.test.ts`)
 
+**Comments.** None by default — code is read by agents, and a stale comment misleads more than
+silence does. Write one only to flag something genuinely important that the code cannot state
+itself (a non-obvious constraint, a deliberate deviation, a hazard), and keep it to one line.
+
 **Formatting.** `biome.json` is the single source of truth; `bun run format` applies it and
 `bun run format:check` fails CI, so the rule never has to be argued in review. The standard:
 2-space indent, single quotes, no semicolons, no trailing commas, 100-column lines. Imports stay
