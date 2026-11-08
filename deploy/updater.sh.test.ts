@@ -230,14 +230,18 @@ function makeTrackingUpdateSh(): string {
  */
 function realCommonShFunction(name: string): string[] {
   const commonShPath = resolve(import.meta.dir, 'lib', 'common.sh')
-  const res = spawnSync(
-    'bash',
-    ['-c', '. "$1"\ndeclare -f -- "$2"', 'bash', commonShPath, name],
-    {
-      encoding: 'utf8',
-      timeout: 10_000
-    }
+  const escapedCommonShPath = commonShPath.replace(/[\\\"`$]/g, '\\$&')
+  const helperPath = join(
+    tmpdir(),
+    `extract-common-fn-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.sh`
   )
+  writeFileSync(helperPath, `#!/usr/bin/env bash\n. "${escapedCommonShPath}"\ndeclare -f -- "$1"\n`, {
+    mode: 0o700
+  })
+  const res = spawnSync('bash', [helperPath, name], {
+    encoding: 'utf8',
+    timeout: 10_000
+  })
   const out = (res.stdout ?? '').trim()
   // bash prints `name ()` — a space before the parens.
   if (res.status !== 0 || !out.startsWith(`${name} ()`)) {
