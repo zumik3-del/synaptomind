@@ -23,7 +23,7 @@
     "eval": "bun run eval/index.ts",
     "lint": "bunx biome check src/ eval/",
     "lint:docs": "bun run scripts/check-doc-refs.ts",
-    "lint:dup": "jscpd src --min-lines 10 --min-tokens 50 --threshold 0.01 --exitCode 1 --reporters console --ignore \"**/*.test.ts,**/*.suite.ts,**/__fixtures__/**,src/test/**\"",
+    "lint:dup": "jscpd src --min-lines 6 --min-tokens 50 --threshold 0.01 --exitCode 1 --reporters console --ignore \"**/*.test.ts,**/*.suite.ts,**/__fixtures__/**,src/test/**\"",
     "smoke": "bash scripts/smoke-test.sh",
     "release": "bash scripts/release.sh",
     "changelog": "bun run scripts/changelog.ts",
