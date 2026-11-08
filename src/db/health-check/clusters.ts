@@ -12,16 +12,19 @@ import type {
 import { THOUGHTS, joinIncidentEdges, noIncidentEdges, regularThoughtsWhere } from './query-builder'
 
 export function findEmptyClusters(db: Database): EmptyCluster[] {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT t.id, t.content FROM ${THOUGHTS}
     WHERE t.is_cluster = 1
       AND t.status != 'archived'
       AND ${noIncidentEdges({ sourceOnly: true, type: 'cluster' })}
-  `).all() as EmptyCluster[]
+  `)
+    .all() as EmptyCluster[]
 }
 
 export function findSingletonClusters(db: Database): SingletonCluster[] {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT t.id, t.content, COUNT(e.id) AS member_count
     FROM ${THOUGHTS}
     ${joinIncidentEdges({ left: true, sourceOnly: true, type: 'cluster' })}
@@ -29,11 +32,13 @@ export function findSingletonClusters(db: Database): SingletonCluster[] {
       AND t.status != 'archived'
     GROUP BY t.id
     HAVING member_count <= 1
-  `).all() as SingletonCluster[]
+  `)
+    .all() as SingletonCluster[]
 }
 
 export function findOrphanedClusterMembers(db: Database): OrphanedClusterMember[] {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT e.target_id AS thought_id, t.content, e.id AS cluster_edge_id
     FROM edges e
     JOIN thoughts t ON t.id = e.target_id
@@ -41,7 +46,8 @@ export function findOrphanedClusterMembers(db: Database): OrphanedClusterMember[
       AND NOT EXISTS (
         SELECT 1 FROM thoughts c WHERE c.id = e.source_id AND c.is_cluster = 1
       )
-  `).all() as OrphanedClusterMember[]
+  `)
+    .all() as OrphanedClusterMember[]
 }
 
 /**
@@ -59,7 +65,8 @@ export function findClusterlessDense(
   minAgeDays: number = config.autoCluster.minAgeDays
 ): ClusterlessDense[] {
   const cutoff = new Date(Date.now() - minAgeDays * MS_PER_DAY).toISOString()
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT t.id, t.content, COUNT(e.id) AS edge_count
     FROM ${THOUGHTS}
     ${joinIncidentEdges({ type: 'related' })}
@@ -68,24 +75,29 @@ export function findClusterlessDense(
       AND ${noIncidentEdges({ type: 'cluster' })}
     GROUP BY t.id
     HAVING edge_count >= ?
-  `).all(cutoff, minEdges) as ClusterlessDense[]
+  `)
+    .all(cutoff, minEdges) as ClusterlessDense[]
 }
 
 export function findIslandThoughts(db: Database): IslandThought[] {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT t.id, t.content, t.status FROM ${THOUGHTS}
     WHERE ${regularThoughtsWhere('active')}
       AND ${noIncidentEdges()}
-  `).all() as IslandThought[]
+  `)
+    .all() as IslandThought[]
 }
 
 export function findOverlinkedThoughts(db: Database, maxEdges: number = 10): OverlinkedThought[] {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT t.id, t.content, COUNT(e.id) AS edge_count
     FROM ${THOUGHTS}
     ${joinIncidentEdges()}
     WHERE ${regularThoughtsWhere()}
     GROUP BY t.id
     HAVING edge_count > ?
-  `).all(maxEdges) as OverlinkedThought[]
+  `)
+    .all(maxEdges) as OverlinkedThought[]
 }

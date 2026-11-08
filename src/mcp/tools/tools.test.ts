@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { config } from '../../config'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
@@ -35,7 +35,10 @@ function callTool(request: { name: string; arguments?: Record<string, unknown> }
   const args = request.arguments ?? {}
   const scoped = CWD_ACTIONS[request.name]
   const needsCwd = scoped?.includes(String(args.action)) === true
-  return client.callTool({ ...request, arguments: needsCwd ? { cwd: UNSCOPED_CWD, ...args } : args } as Parameters<Client['callTool']>[0])
+  return client.callTool({
+    ...request,
+    arguments: needsCwd ? { cwd: UNSCOPED_CWD, ...args } : args
+  } as Parameters<Client['callTool']>[0])
 }
 
 async function setupClient(): Promise<Client> {
@@ -102,70 +105,166 @@ describe('tool registration', () => {
 
 describe('retention_review MCP', () => {
   test('maps list pagination and summarizes protection candidates', async () => {
-    const id = seedThought({ content: 'MCP retention candidate', status: 'archived', is_protected: 0, importance: 0.1, created_at: '2026-09-01T00:00:00.000Z' })
-    getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
+    const id = seedThought({
+      content: 'MCP retention candidate',
+      status: 'archived',
+      is_protected: 0,
+      importance: 0.1,
+      created_at: '2026-09-01T00:00:00.000Z'
+    })
+    getDb()
+      .prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?')
+      .run('2026-09-01T00:00:00.000Z', id)
     getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
-    const listed = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'list', min_age_days: 1, importance_floor: 1, limit: 1, offset: 0 } }))
+    const listed = parseResult(
+      await callTool({
+        name: 'retention_review',
+        arguments: { action: 'list', min_age_days: 1, importance_floor: 1, limit: 1, offset: 0 }
+      })
+    )
     expect(listed.isError).toBe(false)
     expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(id)
-    const protectedResult = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'protect', thought_id: id } }))
+    const protectedResult = parseResult(
+      await callTool({ name: 'retention_review', arguments: { action: 'protect', thought_id: id } })
+    )
     expect(protectedResult.isError).toBe(false)
-    expect(getDb().prepare('SELECT is_protected FROM thoughts WHERE id = ?').get(id)).toEqual({ is_protected: 1 })
+    expect(getDb().prepare('SELECT is_protected FROM thoughts WHERE id = ?').get(id)).toEqual({
+      is_protected: 1
+    })
   })
 
   test('previews delete/compact by default and maps confirmation, validation errors, and summary fields', async () => {
-    const id = seedThought({ content: 'MCP retention delete', status: 'archived', is_protected: 0, importance: 0.1, created_at: '2026-09-01T00:00:00.000Z' })
-    getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
+    const id = seedThought({
+      content: 'MCP retention delete',
+      status: 'archived',
+      is_protected: 0,
+      importance: 0.1,
+      created_at: '2026-09-01T00:00:00.000Z'
+    })
+    getDb()
+      .prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?')
+      .run('2026-09-01T00:00:00.000Z', id)
     getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
-    const preview = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
+    const preview = parseResult(
+      await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } })
+    )
     expect(preview.data.item.preview).toBe(true)
     expect(getDb().prepare('SELECT id FROM thoughts WHERE id = ?').get(id)).toBeTruthy()
-    const deletePreview = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } }))
-    const deleted = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id, confirm: true, preview_token: deletePreview.data.item.preview_token } }))
+    const deletePreview = parseResult(
+      await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } })
+    )
+    const deleted = parseResult(
+      await callTool({
+        name: 'retention_review',
+        arguments: {
+          action: 'delete',
+          thought_id: id,
+          confirm: true,
+          preview_token: deletePreview.data.item.preview_token
+        }
+      })
+    )
     expect(deleted.data.item.deleted).toBe(true)
 
-    const source = seedThought({ content: 'MCP retention compact source', status: 'archived', is_protected: 0, importance: 0.1, created_at: '2026-09-01T00:00:00.000Z' })
-    getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', source)
-    getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(source)
-    const args = { action: 'compact', source_ids: [source], summary: { content: 'MCP retention compact summary', tags: ['mcp-tag'], project_id: 'default' } }
-    const compactPreview = parseResult(await callTool({ name: 'retention_review', arguments: args }))
+    const source = seedThought({
+      content: 'MCP retention compact source',
+      status: 'archived',
+      is_protected: 0,
+      importance: 0.1,
+      created_at: '2026-09-01T00:00:00.000Z'
+    })
+    getDb()
+      .prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?')
+      .run('2026-09-01T00:00:00.000Z', source)
+    getDb()
+      .prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?')
+      .run(source)
+    const args = {
+      action: 'compact',
+      source_ids: [source],
+      summary: {
+        content: 'MCP retention compact summary',
+        tags: ['mcp-tag'],
+        project_id: 'default'
+      }
+    }
+    const compactPreview = parseResult(
+      await callTool({ name: 'retention_review', arguments: args })
+    )
     expect(compactPreview.data.item.status).toBe('preview')
-    expect(getDb().prepare("SELECT id FROM thoughts WHERE content = 'MCP retention compact summary'").get()).toBeNull()
-    const compacted = parseResult(await callTool({ name: 'retention_review', arguments: { ...args, confirm: true } }))
+    expect(
+      getDb()
+        .prepare("SELECT id FROM thoughts WHERE content = 'MCP retention compact summary'")
+        .get()
+    ).toBeNull()
+    const compacted = parseResult(
+      await callTool({ name: 'retention_review', arguments: { ...args, confirm: true } })
+    )
     expect(compacted.isError).toBe(false)
     expect(compacted.data.item.summary.project_id).toBe('default')
     // Read-surface hygiene: tags are plain strings, never { id, name } objects.
     expect(compacted.data.item.summary.tags).toContain('mcp-tag')
-    const invalid = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'compact', source_ids: [], summary: { content: 'invalid' } } }))
+    const invalid = parseResult(
+      await callTool({
+        name: 'retention_review',
+        arguments: { action: 'compact', source_ids: [], summary: { content: 'invalid' } }
+      })
+    )
     expect(invalid.isError).toBe(true)
     const edgeTools = (await client.listTools()).tools.filter(tool => tool.name === 'edge_review')
     expect(edgeTools).toHaveLength(1)
   })
 
   test('retention-review compact rejects more than 1000 IDs through MCP validation', async () => {
-    const result = await callTool({ name: 'retention_review', arguments: {
-      action: 'compact', source_ids: Array.from({ length: 1001 }, (_, i) => `id-${i}`), summary: { content: 'summary' }
-    } })
+    const result = await callTool({
+      name: 'retention_review',
+      arguments: {
+        action: 'compact',
+        source_ids: Array.from({ length: 1001 }, (_, i) => `id-${i}`),
+        summary: { content: 'summary' }
+      }
+    })
     expect(result.isError).toBe(true)
   })
 
   test('retention-review list returns every eligible candidate and totals', async () => {
-    const first = seedThought({ content: 'candidate', status: 'archived', is_protected: 0, created_at: '2026-09-01T00:00:00.000Z' })
-    const second = seedThought({ content: 'second candidate', status: 'archived', is_protected: 0, created_at: '2026-09-02T00:00:00.000Z' })
+    const first = seedThought({
+      content: 'candidate',
+      status: 'archived',
+      is_protected: 0,
+      created_at: '2026-09-01T00:00:00.000Z'
+    })
+    const second = seedThought({
+      content: 'second candidate',
+      status: 'archived',
+      is_protected: 0,
+      created_at: '2026-09-02T00:00:00.000Z'
+    })
     for (const id of [first, second]) {
-      getDb().prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', id)
+      getDb()
+        .prepare('UPDATE thoughts SET archived_at = ? WHERE id = ?')
+        .run('2026-09-01T00:00:00.000Z', id)
       getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
     }
-    const listed = parseResult(await callTool({ name: 'retention_review', arguments: { action: 'list' } }))
+    const listed = parseResult(
+      await callTool({ name: 'retention_review', arguments: { action: 'list' } })
+    )
     expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(first)
     expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(second)
     expect(listed.data.meta.counts.total).toBe(2)
   })
 
   test('retention-review compact accepts 1000 source IDs through MCP schema validation', async () => {
-    const result = parseResult(await callTool({ name: 'retention_review', arguments: {
-      action: 'compact', source_ids: Array.from({ length: 1000 }, (_, i) => `missing-${i}`), summary: { content: 'summary' }
-    } }))
+    const result = parseResult(
+      await callTool({
+        name: 'retention_review',
+        arguments: {
+          action: 'compact',
+          source_ids: Array.from({ length: 1000 }, (_, i) => `missing-${i}`),
+          summary: { content: 'summary' }
+        }
+      })
+    )
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result).toLowerCase()).not.toContain('at most 1000')
   })
@@ -228,7 +327,12 @@ describe('memory_store', () => {
 
     const link = await callTool({
       name: 'memory_store',
-      arguments: { action: 'link', source_id: da.item.id, target_id: db.item.id, edge_type: 'develops' }
+      arguments: {
+        action: 'link',
+        source_id: da.item.id,
+        target_id: db.item.id,
+        edge_type: 'develops'
+      }
     })
     const { data: edge, isError } = parseResult(link)
     expect(isError).toBe(false)
@@ -265,7 +369,14 @@ describe('memory_store', () => {
       | undefined
 
     expect(schema?.properties?.action?.enum).toEqual([
-      'create', 'update', 'link', 'link_batch', 'unlink', 'unlink_batch', 'retype', 'bulk_create'
+      'create',
+      'update',
+      'link',
+      'link_batch',
+      'unlink',
+      'unlink_batch',
+      'retype',
+      'bulk_create'
     ])
     // The `thoughts` field is documented for the surviving action only.
     expect(schema?.properties?.thoughts?.description).toContain('"bulk_create"')
@@ -283,18 +394,29 @@ describe('memory_store', () => {
     }
     // The rejected spellings wrote nothing: the alias is a schema error, not a
     // silently accepted second door into the bulk insert.
-    expect(getDb().prepare(`SELECT COUNT(*) AS cnt FROM thoughts WHERE content LIKE '% alias write %'`).get()).toEqual({ cnt: 0 })
+    expect(
+      getDb()
+        .prepare(`SELECT COUNT(*) AS cnt FROM thoughts WHERE content LIKE '% alias write %'`)
+        .get()
+    ).toEqual({ cnt: 0 })
   })
 
   test('bulk_create still creates every thought in one action', async () => {
     const result = await callTool({
       name: 'memory_store',
-      arguments: { action: 'bulk_create', thoughts: [{ content: 'bulk one' }, { content: 'bulk two' }] }
+      arguments: {
+        action: 'bulk_create',
+        thoughts: [{ content: 'bulk one' }, { content: 'bulk two' }]
+      }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
     expect(data.items).toHaveLength(2)
-    expect(getDb().prepare(`SELECT COUNT(*) AS cnt FROM thoughts WHERE content IN ('bulk one', 'bulk two')`).get()).toEqual({ cnt: 2 })
+    expect(
+      getDb()
+        .prepare(`SELECT COUNT(*) AS cnt FROM thoughts WHERE content IN ('bulk one', 'bulk two')`)
+        .get()
+    ).toEqual({ cnt: 2 })
   })
 })
 
@@ -304,7 +426,11 @@ describe('memory_recall', () => {
   test('search returns matching thoughts', async () => {
     await callTool({
       name: 'memory_store',
-      arguments: { action: 'create', content: 'MCP_CONTRACT_MARKER unique search term', status: 'active' }
+      arguments: {
+        action: 'create',
+        content: 'MCP_CONTRACT_MARKER unique search term',
+        status: 'active'
+      }
     })
 
     const result = await callTool({
@@ -316,7 +442,9 @@ describe('memory_recall', () => {
     expect(Array.isArray(data.items)).toBe(true)
     expect(data.items.length).toBeGreaterThanOrEqual(1)
     expect(data.meta.action).toBe('search')
-    expect(data.items.some((r: any) => r.thought?.content?.includes('MCP_CONTRACT_MARKER'))).toBe(true)
+    expect(data.items.some((r: any) => r.thought?.content?.includes('MCP_CONTRACT_MARKER'))).toBe(
+      true
+    )
   })
 
   test('get returns a thought by id', async () => {
@@ -387,7 +515,8 @@ describe('memory_recall', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(true)
-    expect(data).toContain('query or thought_id is required for context action')  })
+    expect(data).toContain('query or thought_id is required for context action')
+  })
 
   test('clusters without query returns error', async () => {
     const result = await callTool({
@@ -421,7 +550,11 @@ describe('memory_supersede', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.item).toMatchObject({ status: 'executed', action: 'archive', result: { id: thought.id, status: 'archived' } })
+    expect(data.item).toMatchObject({
+      status: 'executed',
+      action: 'archive',
+      result: { id: thought.id, status: 'archived' }
+    })
   })
 
   test('double archive is idempotent (regression #76)', async () => {
@@ -437,7 +570,12 @@ describe('memory_supersede', () => {
     })
     await callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: parseResult(preview1).data.item.preview_token }
+      arguments: {
+        action: 'archive',
+        thought_id: thought.id,
+        confirm: true,
+        preview_token: parseResult(preview1).data.item.preview_token
+      }
     })
     const preview2 = await callTool({
       name: 'memory_supersede',
@@ -445,11 +583,20 @@ describe('memory_supersede', () => {
     })
     const second = await callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: parseResult(preview2).data.item.preview_token }
+      arguments: {
+        action: 'archive',
+        thought_id: thought.id,
+        confirm: true,
+        preview_token: parseResult(preview2).data.item.preview_token
+      }
     })
     const { data, isError } = parseResult(second)
     expect(isError).toBe(false)
-    expect(data.item).toMatchObject({ status: 'executed', action: 'archive', result: { id: thought.id, status: 'archived' } })
+    expect(data.item).toMatchObject({
+      status: 'executed',
+      action: 'archive',
+      result: { id: thought.id, status: 'archived' }
+    })
   })
 
   test('merge archives source and updates target (regression #76)', async () => {
@@ -486,7 +633,11 @@ describe('memory_supersede', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.item).toMatchObject({ status: 'executed', action: 'merge', result: { target: { id: target.id, content: 'merged result' } } })
+    expect(data.item).toMatchObject({
+      status: 'executed',
+      action: 'merge',
+      result: { target: { id: target.id, content: 'merged result' } }
+    })
 
     const srcCheck = await callTool({
       name: 'memory_recall',
@@ -539,7 +690,9 @@ describe('memory_manage', () => {
   test('advertises no compact option (#2201: the manage projection never read it)', async () => {
     const { tools } = await client.listTools()
     const manage = tools.find(t => t.name === 'memory_manage')
-    const props = (manage?.inputSchema as { properties?: Record<string, { description?: string }> } | undefined)?.properties ?? {}
+    const props =
+      (manage?.inputSchema as { properties?: Record<string, { description?: string }> } | undefined)
+        ?.properties ?? {}
 
     expect(Object.keys(props)).not.toContain('compact')
     expect(JSON.stringify(manage?.inputSchema)).not.toContain('compact')
@@ -548,19 +701,25 @@ describe('memory_manage', () => {
     // the option stays live where a projection actually reads it.
     expect(props.fields).toBeDefined()
     const recall = tools.find(t => t.name === 'memory_recall')
-    const recallProps = (recall?.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties ?? {}
+    const recallProps =
+      (recall?.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties ??
+      {}
     expect(Object.keys(recallProps)).toContain('compact')
   })
 
   test('fields still trims the project rows (the surviving selector works)', async () => {
-    const trimmed = parseResult(await callTool({
-      name: 'memory_manage',
-      arguments: { action: 'list', fields: ['name'] }
-    }))
+    const trimmed = parseResult(
+      await callTool({
+        name: 'memory_manage',
+        arguments: { action: 'list', fields: ['name'] }
+      })
+    )
     expect(trimmed.isError).toBe(false)
     expect(Object.keys(trimmed.data.items[0])).toEqual(['name'])
 
-    const full = parseResult(await callTool({ name: 'memory_manage', arguments: { action: 'list' } }))
+    const full = parseResult(
+      await callTool({ name: 'memory_manage', arguments: { action: 'list' } })
+    )
     expect(Object.keys(full.data.items[0]).length).toBeGreaterThan(1)
   })
 })
@@ -638,14 +797,17 @@ describe('memory_crystallize', () => {
   test('advertises only the three surviving graph and cluster actions', async () => {
     const { tools } = await client.listTools()
     const tool = tools.find(t => t.name === 'memory_crystallize')
-    const schema = tool?.inputSchema as { properties?: { action?: { enum?: string[] } } } | undefined
-    expect(schema?.properties?.action?.enum).toEqual([
-      'graph', 'cluster', 'auto_cluster'
-    ])
+    const schema = tool?.inputSchema as
+      | { properties?: { action?: { enum?: string[] } } }
+      | undefined
+    expect(schema?.properties?.action?.enum).toEqual(['graph', 'cluster', 'auto_cluster'])
   })
 
   test('rejects retired crystallize action through MCP', async () => {
-    const result = await callTool({ name: 'memory_crystallize', arguments: { action: 'crystallize' } })
+    const result = await callTool({
+      name: 'memory_crystallize',
+      arguments: { action: 'crystallize' }
+    })
     expect(parseResult(result).isError).toBe(true)
   })
 
@@ -672,10 +834,12 @@ describe('memory_crystallize', () => {
     seedThought({ content: 'graph page row two', status: 'active' })
     seedThought({ content: 'graph page row three', status: 'active' })
 
-    const { data, isError } = parseResult(await callTool({
-      name: 'memory_crystallize',
-      arguments: { action: 'graph', limit: 2 }
-    }))
+    const { data, isError } = parseResult(
+      await callTool({
+        name: 'memory_crystallize',
+        arguments: { action: 'graph', limit: 2 }
+      })
+    )
 
     expect(isError).toBe(false)
     expect(data.items).toHaveLength(2)
@@ -687,32 +851,60 @@ describe('memory_crystallize', () => {
 
   test('dispatches cluster creation and auto-cluster', async () => {
     const member = seedThought({ content: 'retained cluster member' })
-    const created = parseResult(await callTool({
-      name: 'memory_crystallize', arguments: { action: 'cluster', thought_ids: [member], title: 'retained cluster' }
-    }))
+    const created = parseResult(
+      await callTool({
+        name: 'memory_crystallize',
+        arguments: { action: 'cluster', thought_ids: [member], title: 'retained cluster' }
+      })
+    )
     expect(created.isError).toBe(false)
     expect(created.data.item.cluster.id).toBeDefined()
 
-    const autoPreview = parseResult(await callTool({
-      name: 'memory_crystallize', arguments: { action: 'auto_cluster' }
-    }))
-    const auto = parseResult(await callTool({
-      name: 'memory_crystallize', arguments: { action: 'auto_cluster', confirm: true, preview_token: autoPreview.data.meta.preview.token }
-    }))
+    const autoPreview = parseResult(
+      await callTool({
+        name: 'memory_crystallize',
+        arguments: { action: 'auto_cluster' }
+      })
+    )
+    const auto = parseResult(
+      await callTool({
+        name: 'memory_crystallize',
+        arguments: {
+          action: 'auto_cluster',
+          confirm: true,
+          preview_token: autoPreview.data.meta.preview.token
+        }
+      })
+    )
     expect(auto.isError).toBe(false)
     expect(Array.isArray(auto.data.items)).toBe(true)
   })
 
   test('historical crystal-source thought remains accessible through get and search', async () => {
-    const id = seedThought({ content: 'unique historic crystal archival record', source: 'crystal', status: 'active' })
-    const get = parseResult(await callTool({
-      name: 'memory_recall', arguments: { action: 'get', thought_id: id, compact: false }
-    }))
+    const id = seedThought({
+      content: 'unique historic crystal archival record',
+      source: 'crystal',
+      status: 'active'
+    })
+    const get = parseResult(
+      await callTool({
+        name: 'memory_recall',
+        arguments: { action: 'get', thought_id: id, compact: false }
+      })
+    )
     expect(get.data.item.source).toBe('crystal')
 
-    const search = parseResult(await callTool({
-      name: 'memory_recall', arguments: { action: 'search', query: 'unique historic crystal archival record', hybrid: true, compact: false }
-    }))
+    const search = parseResult(
+      await callTool({
+        name: 'memory_recall',
+        arguments: {
+          action: 'search',
+          query: 'unique historic crystal archival record',
+          hybrid: true,
+          compact: false
+        }
+      })
+    )
     expect(JSON.stringify(search.data)).toContain(id)
   })
 })
@@ -833,16 +1025,35 @@ describe('merge edge cases', () => {
 
     const mergePreview = await callTool({
       name: 'memory_supersede',
-      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged' }
+      arguments: {
+        action: 'merge',
+        source_id: source.id,
+        target_id: target.id,
+        merged_content: 'merged'
+      }
     })
     const result = await callTool({
       name: 'memory_supersede',
-      arguments: { action: 'merge', source_id: source.id, target_id: target.id, merged_content: 'merged', confirm: true, preview_token: parseResult(mergePreview).data.item.preview_token }
+      arguments: {
+        action: 'merge',
+        source_id: source.id,
+        target_id: target.id,
+        merged_content: 'merged',
+        confirm: true,
+        preview_token: parseResult(mergePreview).data.item.preview_token
+      }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    expect(data.item).toMatchObject({ status: 'executed', action: 'merge', result: { target: { id: target.id, content: 'merged' } } })
-    const targetCheck = await callTool({ name: 'memory_recall', arguments: { action: 'get', thought_id: target.id } })
+    expect(data.item).toMatchObject({
+      status: 'executed',
+      action: 'merge',
+      result: { target: { id: target.id, content: 'merged' } }
+    })
+    const targetCheck = await callTool({
+      name: 'memory_recall',
+      arguments: { action: 'get', thought_id: target.id }
+    })
     expect(parseResult(targetCheck).data.item.content).toBe('merged')
   })
 
@@ -858,7 +1069,12 @@ describe('merge edge cases', () => {
     })
     await callTool({
       name: 'memory_supersede',
-      arguments: { action: 'archive', thought_id: source.id, confirm: true, preview_token: parseResult(archPreview).data.item.preview_token }
+      arguments: {
+        action: 'archive',
+        thought_id: source.id,
+        confirm: true,
+        preview_token: parseResult(archPreview).data.item.preview_token
+      }
     })
 
     const b = await callTool({
@@ -873,7 +1089,13 @@ describe('merge edge cases', () => {
     })
     const result = await callTool({
       name: 'memory_supersede',
-      arguments: { action: 'merge', source_id: source.id, target_id: target.id, confirm: true, preview_token: parseResult(mergePreview2).data.item.preview_token }
+      arguments: {
+        action: 'merge',
+        source_id: source.id,
+        target_id: target.id,
+        confirm: true,
+        preview_token: parseResult(mergePreview2).data.item.preview_token
+      }
     })
     const { isError } = parseResult(result)
     expect(isError).toBe(true)
@@ -963,7 +1185,12 @@ describe('search with project scope', () => {
 
     await callTool({
       name: 'memory_store',
-      arguments: { action: 'create', content: 'SCOPED_MARKER in project', status: 'active', cwd: '/tmp/search-scope' }
+      arguments: {
+        action: 'create',
+        content: 'SCOPED_MARKER in project',
+        status: 'active',
+        cwd: '/tmp/search-scope'
+      }
     })
     await callTool({
       name: 'memory_store',
@@ -972,7 +1199,13 @@ describe('search with project scope', () => {
 
     const result = await callTool({
       name: 'memory_recall',
-      arguments: { action: 'search', query: 'SCOPED_MARKER', limit: 10, cwd: '/tmp/search-scope', compact: false }
+      arguments: {
+        action: 'search',
+        query: 'SCOPED_MARKER',
+        limit: 10,
+        cwd: '/tmp/search-scope',
+        compact: false
+      }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -995,7 +1228,11 @@ describe('memory_recall ranking signals', () => {
   test('search response includes match_source on every result', async () => {
     await callTool({
       name: 'memory_store',
-      arguments: { action: 'create', content: 'SIGNALS_MARKER bm25 relevant content here', status: 'active' }
+      arguments: {
+        action: 'create',
+        content: 'SIGNALS_MARKER bm25 relevant content here',
+        status: 'active'
+      }
     })
 
     const { data, isError } = await searchWithSignals('SIGNALS_MARKER')
@@ -1005,25 +1242,41 @@ describe('memory_recall ranking signals', () => {
     // Every result must carry match_source (always present per SearchResult contract)
     expect(data.items.every((r: any) => Array.isArray(r.match_source))).toBe(true)
     // compact=false moves scoring metadata into its own block, never the thought
-    expect(data.items.every((r: any) => r.thought.similarity === undefined && r.thought.bm25_score === undefined)).toBe(true)
+    expect(
+      data.items.every(
+        (r: any) => r.thought.similarity === undefined && r.thought.bm25_score === undefined
+      )
+    ).toBe(true)
   })
 
   test('BM25 hit carries a positive bm25_score', async () => {
     await callTool({
       name: 'memory_store',
-      arguments: { action: 'create', content: 'SIGNALS_BM25 unique keyword marker alpha', status: 'active' }
+      arguments: {
+        action: 'create',
+        content: 'SIGNALS_BM25 unique keyword marker alpha',
+        status: 'active'
+      }
     })
     await callTool({
       name: 'memory_store',
-      arguments: { action: 'create', content: 'SIGNALS_BM25 unique keyword marker beta', status: 'active' }
+      arguments: {
+        action: 'create',
+        content: 'SIGNALS_BM25 unique keyword marker beta',
+        status: 'active'
+      }
     })
 
     const { data, isError } = await searchWithSignals('SIGNALS_BM25 unique keyword marker')
     expect(isError).toBe(false)
-    const results = data.items as Array<{ thought: { id: string }; match_source: string[]; scores?: { bm25_score?: number } }>
-    const bm25Hits = results.filter((r) => r.match_source.includes('bm25'))
+    const results = data.items as Array<{
+      thought: { id: string }
+      match_source: string[]
+      scores?: { bm25_score?: number }
+    }>
+    const bm25Hits = results.filter(r => r.match_source.includes('bm25'))
     expect(bm25Hits.length).toBeGreaterThanOrEqual(1)
-    bm25Hits.forEach((r) => {
+    bm25Hits.forEach(r => {
       expect(typeof r.scores?.bm25_score).toBe('number')
       expect(r.scores?.bm25_score).toBeGreaterThan(0)
     })
@@ -1039,10 +1292,10 @@ describe('memory_recall ranking signals', () => {
     expect(isError).toBe(false)
     const results = data.items as Array<{ match_source: string[]; scores?: { rrf_score?: number } }>
     // On the hybrid path, every returned result that matched any leg should have rrf_score
-    const withRrf = results.filter((r) => r.match_source.length > 0)
+    const withRrf = results.filter(r => r.match_source.length > 0)
     expect(withRrf.length).toBeGreaterThanOrEqual(1)
     // rrf_score is present when fusion ran (hybrid=true is the default)
-    expect(withRrf.every((r) => r.scores?.rrf_score !== undefined)).toBe(true)
+    expect(withRrf.every(r => r.scores?.rrf_score !== undefined)).toBe(true)
   })
 })
 
@@ -1063,29 +1316,39 @@ describe('memory_recall recency boost', () => {
       arguments: { action: 'create', content: 'REC_MCP marker content here', status: 'active' }
     })
 
-    const { data, isError } = await searchWithRecency('REC_MCP marker content here', { recency_weight: 0.5 })
+    const { data, isError } = await searchWithRecency('REC_MCP marker content here', {
+      recency_weight: 0.5
+    })
     expect(isError).toBe(false)
     expect(Array.isArray(data.items)).toBe(true)
     expect(data.items.length).toBeGreaterThanOrEqual(1)
     // Every result should carry recency fields when weight > 0.
-    const results = data.items as Array<{ scores?: { recency_score?: number; final_score?: number } }>
-    expect(results.every((r) => r.scores?.recency_score !== undefined)).toBe(true)
-    expect(results.every((r) => r.scores?.final_score !== undefined)).toBe(true)
+    const results = data.items as Array<{
+      scores?: { recency_score?: number; final_score?: number }
+    }>
+    expect(results.every(r => r.scores?.recency_score !== undefined)).toBe(true)
+    expect(results.every(r => r.scores?.final_score !== undefined)).toBe(true)
   })
 
   test('unset recency_weight → neither recency_score nor final_score present', async () => {
     await callTool({
       name: 'memory_store',
-      arguments: { action: 'create', content: 'REC_MCP_UNSET marker content here', status: 'active' }
+      arguments: {
+        action: 'create',
+        content: 'REC_MCP_UNSET marker content here',
+        status: 'active'
+      }
     })
 
     const { data, isError } = await searchWithRecency('REC_MCP_UNSET marker content here')
     expect(isError).toBe(false)
     expect(Array.isArray(data.items)).toBe(true)
-    const results = data.items as Array<{ scores?: { recency_score?: number; final_score?: number } }>
+    const results = data.items as Array<{
+      scores?: { recency_score?: number; final_score?: number }
+    }>
     // Default weight=0 → fields must be absent (backward compat).
-    expect(results.every((r) => r.scores?.recency_score === undefined)).toBe(true)
-    expect(results.every((r) => r.scores?.final_score === undefined)).toBe(true)
+    expect(results.every(r => r.scores?.recency_score === undefined)).toBe(true)
+    expect(results.every(r => r.scores?.final_score === undefined)).toBe(true)
   })
 
   test('schema rejects out-of-range recency_weight', async () => {
@@ -1111,7 +1374,11 @@ describe('memory_recall low_confidence + min_relevance', () => {
   test('search response includes low_confidence on every result', async () => {
     await callTool({
       name: 'memory_store',
-      arguments: { action: 'create', content: 'LC_MCP marker relevant content here', status: 'active' }
+      arguments: {
+        action: 'create',
+        content: 'LC_MCP marker relevant content here',
+        status: 'active'
+      }
     })
 
     const result = await callTool({
@@ -1149,7 +1416,11 @@ describe('memory_recall low_confidence + min_relevance', () => {
 
     const result = await callTool({
       name: 'memory_recall',
-      arguments: { action: 'clusters', query: 'LC_CLUST marker cluster content', min_relevance: 0.5 }
+      arguments: {
+        action: 'clusters',
+        query: 'LC_CLUST marker cluster content',
+        min_relevance: 0.5
+      }
     })
     const { isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -1205,10 +1476,12 @@ describe('memory_recall low_confidence + min_relevance', () => {
 describe('retired surface', () => {
   test('memory_store create refuses is_profile and writes nothing', async () => {
     const before = (getDb().query('select count(*) as n from thoughts').get() as { n: number }).n
-    const { data, isError } = parseResult(await callTool({
-      name: 'memory_store',
-      arguments: { action: 'create', content: 'retired profile flag', is_profile: true }
-    }))
+    const { data, isError } = parseResult(
+      await callTool({
+        name: 'memory_store',
+        arguments: { action: 'create', content: 'retired profile flag', is_profile: true }
+      })
+    )
     expect(isError).toBe(true)
     expect(String(data)).toContain('is_profile is retired')
     const after = (getDb().query('select count(*) as n from thoughts').get() as { n: number }).n
@@ -1216,35 +1489,43 @@ describe('retired surface', () => {
   })
 
   test('memory_store update refuses is_profile and leaves the row untouched', async () => {
-    const created = parseResult(await callTool({
-      name: 'memory_store',
-      arguments: { action: 'create', content: 'plain thought' }
-    }))
+    const created = parseResult(
+      await callTool({
+        name: 'memory_store',
+        arguments: { action: 'create', content: 'plain thought' }
+      })
+    )
     const id = created.data.item.id as string
-    const { data, isError } = parseResult(await callTool({
-      name: 'memory_store',
-      arguments: { action: 'update', thought_id: id, is_profile: true }
-    }))
+    const { data, isError } = parseResult(
+      await callTool({
+        name: 'memory_store',
+        arguments: { action: 'update', thought_id: id, is_profile: true }
+      })
+    )
     expect(isError).toBe(true)
     expect(String(data)).toContain('is_profile is retired')
     expect(getThought(getDb(), id)?.content).toBe('plain thought')
   })
 
   test('memory_status action=profile is no longer a valid action', async () => {
-    const { data, isError } = parseResult(await callTool({
-      name: 'memory_status',
-      arguments: { action: 'profile' }
-    }))
+    const { data, isError } = parseResult(
+      await callTool({
+        name: 'memory_status',
+        arguments: { action: 'profile' }
+      })
+    )
     expect(isError).toBe(true)
     expect(String(data)).toContain('Invalid option: expected one of')
   })
 
   for (const action of ['cluster_remove', 'cluster_dissolve']) {
     test(`memory_crystallize ${action} is refused with the surviving action enum`, async () => {
-      const { data, isError } = parseResult(await callTool({
-        name: 'memory_crystallize',
-        arguments: { action }
-      }))
+      const { data, isError } = parseResult(
+        await callTool({
+          name: 'memory_crystallize',
+          arguments: { action }
+        })
+      )
       expect(isError).toBe(true)
       expect(String(data)).toContain('expected one of "graph"|"cluster"|"auto_cluster"')
     })

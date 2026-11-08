@@ -19,9 +19,15 @@ export function findActiveDecisionThoughts(db: Database, projectId?: string): De
 }
 
 /** Match the live content-hash conflict rule used by createThought. */
-export function hasLiveReflectionContent(db: Database, content: string, projectId: string): boolean {
-  return !!db.prepare(`
+export function hasLiveReflectionContent(
+  db: Database,
+  content: string,
+  projectId: string
+): boolean {
+  return !!db
+    .prepare(`
     SELECT 1 FROM thoughts
     WHERE content_hash = ? AND project_id = ? AND status IN ('draft', 'active') LIMIT 1
-  `).get(computeContentHash(content, projectId), projectId)
+  `)
+    .get(computeContentHash(content, projectId), projectId)
 }

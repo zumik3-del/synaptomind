@@ -27,7 +27,10 @@ export function tokenize(text: string): string[] {
     .filter(token => token.length > 2)
 }
 
-export function deterministicEmbedding(text: string, dimensions = DEFAULT_DIMENSIONS): Float32Array {
+export function deterministicEmbedding(
+  text: string,
+  dimensions = DEFAULT_DIMENSIONS
+): Float32Array {
   const vector = new Float32Array(dimensions)
   const counts = new Map<string, number>()
   for (const token of tokenize(text)) {

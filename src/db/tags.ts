@@ -11,7 +11,9 @@ function canonicalTagName(name: string): string {
 }
 
 export function findTagByName(db: Database, name: string): Tag | undefined {
-  const row = db.prepare('SELECT id, name FROM tags WHERE name = ? COLLATE NOCASE').get(name) as Tag | null
+  const row = db
+    .prepare('SELECT id, name FROM tags WHERE name = ? COLLATE NOCASE')
+    .get(name) as Tag | null
   return row ?? undefined
 }
 
@@ -20,7 +22,11 @@ export function createTag(db: Database, name: string): Tag {
   const existing = findTagByName(db, canonical)
   if (existing) return existing
   const id = Bun.randomUUIDv7()
-  db.prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)').run(id, canonical, new Date().toISOString())
+  db.prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)').run(
+    id,
+    canonical,
+    new Date().toISOString()
+  )
   return { id, name: canonical }
 }
 
@@ -36,7 +42,10 @@ export function setThoughtTags(db: Database, thoughtId: string, tagNames: string
     const tags: Tag[] = []
     for (const name of tagNames) {
       const tag = createTag(db, name)
-      db.prepare('INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)').run(thoughtId, tag.id)
+      db.prepare('INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)').run(
+        thoughtId,
+        tag.id
+      )
       tags.push(tag)
     }
 

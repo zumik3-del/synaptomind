@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { closeDb } from '../../db/init'
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
@@ -29,16 +29,21 @@ async function schema(name: string) {
 }
 
 async function rejected(name: string, args: Record<string, unknown>, guidance: string) {
-  const result = await client.callTool({ name, arguments: args }) as { isError?: boolean; content?: Array<{ text: string }> }
+  const result = (await client.callTool({ name, arguments: args })) as {
+    isError?: boolean
+    content?: Array<{ text: string }>
+  }
   expect(result.isError).toBe(true)
   expect(result.content?.map(item => item.text).join('\n')).toContain(guidance)
 }
 
 test('advertises retired-input tombstones with actionable descriptions', async () => {
   const cases = [
-    ['memory_recall', 'top_k', 'Removed; use limit.'], ['memory_recall', 'cluster', 'Removed; use is_cluster.'],
+    ['memory_recall', 'top_k', 'Removed; use limit.'],
+    ['memory_recall', 'cluster', 'Removed; use is_cluster.'],
     ['memory_status', 'k', 'Removed; use limit.'],
-    ['edge_review', 'max_items', 'Removed; use max_proposals.'], ['memory_crystallize', 'dry_run', 'Removed; use confirm.'],
+    ['edge_review', 'max_items', 'Removed; use max_proposals.'],
+    ['memory_crystallize', 'dry_run', 'Removed; use confirm.'],
     ['memory_reflect', 'goals_delta', 'Removed; use goals_add / goals_remove.'],
     ['memory_store', 'is_profile', 'Retired: remove this field; there is no replacement.']
   ] as const
@@ -65,10 +70,22 @@ test('rejects retired status, review, crystallize, reflect, and store arguments 
   await rejected('memory_status', { action: 'slots', k: 1 }, 'limit')
   await rejected('edge_review', { action: 'list', max_items: 1 }, 'max_proposals')
   await rejected('memory_crystallize', { action: 'graph', dry_run: true }, 'confirm')
-  await rejected('memory_reflect', { action: 'reflect', goals_delta: ['old'] }, 'goals_add / goals_remove')
-  await rejected('memory_store', { action: 'create', content: 'retired profile', is_profile: true }, 'is_profile is retired')
+  await rejected(
+    'memory_reflect',
+    { action: 'reflect', goals_delta: ['old'] },
+    'goals_add / goals_remove'
+  )
+  await rejected(
+    'memory_store',
+    { action: 'create', content: 'retired profile', is_profile: true },
+    'is_profile is retired'
+  )
 })
 
 test('rejects store thought_id for link while retaining action guidance', async () => {
-  await rejected('memory_store', { action: 'link', thought_id: 'old', source_id: 'a', target_id: 'b' }, 'source_id')
+  await rejected(
+    'memory_store',
+    { action: 'link', thought_id: 'old', source_id: 'a', target_id: 'b' },
+    'source_id'
+  )
 })

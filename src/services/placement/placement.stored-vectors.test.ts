@@ -20,7 +20,13 @@ import { closeDb, getDb } from '../../db'
 import { searchThoughts } from '../../db/search'
 import * as vectorSearchDb from '../../db/search-vector'
 import * as embedderClient from '../../embedder/client'
-import { createTestDb, drainPendingEmbeddings, seedEdge, seedThought, withVecDb } from '../../test/helpers'
+import {
+  createTestDb,
+  drainPendingEmbeddings,
+  seedEdge,
+  seedThought,
+  withVecDb
+} from '../../test/helpers'
 import type { SearchNeighborsFn } from '../edge-candidates.service'
 import { proposePlacementPlan } from './engine'
 import type { PlacementPlan } from './types'
@@ -69,7 +75,9 @@ function indexLookup(d: Database, projectId: string): SearchNeighborsFn {
 /** Structural projection: everything a change of neighbour source could move. */
 function summarize(plan: PlacementPlan) {
   return {
-    placement: plan.placement ? { kind: plan.placement.kind, target_id: plan.placement.target_id } : null,
+    placement: plan.placement
+      ? { kind: plan.placement.kind, target_id: plan.placement.target_id }
+      : null,
     edges: plan.edges.map(e => ({
       source_id: e.source_id,
       target_id: e.target_id,

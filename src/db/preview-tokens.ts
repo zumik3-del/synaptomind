@@ -16,14 +16,14 @@ export function createPreviewToken(
   kind: string,
   targetId: string,
   fingerprint: string,
-  ttlMinutes: number = DEFAULT_TTL_MINUTES,
+  ttlMinutes: number = DEFAULT_TTL_MINUTES
 ): string {
   const token = Bun.randomUUIDv7()
   const now = new Date()
   const expires = new Date(now.getTime() + ttlMinutes * 60 * 1000)
   db.prepare(
     `INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?)`
   ).run(token, kind, targetId, fingerprint, now.toISOString(), expires.toISOString())
   return token
 }
@@ -34,11 +34,17 @@ export function createPreviewToken(
  * gets a row — the other gets `undefined` and must be refused.
  */
 export function consumePreviewToken(db: Database, token: string): PreviewTokenRow | undefined {
-  const row = db.prepare(`DELETE FROM preview_tokens WHERE token = ? RETURNING *`).get(token) as PreviewTokenRow | undefined | null
+  const row = db.prepare(`DELETE FROM preview_tokens WHERE token = ? RETURNING *`).get(token) as
+    | PreviewTokenRow
+    | undefined
+    | null
   return row ?? undefined
 }
 
-export function deleteExpiredPreviewTokens(db: Database, now: string = new Date().toISOString()): number {
+export function deleteExpiredPreviewTokens(
+  db: Database,
+  now: string = new Date().toISOString()
+): number {
   const res = db.prepare(`DELETE FROM preview_tokens WHERE expires_at < ?`).run(now)
   return res.changes
 }

@@ -1,9 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer as SdkMcpServer } from "@modelcontextprotocol/server";
-import type { McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer as SdkMcpServer } from '@modelcontextprotocol/server'
+import type { McpServer } from '@modelcontextprotocol/server'
 import { z } from 'zod/v4'
-import { EmbedderNotReadyError, EmbedderSendError, EmbedderTimeoutError, EmbedderUnavailableError } from '../../errors'
+import {
+  EmbedderNotReadyError,
+  EmbedderSendError,
+  EmbedderTimeoutError,
+  EmbedderUnavailableError
+} from '../../errors'
 import { type ActionToolConfig, registerActionTool } from './action-tool'
 import { errorResult } from './utils'
 
@@ -15,15 +20,23 @@ import { errorResult } from './utils'
 
 type ToolResult = {
   content: Array<{ type: string; text: string }>
-  structuredContent?: { result?: { error?: { message: string; statusCode?: number; retryable?: boolean } } }
+  structuredContent?: {
+    result?: { error?: { message: string; statusCode?: number; retryable?: boolean } }
+  }
   isError?: boolean
 }
 
 /** Wrap a register function in a fake server and return the registered callback. */
-function captureTool(register: (server: McpServer) => void): (args: Record<string, unknown>) => Promise<unknown> {
+function captureTool(
+  register: (server: McpServer) => void
+): (args: Record<string, unknown>) => Promise<unknown> {
   let handler: ((args: Record<string, unknown>) => Promise<unknown>) | undefined
   const fakeServer = {
-    registerTool: (_name: string, _config: unknown, cb: (args: Record<string, unknown>) => Promise<unknown>) => {
+    registerTool: (
+      _name: string,
+      _config: unknown,
+      cb: (args: Record<string, unknown>) => Promise<unknown>
+    ) => {
       handler = cb
       return { enable: () => {}, disable: () => {}, remove: () => {} }
     }
@@ -77,7 +90,9 @@ describe('errorResult mirrors classified metadata under structuredContent.result
 
     expect(result.isError).toBe(true)
     expect(result.content).toEqual([{ type: 'text', text: 'boom' }])
-    expect(result.structuredContent).toEqual({ result: { error: { message: 'boom', statusCode: 503, retryable: true } } })
+    expect(result.structuredContent).toEqual({
+      result: { error: { message: 'boom', statusCode: 503, retryable: true } }
+    })
   })
 
   test('an unclassified error keeps the plain envelope with no structuredContent', () => {
@@ -161,7 +176,10 @@ describe('the retryable envelope survives the MCP SDK output-schema check', () =
 
   test('callTool returns the classified error envelope without a protocol error', async () => {
     const client = await configuredClient()
-    const result = (await client.callTool({ name: 'memory_demo', arguments: { action: 'timeout' } })) as ToolResult
+    const result = (await client.callTool({
+      name: 'memory_demo',
+      arguments: { action: 'timeout' }
+    })) as ToolResult
 
     expect(result.isError).toBe(true)
     expect(result.structuredContent?.result?.error?.statusCode).toBe(503)

@@ -14,6 +14,8 @@ export default {
       )
     `)
     db.run(`CREATE INDEX IF NOT EXISTS idx_preview_tokens_expires ON preview_tokens(expires_at)`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_preview_tokens_target ON preview_tokens(kind, target_id)`)
+    db.run(
+      `CREATE INDEX IF NOT EXISTS idx_preview_tokens_target ON preview_tokens(kind, target_id)`
+    )
   }
 }

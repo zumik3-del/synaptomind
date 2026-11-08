@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { closeDb } from '../../db/init'
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
@@ -52,36 +52,53 @@ test('memory_store link rejects legacy thought_id with a source_id migration hin
 })
 
 test('memory_store update continues accepting thought_id', async () => {
-  const created = toolResult(await client.callTool({
-    name: 'memory_store',
-    arguments: { action: 'create', content: 'update compatibility marker' }
-  })).data.item
-  const updated = toolResult(await client.callTool({
-    name: 'memory_store',
-    arguments: { action: 'update', thought_id: created.id, content: 'updated compatibility marker' }
-  }))
+  const created = toolResult(
+    await client.callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'update compatibility marker' }
+    })
+  ).data.item
+  const updated = toolResult(
+    await client.callTool({
+      name: 'memory_store',
+      arguments: {
+        action: 'update',
+        thought_id: created.id,
+        content: 'updated compatibility marker'
+      }
+    })
+  )
 
   expect(updated.isError).toBe(false)
   expect(updated.data.item.content).toBe('updated compatibility marker')
 })
 
 test('memory_status frontier accepts limit 1 and rejects 51 with its range', async () => {
-  const minimum = toolResult(await client.callTool({
-    name: 'memory_status', arguments: { action: 'frontier', limit: 1, cwd: '/tmp/mcp-unscoped' }
-  }))
+  const minimum = toolResult(
+    await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'frontier', limit: 1, cwd: '/tmp/mcp-unscoped' }
+    })
+  )
   expect(minimum.isError).toBe(false)
 
-  const over = toolResult(await client.callTool({
-    name: 'memory_status', arguments: { action: 'frontier', limit: 51, cwd: '/tmp/mcp-unscoped' }
-  }))
+  const over = toolResult(
+    await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'frontier', limit: 51, cwd: '/tmp/mcp-unscoped' }
+    })
+  )
   expect(over.isError).toBe(true)
   expect(String(over.data)).toContain('50')
 })
 
 test('memory_status slots accepts a limit above the frontier maximum', async () => {
-  const result = toolResult(await client.callTool({
-    name: 'memory_status', arguments: { action: 'slots', slots_limit: 51, cwd: '/tmp/mcp-unscoped' }
-  }))
+  const result = toolResult(
+    await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'slots', slots_limit: 51, cwd: '/tmp/mcp-unscoped' }
+    })
+  )
 
   expect(result.isError).toBe(false)
 })

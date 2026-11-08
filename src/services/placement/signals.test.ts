@@ -2,11 +2,7 @@ import { beforeEach, afterEach, expect, test, describe } from 'bun:test'
 import { createTestDb } from '../../test/helpers'
 import { closeDb } from '../../db'
 import { seedThought, seedEdge } from '../../test/helpers'
-import {
-  extractPairSignals,
-  extractThoughtSignals,
-  type PairSignalDeps,
-} from './signals'
+import { extractPairSignals, extractThoughtSignals, type PairSignalDeps } from './signals'
 import type { Thought } from '../../db/thoughts'
 import type { Tag } from '../../db/tags'
 
@@ -32,17 +28,24 @@ function makeThought(overrides?: MakeThoughtInput): Thought {
     updated_at: new Date().toISOString(),
     archived_at: null,
     surface_after: null,
-    ...rest,
+    ...rest
   } as Thought
 }
 
-function stubSearch(map: Record<string, { id: string; similarity: number }[]>): PairSignalDeps['searchNeighbors'] {
+function stubSearch(
+  map: Record<string, { id: string; similarity: number }[]>
+): PairSignalDeps['searchNeighbors'] {
   return (_id, _emb, _k) => map[_id] ?? []
 }
 
 describe('extractThoughtSignals', () => {
   test('copies identity/status/project/createdAt verbatim', () => {
-    const t = makeThought({ content: 'hello', status: 'draft', project_id: 'proj-1', created_at: '2024-01-01T00:00:00Z' })
+    const t = makeThought({
+      content: 'hello',
+      status: 'draft',
+      project_id: 'proj-1',
+      created_at: '2024-01-01T00:00:00Z'
+    })
     const s = extractThoughtSignals(t)
     expect(s.id).toBe(t.id)
     expect(s.status).toBe('draft')
@@ -97,8 +100,16 @@ describe('extractThoughtSignals', () => {
 
 describe('extractPairSignals', () => {
   test('missing embedding => embeddingSimilarity=0 and no throw', () => {
-    const src = makeThought({ id: 'src', content: 'hello world', created_at: '2024-01-02T00:00:00Z' })
-    const tgt = makeThought({ id: 'tgt', content: 'hello universe', created_at: '2024-01-01T00:00:00Z' })
+    const src = makeThought({
+      id: 'src',
+      content: 'hello world',
+      created_at: '2024-01-02T00:00:00Z'
+    })
+    const tgt = makeThought({
+      id: 'tgt',
+      content: 'hello universe',
+      created_at: '2024-01-01T00:00:00Z'
+    })
     seedThought({ id: src.id, content: src.content, created_at: src.created_at })
     seedThought({ id: tgt.id, content: tgt.content, created_at: tgt.created_at })
     const signals = extractPairSignals(src, tgt)
@@ -117,7 +128,7 @@ describe('extractPairSignals', () => {
     const src = makeThought({ id: 'src', content: 'a' })
     const tgt = makeThought({ id: 'tgt', content: 'b' })
     const deps: PairSignalDeps = {
-      searchNeighbors: stubSearch({ src: [{ id: 'tgt', similarity: 0.75 }] }),
+      searchNeighbors: stubSearch({ src: [{ id: 'tgt', similarity: 0.75 }] })
     }
     const signals = extractPairSignals(src, tgt, { embedding: new Float32Array([1]) }, deps)
     expect(signals.embeddingSimilarity).toBeCloseTo(0.75, 5)
@@ -127,7 +138,7 @@ describe('extractPairSignals', () => {
     const src = makeThought({ id: 'src', content: 'a' })
     const tgt = makeThought({ id: 'tgt', content: 'b' })
     const deps: PairSignalDeps = {
-      searchNeighbors: stubSearch({ src: [{ id: 'other', similarity: 0.9 }] }),
+      searchNeighbors: stubSearch({ src: [{ id: 'other', similarity: 0.9 }] })
     }
     const signals = extractPairSignals(src, tgt, { embedding: new Float32Array([1]) }, deps)
     expect(signals.embeddingSimilarity).toBe(0)
@@ -137,7 +148,9 @@ describe('extractPairSignals', () => {
     const src = makeThought({ id: 'src', content: 'a' })
     const tgt = makeThought({ id: 'tgt', content: 'b' })
     const deps: PairSignalDeps = {
-      searchNeighbors: () => { throw new Error('index down') },
+      searchNeighbors: () => {
+        throw new Error('index down')
+      }
     }
     const signals = extractPairSignals(src, tgt, { embedding: new Float32Array([1]) }, deps)
     expect(signals.embeddingSimilarity).toBe(0)

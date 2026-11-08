@@ -93,7 +93,10 @@ function baseEnv(): Record<string, string> {
  * the resolved config plus the module's `DEFAULTS`. A failed load reports
  * `code !== 0` and prints no `RESOLVED=` line.
  */
-async function loadConfig(cwd: string, env: Record<string, string> = {}): Promise<{ code: number; out: string }> {
+async function loadConfig(
+  cwd: string,
+  env: Record<string, string> = {}
+): Promise<{ code: number; out: string }> {
   const file = join(cwd, 'config.json')
   const probe = await loadFreshConfig({
     env: { ...baseEnv(), ...env },
@@ -161,7 +164,11 @@ describe('config surface — the removed keys are gone', () => {
 describe('config surface — every mapping targets a real default', () => {
   test('retention-review defaults and environment mappings are declared', () => {
     expect(DEFAULTS.retentionReview).toEqual({ minAgeDays: 30, importanceFloor: 0.3, pageSize: 20 })
-    expect(ENV_MAPPINGS.filter(mapping => mapping.path.startsWith('retentionReview.')).map(mapping => mapping.env)).toEqual([
+    expect(
+      ENV_MAPPINGS.filter(mapping => mapping.path.startsWith('retentionReview.')).map(
+        mapping => mapping.env
+      )
+    ).toEqual([
       'SYNAPTOMIND_RETENTION_REVIEW_MIN_AGE_DAYS',
       'SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR',
       'SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE'
@@ -178,9 +185,21 @@ describe('config surface — every mapping targets a real default', () => {
         missing.push(`${mapping.env} -> ${mapping.path}`)
         continue
       }
-      const actual = Array.isArray(value) ? 'list' : typeof value === 'number' ? 'number' : typeof value
-      const expected = mapping.type === 'bool' ? 'boolean' : mapping.type === 'string' ? 'string' : mapping.type === 'list' ? 'list' : 'number'
-      if (actual !== expected) mistyped.push(`${mapping.env} -> ${mapping.path} (${actual}, expected ${expected})`)
+      const actual = Array.isArray(value)
+        ? 'list'
+        : typeof value === 'number'
+          ? 'number'
+          : typeof value
+      const expected =
+        mapping.type === 'bool'
+          ? 'boolean'
+          : mapping.type === 'string'
+            ? 'string'
+            : mapping.type === 'list'
+              ? 'list'
+              : 'number'
+      if (actual !== expected)
+        mistyped.push(`${mapping.env} -> ${mapping.path} (${actual}, expected ${expected})`)
     }
 
     expect({ missing, mistyped }).toEqual({ missing: [], mistyped: [] })
@@ -200,7 +219,6 @@ describe('config surface — every mapping targets a real default', () => {
       expect(readPath(DEFAULTS, path)).toBeDefined()
     }
   })
-
 })
 
 // ── a legacy config.json ─────────────────────────────────────────────────────
@@ -266,7 +284,8 @@ describe('config load — a config.json carrying removed keys', () => {
     expect(resolved).not.toBeNull()
     expect(readPath(resolved, 'slots.hardLimit')).toBe(900)
     expect(readPath(resolved, 'autoCluster.dryRun')).toBe(true)
-    for (const path of ['slots.hardLimit', 'autoCluster.dryRun']) expect(readPath(defaults, path)).toBeUndefined()
+    for (const path of ['slots.hardLimit', 'autoCluster.dryRun'])
+      expect(readPath(defaults, path)).toBeUndefined()
     // The surviving members of those two sections still resolve their defaults.
     expect(readPath(resolved, 'slots.defaultMaxChars')).toBe(DEFAULTS.slots.defaultMaxChars)
     expect(readPath(resolved, 'autoCluster.minMembers')).toBe(DEFAULTS.autoCluster.minMembers)
@@ -306,7 +325,9 @@ describe('config load — a config.json carrying removed keys', () => {
     // The removed variable is not applied: the resolved placement/decay knobs
     // are identical (the removed keys are not on DEFAULTS at all).
     for (const path of REMOVED_PATHS) expect(readPath(b, path)).toBeUndefined()
-    expect(readPath(a, 'placement.maxProposalsPerEnqueue')).toBe(readPath(b, 'placement.maxProposalsPerEnqueue'))
+    expect(readPath(a, 'placement.maxProposalsPerEnqueue')).toBe(
+      readPath(b, 'placement.maxProposalsPerEnqueue')
+    )
     expect(readPath(a, 'decay.rate')).toBe(readPath(b, 'decay.rate'))
   })
 })

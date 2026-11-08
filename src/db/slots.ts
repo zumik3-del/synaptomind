@@ -10,9 +10,16 @@ interface SlotRow {
   updated_at: string
 }
 
-export function getSlotRow(db: Database, name: string, scope: 'project' | 'global', scopeId: string | null): SlotRow | undefined {
+export function getSlotRow(
+  db: Database,
+  name: string,
+  scope: 'project' | 'global',
+  scopeId: string | null
+): SlotRow | undefined {
   const row = db
-    .prepare(`SELECT * FROM slots WHERE name = ? AND scope = ? AND COALESCE(scope_id, '') = COALESCE(?, '')`)
+    .prepare(
+      `SELECT * FROM slots WHERE name = ? AND scope = ? AND COALESCE(scope_id, '') = COALESCE(?, '')`
+    )
     .get(name, scope, scopeId) as SlotRow | undefined | null
   return row ?? undefined
 }
@@ -37,7 +44,15 @@ export function upsertSlot(db: Database, input: UpsertSlotInput): SlotRow {
   } else {
     db.prepare(
       `INSERT INTO slots (id, name, scope, scope_id, content, max_chars, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(Bun.randomUUIDv7(), input.name, input.scope, input.scope_id, input.content, input.max_chars, new Date().toISOString())
+    ).run(
+      Bun.randomUUIDv7(),
+      input.name,
+      input.scope,
+      input.scope_id,
+      input.content,
+      input.max_chars,
+      new Date().toISOString()
+    )
   }
   const row = getSlotRow(db, input.name, input.scope, input.scope_id)
   if (!row) throw new Error(`slot upsert failed: ${input.name}/${input.scope}`)

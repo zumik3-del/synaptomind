@@ -57,8 +57,16 @@ describe('closeDb', () => {
       third = new Database(dbPath)
       expect(() => third!.prepare('SELECT 1').get()).not.toThrow()
     } finally {
-      try { third?.close() } catch { /* ignore */ }
-      try { second?.close() } catch { /* ignore */ }
+      try {
+        third?.close()
+      } catch {
+        /* ignore */
+      }
+      try {
+        second?.close()
+      } catch {
+        /* ignore */
+      }
       rmSync(dir, { recursive: true, force: true })
     }
   })

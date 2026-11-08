@@ -43,10 +43,10 @@ export function readAppEnvValues(appEnvPath: string): Record<string, string> {
   // NUL-separated, not newline-separated: a value may legitimately contain a
   // newline (a multi-line PEM in an env file), and a newline-separated read
   // would silently truncate it and report the tail as an unrelated key.
-  const res = spawnBash(
-    `set -u; . "$1"; for k in $2; do printf '%s=%s\\0' "$k" "\${!k-}"; done`,
-    [appEnvPath, keys.join(' ')],
-  )
+  const res = spawnBash(`set -u; . "$1"; for k in $2; do printf '%s=%s\\0' "$k" "\${!k-}"; done`, [
+    appEnvPath,
+    keys.join(' ')
+  ])
   if (res.status !== 0) {
     throw new Error(`cannot source ${appEnvPath}: ${res.stderr.trim() || res.stdout.trim()}`)
   }
@@ -57,13 +57,20 @@ export function readAppEnvValues(appEnvPath: string): Record<string, string> {
     if (eq < 0) continue
     values[record.slice(0, eq)] = record.slice(eq + 1)
   }
-  const absent = keys.filter((k) => !(k in values))
-  if (absent.length > 0) throw new Error(`${appEnvPath}: keys vanished while sourcing: ${absent.join(', ')}`)
+  const absent = keys.filter(k => !(k in values))
+  if (absent.length > 0)
+    throw new Error(`${appEnvPath}: keys vanished while sourcing: ${absent.join(', ')}`)
   return values
 }
 
-function spawnBash(script: string, args: string[]): { status: number | null; stdout: string; stderr: string } {
-  const res = spawnSync('bash', ['-c', script, 'app-targets', ...args], { encoding: 'utf8', timeout: 30_000 })
+function spawnBash(
+  script: string,
+  args: string[]
+): { status: number | null; stdout: string; stderr: string } {
+  const res = spawnSync('bash', ['-c', script, 'app-targets', ...args], {
+    encoding: 'utf8',
+    timeout: 30_000
+  })
   return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' }
 }
 
@@ -117,7 +124,7 @@ export function sandboxAppEnvText(appEnvPath: string, overrides: Record<string, 
 function quote(value: string): string {
   if (/["$`]/.test(value)) {
     throw new Error(
-      `sandbox override refuses the value ${JSON.stringify(value)}: " $ \` change meaning inside double quotes`,
+      `sandbox override refuses the value ${JSON.stringify(value)}: " $ \` change meaning inside double quotes`
     )
   }
   return `"${value}"`
@@ -136,7 +143,7 @@ export function assertSandboxed(
   overrides: Record<string, string>,
   root: string,
   keys: readonly string[],
-  forbidden: readonly string[],
+  forbidden: readonly string[]
 ): void {
   const realRoot = root.endsWith('/') ? root.slice(0, -1) : root
   for (const key of keys) {

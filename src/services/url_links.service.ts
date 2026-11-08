@@ -1,7 +1,11 @@
 import type { Database } from 'bun:sqlite'
 import { getDb } from '../db'
 import type { CreateThoughtInput, Thought } from '../db/thoughts'
-import { type ThoughtUrlLink, getThoughtUrlLinksForThoughts, upsertThoughtUrlLink } from '../db/thought_url_links'
+import {
+  type ThoughtUrlLink,
+  getThoughtUrlLinksForThoughts,
+  upsertThoughtUrlLink
+} from '../db/thought_url_links'
 import { createThoughtWithParentService } from './thoughts.service'
 
 interface ThoughtUrlLinksBatch {
@@ -16,7 +20,10 @@ interface ThoughtUrlLinksBatch {
  * cost stays one query per response instead of one per thought. A thought
  * without links has no entry.
  */
-export function getThoughtUrlLinksBatchService(thoughtIds: readonly string[], d: Database = getDb()): ThoughtUrlLinksBatch {
+export function getThoughtUrlLinksBatchService(
+  thoughtIds: readonly string[],
+  d: Database = getDb()
+): ThoughtUrlLinksBatch {
   const unique = [...new Set(thoughtIds.filter(id => typeof id === 'string' && id.length > 0))]
   const map: ThoughtUrlLinksBatch = {}
   for (const row of getThoughtUrlLinksForThoughts(d, unique)) {

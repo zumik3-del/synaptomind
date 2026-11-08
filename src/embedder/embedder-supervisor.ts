@@ -147,8 +147,18 @@ export class EmbedderSupervisor {
 
     this.proc = child
 
-    void pipeChildStreams(child.stdout as unknown as ReadableStream<Uint8Array> | undefined, 'stdout', 'info', this.deps.insertLog)
-    void pipeChildStreams(child.stderr as unknown as ReadableStream<Uint8Array> | undefined, 'stderr', 'warning', this.deps.insertLog)
+    void pipeChildStreams(
+      child.stdout as unknown as ReadableStream<Uint8Array> | undefined,
+      'stdout',
+      'info',
+      this.deps.insertLog
+    )
+    void pipeChildStreams(
+      child.stderr as unknown as ReadableStream<Uint8Array> | undefined,
+      'stderr',
+      'warning',
+      this.deps.insertLog
+    )
 
     child.exited
       .then(code => {
@@ -159,7 +169,9 @@ export class EmbedderSupervisor {
           this.startFailed = true
         }
         if (!this.shuttingDown && !this.ready && this.readyReject) {
-          this.readyReject(new Error(`Embedder process exited before becoming ready (code ${code})`))
+          this.readyReject(
+            new Error(`Embedder process exited before becoming ready (code ${code})`)
+          )
           this.readyReject = null
         }
         this.dead = true
@@ -284,7 +296,10 @@ export class EmbedderSupervisor {
         }
         if (this.startFailed) {
           this.backoffAttempt += 1
-          const delay = Math.min(this.backoffBaseMs() * 2 ** (this.backoffAttempt - 1), MAX_BACKOFF_MS)
+          const delay = Math.min(
+            this.backoffBaseMs() * 2 ** (this.backoffAttempt - 1),
+            MAX_BACKOFF_MS
+          )
           this.cooldownUntil = Date.now() + delay
           this.deps.insertLog('warning', 'embedder', 'Embedder start failed; backing off', {
             backoffAttempt: this.backoffAttempt,
@@ -305,7 +320,11 @@ export class EmbedderSupervisor {
       this.dead = true
       this.ready = false
       this.startFailed = true
-      this.deps.insertLog('error', 'embedder', 'Embedder failed to become ready within start timeout')
+      this.deps.insertLog(
+        'error',
+        'embedder',
+        'Embedder failed to become ready within start timeout'
+      )
     }
     throw new EmbedderNotReadyError('Embedder process failed to start within 5 min')
   }
@@ -385,12 +404,23 @@ async function pipeChildStreams(
       for (const line of lines) {
         const trimmed = line.trim()
         if (!trimmed) continue
-        insertLog(level, 'embedder', `Embedder ${streamName} output`, { stream: streamName, output: trimmed })
+        insertLog(level, 'embedder', `Embedder ${streamName} output`, {
+          stream: streamName,
+          output: trimmed
+        })
       }
     }
     const tail = buf.trim()
-    if (tail) insertLog(level, 'embedder', `Embedder ${streamName} output`, { stream: streamName, output: tail })
+    if (tail)
+      insertLog(level, 'embedder', `Embedder ${streamName} output`, {
+        stream: streamName,
+        output: tail
+      })
   } catch (err) {
-    insertLog('error', 'embedder', `stdout/stderr reader failed: ${err instanceof Error ? err.message : String(err)}`)
+    insertLog(
+      'error',
+      'embedder',
+      `stdout/stderr reader failed: ${err instanceof Error ? err.message : String(err)}`
+    )
   }
 }

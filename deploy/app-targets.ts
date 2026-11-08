@@ -124,7 +124,7 @@ export function resolveTargets(): TargetResolution {
  * cross-repo suite is most exposed to.
  */
 export function checkCoverage(resolution: TargetResolution, exercised: string[]): string[] {
-  const missing = resolution.requested.filter((label) => !exercised.includes(label))
+  const missing = resolution.requested.filter(label => !exercised.includes(label))
   if (missing.length > 0) {
     throw new Error(
       `DEPLOY_APP_ENVS named ${missing.join(', ')} but no test exercised it.\n` +
@@ -132,12 +132,14 @@ export function checkCoverage(resolution: TargetResolution, exercised: string[])
         `  unresolved: ${resolution.unresolved.join('; ') || '(none)'}\n` +
         `  exercised:  ${exercised.join(', ') || '(none)'}\n` +
         `  A requested target that resolves to nothing would leave this suite green\n` +
-        `  while proving nothing about that app.`,
+        `  while proving nothing about that app.`
     )
   }
-  const missingFiles = resolution.unresolved.filter((e) => /no app\.env|no install\.sh/.test(e))
+  const missingFiles = resolution.unresolved.filter(e => /no app\.env|no install\.sh/.test(e))
   if (missingFiles.length > 0) {
-    throw new Error(`DEPLOY_APP_ENVS pointed at an incomplete deploy/ directory: ${missingFiles.join('; ')}`)
+    throw new Error(
+      `DEPLOY_APP_ENVS pointed at an incomplete deploy/ directory: ${missingFiles.join('; ')}`
+    )
   }
   return exercised
 }
@@ -210,7 +212,7 @@ export function guardProductionPaths(targets: readonly AppTarget[]): void {
         process.stderr.write(
           `\n!!! DEPLOY SANDBOX VIOLATION: ${path} was ${after === null ? 'CREATED' : 'MODIFIED'} by a deploy fixture.\n` +
             `    This is the #1101 failure mode: an install escaped its temp tree and wrote\n` +
-            `    to the host's production path. The suite's own assertions cannot see it.\n\n`,
+            `    to the host's production path. The suite's own assertions cannot see it.\n\n`
         )
         process.exitCode = 1
       }
@@ -227,7 +229,7 @@ export function guardProductionPaths(targets: readonly AppTarget[]): void {
 function homeDir(): string {
   const home = spawnSync('bash', ['-c', 'getent passwd "$(id -un)" | cut -d: -f6'], {
     encoding: 'utf8',
-    timeout: 30_000,
+    timeout: 30_000
   })
   return home.stdout?.trim() || process.env.HOME || '/root'
 }
@@ -241,7 +243,10 @@ function homeDir(): string {
  * stays armed — the loud direction, deliberately (see the header).
  */
 function unitIsLive(unit: string): boolean {
-  const res = spawnSync('systemctl', ['is-active', '--quiet', unit], { encoding: 'utf8', timeout: 10_000 })
+  const res = spawnSync('systemctl', ['is-active', '--quiet', unit], {
+    encoding: 'utf8',
+    timeout: 10_000
+  })
   if (res.error) return false
   return res.status === 0
 }
@@ -257,7 +262,7 @@ function unitIsLive(unit: string): boolean {
  */
 export function liveServiceDataDirs(
   targets: readonly AppTarget[],
-  isLive: (unit: string) => boolean = unitIsLive,
+  isLive: (unit: string) => boolean = unitIsLive
 ): string[] {
   const dirs: string[] = []
   for (const target of targets) {
@@ -287,7 +292,7 @@ export function liveServiceDataDirs(
  */
 export function productionWatchPaths(
   targets: readonly AppTarget[],
-  isLive: (unit: string) => boolean = unitIsLive,
+  isLive: (unit: string) => boolean = unitIsLive
 ): string[] {
   const live = liveServiceDataDirs(targets, isLive)
   const watched: string[] = []
@@ -302,10 +307,10 @@ export function productionWatchPaths(
       join('/etc/systemd/system', `${label}.service`),
       // The host app.env itself, which is the file the whole delivery mechanism
       // reads and the one #1101 overwrote.
-      join(target.deployDir, 'app.env'),
+      join(target.deployDir, 'app.env')
     ]) {
       // A live service's own data dir, and anything under it, is not a tripwire.
-      if (live.some((dir) => path === dir || path.startsWith(`${dir}/`))) continue
+      if (live.some(dir => path === dir || path.startsWith(`${dir}/`))) continue
       watched.push(path)
     }
   }
@@ -322,7 +327,9 @@ function fingerprintOrNull(path: string): string | null {
   if (!existsSync(path)) return null
   const hash = createHash('sha256')
   const walk = (dir: string, rel: string) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+      a.name < b.name ? -1 : 1
+    )) {
       const childRel = rel ? `${rel}/${entry.name}` : entry.name
       const abs = join(dir, entry.name)
       if (entry.isDirectory()) {

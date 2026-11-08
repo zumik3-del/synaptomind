@@ -76,7 +76,8 @@ export const EDGE_TYPE_RULES: EdgeTypeRule[] = [
     predicate: s =>
       s.temporalOrder === 'newer' && s.lexicalOverlap >= SUPERSEDE_OVERLAP_MIN && s.evolutionCue,
     confidence: s => clamp01((s.lexicalOverlap + s.embeddingSimilarity) / 2),
-    rationale: 'source is newer, near-duplicate and carries an evolution cue; propose replaces (+ archive)',
+    rationale:
+      'source is newer, near-duplicate and carries an evolution cue; propose replaces (+ archive)',
     reviewRequired: true
   },
   {

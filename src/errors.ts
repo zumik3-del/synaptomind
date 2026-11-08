@@ -99,7 +99,7 @@ export class McpHttpPortInUseError extends Error {
     super(
       `mcp.httpPort ${port} is already in use — set a different port for it in config.json ` +
         `(or via SYNAPTOMIND_MCP_HTTP_PORT) and restart. The API port is unaffected by this key.`,
-      { cause },
+      { cause }
     )
     this.name = 'McpHttpPortInUseError'
     this.port = port

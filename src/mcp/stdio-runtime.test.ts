@@ -46,7 +46,9 @@ function runStdio(extraArgs: string[] = []): Promise<StdioRun> {
     const env = { ...process.env } as Record<string, string | undefined>
     env.SYNAPTOMIND_DB_PATH = makeDbPath()
     env.SYNAPTOMIND_EMBEDDER_ENABLED = 'false'
-    env.SYNAPTOMIND_MCP_STDIO_STANDALONE = extraArgs.includes('--stdio-standalone') ? 'true' : 'false'
+    env.SYNAPTOMIND_MCP_STDIO_STANDALONE = extraArgs.includes('--stdio-standalone')
+      ? 'true'
+      : 'false'
 
     const child = spawn(process.execPath, ['src/index.ts', '--stdio', ...extraArgs], {
       cwd: repoRoot,
@@ -67,7 +69,10 @@ function runStdio(extraArgs: string[] = []): Promise<StdioRun> {
 
     const killTimer = setTimeout(() => {
       child.kill('SIGKILL')
-      if (!done) reject(new Error(`stdio child did not exit in time\nstdout:\n${stdout}\nstderr:\n${stderr}`))
+      if (!done)
+        reject(
+          new Error(`stdio child did not exit in time\nstdout:\n${stdout}\nstderr:\n${stderr}`)
+        )
     }, 20_000)
 
     child.stdout.on('data', chunk => {
@@ -89,7 +94,10 @@ function runStdio(extraArgs: string[] = []): Promise<StdioRun> {
 }
 
 function stdoutLines(stdout: string): string[] {
-  return stdout.split('\n').map(l => l.trim()).filter(Boolean)
+  return stdout
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
 }
 
 function assertPureJsonRpcLines(stdout: string): void {
@@ -156,30 +164,73 @@ describe('stdio database boundary', () => {
   function seed(path: string, content: string) {
     const db = openDatabase({ dbPath: path, runMigrations: true })
     const now = new Date().toISOString()
-    db.run('INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, ?, ?)', ['default', 'Default', now])
-    db.run('INSERT INTO thoughts (id, content, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, content, 'active', 'default', now, now])
+    db.run('INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, ?, ?)', [
+      'default',
+      'Default',
+      now
+    ])
+    db.run(
+      'INSERT INTO thoughts (id, content, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, content, 'active', 'default', now, now]
+    )
     db.close(true)
   }
 
-  function runBoundary(root: string, users: Array<{ id: string; dbPath: string }>, standalone = false): Promise<StdioRun> {
+  function runBoundary(
+    root: string,
+    users: Array<{ id: string; dbPath: string }>,
+    standalone = false
+  ): Promise<StdioRun> {
     const configPath = join(root, 'config.json')
-    writeFileSync(configPath, JSON.stringify({ db: { path: join(root, 'legacy.db') }, users: users.map((u, i) => ({ ...u, tokenSha256: String(i + 1).repeat(64) })) }))
-    const env = { ...process.env, SYNAPTOMIND_CONFIG: configPath, SYNAPTOMIND_DB_PATH: join(root, 'legacy.db'), SYNAPTOMIND_EMBEDDER_ENABLED: 'false', SYNAPTOMIND_MCP_STDIO_STANDALONE: standalone ? 'true' : 'false' }
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        db: { path: join(root, 'legacy.db') },
+        users: users.map((u, i) => ({ ...u, tokenSha256: String(i + 1).repeat(64) }))
+      })
+    )
+    const env = {
+      ...process.env,
+      SYNAPTOMIND_CONFIG: configPath,
+      SYNAPTOMIND_DB_PATH: join(root, 'legacy.db'),
+      SYNAPTOMIND_EMBEDDER_ENABLED: 'false',
+      SYNAPTOMIND_MCP_STDIO_STANDALONE: standalone ? 'true' : 'false'
+    }
     return new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, ['src/index.ts', '--stdio'], { cwd: repoRoot, env, stdio: ['pipe', 'pipe', 'pipe'] })
+      const child = spawn(process.execPath, ['src/index.ts', '--stdio'], {
+        cwd: repoRoot,
+        env,
+        stdio: ['pipe', 'pipe', 'pipe']
+      })
       let stdout = ''
       let stderr = ''
-      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`stdio timed out: ${stderr}`)) }, 20000)
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        reject(new Error(`stdio timed out: ${stderr}`))
+      }, 20000)
       child.stdout.on('data', chunk => {
         stdout += chunk.toString()
         if (stdout.includes('"id":3')) child.stdin.end()
       })
-      child.stderr.on('data', chunk => { stderr += chunk.toString() })
+      child.stderr.on('data', chunk => {
+        stderr += chunk.toString()
+      })
       child.on('error', reject)
-      child.on('close', exitCode => { clearTimeout(timer); resolve({ stdout, stderr, exitCode }) })
+      child.on('close', exitCode => {
+        clearTimeout(timer)
+        resolve({ stdout, stderr, exitCode })
+      })
       child.stdin.on('error', () => {})
-      for (const msg of [INIT, INITIALIZED, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'memory_recall', arguments: { action: 'get', thought_id: id } } }]) {
+      for (const msg of [
+        INIT,
+        INITIALIZED,
+        {
+          jsonrpc: '2.0',
+          id: 3,
+          method: 'tools/call',
+          params: { name: 'memory_recall', arguments: { action: 'get', thought_id: id } }
+        }
+      ]) {
         child.stdin.write(`${JSON.stringify(msg)}\n`)
       }
     })
@@ -200,7 +251,10 @@ describe('stdio database boundary', () => {
   for (const reverse of [false, true]) {
     test(`reads legacy through real stdio regardless of user order ${reverse}`, async () => {
       const f = fixture()
-      const users = [{ id: 'alice', dbPath: f.alice }, { id: 'bob', dbPath: f.bob }]
+      const users = [
+        { id: 'alice', dbPath: f.alice },
+        { id: 'bob', dbPath: f.bob }
+      ]
       const result = await runBoundary(f.root, reverse ? users.reverse() : users)
       expect(result.exitCode).toBe(0)
       expect(result.stdout).toContain('legacy-only-marker')
@@ -214,7 +268,10 @@ describe('stdio database boundary', () => {
     // A directory cannot be opened as a SQLite database but has a resolvable identity.
     const unavailable = join(f.root, 'unavailable.db')
     mkdirSync(unavailable)
-    const result = await runBoundary(f.root, [{ id: 'alice', dbPath: unavailable }, { id: 'bob', dbPath: f.bob }])
+    const result = await runBoundary(f.root, [
+      { id: 'alice', dbPath: unavailable },
+      { id: 'bob', dbPath: f.bob }
+    ])
     if (result.exitCode !== 0) throw new Error(`stdio failed: ${result.stderr}`)
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain('legacy-only-marker')
@@ -237,7 +294,9 @@ describe('stdio database boundary', () => {
     expect(result.stderr).toContain('cannot be safely isolated')
     expect(result.stdout).not.toContain('legacy-only-marker')
     const db = new Database(f.legacy, { readonly: true })
-    expect(db.query('SELECT content FROM thoughts WHERE id = ?').get(id)).toEqual({ content: 'legacy-only-marker' })
+    expect(db.query('SELECT content FROM thoughts WHERE id = ?').get(id)).toEqual({
+      content: 'legacy-only-marker'
+    })
     db.close()
   }, 30000)
 
@@ -250,7 +309,9 @@ describe('stdio database boundary', () => {
     expect(result.stderr).toContain('failed to init database')
     expect(result.stdout).not.toContain('alice-private-marker')
     const db = new Database(f.alice, { readonly: true })
-    expect(db.query('SELECT content FROM thoughts WHERE id = ?').get(id)).toEqual({ content: 'alice-private-marker' })
+    expect(db.query('SELECT content FROM thoughts WHERE id = ?').get(id)).toEqual({
+      content: 'alice-private-marker'
+    })
     db.close()
   }, 30000)
 

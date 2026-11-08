@@ -79,7 +79,9 @@ async function initialize(base: string): Promise<string> {
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
     promise,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms))
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms)
+    )
   ])
 }
 
@@ -158,7 +160,9 @@ test('F20: stop() awaits every per-session close before resolving and clears the
 
     // Every session's transport close ran (server.close() may close it a second
     // time), and stop() did not resolve until the slow closes completed.
-    const closedIds = new Set(events.filter(e => e.startsWith('transport:')).map(e => e.slice('transport:'.length)))
+    const closedIds = new Set(
+      events.filter(e => e.startsWith('transport:')).map(e => e.slice('transport:'.length))
+    )
     expect(closedIds).toEqual(new Set(sessionIds))
     expect(events.at(-1)).toBe('stop-resolved')
     expect(server.getSessions().size).toBe(0)

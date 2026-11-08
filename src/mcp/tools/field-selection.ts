@@ -8,11 +8,7 @@
 export const COMPACT_FIELDS = ['id', 'content', 'status', 'tags', 'project'] as const
 
 /** A single value accepted anywhere a field selection may appear. */
-export type FieldSelectionInput =
-  | boolean
-  | string
-  | string[]
-  | Record<string, unknown>
+export type FieldSelectionInput = boolean | string | string[] | Record<string, unknown>
 
 interface ParsedFieldSelection {
   compact: boolean
@@ -22,14 +18,14 @@ interface ParsedFieldSelection {
 
 export function toStringArray(value: unknown): string[] {
   if (value === undefined || value === null) return []
-  if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter((v) => v.length > 0)
+  if (Array.isArray(value)) return value.map(v => String(v).trim()).filter(v => v.length > 0)
   if (typeof value === 'string') {
     return value
       .split(',')
-      .map((v) => v.trim())
-      .filter((v) => v.length > 0)
+      .map(v => v.trim())
+      .filter(v => v.length > 0)
   }
-  return [String(value).trim()].filter((v) => v.length > 0)
+  return [String(value).trim()].filter(v => v.length > 0)
 }
 
 function parseFieldSelectionArgs(args: FieldSelectionInput[]): ParsedFieldSelection {
@@ -59,9 +55,19 @@ function parseFieldSelectionArgs(args: FieldSelectionInput[]): ParsedFieldSelect
       if (obj.fields !== undefined) fields = toStringArray(obj.fields)
       if (obj.field !== undefined && fields === undefined) fields = toStringArray(obj.field)
       if (obj.requested !== undefined && fields === undefined) fields = toStringArray(obj.requested)
-      if (obj.requestedFields !== undefined && fields === undefined) fields = toStringArray(obj.requestedFields)
+      if (obj.requestedFields !== undefined && fields === undefined)
+        fields = toStringArray(obj.requestedFields)
       if (obj.selected !== undefined && fields === undefined) fields = toStringArray(obj.selected)
-      for (const key of ['available', 'availableFields', 'availableColumns', 'columns', 'all', 'allFields', 'valid', 'validFields']) {
+      for (const key of [
+        'available',
+        'availableFields',
+        'availableColumns',
+        'columns',
+        'all',
+        'allFields',
+        'valid',
+        'validFields'
+      ]) {
         if (obj[key] !== undefined) {
           available = toStringArray(obj[key])
           break
@@ -80,7 +86,7 @@ function parseFieldSelectionArgs(args: FieldSelectionInput[]): ParsedFieldSelect
     if (fields === undefined) fields = arrays[0]
     if (available === undefined) available = arrays[1]
   } else if (arrays.length === 1) {
-    const hasObject = args.some((a) => a !== null && typeof a === 'object' && !Array.isArray(a))
+    const hasObject = args.some(a => a !== null && typeof a === 'object' && !Array.isArray(a))
     if (hasObject) {
       if (fields === undefined) fields = arrays[0]
     } else {
@@ -124,7 +130,14 @@ export function projectFields(...args: unknown[]): unknown {
   // Support projectFields(data, fields) and projectFields(fields, data).
   if (args.length >= 2) {
     const second = args[1]
-    if (Array.isArray(second) || typeof second === 'string' || (second !== null && typeof second === 'object' && ('fields' in (second as Record<string, unknown>) || 'compact' in (second as Record<string, unknown>)))) {
+    if (
+      Array.isArray(second) ||
+      typeof second === 'string' ||
+      (second !== null &&
+        typeof second === 'object' &&
+        ('fields' in (second as Record<string, unknown>) ||
+          'compact' in (second as Record<string, unknown>)))
+    ) {
       return projectFieldsImpl(args[0], args[1], ...args.slice(2))
     }
     if (Array.isArray(args[0]) || typeof args[0] === 'string') {
@@ -138,8 +151,15 @@ function projectFieldsImpl(value: unknown, ...rest: unknown[]): unknown {
   let fields: string[] = []
   if (rest.length > 0) {
     const first = rest[0]
-    if (Array.isArray(first) || typeof first === 'string' || (first !== null && typeof first === 'object')) {
-      fields = resolveFields(first as FieldSelectionInput, ...(rest.slice(1) as FieldSelectionInput[]))
+    if (
+      Array.isArray(first) ||
+      typeof first === 'string' ||
+      (first !== null && typeof first === 'object')
+    ) {
+      fields = resolveFields(
+        first as FieldSelectionInput,
+        ...(rest.slice(1) as FieldSelectionInput[])
+      )
     }
   } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>

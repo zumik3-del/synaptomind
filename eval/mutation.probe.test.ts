@@ -64,7 +64,9 @@ describe('expectNoStrongMatch mutation check (direct runEval), #892', () => {
   })
 
   test('expectNoStrongMatch pass case: all hits are low-confidence', async () => {
-    const res = await runEval({ scenarios: [EVAL_SCENARIOS.find(s => s.name === 'negative-no-match')!] })
+    const res = await runEval({
+      scenarios: [EVAL_SCENARIOS.find(s => s.name === 'negative-no-match')!]
+    })
     const run = res.scenarios[0]
 
     expect(run.status).toBe('pass')

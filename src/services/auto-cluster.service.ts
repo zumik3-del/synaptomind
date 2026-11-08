@@ -131,7 +131,12 @@ export async function runAutoClusterJob(
 
   const candidates = listClusterCandidates(d, minAgeDays)
   if (candidates.length === 0) {
-    const empty: AutoClusterResult = { dry_run: dryRun, candidates: 0, groups: [], clusters_created: 0 }
+    const empty: AutoClusterResult = {
+      dry_run: dryRun,
+      candidates: 0,
+      groups: [],
+      clusters_created: 0
+    }
     return empty
   }
 
@@ -141,7 +146,11 @@ export async function runAutoClusterJob(
   const neighborFn = (thoughtId: string): string[] => {
     const idx = candidates.findIndex(c => c.id === thoughtId)
     if (idx === -1) return []
-    const results = searchNeighbors(thoughtId, embeddings[idx], Math.max(minMembers, candidates.length))
+    const results = searchNeighbors(
+      thoughtId,
+      embeddings[idx],
+      Math.max(minMembers, candidates.length)
+    )
     return results.filter(r => (r.distance ?? 1) < minSimilarity).map(r => r.id)
   }
 

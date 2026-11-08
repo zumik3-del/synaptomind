@@ -8,11 +8,15 @@ beforeEach(createTestDb)
 afterEach(closeDb)
 
 function ensureDecisionTag(db: ReturnType<typeof getDb>): string {
-  let tag = db.prepare("SELECT id FROM tags WHERE name = 'decision'").get() as { id: string } | undefined
+  let tag = db.prepare("SELECT id FROM tags WHERE name = 'decision'").get() as
+    | { id: string }
+    | undefined
   if (!tag) {
     tag = { id: Bun.randomUUIDv7() }
     db.prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)').run(
-      tag.id, 'decision', new Date().toISOString()
+      tag.id,
+      'decision',
+      new Date().toISOString()
     )
   }
   return tag.id

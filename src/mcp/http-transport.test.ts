@@ -141,7 +141,10 @@ describe('HTTP auth boundary', () => {
   test('missing Authorization header is rejected with 401', async () => {
     const res = await fetch(`${mainBase}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream'
+      },
       body: JSON.stringify(INIT_MESSAGE)
     })
     expect(res.status).toBe(401)

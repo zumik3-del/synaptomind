@@ -7,7 +7,10 @@ export interface FilterOptions {
   minImportance?: number
 }
 
-function getClusterFilterSQL(filter: 'only' | 'exclude'): { sql: string; params: SQLQueryBindings[] } {
+function getClusterFilterSQL(filter: 'only' | 'exclude'): {
+  sql: string
+  params: SQLQueryBindings[]
+} {
   if (filter === 'only') return { sql: 'AND t.is_cluster = 1 ', params: [] }
   return { sql: 'AND (t.is_cluster IS NULL OR t.is_cluster = 0) ', params: [] }
 }
@@ -17,7 +20,10 @@ function getClusterFilterSQL(filter: 'only' | 'exclude'): { sql: string; params:
  * the vector and BM25 legs. The alias `t` must be the `thoughts` table in the
  * consuming query.
  */
-export function buildFilterSQL(options: FilterOptions): { sql: string; params: SQLQueryBindings[] } {
+export function buildFilterSQL(options: FilterOptions): {
+  sql: string
+  params: SQLQueryBindings[]
+} {
   let sql = ''
   const params: SQLQueryBindings[] = []
   if (options.statusFilter) {

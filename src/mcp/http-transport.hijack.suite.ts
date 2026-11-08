@@ -67,16 +67,25 @@ function destroy(base: string, token: string, sessionId: string): Promise<Respon
 
 async function parseRpc(res: Response): Promise<any> {
   const text = await res.text()
-  try { return JSON.parse(text) } catch {}
+  try {
+    return JSON.parse(text)
+  } catch {}
   for (const line of text.split('\n')) {
     if (line.startsWith('data:')) {
-      try { return JSON.parse(line.slice(5).trim()) } catch {}
+      try {
+        return JSON.parse(line.slice(5).trim())
+      } catch {}
     }
   }
   return text
 }
 
-async function toolCall(base: string, token: string, sessionId: string, args: any): Promise<{ status: number; rpc: any }> {
+async function toolCall(
+  base: string,
+  token: string,
+  sessionId: string,
+  args: any
+): Promise<{ status: number; rpc: any }> {
   const res = await fetch(`${base}/mcp`, {
     method: 'POST',
     headers: authHeaders(token, {
@@ -84,7 +93,12 @@ async function toolCall(base: string, token: string, sessionId: string, args: an
       accept: 'application/json, text/event-stream',
       'mcp-session-id': sessionId
     }),
-    body: JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'memory_status', arguments: args } })
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 99,
+      method: 'tools/call',
+      params: { name: 'memory_status', arguments: args }
+    })
   })
   const rpc = await parseRpc(res)
   return { status: res.status, rpc }
@@ -112,8 +126,20 @@ beforeAll(async () => {
   // restore global not strictly needed for multi-user path
 
   // Seed distinct slot content for isolation proof.
-  upsertSlot(dbA, { name: 'project_context', scope: 'global', scope_id: null, content: 'ALICE-PCTX', max_chars: 2000 })
-  upsertSlot(dbB, { name: 'project_context', scope: 'global', scope_id: null, content: 'BOB-PCTX', max_chars: 2000 })
+  upsertSlot(dbA, {
+    name: 'project_context',
+    scope: 'global',
+    scope_id: null,
+    content: 'ALICE-PCTX',
+    max_chars: 2000
+  })
+  upsertSlot(dbB, {
+    name: 'project_context',
+    scope: 'global',
+    scope_id: null,
+    content: 'BOB-PCTX',
+    max_chars: 2000
+  })
 })
 
 afterAll(() => {
@@ -140,7 +166,7 @@ describe('hijack matrix (multi-user)', () => {
         body: JSON.stringify(LIST_MESSAGE)
       })
       expect(postRes.status).toBe(403)
-      const postBody = await postRes.json() as any
+      const postBody = (await postRes.json()) as any
       expect(postBody.error.code).toBe(-32002)
       expect(server.getSessions().has(aliceSession)).toBe(true)
 
@@ -179,13 +205,21 @@ describe('hijack matrix (multi-user)', () => {
       const aSession = await initialize(base, ALICE_TOKEN)
       const bSession = await initialize(base, BOB_TOKEN)
 
-      const a = await toolCall(base, ALICE_TOKEN, aSession, { action: 'slots', cwd: '/tmp', names: ['project_context'] })
+      const a = await toolCall(base, ALICE_TOKEN, aSession, {
+        action: 'slots',
+        cwd: '/tmp',
+        names: ['project_context']
+      })
       expect(a.status).toBe(200)
       const aSlot = extractSlot(a.rpc, 'project_context')
       expect(aSlot.content).toContain('ALICE-PCTX')
       expect(aSlot.content).not.toContain('BOB-PCTX')
 
-      const b = await toolCall(base, BOB_TOKEN, bSession, { action: 'slots', cwd: '/tmp', names: ['project_context'] })
+      const b = await toolCall(base, BOB_TOKEN, bSession, {
+        action: 'slots',
+        cwd: '/tmp',
+        names: ['project_context']
+      })
       expect(b.status).toBe(200)
       const bSlot = extractSlot(b.rpc, 'project_context')
       expect(bSlot.content).toContain('BOB-PCTX')
@@ -206,15 +240,27 @@ describe('hijack matrix (multi-user)', () => {
       const aSession = await initialize(base, ALICE_TOKEN)
       const bSession = await initialize(base, BOB_TOKEN)
 
-      const r1 = await toolCall(base, ALICE_TOKEN, aSession, { action: 'slots', cwd: '/tmp', names: ['project_context'] })
+      const r1 = await toolCall(base, ALICE_TOKEN, aSession, {
+        action: 'slots',
+        cwd: '/tmp',
+        names: ['project_context']
+      })
       const s1 = extractSlot(r1.rpc, 'project_context')
       expect(s1.content).toContain('ALICE-PCTX')
 
-      const r2 = await toolCall(base, BOB_TOKEN, bSession, { action: 'slots', cwd: '/tmp', names: ['project_context'] })
+      const r2 = await toolCall(base, BOB_TOKEN, bSession, {
+        action: 'slots',
+        cwd: '/tmp',
+        names: ['project_context']
+      })
       const s2 = extractSlot(r2.rpc, 'project_context')
       expect(s2.content).toContain('BOB-PCTX')
 
-      const r3 = await toolCall(base, ALICE_TOKEN, aSession, { action: 'slots', cwd: '/tmp', names: ['project_context'] })
+      const r3 = await toolCall(base, ALICE_TOKEN, aSession, {
+        action: 'slots',
+        cwd: '/tmp',
+        names: ['project_context']
+      })
       const s3 = extractSlot(r3.rpc, 'project_context')
       expect(s3.content).toContain('ALICE-PCTX')
       expect(s3.content).not.toContain('BOB-PCTX')
@@ -302,7 +348,9 @@ function extractSlot(rpc: any, name: string): any {
   } catch {}
   if (!envelope) {
     // maybe structuredContent
-    try { envelope = rpc?.result?.structuredContent?.result } catch {}
+    try {
+      envelope = rpc?.result?.structuredContent?.result
+    } catch {}
   }
   const items = envelope?.items ?? envelope?.result?.items
   const slot = (items ?? []).find((s: any) => s.name === name)

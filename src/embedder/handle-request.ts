@@ -48,7 +48,11 @@ export async function handleEmbedderRequest(
       const embeddings = await generateEmbeddings(message.params?.texts ?? [])
       send({ type: 'result', id: message.id, embedding: embeddings.map(e => Array.from(e)) })
     } else {
-      send({ type: 'error', id: message.id, error: `Unknown embedder method: ${String(message.method)}` })
+      send({
+        type: 'error',
+        id: message.id,
+        error: `Unknown embedder method: ${String(message.method)}`
+      })
     }
   } catch (err: unknown) {
     send({

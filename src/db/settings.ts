@@ -39,7 +39,11 @@ export function getThoughtLimitsDB(_db: Database): ThoughtLimits {
     config.thoughts.hardLimitBufferPercent,
     DEFAULTS.thoughts.hardLimitBufferPercent
   )
-  return { softLimit, hardLimitBufferPercent, hardLimit: deriveHardLimit(softLimit, hardLimitBufferPercent) }
+  return {
+    softLimit,
+    hardLimitBufferPercent,
+    hardLimit: deriveHardLimit(softLimit, hardLimitBufferPercent)
+  }
 }
 
 // `getThoughtLimitsDB` is the implementation shared with the thought/cluster

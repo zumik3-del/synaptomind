@@ -69,7 +69,12 @@ function quote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-type UnitOpts = { dist?: string; dataDir?: string; bunBin?: string; [key: string]: string | undefined }
+type UnitOpts = {
+  dist?: string
+  dataDir?: string
+  bunBin?: string
+  [key: string]: string | undefined
+}
 
 /** Render a unit with the real common.sh, exactly as install.sh/update.sh do. */
 function renderUnit(opts: UnitOpts = {}): string {
@@ -95,7 +100,7 @@ function renderWithPath(opts: UnitOpts = {}, env: Record<string, string> = {}) {
     BUN_BIN: bunBin ?? '/usr/local/bin/bun',
     DIST: dist ?? 'source',
     ...overrides,
-    ...env,
+    ...env
   }
   // `export` is load-bearing here, not decoration. PATH survives a plain
   // assignment because the parent already exports it, but a variable introduced
@@ -108,8 +113,7 @@ function renderWithPath(opts: UnitOpts = {}, env: Record<string, string> = {}) {
   const script =
     Object.entries(base)
       .map(([k, v]) => `export ${k}=${quote(v)}`)
-      .join('\n') +
-    `\n. ${quote(LIB)}\nrender_systemd_unit "/usr/local/bin/bun run start"\n`
+      .join('\n') + `\n. ${quote(LIB)}\nrender_systemd_unit "/usr/local/bin/bun run start"\n`
   return spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000 })
 }
 
@@ -136,8 +140,8 @@ function makeRecordingStubs(dir: string): string {
         `printf '${name}' >> "$STUB_INVOCATION_LOG"`,
         'for a in "$@"; do printf \' %s\' "$a" >> "$STUB_INVOCATION_LOG"; done',
         'printf \'\\n\' >> "$STUB_INVOCATION_LOG"',
-        'exit 0',
-      ].join('\n'),
+        'exit 0'
+      ].join('\n')
     )
     chmodSync(p, 0o755)
   }
@@ -148,7 +152,7 @@ function makeRecordingStubs(dir: string): string {
 
 /** Every line that sets a restart policy, in file order. */
 function restartDirectives(unit: string): string[] {
-  return unit.split('\n').filter((l) => /^Restart=/.test(l.trim()))
+  return unit.split('\n').filter(l => /^Restart=/.test(l.trim()))
 }
 
 describe('render_systemd_unit — restart policy', () => {
@@ -225,9 +229,9 @@ describe('render_systemd_unit — restart policy', () => {
 function directives(unit: string, key: string): string[] {
   return unit
     .split('\n')
-    .filter((l) => !l.trimStart().startsWith('#'))
-    .filter((l) => new RegExp(`^\\s*${key}=`).test(l))
-    .map((l) => l.trim())
+    .filter(l => !l.trimStart().startsWith('#'))
+    .filter(l => new RegExp(`^\\s*${key}=`).test(l))
+    .map(l => l.trim())
 }
 
 describe('render_systemd_unit — the stop is SIGTERM, bounded', () => {
@@ -245,7 +249,7 @@ describe('render_systemd_unit — the stop is SIGTERM, bounded', () => {
     expect(unit.indexOf('\nTimeoutStopSec=15\n')).toBeLessThan(unit.indexOf('# --- hardening ---'))
   })
 
-  test('KillSignal is NOT set, so the first signal of a stop is the app\'s SIGTERM handler', () => {
+  test("KillSignal is NOT set, so the first signal of a stop is the app's SIGTERM handler", () => {
     for (const dist of ['source', 'binary']) {
       const unit = renderUnit({ dist })
       // The regression, on the directive lines. `# KillSignal is deliberately NOT
@@ -274,7 +278,7 @@ describe('render_systemd_unit — the stop is SIGTERM, bounded', () => {
       'KillSignal is deliberately NOT set',
       'SendSIGKILL=yes',
       'TimeoutStopSec expires',
-      'shutdown path never ran',
+      'shutdown path never ran'
     ]) {
       expect(unit, phrase).toContain(phrase)
     }
@@ -289,16 +293,17 @@ describe('render_systemd_unit — the stop is SIGTERM, bounded', () => {
     try {
       const src = readFileSync(LIB, 'utf8')
       const line = "    'TimeoutStopSec=15'\n"
-      if (!src.includes(line)) throw new Error('the TimeoutStopSec line moved; the mutations below are stale')
+      if (!src.includes(line))
+        throw new Error('the TimeoutStopSec line moved; the mutations below are stale')
       for (const [label, mutation] of [
         ['the systemd default (directive deleted)', line.replace('15', '90')],
-        ['no bound at all', ''],
+        ['no bound at all', '']
       ] as const) {
         const copy = join(dir, `common-${label.replace(/\W+/g, '-')}.sh`)
         writeFileSync(copy, src.replace(line, mutation))
         const res = spawnSync('bash', ['-c', `. ${quote(copy)}\nrender_systemd_unit "bin"\n`], {
           encoding: 'utf8',
-          timeout: 30_000,
+          timeout: 30_000
         })
         expect(res.status, res.stderr).toBe(0)
         // Whatever the mutation did, the shipped assertion must reject it.
@@ -320,11 +325,12 @@ describe('render_systemd_unit — the stop is SIGTERM, bounded', () => {
       const copy = join(dir, 'common.sh')
       const src = readFileSync(LIB, 'utf8')
       const line = "    'TimeoutStopSec=15'\n"
-      if (!src.includes(line)) throw new Error('the TimeoutStopSec line moved; the mutation below is stale')
+      if (!src.includes(line))
+        throw new Error('the TimeoutStopSec line moved; the mutation below is stale')
       writeFileSync(copy, src.replace(line, `    'KillSignal=SIGKILL'\n${line}`))
       const res = spawnSync('bash', ['-c', `. ${quote(copy)}\nrender_systemd_unit "bin"\n`], {
         encoding: 'utf8',
-        timeout: 30_000,
+        timeout: 30_000
       })
       expect(res.status, res.stderr).toBe(0)
       expect(directives(res.stdout, 'KillSignal')).toEqual(['KillSignal=SIGKILL'])
@@ -347,12 +353,15 @@ describe('render_systemd_unit — the stop is SIGTERM, bounded', () => {
       try {
         const p = join(dir, 'synaptomind.service')
         writeFileSync(p, renderUnit())
-        const res = spawnSync('systemd-analyze', ['verify', p], { encoding: 'utf8', timeout: 30_000 })
+        const res = spawnSync('systemd-analyze', ['verify', p], {
+          encoding: 'utf8',
+          timeout: 30_000
+        })
         expect(`${res.stdout}${res.stderr}`).not.toContain('Refusing')
       } finally {
         rmSync(dir, { recursive: true, force: true })
       }
-    },
+    }
   )
 })
 
@@ -369,9 +378,16 @@ describe('render_systemd_unit — rendering executes nothing', () => {
     const dir = mkTempTree('synapto-render-stubs-')
     try {
       const log = makeRecordingStubs(dir)
-      const res = renderWithPath({}, { PATH: `${dir}:${process.env.PATH}`, STUB_INVOCATION_LOG: log })
+      const res = renderWithPath(
+        {},
+        { PATH: `${dir}:${process.env.PATH}`, STUB_INVOCATION_LOG: log }
+      )
       if (res.status !== 0) throw new Error(`render_systemd_unit failed: ${res.stderr}`)
-      return { unit: res.stdout, invocations: readFileSync(log, { encoding: 'utf8' }), stderr: res.stderr }
+      return {
+        unit: res.stdout,
+        invocations: readFileSync(log, { encoding: 'utf8' }),
+        stderr: res.stderr
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -413,7 +429,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       'systemctl stop',
       'systemd-run --user',
       'StartLimit',
-      'deploy/systemd-unit.test.ts',
+      'deploy/systemd-unit.test.ts'
     ]) {
       expect(unit, phrase).toContain(phrase)
     }
@@ -441,7 +457,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       ['INSTALL_DIR', '/opt/synaptomind\nReadWritePaths=/ /'],
       ['DATA_DIR', '/var/lib/synaptomind\rEnvironment=EVIL=1'],
       ['TARGET_USER', 'root\nUser=root'],
-      ['BUN_BIN', '/usr/local/bin/bun\nExecStartPre=/bin/false'],
+      ['BUN_BIN', '/usr/local/bin/bun\nExecStartPre=/bin/false']
     ]
     for (const [name, value] of cases) {
       const res = renderWithPath({}, { [name]: value })
@@ -483,7 +499,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       ['TARGET_HOME', '/home/synaptomind\\'],
       ['TARGET_USER', 'root\\'],
       ['INSTALL_DIR', '/opt/synaptomind\\'],
-      ['BUN_BIN', '/usr/local/bin/bun\\'],
+      ['BUN_BIN', '/usr/local/bin/bun\\']
     ]
     for (const [name, value] of cases) {
       const res = renderWithPath({}, { [name]: value })
@@ -522,7 +538,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       ['DATA_DIR', '/var/lib/synaptomind '],
       // other control characters
       ['APP_DESC', 'thought-graph engine\tproduction'],
-      ['APP_DESC', 'thought-graph engineproduction'],
+      ['APP_DESC', 'thought-graph engineproduction']
     ]
     for (const [name, value] of cases) {
       const res = renderWithPath({}, { [name]: value })
@@ -576,8 +592,8 @@ describe('render_systemd_unit — rendering executes nothing', () => {
               '[Service]',
               'Type=simple',
               'ExecStart=/bin/true',
-              '',
-            ].join('\n'),
+              ''
+            ].join('\n')
           )
           const path = join(dir, `path${byte}.service`)
           writeFileSync(
@@ -590,8 +606,8 @@ describe('render_systemd_unit — rendering executes nothing', () => {
               'Type=simple',
               'ExecStart=/bin/true',
               `ReadWritePaths=SENT${ch}INEL`,
-              '',
-            ].join('\n'),
+              ''
+            ].join('\n')
           )
           files.push(fold, path)
         }
@@ -601,15 +617,21 @@ describe('render_systemd_unit — rendering executes nothing', () => {
         const res = spawnSync('systemd-analyze', ['verify', ...files], {
           encoding: 'utf8',
           env: { ...process.env, SYSTEMD_UNIT_PATH: dir },
-          timeout: 120_000,
+          timeout: 120_000
         })
         const lines = `${res.stdout}${res.stderr}`.split('\n')
-        const forFile = (name: string) => lines.filter((l) => l.startsWith(`${join(dir, name)}:`))
+        const forFile = (name: string) => lines.filter(l => l.startsWith(`${join(dir, name)}:`))
 
         // The controls, or the probes measure something other than what they claim:
         // a clean value must be reported verbatim, and the probe line must survive.
-        expect(forFile('fold88.service').join('\n'), 'a clean value must keep the next line').toContain(`'ZzProbe'`)
-        expect(forFile('path88.service').join('\n'), 'a clean value must be read verbatim').toContain('SENTXINEL')
+        expect(
+          forFile('fold88.service').join('\n'),
+          'a clean value must keep the next line'
+        ).toContain(`'ZzProbe'`)
+        expect(
+          forFile('path88.service').join('\n'),
+          'a clean value must be read verbatim'
+        ).toContain('SENTXINEL')
 
         // FINDING #1, measured: over all 127 ASCII values, exactly one continues
         // the line — the backslash. Any other entry here is a character a future
@@ -618,8 +640,10 @@ describe('render_systemd_unit — rendering executes nothing', () => {
         const rewritten: number[] = []
         for (let byte = 1; byte < 128; byte++) {
           const ch = String.fromCharCode(byte)
-          if (!forFile(`fold${byte}.service`).some((l) => l.includes(`'ZzProbe'`))) folded.push(byte)
-          const quoted = forFile(`path${byte}.service`).join('\n').match(/not absolute, ignoring: (.*)$/)?.[1]
+          if (!forFile(`fold${byte}.service`).some(l => l.includes(`'ZzProbe'`))) folded.push(byte)
+          const quoted = forFile(`path${byte}.service`)
+            .join('\n')
+            .match(/not absolute, ignoring: (.*)$/)?.[1]
           if (quoted !== `SENT${ch}INEL`) rewritten.push(byte)
         }
         expect(folded, 'these characters CONTINUE the value line onto the next one').toEqual([92])
@@ -627,7 +651,9 @@ describe('render_systemd_unit — rendering executes nothing', () => {
         // ReadWritePaths=), both quotes, the % specifier and the backslash. LF (10)
         // forges a line of its own rather than rewriting one — that one is
         // asserted by the newline test above, where the forged line is the tell.
-        expect(rewritten, 'these characters change the value systemd parses').toEqual([9, 10, 13, 32, 34, 37, 39, 92])
+        expect(rewritten, 'these characters change the value systemd parses').toEqual([
+          9, 10, 13, 32, 34, 37, 39, 92
+        ])
 
         // And the guard refuses each of them, in the shape that mangles it. The
         // space is the one value-level rule that is POSITIONAL: systemd splits a
@@ -636,9 +662,11 @@ describe('render_systemd_unit — rendering executes nothing', () => {
         // and the "not a blanket ban" test above says so on the record.
         const refused: [string, string][] = [
           ['INSTALL_DIR', '/opt/synaptomind\\'],
-          ...rewritten.filter((b) => b !== 32).map((b) => ['INSTALL_DIR', `/opt/x${String.fromCharCode(b)}y`] as [string, string]),
+          ...rewritten
+            .filter(b => b !== 32)
+            .map(b => ['INSTALL_DIR', `/opt/x${String.fromCharCode(b)}y`] as [string, string]),
           ['INSTALL_DIR', ' /opt/synaptomind'],
-          ['DATA_DIR', '/var/lib/synaptomind '],
+          ['DATA_DIR', '/var/lib/synaptomind ']
         ]
         for (const [name, value] of refused) {
           const res = renderWithPath({}, { [name]: value })
@@ -648,7 +676,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       } finally {
         rmSync(dir, { recursive: true, force: true })
       }
-    },
+    }
   )
 
   test('the refusal side is covered with or without systemd', () => {
@@ -681,7 +709,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       ['APP_DESC', 'thought-graph engine # production'],
       ['APP_DESC', 'thought-graph engine; production'],
       // another control character, for the class rather than the instance
-      ['APP_DESC', `thought-graph engine${String.fromCharCode(1)}production`],
+      ['APP_DESC', `thought-graph engine${String.fromCharCode(1)}production`]
     ]
     for (const [name, value] of mustBeRefused) {
       const res = renderWithPath({}, { [name]: value })
@@ -714,8 +742,8 @@ describe('render_systemd_unit — rendering executes nothing', () => {
         {
           INSTALL_DIR: '/opt/synaptomind\nReadWritePaths=/ /',
           PATH: `${dir}:${process.env.PATH}`,
-          STUB_INVOCATION_LOG: log,
-        },
+          STUB_INVOCATION_LOG: log
+        }
       )
       expect(res.status).not.toBe(0)
       expect(readFileSync(log, { encoding: 'utf8' })).toBe('')
@@ -753,7 +781,7 @@ describe('render_systemd_unit — rendering executes nothing', () => {
       // the sweep above; only bytes 1..127 are probed, because a lone byte above
       // 127 is invalid UTF-8 and systemd rejects the whole assignment loudly).
       ['INSTALL_DIR', '/opt/synaptomind/данные'],
-      ['APP_DESC', 'Synaptomind — Thought-graph engine'],
+      ['APP_DESC', 'Synaptomind — Thought-graph engine']
     ] as [string, string][]) {
       const unit = renderUnit({ [name]: value } as UnitOpts & Record<string, string>)
       expect(unit, name).toContain('[Service]')
@@ -774,13 +802,13 @@ describe('render_systemd_unit — rendering executes nothing', () => {
         writeFileSync(p, renderUnit())
         const res = spawnSync('systemd-analyze', ['verify', p], {
           encoding: 'utf8',
-          timeout: 30_000,
+          timeout: 30_000
         })
         expect(`${res.stdout}${res.stderr}`).not.toContain('Refusing')
       } finally {
         rmSync(dir, { recursive: true, force: true })
       }
-    },
+    }
   )
 })
 // ══════════════════════════════════════════════════════════════════════════════
@@ -817,7 +845,13 @@ type ResolveOpts = {
   lib?: string
 }
 
-type Resolved = { status: number | null; stdout: string; stderr: string; unit: string; group: string }
+type Resolved = {
+  status: number | null
+  stdout: string
+  stderr: string
+  unit: string
+  group: string
+}
 
 /**
  * resolve_target_user() + render_systemd_unit() against the real lib, in the
@@ -841,7 +875,7 @@ function resolveThenRender(opts: ResolveOpts = {}): Resolved {
     // operator's home when app.env leaves it empty, which is the #1101 path
     // guardRealStateDir() fingerprints.
     `RUN_DIR=${quote(join(dir, 'run'))}`,
-    `SERVICE_USER=${quote(opts.serviceUser ?? 'synaptomind')}`,
+    `SERVICE_USER=${quote(opts.serviceUser ?? 'synaptomind')}`
   ]
   if (opts.serviceGroup !== undefined) exports.push(`SERVICE_GROUP=${quote(opts.serviceGroup)}`)
   if (opts.targetGroup !== undefined) exports.push(`TARGET_GROUP=${quote(opts.targetGroup)}`)
@@ -860,7 +894,7 @@ printf 'RESOLVED_GROUP=%s\\n' "$__group"`
       stdout,
       stderr: res.stderr ?? '',
       group,
-      unit: stdout.replace(/RESOLVED_GROUP=.*\n?/, ''),
+      unit: stdout.replace(/RESOLVED_GROUP=.*\n?/, '')
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -938,22 +972,25 @@ describe('resolve_target_user — SERVICE_GROUP decides the Group= the unit runs
     expect(directives(r.unit, 'Group')).toEqual(['Group=daemon'])
   })
 
-  test.skipIf(!HAS_GETENT)(`a group this host does not have is refused BY NAME${GETENT_SKIP_NOTE}`, () => {
-    // The other half of the wiring. Before this the run installed the payload
-    // and then systemd refused to start the unit, naming neither app.env nor the
-    // key to fix. The refusal must arrive BEFORE any unit text is written, and it
-    // must name SERVICE_GROUP so the operator knows which file to edit.
-    const r = resolveThenRender({ serviceGroup: 'synaptomind-no-such-group' })
+  test.skipIf(!HAS_GETENT)(
+    `a group this host does not have is refused BY NAME${GETENT_SKIP_NOTE}`,
+    () => {
+      // The other half of the wiring. Before this the run installed the payload
+      // and then systemd refused to start the unit, naming neither app.env nor the
+      // key to fix. The refusal must arrive BEFORE any unit text is written, and it
+      // must name SERVICE_GROUP so the operator knows which file to edit.
+      const r = resolveThenRender({ serviceGroup: 'synaptomind-no-such-group' })
 
-    expect(r.status, r.stdout + r.stderr).not.toBe(0)
-    expect(r.stderr).toContain("SERVICE_GROUP='synaptomind-no-such-group'")
-    expect(r.stderr, 'the message must name app.env, the file the operator edits').toContain(
-      'app.env',
-    )
-    // Nothing was rendered: the refusal precedes the render, so an operator is
-    // never handed a unit they have to overwrite by hand.
-    expect(r.unit, 'a unit was rendered despite the refusal').not.toContain('Group=')
-  })
+      expect(r.status, r.stdout + r.stderr).not.toBe(0)
+      expect(r.stderr).toContain("SERVICE_GROUP='synaptomind-no-such-group'")
+      expect(r.stderr, 'the message must name app.env, the file the operator edits').toContain(
+        'app.env'
+      )
+      // Nothing was rendered: the refusal precedes the render, so an operator is
+      // never handed a unit they have to overwrite by hand.
+      expect(r.unit, 'a unit was rendered despite the refusal').not.toContain('Group=')
+    }
+  )
 
   test('the refusal is scoped to a NAMED group — the default is never checked', () => {
     // The user-group default is the user's own primary group, which exists by
@@ -985,9 +1022,7 @@ describe('resolve_target_user — SERVICE_GROUP decides the Group= the unit runs
         const bogus = resolveThenRender({ serviceGroup: 'synaptomind-no-such-group', lib })
         // And the typo installed a payload with a Group= that cannot start.
         expect(bogus.status, 'the mutated lib refused the nonexistent group anyway').toBe(0)
-        expect(directives(bogus.unit, 'Group')).toEqual([
-          'Group=synaptomind',
-        ])
+        expect(directives(bogus.unit, 'Group')).toEqual(['Group=synaptomind'])
       }
 
       // And the shipped file still does both.

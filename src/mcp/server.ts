@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/server";
+import { McpServer } from '@modelcontextprotocol/server'
 import { readFileSync } from 'fs'
 import { config } from '../config'
 import { VERSION } from '../version'
@@ -78,7 +78,7 @@ const defaultInstructions = [
   '',
   'After completing a meaningful block of work — a decision, a task, an',
   'architectural choice — call memory_reflect (action=reflect) to record the outcome.',
-  'Do not wait for the session to end; reflect at natural breakpoints.',
+  'Do not wait for the session to end; reflect at natural breakpoints.'
 ].join('\n')
 
 let instructionsCache: { file: string | undefined; value: string } | undefined

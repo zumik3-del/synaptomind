@@ -83,7 +83,9 @@ export function getGraphDataService(
   })
   const total = countThoughts(db, filters)
   const thoughtIds = new Set(thoughts.map(t => t.id))
-  const edges = getAllActiveEdges(db).filter(e => thoughtIds.has(e.source_id) && thoughtIds.has(e.target_id))
+  const edges = getAllActiveEdges(db).filter(
+    e => thoughtIds.has(e.source_id) && thoughtIds.has(e.target_id)
+  )
 
   return {
     nodes: thoughts.map(t => {
@@ -160,14 +162,17 @@ export async function getContextService(
   d: Database = getDb()
 ): Promise<ContextResult | null> {
   const maxDegree = options.maxDegree ?? config.graph.maxDegree
-  const results = await searchThoughtsService({
-    query,
-    topK: 1,
-    hybrid: true,
-    statusFilter: 'active',
-    projectFilter: options.projectFilter,
-    minRelevance: options.minRelevance ?? 0
-  }, d)
+  const results = await searchThoughtsService(
+    {
+      query,
+      topK: 1,
+      hybrid: true,
+      statusFilter: 'active',
+      projectFilter: options.projectFilter,
+      minRelevance: options.minRelevance ?? 0
+    },
+    d
+  )
   if (!results || results.length === 0) {
     // Surface degradation instead of throwing: when the search degraded, return
     // a degraded-only result so callers can observe it rather than NotFoundError.
@@ -178,7 +183,8 @@ export async function getContextService(
     return null
   }
   const best = results[0].thought ?? (results[0] as unknown as Thought)
-  const degraded = results[0].degraded === true || (results as { degraded?: boolean }).degraded === true
+  const degraded =
+    results[0].degraded === true || (results as { degraded?: boolean }).degraded === true
   const chain = getThoughtEdges(d, best.id, best.is_cluster ? 'downstream' : 'both', maxDegree)
   return { best_match: best, chain, degraded }
 }

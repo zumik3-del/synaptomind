@@ -13,9 +13,18 @@ type McpTextContent = { type: 'text'; text: string }
  * stable contract: every successful result is `{ result: <payload> }`, where
  * the payload matches the JSON in `content[].text`.
  */
-export const toolOutputShape = { result: z.unknown().describe('Action payload (structuredContent.result); JSON mirror of content[].text, except the raw-text config action, whose result is { item: { text }, meta }') }
+export const toolOutputShape = {
+  result: z
+    .unknown()
+    .describe(
+      'Action payload (structuredContent.result); JSON mirror of content[].text, except the raw-text config action, whose result is { item: { text }, meta }'
+    )
+}
 
-export function jsonResult(data: unknown): { content: McpTextContent[]; structuredContent: { result: unknown } } {
+export function jsonResult(data: unknown): {
+  content: McpTextContent[]
+  structuredContent: { result: unknown }
+} {
   // Bare string payloads are wrapped so no action ever returns a bare string
   // in `result`; arrays/objects pass through unchanged.
   const payload = typeof data === 'string' ? { text: data } : data
@@ -47,8 +56,12 @@ export interface ErrorEnvelopeMeta {
  */
 export function errorResult(
   message: string,
-  meta: ErrorEnvelopeMeta = {},
-): { content: McpTextContent[]; structuredContent?: { result: { error: ErrorEnvelopeMeta & { message: string } } }; isError: true } {
+  meta: ErrorEnvelopeMeta = {}
+): {
+  content: McpTextContent[]
+  structuredContent?: { result: { error: ErrorEnvelopeMeta & { message: string } } }
+  isError: true
+} {
   const content: McpTextContent[] = [{ type: 'text' as const, text: message }]
   const error: ErrorEnvelopeMeta & { message: string } = { message }
   if (meta.statusCode !== undefined) error.statusCode = meta.statusCode
@@ -73,7 +86,7 @@ export function resolveProjectId(cwd?: string): string | undefined {
 // Output formatting accepts heterogeneous values; parseTags instead normalizes input filters.
 function stringifyTags(tags: unknown): string[] {
   if (!Array.isArray(tags)) return []
-  return tags.map((t) => {
+  return tags.map(t => {
     if (t && typeof t === 'object') {
       const o = t as Record<string, unknown>
       if (typeof o.name === 'string') return o.name
@@ -127,7 +140,8 @@ export function shapeThought(
   urlLinks?: BatchUrlLinks
 ): unknown {
   const shaped = projectThoughtShape(thought, compact, fields)
-  if (urlLinks === undefined || !shaped || typeof shaped !== 'object' || Array.isArray(shaped)) return shaped
+  if (urlLinks === undefined || !shaped || typeof shaped !== 'object' || Array.isArray(shaped))
+    return shaped
   return { ...(shaped as Record<string, unknown>), url_links: urlLinksOf(thought, urlLinks) }
 }
 
@@ -137,11 +151,15 @@ function projectThoughtShape(thought: unknown, compact?: boolean, fields?: unkno
   const t = thought as Record<string, unknown>
   const compactFlag = compact === true
   const requested = Array.isArray(fields)
-    ? fields.map((v) => String(v).trim()).filter(Boolean)
-    : (typeof fields === 'string'
-        ? fields.split(',').map((v) => v.trim()).filter(Boolean)
-        : [])
-  const fieldList: string[] = requested.length > 0 ? [...requested] : (compactFlag ? [...COMPACT_FIELDS] : [])
+    ? fields.map(v => String(v).trim()).filter(Boolean)
+    : typeof fields === 'string'
+      ? fields
+          .split(',')
+          .map(v => v.trim())
+          .filter(Boolean)
+      : []
+  const fieldList: string[] =
+    requested.length > 0 ? [...requested] : compactFlag ? [...COMPACT_FIELDS] : []
   if (fieldList.length === 0) return hygienicThought(t)
   const out: Record<string, unknown> = {}
   const seen = new Set<string>()
@@ -172,13 +190,25 @@ export function shapeChain(
   if (!chain) return chain
   return {
     ...chain,
-    thought: chain.thought ? (shapeThought(chain.thought, compact, fields, urlLinks) as ChainResult['thought']) : chain.thought,
+    thought: chain.thought
+      ? (shapeThought(chain.thought, compact, fields, urlLinks) as ChainResult['thought'])
+      : chain.thought,
     upstream: Array.isArray(chain.upstream)
-      ? chain.upstream.map((e) => ({ ...e, thought: e?.thought ? (shapeThought(e.thought, compact, fields, urlLinks) as typeof e.thought) : e?.thought }))
+      ? chain.upstream.map(e => ({
+          ...e,
+          thought: e?.thought
+            ? (shapeThought(e.thought, compact, fields, urlLinks) as typeof e.thought)
+            : e?.thought
+        }))
       : chain.upstream,
     downstream: Array.isArray(chain.downstream)
-      ? chain.downstream.map((e) => ({ ...e, thought: e?.thought ? (shapeThought(e.thought, compact, fields, urlLinks) as typeof e.thought) : e?.thought }))
-      : chain.downstream,
+      ? chain.downstream.map(e => ({
+          ...e,
+          thought: e?.thought
+            ? (shapeThought(e.thought, compact, fields, urlLinks) as typeof e.thought)
+            : e?.thought
+        }))
+      : chain.downstream
   }
 }
 
@@ -213,8 +243,13 @@ export function loadUrlLinks(thoughts: ReadonlyArray<unknown>): BatchUrlLinks {
   }
   const byThought: BatchUrlLinks = new Map()
   if (ids.length === 0) return byThought
-  for (const [thoughtId, rows] of Object.entries(getThoughtUrlLinksBatchService([...new Set(ids)]))) {
-    byThought.set(thoughtId, rows.map((row) => ({ text: row.key, url: row.url, label: row.label })))
+  for (const [thoughtId, rows] of Object.entries(
+    getThoughtUrlLinksBatchService([...new Set(ids)])
+  )) {
+    byThought.set(
+      thoughtId,
+      rows.map(row => ({ text: row.key, url: row.url, label: row.label }))
+    )
   }
   return byThought
 }

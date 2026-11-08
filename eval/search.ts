@@ -119,9 +119,7 @@ export function createDeterministicOutcomeSearcher(
     } satisfies SearchServiceOptions)
 }
 
-export function createDeterministicSearcher(
-  dimensions = config.embedder.dimensions
-): Searcher {
+export function createDeterministicSearcher(dimensions = config.embedder.dimensions): Searcher {
   const outcomeSearcher = createDeterministicOutcomeSearcher(dimensions, 'off')
   return async (query, topK, projectFilter, options) =>
     (await outcomeSearcher(query, topK, projectFilter, options)).hits

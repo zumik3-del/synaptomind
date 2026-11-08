@@ -77,6 +77,8 @@ test('runAutoClusterJob: 3000 stored-vector candidates complete well under 10 s 
     expect(result.groups).toHaveLength(1)
     expect(result.groups[0].members.length).toBe(ids.length)
     expect(elapsedMs).toBeLessThan(10_000)
-    console.error(`[task-1569] 3000-candidate auto-cluster: ${elapsedMs.toFixed(0)} ms, ${embedCalls} embedder calls`)
+    console.error(
+      `[task-1569] 3000-candidate auto-cluster: ${elapsedMs.toFixed(0)} ms, ${embedCalls} embedder calls`
+    )
   })
 }, 30000)

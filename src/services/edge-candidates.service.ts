@@ -132,7 +132,8 @@ function inMemoryNeighborLookup(
       if (candidates[j].id === candidateId) continue
       others.push({ id: candidates[j].id, score: mode === 'similarity' ? row[j] : 1 - row[j] })
     }
-    const k = Number.isFinite(topK) && topK > 0 ? Math.min(Math.floor(topK), others.length) : others.length
+    const k =
+      Number.isFinite(topK) && topK > 0 ? Math.min(Math.floor(topK), others.length) : others.length
     // Order is not semantic for either current consumer, so an untruncated
     // result skips the O(N log N) sort entirely (auto-cluster always asks
     // k = N-1, so it never truncates): `groupCandidates` filters by threshold
@@ -166,7 +167,8 @@ export function buildInMemoryDistanceLookup(
   embeddings: Float32Array[]
 ): (candidateId: string, topK: number) => Array<{ id: string; distance: number }> {
   const lookup = inMemoryNeighborLookup(candidates, embeddings, 'distance')
-  return (candidateId, topK) => lookup(candidateId, topK).map(n => ({ id: n.id, distance: n.score }))
+  return (candidateId, topK) =>
+    lookup(candidateId, topK).map(n => ({ id: n.id, distance: n.score }))
 }
 
 /**

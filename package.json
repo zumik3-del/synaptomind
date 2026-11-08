@@ -22,6 +22,8 @@
     "test:isolated": "bun test src/embedder/client.test.ts src/mcp/http-transport.lifecycle.test.ts",
     "eval": "bun run eval/index.ts",
     "lint": "bunx biome check src/ eval/",
+    "format": "biome format --write src eval scripts deploy",
+    "format:check": "biome format src eval scripts deploy",
     "lint:docs": "bun run scripts/check-doc-refs.ts",
     "lint:dup": "jscpd src --min-lines 6 --min-tokens 50 --threshold 0.01 --exitCode 1 --reporters console --ignore \"**/*.test.ts,**/*.suite.ts,**/__fixtures__/**,src/test/**\"",
     "smoke": "bash scripts/smoke-test.sh",

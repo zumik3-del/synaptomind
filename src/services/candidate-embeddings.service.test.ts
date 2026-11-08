@@ -41,10 +41,14 @@ test('embeds every candidate in order when the DB has no vec_thoughts (:memory:)
   ]
   const seen: string[][] = []
 
-  const result = await resolveCandidateEmbeddings(candidates, async texts => {
-    seen.push(texts)
-    return texts.map((_, i) => vec(i + 1))
-  }, getDb())
+  const result = await resolveCandidateEmbeddings(
+    candidates,
+    async texts => {
+      seen.push(texts)
+      return texts.map((_, i) => vec(i + 1))
+    },
+    getDb()
+  )
 
   expect(seen).toEqual([['alpha', 'beta', 'gamma']])
   expect(markers(result)).toEqual([1, 2, 3])
@@ -60,10 +64,14 @@ test('makes 0 embedder calls when every candidate has a stored vector', async ()
     storeVec('b', vec(22))
     let embedCalls = 0
 
-    const result = await resolveCandidateEmbeddings(candidates, async texts => {
-      embedCalls++
-      return texts.map(() => vec(999))
-    }, db)
+    const result = await resolveCandidateEmbeddings(
+      candidates,
+      async texts => {
+        embedCalls++
+        return texts.map(() => vec(999))
+      },
+      db
+    )
 
     expect(embedCalls).toBe(0)
     expect(markers(result)).toEqual([11, 22])
@@ -84,10 +92,14 @@ test('embeds exactly the missing candidates, in candidate order, and covers all 
     storeVec('d', vec(44))
     const seen: string[][] = []
 
-    const result = await resolveCandidateEmbeddings(candidates, async texts => {
-      seen.push(texts)
-      return texts.map(t => vec(t === 'alpha' ? 1 : 3))
-    }, db)
+    const result = await resolveCandidateEmbeddings(
+      candidates,
+      async texts => {
+        seen.push(texts)
+        return texts.map(t => vec(t === 'alpha' ? 1 : 3))
+      },
+      db
+    )
 
     expect(seen).toEqual([['alpha', 'gamma']])
     expect(result).toHaveLength(4)
@@ -100,10 +112,14 @@ test('embeds exactly the missing candidates, in candidate order, and covers all 
 test('returns an empty list and calls nothing for zero candidates', async () => {
   await withVecDb(async db => {
     let embedCalls = 0
-    const result = await resolveCandidateEmbeddings([], async texts => {
-      embedCalls++
-      return texts.map(() => vec(1))
-    }, db)
+    const result = await resolveCandidateEmbeddings(
+      [],
+      async texts => {
+        embedCalls++
+        return texts.map(() => vec(1))
+      },
+      db
+    )
 
     expect(result).toEqual([])
     expect(embedCalls).toBe(0)
@@ -118,9 +134,9 @@ test('throws when the embedder returns the wrong number of vectors', async () =>
     ]
     // Nothing stored, so both candidates are missing and the embedder owes two
     // vectors; a short reply must surface instead of silently shifting rows.
-    await expect(
-      resolveCandidateEmbeddings(candidates, async () => [vec(1)], db)
-    ).rejects.toThrow('embedder returned 1 vectors for 2 candidates')
+    await expect(resolveCandidateEmbeddings(candidates, async () => [vec(1)], db)).rejects.toThrow(
+      'embedder returned 1 vectors for 2 candidates'
+    )
   })
 })
 
@@ -133,10 +149,14 @@ test('keeps candidates without a vec_thoughts row and stored ones side by side',
     storeVec('present', vec(7))
     const seen: string[][] = []
 
-    const result = await resolveCandidateEmbeddings(candidates, async texts => {
-      seen.push(texts)
-      return texts.map(() => vec(5))
-    }, db)
+    const result = await resolveCandidateEmbeddings(
+      candidates,
+      async texts => {
+        seen.push(texts)
+        return texts.map(() => vec(5))
+      },
+      db
+    )
 
     // Only the absent candidate is embedded; the stored one keeps its vector.
     expect(seen).toEqual([['missing content']])

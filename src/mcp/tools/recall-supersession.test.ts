@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb } from '../../db/container'
 import { createEdge } from '../../db/edges'
 import { closeDb } from '../../db/init'
@@ -66,7 +66,14 @@ const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 async function recallSupersession(extra: Record<string, unknown> = {}) {
   const result = await client.callTool({
     name: 'memory_recall',
-    arguments: { action: 'search', query: QUERY, limit: 10, cwd: UNSCOPED_CWD, compact: false, ...extra }
+    arguments: {
+      action: 'search',
+      query: QUERY,
+      limit: 10,
+      cwd: UNSCOPED_CWD,
+      compact: false,
+      ...extra
+    }
   })
   return parseResult(result)
 }
@@ -87,9 +94,9 @@ describe('memory_recall supersession contract', () => {
 
     const { data, isError } = await recallSupersession({ supersession_mode: 'flag' })
     expect(isError).toBe(false)
-    const old = (data.items as Array<{ thought: { id: string }; standing?: string; superseded_by?: string[] }>).find(
-      r => r.thought.id === oldThought
-    )
+    const old = (
+      data.items as Array<{ thought: { id: string }; standing?: string; superseded_by?: string[] }>
+    ).find(r => r.thought.id === oldThought)
     expect(old).toBeDefined()
     expect(old?.standing).toBe('superseded')
     expect(old?.superseded_by).toEqual([newThought])
@@ -100,9 +107,9 @@ describe('memory_recall supersession contract', () => {
 
     const { data, isError } = await recallSupersession({ supersession_mode: 'off' })
     expect(isError).toBe(false)
-    const old = (data.items as Array<{ thought: { id: string }; standing?: string; superseded_by?: string[] }>).find(
-      r => r.thought.id === oldThought
-    )
+    const old = (
+      data.items as Array<{ thought: { id: string }; standing?: string; superseded_by?: string[] }>
+    ).find(r => r.thought.id === oldThought)
     expect(old).toBeDefined()
     expect(old?.standing).not.toBe('superseded')
     expect(old?.superseded_by).toBeUndefined()

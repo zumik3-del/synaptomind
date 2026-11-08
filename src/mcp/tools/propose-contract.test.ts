@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer as SdkMcpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer as SdkMcpServer } from '@modelcontextprotocol/server'
 import { closeDb, getDb } from '../../db'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
@@ -42,12 +42,22 @@ interface ProposeMeta {
 }
 
 /** The plan lives in the shared envelope's `item` (task #2179). */
-function parseResult(result: unknown): { data: PlacementPlan | null; meta: ProposeMeta | null; isError: boolean; text: string } {
+function parseResult(result: unknown): {
+  data: PlacementPlan | null
+  meta: ProposeMeta | null
+  isError: boolean
+  text: string
+} {
   const r = result as { content: Array<{ type: string; text: string }>; isError?: boolean }
   const text = r.content?.[0]?.text ?? ''
   try {
     const parsed = JSON.parse(text) as { item?: PlacementPlan | null; meta?: ProposeMeta }
-    return { data: (parsed.item ?? null) as PlacementPlan | null, meta: parsed.meta ?? null, isError: r.isError === true, text }
+    return {
+      data: (parsed.item ?? null) as PlacementPlan | null,
+      meta: parsed.meta ?? null,
+      isError: r.isError === true,
+      text
+    }
   } catch {
     return { data: null, meta: null, isError: r.isError === true, text }
   }
@@ -133,7 +143,9 @@ describe('memory_status propose — content (draft) path', () => {
   test('draft content uses cwd/project scope when provided', async () => {
     // Seed a thought in a named project so we can assert project resolution works.
     const db = getDb()
-    db.prepare(`INSERT OR IGNORE INTO projects (id, name, created_at, local_path) VALUES ('proj-contract', 'Contract Project', ?, '/tmp/proj-contract')`).run(new Date().toISOString())
+    db.prepare(
+      `INSERT OR IGNORE INTO projects (id, name, created_at, local_path) VALUES ('proj-contract', 'Contract Project', ?, '/tmp/proj-contract')`
+    ).run(new Date().toISOString())
     seedThought({ content: 'scoped thought', project_id: 'proj-contract' })
 
     const result = await client.callTool({
@@ -177,11 +189,11 @@ describe('memory_status propose — read-only invariant', () => {
   function fp(db: import('bun:sqlite').Database): Record<string, number> {
     const c = (sql: string) => (db.prepare(sql).get() as { n: number }).n
     return {
-      thoughts:       c('SELECT COUNT(*) AS n FROM thoughts'),
-      edges:          c('SELECT COUNT(*) AS n FROM edges'),
-      clusterEdges:   c("SELECT COUNT(*) AS n FROM edges WHERE type='cluster'"),
+      thoughts: c('SELECT COUNT(*) AS n FROM thoughts'),
+      edges: c('SELECT COUNT(*) AS n FROM edges'),
+      clusterEdges: c("SELECT COUNT(*) AS n FROM edges WHERE type='cluster'"),
       clusterThoughts: c('SELECT COUNT(*) AS n FROM thoughts WHERE is_cluster=1'),
-      archived:       c("SELECT COUNT(*) AS n FROM thoughts WHERE status='archived'"),
+      archived: c("SELECT COUNT(*) AS n FROM thoughts WHERE status='archived'")
     }
   }
 
@@ -192,9 +204,18 @@ describe('memory_status propose — read-only invariant', () => {
     seedThought({ content: 'before-c', is_cluster: 1 })
 
     const before = fp(db)
-    await client.callTool({ name: 'memory_status', arguments: { action: 'propose', thought_id: a, cwd: UNSCOPED_CWD } })
-    await client.callTool({ name: 'memory_status', arguments: { action: 'propose', thought_id: b, cwd: UNSCOPED_CWD } })
-    await client.callTool({ name: 'memory_status', arguments: { action: 'propose', content: 'draft no-mutate', cwd: UNSCOPED_CWD } })
+    await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'propose', thought_id: a, cwd: UNSCOPED_CWD }
+    })
+    await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'propose', thought_id: b, cwd: UNSCOPED_CWD }
+    })
+    await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'propose', content: 'draft no-mutate', cwd: UNSCOPED_CWD }
+    })
 
     const after = fp(db)
     expect(after).toEqual(before)

@@ -45,7 +45,9 @@ export function projectExists(db: Database, id: string): boolean {
 
 export function deleteProject(db: Database, id: string): boolean {
   const defaultProjectId = (
-    db.prepare(`SELECT value FROM _meta WHERE key = 'default_project_id'`).get() as { value: string } | undefined
+    db.prepare(`SELECT value FROM _meta WHERE key = 'default_project_id'`).get() as
+      | { value: string }
+      | undefined
   )?.value
 
   if (defaultProjectId && defaultProjectId === id) {
@@ -54,7 +56,10 @@ export function deleteProject(db: Database, id: string): boolean {
 
   const run = db.transaction(() => {
     if (defaultProjectId) {
-      db.prepare(`UPDATE thoughts SET project_id = ? WHERE project_id = ?`).run(defaultProjectId, id)
+      db.prepare(`UPDATE thoughts SET project_id = ? WHERE project_id = ?`).run(
+        defaultProjectId,
+        id
+      )
     }
     const result = db.prepare(`DELETE FROM projects WHERE id = ?`).run(id)
     return result.changes > 0
@@ -64,16 +69,21 @@ export function deleteProject(db: Database, id: string): boolean {
 
 export function isDefaultProject(db: Database, id: string): boolean {
   const defaultProjectId = (
-    db.prepare(`SELECT value FROM _meta WHERE key = 'default_project_id'`).get() as { value: string } | undefined
+    db.prepare(`SELECT value FROM _meta WHERE key = 'default_project_id'`).get() as
+      | { value: string }
+      | undefined
   )?.value
   return defaultProjectId === id
 }
 
-export function createProject(db: Database, data: {
-  name: string
-  description?: string
-  local_path?: string | null
-}): Project {
+export function createProject(
+  db: Database,
+  data: {
+    name: string
+    description?: string
+    local_path?: string | null
+  }
+): Project {
   const id = Bun.randomUUIDv7()
   db.prepare(
     `INSERT INTO projects (id, name, description, created_at, local_path)
@@ -123,10 +133,9 @@ export function resolveDefaultProjectId(db: Database): string {
     | { value: string }
     | undefined
   if (existing?.value) {
-    db.prepare(`INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, 'Default', ?)`).run(
-      existing.value,
-      new Date().toISOString()
-    )
+    db.prepare(
+      `INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, 'Default', ?)`
+    ).run(existing.value, new Date().toISOString())
     return existing.value
   }
   const id = Bun.randomUUIDv7()

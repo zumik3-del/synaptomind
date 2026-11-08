@@ -5,7 +5,9 @@ import type { BrokenParentChain, CircularChain, ReplacesChain } from './types'
  * Source → targets adjacency map of `source_id`/`target_id` edge rows, keeping
  * the row order a query returned.
  */
-function buildAdjacency(edges: Array<{ source_id: string; target_id: string }>): Map<string, string[]> {
+function buildAdjacency(
+  edges: Array<{ source_id: string; target_id: string }>
+): Map<string, string[]> {
   const adj = new Map<string, string[]>()
   for (const e of edges) {
     if (!adj.has(e.source_id)) adj.set(e.source_id, [])
@@ -15,10 +17,12 @@ function buildAdjacency(edges: Array<{ source_id: string; target_id: string }>):
 }
 
 export function findCircularChains(db: Database): CircularChain[] {
-  const edges = db.prepare(`
+  const edges = db
+    .prepare(`
     SELECT source_id, target_id FROM edges
     WHERE type IN ('parent', 'develops')
-  `).all() as Array<{ source_id: string; target_id: string }>
+  `)
+    .all() as Array<{ source_id: string; target_id: string }>
 
   const adj = buildAdjacency(edges)
 
@@ -47,7 +51,8 @@ export function findCircularChains(db: Database): CircularChain[] {
 }
 
 export function findBrokenParentChains(db: Database): BrokenParentChain[] {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT e.id AS edge_id, e.source_id, e.target_id, t.status AS target_status
     FROM edges e
     JOIN thoughts t ON t.id = e.target_id
@@ -55,13 +60,16 @@ export function findBrokenParentChains(db: Database): BrokenParentChain[] {
     WHERE e.type IN ('parent', 'develops')
       AND t.status IN ('archived', 'draft')
       AND s.status != 'archived'
-  `).all() as BrokenParentChain[]
+  `)
+    .all() as BrokenParentChain[]
 }
 
 export function findReplacesChains(db: Database): ReplacesChain[] {
-  const edges = db.prepare(`
+  const edges = db
+    .prepare(`
     SELECT source_id, target_id FROM edges WHERE type = 'replaces'
-  `).all() as Array<{ source_id: string; target_id: string }>
+  `)
+    .all() as Array<{ source_id: string; target_id: string }>
 
   const adj = buildAdjacency(edges)
 

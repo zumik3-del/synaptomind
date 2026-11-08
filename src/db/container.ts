@@ -28,15 +28,25 @@ export function setMultiUserMode(enabled: boolean): void {
   multiUserMode = !!enabled
 }
 
-export function register(userId: string, database: Database): void { registry.set(userId, database) }
+export function register(userId: string, database: Database): void {
+  registry.set(userId, database)
+}
 
-export function clearRegistry(): void { registry.clear() }
+export function clearRegistry(): void {
+  registry.clear()
+}
 
-export function getUserDb(userId: string): Database | undefined { return registry.get(userId) }
+export function getUserDb(userId: string): Database | undefined {
+  return registry.get(userId)
+}
 
-export function listRegisteredUsers(): string[] { return [...registry.keys()] }
+export function listRegisteredUsers(): string[] {
+  return [...registry.keys()]
+}
 
-export function setDb(database: Database): void { db = database }
+export function setDb(database: Database): void {
+  db = database
+}
 
 export function getDb(): Database {
   const store = als.getStore()
@@ -46,4 +56,6 @@ export function getDb(): Database {
   return db
 }
 
-export function clearDb(): void { db = null }
+export function clearDb(): void {
+  db = null
+}

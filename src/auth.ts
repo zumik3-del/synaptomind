@@ -33,11 +33,15 @@ export function getValidTokens(): string[] {
   if (users.length > 0) {
     if (!warnedInertSecret && process.env.SYNAPTOMIND_SECRET) {
       warnedInertSecret = true
-      console.error('[synaptomind] SECURITY: SYNAPTOMIND_SECRET is inert because users are configured; legacy token ignored.')
+      console.error(
+        '[synaptomind] SECURITY: SYNAPTOMIND_SECRET is inert because users are configured; legacy token ignored.'
+      )
     }
     if (isInsecureMode() && !warnedInsecureWithUsers) {
       warnedInsecureWithUsers = true
-      console.error('[synaptomind] SECURITY: SYNAPTOMIND_ALLOW_INSECURE is ignored because users are configured.')
+      console.error(
+        '[synaptomind] SECURITY: SYNAPTOMIND_ALLOW_INSECURE is ignored because users are configured.'
+      )
     }
     return []
   }
@@ -49,7 +53,9 @@ export function getValidTokens(): string[] {
     warnedMissingTokens = true
     console.error('[synaptomind] SECURITY: SYNAPTOMIND_SECRET is not set.')
     console.error('[synaptomind] Failing closed: authenticated requests will be rejected (401).')
-    console.error('[synaptomind] Set a secret, or set SYNAPTOMIND_ALLOW_INSECURE=true for local development only.')
+    console.error(
+      '[synaptomind] Set a secret, or set SYNAPTOMIND_ALLOW_INSECURE=true for local development only.'
+    )
   }
 
   return tokens
@@ -67,7 +73,7 @@ export function resolveUser(auth: string | undefined): UserRef | null {
 
   const token = auth.slice('Bearer '.length)
   const presented = token
-  
+
   // Configured users: match by token hash (evaluate every entry, no short-circuit).
   // Hash the stored digest and the presented token's hash through safeTokenEqual so
   // a malformed (non-hex / wrong-length) digest compares as a normal mismatch and

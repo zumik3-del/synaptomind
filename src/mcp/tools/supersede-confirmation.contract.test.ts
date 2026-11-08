@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { createTestDb, seedEdge, seedThought } from '../../test/helpers'
@@ -22,8 +22,11 @@ async function call(args: Record<string, unknown>) {
   const result = await client.callTool({ name: 'memory_supersede', arguments: args })
   const response = result as { content: Array<{ text: string }>; isError?: boolean }
   const text = response.content[0]?.text ?? '{}'
-  try { return { data: JSON.parse(text), isError: response.isError === true } }
-  catch { return { data: text, isError: response.isError === true } }
+  try {
+    return { data: JSON.parse(text), isError: response.isError === true }
+  } catch {
+    return { data: text, isError: response.isError === true }
+  }
 }
 
 beforeEach(async () => {
@@ -37,25 +40,54 @@ afterEach(async () => {
 
 describe('memory_supersede confirmation contract', () => {
   test('archive omission and false preview do not write; true executes', async () => {
-    const id = seedThought({ content: 'private archive content', status: 'active', tags: 'secret-tag' })
+    const id = seedThought({
+      content: 'private archive content',
+      status: 'active',
+      tags: 'secret-tag'
+    })
     for (const confirm of [undefined, false]) {
-      const result = await call({ action: 'archive', thought_id: id, ...(confirm === undefined ? {} : { confirm }) })
+      const result = await call({
+        action: 'archive',
+        thought_id: id,
+        ...(confirm === undefined ? {} : { confirm })
+      })
       expect(result.isError).toBe(false)
-      expect(result.data.item).toMatchObject({ status: 'preview', action: 'archive', thought_id: id, current_status: 'active', outcome: 'would_archive' })
+      expect(result.data.item).toMatchObject({
+        status: 'preview',
+        action: 'archive',
+        thought_id: id,
+        current_status: 'active',
+        outcome: 'would_archive'
+      })
       expect(JSON.stringify(result.data)).not.toContain('private archive content')
       expect(JSON.stringify(result.data)).not.toContain('secret-tag')
-      expect(getDb().query('select status from thoughts where id = ?').get(id)).toEqual({ status: 'active' })
+      expect(getDb().query('select status from thoughts where id = ?').get(id)).toEqual({
+        status: 'active'
+      })
     }
     const archPreview = await call({ action: 'archive', thought_id: id })
-    const executed = await call({ action: 'archive', thought_id: id, confirm: true, preview_token: archPreview.data.item.preview_token })
+    const executed = await call({
+      action: 'archive',
+      thought_id: id,
+      confirm: true,
+      preview_token: archPreview.data.item.preview_token
+    })
     expect(executed.isError).toBe(false)
-    expect(executed.data.item).toMatchObject({ status: 'executed', action: 'archive', result: { id, status: 'archived' } })
+    expect(executed.data.item).toMatchObject({
+      status: 'executed',
+      action: 'archive',
+      result: { id, status: 'archived' }
+    })
   })
 
   test('archive preview differentiates missing and archived thoughts', async () => {
     const archived = seedThought({ content: 'archived', status: 'archived' })
-    expect((await call({ action: 'archive', thought_id: 'missing-id' })).data.item.outcome).toBe('not_found')
-    expect((await call({ action: 'archive', thought_id: archived })).data.item.outcome).toBe('already_archived')
+    expect((await call({ action: 'archive', thought_id: 'missing-id' })).data.item.outcome).toBe(
+      'not_found'
+    )
+    expect((await call({ action: 'archive', thought_id: archived })).data.item.outcome).toBe(
+      'already_archived'
+    )
   })
 
   test('a legacy-flagged row previews as would_archive and archives on confirmation', async () => {
@@ -66,12 +98,26 @@ describe('memory_supersede confirmation contract', () => {
     getDb().prepare('UPDATE thoughts SET is_profile = 1 WHERE id = ?').run(flagged)
 
     const preview = await call({ action: 'archive', thought_id: flagged })
-    expect(preview.data.item).toMatchObject({ status: 'preview', current_status: 'active', outcome: 'would_archive' })
+    expect(preview.data.item).toMatchObject({
+      status: 'preview',
+      current_status: 'active',
+      outcome: 'would_archive'
+    })
 
-    const executed = await call({ action: 'archive', thought_id: flagged, confirm: true, preview_token: preview.data.item.preview_token })
+    const executed = await call({
+      action: 'archive',
+      thought_id: flagged,
+      confirm: true,
+      preview_token: preview.data.item.preview_token
+    })
     expect(executed.isError).toBe(false)
-    expect(executed.data.item).toMatchObject({ status: 'executed', result: { id: flagged, status: 'archived' } })
-    expect(getDb().query('select status from thoughts where id = ?').get(flagged)).toEqual({ status: 'archived' })
+    expect(executed.data.item).toMatchObject({
+      status: 'executed',
+      result: { id: flagged, status: 'archived' }
+    })
+    expect(getDb().query('select status from thoughts where id = ?').get(flagged)).toEqual({
+      status: 'archived'
+    })
   })
 
   test('archive outcomes stay inside the three-member union', async () => {
@@ -87,11 +133,18 @@ describe('memory_supersede confirmation contract', () => {
       (await call({ action: 'archive', thought_id: flagged })).data.item.outcome
     ]
     const batch = (
-      (await call({ action: 'archive_batch', thought_ids: ['missing-id', archived, active, flagged, active] })).data.items as Array<{ outcome: string }>
+      (
+        await call({
+          action: 'archive_batch',
+          thought_ids: ['missing-id', archived, active, flagged, active]
+        })
+      ).data.items as Array<{ outcome: string }>
     ).map(item => item.outcome)
 
     expect([...single, ...batch]).not.toContain('protected')
-    expect(new Set([...single, ...batch])).toEqual(new Set(['not_found', 'already_archived', 'would_archive']))
+    expect(new Set([...single, ...batch])).toEqual(
+      new Set(['not_found', 'already_archived', 'would_archive'])
+    )
   })
 
   test('archive_batch keeps duplicate and archived outcomes beside a legacy-flagged row', async () => {
@@ -102,7 +155,11 @@ describe('memory_supersede confirmation contract', () => {
     const ids = [flagged, active, archived, flagged]
 
     const preview = await call({ action: 'archive_batch', thought_ids: ids })
-    expect(preview.data.meta.counts).toMatchObject({ would_archive: 2, already_archived: 2, total: ids.length })
+    expect(preview.data.meta.counts).toMatchObject({
+      would_archive: 2,
+      already_archived: 2,
+      total: ids.length
+    })
     expect(preview.data.items).toEqual([
       { thought_id: flagged, outcome: 'would_archive' },
       { thought_id: active, outcome: 'would_archive' },
@@ -112,10 +169,17 @@ describe('memory_supersede confirmation contract', () => {
       { thought_id: flagged, outcome: 'already_archived' }
     ])
 
-    const result = await call({ action: 'archive_batch', thought_ids: ids, confirm: true, preview_token: preview.data.meta.preview.token })
+    const result = await call({
+      action: 'archive_batch',
+      thought_ids: ids,
+      confirm: true,
+      preview_token: preview.data.meta.preview.token
+    })
     expect(result.isError).toBe(false)
     expect(result.data.meta.counts).toMatchObject({ archived: 4, failed: 0, total: ids.length })
-    expect(getDb().query('select status from thoughts where id = ?').get(flagged)).toEqual({ status: 'archived' })
+    expect(getDb().query('select status from thoughts where id = ?').get(flagged)).toEqual({
+      status: 'archived'
+    })
   })
 
   test('archive_batch preview preserves order and labels duplicates and partial cases', async () => {
@@ -132,11 +196,15 @@ describe('memory_supersede confirmation contract', () => {
     expect(typeof preview.data.meta.preview?.token).toBe('string')
     expect(preview.data.meta.preview?.destructive).toBe(true)
     expect(preview.data.items).toEqual([
-      { thought_id: active, outcome: 'would_archive' }, { thought_id: 'missing-id', outcome: 'not_found' },
-      { thought_id: archived, outcome: 'already_archived' }, { thought_id: active, outcome: 'already_archived' },
+      { thought_id: active, outcome: 'would_archive' },
+      { thought_id: 'missing-id', outcome: 'not_found' },
+      { thought_id: archived, outcome: 'already_archived' },
+      { thought_id: active, outcome: 'already_archived' },
       { thought_id: other, outcome: 'would_archive' }
     ])
-    expect(getDb().query('select status from thoughts where id = ?').get(active)).toEqual({ status: 'active' })
+    expect(getDb().query('select status from thoughts where id = ?').get(active)).toEqual({
+      status: 'active'
+    })
   })
 
   test('confirmed archive_batch returns ordered errors and preserves partial commits', async () => {
@@ -144,7 +212,12 @@ describe('memory_supersede confirmation contract', () => {
     const other = seedThought({ content: 'batch other', status: 'active' })
     const ids = [active, 'missing-id', other, active]
     const batchPreview = await call({ action: 'archive_batch', thought_ids: ids })
-    const result = await call({ action: 'archive_batch', thought_ids: ids, confirm: true, preview_token: batchPreview.data.meta.preview.token })
+    const result = await call({
+      action: 'archive_batch',
+      thought_ids: ids,
+      confirm: true,
+      preview_token: batchPreview.data.meta.preview.token
+    })
     expect(result.isError).toBe(false)
     expect(result.data.meta.action).toBe('archive_batch')
     expect(result.data.meta.counts).toMatchObject({ archived: 3, failed: 1, total: ids.length })
@@ -155,12 +228,20 @@ describe('memory_supersede confirmation contract', () => {
       { thought_id: other, status: 'archived' },
       { thought_id: active, status: 'archived' }
     ])
-    expect(getDb().query('select status from thoughts where id = ?').get(active)).toEqual({ status: 'archived' })
-    expect(getDb().query('select status from thoughts where id = ?').get(other)).toEqual({ status: 'archived' })
+    expect(getDb().query('select status from thoughts where id = ?').get(active)).toEqual({
+      status: 'archived'
+    })
+    expect(getDb().query('select status from thoughts where id = ?').get(other)).toEqual({
+      status: 'archived'
+    })
   })
 
   test('merge preview reports proposed fields and bounded edge descriptors without writes', async () => {
-    const source = seedThought({ content: 'source secret content', status: 'active', tags: 'source-secret' })
+    const source = seedThought({
+      content: 'source secret content',
+      status: 'active',
+      tags: 'source-secret'
+    })
     const target = seedThought({ content: 'target original', status: 'active' })
     const edgeIds: string[] = []
     for (let i = 0; i < 160; i++) {
@@ -168,54 +249,134 @@ describe('memory_supersede confirmation contract', () => {
       edgeIds.push(seedEdge(source, node, 'develops'))
     }
     const beforeEdges = (getDb().query('select count(*) as n from edges').get() as { n: number }).n
-    getDb().prepare(`INSERT OR IGNORE INTO projects (id, name, created_at, local_path) VALUES ('project-x', 'Project X', ?, '/tmp/project-x')`).run(new Date().toISOString())
-    const preview = await call({ action: 'merge', source_id: source, target_id: target, merged_content: 'proposed replacement', merged_tags: ['proposed'], cwd: '/tmp/project-x' })
+    getDb()
+      .prepare(
+        `INSERT OR IGNORE INTO projects (id, name, created_at, local_path) VALUES ('project-x', 'Project X', ?, '/tmp/project-x')`
+      )
+      .run(new Date().toISOString())
+    const preview = await call({
+      action: 'merge',
+      source_id: source,
+      target_id: target,
+      merged_content: 'proposed replacement',
+      merged_tags: ['proposed'],
+      cwd: '/tmp/project-x'
+    })
     expect(preview.isError).toBe(false)
-    expect(preview.data.item).toMatchObject({ status: 'preview', action: 'merge', outcome: 'would_merge',
-      proposed: { merged_content: 'proposed replacement', merged_tags: ['proposed'], project_id: 'project-x' },
+    expect(preview.data.item).toMatchObject({
+      status: 'preview',
+      action: 'merge',
+      outcome: 'would_merge',
+      proposed: {
+        merged_content: 'proposed replacement',
+        merged_tags: ['proposed'],
+        project_id: 'project-x'
+      },
       effects: { source_archived: true, target_updated: true, replaces_edge_created: true },
-      source: { id: source, status: 'active', source_edge_count: 160, truncated: true }, target: { id: target, status: 'active' } })
+      source: { id: source, status: 'active', source_edge_count: 160, truncated: true },
+      target: { id: target, status: 'active' }
+    })
     expect(preview.data.item.source.edges).toHaveLength(50)
-    expect(preview.data.item.source.edges.map((edge: { id: string }) => edge.id)).toEqual(edgeIds.sort().slice(0, 50))
-    expect(getDb().query('select status from thoughts where id = ?').get(source)).toEqual({ status: 'active' })
-    expect(getDb().query('select content from thoughts where id = ?').get(target)).toEqual({ content: 'target original' })
-    expect((getDb().query('select count(*) as n from edges').get() as { n: number }).n).toBe(beforeEdges)
+    expect(preview.data.item.source.edges.map((edge: { id: string }) => edge.id)).toEqual(
+      edgeIds.sort().slice(0, 50)
+    )
+    expect(getDb().query('select status from thoughts where id = ?').get(source)).toEqual({
+      status: 'active'
+    })
+    expect(getDb().query('select content from thoughts where id = ?').get(target)).toEqual({
+      content: 'target original'
+    })
+    expect((getDb().query('select count(*) as n from edges').get() as { n: number }).n).toBe(
+      beforeEdges
+    )
   })
 
   test('merge omission/false preview do not mutate; confirmation executes proposed fields', async () => {
     const source = seedThought({ content: 'source', status: 'active' })
     const target = seedThought({ content: 'target', status: 'active' })
     for (const confirm of [undefined, false]) {
-      const result = await call({ action: 'merge', source_id: source, target_id: target, merged_content: 'merged', ...(confirm === undefined ? {} : { confirm }) })
+      const result = await call({
+        action: 'merge',
+        source_id: source,
+        target_id: target,
+        merged_content: 'merged',
+        ...(confirm === undefined ? {} : { confirm })
+      })
       expect(result.isError).toBe(false)
       expect(result.data.item.status).toBe('preview')
-      expect(getDb().query('select status from thoughts where id = ?').get(source)).toEqual({ status: 'active' })
-      expect(getDb().query('select content from thoughts where id = ?').get(target)).toEqual({ content: 'target' })
+      expect(getDb().query('select status from thoughts where id = ?').get(source)).toEqual({
+        status: 'active'
+      })
+      expect(getDb().query('select content from thoughts where id = ?').get(target)).toEqual({
+        content: 'target'
+      })
     }
-    const mergePreview = await call({ action: 'merge', source_id: source, target_id: target, merged_content: 'merged' })
-    const result = await call({ action: 'merge', source_id: source, target_id: target, merged_content: 'merged', confirm: true, preview_token: mergePreview.data.item.preview_token })
+    const mergePreview = await call({
+      action: 'merge',
+      source_id: source,
+      target_id: target,
+      merged_content: 'merged'
+    })
+    const result = await call({
+      action: 'merge',
+      source_id: source,
+      target_id: target,
+      merged_content: 'merged',
+      confirm: true,
+      preview_token: mergePreview.data.item.preview_token
+    })
     expect(result.isError).toBe(false)
-    expect(result.data.item).toMatchObject({ status: 'executed', action: 'merge', result: { target: { content: 'merged' } } })
-    expect(getDb().query('select status from thoughts where id = ?').get(source)).toEqual({ status: 'archived' })
+    expect(result.data.item).toMatchObject({
+      status: 'executed',
+      action: 'merge',
+      result: { target: { content: 'merged' } }
+    })
+    expect(getDb().query('select status from thoughts where id = ?').get(source)).toEqual({
+      status: 'archived'
+    })
   })
 
   test('merge revalidates stale preview and does not partially update target', async () => {
     const source = seedThought({ content: 'source', status: 'active' })
     const target = seedThought({ content: 'stable target', status: 'active' })
-    expect((await call({ action: 'merge', source_id: source, target_id: target, merged_content: 'changed' })).data.item.status).toBe('preview')
+    expect(
+      (
+        await call({
+          action: 'merge',
+          source_id: source,
+          target_id: target,
+          merged_content: 'changed'
+        })
+      ).data.item.status
+    ).toBe('preview')
     getDb().query("update thoughts set status = 'archived' where id = ?").run(source)
-    const result = await call({ action: 'merge', source_id: source, target_id: target, merged_content: 'changed', confirm: true })
+    const result = await call({
+      action: 'merge',
+      source_id: source,
+      target_id: target,
+      merged_content: 'changed',
+      confirm: true
+    })
     expect(result.isError).toBe(true)
-    expect(getDb().query('select content from thoughts where id = ?').get(target)).toEqual({ content: 'stable target' })
+    expect(getDb().query('select content from thoughts where id = ?').get(target)).toEqual({
+      content: 'stable target'
+    })
   })
 
   test('merge preview handles missing and ineligible pairs', async () => {
-    expect((await call({ action: 'merge', source_id: 'missing', target_id: 'also-missing' })).data.item.outcome).toBe('not_found')
+    expect(
+      (await call({ action: 'merge', source_id: 'missing', target_id: 'also-missing' })).data.item
+        .outcome
+    ).toBe('not_found')
     const id = seedThought({ content: 'same', status: 'active' })
-    expect((await call({ action: 'merge', source_id: id, target_id: id })).data.item).toMatchObject({ outcome: 'ineligible', reason: 'source_id and target_id must be different' })
+    expect((await call({ action: 'merge', source_id: id, target_id: id })).data.item).toMatchObject(
+      { outcome: 'ineligible', reason: 'source_id and target_id must be different' }
+    )
     const archived = seedThought({ content: 'archived source', status: 'archived' })
     const target = seedThought({ content: 'target', status: 'active' })
-    expect((await call({ action: 'merge', source_id: archived, target_id: target })).data.item.outcome).toBe('ineligible')
+    expect(
+      (await call({ action: 'merge', source_id: archived, target_id: target })).data.item.outcome
+    ).toBe('ineligible')
   })
 
   test('wrong confirmation types and irrelevant mutation controls fail without writes', async () => {
@@ -228,8 +389,12 @@ describe('memory_supersede confirmation contract', () => {
     ]) {
       const result = await call(args)
       expect(result.isError).toBe(true)
-      expect(String(result.data)).toMatch(/confirm must be a boolean|not applicable|expected boolean/)
-      expect(getDb().query('select status from thoughts where id = ?').get(id)).toEqual({ status: 'active' })
+      expect(String(result.data)).toMatch(
+        /confirm must be a boolean|not applicable|expected boolean/
+      )
+      expect(getDb().query('select status from thoughts where id = ?').get(id)).toEqual({
+        status: 'active'
+      })
     }
   })
 })

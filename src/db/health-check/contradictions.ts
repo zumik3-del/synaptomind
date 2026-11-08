@@ -4,7 +4,7 @@ import type {
   ContradictsRedundantWithReplaces,
   ContradictsToArchived,
   ContradictsWithHierarchy,
-  SupportsSelfConflict,
+  SupportsSelfConflict
 } from './types'
 
 /**
@@ -16,7 +16,8 @@ import type {
  * signal; the hierarchy interaction is the actionable check instead.
  */
 export function findContradictsWithHierarchy(db: Database): ContradictsWithHierarchy[] {
-  return db.prepare(`
+  return db
+    .prepare(`
     WITH RECURSIVE hierarchy(root, node) AS (
       SELECT source_id, target_id FROM edges WHERE type IN ('parent', 'develops')
       UNION
@@ -30,7 +31,8 @@ export function findContradictsWithHierarchy(db: Database): ContradictsWithHiera
       ON (h.root = c.source_id AND h.node = c.target_id)
       OR (h.root = c.target_id AND h.node = c.source_id)
     WHERE c.type = 'contradicts'
-  `).all() as ContradictsWithHierarchy[]
+  `)
+    .all() as ContradictsWithHierarchy[]
 }
 
 /**
@@ -38,8 +40,11 @@ export function findContradictsWithHierarchy(db: Database): ContradictsWithHiera
  * supersession already resolved the conflict, so the stance edge is redundant
  * (normally impossible through `createEdge`, catches migration/junk rows).
  */
-export function findContradictsRedundantWithReplaces(db: Database): ContradictsRedundantWithReplaces[] {
-  return db.prepare(`
+export function findContradictsRedundantWithReplaces(
+  db: Database
+): ContradictsRedundantWithReplaces[] {
+  return db
+    .prepare(`
     SELECT DISTINCT
       c.id AS contradicts_edge_id,
       r.id AS replaces_edge_id,
@@ -51,7 +56,8 @@ export function findContradictsRedundantWithReplaces(db: Database): ContradictsR
       (r.source_id = c.target_id AND r.target_id = c.source_id)
     )
     WHERE c.type = 'contradicts'
-  `).all() as ContradictsRedundantWithReplaces[]
+  `)
+    .all() as ContradictsRedundantWithReplaces[]
 }
 
 /**
@@ -65,7 +71,8 @@ export function findContradictsRedundantWithReplaces(db: Database): ContradictsR
  * archived pairs stay reported by `findContradictsToArchived`.
  */
 export function findContradictionInCluster(db: Database): ContradictionInCluster[] {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT DISTINCT
       ce1.source_id AS cluster_id,
       ce1.target_id AS member_a,
@@ -85,18 +92,21 @@ export function findContradictionInCluster(db: Database): ContradictionInCluster
         (c.source_id = ce2.target_id AND c.target_id = ce1.target_id)
       )
     WHERE ce1.type = 'cluster'
-  `).all() as ContradictionInCluster[]
+  `)
+    .all() as ContradictionInCluster[]
 }
 
 /** Both endpoints of a `contradicts` edge are archived: stale conflict, a cleanup candidate. */
 export function findContradictsToArchived(db: Database): ContradictsToArchived[] {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT e.id AS edge_id, e.source_id, e.target_id
     FROM edges e
     JOIN thoughts s ON s.id = e.source_id
     JOIN thoughts t ON t.id = e.target_id
     WHERE e.type = 'contradicts' AND s.status = 'archived' AND t.status = 'archived'
-  `).all() as ContradictsToArchived[]
+  `)
+    .all() as ContradictsToArchived[]
 }
 
 /**
@@ -105,7 +115,8 @@ export function findContradictsToArchived(db: Database): ContradictsToArchived[]
  * externally-inserted rows that break the invariant.
  */
 export function findSupportsSelfConflict(db: Database): SupportsSelfConflict[] {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT DISTINCT
       s.id AS supports_edge_id,
       c.id AS contradicts_edge_id,
@@ -117,5 +128,6 @@ export function findSupportsSelfConflict(db: Database): SupportsSelfConflict[] {
       (c.source_id = s.target_id AND c.target_id = s.source_id)
     )
     WHERE s.type = 'supports'
-  `).all() as SupportsSelfConflict[]
+  `)
+    .all() as SupportsSelfConflict[]
 }

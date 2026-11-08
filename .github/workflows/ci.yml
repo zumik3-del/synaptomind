@@ -46,6 +46,16 @@ jobs:
         continue-on-error: true
         run: bun x @biomejs/biome check src/ eval/
 
+      # Formatting is a BLOCKING gate, unlike the advisory lint above: the tree is
+      # already formatted with Biome (100 cols, single quotes, no semicolons), so a
+      # red run means someone added unformatted code, never a disputed rule — and the
+      # fix is mechanical (`bun run format`). Lint still stays advisory because its
+      # findings are judgement calls. Mirrors the local `bun run format:check`
+      # (JSON is excluded in biome.json: `eval/report.json` is a generated, gitignored
+      # artifact, so a machine that ran the eval suite would otherwise go red).
+      - name: "Format: biome (blocking)"
+        run: bun run format:check
+
       # Blocking: a dead `ai-workdir/` pointer in src/ or docs/ (gitignored scratch
       # dir, absent from a checkout) breaks agent-facing docs, so this is a gate, not
       # advisory like biome above. Mirrors the local `bun run lint:docs` (audit M7).

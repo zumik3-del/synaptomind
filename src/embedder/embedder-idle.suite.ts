@@ -12,36 +12,75 @@ const originalClearTimeout = globalThis.clearTimeout
 const originalInterval = globalThis.setInterval
 const originalClearInterval = globalThis.clearInterval
 const originalExit = process.exit
-globalThis.setTimeout = ((fn: () => void) => { idle = fn; return 1 }) as unknown as typeof setTimeout
-globalThis.clearTimeout = (() => { clears++ }) as typeof clearTimeout
+globalThis.setTimeout = ((fn: () => void) => {
+  idle = fn
+  return 1
+}) as unknown as typeof setTimeout
+globalThis.clearTimeout = (() => {
+  clears++
+}) as typeof clearTimeout
 globalThis.setInterval = ((fn: () => void, ms: number) => {
   if (ms === 10) poll = fn
   return 1
 }) as unknown as typeof setInterval
 globalThis.clearInterval = (() => {}) as typeof clearInterval
-process.exit = ((code: number) => { exits = code === 0 ? exits + 1 : -1 }) as typeof process.exit
+process.exit = ((code: number) => {
+  exits = code === 0 ? exits + 1 : -1
+}) as typeof process.exit
 
-mock.module('../config', () => ({ config: {
-  users: [{ id: 'user', dbPath: 'user' }],
-  embedder: { batchSize: 1, pollIntervalMs: 10, precache: false, idleTimeoutMs: 1000,
-    cacheDir: '', model: '', dtype: 'q8' }
-} }))
-mock.module('../db/init', () => ({ initDb: () => {}, closeDb: () => {}, openDatabase: () => ({ close: () => { closes++ } }) }))
-mock.module('../db/container', () => ({ getDb: () => { throw new Error('unexpected legacy mode') } }))
+mock.module('../config', () => ({
+  config: {
+    users: [{ id: 'user', dbPath: 'user' }],
+    embedder: {
+      batchSize: 1,
+      pollIntervalMs: 10,
+      precache: false,
+      idleTimeoutMs: 1000,
+      cacheDir: '',
+      model: '',
+      dtype: 'q8'
+    }
+  }
+}))
+mock.module('../db/init', () => ({
+  initDb: () => {},
+  closeDb: () => {},
+  openDatabase: () => ({
+    close: () => {
+      closes++
+    }
+  })
+}))
+mock.module('../db/container', () => ({
+  getDb: () => {
+    throw new Error('unexpected legacy mode')
+  }
+}))
 mock.module('../logging', () => ({ insertLog: () => {} }))
 mock.module('./model-validator', () => ({ ensureModelFiles: async () => {} }))
 mock.module('./handle-request', () => ({ handleEmbedderRequest: async () => {} }))
-mock.module('./model', () => ({ generateEmbeddings: async () => [new Float32Array([1])], resetExtractor: () => { resets++ } }))
+mock.module('./model', () => ({
+  generateEmbeddings: async () => [new Float32Array([1])],
+  resetExtractor: () => {
+    resets++
+  }
+}))
 mock.module('../db/pending-embeddings', () => ({
   CONTENT_CHANGED_REASON: 'changed',
-  findPendingEmbeddings: () => queued ? [{ id: 'row', content: 'row', contentHash: 'hash' }] : [],
+  findPendingEmbeddings: () => (queued ? [{ id: 'row', content: 'row', contentHash: 'hash' }] : []),
   insertEmbedding: () => true,
-  deleteFromQueue: () => { queued = false },
-  handleFailedItem: () => {}, requeueEmbeddings: () => {}, sweepOrphanedThoughts: () => []
+  deleteFromQueue: () => {
+    queued = false
+  },
+  handleFailedItem: () => {},
+  requeueEmbeddings: () => {},
+  sweepOrphanedThoughts: () => []
 }))
 
 await import('./embedder-process')
-async function flush() { for (let i = 0; i < 20; i++) await Promise.resolve() }
+async function flush() {
+  for (let i = 0; i < 20; i++) await Promise.resolve()
+}
 afterAll(() => {
   globalThis.setTimeout = originalTimeout
   globalThis.clearTimeout = originalClearTimeout

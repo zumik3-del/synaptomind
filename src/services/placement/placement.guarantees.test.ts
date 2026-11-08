@@ -38,7 +38,10 @@ function stubEmbed(recordLengths?: number[]): (texts: string[]) => Promise<Float
  * neighbours. Seeded neighbours must exist in the pool (active, same-project,
  * non-cluster) or they are dropped by `findEmbeddingNeighborPairs`.
  */
-function stubSearch(map: Record<string, Array<{ id: string; similarity: number }>>, recordTopK?: number[]) {
+function stubSearch(
+  map: Record<string, Array<{ id: string; similarity: number }>>,
+  recordTopK?: number[]
+) {
   return (_id: string, _embedding: Float32Array, topK: number) => {
     recordTopK?.push(topK)
     return map[_id] ?? []
@@ -75,7 +78,12 @@ describe('proposePlacement', () => {
       const source = getThoughtRow(db, sourceId)!
       const deps = {
         embed: stubEmbed(),
-        searchNeighbors: stubSearch({ [sourceId]: [{ id: nHigh, similarity: 0.8 }, { id: nLow, similarity: 0.74 }] })
+        searchNeighbors: stubSearch({
+          [sourceId]: [
+            { id: nHigh, similarity: 0.8 },
+            { id: nLow, similarity: 0.74 }
+          ]
+        })
       }
 
       // default threshold 0.75 drops nLow (0.74): only nHigh → c1 majority
@@ -106,7 +114,12 @@ describe('proposePlacement', () => {
         seedThought({ content: `bulk ${i}`, created_at: new Date(base - i * 60_000).toISOString() })
       }
       const bulkSource = getThoughtRow(db, sourceId)! // newest, always inside the limit window
-      await proposePlacement(bulkSource, {}, { embed: stubEmbed(embedLengths), searchNeighbors: stubSearch({}) }, db)
+      await proposePlacement(
+        bulkSource,
+        {},
+        { embed: stubEmbed(embedLengths), searchNeighbors: stubSearch({}) },
+        db
+      )
       expect(embedLengths).toEqual([config.edgeDetect.maxCandidates]) // 100
     })
   })
@@ -114,7 +127,12 @@ describe('proposePlacement', () => {
   describe('read-only guarantee', () => {
     test('no edge/cluster/lifecycle mutation occurs on any branch', async () => {
       const db = getDb()
-      const clusterId = seedThought({ id: 'c-ro', content: 'ro cluster', is_cluster: 1, project_id: 'default' })
+      const clusterId = seedThought({
+        id: 'c-ro',
+        content: 'ro cluster',
+        is_cluster: 1,
+        project_id: 'default'
+      })
       const n1 = seedThought({ content: 'ro neighbour (clustered + chained)' })
       const n2 = seedThought({ content: 'ro neighbour (chain only)' })
       const root = seedThought({ content: 'ro root' })
@@ -127,13 +145,35 @@ describe('proposePlacement', () => {
       seedEdge(root, n1, 'parent')
       seedEdge(root, n2, 'parent')
 
-      const neighbours = (id: string, target: string) => ({ [id]: [{ id: target, similarity: 0.9 }] })
+      const neighbours = (id: string, target: string) => ({
+        [id]: [{ id: target, similarity: 0.9 }]
+      })
       const before = tableFingerprint(db)
       const results = await Promise.all([
-        proposePlacement(getThoughtRow(db, srcA)!, {}, { embed: stubEmbed(), searchNeighbors: stubSearch(neighbours(srcA, n1)) }, db),
-        proposePlacement(getThoughtRow(db, srcB)!, { maxClusterSize: 1 }, { embed: stubEmbed(), searchNeighbors: stubSearch(neighbours(srcB, n1)) }, db),
-        proposePlacement(getThoughtRow(db, srcC)!, {}, { embed: stubEmbed(), searchNeighbors: stubSearch(neighbours(srcC, n2)) }, db),
-        proposePlacement(getThoughtRow(db, srcD)!, {}, { embed: stubEmbed(), searchNeighbors: stubSearch({}) }, db),
+        proposePlacement(
+          getThoughtRow(db, srcA)!,
+          {},
+          { embed: stubEmbed(), searchNeighbors: stubSearch(neighbours(srcA, n1)) },
+          db
+        ),
+        proposePlacement(
+          getThoughtRow(db, srcB)!,
+          { maxClusterSize: 1 },
+          { embed: stubEmbed(), searchNeighbors: stubSearch(neighbours(srcB, n1)) },
+          db
+        ),
+        proposePlacement(
+          getThoughtRow(db, srcC)!,
+          {},
+          { embed: stubEmbed(), searchNeighbors: stubSearch(neighbours(srcC, n2)) },
+          db
+        ),
+        proposePlacement(
+          getThoughtRow(db, srcD)!,
+          {},
+          { embed: stubEmbed(), searchNeighbors: stubSearch({}) },
+          db
+        ),
         proposePlacement(
           getThoughtRow(db, srcE)!,
           {},
@@ -149,7 +189,13 @@ describe('proposePlacement', () => {
 
       // each branch reached the intended path
       // note: null?.kind is undefined, so the null-proposal cases appear as undefined
-      expect(results.map(r => r.proposal?.kind)).toEqual(['cluster', 'parent', 'parent', undefined, undefined])
+      expect(results.map(r => r.proposal?.kind)).toEqual([
+        'cluster',
+        'parent',
+        'parent',
+        undefined,
+        undefined
+      ])
       expect(results[3].reason).toBe('no embedding neighbours above the similarity threshold')
       expect(results[4].reason).toBe('embedder unavailable')
       // and nothing was written on any of them

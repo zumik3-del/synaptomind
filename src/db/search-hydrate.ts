@@ -97,8 +97,13 @@ export function isStrongMatch(
 function applyRecencyScoring(results: SearchResult[], scores: SearchRecencyContext): void {
   if (!scores.recencyActive) return
   for (const result of results) {
-    const relevant = result.rrf_score !== undefined ? result.rrf_score / scores.rrfMax : (result.similarity ?? 0)
-    const recency = recencyDecay(result.thought.created_at, scores.nowMs, scores.recencyHalfLifeDays)
+    const relevant =
+      result.rrf_score !== undefined ? result.rrf_score / scores.rrfMax : (result.similarity ?? 0)
+    const recency = recencyDecay(
+      result.thought.created_at,
+      scores.nowMs,
+      scores.recencyHalfLifeDays
+    )
     result.recency_score = recency
     result.final_score = relevant + scores.recencyWeight * recency
   }
@@ -132,7 +137,10 @@ export function fetchThoughtsByIds(
     `)
     .all(...orderedIds, ...params) as Array<SearchRow & { _importance: number | null }>
 
-  const tagMap = getThoughtTagsBatch(db, rows.map(r => r.id))
+  const tagMap = getThoughtTagsBatch(
+    db,
+    rows.map(r => r.id)
+  )
   const byId = new Map(rows.map(r => [r.id, r]))
   const out: SearchResult[] = []
   for (const id of orderedIds) {

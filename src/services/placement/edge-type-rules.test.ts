@@ -21,7 +21,7 @@ function makeSignals(overrides?: Partial<PairSignals>): PairSignals {
     sourceStanding: 'current',
     targetStanding: 'current',
     sameProject: true,
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -32,7 +32,7 @@ describe('classifyEdgeType', () => {
         temporalOrder: 'newer',
         lexicalOverlap: 0.8,
         evolutionCue: true,
-        embeddingSimilarity: 0.9,
+        embeddingSimilarity: 0.9
       })
       const proposal = classifyEdgeType(sig)
       expect(proposal).not.toBeNull()
@@ -45,7 +45,7 @@ describe('classifyEdgeType', () => {
       const sig = makeSignals({
         temporalOrder: 'older',
         lexicalOverlap: 0.8,
-        evolutionCue: true,
+        evolutionCue: true
       })
       expect(classifyEdgeType(sig)).toBeNull()
     })
@@ -54,7 +54,7 @@ describe('classifyEdgeType', () => {
       const sig = makeSignals({
         temporalOrder: 'newer',
         lexicalOverlap: 0.2,
-        evolutionCue: true,
+        evolutionCue: true
       })
       expect(classifyEdgeType(sig)).toBeNull()
     })
@@ -63,7 +63,7 @@ describe('classifyEdgeType', () => {
       const sig = makeSignals({
         temporalOrder: 'newer',
         lexicalOverlap: 0.8,
-        evolutionCue: false,
+        evolutionCue: false
       })
       expect(classifyEdgeType(sig)).toBeNull()
     })
@@ -74,7 +74,7 @@ describe('classifyEdgeType', () => {
       const sig = makeSignals({
         negationDelta: 1,
         embeddingSimilarity: 0.8,
-        lexicalOverlap: 0.6,
+        lexicalOverlap: 0.6
       })
       const proposal = classifyEdgeType(sig)
       expect(proposal).not.toBeNull()
@@ -106,7 +106,9 @@ describe('classifyEdgeType', () => {
     })
 
     test('does not fire when no evidential cue', () => {
-      const proposal = classifyEdgeType(makeSignals({ evidentialCue: false, embeddingSimilarity: 0.9 }))
+      const proposal = classifyEdgeType(
+        makeSignals({ evidentialCue: false, embeddingSimilarity: 0.9 })
+      )
       expect(proposal?.type).not.toBe('supports')
     })
 
@@ -154,7 +156,9 @@ describe('classifyEdgeType', () => {
     })
 
     test('does not fire when no dependency cue', () => {
-      expect(classifyEdgeType(makeSignals({ dependencyCue: false, temporalOrder: 'older' }))).toBeNull()
+      expect(
+        classifyEdgeType(makeSignals({ dependencyCue: false, temporalOrder: 'older' }))
+      ).toBeNull()
     })
   })
 
@@ -182,7 +186,7 @@ describe('classifyEdgeType', () => {
         lexicalOverlap: 0.8,
         evolutionCue: true,
         negationDelta: 1,
-        embeddingSimilarity: 0.9,
+        embeddingSimilarity: 0.9
       })
       const proposal = classifyEdgeType(sig)
       expect(proposal).not.toBeNull()
@@ -195,7 +199,7 @@ describe('classifyEdgeType', () => {
         negationDelta: 1,
         evidentialCue: true,
         embeddingSimilarity: 0.9,
-        lexicalOverlap: 0.6,
+        lexicalOverlap: 0.6
       })
       const proposal = classifyEdgeType(sig)
       expect(proposal).not.toBeNull()
@@ -221,8 +225,14 @@ describe('classifyEdgeType', () => {
     test('every rule direction aligns with SYMMETRIC_EDGE_TYPES', () => {
       for (const rule of EDGE_TYPE_RULES) {
         const isSymmetric = SYMMETRIC_EDGE_TYPES.has(rule.type)
-        expect(rule.direction === 'symmetric', `${rule.id}: expected symmetric for ${rule.type}`).toBe(isSymmetric)
-        expect(rule.direction === 'directed', `${rule.id}: expected directed for ${rule.type}`).toBe(!isSymmetric)
+        expect(
+          rule.direction === 'symmetric',
+          `${rule.id}: expected symmetric for ${rule.type}`
+        ).toBe(isSymmetric)
+        expect(
+          rule.direction === 'directed',
+          `${rule.id}: expected directed for ${rule.type}`
+        ).toBe(!isSymmetric)
       }
     })
   })
@@ -232,7 +242,10 @@ describe('classifyEdgeType', () => {
       for (const rule of EDGE_TYPE_RULES) {
         if (rule.id === 'fallback.embedding_related') continue
         const hasNonEmbedding = rule.requires.some(k => k !== 'embeddingSimilarity')
-        expect(hasNonEmbedding, `${rule.id} requires=${JSON.stringify(rule.requires)} has no non-embedding signal`).toBeTrue()
+        expect(
+          hasNonEmbedding,
+          `${rule.id} requires=${JSON.stringify(rule.requires)} has no non-embedding signal`
+        ).toBeTrue()
       }
     })
   })
@@ -258,7 +271,7 @@ describe('classifyEdgeType', () => {
       // the rule even though dependencyCue is true — the fallback must fire.
       const sig = {
         ...makeSignals({ dependencyCue: true, embeddingSimilarity: 0.85 }),
-        temporalOrder: null as unknown as NonNullable<PairSignals['temporalOrder']>,
+        temporalOrder: null as unknown as NonNullable<PairSignals['temporalOrder']>
       }
       const proposal = classifyEdgeType(sig)
       expect(proposal).not.toBeNull()

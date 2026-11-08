@@ -9,12 +9,13 @@ export default {
     const defaultProjectId = metaRow?.value ?? Bun.randomUUIDv7()
 
     if (!metaRow) {
-      db.prepare(`INSERT INTO _meta (key, value) VALUES ('default_project_id', ?)`).run(defaultProjectId)
+      db.prepare(`INSERT INTO _meta (key, value) VALUES ('default_project_id', ?)`).run(
+        defaultProjectId
+      )
     }
-    db.prepare(`INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, 'Default', ?)`).run(
-      defaultProjectId,
-      new Date().toISOString()
-    )
+    db.prepare(
+      `INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, 'Default', ?)`
+    ).run(defaultProjectId, new Date().toISOString())
 
     try {
       db.run(`ALTER TABLE thoughts ADD COLUMN project_id TEXT`)

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { McpServer } from "@modelcontextprotocol/server";
+import type { McpServer } from '@modelcontextprotocol/server'
 import { closeDb } from '../../db/init'
 import { createTestDb } from '../../test/helpers'
 import { registerMemoryReflect } from './reflect'
@@ -42,10 +42,16 @@ type ToolResult = {
   isError?: boolean
 }
 
-function captureTool(register: (server: McpServer) => void): (args: Record<string, unknown>) => Promise<unknown> {
+function captureTool(
+  register: (server: McpServer) => void
+): (args: Record<string, unknown>) => Promise<unknown> {
   let handler: ((args: Record<string, unknown>) => Promise<unknown>) | undefined
   const fakeServer = {
-    registerTool: (_name: string, _config: unknown, cb: (args: Record<string, unknown>) => Promise<unknown>) => {
+    registerTool: (
+      _name: string,
+      _config: unknown,
+      cb: (args: Record<string, unknown>) => Promise<unknown>
+    ) => {
       handler = cb
       return { enable: () => {}, disable: () => {}, remove: () => {} }
     }
@@ -61,7 +67,11 @@ afterEach(closeDb)
 describe('memory_reflect project resolution failure', () => {
   test('reflect with a cwd whose project resolution throws returns the isError envelope', async () => {
     const handler = captureTool(registerMemoryReflect)
-    const result = (await handler({ action: 'reflect', cwd: '/tmp/resolution-failure', summary: 'boom' })) as ToolResult
+    const result = (await handler({
+      action: 'reflect',
+      cwd: '/tmp/resolution-failure',
+      summary: 'boom'
+    })) as ToolResult
 
     // If resolution ran outside the dispatch try this would reject instead.
     expect(result.isError).toBe(true)
@@ -73,7 +83,10 @@ describe('memory_reflect project resolution failure', () => {
 
   test('timeline with a cwd whose project resolution throws returns the isError envelope', async () => {
     const handler = captureTool(registerMemoryReflect)
-    const result = (await handler({ action: 'timeline', cwd: '/tmp/resolution-failure' })) as ToolResult
+    const result = (await handler({
+      action: 'timeline',
+      cwd: '/tmp/resolution-failure'
+    })) as ToolResult
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toBe(RESOLUTION_FAILURE)
@@ -81,7 +94,10 @@ describe('memory_reflect project resolution failure', () => {
 
   test('reflect without cwd is rejected before resolution (hard-cwd contract)', async () => {
     const handler = captureTool(registerMemoryReflect)
-    const result = (await handler({ action: 'reflect', summary: 'control run without project scope' })) as ToolResult
+    const result = (await handler({
+      action: 'reflect',
+      summary: 'control run without project scope'
+    })) as ToolResult
 
     // The hard-cwd guard fires first, so the mocked (throwing) resolver is
     // never reached and the caller gets the actionable message instead.

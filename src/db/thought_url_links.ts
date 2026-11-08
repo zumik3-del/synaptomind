@@ -24,14 +24,12 @@ export function upsertThoughtUrlLink(
     .get(thoughtId, key) as { id: string } | undefined
   const now = new Date().toISOString()
   if (existing) {
-    db.prepare('UPDATE thought_url_links SET url = ?, label = ?, sort_order = ?, created_at = ? WHERE id = ?').run(
-      url,
-      label,
-      sortOrder,
-      now,
-      existing.id
-    )
-    return db.prepare('SELECT * FROM thought_url_links WHERE id = ?').get(existing.id) as ThoughtUrlLink
+    db.prepare(
+      'UPDATE thought_url_links SET url = ?, label = ?, sort_order = ?, created_at = ? WHERE id = ?'
+    ).run(url, label, sortOrder, now, existing.id)
+    return db
+      .prepare('SELECT * FROM thought_url_links WHERE id = ?')
+      .get(existing.id) as ThoughtUrlLink
   }
   const id = Bun.randomUUIDv7()
   db.prepare(
@@ -40,7 +38,10 @@ export function upsertThoughtUrlLink(
   return db.prepare('SELECT * FROM thought_url_links WHERE id = ?').get(id) as ThoughtUrlLink
 }
 
-export function getThoughtUrlLinksForThoughts(db: Database, thoughtIds: string[]): ThoughtUrlLink[] {
+export function getThoughtUrlLinksForThoughts(
+  db: Database,
+  thoughtIds: string[]
+): ThoughtUrlLink[] {
   if (thoughtIds.length === 0) return []
   const ph = sqlIn(thoughtIds)
   return db
@@ -55,7 +56,11 @@ export function pruneThoughtUrlLinks(db: Database, thoughtId: string, content: s
   return deleteThoughtUrlLinksNotIn(db, thoughtId, extractLinkKeys(content))
 }
 
-export function deleteThoughtUrlLinksNotIn(db: Database, thoughtId: string, keys: string[]): number {
+export function deleteThoughtUrlLinksNotIn(
+  db: Database,
+  thoughtId: string,
+  keys: string[]
+): number {
   if (keys.length === 0) {
     return db.prepare('DELETE FROM thought_url_links WHERE thought_id = ?').run(thoughtId).changes
   }

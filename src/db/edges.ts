@@ -8,12 +8,24 @@ import {
   InvalidEdgeTypeError
 } from './errors'
 import { NotFoundError } from '../errors'
-import { EDGE_TYPES, isValidEdgeType, SYMMETRIC_EDGE_TYPES, validateClusterConstraint, validateRetype } from './edge-validation'
+import {
+  EDGE_TYPES,
+  isValidEdgeType,
+  SYMMETRIC_EDGE_TYPES,
+  validateClusterConstraint,
+  validateRetype
+} from './edge-validation'
 import { boostImportance } from './importance'
 import { getThoughtRow, getThoughtsBatchWithTags, type Thought } from './thoughts'
 import { sqlIn, pairKey } from './utils'
 
-export { EdgeAlreadyExistsError, ClusterEdgeValidationError, SelfLoopEdgeError, EdgeConflictError, InvalidEdgeTypeError }
+export {
+  EdgeAlreadyExistsError,
+  ClusterEdgeValidationError,
+  SelfLoopEdgeError,
+  EdgeConflictError,
+  InvalidEdgeTypeError
+}
 
 // Validation rules (type vocabulary, retype checks, cluster constraints) live in
 // the sibling module; re-exported here so every existing caller keeps importing
@@ -35,7 +47,12 @@ export interface Edge {
   created_at: string
 }
 
-export function createEdge(db: Database, sourceId: string, targetId: string, type: string = 'related'): Edge {
+export function createEdge(
+  db: Database,
+  sourceId: string,
+  targetId: string,
+  type: string = 'related'
+): Edge {
   if (!isValidEdgeType(type)) {
     throw new InvalidEdgeTypeError(type, [...EDGE_TYPES])
   }
@@ -70,12 +87,21 @@ export function createEdge(db: Database, sourceId: string, targetId: string, typ
   return insertEdge(db, sourceId, targetId, type)
 }
 
-function insertEdgeSql(db: Database, id: string, sourceId: string, targetId: string, type: string, createdAt: string): number {
-  const res = db.prepare(`
+function insertEdgeSql(
+  db: Database,
+  id: string,
+  sourceId: string,
+  targetId: string,
+  type: string,
+  createdAt: string
+): number {
+  const res = db
+    .prepare(`
     INSERT INTO edges (id, source_id, target_id, type, created_at)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT (min(source_id, target_id), max(source_id, target_id)) DO NOTHING
-  `).run(id, sourceId, targetId, type, createdAt)
+  `)
+    .run(id, sourceId, targetId, type, createdAt)
   return res.changes
 }
 
@@ -190,7 +216,9 @@ export function getSourceEdgesForThoughtBounded(
   id: string,
   limit: number
 ): { edges: Edge[]; count: number } {
-  const count = db.prepare('SELECT COUNT(*) AS count FROM edges WHERE source_id = ? OR target_id = ?').get(id, id) as { count: number }
+  const count = db
+    .prepare('SELECT COUNT(*) AS count FROM edges WHERE source_id = ? OR target_id = ?')
+    .get(id, id) as { count: number }
   const edges = db
     .prepare('SELECT * FROM edges WHERE source_id = ? OR target_id = ? ORDER BY id ASC LIMIT ?')
     .all(id, id, limit) as Edge[]
@@ -217,9 +245,15 @@ export function findEdge(db: Database, id: string): Edge {
  * or `undefined` when the pair is not linked. Read-only counterpart of
  * {@link getEdgePairKeys} for a single pair.
  */
-export function getEdgePairBetween(db: Database, sourceId: string, targetId: string): Edge | undefined {
+export function getEdgePairBetween(
+  db: Database,
+  sourceId: string,
+  targetId: string
+): Edge | undefined {
   return db
-    .prepare('SELECT * FROM edges WHERE (source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)')
+    .prepare(
+      'SELECT * FROM edges WHERE (source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)'
+    )
     .get(sourceId, targetId, targetId, sourceId) as Edge | undefined
 }
 
@@ -232,7 +266,9 @@ export function getEdgePairKeys(db: Database, thoughtIds: string[]): Set<string>
   if (thoughtIds.length === 0) return new Set()
   const ph = sqlIn(thoughtIds)
   const rows = db
-    .prepare(`SELECT source_id, target_id FROM edges WHERE source_id IN (${ph}) OR target_id IN (${ph})`)
+    .prepare(
+      `SELECT source_id, target_id FROM edges WHERE source_id IN (${ph}) OR target_id IN (${ph})`
+    )
     .all(...thoughtIds, ...thoughtIds) as Array<{ source_id: string; target_id: string }>
   return new Set(rows.map(r => pairKey(r.source_id, r.target_id)))
 }
@@ -256,7 +292,13 @@ export interface EdgeView {
 }
 
 export function toEdgeView(edge: Edge): EdgeView {
-  return { id: edge.id, source: edge.source_id, target: edge.target_id, type: edge.type, created_at: edge.created_at }
+  return {
+    id: edge.id,
+    source: edge.source_id,
+    target: edge.target_id,
+    type: edge.type,
+    created_at: edge.created_at
+  }
 }
 
 interface ThoughtEdgeResult {

@@ -31,7 +31,11 @@ async function readBody(c: Context): Promise<string> {
  * (audit M8). Pass `schema` to validate the parsed body through the shared
  * request contract (`src/validation.ts`).
  */
-export async function jsonBodyOrDefault<T>(c: Context, defaultValue: T, schema?: z.ZodType<T>): Promise<T> {
+export async function jsonBodyOrDefault<T>(
+  c: Context,
+  defaultValue: T,
+  schema?: z.ZodType<T>
+): Promise<T> {
   const raw = await readBody(c)
   if (raw === '') return defaultValue
   const parsed = parseJson(raw)

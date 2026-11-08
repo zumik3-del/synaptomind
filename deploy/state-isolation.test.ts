@@ -74,7 +74,7 @@ import {
   rmdirSync,
   rmSync,
   utimesSync,
-  writeFileSync,
+  writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
@@ -84,7 +84,7 @@ import {
   isolatedEnv,
   mkTempTree,
   realStateDir,
-  sweepTempTrees,
+  sweepTempTrees
 } from './tmp-fixtures'
 
 installCleanup()
@@ -190,7 +190,7 @@ function userNamespaceAvailable(res: SpawnProbe): boolean {
   //    `unshare` that exits 0 having done nothing at all — a PATH stub, an
   //    alias, a stripped binary — would report the capability as present and the
   //    guard would rot into a permanent pass that measures nothing.
-  return output.split('\n').some((line) => line.trim() === USERNS_PROBE_OK)
+  return output.split('\n').some(line => line.trim() === USERNS_PROBE_OK)
 }
 
 const USERNS_PROBE_ARGS = [
@@ -201,7 +201,7 @@ const USERNS_PROBE_ARGS = [
   'private',
   'sh',
   '-c',
-  USERNS_PROBE_BODY,
+  USERNS_PROBE_BODY
 ]
 
 /** The real spawn, kept so a test can assert on what was actually measured. */
@@ -213,7 +213,7 @@ const USERNS_SKIP_NOTE = HAS_USERNS
   : ' — SKIPPED, NOT RUN: this host cannot create an unprivileged user namespace ' +
     '(unshare fails with "Operation not permitted" writing /proc/self/uid_map, AppArmor ' +
     '`unprivileged_userns` on ubuntu-latest 24.04), and the reproduction below needs that ' +
-    'namespace to redirect the write away from the operator\'s real state dir. THESE TWO ' +
+    "namespace to redirect the write away from the operator's real state dir. THESE TWO " +
     'TESTS DID NOT RUN: they are the characterization tests for the #1104 trap and nothing ' +
     'here measured it. Re-run them on a host where `unshare --user --map-root-user --mount` ' +
     'works — the probe below, not this note, is what decides.'
@@ -250,15 +250,24 @@ function seedRelease(root: string, version: string): void {
   writeFileSync(join(stage, APP), `#!/bin/sh\necho "${APP} ${version}"\n`)
   writeFileSync(join(stage, 'vec0.so'), 'stub vec0\n')
   writeFileSync(join(stage, 'lib', 'libonnxruntime.so.1'), 'stub onnxruntime\n')
-  writeFileSync(join(stage, 'config.json.example'), '{ "server": { "port": 3005, "host": "127.0.0.1" }, "mcp": { "httpPort": 3006 } }\n')
+  writeFileSync(
+    join(stage, 'config.json.example'),
+    '{ "server": { "port": 3005, "host": "127.0.0.1" }, "mcp": { "httpPort": 3006 } }\n'
+  )
   writeFileSync(join(stage, '.env.example'), 'SYNAPTOMIND_SECRET=\n')
   spawnSync('chmod', ['+x', join(stage, APP)])
   const releases = join(root, 'releases', `v${version}`)
   mkdirSync(releases, { recursive: true })
   const tar = spawnSync(
     'tar',
-    ['-czf', join(releases, `${APP}-v${version}-linux-x86_64.tar.gz`), '-C', join(root, '.build'), top],
-    { encoding: 'utf8' },
+    [
+      '-czf',
+      join(releases, `${APP}-v${version}-linux-x86_64.tar.gz`),
+      '-C',
+      join(root, '.build'),
+      top
+    ],
+    { encoding: 'utf8' }
   )
   expect(tar.status, tar.stderr).toBe(0)
 }
@@ -271,7 +280,10 @@ function seedRelease(root: string, version: string): void {
  * The fixture exports HOME to a scratch root, which is what the folklore
  * "substitute HOME to isolate a fixture" says is sufficient.
  */
-function seedUnisolatedFixture(root: string, opts: { pinnedRunDir?: string; version?: string } = {}): void {
+function seedUnisolatedFixture(
+  root: string,
+  opts: { pinnedRunDir?: string; version?: string } = {}
+): void {
   const version = opts.version ?? '0.9.0'
   const deployDir = join(root, 'deploy')
   mkdirSync(join(deployDir, 'lib'), { recursive: true })
@@ -314,12 +326,12 @@ function seedUnisolatedFixture(root: string, opts: { pinnedRunDir?: string; vers
     // render_template() nothing to substitute (ADR §2.8). Copying the exact
     // strings matters — this is a reproduction, not a paraphrase.
     // biome-ignore lint/suspicious/noTemplateCurlyInString: verbatim app.env text, not a JS template
-    'ASSET_PATTERN=\'${APP_NAME}-${TAG}-${OS}-${ARCH}.tar.gz\'',
+    "ASSET_PATTERN='${APP_NAME}-${TAG}-${OS}-${ARCH}.tar.gz'",
     // biome-ignore lint/suspicious/noTemplateCurlyInString: verbatim app.env text, not a JS template
-    'APP_VERSION_CMD=\'${BIN} --version\'',
+    "APP_VERSION_CMD='${BIN} --version'",
     // Nothing serves /health in a fixture; keep the gate's budget at 1s.
     'HEALTH_URL="http://127.0.0.1:1/health"',
-    'HEALTH_TIMEOUT="1"',
+    'HEALTH_TIMEOUT="1"'
   ].join('\n')
   writeFileSync(join(deployDir, 'app.env'), `${appEnv}\n`)
 }
@@ -329,7 +341,11 @@ function seedPrivStubs(root: string): void {
   const stubs = join(root, 'stubs')
   mkdirSync(stubs, { recursive: true })
   for (const name of ['sudo', 'systemctl']) {
-    const lines = ['#!/usr/bin/env bash', 'printf \'%s %s\\n\' "$0" "$*" >> "$STUB_PRIV_LOG"', 'exit 0']
+    const lines = [
+      '#!/usr/bin/env bash',
+      'printf \'%s %s\\n\' "$0" "$*" >> "$STUB_PRIV_LOG"',
+      'exit 0'
+    ]
     writeFileSync(join(stubs, name), lines.join('\n'))
     spawnSync('chmod', ['+x', join(stubs, name)])
   }
@@ -388,21 +404,25 @@ function runInNamespace(opts: {
     'export APP_ENV_URL="" LIB_RAW_URL=""',
     `cd ${JSON.stringify(root)}`,
     `bash ${JSON.stringify(join(root, 'deploy', 'install.sh'))} --version v0.9.0 --no-service 2>&1`,
-    'echo "INSTALL_EXIT=$?"',
+    'echo "INSTALL_EXIT=$?"'
   ].join('\n')
 
-  const res = spawnSync('unshare', ['--user', '--map-root-user', '--mount', '--propagation', 'private', 'bash', '-c', script], {
-    encoding: 'utf8',
-    env: { ...process.env } as Record<string, string>,
-    timeout: 120_000,
-  })
+  const res = spawnSync(
+    'unshare',
+    ['--user', '--map-root-user', '--mount', '--propagation', 'private', 'bash', '-c', script],
+    {
+      encoding: 'utf8',
+      env: { ...process.env } as Record<string, string>,
+      timeout: 120_000
+    }
+  )
   const output = `${res.stdout ?? ''}${res.stderr ?? ''}`
   const m = /INSTALL_EXIT=(\d+)/.exec(output)
   return {
     output,
     escaped: tree(shadow),
-    inside: tree(root).filter((f) => !f.startsWith('shadow/') && !f.startsWith('fakehome/')),
-    status: m ? Number(m[1]) : null,
+    inside: tree(root).filter(f => !f.startsWith('shadow/') && !f.startsWith('fakehome/')),
+    status: m ? Number(m[1]) : null
   }
 }
 
@@ -497,7 +517,7 @@ function resolveOperatorAccount(uid: number | undefined): OperatorAccount {
     throw new Error(
       'operatorAccount: process.getuid() is unavailable, so the account cannot be derived from ' +
         'passwd. Refusing to guess a home — a guessed path is exactly what this suite exists to ' +
-        'prevent being aimed at the wrong place.',
+        'prevent being aimed at the wrong place.'
     )
   }
   // By uid, and by uid ONLY. realStateDir() falls back to the user NAME, but that
@@ -512,7 +532,7 @@ function resolveOperatorAccount(uid: number | undefined): OperatorAccount {
   if (!user || !home) {
     throw new Error(
       `operatorAccount: getent passwd ${uid} returned no usable entry (got ${JSON.stringify(line)}). ` +
-        `The fixture cannot derive the operator's home, so it will not create or seed a state dir.`,
+        `The fixture cannot derive the operator's home, so it will not create or seed a state dir.`
     )
   }
   return { user, home, state: join(home, '.synaptomind') }
@@ -548,13 +568,15 @@ const BASELINE_APP_ENV = [
   '# not an operator config. The #1104 reproduction hashes this file before and',
   '# after its run; without it sha256sum errors and the pair compares "" to "".',
   'RUN_DIR=""',
-  'PORT="0"',
+  'PORT="0"'
 ].join('\n')
 
 /** The sha256 of the state dir's app.env, or '' when the file does not exist —
  *  exactly what the block's before/after pair measures. */
 function hashAppEnv(stateDir: string): string {
-  return spawnSync('sha256sum', [join(stateDir, 'scripts', 'app.env')], { encoding: 'utf8' }).stdout.trim()
+  return spawnSync('sha256sum', [join(stateDir, 'scripts', 'app.env')], {
+    encoding: 'utf8'
+  }).stdout.trim()
 }
 
 /**
@@ -566,7 +588,7 @@ function hashAppEnv(stateDir: string): string {
  * being verified while the suite stays green.
  */
 function reportedHome(output: string, key: string): string {
-  const line = output.split('\n').find((l) => l.startsWith(`${key}=`))
+  const line = output.split('\n').find(l => l.startsWith(`${key}=`))
   return line === undefined ? '' : line.slice(key.length + 1).trim()
 }
 
@@ -621,7 +643,7 @@ function acquireStateDir(dir: string): StateDirOwnership {
     // caller, and the second release would otherwise undo the first acquire.
     throw new Error(
       `acquireStateDir: ${dir} is already acquired. Two live acquisitions of one dir would let ` +
-        `the second release undo the first's work.`,
+        `the second release undo the first's work.`
     )
   }
   const created = !existsSync(dir)
@@ -643,7 +665,7 @@ function acquireStateDir(dir: string): StateDirOwnership {
     created,
     seeded: false,
     token: randomUUID(),
-    marker: '',
+    marker: ''
   }
   if (created) mkdirSync(dir, { recursive: true })
   ownership.marker = join(dir, `${MARKER_PREFIX}${ownership.token}`)
@@ -703,14 +725,14 @@ function requireMarker(ownership: StateDirOwnership): void {
       `REFUSING TO REMOVE ${ownership.dir}: the marker planted by this acquire ` +
         `(${basename(ownership.marker)}) is missing or unreadable (${(err as Error).message}). ` +
         `Without it there is no evidence this process created or seeded the dir, so removal is ` +
-        `not safe. An empty leftover dir is recoverable; its contents are not.`,
+        `not safe. An empty leftover dir is recoverable; its contents are not.`
     )
   }
   if (token !== ownership.token) {
     throw new Error(
       `REFUSING TO REMOVE ${ownership.dir}: marker holds token ${token}, expected ` +
         `${ownership.token}. It was replaced or edited, so this dir is no longer the one this ` +
-        `acquire created.`,
+        `acquire created.`
     )
   }
 }
@@ -823,14 +845,18 @@ describe.skipIf(!HAS_USERNS)(`deploy state-dir containment (#1104)${USERNS_SKIP_
     // acquire, rather than taken on trust.
     const hadStateDir = existsSync(operatorState())
     const ownership = acquireStateDir(operatorState())
-    expect(ownership.created, 'a pre-existing state dir must never be recorded as ours to create').toBe(!hadStateDir)
+    expect(
+      ownership.created,
+      'a pre-existing state dir must never be recorded as ours to create'
+    ).toBe(!hadStateDir)
     const before = hashAppEnv(operatorState())
     // The pair below is only meaningful if `before` is a digest: a missing
     // app.env makes sha256sum error and print nothing, and `expect(after).toBe
     // (before)` would then compare '' to '' — vacuous, and the reason D3 exists.
-    expect(before, `no app.env was seeded in ${operatorState()} — the pair below proves nothing`).toMatch(
-      /^[0-9a-f]{64} [ *]/,
-    )
+    expect(
+      before,
+      `no app.env was seeded in ${operatorState()} — the pair below proves nothing`
+    ).toMatch(/^[0-9a-f]{64} [ *]/)
     const repro = runInNamespace({ root, shadow, stateDir: operatorState() })
 
     // The install itself succeeded — the write is not a failure path, it is what
@@ -854,7 +880,7 @@ describe.skipIf(!HAS_USERNS)(`deploy state-dir containment (#1104)${USERNS_SKIP_
       `expected the reproduction to escape into ${operatorState()}, but nothing was written there.\n` +
         `If resolve_target_user() now honours \${HOME} before \`getent passwd\`, the escape this\n` +
         `test documents is gone — re-check whether that change alters a real operator's RUN_DIR.\n` +
-        `Output tail:\n${repro.output.split('\n').slice(-12).join('\n')}`,
+        `Output tail:\n${repro.output.split('\n').slice(-12).join('\n')}`
     ).toEqual([
       'hooks/post-update',
       'hooks/pre-update',
@@ -862,7 +888,7 @@ describe.skipIf(!HAS_USERNS)(`deploy state-dir containment (#1104)${USERNS_SKIP_
       'scripts/common.sh',
       'scripts/uninstall.sh',
       'scripts/update.sh',
-      'scripts/updater.sh',
+      'scripts/updater.sh'
     ])
 
     // The two homes the run reported, now computed instead of literal (D2). They
@@ -876,8 +902,13 @@ describe.skipIf(!HAS_USERNS)(`deploy state-dir containment (#1104)${USERNS_SKIP_
     // being non-empty as well as for equality, because a `toContain('GETENT_HOME
     // =')` prefix match would pass on a line with no value at all.
     const getentHome = reportedHome(repro.output, 'GETENT_HOME')
-    expect(getentHome, 'getent reported no home, so nothing proved the lookup is HOME-independent').not.toBe('')
-    expect(getentHome, 'getent did not answer the operator\'s real passwd home').toBe(operatorAccount().home)
+    expect(
+      getentHome,
+      'getent reported no home, so nothing proved the lookup is HOME-independent'
+    ).not.toBe('')
+    expect(getentHome, "getent did not answer the operator's real passwd home").toBe(
+      operatorAccount().home
+    )
     //
     // IN_NS_HOME IS NOT THE MECHANISM, and is not claimed to be. It can only ever
     // be this process's own $HOME: the line is echoed BEFORE the fixture exports
@@ -888,8 +919,13 @@ describe.skipIf(!HAS_USERNS)(`deploy state-dir containment (#1104)${USERNS_SKIP_
     const inNsHome = reportedHome(repro.output, 'IN_NS_HOME')
     const scratchHome = join(root, 'fakehome')
     expect(inNsHome, 'the namespace reported no HOME').not.toBe('')
-    expect(inNsHome, 'IN_NS_HOME was echoed AFTER the fixture redirected HOME, so it proves less than it appears to').not.toBe(scratchHome)
-    expect(inNsHome, 'the child did not inherit this process\'s environment').toBe(process.env.HOME ?? '')
+    expect(
+      inNsHome,
+      'IN_NS_HOME was echoed AFTER the fixture redirected HOME, so it proves less than it appears to'
+    ).not.toBe(scratchHome)
+    expect(inNsHome, "the child did not inherit this process's environment").toBe(
+      process.env.HOME ?? ''
+    )
     // On a host whose $HOME differs from the passwd home, the two reported values
     // must differ, and that difference IS the mechanism made visible. Where they
     // coincide — this host, and most — no assertion here can separate them, and
@@ -898,7 +934,9 @@ describe.skipIf(!HAS_USERNS)(`deploy state-dir containment (#1104)${USERNS_SKIP_
     if (operatorAccount().home === (process.env.HOME ?? '')) {
       expect(getentHome).toBe(inNsHome)
     } else {
-      expect(inNsHome, 'a host whose $HOME differs from the passwd home must report both').not.toBe(operatorAccount().home)
+      expect(inNsHome, 'a host whose $HOME differs from the passwd home must report both').not.toBe(
+        operatorAccount().home
+      )
     }
     // The run reported the REAL state dir as its own, which is the operator-
     // facing symptom: the summary an operator reads names their live config, and
@@ -958,15 +996,17 @@ describe.skipIf(!HAS_USERNS)(`deploy state-dir containment (#1104)${USERNS_SKIP_
       envOverrides: {
         HOOKS_DIR: env.HOOKS_DIR!,
         UNIT_FILE: env.UNIT_FILE!,
-        DATA_DIR: env.DATA_DIR!,
-      },
+        DATA_DIR: env.DATA_DIR!
+      }
     })
 
     expect(repro.status, repro.output).toBe(0)
     // The install really ran: an aborted run would also write nothing.
     expect(repro.output).toContain('Done.')
     expect(repro.output).toContain(join(root, 'opt', APP))
-    expect(repro.escaped, `escaped into ${operatorState()}: ${repro.escaped.join(', ')}`).toEqual([])
+    expect(repro.escaped, `escaped into ${operatorState()}: ${repro.escaped.join(', ')}`).toEqual(
+      []
+    )
     // The helpers it would have written went to the fixture's own RUN_DIR.
     expect(repro.inside).toContain('run/scripts/app.env')
     // The same digest pair as the reproduction, for the same reason: nothing
@@ -1021,7 +1061,10 @@ describe.skipIf(!HAS_USERNS)(`deploy state-dir containment (#1104)${USERNS_SKIP_
     const before = hashAppEnv(operatorState())
     const repro = runInNamespace({ root, shadow, stateDir: operatorState() })
     expect(repro.status, repro.output).toBe(0)
-    expect(repro.escaped.length, `expected the escape to land in the shadow:\n${repro.output}`).toBe(7)
+    expect(
+      repro.escaped.length,
+      `expected the escape to land in the shadow:\n${repro.output}`
+    ).toBe(7)
     // The redirection worked, before teardown is even considered.
     expect(hashAppEnv(operatorState()), 'the real file was modified during the run').toBe(before)
 
@@ -1037,14 +1080,21 @@ describe.skipIf(!HAS_USERNS)(`deploy state-dir containment (#1104)${USERNS_SKIP_
       // A dev machine: the operator's dir must be exactly as found, byte for
       // byte and mtime for mtime. An unconditional `rm -rf` fails the first
       // assertion; a rewrite of any file fails the fingerprint.
-      expect(existsSync(operatorState()), 'the teardown removed a state dir it did not create').toBe(true)
-      expect(fingerprint(operatorState()), 'the teardown changed the contents of a pre-existing state dir').toBe(asFound)
+      expect(
+        existsSync(operatorState()),
+        'the teardown removed a state dir it did not create'
+      ).toBe(true)
+      expect(
+        fingerprint(operatorState()),
+        'the teardown changed the contents of a pre-existing state dir'
+      ).toBe(asFound)
     } else {
       // A CI runner: nothing was there before, so nothing may be left behind.
-      expect(existsSync(operatorState()), 'the teardown leaked the state dir it created').toBe(false)
+      expect(existsSync(operatorState()), 'the teardown leaked the state dir it created').toBe(
+        false
+      )
     }
   }, 180_000)
-
 })
 
 // ─── THE STATE-DIR FIXTURE OWNS ONLY WHAT IT CREATED (#1357 D3/D4) ───────────
@@ -1093,7 +1143,9 @@ describe('the constructed state dir is seeded, and unwound only as far as it was
     // before/after pair in the block above would compare '' with ''. Here the
     // seeded baseline makes `before` a digest, and the run that follows is
     // therefore a real comparison. Proved by measurement, not by reading.
-    expect(hashAppEnv(stateDir), 'the seeded baseline did not produce a digest').toMatch(/^[0-9a-f]{64} [ *]/)
+    expect(hashAppEnv(stateDir), 'the seeded baseline did not produce a digest').toMatch(
+      /^[0-9a-f]{64} [ *]/
+    )
     expect(readFileSync(join(stateDir, 'scripts', 'app.env'), 'utf8')).toBe(BASELINE_APP_ENV)
 
     releaseAllStateDirs()
@@ -1165,7 +1217,7 @@ describe('the constructed state dir is seeded, and unwound only as far as it was
       // deletion of content the fixture did not create.
       const stateDir2 = join(host, 'replaced-seed')
       acquireStateDir(stateDir2)
-      const operatorConfig = '# the operator\'s own config\n'
+      const operatorConfig = "# the operator's own config\n"
       writeFileSync(join(stateDir2, 'scripts', 'app.env'), operatorConfig)
       expect(() => releaseCreatedStateDir(stateDir2)).toThrow(/ENOTEMPTY|directory not empty/i)
       // The operator's bytes are still there — the abort cost a leaked dir, not data.
@@ -1221,8 +1273,12 @@ describe('the constructed state dir is seeded, and unwound only as far as it was
     const asFound = fingerprint(stateDir)
 
     const ownership = acquireStateDir(stateDir)
-    expect(ownership.created, 'a pre-existing dir must never be recorded as ours to create').toBe(false)
-    expect(ownership.seeded, 'the operator already had an app.env, so nothing was seeded').toBe(false)
+    expect(ownership.created, 'a pre-existing dir must never be recorded as ours to create').toBe(
+      false
+    )
+    expect(ownership.seeded, 'the operator already had an app.env, so nothing was seeded').toBe(
+      false
+    )
     // Zero footprint: not in EITHER registry, so neither release can reach it.
     expect(createdDirs.has(stateDir)).toBe(false)
     expect(seededDirs.has(stateDir)).toBe(false)
@@ -1251,7 +1307,9 @@ describe('the constructed state dir is seeded, and unwound only as far as it was
     // the writer as absent, which is the failure mode this audit exists to avoid.
     const seedFn = /\nfunction seedBaseline\([^)]*\)[^{]*\{\n([\s\S]*?)\n\}/.exec(src)
     expect(seedFn, 'seedBaseline must exist as a single named writer').not.toBeNull()
-    expect(seedFn?.[1] ?? '', 'seedBaseline must verify the marker before writing').toMatch(/requireMarker\(ownership\)/)
+    expect(seedFn?.[1] ?? '', 'seedBaseline must verify the marker before writing').toMatch(
+      /requireMarker\(ownership\)/
+    )
     // Order inside the writer: the gate, then the write.
     const gate = (seedFn?.[1] ?? '').indexOf('requireMarker(ownership)')
     const write = (seedFn?.[1] ?? '').indexOf('writeFileSync(appEnv, BASELINE_APP_ENV)')
@@ -1273,16 +1331,18 @@ describe('the constructed state dir is seeded, and unwound only as far as it was
     // own span.
     const WRITE_CALL = 'writeFileSync(appEnv, BASELINE_APP_ENV)'
     const codeLines = src.split('\n')
-    const seedStart = codeLines.findIndex((l) => l.startsWith('function seedBaseline('))
+    const seedStart = codeLines.findIndex(l => l.startsWith('function seedBaseline('))
     const seedEnd = codeLines.findIndex((l, i) => i > seedStart && l === '}')
-    expect(seedStart, 'seedBaseline was not found as a top-level function').toBeGreaterThanOrEqual(0)
+    expect(seedStart, 'seedBaseline was not found as a top-level function').toBeGreaterThanOrEqual(
+      0
+    )
     expect(seedEnd, 'seedBaseline has no closing brace').toBeGreaterThan(seedStart)
     const writers = codeLines
       .map((l, i) => ({ i, l }))
       .filter(({ l }) => l.trim() === WRITE_CALL)
       .map(({ i }) => i)
     expect(writers, 'the baseline must be written exactly once, inside seedBaseline').toEqual([
-      seedStart + 1 + (seedFn?.[1] ?? '').split('\n').findIndex((l) => l.trim() === WRITE_CALL),
+      seedStart + 1 + (seedFn?.[1] ?? '').split('\n').findIndex(l => l.trim() === WRITE_CALL)
     ])
     // And the acquire must route through the gate rather than call the writer
     // inline, which is the reordering this finding is about.
@@ -1310,9 +1370,11 @@ describe('the constructed state dir is seeded, and unwound only as far as it was
       created: false,
       seeded: false,
       token: randomUUID(),
-      marker: join(stateDir, `${MARKER_PREFIX}never-planted`),
+      marker: join(stateDir, `${MARKER_PREFIX}never-planted`)
     }
-    expect(() => seedBaseline(unmarked, appEnv), 'an unmarked seed must be refused').toThrow(/REFUSING TO REMOVE/)
+    expect(() => seedBaseline(unmarked, appEnv), 'an unmarked seed must be refused').toThrow(
+      /REFUSING TO REMOVE/
+    )
     // Nothing was written: no scripts/, no app.env.
     expect(existsSync(join(stateDir, 'scripts'))).toBe(false)
     expect(existsSync(appEnv)).toBe(false)
@@ -1394,7 +1456,10 @@ describe('the constructed state dir is seeded, and unwound only as far as it was
     acquireStateDir(stateDir)
     // A pre-existing dir with an app.env is registered nowhere. If a host has a
     // dir but no app.env, it is seed-only — also not a removal candidate.
-    expect(createdDirs.has(stateDir), 'a pre-existing real state dir is in the removal registry').toBe(false)
+    expect(
+      createdDirs.has(stateDir),
+      'a pre-existing real state dir is in the removal registry'
+    ).toBe(false)
     releaseAllStateDirs()
     expect(existsSync(stateDir)).toBe(true)
     expect(fingerprint(stateDir)).toBe(asFound)
@@ -1422,7 +1487,7 @@ describe('the user-namespace probe is what decides the #1104 skip (#1356)', () =
   const RECORDED_DENIAL: SpawnProbe = {
     status: 1,
     stdout: '',
-    stderr: 'unshare: write failed /proc/self/uid_map: Operation not permitted\n',
+    stderr: 'unshare: write failed /proc/self/uid_map: Operation not permitted\n'
   }
 
   /** Recorded 2026-10-05 on this host (`util-linux 2.39.3`, uid 1000): the same
@@ -1430,7 +1495,7 @@ describe('the user-namespace probe is what decides the #1104 skip (#1356)', () =
   const RECORDED_SUCCESS: SpawnProbe = {
     status: 0,
     stdout: `${USERNS_PROBE_OK}\n`,
-    stderr: '',
+    stderr: ''
   }
 
   test('the recorded ubuntu-latest denial is decided unavailable — the #1104 block skips', () => {
@@ -1452,12 +1517,18 @@ describe('the user-namespace probe is what decides the #1104 skip (#1356)', () =
     // a `unshare` (or a PATH entry masquerading as one) that reports failure and
     // still exits 0 would, on exit status alone, be read as a working namespace
     // and the guard would rot into a permanent pass measuring nothing.
-    expect(userNamespaceAvailable({ status: 0, stdout: '', stderr: RECORDED_DENIAL.stderr })).toBe(false)
+    expect(userNamespaceAvailable({ status: 0, stdout: '', stderr: RECORDED_DENIAL.stderr })).toBe(
+      false
+    )
     // The other real denial shape, recorded locally by nesting unshare inside an
     // existing user namespace — it denies at clone(), not at the uid_map write, so
     // a predicate keyed on `/proc/self/uid_map` alone would miss it.
     expect(
-      userNamespaceAvailable({ status: 1, stdout: '', stderr: 'unshare: unshare failed: Operation not permitted\n' }),
+      userNamespaceAvailable({
+        status: 1,
+        stdout: '',
+        stderr: 'unshare: unshare failed: Operation not permitted\n'
+      })
     ).toBe(false)
   })
 
@@ -1465,12 +1536,21 @@ describe('the user-namespace probe is what decides the #1104 skip (#1356)', () =
     // `true`-for-everything unshare. Exit status alone would call this a working
     // namespace and the guard would silently stop guarding.
     expect(userNamespaceAvailable({ status: 0, stdout: '', stderr: '' })).toBe(false)
-    expect(userNamespaceAvailable({ status: 0, stdout: 'something else\n', stderr: '' })).toBe(false)
+    expect(userNamespaceAvailable({ status: 0, stdout: 'something else\n', stderr: '' })).toBe(
+      false
+    )
     // And the marker must prove uid 0 specifically — `id -u` outside the namespace
     // prints this host's uid, which is not a mapped root.
-    expect(userNamespaceAvailable({ status: 0, stdout: 'USERNS_PROBE_OK uid=1000\n', stderr: '' })).toBe(false)
+    expect(
+      userNamespaceAvailable({ status: 0, stdout: 'USERNS_PROBE_OK uid=1000\n', stderr: '' })
+    ).toBe(false)
     // No unshare on PATH at all: spawnSync reports ENOENT here rather than a status.
-    expect(userNamespaceAvailable({ status: null, error: Object.assign(new Error('spawn unshare ENOENT'), { code: 'ENOENT' }) })).toBe(false)
+    expect(
+      userNamespaceAvailable({
+        status: null,
+        error: Object.assign(new Error('spawn unshare ENOENT'), { code: 'ENOENT' })
+      })
+    ).toBe(false)
     // Killed by a signal: status arrives null.
     expect(userNamespaceAvailable({ status: null, stdout: '', stderr: '' })).toBe(false)
   })
@@ -1501,23 +1581,25 @@ describe('the user-namespace probe is what decides the #1104 skip (#1356)', () =
     // the #1104 characterization tests into a permanent silent skip that no green
     // CI log would ever reveal.
     if (!HAS_USERNS) {
-      expect(USERNS_PROBE.status === 0 && `${USERNS_PROBE.stdout ?? ''}`.includes(USERNS_PROBE_OK)).toBe(false)
+      expect(
+        USERNS_PROBE.status === 0 && `${USERNS_PROBE.stdout ?? ''}`.includes(USERNS_PROBE_OK)
+      ).toBe(false)
       return
     }
     expect(USERNS_PROBE.error).toBeUndefined()
     expect(USERNS_PROBE.status).toBe(0)
-    expect(`${USERNS_PROBE.stdout ?? ''}`.split('\n').map((l) => l.trim())).toContain(USERNS_PROBE_OK)
+    expect(`${USERNS_PROBE.stdout ?? ''}`.split('\n').map(l => l.trim())).toContain(USERNS_PROBE_OK)
   })
 })
 
-describe('isolatedEnv refuses the operator\'s real state dir', () => {
+describe("isolatedEnv refuses the operator's real state dir", () => {
   test('realStateDir resolves through getent, the same lookup that defeats a substituted HOME', () => {
     if (!REAL_STATE) {
       expect(realStateDir()).toBeNull()
       return
     }
     const expected = spawnSync('bash', ['-c', 'getent passwd "$(id -un)" | cut -d: -f6'], {
-      encoding: 'utf8',
+      encoding: 'utf8'
     }).stdout.trim()
     expect(REAL_STATE).toBe(`${expected}/.synaptomind`)
   })
@@ -1534,9 +1616,15 @@ describe('isolatedEnv refuses the operator\'s real state dir', () => {
     // any process exists to do the damage. This is what makes the property
     // enforced rather than documented: the mistake cannot be made quietly.
     expect(() => isolatedEnv(root, { RUN_DIR: REAL_STATE })).toThrow(/REAL state dir/)
-    expect(() => isolatedEnv(root, { RUN_DIR: join(REAL_STATE, 'scripts') })).toThrow(/REAL state dir/)
-    expect(() => isolatedEnv(root, { HOOKS_DIR: join(REAL_STATE, 'hooks') })).toThrow(/REAL state dir/)
-    expect(() => isolatedEnv(root, { UNIT_FILE: join(REAL_STATE, 'unit', 'x.service') })).toThrow(/REAL state dir/)
+    expect(() => isolatedEnv(root, { RUN_DIR: join(REAL_STATE, 'scripts') })).toThrow(
+      /REAL state dir/
+    )
+    expect(() => isolatedEnv(root, { HOOKS_DIR: join(REAL_STATE, 'hooks') })).toThrow(
+      /REAL state dir/
+    )
+    expect(() => isolatedEnv(root, { UNIT_FILE: join(REAL_STATE, 'unit', 'x.service') })).toThrow(
+      /REAL state dir/
+    )
     expect(() => isolatedEnv(root, { DATA_DIR: REAL_STATE })).toThrow(/REAL state dir/)
     // A path merely sharing a PREFIX must not be refused — otherwise the guard
     // would push fixtures back into the exact habit it exists to prevent.
@@ -1553,11 +1641,16 @@ describe('isolatedEnv refuses the operator\'s real state dir', () => {
     // directly so a refactor of operatorAccount() cannot quietly redefine the
     // expectation and make the block's assertions agree with it by construction.
     const uid = process.getuid?.()
-    expect(uid, 'the fixture refuses to guess an account, so a uid-less host cannot run it').toBeDefined()
+    expect(
+      uid,
+      'the fixture refuses to guess an account, so a uid-less host cannot run it'
+    ).toBeDefined()
     const byUid = spawnSync('getent', ['passwd', String(uid)], { encoding: 'utf8' }).stdout.trim()
     const fields = byUid.split(':')
     expect(operatorAccount().user, 'field 1 of the passwd line is the account name').toBe(fields[0])
-    expect(operatorAccount().home, 'field 6 is the home resolve_target_user() takes').toBe(fields[5])
+    expect(operatorAccount().home, 'field 6 is the home resolve_target_user() takes').toBe(
+      fields[5]
+    )
     expect(operatorAccount().home).not.toBe('')
     expect(operatorState()).toBe(join(fields[5] ?? '', '.synaptomind'))
     // Absolute, so a `getent` that answered nothing could not turn the bind
@@ -1586,7 +1679,9 @@ describe('isolatedEnv refuses the operator\'s real state dir', () => {
     // The earlier `process.env.USER ?? 'root'` fallback would have created and
     // seeded /root/.synaptomind on any host that exports no USER.
     if (operatorAccount().home !== '/root') {
-      expect(operatorState().startsWith('/root/'), 'the fixture must never aim at /root').toBe(false)
+      expect(operatorState().startsWith('/root/'), 'the fixture must never aim at /root').toBe(
+        false
+      )
     }
     // And it is the SAME path realStateDir() reports on a host that has one,
     // which is what keeps the constructed dir and the discovered one from
@@ -1633,8 +1728,14 @@ describe('isolatedEnv refuses the operator\'s real state dir', () => {
     // too (#1096): the fixture created no state dir here, so none is expected —
     // and if one WERE left behind, that is a leak and must fail, not pass.
     if (!REAL_STATE) {
-      expect(existsSync(operatorState()), 'the fixture created a state dir and did not clean it up').toBe(false)
-      expect([...createdDirs.keys(), ...seededDirs.keys()], 'a state dir was left acquired after the run').toEqual([])
+      expect(
+        existsSync(operatorState()),
+        'the fixture created a state dir and did not clean it up'
+      ).toBe(false)
+      expect(
+        [...createdDirs.keys(), ...seededDirs.keys()],
+        'a state dir was left acquired after the run'
+      ).toEqual([])
       return
     }
     const envFile = join(REAL_STATE, 'scripts', 'app.env')
@@ -1703,7 +1804,7 @@ describe('this file does not overstate what its own assertions prove (#1357 R5/R
     // at column 0, so the slice would run to EOF and then "find" the very strings
     // it is auditing inside this file's own source. That bug made the audit pass
     // with the note deleted.
-    const start = lines.findIndex((l) => /^\s*test\(`?'?/.test(l) && l.includes(`test('${name}`))
+    const start = lines.findIndex(l => /^\s*test\(`?'?/.test(l) && l.includes(`test('${name}`))
     if (start === -1) return ''
     const indentOf = (l: string): number => l.length - l.trimStart().length
     const indent = indentOf(lines[start] ?? '')
@@ -1729,17 +1830,20 @@ describe('this file does not overstate what its own assertions prove (#1357 R5/R
     // does not match the string literals it quotes. A plain substring search would
     // make the audit fail for mentioning the old name, which is backwards.
     expect(SRC, 'the tripwire is still declared as a byte-identity claim').not.toMatch(
-      /^\s*test\('the real state dir is byte-identical/m,
+      /^\s*test\('the real state dir is byte-identical/m
     )
     expect(SRC, 'the tripwire must be declared as the shape check it is').toMatch(
-      /^\s*test\('the real state dir still holds a production-shaped app\.env after everything above'/m,
+      /^\s*test\('the real state dir still holds a production-shaped app\.env after everything above'/m
     )
     // The limitations must be documented INSIDE the tripwire's own body, not
     // somewhere else in the file: the note exists for whoever reads THAT check. A
     // whole-file `toContain` is too weak — it passed while the note had been
     // deleted, because the audit quoted the same string. So the tripwire's text is
     // sliced out and searched on its own.
-    const tripwire = sliceTest(SRC, 'the real state dir still holds a production-shaped app.env after everything above')
+    const tripwire = sliceTest(
+      SRC,
+      'the real state dir still holds a production-shaped app.env after everything above'
+    )
     expect(tripwire, 'the tripwire body could not be located').not.toBe('')
     // A HEALTH_URL-only rewrite passes this check, and that is the exact residual
     // this task left on the production host — the reader must not rediscover it.
@@ -1761,35 +1865,42 @@ describe('this file does not overstate what its own assertions prove (#1357 R5/R
     // Calling that "the mechanism" is how a tautology gets mistaken for evidence.
     expect(SRC).toContain('IN_NS_HOME IS NOT THE MECHANISM, and is not claimed to be')
     expect(SRC, 'GETENT_HOME must be identified as the value carrying the mechanism').toContain(
-      'GETENT_HOME IS THE MECHANISM',
+      'GETENT_HOME IS THE MECHANISM'
     )
     // And the honest comment must be kept honest by the assertion next to it: the
     // value has to be provably NOT the post-redirect scratch root, which is the one
     // thing it does establish. Dropping that assertion is what the R5 mutation did.
     expect(SRC, 'the pre-redirect assertion for IN_NS_HOME must be present').toMatch(
-      /^\s*expect\(inNsHome, 'IN_NS_HOME was echoed AFTER the fixture redirected HOME[^\n]*\)\.not\.toBe\(scratchHome\)/m,
+      /^\s*expect\(inNsHome, 'IN_NS_HOME was echoed AFTER the fixture redirected HOME[^\n]*\)\.not\.toBe\(scratchHome\)/m
     )
     // The honesty note has to sit in the REPRODUCTION's own body, not only in a
     // rationale above it — a rationale can be edited and leave a claim standing
     // next to code that no longer earns it. Sliced out and searched on its own, so
     // moving the note elsewhere in the file fails here.
-    const repro = sliceTest(SRC, 'unmodified install.sh with no RUN_DIR writes into the REAL state dir even when HOME is a scratch root')
+    const repro = sliceTest(
+      SRC,
+      'unmodified install.sh with no RUN_DIR writes into the REAL state dir even when HOME is a scratch root'
+    )
     expect(repro, 'the reproduction test body could not be located').not.toBe('')
     expect(repro).toContain('IN_NS_HOME IS NOT THE MECHANISM, and is not claimed to be')
     // GETENT_HOME carries the mechanism instead, and says so in the same place.
     expect(repro).toContain('GETENT_HOME IS THE MECHANISM')
     // The coinciding-home branch is what stops the two values being implicitly
     // treated as independent evidence on a host where they are the same string.
-    expect(SRC).toMatch(/^\s*if \(operatorAccount\(\)\.home === \(process\.env\.HOME \?\? ''\)\) \{/m)
+    expect(SRC).toMatch(
+      /^\s*if \(operatorAccount\(\)\.home === \(process\.env\.HOME \?\? ''\)\) \{/m
+    )
   })
 
   test('the teardown rationale does not describe itself as merely conditional', () => {
     // The reviewer's objection in one line: the previous teardown was safe only as
     // long as nobody edited it. The file must not describe the marker gate as a
     // convention or a bit.
-    expect(SRC).toContain('Structurally incapable of destruction, by construction rather than by discipline')
+    expect(SRC).toContain(
+      'Structurally incapable of destruction, by construction rather than by discipline'
+    )
     expect(SRC, 'the worst case must be stated as leak-or-loud-failure').toContain(
-      'a leaked empty dir or a loud throw',
+      'a leaked empty dir or a loud throw'
     )
   })
 })
@@ -1807,7 +1918,8 @@ describe('this file cannot recursively delete anything (R1)', () => {
     // allowed — creating a missing parent is not destruction. The audit is keyed
     // on the call being a REMOVE, matching `recursive: true` against the nearest
     // call on the same or a preceding line (a call may be formatted across lines).
-    const DELETE_CALL = /\b(rmSync|rmdirSync|rm|unlinkSync|unlink|cpSync|copyFileSync|execSync|truncate|fchmod)\b/
+    const DELETE_CALL =
+      /\b(rmSync|rmdirSync|rm|unlinkSync|unlink|cpSync|copyFileSync|execSync|truncate|fchmod)\b/
     const src = readFileSync(resolve(DEPLOY_DIR, 'state-isolation.test.ts'), 'utf8')
     const lines = src.split('\n')
     // Every variable this file assigns from mkdtempSync — the only names a
@@ -1815,9 +1927,14 @@ describe('this file cannot recursively delete anything (R1)', () => {
     // hardcoded, so a new mkdtemp in a future test is covered automatically and a
     // rename cannot silently widen the exemption.
     const mkdtempVars = new Set(
-      [...src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*mkdtempSync\(/g)].map((m) => m[1] ?? ''),
+      [...src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*mkdtempSync\(/g)].map(
+        m => m[1] ?? ''
+      )
     )
-    expect([...mkdtempVars].length, 'the exemption is only meaningful if mkdtempSync is actually used').toBeGreaterThan(0)
+    expect(
+      [...mkdtempVars].length,
+      'the exemption is only meaningful if mkdtempSync is actually used'
+    ).toBeGreaterThan(0)
     const offenders: string[] = []
     lines.forEach((line, i) => {
       if (!/recursive:\s*true/.test(line)) return
@@ -1842,7 +1959,7 @@ describe('this file cannot recursively delete anything (R1)', () => {
     expect(
       offenders,
       `recursive delete in this file — use a point unlink plus a non-recursive rmdir, so ` +
-        `unexpected content aborts loudly instead of being destroyed:\n${offenders.join('\n')}`,
+        `unexpected content aborts loudly instead of being destroyed:\n${offenders.join('\n')}`
     ).toEqual([])
   })
 })
@@ -1872,7 +1989,10 @@ describe('every deploy fixture resolves RUN_DIR inside its own tree', () => {
         offenders.push(`${f}:${i + 1}: ${line.trim()}`)
       })
     }
-    expect(offenders, `bare \`...process.env\` spawn env — build it with isolatedEnv():\n${offenders.join('\n')}`).toEqual([])
+    expect(
+      offenders,
+      `bare \`...process.env\` spawn env — build it with isolatedEnv():\n${offenders.join('\n')}`
+    ).toEqual([])
   })
 
   test('no deploy fixture overrides RUN_DIR to a path outside its own tree', () => {

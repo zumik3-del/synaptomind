@@ -18,17 +18,16 @@ export const proposeHandler: ActionHandler = {
       path: ['thought_id']
     }),
   async run(args: ActionArgs) {
-    const { scope, warnings, projectId } = requireEnvelopeScope(args.cwd, 'memory_status', 'propose')
+    const { scope, warnings, projectId } = requireEnvelopeScope(
+      args.cwd,
+      'memory_status',
+      'propose'
+    )
     // Slim is now the default (top-3 edges, no signals). Full output is
     // restored by include_signals=true or compact=false.
     const full = args.compact === false || args.include_signals === true
     const compact = !full
-    const maxEdges =
-      typeof args.max_edges === 'number'
-        ? args.max_edges
-        : compact
-          ? 3
-          : undefined
+    const maxEdges = typeof args.max_edges === 'number' ? args.max_edges : compact ? 3 : undefined
     const includeSignals =
       typeof args.include_signals === 'boolean' ? args.include_signals : !compact
 
@@ -45,7 +44,9 @@ export const proposeHandler: ActionHandler = {
     )
 
     if (!includeSignals) {
-      plan.edges = plan.edges.map(({ signals: _signals, ...rest }) => rest as typeof plan.edges[number])
+      plan.edges = plan.edges.map(
+        ({ signals: _signals, ...rest }) => rest as (typeof plan.edges)[number]
+      )
     }
     // Slim is a shorthand for top-3; enforce the cap when no explicit
     // max_edges was provided.

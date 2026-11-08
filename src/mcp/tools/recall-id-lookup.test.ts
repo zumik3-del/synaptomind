@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb } from '../../db/container'
 import { createEdge } from '../../db/edges'
 import { closeDb } from '../../db/init'
@@ -77,7 +77,11 @@ beforeAll(async () => {
 describe('memory_recall search — id lookup on the wire (task #2186)', () => {
   test('an id-shaped miss falls back to the word search and warns instead of answering empty', async () => {
     const pid = projectId()
-    const id = seedThought({ id: A, content: 'release 2025102512345 shipped the fix', project_id: pid })
+    const id = seedThought({
+      id: A,
+      content: 'release 2025102512345 shipped the fix',
+      project_id: pid
+    })
 
     const { data, isError } = parseResult(
       await client.callTool({

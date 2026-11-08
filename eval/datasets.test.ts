@@ -121,11 +121,12 @@ describe('dataset behaviour (end-to-end)', () => {
 
     // Reuse this end-to-end run: a second runEval() recreates every scenario DB
     // and can exceed Bun's per-test deadline under full-suite load.
-    expect(res.scenarios.map(scenario => scenario.name)).toEqual(EVAL_SCENARIOS.map(scenario => scenario.name))
-    expect(res.scenarios.filter(scenario => scenario.measureOnly).map(scenario => scenario.name)).toEqual([
-      'recency-prefers-fresh',
-      'negative-no-match'
-    ])
+    expect(res.scenarios.map(scenario => scenario.name)).toEqual(
+      EVAL_SCENARIOS.map(scenario => scenario.name)
+    )
+    expect(
+      res.scenarios.filter(scenario => scenario.measureOnly).map(scenario => scenario.name)
+    ).toEqual(['recency-prefers-fresh', 'negative-no-match'])
     expect(res.categories['no-match']).toBeUndefined()
 
     const gatedQueries = EVAL_SCENARIOS.filter(
@@ -135,11 +136,11 @@ describe('dataset behaviour (end-to-end)', () => {
   }, 30_000)
 })
 
-function scenarioNamed(name: string): Extract<typeof EVAL_SCENARIOS[number], { name: string }> {
+function scenarioNamed(name: string): Extract<(typeof EVAL_SCENARIOS)[number], { name: string }> {
   const scenario = EVAL_SCENARIOS.find(s => s.name === name)
   expect(scenario, `scenario ${name} missing from EVAL_SCENARIOS`).toBeDefined()
   if (!scenario) throw new Error(`scenario ${name} missing`)
-  return scenario as Extract<typeof EVAL_SCENARIOS[number], { name: string }>
+  return scenario as Extract<(typeof EVAL_SCENARIOS)[number], { name: string }>
 }
 
 describe('feature-probe dataset audit (#825)', () => {
@@ -159,8 +160,12 @@ describe('feature-probe dataset audit (#825)', () => {
     // are pinned to the stale timestamp so they cannot swamp the pair.
     const fresh = scenario.thoughts.find(thought => thought.id === 'rec-fresh')!
     const stale = scenario.thoughts.find(thought => thought.id === 'rec-stale')!
-    expect(new Date(fresh.createdAt!).getTime()).toBeGreaterThan(new Date(stale.createdAt!).getTime())
-    const distractorAges = scenario.thoughts.filter(thought => thought.distractor).map(thought => thought.createdAt)
+    expect(new Date(fresh.createdAt!).getTime()).toBeGreaterThan(
+      new Date(stale.createdAt!).getTime()
+    )
+    const distractorAges = scenario.thoughts
+      .filter(thought => thought.distractor)
+      .map(thought => thought.createdAt)
     expect(distractorAges.length).toBeGreaterThan(0)
     for (const age of distractorAges) expect(age).toBe(stale.createdAt)
   })
@@ -226,12 +231,17 @@ describe('feature-probe dataset audit (#825)', () => {
     expect(file, 'eval/thresholds.json must exist').not.toBeNull()
 
     const probeCategories = [
-      ...new Set(EVAL_SCENARIOS.filter(scenario => scenario.measureOnly).map(scenario => scenario.category))
+      ...new Set(
+        EVAL_SCENARIOS.filter(scenario => scenario.measureOnly).map(scenario => scenario.category)
+      )
     ]
     expect(probeCategories.sort()).toEqual(['no-match', 'temporal'])
 
     for (const entry of Object.values(file!.modes)) {
-      expect(entry.thresholds.categories['no-match'], `${entry.mode} no-match floor`).toBeUndefined()
+      expect(
+        entry.thresholds.categories['no-match'],
+        `${entry.mode} no-match floor`
+      ).toBeUndefined()
       expect(entry.baseline.categories['no-match']).toBeUndefined()
     }
   })

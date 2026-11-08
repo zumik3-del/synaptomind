@@ -23,7 +23,11 @@ afterEach(() => {
 describe('createIntervalJob', () => {
   test('a second start does not leak the first timer', () => {
     let ticks = 0
-    const job = track(createIntervalJob({ name: 'double-start', intervalMs: 5 }, () => { ticks++ }))
+    const job = track(
+      createIntervalJob({ name: 'double-start', intervalMs: 5 }, () => {
+        ticks++
+      })
+    )
 
     job.start()
     const firstTimer = ticks
@@ -33,7 +37,9 @@ describe('createIntervalJob', () => {
 
   test('start is idempotent: stop() still clears the only live timer', async () => {
     let ticks = 0
-    const job = createIntervalJob({ name: 'stop-clears', intervalMs: 5 }, () => { ticks++ })
+    const job = createIntervalJob({ name: 'stop-clears', intervalMs: 5 }, () => {
+      ticks++
+    })
 
     job.start()
     job.start()
@@ -50,7 +56,11 @@ describe('createIntervalJob', () => {
   test('a refused guard leaves the job startable later', () => {
     let ticks = 0
     let allowed = false
-    const job = track(createIntervalJob({ name: 'guard', intervalMs: 5, guard: () => allowed }, () => { ticks++ }))
+    const job = track(
+      createIntervalJob({ name: 'guard', intervalMs: 5, guard: () => allowed }, () => {
+        ticks++
+      })
+    )
 
     job.start()
     expect(ticks).toBe(0)

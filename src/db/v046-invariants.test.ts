@@ -107,24 +107,25 @@ function insertThought(
 }
 
 function insertEdge(db: Database, id: string, source: string, target: string, type: string): void {
-  db.prepare(`INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)`).run(
-    id,
-    source,
-    target,
-    type,
-    '2020-01-01T00:00:00.000Z'
-  )
+  db.prepare(
+    `INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)`
+  ).run(id, source, target, type, '2020-01-01T00:00:00.000Z')
 }
 
 function insertProject(db: Database, id: string, name: string): void {
-  db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)`).run(id, name, '2020-01-01T00:00:00.000Z')
+  db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)`).run(
+    id,
+    name,
+    '2020-01-01T00:00:00.000Z'
+  )
 }
 
 test('v046 drops self-loops and keeps one edge per pair, a specific relation beating related', () => {
   const path = freshPath('edges')
   buildV45(path)
   openRaw(path, db => {
-    for (const id of ['th-a', 'th-b', 'th-c']) insertThought(db, { id, content: `content ${id}`, project_id: null })
+    for (const id of ['th-a', 'th-b', 'th-c'])
+      insertThought(db, { id, content: `content ${id}`, project_id: null })
     // Same pair, both directions. `related` has the lower id, but a specific
     // relation is the one worth keeping — the keeper rule is not "lowest id".
     insertEdge(db, 'edge-1-related', 'th-a', 'th-b', 'related')
@@ -142,10 +143,14 @@ test('v046 drops self-loops and keeps one edge per pair, a specific relation bea
 
   openRaw(path, db => {
     expect(schemaVersion(db)).toBe('47')
-    const remaining = (db.prepare(`SELECT id FROM edges ORDER BY id`).all() as { id: string }[]).map(r => r.id)
+    const remaining = (
+      db.prepare(`SELECT id FROM edges ORDER BY id`).all() as { id: string }[]
+    ).map(r => r.id)
     expect(remaining).toEqual(['edge-2-develops', 'edge-a1'])
     // The repair left the invariant enforceable, not just satisfied once.
-    expect(() => insertEdge(db, 'edge-late', 'th-a', 'th-b', 'supports')).toThrow('UNIQUE constraint failed')
+    expect(() => insertEdge(db, 'edge-late', 'th-a', 'th-b', 'supports')).toThrow(
+      'UNIQUE constraint failed'
+    )
   })
 })
 
@@ -156,11 +161,35 @@ test('v046 backfills content_hash through computeContentHash and keeps the oldes
     insertProject(db, 'proj-1', 'Project One')
     // Three live duplicates, written oldest-last so "keep the first row" would
     // be wrong: the keeper is the oldest by (created_at, id).
-    insertThought(db, { id: 'th-old', content: 'duplicated content', project_id: 'proj-1', status: 'active', created_at: '2020-01-01T00:00:00.000Z' })
-    insertThought(db, { id: 'th-mid', content: 'duplicated content', project_id: 'proj-1', status: 'active', created_at: '2020-02-01T00:00:00.000Z', is_protected: 1 })
-    insertThought(db, { id: 'th-new', content: 'duplicated content', project_id: 'proj-1', status: 'draft', created_at: '2020-03-01T00:00:00.000Z' })
+    insertThought(db, {
+      id: 'th-old',
+      content: 'duplicated content',
+      project_id: 'proj-1',
+      status: 'active',
+      created_at: '2020-01-01T00:00:00.000Z'
+    })
+    insertThought(db, {
+      id: 'th-mid',
+      content: 'duplicated content',
+      project_id: 'proj-1',
+      status: 'active',
+      created_at: '2020-02-01T00:00:00.000Z',
+      is_protected: 1
+    })
+    insertThought(db, {
+      id: 'th-new',
+      content: 'duplicated content',
+      project_id: 'proj-1',
+      status: 'draft',
+      created_at: '2020-03-01T00:00:00.000Z'
+    })
     // No project row at all: hashed as the empty project, exactly like the write path.
-    insertThought(db, { id: 'th-global', content: 'global content', project_id: null, created_at: '2020-01-01T00:00:00.000Z' })
+    insertThought(db, {
+      id: 'th-global',
+      content: 'global content',
+      project_id: null,
+      created_at: '2020-01-01T00:00:00.000Z'
+    })
   })
 
   initDb({ dbPath: path, runMigrations: true })
@@ -168,8 +197,16 @@ test('v046 backfills content_hash through computeContentHash and keeps the oldes
 
   openRaw(path, db => {
     const rows = db
-      .prepare(`SELECT id, status, content_hash, archived_at, is_protected FROM thoughts ORDER BY id`)
-      .all() as Array<{ id: string; status: string; content_hash: string | null; archived_at: string | null; is_protected: number }>
+      .prepare(
+        `SELECT id, status, content_hash, archived_at, is_protected FROM thoughts ORDER BY id`
+      )
+      .all() as Array<{
+      id: string
+      status: string
+      content_hash: string | null
+      archived_at: string | null
+      is_protected: number
+    }>
     const byId = new Map(rows.map(r => [r.id, r]))
 
     const expectedHash = computeContentHash('duplicated content', 'proj-1')
@@ -180,7 +217,11 @@ test('v046 backfills content_hash through computeContentHash and keeps the oldes
 
     // Keeper = oldest (created_at, id); the younger ones are archived and
     // un-protected so only the survivor stays live.
-    expect(byId.get('th-old')).toMatchObject({ status: 'active', archived_at: null, is_protected: 1 })
+    expect(byId.get('th-old')).toMatchObject({
+      status: 'active',
+      archived_at: null,
+      is_protected: 1
+    })
     expect(byId.get('th-mid')).toMatchObject({ status: 'archived', is_protected: 0 })
     expect(byId.get('th-new')).toMatchObject({ status: 'archived', is_protected: 0 })
     expect(byId.get('th-mid')?.archived_at).toBeString()
@@ -189,7 +230,9 @@ test('v046 backfills content_hash through computeContentHash and keeps the oldes
     // Exactly one live holder of the slot is what makes the partial unique
     // index (created by the same migration) legal on legacy data.
     const live = db
-      .prepare(`SELECT COUNT(*) AS c FROM thoughts WHERE content_hash = ? AND project_id = 'proj-1' AND status IN ('draft','active')`)
+      .prepare(
+        `SELECT COUNT(*) AS c FROM thoughts WHERE content_hash = ? AND project_id = 'proj-1' AND status IN ('draft','active')`
+      )
       .get(expectedHash) as { c: number }
     expect(live.c).toBe(1)
   })
@@ -199,8 +242,14 @@ test('replaying v046 on an already-repaired database changes nothing', () => {
   const path = freshPath('replay')
   buildV45(path)
   openRaw(path, db => {
-    for (const id of ['th-a', 'th-b']) insertThought(db, { id, content: `content ${id}`, project_id: null })
-    insertThought(db, { id: 'th-dup', content: 'content th-a', project_id: null, created_at: '2020-02-02T00:00:00.000Z' })
+    for (const id of ['th-a', 'th-b'])
+      insertThought(db, { id, content: `content ${id}`, project_id: null })
+    insertThought(db, {
+      id: 'th-dup',
+      content: 'content th-a',
+      project_id: null,
+      created_at: '2020-02-02T00:00:00.000Z'
+    })
     insertEdge(db, 'edge-1', 'th-a', 'th-b', 'related')
     insertEdge(db, 'edge-2', 'th-b', 'th-a', 'develops')
   })
@@ -210,7 +259,9 @@ test('replaying v046 on an already-repaired database changes nothing', () => {
 
   const snapshot = (): unknown =>
     openRaw(path, db => ({
-      thoughts: db.prepare(`SELECT id, status, content_hash, archived_at FROM thoughts ORDER BY id`).all(),
+      thoughts: db
+        .prepare(`SELECT id, status, content_hash, archived_at FROM thoughts ORDER BY id`)
+        .all(),
       edges: db.prepare(`SELECT id FROM edges ORDER BY id`).all()
     }))
 

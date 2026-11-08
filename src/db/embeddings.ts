@@ -24,7 +24,11 @@ export function getThoughtEmbeddingsBatch(db: Database, ids: string[]): Map<stri
       // Own copy, defence-in-depth: bun:sqlite already hands back a Uint8Array
       // over a fresh, exactly-sized ArrayBuffer, so nothing aliases today — the
       // copy keeps that guarantee if the driver's buffer reuse ever changes.
-      const source = new Float32Array(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength / 4)
+      const source = new Float32Array(
+        bytes.buffer as ArrayBuffer,
+        bytes.byteOffset,
+        bytes.byteLength / 4
+      )
       out.set(row.id, new Float32Array(source))
     }
   } catch (err) {
@@ -67,7 +71,10 @@ export function getPendingEmbeddingIds(db: Database, ids: string[]): Set<string>
       .all(...(ids as SQLQueryBindings[])) as { thought_id: string }[]
     for (const row of rows) out.add(row.thought_id)
   } catch (err) {
-    console.debug('[embeddings] pending_embeddings read failed, treating every candidate as pending:', err)
+    console.debug(
+      '[embeddings] pending_embeddings read failed, treating every candidate as pending:',
+      err
+    )
     return new Set(ids)
   }
   return out

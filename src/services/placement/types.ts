@@ -14,7 +14,13 @@ import type { GraphStanding } from '../../db/graph-annotations'
  * A typed edge may only be proposed when a non-embedding signal is present;
  * embedding similarity alone yields `related` (ADR #142 / task #927).
  */
-export type SemanticEdgeType = 'contradicts' | 'supports' | 'develops' | 'depends_on' | 'replaces' | 'related'
+export type SemanticEdgeType =
+  | 'contradicts'
+  | 'supports'
+  | 'develops'
+  | 'depends_on'
+  | 'replaces'
+  | 'related'
 
 /**
  * Stable identifier of a rule in the declarative table. Appears in every

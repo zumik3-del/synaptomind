@@ -9,7 +9,10 @@ export interface ThoughtImportance {
   created_at: string
 }
 
-export function getThoughtImportance(db: Database, thoughtId: string): ThoughtImportance | undefined {
+export function getThoughtImportance(
+  db: Database,
+  thoughtId: string
+): ThoughtImportance | undefined {
   const row = db.prepare(`SELECT * FROM thought_importance WHERE thought_id = ?`).get(thoughtId) as
     | ThoughtImportance
     | undefined

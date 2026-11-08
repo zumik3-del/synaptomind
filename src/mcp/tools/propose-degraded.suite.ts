@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer as SdkMcpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer as SdkMcpServer } from '@modelcontextprotocol/server'
 import { closeDb } from '../../db/init'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
@@ -17,7 +17,9 @@ import { registerAllMemoryTools } from '.'
 // that imports it is loaded. The wrapper spawns this file as a subprocess.
 mock.module('../../embedder/client', () => ({
   generateEmbedding: () => new Float32Array(384),
-  generateEmbeddings: async () => { throw new Error('embedder down') },
+  generateEmbeddings: async () => {
+    throw new Error('embedder down')
+  },
   restartEmbedder: () => {},
   isEmbedderReady: () => false
 }))
@@ -72,7 +74,11 @@ describe('memory_status propose degraded branch', () => {
         arguments: { action: 'create', content: `degraded-seed-${i}`, status: 'active' }
       })
       const text = (r as { content: Array<{ text: string }> })?.content?.[0]?.text ?? ''
-      try { ids.push(JSON.parse(text).item.id) } catch { /* skip */ }
+      try {
+        ids.push(JSON.parse(text).item.id)
+      } catch {
+        /* skip */
+      }
     }
     if (ids.length === 0) {
       // If seeding failed entirely, still assert degraded via a known-empty graph.

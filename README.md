@@ -452,6 +452,8 @@ bun run test:perf        # perf scale (SYNAPTOMIND_PERF_SUITE=1)
 bun run test:isolated    # subprocess-heavy embedder IPC + http transport lifecycle
 bun run eval             # memory evaluation harness (recall@k, MRR, baselines)
 bunx biome check src/ eval/   # lint (advisory)
+bun run format           # apply Biome formatting (src eval scripts deploy)
+bun run format:check     # verify formatting — blocking CI gate
 ```
 
 `bun test` (without a script) still runs the full suite; the canonical developer

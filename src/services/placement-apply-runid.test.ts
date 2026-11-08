@@ -29,7 +29,7 @@ import {
   assertStillPending,
   insertPendingEdge,
   NOW,
-  NOW_LATER,
+  NOW_LATER
 } from '../test/proposal-apply-helpers'
 import { applyBatchService, applyProposalService } from './placement-apply.service'
 import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyResult } from './placement-apply.types'
@@ -52,9 +52,11 @@ interface StoredProposal {
 }
 
 function stored(db: Database, id: string): StoredProposal {
-  const row = db.prepare('SELECT state, run_id, result, decided_at, applied_at FROM placement_proposals WHERE id = ?').get(id) as
-    | StoredProposal
-    | undefined
+  const row = db
+    .prepare(
+      'SELECT state, run_id, result, decided_at, applied_at FROM placement_proposals WHERE id = ?'
+    )
+    .get(id) as StoredProposal | undefined
   if (!row) throw new Error(`proposal '${id}' not found`)
   return row
 }
@@ -86,7 +88,11 @@ function expectSynthesizedRunId(value: string | null | undefined): string {
 
 /** Apply and return the accepted envelope, asserting it really was accepted. */
 function applyAccepted(id: string, db: Database, runId?: string): AcceptedApplyResult {
-  const out = applyProposalService(id, { confirm: true, now: NOW, ...(runId === undefined ? {} : { runId }) }, db)
+  const out = applyProposalService(
+    id,
+    { confirm: true, now: NOW, ...(runId === undefined ? {} : { runId }) },
+    db
+  )
   expect(out.status).toBe('accepted')
   return out as AcceptedApplyResult
 }
@@ -95,12 +101,16 @@ function applyAccepted(id: string, db: Database, runId?: string): AcceptedApplyR
 function activePair(_db: Database, prefix: string): { source: string; target: string } {
   return {
     source: seedThought({ id: `${prefix}-s`, content: `${prefix} source`, created_at: NOW }),
-    target: seedThought({ id: `${prefix}-t`, content: `${prefix} target`, created_at: NOW }),
+    target: seedThought({ id: `${prefix}-t`, content: `${prefix} target`, created_at: NOW })
   }
 }
 
 function edgeBetween(db: Database, source: string, target: string, type: string): boolean {
-  return db.prepare('SELECT id FROM edges WHERE source_id = ? AND target_id = ? AND type = ?').get(source, target, type) !== null
+  return (
+    db
+      .prepare('SELECT id FROM edges WHERE source_id = ? AND target_id = ? AND type = ?')
+      .get(source, target, type) !== null
+  )
 }
 
 // ── AC-F28-1: a single un-enveloped apply synthesizes one envelope ──────────────
@@ -158,7 +168,11 @@ describe('AC-F28-1: single apply without a caller run_id', () => {
     const row = insertPendingEdge(db, source, target, 'develops')
     const first = expectSynthesizedRunId(applyAccepted(row.id, db).run_id)
 
-    const again = applyProposalService(row.id, { confirm: true, now: NOW_LATER }, db) as AcceptedApplyResult
+    const again = applyProposalService(
+      row.id,
+      { confirm: true, now: NOW_LATER },
+      db
+    ) as AcceptedApplyResult
 
     expect(again.status).toBe('accepted')
     expect(again.idempotent).toBe(true)
@@ -296,7 +310,11 @@ describe('AC-F28-5: a caller-supplied run_id is used verbatim', () => {
     const rowA = insertPendingEdge(db, first.source, first.target, 'develops')
     const rowB = insertPendingEdge(db, second.source, second.target, 'develops')
 
-    const out = applyBatchService([rowA.id, rowB.id], { confirm: true, now: NOW, runId: 'run-batch-caller' }, db)
+    const out = applyBatchService(
+      [rowA.id, rowB.id],
+      { confirm: true, now: NOW, runId: 'run-batch-caller' },
+      db
+    )
 
     expect(out.run_id).toBe('run-batch-caller')
     expect(stored(db, rowA.id).run_id).toBe('run-batch-caller')
@@ -359,7 +377,10 @@ describe('AC-F28-6: confirm:false writes no run_id and leaves the row pending', 
 
 describe('AC-F28-7: an idempotent accept is recorded, and rolls back as skipped', () => {
   /** An `edge` row whose requested graph state already holds. */
-  function alreadyAppliedEdgeRow(db: Database, prefix: string): { id: string; source: string; target: string } {
+  function alreadyAppliedEdgeRow(
+    db: Database,
+    prefix: string
+  ): { id: string; source: string; target: string } {
     const { source, target } = activePair(db, prefix)
     seedEdge(source, target, 'develops')
     return { id: insertPendingEdge(db, source, target, 'develops').id, source, target }

@@ -2,7 +2,12 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
 import { config } from '../config'
-import { extractResultIds, postProcessSearchResults, prependPrimerResults, updatePrimerHits } from './search_postprocess.service'
+import {
+  extractResultIds,
+  postProcessSearchResults,
+  prependPrimerResults,
+  updatePrimerHits
+} from './search_postprocess.service'
 import type { SearchResult } from '../db/search'
 import type { GroupedResult } from './search.service'
 
@@ -118,7 +123,9 @@ test('updatePrimerHits increments hit counts', () => {
   const results = [makeSearchResult(id)]
   updatePrimerHits(results)
   const db = getDb()
-  const row = db.prepare('SELECT hit_count FROM thought_importance WHERE thought_id = ?').get(id) as { hit_count: number }
+  const row = db
+    .prepare('SELECT hit_count FROM thought_importance WHERE thought_id = ?')
+    .get(id) as { hit_count: number }
   expect(row.hit_count).toBe(1)
 })
 
@@ -173,9 +180,9 @@ function hitThought(thoughtId: string, times: number): void {
 
 /** The primer row of a thought, or null when it was never promoted. */
 function primerRow(thoughtId: string): { hit_count: number } | null {
-  return getDb()
-    .prepare('SELECT hit_count FROM primers WHERE thought_id = ?')
-    .get(thoughtId) as { hit_count: number } | null
+  return getDb().prepare('SELECT hit_count FROM primers WHERE thought_id = ?').get(thoughtId) as {
+    hit_count: number
+  } | null
 }
 
 test('updatePrimerHits does not promote a thought below the configured threshold', () => {

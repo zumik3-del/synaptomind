@@ -12,7 +12,12 @@ export const clusterHandler: ActionHandler = {
   }),
   run(args: ActionArgs) {
     const projectId = resolveProjectId(args.cwd as string | undefined)
-    const created = createClusterService({ thoughtIds: args.thought_ids as string[], title: args.title as string | undefined, tags: args.tags as string[] | undefined, projectId })
+    const created = createClusterService({
+      thoughtIds: args.thought_ids as string[],
+      title: args.title as string | undefined,
+      tags: args.tags as string[] | undefined,
+      projectId
+    })
     // The new cluster, its member edges and its members are one object: `item`
     // carries them together with the read-surface hygiene applied (task #2181).
     return itemEnvelope(
@@ -22,7 +27,10 @@ export const clusterHandler: ActionHandler = {
         edges: created.edges,
         members: created.members.map(member => shapeThought(member))
       },
-      { ...writeEnvelopeScope(args.cwd), counts: { members: created.members.length, edges: created.edges.length } }
+      {
+        ...writeEnvelopeScope(args.cwd),
+        counts: { members: created.members.length, edges: created.edges.length }
+      }
     )
   }
 }

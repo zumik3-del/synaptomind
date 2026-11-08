@@ -2,7 +2,13 @@
 // the event store plus the session-lifecycle helpers it was bundled with.
 import { config } from '../config'
 import type { Context } from 'hono'
-import type { McpServer, EventStore, StreamId, EventId, WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server";
+import type {
+  McpServer,
+  EventStore,
+  StreamId,
+  EventId,
+  WebStandardStreamableHTTPServerTransport
+} from '@modelcontextprotocol/server'
 
 // The per-session event cap is config-driven (F16); it lives with the store that
 // enforces it.
@@ -63,7 +69,10 @@ export class InMemoryEventStore implements EventStore {
     console.warn(`[synaptomind] MCP resume anchor evicted; replay unavailable: ${eventId}`)
   }
 
-  async replayEventsAfter(lastEventId: EventId, { send }: { send: (eventId: EventId, message: unknown) => Promise<void> }): Promise<StreamId> {
+  async replayEventsAfter(
+    lastEventId: EventId,
+    { send }: { send: (eventId: EventId, message: unknown) => Promise<void> }
+  ): Promise<StreamId> {
     if (!lastEventId) return ''
 
     const anchor = this.events.get(lastEventId)
@@ -79,7 +88,10 @@ export class InMemoryEventStore implements EventStore {
 
     // Iterate in Map insertion order — chronological, unlike sorting id strings.
     for (const [id, { streamId: sId, message }] of this.events) {
-      if (id === lastEventId) { found = true; continue }
+      if (id === lastEventId) {
+        found = true
+        continue
+      }
       if (!found || sId !== streamId) continue
       await send(id, message)
     }
@@ -87,13 +99,20 @@ export class InMemoryEventStore implements EventStore {
   }
 }
 
-export async function disposePair(server: McpServer, transport: WebStandardStreamableHTTPServerTransport): Promise<void> {
+export async function disposePair(
+  server: McpServer,
+  transport: WebStandardStreamableHTTPServerTransport
+): Promise<void> {
   try {
     await transport.close()
-  } catch { /* already closed */ }
+  } catch {
+    /* already closed */
+  }
   try {
     await server.close()
-  } catch { /* already closed */ }
+  } catch {
+    /* already closed */
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

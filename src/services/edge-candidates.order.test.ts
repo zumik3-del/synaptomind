@@ -137,10 +137,12 @@ describe('AC8: the skip-sort fast path returns the same neighbours as the sorted
     }))
     const lookup = buildInMemoryDistanceLookup(candidatesAt(angles), angles.map(unitAt))
     /** The auto-cluster neighbourFn: full lookup (k = N-1, fast path) + threshold. */
-    const neighborFn = (minSimilarity: number) => (id: string): string[] =>
-      lookup(id, candidates.length)
-        .filter(n => n.distance < minSimilarity)
-        .map(n => n.id)
+    const neighborFn =
+      (minSimilarity: number) =>
+      (id: string): string[] =>
+        lookup(id, candidates.length)
+          .filter(n => n.distance < minSimilarity)
+          .map(n => n.id)
 
     // Precondition: the measured bands the thresholds below cut through.
     const a0 = Object.fromEntries(lookup('A0', 3).map(n => [n.id, n.distance]))
@@ -193,7 +195,9 @@ describe('AC8: the skip-sort fast path returns the same neighbours as the sorted
 /** Seed the AC9 fixture: the candidate thoughts with drained stored vectors. */
 function seedSupersetCandidates(db: Database, angles: number[]): string[] {
   const past = new Date(Date.now() - 10 * 86400000).toISOString()
-  const ids = angles.map((_, i) => seedThought({ content: `superset candidate ${i}`, created_at: past }))
+  const ids = angles.map((_, i) =>
+    seedThought({ content: `superset candidate ${i}`, created_at: past })
+  )
   for (let i = 0; i < ids.length; i++) {
     const v = unitAt(angles[i]!)
     db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(
@@ -213,7 +217,10 @@ function seedSupersetCandidates(db: Database, angles: number[]): string[] {
 const CANDIDATE_COUNT = 24
 const AC9_DECOYS = 1200
 /** Candidates: cos >= 0.9982 with each other, i.e. every pair clears 0.99. */
-const AC9_ANGLES: number[] = [0, ...Array.from({ length: CANDIDATE_COUNT - 1 }, (_, i) => 0.001 + i * 0.0025)]
+const AC9_ANGLES: number[] = [
+  0,
+  ...Array.from({ length: CANDIDATE_COUNT - 1 }, (_, i) => 0.001 + i * 0.0025)
+]
 /**
  * Decoys: 1200 ineligible index rows at 0.0002-0.05 rad, so the NEAREST
  * candidate (cos 0.99955) is still further from `A0` than every decoy
@@ -226,10 +233,13 @@ const AC9_ANGLES: number[] = [0, ...Array.from({ length: CANDIDATE_COUNT - 1 }, 
  * ineligible neighbours the candidate-local lookup excludes by construction.
  * Below that crowding threshold the two paths agree — `topK` truncates both.
  */
-const AC9_DECOYS_BY_ANGLE: Array<{ id: string; angle: number }> = Array.from({ length: AC9_DECOYS }, (_, i) => ({
-  id: `DECOY${i}`,
-  angle: 0.0002 + i * ((0.05 - 0.0002) / (AC9_DECOYS - 1))
-}))
+const AC9_DECOYS_BY_ANGLE: Array<{ id: string; angle: number }> = Array.from(
+  { length: AC9_DECOYS },
+  (_, i) => ({
+    id: `DECOY${i}`,
+    angle: 0.0002 + i * ((0.05 - 0.0002) / (AC9_DECOYS - 1))
+  })
+)
 const AC9_UNIVERSE: Array<{ id: string; angle: number }> = [
   ...AC9_ANGLES.map((angle, i) => ({ id: `A${i}`, angle })),
   ...AC9_DECOYS_BY_ANGLE
@@ -272,7 +282,13 @@ describe('AC9: the candidate-local lookup is a superset of the pool-capped index
     const topK = 10
     const pool = Math.min(1000, topK * 10)
 
-    const oldPairs = findEmbeddingNeighborPairs(candidates, embeddings, minSimilarity, poolCappedLookup(pool, topK), topK)
+    const oldPairs = findEmbeddingNeighborPairs(
+      candidates,
+      embeddings,
+      minSimilarity,
+      poolCappedLookup(pool, topK),
+      topK
+    )
     const newPairs = findEmbeddingNeighborPairs(
       candidates,
       embeddings,
@@ -307,10 +323,16 @@ describe('AC9: the candidate-local lookup is a superset of the pool-capped index
 
       // The placement engine is the only live consumer of the candidate-local
       // lookup, so the AC9 superset claim is stated on its edge proposals.
-      const result = await proposePlacementPlan({ thoughtId: ids[0]! }, options, { embed: async () => [] })
+      const result = await proposePlacementPlan({ thoughtId: ids[0]! }, options, {
+        embed: async () => []
+      })
       const oldResult = await proposePlacementPlan({ thoughtId: ids[0]! }, options, {
         embed: async () => [],
-        searchNeighbors: poolCappedLookup(Math.min(1000, topK * 10), topK, uuidUniverse(ids, AC9_ANGLES))
+        searchNeighbors: poolCappedLookup(
+          Math.min(1000, topK * 10),
+          topK,
+          uuidUniverse(ids, AC9_ANGLES)
+        )
       })
 
       expect(result.degraded).toBe(false)
@@ -346,25 +368,40 @@ describe('AC9: the candidate-local lookup is a superset of the pool-capped index
     }))
     const embeddings = AC9_ANGLES.map(unitAt)
     const k = candidates.length
-    const oldUniverse: Array<{ id: string; angle: number }> = AC9_ANGLES.map((angle, i) => ({ id: `A${i}`, angle }))
+    const oldUniverse: Array<{ id: string; angle: number }> = AC9_ANGLES.map((angle, i) => ({
+      id: `A${i}`,
+      angle
+    }))
     const oldShape = new Set(
-      findEmbeddingNeighborPairs(candidates, embeddings, 0.99, poolCappedLookup(Math.min(1000, k * 10), k, oldUniverse), k).map(p =>
-        pairKey(p.source_id, p.target_id)
-      )
+      findEmbeddingNeighborPairs(
+        candidates,
+        embeddings,
+        0.99,
+        poolCappedLookup(Math.min(1000, k * 10), k, oldUniverse),
+        k
+      ).map(p => pairKey(p.source_id, p.target_id))
     )
     const newShape = new Set(
-      findEmbeddingNeighborPairs(candidates, embeddings, 0.99, buildInMemoryNeighborLookup(candidates, embeddings), k).map(p =>
-        pairKey(p.source_id, p.target_id)
-      )
+      findEmbeddingNeighborPairs(
+        candidates,
+        embeddings,
+        0.99,
+        buildInMemoryNeighborLookup(candidates, embeddings),
+        k
+      ).map(p => pairKey(p.source_id, p.target_id))
     )
     expect(newShape.size).toBeGreaterThan(0)
     expect(oldShape).toEqual(newShape)
 
     // And the groups built from that shared pair set are identical by definition.
-    const neighborFn = (pairs: Set<string>) => (id: string): string[] =>
-      [...pairs]
-        .filter(key => key.split('::').includes(id))
-        .map(key => key.split('::').find(x => x !== id)!)
-    expect(groupCandidates(candidates, neighborFn(newShape), 2)).toEqual(groupCandidates(candidates, neighborFn(oldShape), 2))
+    const neighborFn =
+      (pairs: Set<string>) =>
+      (id: string): string[] =>
+        [...pairs]
+          .filter(key => key.split('::').includes(id))
+          .map(key => key.split('::').find(x => x !== id)!)
+    expect(groupCandidates(candidates, neighborFn(newShape), 2)).toEqual(
+      groupCandidates(candidates, neighborFn(oldShape), 2)
+    )
   })
 })

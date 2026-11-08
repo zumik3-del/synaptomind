@@ -1,6 +1,9 @@
 import { z } from 'zod/v4'
 import { runAutoClusterJob } from '../../../services/auto-cluster.service'
-import { createPreviewTokenService, consumePreviewTokenService } from '../../../services/preview-tokens.service'
+import {
+  createPreviewTokenService,
+  consumePreviewTokenService
+} from '../../../services/preview-tokens.service'
 import { collectionEnvelope } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
@@ -16,7 +19,10 @@ function optionalNumber(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
-function autoClusterFingerprint(result: { candidates: number; groups: { members: string[] }[] }): string {
+function autoClusterFingerprint(result: {
+  candidates: number
+  groups: { members: string[] }[]
+}): string {
   return `${result.candidates}:${result.groups.length}:${result.groups.map(g => g.members.join(',')).join('|')}`
 }
 
@@ -33,17 +39,23 @@ export const autoClusterHandler: ActionHandler = {
     }
     if (!confirm) {
       const result = await runAutoClusterJob({ ...opts, dryRun: true })
-      const token = createPreviewTokenService('auto_cluster', 'global', autoClusterFingerprint(result))
-      const consequence = result.groups.length > 0
-        ? `Creates ${result.groups.length} cluster(s) from ${result.candidates} candidate thought(s).`
-        : 'No clusters meet the criteria — confirming creates nothing.'
+      const token = createPreviewTokenService(
+        'auto_cluster',
+        'global',
+        autoClusterFingerprint(result)
+      )
+      const consequence =
+        result.groups.length > 0
+          ? `Creates ${result.groups.length} cluster(s) from ${result.candidates} candidate thought(s).`
+          : 'No clusters meet the criteria — confirming creates nothing.'
       return collectionEnvelope('auto_cluster', result.groups, {
         total: result.candidates,
         counts: { candidates: result.candidates, clusters: result.groups.length },
         preview: {
           token,
           consequence,
-          instruction: 'Call memory_crystallize again with action=auto_cluster, confirm=true to proceed.'
+          instruction:
+            'Call memory_crystallize again with action=auto_cluster, confirm=true to proceed.'
         }
       })
     }

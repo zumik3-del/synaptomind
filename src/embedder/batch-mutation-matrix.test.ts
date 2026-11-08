@@ -12,15 +12,29 @@ import {
 
 beforeEach(() => {
   createTestDb()
-  getDb().prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)').run()
+  getDb()
+    .prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)')
+    .run()
 })
 
 afterEach(closeDb)
 
-function pendingRow(id: string): { attempts: number; is_error: number; last_error: string | null; error: string | null } {
+function pendingRow(id: string): {
+  attempts: number
+  is_error: number
+  last_error: string | null
+  error: string | null
+} {
   return getDb()
-    .prepare('SELECT attempts, is_error, last_error, error FROM pending_embeddings WHERE thought_id = ?')
-    .get(id) as { attempts: number; is_error: number; last_error: string | null; error: string | null }
+    .prepare(
+      'SELECT attempts, is_error, last_error, error FROM pending_embeddings WHERE thought_id = ?'
+    )
+    .get(id) as {
+    attempts: number
+    is_error: number
+    last_error: string | null
+    error: string | null
+  }
 }
 
 function setAttempts(id: string, n: number): void {
@@ -107,15 +121,16 @@ describe('only-succeeded-licenses-delete invariant', () => {
     deleteFromQueue(db, [succeededId])
     handleFailedItem(db, skippedId, CONTENT_CHANGED_REASON)
 
-    expect(db.prepare('SELECT 1 FROM pending_embeddings WHERE thought_id = ?').get(succeededId)).toBeNull()
-    const skipped = db.prepare('SELECT attempts, is_error FROM pending_embeddings WHERE thought_id = ?').get(skippedId) as
-      | { attempts: number; is_error: number }
-      | undefined
+    expect(
+      db.prepare('SELECT 1 FROM pending_embeddings WHERE thought_id = ?').get(succeededId)
+    ).toBeNull()
+    const skipped = db
+      .prepare('SELECT attempts, is_error FROM pending_embeddings WHERE thought_id = ?')
+      .get(skippedId) as { attempts: number; is_error: number } | undefined
     expect(skipped).toBeDefined()
     expect(skipped!.is_error).toBe(0)
   })
 })
-
 
 describe('classifyBatch guard: skipped is not succeeded', () => {
   test('a skipped row lands in contentChanged, never in succeeded', () => {
@@ -125,7 +140,10 @@ describe('classifyBatch guard: skipped is not succeeded', () => {
   })
 
   test('a failed row lands in failed, never in succeeded', () => {
-    const outcome = classifyBatch([{ id: 'a', content: 'A', contentHash: 'h' }], () => ({ id: 'a', error: 'boom' }))
+    const outcome = classifyBatch([{ id: 'a', content: 'A', contentHash: 'h' }], () => ({
+      id: 'a',
+      error: 'boom'
+    }))
     expect(outcome.succeeded).toEqual([])
     expect(outcome.failed).toEqual([{ id: 'a', error: 'boom' }])
   })

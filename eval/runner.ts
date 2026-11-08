@@ -32,7 +32,15 @@ export type { EvalMode, RunResult } from './types'
 export const DEFAULT_TOP_K = 5
 
 import type { QueryRun, ScenarioRun } from './types'
-export { buildThresholdEntry, collectGatingRegressions, evaluateAssertions, evaluateThresholds, loadThresholds, upsertThresholdEntry, writeThresholds } from './thresholds'
+export {
+  buildThresholdEntry,
+  collectGatingRegressions,
+  evaluateAssertions,
+  evaluateThresholds,
+  loadThresholds,
+  upsertThresholdEntry,
+  writeThresholds
+} from './thresholds'
 export type { MetricFloor, ThresholdEntry, ThresholdFile } from './thresholds'
 export type { QueryRun, ScenarioRun } from './types'
 export type { GateStats, RelevanceGate } from './types'
@@ -165,15 +173,10 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
       const queries: QueryRun[] = []
       for (const query of scenario.queries) {
         const k = query.topK ?? topK
-        const { hits: found, filteredOut } = await searcher(
-          query.query,
-          k,
-          query.projectFilter,
-          {
-            recencyWeight: query.recencyWeight,
-            recencyHalfLifeDays: query.recencyHalfLifeDays
-          }
-        )
+        const { hits: found, filteredOut } = await searcher(query.query, k, query.projectFilter, {
+          recencyWeight: query.recencyWeight,
+          recencyHalfLifeDays: query.recencyHalfLifeDays
+        })
         // Capture the #155 confidence signals before the ids are flattened, so
         // `expectNoStrongMatch` can assert on them (see eval/types.ts).
         const hits: RetrievedHit[] = found.map(result => ({
@@ -221,7 +224,9 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
     generatedAt: new Date().toISOString(),
     topK,
     scenarios: results,
-    overall: averageMetrics(passScenarios.flatMap(scenario => scenario.queries.map(query => query.metrics))),
+    overall: averageMetrics(
+      passScenarios.flatMap(scenario => scenario.queries.map(query => query.metrics))
+    ),
     categories,
     relevanceGate: gateStats
   }

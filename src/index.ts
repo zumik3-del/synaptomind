@@ -50,15 +50,16 @@ const { createMcpServer } = await import('./mcp/server')
 const { StdioServerTransport } = await import('@modelcontextprotocol/server/stdio')
 const { McpHttpPortInUseError } = await import('./errors')
 const { startDecayJob, stopDecayJob } = await import('./services/decay.service')
-const { startPlacementRetentionJob, stopPlacementRetentionJob } = await import('./services/placement-retention.service')
+const { startPlacementRetentionJob, stopPlacementRetentionJob } = await import(
+  './services/placement-retention.service'
+)
 
 const isStdio = process.argv.includes('--stdio')
 // Single-owner default: a stdio MCP client must not spawn its own embedder and
 // background schedulers against the shared DB — those belong to the standalone
 // HTTP server. Opt into local ownership explicitly via flag or env when running
 // stdio without a shared server.
-const stdioStandalone =
-  process.argv.includes('--stdio-standalone') || config.mcp.stdioStandalone
+const stdioStandalone = process.argv.includes('--stdio-standalone') || config.mcp.stdioStandalone
 const ownsBackgroundJobs = !isStdio || stdioStandalone
 const noEmbedder = process.argv.includes('--no-embedder') || !config.embedder.enabled
 
@@ -77,19 +78,26 @@ try {
   mkdirSync(dirname(config.db.path), { recursive: true })
 } catch {}
 
-let bootResult: { registered: string[]; unavailable: Array<{ userId: string; error: string }> } | undefined
+let bootResult:
+  | { registered: string[]; unavailable: Array<{ userId: string; error: string }> }
+  | undefined
 try {
   if (isStdio && config.users.length > 0) {
     // Multi-user background workers operate on user databases, not the legacy
     // stdio database. Do not start them under this unauthenticated transport.
-    if (stdioStandalone) throw new Error('stdio standalone is unavailable with multi-user configuration')
+    if (stdioStandalone)
+      throw new Error('stdio standalone is unavailable with multi-user configuration')
     if (config.db.path !== ':memory:') {
       const { assertDistinctDatabasePaths } = await import('./config.db-identity')
-      const legacyPath = isAbsolute(config.db.path) ? config.db.path : `${process.cwd()}/${config.db.path}`
+      const legacyPath = isAbsolute(config.db.path)
+        ? config.db.path
+        : `${process.cwd()}/${config.db.path}`
       try {
         assertDistinctDatabasePaths([legacyPath, ...config.users.map(user => user.dbPath)])
       } catch (err) {
-        throw new Error(`stdio legacy database cannot be safely isolated from user databases: ${err}`)
+        throw new Error(
+          `stdio legacy database cannot be safely isolated from user databases: ${err}`
+        )
       }
     }
     const db = openDatabase({ dbPath: config.db.path, runMigrations: true })
@@ -114,7 +122,7 @@ try {
 if (!ownsBackgroundJobs) {
   console.error(
     '[synaptomind] stdio mode: embedder and background jobs delegated to the shared server ' +
-    '(set SYNAPTOMIND_MCP_STDIO_STANDALONE=true or pass --stdio-standalone to run them locally)'
+      '(set SYNAPTOMIND_MCP_STDIO_STANDALONE=true or pass --stdio-standalone to run them locally)'
   )
 } else {
   if (noEmbedder) {
@@ -142,7 +150,9 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   try {
     const { registry } = await import('./db/registry')
     for (const [, db] of registry) {
-      try { db.close(true) } catch {}
+      try {
+        db.close(true)
+      } catch {}
     }
     registry.clear()
   } catch {}
@@ -180,7 +190,9 @@ if (isStdio) {
     port: config.server.port,
     hostname: config.server.host
   })
-  console.log(`[synaptomind] API server running on http://${config.server.host}:${config.server.port}`)
+  console.log(
+    `[synaptomind] API server running on http://${config.server.host}:${config.server.port}`
+  )
 
   const mcpPort = config.mcp?.httpPort ?? 3006
   let mcpHandle: McpHttpHandle

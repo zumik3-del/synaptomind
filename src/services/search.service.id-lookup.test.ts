@@ -185,7 +185,10 @@ describe('searchThoughtsOutcome — id lookup', () => {
 
     expect(byUuid.items.map(r => r.thought.id)).toEqual([A])
 
-    const byPrefix = await searchThoughtsOutcome({ query: '018f0a0000007', projectFilter: 'proj-a' })
+    const byPrefix = await searchThoughtsOutcome({
+      query: '018f0a0000007',
+      projectFilter: 'proj-a'
+    })
 
     expect(byPrefix.items).toEqual([])
     expect(byPrefix.warnings?.[0]).toContain('id_not_found')

@@ -50,7 +50,9 @@ function schemaVersion(): string | undefined {
 }
 
 function thoughtColumns(): string[] {
-  return openRaw(db => (db.prepare(`PRAGMA table_info(thoughts)`).all() as { name: string }[]).map(c => c.name))
+  return openRaw(db =>
+    (db.prepare(`PRAGMA table_info(thoughts)`).all() as { name: string }[]).map(c => c.name)
+  )
 }
 
 // Fails any `schema_version = 36` stamp (the H1 write) while leaving 35 and 37+ alone.

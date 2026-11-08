@@ -19,7 +19,7 @@ function makeStubs(root: string): string {
   mkdirSync(stubs, { recursive: true })
   writeFileSync(
     join(stubs, 'systemctl'),
-    '#!/usr/bin/env bash\ncase "$*" in\n  *"is-active"*) exit 3 ;;\n  *) printf "\\n"; exit 0 ;;\nesac\n',
+    '#!/usr/bin/env bash\ncase "$*" in\n  *"is-active"*) exit 3 ;;\n  *) printf "\\n"; exit 0 ;;\nesac\n'
   )
   chmodSync(join(stubs, 'systemctl'), 0o755)
   return stubs
@@ -36,12 +36,16 @@ function makeSqliteStub(root: string, fail: boolean): string {
   return stubs
 }
 
-function runCommon(root: string, script: string, envExtra: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string } {
+function runCommon(
+  root: string,
+  script: string,
+  envExtra: Record<string, string> = {}
+): { status: number | null; stdout: string; stderr: string } {
   const stubs = (envExtra.__stubs as string) ?? makeStubs(root)
   const env = isolatedEnv(root, {
     PATH: `${stubs}:${process.env.PATH ?? ''}`,
     APP_NAME: 'synaptomind',
-    ...envExtra,
+    ...envExtra
   })
   delete (env as Record<string, unknown>).__stubs
   const res = spawnSync('bash', ['-c', script], { encoding: 'utf8', env, timeout: 60_000 })
@@ -63,7 +67,13 @@ describe('deploy backup (task #2297) - effective paths', () => {
     sqlite(dbPath, 'CREATE TABLE t(x); INSERT INTO t VALUES(1);')
     sqlite(userDb, 'CREATE TABLE t(x); INSERT INTO t VALUES(2);')
     const cfg = join(app, 'config.json')
-    writeFileSync(cfg, JSON.stringify({ db: { path: './data/main.db' }, users: [{ id: 'alice', dbPath: userDb, tokenSha256: '0'.repeat(64) }] }))
+    writeFileSync(
+      cfg,
+      JSON.stringify({
+        db: { path: './data/main.db' },
+        users: [{ id: 'alice', dbPath: userDb, tokenSha256: '0'.repeat(64) }]
+      })
+    )
 
     const stubs = makeStubs(root)
     const script = [
@@ -73,9 +83,13 @@ describe('deploy backup (task #2297) - effective paths', () => {
       `. ${quote(LIB)}`,
       'service_unit_context',
       'service_environment',
-      'effective_db_paths',
+      'effective_db_paths'
     ].join('\n')
-    const res = runCommon(root, script, { __stubs: stubs, SYNAPTOMIND_CONFIG: cfg, INSTALL_DIR: app } as Record<string, string>)
+    const res = runCommon(root, script, {
+      __stubs: stubs,
+      SYNAPTOMIND_CONFIG: cfg,
+      INSTALL_DIR: app
+    } as Record<string, string>)
     expect(res.stdout).toContain(dbPath)
     expect(res.stdout).toContain(userDb)
   })
@@ -90,7 +104,13 @@ describe('deploy backup (task #2297) - effective paths', () => {
     sqlite(dbPath, 'CREATE TABLE t(x);')
     sqlite(userDb, 'CREATE TABLE t(x);')
     const cfg = join(app, 'config.json')
-    writeFileSync(cfg, JSON.stringify({ db: { path: `./data/${dbName}` }, users: [{ id: 'u', dbPath: userDb, tokenSha256: '0'.repeat(64) }] }))
+    writeFileSync(
+      cfg,
+      JSON.stringify({
+        db: { path: `./data/${dbName}` },
+        users: [{ id: 'u', dbPath: userDb, tokenSha256: '0'.repeat(64) }]
+      })
+    )
 
     const stubs = makeStubs(root)
     const script = [
@@ -100,9 +120,13 @@ describe('deploy backup (task #2297) - effective paths', () => {
       `. ${quote(LIB)}`,
       'service_unit_context',
       'service_environment',
-      'effective_db_paths',
+      'effective_db_paths'
     ].join('\n')
-    const res = runCommon(root, script, { __stubs: stubs, SYNAPTOMIND_CONFIG: cfg, INSTALL_DIR: app } as Record<string, string>)
+    const res = runCommon(root, script, {
+      __stubs: stubs,
+      SYNAPTOMIND_CONFIG: cfg,
+      INSTALL_DIR: app
+    } as Record<string, string>)
     expect(res.stdout).toContain(dbPath)
     expect(res.stdout).toContain(userDb)
   })
@@ -123,9 +147,13 @@ describe('deploy backup (task #2297) - effective paths', () => {
       'service_environment',
       'effective_db_paths; rc=$?',
       'echo "RC=$rc"',
-      'exit $rc',
+      'exit $rc'
     ].join('\n')
-    const res = runCommon(root, script, { __stubs: stubs, SYNAPTOMIND_CONFIG: cfg, INSTALL_DIR: app } as Record<string, string>)
+    const res = runCommon(root, script, {
+      __stubs: stubs,
+      SYNAPTOMIND_CONFIG: cfg,
+      INSTALL_DIR: app
+    } as Record<string, string>)
     // effective_db_paths returns non-zero on parse failure
     expect(res.status).not.toBe(0)
   })
@@ -139,7 +167,10 @@ describe('deploy backup (task #2297) - effective paths', () => {
     const cfg = join(app, 'config.json')
     writeFileSync(cfg, JSON.stringify({ db: { path: './data/main.db' }, users: [] }))
     const linkPath = join(app, 'data', 'link.db')
-    try { const { rmSync } = require('node:fs'); rmSync(linkPath) } catch {}
+    try {
+      const { rmSync } = require('node:fs')
+      rmSync(linkPath)
+    } catch {}
     const { symlinkSync } = require('node:fs')
     symlinkSync(dbPath, linkPath)
 
@@ -152,9 +183,14 @@ describe('deploy backup (task #2297) - effective paths', () => {
       `. ${quote(LIB)}`,
       'service_unit_context',
       'service_environment',
-      'effective_db_paths',
+      'effective_db_paths'
     ].join('\n')
-    const res = runCommon(root, script, { __stubs: stubs, SYNAPTOMIND_CONFIG: cfg, SYNAPTOMIND_DB_PATH: './data/main.db', INSTALL_DIR: app } as Record<string, string>)
+    const res = runCommon(root, script, {
+      __stubs: stubs,
+      SYNAPTOMIND_CONFIG: cfg,
+      SYNAPTOMIND_DB_PATH: './data/main.db',
+      INSTALL_DIR: app
+    } as Record<string, string>)
     const occurrences = res.stdout.split('\n').filter(l => l.trim() === dbPath).length
     expect(occurrences).toBe(1)
   })
@@ -182,9 +218,13 @@ describe('deploy backup (task #2297) - backup/restore', () => {
       'service_environment',
       'backup_databases',
       'echo "RC=$?"',
-      'echo "BACKUPS=${DB_BACKUPS[*]}"',
+      'echo "BACKUPS=${DB_BACKUPS[*]}"'
     ].join('\n')
-    const res = runCommon(root, script, { __stubs: stubs, SYNAPTOMIND_CONFIG: cfg, INSTALL_DIR: app } as Record<string, string>)
+    const res = runCommon(root, script, {
+      __stubs: stubs,
+      SYNAPTOMIND_CONFIG: cfg,
+      INSTALL_DIR: app
+    } as Record<string, string>)
     expect(res.stderr).not.toContain('ERROR')
     const m = /BACKUPS=(.*)/.exec(res.stdout)
     expect(m).not.toBeNull()
@@ -196,7 +236,7 @@ describe('deploy backup (task #2297) - backup/restore', () => {
     expect(q.stdout.trim()).toBe('42')
     const qc = spawnSync('sqlite3', [backup, 'PRAGMA quick_check;'], { encoding: 'utf8' })
     expect(qc.stdout.trim()).toBe('ok')
-    sqlite(dbPath, "INSERT INTO t VALUES (7);")
+    sqlite(dbPath, 'INSERT INTO t VALUES (7);')
     const c = spawnSync('sqlite3', [dbPath, 'SELECT count(*) FROM t;'], { encoding: 'utf8' })
     expect(c.stdout.trim()).toBe('2')
   })
@@ -220,9 +260,13 @@ describe('deploy backup (task #2297) - backup/restore', () => {
       'service_unit_context',
       'service_environment',
       'backup_databases >/dev/null 2>&1',
-      'printf \'%s\\n\' "${DB_BACKUPS[0]}"',
+      'printf \'%s\\n\' "${DB_BACKUPS[0]}"'
     ].join('\n')
-    const res = runCommon(root, script, { __stubs: stubs, SYNAPTOMIND_CONFIG: cfg, INSTALL_DIR: app } as Record<string, string>)
+    const res = runCommon(root, script, {
+      __stubs: stubs,
+      SYNAPTOMIND_CONFIG: cfg,
+      INSTALL_DIR: app
+    } as Record<string, string>)
     const backup = res.stdout.trim().split('\n').pop()!.trim()
     expect(existsSync(backup)).toBe(true)
     const restored = join(app, 'data', 'restored.db')
@@ -252,9 +296,13 @@ describe('deploy backup (task #2297) - failure abort', () => {
       `. ${quote(LIB)}`,
       'service_unit_context',
       'service_environment',
-      'if backup_databases; then echo "RC=0"; else echo "RC=$?"; fi',
+      'if backup_databases; then echo "RC=0"; else echo "RC=$?"; fi'
     ].join('\n')
-    const res = runCommon(root, script, { __stubs: stubs, SYNAPTOMIND_CONFIG: cfg, INSTALL_DIR: app } as Record<string, string>)
+    const res = runCommon(root, script, {
+      __stubs: stubs,
+      SYNAPTOMIND_CONFIG: cfg,
+      INSTALL_DIR: app
+    } as Record<string, string>)
     // error() exits the shell, so the if/else echo never runs; non-zero status is the abort signal.
     expect(res.status).not.toBe(0)
     expect(res.stderr).toContain('ERROR')
@@ -287,9 +335,14 @@ describe('deploy backup (task #2297) - retention', () => {
       `. ${quote(LIB)}`,
       'service_unit_context',
       'service_environment',
-      'backup_databases >/dev/null 2>&1 || true',
+      'backup_databases >/dev/null 2>&1 || true'
     ].join('\n')
-    runCommon(root, script, { __stubs: stubs, SYNAPTOMIND_CONFIG: cfg, INSTALL_DIR: app, BACKUP_KEEP: '2' } as Record<string, string>)
+    runCommon(root, script, {
+      __stubs: stubs,
+      SYNAPTOMIND_CONFIG: cfg,
+      INSTALL_DIR: app,
+      BACKUP_KEEP: '2'
+    } as Record<string, string>)
     const remaining = readdirSync(bdir).filter(n => n.endsWith('.bak'))
     expect(remaining.length).toBeLessThanOrEqual(2)
   })
@@ -303,7 +356,7 @@ describe('deploy backup (task #2297) - first-update', () => {
       APP_NAME: 'synaptomind',
       INSTALL_DIR: join(root, 'app'),
       APP_BACKUP_ALREADY_DONE: '1',
-      PATH: `${process.env.PATH ?? ''}`,
+      PATH: `${process.env.PATH ?? ''}`
     })
     const res = spawnSync('bash', [HOOK], { encoding: 'utf8', env, timeout: 30_000 })
     expect(res.stdout + res.stderr).toContain('built-in backup already performed')

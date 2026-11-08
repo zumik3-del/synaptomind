@@ -47,7 +47,9 @@ export async function resolveCandidateEmbeddings(
 
   const generated = await embed(missing.map(c => c.content))
   if (generated.length !== missing.length) {
-    throw new Error(`embedder returned ${generated.length} vectors for ${missing.length} candidates`)
+    throw new Error(
+      `embedder returned ${generated.length} vectors for ${missing.length} candidates`
+    )
   }
   missing.forEach((candidate, i) => {
     stored.set(candidate.id, generated[i])

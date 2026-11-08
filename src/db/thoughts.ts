@@ -4,7 +4,14 @@ import { computeContentHash, parseTags } from '../utils'
 import { assertNoLiveContentConflict, isContentDedupeViolation } from './content-dedupe'
 import { ThoughtContentConflictError } from './errors'
 import { resolveDefaultProjectId } from './projects'
-import { getThoughtTags, getThoughtTagsBatch, mergeThoughtTags, pruneOrphanTags, setThoughtTags, type Tag } from './tags'
+import {
+  getThoughtTags,
+  getThoughtTagsBatch,
+  mergeThoughtTags,
+  pruneOrphanTags,
+  setThoughtTags,
+  type Tag
+} from './tags'
 import { sqlIn, toBit } from './utils'
 
 // The auto-clustering candidate query lives in the sibling module; re-exported
@@ -90,7 +97,8 @@ export function rowToThought(row: Record<string, unknown>): Thought {
   }
 }
 
-const THOUGHT_BASE_SELECT = 'SELECT t.*, p.name as project_name FROM thoughts t LEFT JOIN projects p ON t.project_id = p.id'
+const THOUGHT_BASE_SELECT =
+  'SELECT t.*, p.name as project_name FROM thoughts t LEFT JOIN projects p ON t.project_id = p.id'
 const THOUGHT_ROW_SQL = `${THOUGHT_BASE_SELECT} WHERE t.id = ?`
 
 export function getThoughtRow(db: Database, id: string): Thought | undefined {
@@ -111,11 +119,26 @@ export function createThought(db: Database, data: CreateThoughtInput): Thought {
     const isProtected = toBit(data.is_protected ?? true)
     const isGlobal = toBit(data.is_global)
 
-    const res = db.prepare(`
+    const res = db
+      .prepare(`
       INSERT INTO thoughts (id, content, status, source, project_id, content_hash, is_cluster, is_protected, is_global, created_at, updated_at, surface_after)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (content_hash, project_id) WHERE status IN ('draft', 'active') DO NOTHING
-    `).run(id, data.content, status, data.source ?? null, projectId, contentHash, isCluster, isProtected, isGlobal, now, now, data.surface_after ?? null)
+    `)
+      .run(
+        id,
+        data.content,
+        status,
+        data.source ?? null,
+        projectId,
+        contentHash,
+        isCluster,
+        isProtected,
+        isGlobal,
+        now,
+        now,
+        data.surface_after ?? null
+      )
 
     if (res.changes === 0) {
       // Re-read the existing draft/active thought with the same content.
@@ -154,11 +177,10 @@ function getThoughtsByIds(db: Database, ids: string[]): Map<string, Thought> {
   const map = new Map<string, Thought>()
   if (ids.length === 0) return map
   const ph = sqlIn(ids)
-  const rows = db
-    .prepare(
-      `${THOUGHT_BASE_SELECT} WHERE t.id IN (${ph})`
-    )
-    .all(...ids) as Record<string, unknown>[]
+  const rows = db.prepare(`${THOUGHT_BASE_SELECT} WHERE t.id IN (${ph})`).all(...ids) as Record<
+    string,
+    unknown
+  >[]
   for (const r of rows) map.set(r.id as string, rowToThought(r))
   return map
 }
@@ -170,7 +192,11 @@ export function getThoughtsBatchWithTags(db: Database, ids: string[]): Map<strin
   return thoughts
 }
 
-export function updateThought(db: Database, id: string, data: UpdateThoughtInput): Thought | undefined {
+export function updateThought(
+  db: Database,
+  id: string,
+  data: UpdateThoughtInput
+): Thought | undefined {
   const run = db.transaction(() => {
     const sets: string[] = []
     const values: SQLQueryBindings[] = []
@@ -222,11 +248,15 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
     if (data.content !== undefined || data.project_id !== undefined || data.status !== undefined) {
       const existing = db
         .prepare('SELECT content, project_id, status, content_hash FROM thoughts WHERE id = ?')
-        .get(id) as { content: string; project_id: string; status: string; content_hash: string | null } | undefined
+        .get(id) as
+        | { content: string; project_id: string; status: string; content_hash: string | null }
+        | undefined
       if (existing) {
         const newProjectId = data.project_id ?? existing.project_id
         const contentChanged = data.content !== undefined || data.project_id !== undefined
-        const newHash = contentChanged ? computeContentHash(data.content ?? existing.content, newProjectId) : existing.content_hash
+        const newHash = contentChanged
+          ? computeContentHash(data.content ?? existing.content, newProjectId)
+          : existing.content_hash
         if (contentChanged) {
           sets.push('content_hash = ?')
           values.push(newHash)
@@ -252,7 +282,11 @@ export function updateThought(db: Database, id: string, data: UpdateThoughtInput
 }
 
 export function archiveThought(db: Database, id: string): Thought | undefined {
-  return updateThought(db, id, { status: 'archived', archived_at: new Date().toISOString(), is_protected: false })
+  return updateThought(db, id, {
+    status: 'archived',
+    archived_at: new Date().toISOString(),
+    is_protected: false
+  })
 }
 
 export function deleteThought(db: Database, id: string): boolean {
@@ -273,7 +307,10 @@ export function deleteThought(db: Database, id: string): boolean {
  * `countThoughts` applies the very same filters as `listThoughts`, so the page
  * and its total can never disagree.
  */
-function buildThoughtsWhere(options: ThoughtListFilters): { sql: string; values: SQLQueryBindings[] } {
+function buildThoughtsWhere(options: ThoughtListFilters): {
+  sql: string
+  values: SQLQueryBindings[]
+} {
   const { status, project_id, tag, is_cluster } = options
 
   const where: string[] = []
@@ -327,7 +364,10 @@ export function listThoughts(db: Database, options: ListThoughtsOptions = {}): T
   }
 
   const rows = db.prepare(sql).all(...sqlValues) as Record<string, unknown>[]
-  const tagMap = getThoughtTagsBatch(db, rows.map(r => r.id as string))
+  const tagMap = getThoughtTagsBatch(
+    db,
+    rows.map(r => r.id as string)
+  )
   return rows.map(r => ({ ...rowToThought(r), tags: tagMap.get(r.id as string) ?? [] }))
 }
 

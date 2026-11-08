@@ -1,0 +1,3 @@
+# Reformat commits: ignore these revisions in blame
+# usage: git config blame.ignoreRevsFile .git-blame-ignore-revs
+78bbb28dc7295fddc901a807afe643cb74382712

@@ -35,29 +35,47 @@ interface Config {
   contentLanguage: string
   server: { port: number; host: string }
   mcp: {
-    httpPort: number; instructionsFile?: string; stdioStandalone: boolean; corsOrigins: string[]
-    maxSessions: number; sessionTtlMs: number; keepAliveMs: number; maxEventsPerSession: number
+    httpPort: number
+    instructionsFile?: string
+    stdioStandalone: boolean
+    corsOrigins: string[]
+    maxSessions: number
+    sessionTtlMs: number
+    keepAliveMs: number
+    maxEventsPerSession: number
   }
   db: { path: string; busyTimeout: number }
   log: { level: string; file: string; format: string; fileMaxBytes: number; fileMaxFiles: number }
   embedder: {
-    enabled: boolean; model: string; dtype: EmbedderDtype; dimensions: number; pollIntervalMs: number;
-    cacheDir: string; idleTimeoutMs: number; precache: boolean; batchSize: number;
+    enabled: boolean
+    model: string
+    dtype: EmbedderDtype
+    dimensions: number
+    pollIntervalMs: number
+    cacheDir: string
+    idleTimeoutMs: number
+    precache: boolean
+    batchSize: number
     resetDeadLetters: boolean
   }
   thoughts: { softLimit: number; hardLimitBufferPercent: number }
   decay: { rate: number; intervalMs: number }
   primer: { promoteThreshold: number; topN: number }
   autoCluster: {
-    minAgeDays: number; minSimilarity: number;
+    minAgeDays: number
+    minSimilarity: number
     minMembers: number
   }
   edgeDetect: {
-    minSimilarity: number; topK: number; maxCandidates: number;
+    minSimilarity: number
+    topK: number
+    maxCandidates: number
     maxProposals: number
   }
   placement: {
-    maxClusterSize: number; proposalTtlDays: number; maxPendingProposals: number;
+    maxClusterSize: number
+    proposalTtlDays: number
+    maxPendingProposals: number
     maxProposalsPerEnqueue: number
   }
   slots: { defaultMaxChars: number }
@@ -72,15 +90,27 @@ export const DEFAULTS: Config = {
   contentLanguage: 'en',
   server: { port: 3005, host: '127.0.0.1' },
   mcp: {
-    httpPort: 3006, instructionsFile: '', stdioStandalone: false, corsOrigins: [],
-    maxSessions: 100, sessionTtlMs: 3600_000, keepAliveMs: 10_000, maxEventsPerSession: 1000
+    httpPort: 3006,
+    instructionsFile: '',
+    stdioStandalone: false,
+    corsOrigins: [],
+    maxSessions: 100,
+    sessionTtlMs: 3600_000,
+    keepAliveMs: 10_000,
+    maxEventsPerSession: 1000
   },
   db: { path: './data/synaptomind.db', busyTimeout: 5000 },
   log: { level: 'info', file: '', format: 'text', fileMaxBytes: 10485760, fileMaxFiles: 3 },
   embedder: {
-    enabled: true, model: 'Xenova/multilingual-e5-small', dtype: 'q8', dimensions: 384,
-    pollIntervalMs: 7000, cacheDir: './data/huggingface',
-    idleTimeoutMs: 600000, precache: false, batchSize: 8,
+    enabled: true,
+    model: 'Xenova/multilingual-e5-small',
+    dtype: 'q8',
+    dimensions: 384,
+    pollIntervalMs: 7000,
+    cacheDir: './data/huggingface',
+    idleTimeoutMs: 600000,
+    precache: false,
+    batchSize: 8,
     resetDeadLetters: false
   },
   thoughts: { softLimit: 600, hardLimitBufferPercent: 20 },
@@ -93,11 +123,14 @@ export const DEFAULTS: Config = {
   // Union-Find transitive closure; 0.09 is the calibrated value for e5-small
   // cosine distance (ADR 2026-09-28, thought 01a094b2-…).
   autoCluster: {
-    minAgeDays: 3, minSimilarity: 0.09,
+    minAgeDays: 3,
+    minSimilarity: 0.09,
     minMembers: 3
   },
   edgeDetect: {
-    minSimilarity: 0.75, topK: 10, maxCandidates: 100,
+    minSimilarity: 0.75,
+    topK: 10,
+    maxCandidates: 100,
     maxProposals: 20
   },
   // Skip a cluster proposal once a cluster already holds this many members:
@@ -105,7 +138,12 @@ export const DEFAULTS: Config = {
   // proposer — the cap only suppresses the suggestion, it never mutates.
   // `proposalTtlDays` bounds the review queue (ADR §2.4): terminal rows are
   // pruned after the TTL and live `pending` rows use `expires_at`.
-  placement: { maxClusterSize: 50, proposalTtlDays: 30, maxPendingProposals: 500, maxProposalsPerEnqueue: 5 },
+  placement: {
+    maxClusterSize: 50,
+    proposalTtlDays: 30,
+    maxPendingProposals: 500,
+    maxProposalsPerEnqueue: 5
+  },
   slots: { defaultMaxChars: 2000 },
   graph: { maxDegree: 50 },
   // Conservative placeholder pending issue #156 calibration: above the observed
@@ -206,13 +244,13 @@ export const ENV_MAPPINGS: EnvMapping[] = [
 
   M('SYNAPTOMIND_RETENTION_REVIEW_MIN_AGE_DAYS', 'retentionReview.minAgeDays', 'int'),
   M('SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR', 'retentionReview.importanceFloor', 'float'),
-  M('SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE', 'retentionReview.pageSize', 'int'),
-
+  M('SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE', 'retentionReview.pageSize', 'int')
 ]
 
 function parseValue(raw: string, type: EnvType): string | number | boolean | string[] {
   switch (type) {
-    case 'string': return raw
+    case 'string':
+      return raw
     case 'int': {
       const n = parseInt(raw, 10)
       return Number.isFinite(n) ? n : NaN
@@ -221,8 +259,13 @@ function parseValue(raw: string, type: EnvType): string | number | boolean | str
       const n = parseFloat(raw)
       return Number.isFinite(n) ? n : NaN
     }
-    case 'bool': return raw === 'true'
-    case 'list': return raw.split(',').map(s => s.trim()).filter(Boolean)
+    case 'bool':
+      return raw === 'true'
+    case 'list':
+      return raw
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
   }
 }
 
@@ -240,7 +283,10 @@ function setNested(obj: Record<string, unknown>, path: string, value: unknown): 
   current[keys[keys.length - 1]] = value
 }
 
-function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+function deepMerge(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>
+): Record<string, unknown> {
   const result = { ...target }
   for (const key of Object.keys(source)) {
     const s = source[key]
@@ -307,7 +353,10 @@ function applyEnvOverrides(fileConfig: Partial<Config>): Config {
   // override is applied after the config.json merge, so sanitizing earlier
   // would be bypassed by it.
   merged.primer = sanitizePrimerBounds(merged.primer, DEFAULTS.primer)
-  merged.retentionReview = sanitizeRetentionReviewBounds(merged.retentionReview, DEFAULTS.retentionReview)
+  merged.retentionReview = sanitizeRetentionReviewBounds(
+    merged.retentionReview,
+    DEFAULTS.retentionReview
+  )
   merged.users = validateUsers(merged.users, 'config.json')
 
   return merged as unknown as Config
@@ -360,10 +409,14 @@ export function validateUsers(input: unknown, source = 'config.json'): UserConfi
       tokenSha256 = hashUserToken(envToken)
     }
     if (typeof tokenSha256 !== 'string' || tokenSha256.trim() === '') {
-      throw new Error(`[config] missing token for user "${id}" from ${source}: set tokenSha256 or ${envName}`)
+      throw new Error(
+        `[config] missing token for user "${id}" from ${source}: set tokenSha256 or ${envName}`
+      )
     }
     if (!/^[0-9a-f]{64}$/.test(tokenSha256)) {
-      throw new Error(`[config] invalid tokenSha256 for user "${id}" from ${source}: expected 64 lowercase hex characters`)
+      throw new Error(
+        `[config] invalid tokenSha256 for user "${id}" from ${source}: expected 64 lowercase hex characters`
+      )
     }
     if (ids.has(id)) {
       throw new Error(`[config] duplicate user id from ${source}: ${id}`)

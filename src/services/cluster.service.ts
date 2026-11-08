@@ -21,7 +21,10 @@ interface CreateClusterResult {
   members: Thought[]
 }
 
-export function createClusterService(options: CreateClusterOptions, d: Database = getDb()): CreateClusterResult {
+export function createClusterService(
+  options: CreateClusterOptions,
+  d: Database = getDb()
+): CreateClusterResult {
   const { thoughtIds, title, tags, source, projectId } = options
 
   if (!thoughtIds || thoughtIds.length === 0) {

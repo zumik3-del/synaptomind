@@ -19,13 +19,16 @@ export interface OpsHealthCheckResult {
   aggregate: 'ok' | 'degraded'
 }
 
-export async function runOpsHealthCheck(opts: OpsHealthCheckOptions = {}): Promise<OpsHealthCheckResult> {
+export async function runOpsHealthCheck(
+  opts: OpsHealthCheckOptions = {}
+): Promise<OpsHealthCheckResult> {
   const configured = config.users?.length
     ? config.users.map(user => ({ userId: user.id, path: user.dbPath }))
     : [{ userId: 'default', path: config.db.path }]
-  const selected = opts.user && opts.user !== 'all'
-    ? configured.filter(target => target.userId === opts.user)
-    : configured
+  const selected =
+    opts.user && opts.user !== 'all'
+      ? configured.filter(target => target.userId === opts.user)
+      : configured
 
   const results: OpsHealthCheckUserResult[] = selected.map(({ userId, path }) => {
     let db: Database | undefined
@@ -50,7 +53,8 @@ export async function runOpsHealthCheck(opts: OpsHealthCheckOptions = {}): Promi
   }
   return {
     users: results,
-    aggregate: results.length > 0 && results.every(result => result.status === 'ok') ? 'ok' : 'degraded'
+    aggregate:
+      results.length > 0 && results.every(result => result.status === 'ok') ? 'ok' : 'degraded'
   }
 }
 

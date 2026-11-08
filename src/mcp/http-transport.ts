@@ -10,8 +10,8 @@ import { mcpRateLimitMiddleware } from '../middleware/rate-limit'
 import { createMcpServer } from './server'
 import { disposePair, InMemoryEventStore, probeInitializeRequest } from './in-memory-event-store'
 import type { Context } from 'hono'
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server";
-import type { McpServer } from "@modelcontextprotocol/server";
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server'
+import type { McpServer } from '@modelcontextprotocol/server'
 
 export interface Session {
   server: McpServer
@@ -45,7 +45,10 @@ export const MAX_REQUEST_BODY_BYTES = 5_242_880
 // parse JSON-RPC, so respond with a JSON-RPC internal-error envelope.
 export function mcpErrorHandler(err: Error, c: Context): Response {
   console.error('[synaptomind] MCP HTTP unhandled error:', err)
-  return c.json({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null }, 500)
+  return c.json(
+    { jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null },
+    500
+  )
 }
 
 function countUserSessions(sessions: Map<string, Session>, userId: string): number {
@@ -77,7 +80,11 @@ function trackStreamActivity(response: Response, session: Session): Response {
   })
 }
 
-export function startMcpHttpServer(host: string, port: number, options: McpHttpOptions = {}): McpHttpHandle {
+export function startMcpHttpServer(
+  host: string,
+  port: number,
+  options: McpHttpOptions = {}
+): McpHttpHandle {
   const app = new Hono()
   const sessions = new Map<string, Session>()
 
@@ -88,12 +95,21 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
   // Never combine `origin: '*'` with an Authorization header: that lets any web
   // origin drive memory when bearer auth is disabled. Default = deny all
   // cross-origin access; deployments opt in via mcp.corsOrigins.
-  app.use('*', cors({
-    origin: options.corsOrigins ?? [],
-    allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'mcp-session-id', 'Last-Event-ID', 'mcp-protocol-version', 'Authorization'],
-    exposeHeaders: ['mcp-session-id', 'mcp-protocol-version']
-  }))
+  app.use(
+    '*',
+    cors({
+      origin: options.corsOrigins ?? [],
+      allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+      allowHeaders: [
+        'Content-Type',
+        'mcp-session-id',
+        'Last-Event-ID',
+        'mcp-protocol-version',
+        'Authorization'
+      ],
+      exposeHeaders: ['mcp-session-id', 'mcp-protocol-version']
+    })
+  )
 
   app.use('/mcp', authMiddleware)
 
@@ -118,9 +134,13 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
     if (!ref) return c.json({ error: 'Unauthorized' }, 401)
 
     const db = resolveRequestDb(ref)
-    if (!db && ref.kind !== 'legacy') return new Response(JSON.stringify({ error: "Database unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
+    if (!db && ref.kind !== 'legacy')
+      return new Response(JSON.stringify({ error: 'Database unavailable' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' }
+      })
 
-    (c as any).set('mcpUser', ref)
+    ;(c as any).set('mcpUser', ref)
     return als.run({ userId: ref.userId, db: db as Database }, next)
   })
 
@@ -129,11 +149,14 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
   app.use('/mcp', async (c, next) => {
     const contentLength = parseInt(c.req.header('content-length') || '0', 10)
     if (contentLength > MAX_REQUEST_BODY_BYTES) {
-      return c.json({
-        jsonrpc: '2.0',
-        error: { code: -32000, message: 'Request body too large (max 5MB)' },
-        id: null
-      }, 413)
+      return c.json(
+        {
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Request body too large (max 5MB)' },
+          id: null
+        },
+        413
+      )
     }
     return next()
   })
@@ -150,29 +173,50 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
   // Never hold the process open: shutdown owns the lifecycle via stop().
   sessionCleanup.unref()
 
-  app.all('/mcp', async (c) => {
-    const ref = ((c as any).get('mcpUser') as UserRef | undefined) ?? resolveUser(c.req.header('Authorization'))
+  app.all('/mcp', async c => {
+    const ref =
+      ((c as any).get('mcpUser') as UserRef | undefined) ??
+      resolveUser(c.req.header('Authorization'))
     if (!ref) return c.json({ error: 'Unauthorized' }, 401)
 
     const db = (als.getStore() as { db?: Database } | undefined)?.db
-    if (!db && ref.kind !== 'legacy') return new Response(JSON.stringify({ error: "Database unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
+    if (!db && ref.kind !== 'legacy')
+      return new Response(JSON.stringify({ error: 'Database unavailable' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' }
+      })
 
     const sessionId = c.req.header('mcp-session-id')
 
     if (sessionId) {
       const session = sessions.get(sessionId)
       if (!session) {
-        return c.json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null }, 404)
+        return c.json(
+          { jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null },
+          404
+        )
       }
       // Re-resolve identity on every request: a session id alone never grants
       // access. Check before touching lastAccess so a mismatched caller cannot
       // keep the victim's session alive (and never delete the session on
       // mismatch — that would be a cross-user DoS).
       if (session.userId !== ref.userId) {
-        return c.json({ jsonrpc: '2.0', error: { code: -32002, message: 'Session does not belong to the presented token' }, id: null }, 403)
+        return c.json(
+          {
+            jsonrpc: '2.0',
+            error: { code: -32002, message: 'Session does not belong to the presented token' },
+            id: null
+          },
+          403
+        )
       }
       session.lastAccess = Date.now()
-      return trackStreamActivity(await als.run({ userId: ref.userId, db: db as Database }, () => session.transport.handleRequest(c.req.raw)), session)
+      return trackStreamActivity(
+        await als.run({ userId: ref.userId, db: db as Database }, () =>
+          session.transport.handleRequest(c.req.raw)
+        ),
+        session
+      )
     }
 
     // Sessionless: only an initialize request may create a session. Rejecting
@@ -180,7 +224,14 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
     // McpServer + transport on every stray request (F21).
     const probe = await probeInitializeRequest(c)
     if (!probe.initialize) {
-      return c.json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: Mcp-Session-Id header is required' }, id: null }, 400)
+      return c.json(
+        {
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Bad Request: Mcp-Session-Id header is required' },
+          id: null
+        },
+        400
+      )
     }
 
     if (countUserSessions(sessions, ref.userId) >= MAX_SESSIONS) {
@@ -195,10 +246,15 @@ export function startMcpHttpServer(host: string, port: number, options: McpHttpO
         sessionIdGenerator: () => crypto.randomUUID(),
         keepAliveMs: KEEPALIVE_MS,
         eventStore: new InMemoryEventStore(),
-        onsessioninitialized: (id) => {
-          sessions.set(id, { server: mcpServer, transport, lastAccess: Date.now(), userId: ref.userId })
+        onsessioninitialized: id => {
+          sessions.set(id, {
+            server: mcpServer,
+            transport,
+            lastAccess: Date.now(),
+            userId: ref.userId
+          })
         },
-        onsessionclosed: (id) => {
+        onsessionclosed: id => {
           sessions.delete(id)
         }
       })

@@ -48,14 +48,18 @@ export function isScheduledReminder(t: Thought, now: string): boolean {
  * thought of the draft's own project — the pool is project-scoped and holds
  * active thoughts only.
  */
-export function findDuplicateDrafts(d: Database, now: string = new Date().toISOString()): DuplicateDraft[] {
+export function findDuplicateDrafts(
+  d: Database,
+  now: string = new Date().toISOString()
+): DuplicateDraft[] {
   const findings: DuplicateDraft[] = []
   for (const draft of listThoughts(d, { status: 'draft', limit: null })) {
     if (draft.is_cluster) continue
     if (isScheduledReminder(draft, now)) continue
     const pool = buildCandidatePool(d, draft, draft.project_id, config.edgeDetect.maxCandidates)
     const target = findMergeTarget(pool, draft)
-    if (target) findings.push({ draft_id: draft.id, duplicate_of: target.id, overlap: target.overlap })
+    if (target)
+      findings.push({ draft_id: draft.id, duplicate_of: target.id, overlap: target.overlap })
   }
   return findings
 }

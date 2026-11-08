@@ -13,7 +13,9 @@ afterEach(closeDb)
 
 function indexNames(table: string): string[] {
   return (
-    getDb().prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ?`).all(table) as {
+    getDb()
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ?`)
+      .all(table) as {
       name: string
     }[]
   ).map(row => row.name)
@@ -46,7 +48,8 @@ test('seedLegacyPairEdge models the pre-v046 shape without dropping any other in
   // schema, so an assertion in the consuming suite cannot pass by accident.
   // `sqlite_autoindex_*` rows belong to the rebuilt table's own constraint, so
   // only the named indexes are comparable.
-  const named = (names: string[]): string[] => names.filter(name => !name.startsWith('sqlite_autoindex_')).sort()
+  const named = (names: string[]): string[] =>
+    names.filter(name => !name.startsWith('sqlite_autoindex_')).sort()
   const after = indexNames('edges')
   expect(after).not.toContain('idx_edges_pair')
   expect(after).toEqual(expect.arrayContaining(['idx_edges_source', 'idx_edges_target']))

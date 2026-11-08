@@ -125,8 +125,14 @@ describe('findDuplicateDrafts: detecting a duplicate', () => {
     const db = getDb()
     seedThought({ content: 'one shared statement about cats', status: 'active' })
     seedThought({ content: 'a different statement about dogs', status: 'active' })
-    const catDraft = seedThought({ content: 'one shared statement about cats indeed', status: 'draft' })
-    const dogDraft = seedThought({ content: 'a different statement about dogs indeed', status: 'draft' })
+    const catDraft = seedThought({
+      content: 'one shared statement about cats indeed',
+      status: 'draft'
+    })
+    const dogDraft = seedThought({
+      content: 'a different statement about dogs indeed',
+      status: 'draft'
+    })
 
     const findings = findDuplicateDrafts(db, NOW)
 
@@ -167,7 +173,11 @@ describe('findDuplicateDrafts: no finding', () => {
 
   test('a near-duplicate in another project is not flagged (project-scoped pool)', () => {
     const db = getDb()
-    seedThought({ content: 'alpha beta gamma delta', status: 'active', project_id: 'other-project' })
+    seedThought({
+      content: 'alpha beta gamma delta',
+      status: 'active',
+      project_id: 'other-project'
+    })
     seedThought({ content: 'alpha beta gamma delta epsilon', status: 'draft' })
 
     expect(findDuplicateDrafts(db, NOW)).toEqual([])
@@ -188,7 +198,11 @@ describe('findDuplicateDrafts: exclusions', () => {
   test('a draft with a future surface_after is never flagged', () => {
     const db = getDb()
     seedThought({ content: 'alpha beta gamma delta', status: 'active' })
-    seedThought({ content: 'alpha beta gamma delta epsilon', status: 'draft', surface_after: FUTURE })
+    seedThought({
+      content: 'alpha beta gamma delta epsilon',
+      status: 'draft',
+      surface_after: FUTURE
+    })
 
     expect(findDuplicateDrafts(db, NOW)).toEqual([])
   })
@@ -196,7 +210,11 @@ describe('findDuplicateDrafts: exclusions', () => {
   test('a draft whose surface_after already passed is flagged again', () => {
     const db = getDb()
     const active = seedThought({ content: 'alpha beta gamma delta', status: 'active' })
-    const draft = seedThought({ content: 'alpha beta gamma delta epsilon', status: 'draft', surface_after: PAST })
+    const draft = seedThought({
+      content: 'alpha beta gamma delta epsilon',
+      status: 'draft',
+      surface_after: PAST
+    })
 
     const findings = findDuplicateDrafts(db, NOW)
 

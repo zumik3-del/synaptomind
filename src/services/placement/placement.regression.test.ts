@@ -47,7 +47,7 @@ function makeSignals(overrides?: Partial<PairSignals>): PairSignals {
     sourceStanding: 'current',
     targetStanding: 'current',
     sameProject: true,
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -67,7 +67,7 @@ function makeThought(overrides?: Partial<Thought>): Thought {
     updated_at: new Date().toISOString(),
     archived_at: null,
     surface_after: null,
-    ...overrides,
+    ...overrides
   } as Thought
 }
 
@@ -76,22 +76,22 @@ function makeThought(overrides?: Partial<Thought>): Thought {
 
 describe('prod FP regression: low-overlap negation degrades to related', () => {
   test.each([
-    [0.85, 0.010],
-    [0.85, 0.050],
+    [0.85, 0.01],
+    [0.85, 0.05],
     [0.85, 0.106],
-    [0.90, 0.010],
-    [0.90, 0.050],
-    [0.90, 0.106],
-    [0.95, 0.010],
-    [0.95, 0.050],
-    [0.95, 0.106],
+    [0.9, 0.01],
+    [0.9, 0.05],
+    [0.9, 0.106],
+    [0.95, 0.01],
+    [0.95, 0.05],
+    [0.95, 0.106]
   ])(
     'negationDelta=1 + similarity=%p + lexicalOverlap=%p => related, not contradicts',
     (sim, overlap) => {
       const sig = makeSignals({
         negationDelta: 1,
         embeddingSimilarity: sim,
-        lexicalOverlap: overlap,
+        lexicalOverlap: overlap
       })
       const proposal = classifyEdgeType(sig)
       expect(proposal).not.toBeNull()
@@ -107,25 +107,22 @@ describe('prod FP regression: low-overlap negation degrades to related', () => {
 
 describe('positive control: high-overlap negation fires conflict.explicit_negation', () => {
   test.each([
-    [0.75, 0.50],
-    [0.80, 0.55],
-    [0.90, 0.70],
-    [0.95, 0.80],
-  ])(
-    'negationDelta=1 + similarity=%p + lexicalOverlap=%p => contradicts',
-    (sim, overlap) => {
-      const sig = makeSignals({
-        negationDelta: 1,
-        embeddingSimilarity: sim,
-        lexicalOverlap: overlap,
-      })
-      const proposal = classifyEdgeType(sig)
-      expect(proposal).not.toBeNull()
-      expect(proposal!.type).toBe('contradicts')
-      expect(proposal!.rule_id).toBe('conflict.explicit_negation')
-      expect(proposal!.review_required).toBeTrue()
-    }
-  )
+    [0.75, 0.5],
+    [0.8, 0.55],
+    [0.9, 0.7],
+    [0.95, 0.8]
+  ])('negationDelta=1 + similarity=%p + lexicalOverlap=%p => contradicts', (sim, overlap) => {
+    const sig = makeSignals({
+      negationDelta: 1,
+      embeddingSimilarity: sim,
+      lexicalOverlap: overlap
+    })
+    const proposal = classifyEdgeType(sig)
+    expect(proposal).not.toBeNull()
+    expect(proposal!.type).toBe('contradicts')
+    expect(proposal!.rule_id).toBe('conflict.explicit_negation')
+    expect(proposal!.review_required).toBeTrue()
+  })
 })
 
 // ── boundary: lexicalOverlap = 0.5 is the sharp cutoff ────────────────────────
@@ -135,7 +132,7 @@ describe('boundary: lexicalOverlap = 0.5 is the contradicts threshold', () => {
     const sig = makeSignals({
       negationDelta: 1,
       embeddingSimilarity: 0.85,
-      lexicalOverlap: 0.5,
+      lexicalOverlap: 0.5
     })
     const proposal = classifyEdgeType(sig)
     expect(proposal).not.toBeNull()
@@ -147,7 +144,7 @@ describe('boundary: lexicalOverlap = 0.5 is the contradicts threshold', () => {
     const sig = makeSignals({
       negationDelta: 1,
       embeddingSimilarity: 0.85,
-      lexicalOverlap: 0.499,
+      lexicalOverlap: 0.499
     })
     const proposal = classifyEdgeType(sig)
     expect(proposal).not.toBeNull()
@@ -161,7 +158,7 @@ describe('boundary: lexicalOverlap = 0.5 is the contradicts threshold', () => {
     const sig = makeSignals({
       negationDelta: 1,
       embeddingSimilarity: 0.9,
-      lexicalOverlap: 0.3,
+      lexicalOverlap: 0.3
     })
     const proposal = classifyEdgeType(sig)
     expect(proposal).not.toBeNull()
@@ -176,7 +173,7 @@ describe('dependencyCue regression (task #985 AC3)', () => {
   test('"Task #956 (tester) in review: ..." prefix yields dependencyCue=false', () => {
     const t = makeThought({
       content: 'Task #956 (tester) in review: tighten placement predicates',
-      tags: [],
+      tags: []
     })
     const s = extractThoughtSignals(t)
     expect(s.dependencyCue).toBeFalse()
@@ -185,7 +182,7 @@ describe('dependencyCue regression (task #985 AC3)', () => {
   test('the `task` tag yields dependencyCue=true', () => {
     const t = makeThought({
       content: 'some note about the task',
-      tags: [{ name: 'task', id: '' }] as Tag[],
+      tags: [{ name: 'task', id: '' }] as Tag[]
     })
     const s = extractThoughtSignals(t)
     expect(s.dependencyCue).toBeTrue()
@@ -194,7 +191,7 @@ describe('dependencyCue regression (task #985 AC3)', () => {
   test('TODO: prefix yields dependencyCue=true', () => {
     const t = makeThought({
       content: 'TODO: finish the placement tests',
-      tags: [],
+      tags: []
     })
     const s = extractThoughtSignals(t)
     expect(s.dependencyCue).toBeTrue()
@@ -203,7 +200,7 @@ describe('dependencyCue regression (task #985 AC3)', () => {
   test('pending prefix yields dependencyCue=true', () => {
     const t = makeThought({
       content: 'pending review of the edge-type rules',
-      tags: [],
+      tags: []
     })
     const s = extractThoughtSignals(t)
     expect(s.dependencyCue).toBeTrue()
@@ -212,7 +209,7 @@ describe('dependencyCue regression (task #985 AC3)', () => {
   test('blocked prefix yields dependencyCue=true', () => {
     const t = makeThought({
       content: 'blocked on the embedder fix',
-      tags: [],
+      tags: []
     })
     const s = extractThoughtSignals(t)
     expect(s.dependencyCue).toBeTrue()
@@ -223,7 +220,7 @@ describe('dependencyCue regression (task #985 AC3)', () => {
     const tgt = makeThought({
       id: 'tgt',
       content: 'Task #956 (tester) in review: do not trigger',
-      tags: [],
+      tags: []
     })
     seedThought({ id: src.id, content: src.content })
     seedThought({ id: tgt.id, content: tgt.content })
@@ -237,7 +234,7 @@ describe('dependencyCue regression (task #985 AC3)', () => {
     const tgt = makeThought({
       id: 'tgt',
       content: 'some note',
-      tags: [{ name: 'task', id: '' }],
+      tags: [{ name: 'task', id: '' }]
     })
     seedThought({ id: src.id, content: src.content })
     seedThought({ id: tgt.id, content: tgt.content })

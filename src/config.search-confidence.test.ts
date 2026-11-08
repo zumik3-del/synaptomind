@@ -74,7 +74,10 @@ function resolved(out: string, key: string): string {
   return line === undefined ? '' : line.slice(key.length + 1)
 }
 
-async function loadWithFile(fileConfig: unknown, env: Record<string, string> = {}): Promise<LoadResult> {
+async function loadWithFile(
+  fileConfig: unknown,
+  env: Record<string, string> = {}
+): Promise<LoadResult> {
   const cwd = scratchDir()
   writeFileSync(join(cwd, 'config.json'), JSON.stringify(fileConfig))
   return loadConfig(cwd, env)
@@ -133,7 +136,10 @@ describe('search.confidence.unrelatedFloor — the env override', () => {
   })
 
   test('the env override wins over config.json', async () => {
-    const res = await loadWithFile({ search: { confidence: { unrelatedFloor: 0.75 } } }, { [FLOOR_ENV]: '0.72' })
+    const res = await loadWithFile(
+      { search: { confidence: { unrelatedFloor: 0.75 } } },
+      { [FLOOR_ENV]: '0.72' }
+    )
 
     expect(res.code).toBe(0)
     expect(resolved(res.out, 'FLOOR')).toBe('0.72')

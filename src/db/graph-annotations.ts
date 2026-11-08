@@ -42,7 +42,9 @@ export function annotateGraphStanding(db: Database, ids: string[]): Map<string, 
   // 1) incoming `replaces` — sources that supersede this thought.
   const supersededBy = new Map<string, string[]>()
   const replaceRows = db
-    .prepare(`SELECT target_id, source_id FROM edges WHERE type = 'replaces' AND target_id IN (${ph})`)
+    .prepare(
+      `SELECT target_id, source_id FROM edges WHERE type = 'replaces' AND target_id IN (${ph})`
+    )
     .all(...ids) as Array<{ target_id: string; source_id: string }>
   for (const row of replaceRows) {
     const list = supersededBy.get(row.target_id)

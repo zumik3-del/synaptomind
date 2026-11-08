@@ -53,7 +53,10 @@ describe('proposePlacement', () => {
       const over = await proposePlacement(
         source,
         {},
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: [{ id: n, similarity: 1.4 }] }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({ [sourceId]: [{ id: n, similarity: 1.4 }] })
+        },
         db
       )
       expect(over.proposal?.confidence).toBe(1) // 1.4 clamped down
@@ -61,7 +64,10 @@ describe('proposePlacement', () => {
       const zero = await proposePlacement(
         source,
         { minSimilarity: 0 },
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: [{ id: n, similarity: 0 }] }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({ [sourceId]: [{ id: n, similarity: 0 }] })
+        },
         db
       )
       expect(zero.proposal?.confidence).toBe(0)
@@ -71,7 +77,12 @@ describe('proposePlacement', () => {
   describe('maxClusterSize cap', () => {
     test('skips an oversized cluster with an explicit reason', async () => {
       const db = getDb()
-      const clusterId = seedThought({ id: 'c-big', content: 'big cluster', is_cluster: 1, project_id: 'default' })
+      const clusterId = seedThought({
+        id: 'c-big',
+        content: 'big cluster',
+        is_cluster: 1,
+        project_id: 'default'
+      })
       const members = [1, 2, 3].map(i => seedThought({ content: `member ${i}` }))
       const sourceId = seedThought({ content: 'source' })
       for (const m of members) seedEdge(clusterId, m, 'cluster')
@@ -79,7 +90,12 @@ describe('proposePlacement', () => {
       const result = await proposePlacement(
         source,
         { maxClusterSize: 3 },
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: members.map(m => ({ id: m, similarity: 0.9 })) }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({
+            [sourceId]: members.map(m => ({ id: m, similarity: 0.9 }))
+          })
+        },
         db
       )
       expect(result.proposal).toBeNull()
@@ -88,7 +104,12 @@ describe('proposePlacement', () => {
 
     test('proposes a cluster just under the cap (boundary)', async () => {
       const db = getDb()
-      const clusterId = seedThought({ id: 'c-small', content: 'small cluster', is_cluster: 1, project_id: 'default' })
+      const clusterId = seedThought({
+        id: 'c-small',
+        content: 'small cluster',
+        is_cluster: 1,
+        project_id: 'default'
+      })
       const members = [1, 2, 3].map(i => seedThought({ content: `member ${i}` }))
       const sourceId = seedThought({ content: 'source' })
       for (const m of members) seedEdge(clusterId, m, 'cluster')
@@ -96,7 +117,12 @@ describe('proposePlacement', () => {
       const result = await proposePlacement(
         source,
         { maxClusterSize: 4 },
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: members.map(m => ({ id: m, similarity: 0.9 })) }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({
+            [sourceId]: members.map(m => ({ id: m, similarity: 0.9 }))
+          })
+        },
         db
       )
       expect(result.proposal?.kind).toBe('cluster')
@@ -106,7 +132,12 @@ describe('proposePlacement', () => {
     test('the default cap is config.placement.maxClusterSize (50)', async () => {
       const db = getDb()
       expect(config.placement.maxClusterSize).toBe(50) // pin the reused default
-      const clusterId = seedThought({ id: 'c-50', content: '50-member cluster', is_cluster: 1, project_id: 'default' })
+      const clusterId = seedThought({
+        id: 'c-50',
+        content: '50-member cluster',
+        is_cluster: 1,
+        project_id: 'default'
+      })
       const members = Array.from({ length: 50 }, (_, i) => seedThought({ content: `m${i}` }))
       const sourceId = seedThought({ content: 'source' })
       for (const m of members) seedEdge(clusterId, m, 'cluster')
@@ -114,7 +145,12 @@ describe('proposePlacement', () => {
       const result = await proposePlacement(
         source,
         {},
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: members.map(m => ({ id: m, similarity: 0.9 })) }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({
+            [sourceId]: members.map(m => ({ id: m, similarity: 0.9 }))
+          })
+        },
         db
       )
       expect(result.proposal).toBeNull()
@@ -131,7 +167,10 @@ describe('proposePlacement', () => {
       const result = await proposePlacement(
         source,
         {},
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: [{ id: otherN, similarity: 0.95 }] }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({ [sourceId]: [{ id: otherN, similarity: 0.95 }] })
+        },
         db
       )
       expect(result.proposal).toBeNull()
@@ -141,14 +180,22 @@ describe('proposePlacement', () => {
     test('a cluster from another project is filtered out of the majority counts', async () => {
       const db = getDb()
       const n1 = seedThought({ content: 'neighbour in default' })
-      const otherCluster = seedThought({ id: 'c-other', content: 'other-project cluster', is_cluster: 1, project_id: 'other' })
+      const otherCluster = seedThought({
+        id: 'c-other',
+        content: 'other-project cluster',
+        is_cluster: 1,
+        project_id: 'other'
+      })
       const sourceId = seedThought({ content: 'source in default' })
       seedEdge(otherCluster, n1, 'cluster') // edge crosses projects; lookup must not
       const source = getThoughtRow(db, sourceId)!
       const result = await proposePlacement(
         source,
         {},
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }] }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }] })
+        },
         db
       )
       expect(result.proposal).toBeNull()
@@ -157,12 +204,20 @@ describe('proposePlacement', () => {
 
     test('options.projectId re-scopes the candidate pool to another project', async () => {
       const db = getDb()
-      const p2Cluster = seedThought({ id: 'c-p2', content: 'p2 cluster', is_cluster: 1, project_id: 'p2' })
+      const p2Cluster = seedThought({
+        id: 'c-p2',
+        content: 'p2 cluster',
+        is_cluster: 1,
+        project_id: 'p2'
+      })
       const n1 = seedThought({ content: 'p2 neighbour', project_id: 'p2' })
       seedEdge(p2Cluster, n1, 'cluster')
       const sourceId = seedThought({ content: 'source in default', project_id: 'default' })
       const source = getThoughtRow(db, sourceId)!
-      const deps = { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }] }) }
+      const deps = {
+        embed: stubEmbed(),
+        searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }] })
+      }
 
       // default scope = the source's own project: the p2 neighbour is not in the pool
       const defaultScope = await proposePlacement(source, {}, deps, db)
