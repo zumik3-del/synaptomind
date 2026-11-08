@@ -229,9 +229,10 @@ function makeTrackingUpdateSh(): string {
  * about tag resolution, with nothing pointing at the fixture.
  */
 function realCommonShFunction(name: string): string[] {
+  const commonShPath = resolve(import.meta.dir, 'lib', 'common.sh')
   const res = spawnSync(
     'bash',
-    ['-c', `. "${resolve(import.meta.dir, 'lib', 'common.sh')}"\ndeclare -f ${name}`],
+    ['-c', '. "$1"\ndeclare -f -- "$2"', 'bash', commonShPath, name],
     {
       encoding: 'utf8',
       timeout: 10_000
