@@ -156,6 +156,15 @@ export function deleteEdgesBatchService(
   const results: UnlinkBatchItemResult[] = []
   const errors: UnlinkBatchError[] = []
 
+  // Every failure path records the same pair — a `results` row and an `errors`
+  // entry carrying the same reason and position — so the two payloads cannot
+  // drift apart.
+  const recordFailure = (index: number, id: string, error: string) => {
+    failed++
+    results.push({ edge_id: id, status: 'failed', error })
+    errors.push({ index, edge_id: id, error })
+  }
+
   const run = d.transaction(() => {
     // Transactional validation (confirm mode only): every id must resolve before
     // we touch a single row.
@@ -165,25 +174,16 @@ export function deleteEdgesBatchService(
         edgeIds.forEach((id, index) => {
           const edge = findEdge(d, id)
           if (!edge) {
-            failed++
-            const err = `Edge not found: ${id}`
-            results.push({ edge_id: id, status: 'failed', error: err })
-            errors.push({ index, edge_id: id, error: err })
+            recordFailure(index, id, `Edge not found: ${id}`)
           } else {
-            failed++
-            const err = 'batch aborted: not all edge_ids exist (transaction rolled back)'
-            results.push({ edge_id: id, status: 'failed', error: err })
-            errors.push({ index, edge_id: id, error: err })
+            recordFailure(index, id, 'batch aborted: not all edge_ids exist (transaction rolled back)')
           }
         })
         return
       }
       if (new Set(edgeIds).size !== edgeIds.length) {
         edgeIds.forEach((id, index) => {
-          failed++
-          const err = 'batch aborted: duplicate edge_ids (no edges deleted)'
-          results.push({ edge_id: id, status: 'failed', error: err })
-          errors.push({ index, edge_id: id, error: err })
+          recordFailure(index, id, 'batch aborted: duplicate edge_ids (no edges deleted)')
         })
         return
       }
@@ -192,10 +192,7 @@ export function deleteEdgesBatchService(
     edgeIds.forEach((id, index) => {
       const edge = findEdge(d, id)
       if (!edge) {
-        failed++
-        const err = `Edge not found: ${id}`
-        results.push({ edge_id: id, status: 'failed', error: err })
-        errors.push({ index, edge_id: id, error: err })
+        recordFailure(index, id, `Edge not found: ${id}`)
         return
       }
       if (!confirm) {
@@ -219,10 +216,7 @@ export function deleteEdgesBatchService(
         deleted++
         results.push({ edge_id: id, status: 'deleted' })
       } else {
-        failed++
-        const err = `Edge not found: ${id}`
-        results.push({ edge_id: id, status: 'failed', error: err })
-        errors.push({ index, edge_id: id, error: err })
+        recordFailure(index, id, `Edge not found: ${id}`)
       }
     })
   })

@@ -13,6 +13,7 @@ import { BATCH_ITEMS_MAX } from '../../validation'
 import { collectionEnvelope, itemEnvelope, writeEnvelopeScope } from './envelope'
 import { resolveProjectId, shapeThought } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import { allActionFields, validateActionFields as validateSharedActionFields } from './action-fields'
 
 const MERGE_PREVIEW_EDGE_LIMIT = 50
 const ACTION_FIELDS: Record<string, string[]> = {
@@ -20,15 +21,15 @@ const ACTION_FIELDS: Record<string, string[]> = {
   archive_batch: ['thought_ids'],
   merge: ['source_id', 'target_id', 'merged_content', 'merged_tags', 'cwd']
 }
-const ACTION_FIELDS_ALL = new Set(Object.values(ACTION_FIELDS).flat())
+const ACTION_FIELDS_ALL = allActionFields(ACTION_FIELDS)
 
 function validateActionFields(action: string, args: ActionArgs): void {
+  // `confirm` is consumed by every action but declared by none of them, so it
+  // keeps its own type check ahead of the cross-action field check.
   if (args.confirm !== undefined && typeof args.confirm !== 'boolean') {
     throw new Error('confirm must be a boolean (true to execute; false or omitted to preview)')
   }
-  const allowed = new Set(ACTION_FIELDS[action] ?? [])
-  const irrelevant = Object.keys(args).filter(key => ACTION_FIELDS_ALL.has(key) && !allowed.has(key))
-  if (irrelevant.length) throw new Error(`${irrelevant.join(', ')} is not applicable to ${action} action`)
+  validateSharedActionFields(action, args, ACTION_FIELDS, ACTION_FIELDS_ALL)
 }
 
 function thoughtFingerprint(thought: { id: string; status: string; updated_at: string; is_protected: number }): string {
