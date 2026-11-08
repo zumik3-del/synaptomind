@@ -1,7 +1,7 @@
 import { config } from '../config'
 import { getDb } from '../db'
-import { projectExists } from '../db/projects'
-import { findActiveDecisionThoughts } from '../db/session-reflection'
+import { projectExists, resolveDefaultProjectId } from '../db/projects'
+import { findActiveDecisionThoughts, hasLiveReflectionContent } from '../db/session-reflection'
 import { getSlotRow, upsertSlot } from '../db/slots'
 import { createThought } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
@@ -69,8 +69,8 @@ function parseGoalEntries(
  * Returns true if `decision` is sufficiently similar to any existing
  * non-archived decision-tagged thought (Jaccard >= 0.6 or exact normalised match).
  */
-function hasDuplicateDecision(db: Database, decision: string): boolean {
-  const candidates = findActiveDecisionThoughts(db)
+function hasDuplicateDecision(db: Database, decision: string, projectId: string): boolean {
+  const candidates = findActiveDecisionThoughts(db, projectId)
   const norm = normalise(decision)
   for (const c of candidates) {
     if (normalise(c.content) === norm) return true
@@ -168,7 +168,8 @@ export function reflectSessionService(input: ReflectInput, d: Database = getDb()
       if (typeof decision !== 'string' || !decision.trim()) {
         throw new ValidationError('decisions entries must be non-empty strings')
       }
-      if (hasDuplicateDecision(d, decision)) continue
+      const projectId = input.project_id || resolveDefaultProjectId(d)
+      if (hasDuplicateDecision(d, decision, projectId) || hasLiveReflectionContent(d, decision.trim(), projectId)) continue
       createThought(d, {
         content: decision.trim(),
         status: 'active',
@@ -190,6 +191,7 @@ export function reflectSessionService(input: ReflectInput, d: Database = getDb()
       if (typeof item !== 'string' || !item.trim()) {
         throw new ValidationError('pending entries must be non-empty strings')
       }
+      if (hasLiveReflectionContent(d, item.trim(), input.project_id || resolveDefaultProjectId(d))) continue
       createThought(d, {
         content: item.trim(),
         status: 'draft',

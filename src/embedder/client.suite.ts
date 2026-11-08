@@ -2,7 +2,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:te
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createTestDb } from '../test/helpers'
+import { createTestDb, seedThought } from '../test/helpers'
+import { config } from '../config'
+import { searchThoughtsOutcome } from '../services/search.service'
 import { closeDb } from '../db/init'
 import { EmbedderUnavailableError } from '../errors'
 import { EmbedderClient } from './embedder-client'
@@ -109,6 +111,65 @@ test('startEmbedderProcess becomes ready against the stub subprocess', async () 
 
   await startEmbedderProcess()
 
+  expect(isEmbedderReady()).toBe(true)
+})
+
+// The opt-in mutant reproduces the pre-fix ensureReady implementation without
+// editing production code; it lets the regression be checked against old logic.
+class RegressionClient extends EmbedderClient {
+  spawns = 0
+  protected override spawnProcess(): void {
+    this.spawns++
+    throw new Error('unexpected spawn')
+  }
+  protected override async ensureReady(): Promise<void> {
+    if (!process.env.SYNAPTOMIND_TEST_OLD_ENSURE_READY) return super.ensureReady()
+    if (this.ready) return
+    if (!this.ensureReadyPromise) {
+      const p = this.runEnsureReady().finally(() => {
+        if (this.ensureReadyPromise === p) this.ensureReadyPromise = null
+      })
+      this.ensureReadyPromise = p
+    }
+    return this.ensureReadyPromise
+  }
+}
+
+for (const disabledBy of ['config', 'flag'] as const) {
+  test(`${disabledBy} disables explicit and on-demand embedder starts with BM25 fallback`, async () => {
+    const enabled = config.embedder.enabled
+    const argv = [...process.argv]
+    const client = new RegressionClient()
+    const stub = useLifecycleStub('ready-no-answer')
+    try {
+      config.embedder.enabled = disabledBy !== 'config'
+      if (disabledBy === 'flag') process.argv.push('--no-embedder')
+      for (const call of [
+        () => client.startEmbedderProcess(),
+        () => client.generateEmbedding('hello'),
+        () => client.generateEmbeddings(['hello', 'world'])
+      ]) {
+        await expect(call()).rejects.toBeInstanceOf(EmbedderUnavailableError)
+      }
+      expect(client.spawns).toBe(0)
+      expect(client.isEmbedderReady()).toBe(false)
+      const id = seedThought({ content: 'quartzbadger unique searchable phrase' })
+      const outcome = await searchThoughtsOutcome({ query: 'quartzbadger', hybrid: true })
+      expect(outcome.items.map(item => item.thought.id)).toContain(id)
+      expect(outcome.items[0]?.degraded).toBe(true)
+      expect(isEmbedderReady()).toBe(false)
+      expect(stub.attempts()).toBe(0)
+    } finally {
+      config.embedder.enabled = enabled
+      process.argv.splice(0, process.argv.length, ...argv)
+      await client.stopEmbedderProcess()
+    }
+  })
+}
+
+test('enabled client starts lazily for a first single request', async () => {
+  expect(isEmbedderReady()).toBe(false)
+  expect(Array.from(await generateEmbedding('hello'))).toEqual([5, 1, 2])
   expect(isEmbedderReady()).toBe(true)
 })
 

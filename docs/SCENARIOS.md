@@ -49,8 +49,9 @@ Agent boots → memory_status(action=slots, cwd="/path/to/project") →
 
 ```
 memory_reflect(action=reflect, pending=["write auth tests", "update docs"], wake_days=7, cwd="/path/to/project")
-  → each pending thought is created as a draft tagged `pending` + `reflect`
+  → each new pending thought is created as a draft tagged `pending` + `reflect`
     with surface_after = now + 7 days
+  → existing live thoughts with the same project and content are left unchanged
   → nothing surfaces for 7 days...
   → once due, the thought appears in the frontier (reason `pending`)
     and in the pending_items slot
@@ -76,8 +77,8 @@ What happens inside:
 - `summary` → appended to `project_context` slot (with timestamp)
 - `goals_add` → adds entries to `active_goals`; `goals_remove` removes stored goal lines
   matching case-insensitively by substring
-- `decisions` → creates **active** thoughts with tags `decision` + `reflect` (knowledge graph, not in frontier — frontier only surfaces `directive`/`todo`/`pending` thoughts)
-- `pending` → creates **draft** thoughts with tags `pending` + `reflect` and `surface_after = now + wake_days` (they join the frontier once due)
+- `decisions` → creates **active** thoughts with tags `decision` + `reflect`, skipping similar decisions and live content duplicates in the same project
+- `pending` → creates **draft** thoughts with tags `pending` + `reflect` and `surface_after = now + wake_days` (they join the frontier once due); existing live content duplicates in the project are unchanged
 
 The `reflect` tag marks every thought reflect created, so reflect output can be filtered or
 cleaned up without touching hand-created thoughts.
@@ -98,7 +99,9 @@ memory_status(action=frontier, cwd="/path/to/project")
 ## Scenario 7: Grouping and Cluster Maintenance
 
 ```
-memory_crystallize(action=auto_cluster) → similar thoughts grouped into clusters (Union-Find)
+memory_crystallize(action=auto_cluster) → preview global groups (Union-Find); take meta.preview.token
+memory_crystallize(action=auto_cluster, confirm=true, preview_token=<token>) → create clusters
+  → global operation: cwd is ignored; repeat the same clustering options on confirm
 memory_crystallize(action=graph) → inspect thoughts and edges
 memory_crystallize(action=cluster) → create a cluster thought from thought_ids
 

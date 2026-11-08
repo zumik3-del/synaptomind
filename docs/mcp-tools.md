@@ -4,7 +4,7 @@
 > the **Migration notes (response envelope, hard cwd, id lookup)** section at the end of this
 > document for the full list of breaking changes.
 >
-> **Migration note (v0.19):** The `project_id` MCP tool argument was removed. Pass `cwd` (working directory) instead; SynaptoMind resolves the project from it. Supplying `project_id` now fails input validation with "project_id was removed; use cwd". See the **Migration notes (v0.19 MCP UX cleanup)** section at the end of this document for the full list (compact defaults, preview tokens, `edge_review` canonical keys, retired inputs).
+> **Migration note (v0.19):** Project scoping on MCP tools uses `cwd` (working directory) instead of `project_id`. The exception is `memory_manage` actions `update` and `delete`, which require `project_id` to identify the project. See the **Migration notes (v0.19 MCP UX cleanup)** section at the end of this document for the full list (compact defaults, preview tokens, `edge_review` canonical keys, retired inputs).
 
 # MCP Tools Reference
 
@@ -954,13 +954,14 @@ thoughts, and answers `{ item: <counts>, meta }`.
 - `goals_add` adds goals to `active_goals`; `goals_remove` removes stored goal lines when the
   supplied text matches as a case-insensitive substring. The retired `goals_delta` parameter is
   rejected with a hint to use `goals_add` / `goals_remove`.
-- `decisions` creates one **active** thought each, tagged `decision` + `reflect`. Entries
-  sufficiently similar to an existing non-archived `decision` thought are skipped
-  (Jaccard ≥ 0.6 on normalised text), so re-reflecting the same decision is a no-op.
-- `pending` creates one **draft** thought each, tagged `pending` + `reflect`, with
+- `decisions` creates **active** thoughts tagged `decision` + `reflect`. Entries
+  sufficiently similar to an existing non-archived `decision` in the same project are skipped
+  (Jaccard ≥ 0.6 on normalised text), as are exact live-content duplicates of any tag.
+- `pending` creates **draft** thoughts tagged `pending` + `reflect`, with
   `surface_after = now + wake_days` (default 7, range 1–365). A pending thought is invisible
   to the frontier until that time, then surfaces with reason `pending` and in the
-  `pending_items` slot.
+  `pending_items` slot. An existing live thought with the same content in the project is
+  left unchanged and is not counted as newly created.
 
 ```json
 {
@@ -1055,8 +1056,8 @@ CRUD over projects plus resolution from a path.
 
 - `list` → `{ items: <projects>, meta }` (`fields` narrows each project row).
 - `create` → `{ item: <project>, meta }`.
-- `update` → `{ item: { success: true, project_id }, meta }`.
-- `delete` → preview-first: the preview `item` carries `action: "preview"`, `project`,
+- `update` requires `project_id` → `{ item: { success: true, project_id }, meta }`.
+- `delete` requires `project_id` and is preview-first: the preview `item` carries `action: "preview"`, `project`,
   `thought_count`, `consequence`, `instruction` and `preview_token` (`meta.preview` mirrors the
   token); the executed `item` carries `action: "deleted"`, `project`, `thoughts_moved` and
   `moved_to`.
@@ -1129,10 +1130,10 @@ see [API.md](API.md)):
 
 Breaking changes for MCP clients:
 
-1. **`project_id` argument removed.** All MCP tools that accepted `project_id`
-   now resolve the project from `cwd` (working directory). Passing `project_id`
-   fails input validation with `project_id was removed; use cwd`. Remove the field
-   and pass `cwd` instead.
+1. **Project scoping uses `cwd`.** Tools that removed their `project_id` scope
+   argument reject it with `project_id was removed; use cwd`; pass `cwd` instead.
+   `memory_manage` is an exception: its `update` and `delete` actions require
+   `project_id` to identify the project.
 2. **Compact defaults.** `memory_recall` now defaults to compact output; pass
    `compact: false` for full thoughts. `memory_status` `propose` defaults to the
    slim plan (top 3 edges, no signals); pass `compact: false` or
