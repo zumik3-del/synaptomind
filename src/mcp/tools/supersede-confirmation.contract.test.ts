@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { Client } from '@modelcontextprotocol/sdk/client'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { createTestDb, seedEdge, seedThought } from '../../test/helpers'

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { Client } from '@modelcontextprotocol/sdk/client'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { closeDb } from '../../db/init'
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
@@ -42,14 +41,11 @@ describe('the removed memory_telemetry tool', () => {
   })
 
   test('calling memory_telemetry answers with the SDK unknown-tool error', async () => {
-    // The MCP SDK answers an unregistered tool with the -32602 error envelope
-    // (isError result, not a thrown rejection).
-    const result = await client.callTool({ name: 'memory_telemetry', arguments: { action: 'query' } })
-    const r = result as { content: Array<{ text: string }>; isError?: boolean }
-
-    expect(r.isError).toBe(true)
-    expect(r.content[0].text).toContain('memory_telemetry')
-    expect(r.content[0].text).toMatch(/not found|unknown/i)
+    // In SDK v2 an unregistered tool rejects with a -32602 ProtocolError
+    // instead of returning an isError result.
+    await expect(
+      client.callTool({ name: 'memory_telemetry', arguments: { action: 'query' } })
+    ).rejects.toThrow(/memory_telemetry/i)
   })
 
   test('the in-band guide advertises memory_primers and not memory_telemetry', async () => {

@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { McpServer } from "@modelcontextprotocol/server";
 import { registerActionTool } from './action-tool'
 import { slotsHandler } from './status/slots'
 import { frontierHandler } from './status/frontier'

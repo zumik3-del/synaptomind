@@ -1,5 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk/client'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { Client } from '@modelcontextprotocol/client'
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const MARKER = `SMOKE_MARKER_${Date.now()}`
 

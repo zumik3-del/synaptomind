@@ -7,9 +7,8 @@
  * a human merge/archive decision — it is the one content check with no autofix).
  */
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { Client } from '@modelcontextprotocol/sdk/client'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { closeDb, getDb } from '../../db'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerMemoryStatus } from './status'

@@ -1,5 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import type { McpServer, CallToolResult } from "@modelcontextprotocol/server";
 import { z } from 'zod/v4'
 import { formatZodIssues } from '../../zod-utils'
 import { errorResult, jsonResult, toolOutputShape } from './utils'
@@ -32,7 +31,7 @@ export interface ActionToolConfig {
    * schema (it would serialize to an empty object), so the union lives in
    * per-action `input` schemas while the superset stays discoverable.
    */
-  inputSchema: z.ZodRawShape
+  inputSchema: Record<string, z.ZodType>
   handlers: Record<string, ActionHandler>
 }
 

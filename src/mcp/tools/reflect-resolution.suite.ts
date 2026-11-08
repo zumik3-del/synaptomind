@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { McpServer } from "@modelcontextprotocol/server";
 import { closeDb } from '../../db/init'
 import { createTestDb } from '../../test/helpers'
 import { registerMemoryReflect } from './reflect'

@@ -2,9 +2,7 @@
 // the event store plus the session-lifecycle helpers it was bundled with.
 import { config } from '../config'
 import type { Context } from 'hono'
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { EventStore, StreamId, EventId } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
-import type { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
+import type { McpServer, EventStore, StreamId, EventId, WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server";
 
 // The per-session event cap is config-driven (F16); it lives with the store that
 // enforces it.

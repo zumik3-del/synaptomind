@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { Client } from '@modelcontextprotocol/sdk/client'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport, McpServer as SdkMcpServer } from "@modelcontextprotocol/server";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from 'zod/v4'
 import { EmbedderNotReadyError, EmbedderSendError, EmbedderTimeoutError, EmbedderUnavailableError } from '../../errors'
 import { type ActionToolConfig, registerActionTool } from './action-tool'

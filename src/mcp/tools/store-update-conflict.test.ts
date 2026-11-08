@@ -1,6 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk/client'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { closeDb } from '../../db/init'
 import { getThoughtByIdService } from '../../services/thoughts.service'
