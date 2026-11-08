@@ -1329,6 +1329,19 @@ describe('the constructed state dir is seeded, and unwound only as far as it was
     // was never there — while a real second writer, written slightly differently,
     // would have slipped past. Line numbers, then, compared against seedBaseline's
     // own span.
+    //
+    // LINE-EXACT BY DESIGN — the two comparisons below are deliberately NOT
+    // `\s*`-relaxed, and that is the point rather than an accident of layout:
+    //   - the header is matched with `startsWith` at column 0 because the audit
+    //     wants a TOP-LEVEL declaration; an indented `function seedBaseline(` is a
+    //     nested one and must not be mistaken for the writer;
+    //   - a line counts as a writer only when, trimmed, it IS the call, so the
+    //     quoted copies in this very test (`WRITE_CALL`'s literal, the message
+    //     strings) cannot satisfy the count — a relaxed regex over the raw source
+    //     would match those and re-create the self-match bug above.
+    // The price is that wrapping the call itself would read as "no writer", which
+    // is why the message names the function; the call is short and the shape below
+    // is what stops an audit from auditing its own punctuation.
     const WRITE_CALL = 'writeFileSync(appEnv, BASELINE_APP_ENV)'
     const codeLines = src.split('\n')
     const seedStart = codeLines.findIndex(l => l.startsWith('function seedBaseline('))
@@ -1345,8 +1358,13 @@ describe('the constructed state dir is seeded, and unwound only as far as it was
       seedStart + 1 + (seedFn?.[1] ?? '').split('\n').findIndex(l => l.trim() === WRITE_CALL)
     ])
     // And the acquire must route through the gate rather than call the writer
-    // inline, which is the reordering this finding is about.
-    expect(src).toMatch(/if \(needsSeed\) seedBaseline\(ownership, appEnv\)/)
+    // inline, which is the reordering this finding is about. Whitespace between
+    // tokens is `\s*` because the statement may be wrapped; the callee and both
+    // arguments stay literal, so passing a different dir or skipping the gate
+    // still fails. Leading `^\s*if` keeps a commented-out copy from satisfying it.
+    expect(src, 'the acquire must route through the marker-gated seed').toMatch(
+      /^\s*if\s*\(\s*needsSeed\s*\)\s*seedBaseline\(\s*ownership\s*,\s*appEnv\s*\)/m
+    )
   })
 
   test('a seed is UNREACHABLE without a verified marker, so order cannot protect it', () => {
@@ -1822,6 +1840,24 @@ describe('this file does not overstate what its own assertions prove (#1357 R5/R
     return lines.slice(start, end).join('\n')
   }
 
+  /**
+   * A slice read as prose: comment markers dropped, and every run of whitespace —
+   * a line break, the indentation, the ` * ` gutter a wrapped block comment grows —
+   * collapsed to a single space. Only the LAYOUT is relaxed; the words and the
+   * punctuation stay literal, so a re-worded or deleted note still fails every
+   * check that uses this. Without it a check on this file's own prose breaks the
+   * moment a note is re-wrapped, which is a false failure that invites deleting
+   * the audit rather than fixing it (#2339).
+   */
+  function prose(src: string): string {
+    return src
+      .split('\n')
+      .map(l => l.replace(/^\s*(\/\/|\/\*\*|\*+\/?)\s?/, ''))
+      .join('\n')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
   test('the tripwire is not named as byte-identical, and carries its blind spots', () => {
     // R6: the check greps three strings, so "byte-identical" was false. Renamed to
     // what it does, and the blind spots are recorded AT the check.
@@ -1847,15 +1883,34 @@ describe('this file does not overstate what its own assertions prove (#1357 R5/R
     expect(tripwire, 'the tripwire body could not be located').not.toBe('')
     // A HEALTH_URL-only rewrite passes this check, and that is the exact residual
     // this task left on the production host — the reader must not rediscover it.
-    expect(tripwire).toContain('A HEALTH_URL-only rewrite PASSES this check')
-    expect(tripwire).toMatch(/byte-identical rewrite \(or a pure `touch`\) also passes/)
+    // Both notes are read as PROSE of the slice: the sentence has to be there, but
+    // its wrapping is not part of the claim, so a re-wrapped note still matches
+    // while a re-worded or deleted one does not.
+    expect(prose(tripwire), 'the HEALTH_URL blind spot must be recorded at the tripwire').toContain(
+      'A HEALTH_URL-only rewrite PASSES this check'
+    )
+    expect(prose(tripwire), 'the byte-identical blind spot must be recorded here').toContain(
+      'byte-identical rewrite (or a pure `touch`) also passes'
+    )
     // And it names the check that does see those, rather than implying this is the
-    // strongest available. Matched with a leading newline so it must be the line's
-    // own text — the audit quotes the same phrase a few lines below, and a bare
-    // substring search was reading its own copy.
-    expect(tripwire).toMatch(/^\s*\/\/ before\/after sha256 pair around the reproduction\./m)
+    // strongest available. The note has to be the tripwire's OWN COMMENT text, not
+    // a quoted copy inside one of its assertions, so only the slice's `//` lines are
+    // read — and then as prose, so a wrap at any word still matches. A whole-file
+    // substring search was reading its own copy and stayed green with the note
+    // deleted.
+    const tripwireComments = prose(
+      tripwire
+        .split('\n')
+        .filter(l => /^\s*\/\//.test(l))
+        .join('\n')
+    )
+    expect(tripwireComments, "the sha256 note must be the tripwire's own comment").toContain(
+      'before/after sha256 pair around the reproduction.'
+    )
     // And the file must point at the check that does see those, rather than
-    // implying the tripwire is the strongest available.
+    // implying the tripwire is the strongest available. Whole-file on purpose: the
+    // claim is only that the phrase is SOMEWHERE, and this assertion does quote
+    // itself, so a layout change cannot make it fail.
     expect(SRC).toContain('the before/after sha256 pair around the reproduction')
   })
 
@@ -1888,19 +1943,31 @@ describe('this file does not overstate what its own assertions prove (#1357 R5/R
     // The honesty note has to sit in the REPRODUCTION's own body, not only in a
     // rationale above it — a rationale can be edited and leave a claim standing
     // next to code that no longer earns it. Sliced out and searched on its own, so
-    // moving the note elsewhere in the file fails here.
+    // moving the note elsewhere in the file fails here; read as prose, so a wrap of
+    // the note is not mistaken for its absence.
     const repro = sliceTest(
       SRC,
       'unmodified install.sh with no RUN_DIR writes into the REAL state dir even when HOME is a scratch root'
     )
     expect(repro, 'the reproduction test body could not be located').not.toBe('')
-    expect(repro).toContain('IN_NS_HOME IS NOT THE MECHANISM, and is not claimed to be')
+    expect(prose(repro), 'the IN_NS_HOME note must sit in the reproduction').toContain(
+      'IN_NS_HOME IS NOT THE MECHANISM, and is not claimed to be'
+    )
     // GETENT_HOME carries the mechanism instead, and says so in the same place.
-    expect(repro).toContain('GETENT_HOME IS THE MECHANISM')
+    expect(
+      prose(repro),
+      'GETENT_HOME must be named as the mechanism in the reproduction'
+    ).toContain('GETENT_HOME IS THE MECHANISM')
     // The coinciding-home branch is what stops the two values being implicitly
     // treated as independent evidence on a host where they are the same string.
-    expect(SRC).toMatch(
-      /^\s*if \(operatorAccount\(\)\.home === \(process\.env\.HOME \?\? ''\)\) \{/m
+    // Every gap between tokens is `\s*` for the same reason as the assertion above
+    // — the formatter may wrap the condition — while the tokens themselves stay
+    // literal: `===`, the resolved `home`, `process.env.HOME ?? ''`. A looser
+    // pattern would also accept the `!==` inverse, which is the branch that would
+    // make the coincidence claim false. Leading `^\s*if` keeps the match on a real
+    // statement, so a commented-out copy cannot satisfy it.
+    expect(SRC, 'the coinciding-home branch must be present').toMatch(
+      /^\s*if\s*\(\s*operatorAccount\(\)\s*\.\s*home\s*===\s*\(\s*process\.env\.HOME\s*\?\?\s*''\s*\)\s*\)\s*\{/m
     )
   })
 
@@ -1908,10 +1975,22 @@ describe('this file does not overstate what its own assertions prove (#1357 R5/R
     // The reviewer's objection in one line: the previous teardown was safe only as
     // long as nobody edited it. The file must not describe the marker gate as a
     // convention or a bit.
-    expect(SRC).toContain(
+    //
+    // The rationale is its own doc comment, sliced out by its declaration line and
+    // read as prose. A whole-file `toContain` is not enough HERE: this test quotes
+    // both phrases, so it was satisfied by its own string literals — which is how
+    // it stayed green while the real sentence was ALREADY wrapped across two lines
+    // (`... rather than by` / ` * discipline`). Prose keeps a later re-wrap of the
+    // doc comment matching, while a re-wording or a deletion still fails.
+    const docStart = SRC.indexOf('/**\n * Remove a state dir THIS PROCESS CREATED.')
+    const docEnd = SRC.indexOf('function releaseCreatedStateDir(')
+    expect(docStart, 'the teardown rationale could not be located').toBeGreaterThanOrEqual(0)
+    expect(docEnd, 'the teardown rationale has no end').toBeGreaterThan(docStart)
+    const rationale = prose(SRC.slice(docStart, docEnd))
+    expect(rationale, 'the teardown must be stated as structural, not as discipline').toContain(
       'Structurally incapable of destruction, by construction rather than by discipline'
     )
-    expect(SRC, 'the worst case must be stated as leak-or-loud-failure').toContain(
+    expect(rationale, 'the worst case must be stated as leak-or-loud-failure').toContain(
       'a leaked empty dir or a loud throw'
     )
   })
