@@ -10,7 +10,7 @@
 
 - [ ] Code follows existing style and conventions
 - [ ] `bun test` passes
-- [ ] `bunx biome check src/` — no new warnings
+- [ ] `bun run format:check` passes (blocking) and `bunx biome check src/ eval/` shows no new warnings (advisory)
 - [ ] New/changed functionality has tests
 - [ ] Documentation updated (if applicable)
 - [ ] No secrets, tokens, or credentials committed

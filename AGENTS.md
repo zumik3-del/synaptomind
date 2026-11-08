@@ -11,7 +11,8 @@ Bun + Hono + SQLite (vec0 + FTS5); local embeddings via `@huggingface/transforme
 - DB: SQLite via `bun:sqlite` (vec0 vector search + FTS5)
 - API: Hono (HTTP :3005) + MCP server (stdio + HTTP :3006)
 - Embeddings: `@huggingface/transformers` in a child process (IPC)
-- Lint: Biome (`bunx biome check src/`) — advisory; hooks: Husky + commitlint
+- Lint/format: Biome (`bunx biome check src/ eval/`, `bun run format`) — lint advisory, formatting
+  blocking; hooks: Husky + commitlint
 - `bun`/`bunx` in `~/.bun/bin`, symlinked to `/usr/local/bin` (already on PATH)
 
 ## 3. Verification
@@ -20,13 +21,23 @@ Bun + Hono + SQLite (vec0 + FTS5); local embeddings via `@huggingface/transforme
   `src/**/*.test.ts` set as `bun test src`, sharded across parallel `bun test` processes
   (`test:unit` fast lane / `test:integration` slow lane / `test:serial` single-process oracle);
   full suite via `bun run test:all`
-- lint (advisory): `bunx biome check src/`
+- lint (advisory): `bunx biome check src/ eval/` — same scope the CI lint step runs, non-blocking
+- format: `bun run format` rewrites `src/ eval/ scripts/ deploy/` in place; `bun run format:check`
+  (same paths, no writes) is a **blocking** CI gate (`Format: biome (blocking)`)
 - typecheck: `bun run tsc --noEmit`
 
 ## 4. Code conventions
 
 - SOLID, KISS, DRY where they matter; one thing per function; files ≤350 lines; clear names
 - Tests alongside source (`*.test.ts`)
+
+**Formatting.** `biome.json` is the single source of truth; `bun run format` applies it and
+`bun run format:check` fails CI, so the rule never has to be argued in review. The standard:
+2-space indent, single quotes, no semicolons, no trailing commas, 100-column lines. Imports stay
+unsorted (`organizeImports` is off) and JSON is excluded from both scripts, so a generated
+`eval/report.json` never turns the gate red. The tree-wide reformat commit is listed in
+`.git-blame-ignore-revs`: run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once to keep
+`git blame` readable.
 
 **Database DI.** Exported service functions take `d: Database = getDb()` as trailing param;
 `getDb()` is called nowhere else in `services/`. db-layer functions take `db: Database` as required

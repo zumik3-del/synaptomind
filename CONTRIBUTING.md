@@ -26,9 +26,11 @@ Open an issue with the `enhancement` label. Describe the problem you want to sol
 1. Fork the repo and create a feature branch from `dev`.
 2. Make your changes following the code conventions below.
 3. Run `bun run test` (canonical) or `bun run test:all` to make sure tests pass.
-4. Run `bunx biome check src/` for lint (advisory, not blocking).
-5. Open a pull request `dev` → `main` with a **Conventional Commit title** (see below).
-6. PRs are merged with a **merge commit** (never squash) — the PR title becomes the merge-commit subject on `main`.
+4. Run `bun run format` to apply the Biome formatting standard (see below). CI checks it with
+   `bun run format:check` in a **blocking** step, unlike the advisory lint below.
+5. Run `bunx biome check src/ eval/` for lint (advisory, not blocking).
+6. Open a pull request `dev` → `main` with a **Conventional Commit title** (see below).
+7. PRs are merged with a **merge commit** (never squash) — the PR title becomes the merge-commit subject on `main`.
 
 ## Commit Convention
 
@@ -73,6 +75,9 @@ into Features / Fixes / Other.
 - **TypeScript strict** — no `any` unless unavoidable.
 - **Functions do one thing**, files are short, names are clear.
 - **Tests alongside source** — `.test.ts` suffix, same directory.
+- **Formatting** — Biome, configured in `biome.json`: 2-space indent, single quotes, no semicolons,
+  no trailing commas, 100-column lines. Apply with `bun run format` (it covers `src/`, `eval/`,
+  `scripts/` and `deploy/`); `bun run format:check` is the blocking CI gate.
 
 ## Project Structure
 
@@ -93,7 +98,9 @@ bun run test                # canonical fast suite (src/)
 bun run test:all            # full suite
 bun run test:deploy         # deploy shell integration
 bun run test:eval           # retrieval quality gates
-bunx biome check src/       # lint
+bunx biome check src/ eval/ # lint (advisory)
+bun run format              # apply Biome formatting
+bun run format:check        # verify formatting (blocking CI gate)
 bun run dev                 # start dev server
 ```
 
