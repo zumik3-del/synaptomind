@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.22.0
+
+> November 7, 2026
+
+- [`09a5d7fe`](https://github.com/zumik3-del/synaptomind/commit/09a5d7fe2443edb880564120f02f69b49f666588): feat(mcp): migrate to MCP TypeScript SDK v2
+- [`b07318df`](https://github.com/zumik3-del/synaptomind/commit/b07318dfe7c32b8cde3f7024a5a73c9e4ddfd3bc): docs: remove alternatives comparison
+- [`63715138`](https://github.com/zumik3-del/synaptomind/commit/63715138ad21360e4f624a8f26398548fe8900e2): refactor(services): standardize service module names
+- [`b87ba0e2`](https://github.com/zumik3-del/synaptomind/commit/b87ba0e2135381450543f804deb797d618ff3000): refactor(db): consolidate registry imports
+- [`8bd4ad28`](https://github.com/zumik3-del/synaptomind/commit/8bd4ad288d71351fd6913367c406fe4fdeb7b469): refactor: consolidate shared validation and utility logic
+- [`be3f909f`](https://github.com/zumik3-del/synaptomind/commit/be3f909ff852d7c0c18460011b8d22b6c2564c15): refactor: name search and health scoring constants
+- [`bd34b181`](https://github.com/zumik3-del/synaptomind/commit/bd34b181c4233ba00ee4c03e5026a98fb9d6408c): fix: reject duplicate edge IDs in confirmed batch unlink
+- [`8e57e6e9`](https://github.com/zumik3-del/synaptomind/commit/8e57e6e9634f7c2017ab942f230069c5bc30337e): refactor: consolidate shared helpers and preserve legacy sessions
+- [`5be0e6e1`](https://github.com/zumik3-del/synaptomind/commit/5be0e6e1c5e0b50de999393f41f16dbb659ed592): refactor: drop snake_case aliases from retention-review options
+- [`d1c3a81c`](https://github.com/zumik3-del/synaptomind/commit/d1c3a81cb045341cd6900b598a95a7006a82b33f): refactor: extract field-selection helpers from mcp utils
+- [`e2cecc8a`](https://github.com/zumik3-del/synaptomind/commit/e2cecc8aaa0cff73cc3e7c00276b7f88feb5bea4): refactor: eliminate DRY violations across services
+
 ## v0.21.0
 
 > November 3, 2026
