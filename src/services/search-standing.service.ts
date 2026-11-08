@@ -49,7 +49,10 @@ export function applyGraphStanding(
   if (results.length === 0) return results
   if (supersessionMode === 'off' && contradictionMode === 'off') return results
 
-  const standingMap = annotateGraphStanding(d, results.map(r => r.thought.id))
+  const standingMap = annotateGraphStanding(
+    d,
+    results.map(r => r.thought.id)
+  )
   const annotated: SearchResult[] = []
 
   for (const result of results) {

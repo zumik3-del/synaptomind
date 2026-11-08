@@ -28,9 +28,9 @@ afterEach(closeDb)
 // ── time constants ────────────────────────────────────────────────────────────
 
 const NOW = '2026-01-01T00:00:00.000Z'
-const T0  = '2025-01-01T00:00:00.000Z'
-const T1  = '2025-02-01T00:00:00.000Z'
-const T2  = '2025-03-01T00:00:00.000Z'
+const T0 = '2025-01-01T00:00:00.000Z'
+const T1 = '2025-02-01T00:00:00.000Z'
+const T2 = '2025-03-01T00:00:00.000Z'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -79,7 +79,10 @@ describe('proposePlacementPlan', () => {
       const p = await proposePlacementPlan(
         { thoughtId: src },
         { now: NOW },
-        { embed: okEmbed(), searchNeighbors: stubSearch({ [src]: [{ id: tgt, similarity: 0.9 }] }) },
+        {
+          embed: okEmbed(),
+          searchNeighbors: stubSearch({ [src]: [{ id: tgt, similarity: 0.9 }] })
+        },
         db
       )
       expect(p.lifecycle.action).toBe('link')
@@ -95,30 +98,48 @@ describe('proposePlacementPlan', () => {
     test('merge: lexical near-dup of an active thought, embedding below threshold', async () => {
       const db = getDb()
       const src = seedThought({ id: 'mg-src', content: 'the quick brown fox', created_at: T0 })
-      const tgt = seedThought({ id: 'mg-tgt', content: 'the quick brown fox jumped', created_at: T1 })
+      const tgt = seedThought({
+        id: 'mg-tgt',
+        content: 'the quick brown fox jumped',
+        created_at: T1
+      })
       const p = await proposePlacementPlan(
         { thoughtId: src },
         { now: NOW },
-        { embed: okEmbed(), searchNeighbors: stubSearch({ [src]: [{ id: tgt, similarity: 0.5 }] }) },
+        {
+          embed: okEmbed(),
+          searchNeighbors: stubSearch({ [src]: [{ id: tgt, similarity: 0.5 }] })
+        },
         db
       )
       expect(p.degraded).toBe(false)
       expect(p.edges).toEqual([])
       expect(p.placement).toBeNull()
       expect(p.lifecycle.action).toBe('merge')
-      expect(p.lifecycle.confidence).toBeCloseTo(0.8)   // jaccard(4/5)
+      expect(p.lifecycle.confidence).toBeCloseTo(0.8) // jaccard(4/5)
       expect(p.lifecycle.blocked_by).toEqual([])
       expect(p.lifecycle.rationale).toContain('near-duplicate')
     })
 
     test('replaces+archive: newer evolving near-dup of an active target', async () => {
       const db = getDb()
-      const old_ = seedThought({ id: 'ra-old', content: 'postgres for storage persists data', created_at: T0 })
-      const new_ = seedThought({ id: 'ra-new', content: 'postgres now for storage persists data', created_at: T1 })
+      const old_ = seedThought({
+        id: 'ra-old',
+        content: 'postgres for storage persists data',
+        created_at: T0
+      })
+      const new_ = seedThought({
+        id: 'ra-new',
+        content: 'postgres now for storage persists data',
+        created_at: T1
+      })
       const p = await proposePlacementPlan(
         { thoughtId: new_ },
         { now: NOW },
-        { embed: okEmbed(), searchNeighbors: stubSearch({ [new_]: [{ id: old_, similarity: 0.9 }] }) },
+        {
+          embed: okEmbed(),
+          searchNeighbors: stubSearch({ [new_]: [{ id: old_, similarity: 0.9 }] })
+        },
         db
       )
       expect(p.lifecycle.action).toBe('replaces+archive')
@@ -137,14 +158,26 @@ describe('proposePlacementPlan', () => {
 
     test('cluster placement: majority of clustered neighbours in one cluster', async () => {
       const db = getDb()
-      const clusterId = seedThought({ id: 'cl-pl', content: 'aggregate cluster', is_cluster: 1, created_at: T0 })
-      const member = seedThought({ id: 'cl-m', content: 'member one of the cluster', created_at: T1 })
+      const clusterId = seedThought({
+        id: 'cl-pl',
+        content: 'aggregate cluster',
+        is_cluster: 1,
+        created_at: T0
+      })
+      const member = seedThought({
+        id: 'cl-m',
+        content: 'member one of the cluster',
+        created_at: T1
+      })
       const src = seedThought({ id: 'cl-src', content: 'another member idea', created_at: T2 })
       seedEdge(clusterId, member, 'cluster')
       const p = await proposePlacementPlan(
         { thoughtId: src },
         { now: NOW },
-        { embed: okEmbed(), searchNeighbors: stubSearch({ [src]: [{ id: member, similarity: 0.9 }] }) },
+        {
+          embed: okEmbed(),
+          searchNeighbors: stubSearch({ [src]: [{ id: member, similarity: 0.9 }] })
+        },
         db
       )
       expect(p.placement).not.toBeNull()
@@ -160,11 +193,18 @@ describe('proposePlacementPlan', () => {
     test('merge takes precedence over link when a near-dup and a related edge coexist', async () => {
       const db = getDb()
       const src = seedThought({ id: 'ml-src', content: 'the quick brown fox', created_at: T0 })
-      const tgt = seedThought({ id: 'ml-tgt', content: 'the quick brown fox jumped', created_at: T1 })
+      const tgt = seedThought({
+        id: 'ml-tgt',
+        content: 'the quick brown fox jumped',
+        created_at: T1
+      })
       const p = await proposePlacementPlan(
         { thoughtId: src },
         { now: NOW },
-        { embed: okEmbed(), searchNeighbors: stubSearch({ [src]: [{ id: tgt, similarity: 0.95 }] }) },
+        {
+          embed: okEmbed(),
+          searchNeighbors: stubSearch({ [src]: [{ id: tgt, similarity: 0.95 }] })
+        },
         db
       )
       // Related edge exists (sim 0.95 ≥ minSimilarity), but merge fires first.
@@ -180,7 +220,12 @@ describe('proposePlacementPlan', () => {
   describe('blocked_by for non-confirmable moves', () => {
     test('merge blocks when source is archived', async () => {
       const db = getDb()
-      const src = seedThought({ id: 'mb-src', content: 'alpha beta gamma delta', created_at: T0, status: 'archived' })
+      const src = seedThought({
+        id: 'mb-src',
+        content: 'alpha beta gamma delta',
+        created_at: T0,
+        status: 'archived'
+      })
       // Merge target seeded by content only; its id is not needed by the test.
       seedThought({ id: 'mb-tgt', content: 'alpha beta gamma delta epsilon', created_at: T1 })
       const p = await proposePlacementPlan(
@@ -196,11 +241,19 @@ describe('proposePlacementPlan', () => {
     test('replaces+archive does not block when the newer source is archived (the older target is the archive candidate)', async () => {
       const db = getDb()
       const old_ = seedThought({ id: 'raa-old', content: 'x y z', created_at: T0 })
-      const new_ = seedThought({ id: 'raa-new', content: 'x y z updated w', created_at: T1, status: 'archived' })
+      const new_ = seedThought({
+        id: 'raa-new',
+        content: 'x y z updated w',
+        created_at: T1,
+        status: 'archived'
+      })
       const p = await proposePlacementPlan(
         { thoughtId: new_ },
         { now: NOW },
-        { embed: okEmbed(), searchNeighbors: stubSearch({ [new_]: [{ id: old_, similarity: 0.9 }] }) },
+        {
+          embed: okEmbed(),
+          searchNeighbors: stubSearch({ [new_]: [{ id: old_, similarity: 0.9 }] })
+        },
         db
       )
       // Option (b): the newer source survives, so its own status is not a
@@ -219,7 +272,11 @@ describe('proposePlacementPlan', () => {
       // overlap (5/6 ≈ 0.83) with the old target → supersede rule fires.
       // Embedding sim for the supersede pair is 0.80, giving confidence
       // ≈ (0.83 + 0.80) / 2 ≈ 0.82.
-      seedThought({ id: 'rc-src', content: 'now postgres for storage persists data', created_at: T1 })
+      seedThought({
+        id: 'rc-src',
+        content: 'now postgres for storage persists data',
+        created_at: T1
+      })
       seedThought({ id: 'rc-old', content: 'postgres for storage persists data', created_at: T0 })
       // Three related neighbours with neutral content (no typed cues) and
       // embedding similarities that rank above the supersede edge.
@@ -237,9 +294,9 @@ describe('proposePlacementPlan', () => {
               { id: 'rc-a', similarity: 0.99 },
               { id: 'rc-b', similarity: 0.97 },
               { id: 'rc-c', similarity: 0.96 },
-              { id: 'rc-old', similarity: 0.80 },
-            ],
-          }),
+              { id: 'rc-old', similarity: 0.8 }
+            ]
+          })
         },
         db
       )

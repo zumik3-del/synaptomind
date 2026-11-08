@@ -24,7 +24,13 @@ import { describe, expect, test, afterEach, afterAll } from 'bun:test'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { installCleanup, mkTempTree, pendingTempTrees, sweepTempTrees, withTempTree } from './tmp-fixtures'
+import {
+  installCleanup,
+  mkTempTree,
+  pendingTempTrees,
+  sweepTempTrees,
+  withTempTree
+} from './tmp-fixtures'
 
 installCleanup()
 
@@ -90,7 +96,7 @@ describe('deploy temp-tree ownership', () => {
   test('withTempTree releases the tree even when the builder throws', () => {
     const built = mkdtempSync(join(tmpdir(), 'synapto-owner-value-'))
     try {
-      const result = withTempTree('synapto-owner-scope-', (path) => {
+      const result = withTempTree('synapto-owner-scope-', path => {
         expect(existsSync(path)).toBe(true)
         return 'the value the test asserts on'
       })
@@ -104,10 +110,10 @@ describe('deploy temp-tree ownership', () => {
     let captured = ''
     try {
       expect(() =>
-        withTempTree('synapto-owner-scope-fail-', (p) => {
+        withTempTree('synapto-owner-scope-fail-', p => {
           captured = p
           throw new Error('builder failed')
-        }),
+        })
       ).toThrow('builder failed')
       // The finally released it: pending is empty and the tree is gone.
       expect(pendingTempTrees()).toEqual([])

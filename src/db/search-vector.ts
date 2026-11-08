@@ -18,7 +18,11 @@ export function vecSearchIds(
   topK: number,
   throwOnError: boolean = false
 ): Array<{ id: string; distance: number }> {
-  const embeddingBuf = Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength)
+  const embeddingBuf = Buffer.from(
+    embedding.buffer as ArrayBuffer,
+    embedding.byteOffset,
+    embedding.byteLength
+  )
   const params: SQLQueryBindings[] = [embeddingBuf, pool, ...filterParams]
   try {
     const rows = db
@@ -35,7 +39,9 @@ export function vecSearchIds(
       .all(...params, topK) as Array<{ id: string; distance: number }>
     return rows
   } catch (err) {
-    insertLog('debug', 'search', 'vec search failed', { error: err instanceof Error ? err.message : String(err) })
+    insertLog('debug', 'search', 'vec search failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
     if (throwOnError) throw err
     return []
   }

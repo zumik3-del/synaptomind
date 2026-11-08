@@ -42,7 +42,10 @@ describe('parseThoughtIdQuery — what counts as an id', () => {
   })
 
   test('a 13-character hex prefix is a prefix query, not an exact one (task #2186 floor)', () => {
-    expect(parseThoughtIdQuery('018f0a0000007')).toEqual({ pattern: '018f0a00-0000-7*', exact: false })
+    expect(parseThoughtIdQuery('018f0a0000007')).toEqual({
+      pattern: '018f0a00-0000-7*',
+      exact: false
+    })
   })
 
   test('a 12-character hex string is a word, not an id (the floor is 13)', () => {
@@ -59,8 +62,14 @@ describe('parseThoughtIdQuery — what counts as an id', () => {
 
   test('hyphen placement is normalised, so a dashed prefix addresses the same row', () => {
     // `018f0a00-0000-7` → hex `018f0a0000007` → canonical `018f0a00-0000-7` + GLOB star.
-    expect(parseThoughtIdQuery('018f0a00-0000-7')).toEqual({ pattern: '018f0a00-0000-7*', exact: false })
-    expect(parseThoughtIdQuery('018f0a0000007')).toEqual({ pattern: '018f0a00-0000-7*', exact: false })
+    expect(parseThoughtIdQuery('018f0a00-0000-7')).toEqual({
+      pattern: '018f0a00-0000-7*',
+      exact: false
+    })
+    expect(parseThoughtIdQuery('018f0a0000007')).toEqual({
+      pattern: '018f0a00-0000-7*',
+      exact: false
+    })
   })
 
   test('a non-hex query is a word', () => {
@@ -81,7 +90,10 @@ describe('parseThoughtIdQuery — what counts as an id', () => {
     // when the id lookup misses.
     expect(parseThoughtIdQuery('deadbeef')).toBeNull()
     expect(parseThoughtIdQuery('20251025')).toBeNull()
-    expect(parseThoughtIdQuery('deadbeefdeadbeef')).toEqual({ pattern: 'deadbeef-dead-beef*', exact: false })
+    expect(parseThoughtIdQuery('deadbeefdeadbeef')).toEqual({
+      pattern: 'deadbeef-dead-beef*',
+      exact: false
+    })
   })
 })
 
@@ -136,7 +148,9 @@ describe('findThoughtsByIdQuery — resolving the id against the stored rows', (
   test('an unknown full UUID returns no rows (never other rows)', () => {
     seedThought({ id: A, content: 'alpha' })
 
-    expect(findThoughtsByIdQuery(getDbOrThrow(), '018f0a00-0000-7000-8000-0000000000ff')).toEqual([])
+    expect(findThoughtsByIdQuery(getDbOrThrow(), '018f0a00-0000-7000-8000-0000000000ff')).toEqual(
+      []
+    )
   })
 
   test('an unknown 13-hex prefix returns no rows', () => {
@@ -159,7 +173,9 @@ describe('findThoughtsByIdQuery — resolving the id against the stored rows', (
     seedThought({ id: A, content: 'alpha' })
     seedThought({ id: C, content: 'gamma' })
 
-    expect(findThoughtsByIdQuery(getDbOrThrow(), '018f0b0000007')?.map(r => r.thought.id)).toEqual([C])
+    expect(findThoughtsByIdQuery(getDbOrThrow(), '018f0b0000007')?.map(r => r.thought.id)).toEqual([
+      C
+    ])
   })
 
   test('an id result carries the thought tags', () => {
@@ -175,20 +191,30 @@ describe('findThoughtsByIdQuery — the scope of an id (task #2190)', () => {
   test('a full UUID stays project-free: an explicit reference resolves from any project', () => {
     seedThought({ id: A, content: 'alpha', project_id: 'proj-b' })
 
-    expect(findThoughtsByIdQuery(getDbOrThrow(), A, 100, { projectFilter: 'proj-a' })?.map(r => r.thought.id)).toEqual([A])
+    expect(
+      findThoughtsByIdQuery(getDbOrThrow(), A, 100, { projectFilter: 'proj-a' })?.map(
+        r => r.thought.id
+      )
+    ).toEqual([A])
   })
 
   test('a full UUID stays status-free', () => {
     seedThought({ id: A, content: 'alpha', status: 'archived' })
 
-    expect(findThoughtsByIdQuery(getDbOrThrow(), A, 100, { statusFilter: 'active' })?.map(r => r.thought.id)).toEqual([A])
+    expect(
+      findThoughtsByIdQuery(getDbOrThrow(), A, 100, { statusFilter: 'active' })?.map(
+        r => r.thought.id
+      )
+    ).toEqual([A])
   })
 
   test('a prefix applies the project filter, so a predictable timestamp key cannot read across projects', () => {
     seedThought({ id: A, content: 'PROJ_A_ROW', project_id: 'proj-a' })
     seedThought({ id: B, content: 'PROJ_B_ROW', project_id: 'proj-b' })
 
-    const inA = findThoughtsByIdQuery(getDbOrThrow(), '018f0a0000007', 100, { projectFilter: 'proj-a' })
+    const inA = findThoughtsByIdQuery(getDbOrThrow(), '018f0a0000007', 100, {
+      projectFilter: 'proj-a'
+    })
 
     expect(inA?.map(r => r.thought.id)).toEqual([A])
   })
@@ -196,14 +222,20 @@ describe('findThoughtsByIdQuery — the scope of an id (task #2190)', () => {
   test('a prefix that only matches outside the project answers nothing (the caller falls back)', () => {
     seedThought({ id: B, content: 'PROJ_B_ROW', project_id: 'proj-b' })
 
-    expect(findThoughtsByIdQuery(getDbOrThrow(), '018f0a0000007', 100, { projectFilter: 'proj-a' })).toEqual([])
+    expect(
+      findThoughtsByIdQuery(getDbOrThrow(), '018f0a0000007', 100, { projectFilter: 'proj-a' })
+    ).toEqual([])
   })
 
   test('a prefix applies the status filter', () => {
     seedThought({ id: A, content: 'ACTIVE_ROW', status: 'active' })
     seedThought({ id: B, content: 'ARCHIVED_ROW', status: 'archived' })
 
-    expect(findThoughtsByIdQuery(getDbOrThrow(), '018f0a0000007', 100, { statusFilter: 'active' })?.map(r => r.thought.id)).toEqual([A])
+    expect(
+      findThoughtsByIdQuery(getDbOrThrow(), '018f0a0000007', 100, { statusFilter: 'active' })?.map(
+        r => r.thought.id
+      )
+    ).toEqual([A])
   })
 
   test('the is_cluster filter applies to both forms, because it is a shape constraint not a scope', () => {
@@ -211,8 +243,16 @@ describe('findThoughtsByIdQuery — the scope of an id (task #2190)', () => {
     seedThought({ id: B, content: 'CLUSTER_ROW', is_cluster: 1 })
 
     expect(findThoughtsByIdQuery(getDbOrThrow(), A, 100, { clusterFilter: 'only' })).toEqual([])
-    expect(findThoughtsByIdQuery(getDbOrThrow(), B, 100, { clusterFilter: 'only' })?.map(r => r.thought.id)).toEqual([B])
-    expect(findThoughtsByIdQuery(getDbOrThrow(), '018f0a0000007', 100, { clusterFilter: 'only' })?.map(r => r.thought.id)).toEqual([B])
+    expect(
+      findThoughtsByIdQuery(getDbOrThrow(), B, 100, { clusterFilter: 'only' })?.map(
+        r => r.thought.id
+      )
+    ).toEqual([B])
+    expect(
+      findThoughtsByIdQuery(getDbOrThrow(), '018f0a0000007', 100, { clusterFilter: 'only' })?.map(
+        r => r.thought.id
+      )
+    ).toEqual([B])
   })
 })
 

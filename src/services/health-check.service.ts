@@ -1,14 +1,34 @@
 import { getDb } from '../db'
 import {
-  findOrphanEdges, findSelfLoopEdges, findDuplicateEdges, findClusterViolations,
-  findEmptyClusters, findSingletonClusters, findOrphanedClusterMembers, findClusterlessDense,
-  findIslandThoughts, findOverlinkedThoughts,
-  findDuplicateContent, findTooShort, findTestRemnants, findStaleDrafts, findUntagged,
-  findCircularChains, findBrokenParentChains, findReplacesChains,
-  findContradictsWithHierarchy, findContradictsRedundantWithReplaces, findContradictionInCluster,
-  findContradictsToArchived, findSupportsSelfConflict,
-  findMissingEmbeddings, findDeadPrimers, findImportanceOutliers,
-  getGraphStats, deleteEdges, archiveThoughts,
+  findOrphanEdges,
+  findSelfLoopEdges,
+  findDuplicateEdges,
+  findClusterViolations,
+  findEmptyClusters,
+  findSingletonClusters,
+  findOrphanedClusterMembers,
+  findClusterlessDense,
+  findIslandThoughts,
+  findOverlinkedThoughts,
+  findDuplicateContent,
+  findTooShort,
+  findTestRemnants,
+  findStaleDrafts,
+  findUntagged,
+  findCircularChains,
+  findBrokenParentChains,
+  findReplacesChains,
+  findContradictsWithHierarchy,
+  findContradictsRedundantWithReplaces,
+  findContradictionInCluster,
+  findContradictsToArchived,
+  findSupportsSelfConflict,
+  findMissingEmbeddings,
+  findDeadPrimers,
+  findImportanceOutliers,
+  getGraphStats,
+  deleteEdges,
+  archiveThoughts
 } from '../db/health-check'
 import type { Database } from 'bun:sqlite'
 import { findDuplicateDrafts } from './health-check-drafts.service'
@@ -117,20 +137,36 @@ function matchesSeverity(check: CheckResult, minSeverity?: Severity): boolean {
 function runChecks(db: Database, checks: CheckDef[]): CheckResult[] {
   return checks.map(({ name, severity, finder, autofix }) => {
     const details = finder(db)
-    return { name, severity, count: details.length, details, auto_fixable: autofix ? true : undefined, autofix }
+    return {
+      name,
+      severity,
+      count: details.length,
+      details,
+      auto_fixable: autofix ? true : undefined,
+      autofix
+    }
   })
 }
 
 const autofixEdgeIds: Autofix = (db, details) => {
-  return deleteEdges(db, (details as Array<{ id: string }>).map(e => e.id))
+  return deleteEdges(
+    db,
+    (details as Array<{ id: string }>).map(e => e.id)
+  )
 }
 
 const autofixClusterMemberEdges: Autofix = (db, details) => {
-  return deleteEdges(db, (details as Array<{ cluster_edge_id: string }>).map(m => m.cluster_edge_id))
+  return deleteEdges(
+    db,
+    (details as Array<{ cluster_edge_id: string }>).map(m => m.cluster_edge_id)
+  )
 }
 
 const autofixThoughtIds: Autofix = (db, details) => {
-  return archiveThoughts(db, (details as Array<{ id: string }>).map(t => t.id))
+  return archiveThoughts(
+    db,
+    (details as Array<{ id: string }>).map(t => t.id)
+  )
 }
 
 // Only edges whose target is *archived* are truly dangling (the node is out of
@@ -146,24 +182,39 @@ const autofixArchivedParentEdges: Autofix = (db, details) => {
 
 const STRUCTURAL_CHECKS: CheckDef[] = [
   { name: 'orphan_edges', severity: 'critical', finder: findOrphanEdges, autofix: autofixEdgeIds },
-  { name: 'self_loop_edges', severity: 'critical', finder: findSelfLoopEdges, autofix: autofixEdgeIds },
+  {
+    name: 'self_loop_edges',
+    severity: 'critical',
+    finder: findSelfLoopEdges,
+    autofix: autofixEdgeIds
+  },
   { name: 'duplicate_edges', severity: 'critical', finder: findDuplicateEdges },
-  { name: 'cluster_constraint_violations', severity: 'critical', finder: findClusterViolations },
+  { name: 'cluster_constraint_violations', severity: 'critical', finder: findClusterViolations }
 ]
 
 const CLUSTER_CHECKS: CheckDef[] = [
-  { name: 'empty_clusters', severity: 'warning', finder: findEmptyClusters, autofix: autofixThoughtIds },
+  {
+    name: 'empty_clusters',
+    severity: 'warning',
+    finder: findEmptyClusters,
+    autofix: autofixThoughtIds
+  },
   { name: 'singleton_clusters', severity: 'warning', finder: findSingletonClusters },
-  { name: 'orphaned_cluster_members', severity: 'warning', finder: findOrphanedClusterMembers, autofix: autofixClusterMemberEdges },
+  {
+    name: 'orphaned_cluster_members',
+    severity: 'warning',
+    finder: findOrphanedClusterMembers,
+    autofix: autofixClusterMemberEdges
+  },
   // Age-gated by `autoCluster.minAgeDays` (finder default): auto-cluster only
   // sees candidates older than that window, so younger dense thoughts are not
   // yet actionable and must not be flagged as warnings.
-  { name: 'clusterless_dense_thoughts', severity: 'warning', finder: findClusterlessDense },
+  { name: 'clusterless_dense_thoughts', severity: 'warning', finder: findClusterlessDense }
 ]
 
 const CONNECTIVITY_CHECKS: CheckDef[] = [
   { name: 'island_thoughts', severity: 'info', finder: findIslandThoughts },
-  { name: 'overlinked_thoughts', severity: 'warning', finder: findOverlinkedThoughts },
+  { name: 'overlinked_thoughts', severity: 'warning', finder: findOverlinkedThoughts }
 ]
 
 const CONTENT_CHECKS: CheckDef[] = [
@@ -174,24 +225,33 @@ const CONTENT_CHECKS: CheckDef[] = [
   // Read-only by design: a duplicate draft needs a human merge/archive decision,
   // so `fix=true` must never act on it (task #1946).
   { name: 'duplicate_drafts', severity: 'warning', finder: findDuplicateDrafts },
-  { name: 'untagged_thoughts', severity: 'info', finder: findUntagged },
+  { name: 'untagged_thoughts', severity: 'info', finder: findUntagged }
 ]
 
 const SEMANTIC_CHECKS: CheckDef[] = [
   { name: 'circular_chains', severity: 'warning', finder: findCircularChains },
-  { name: 'broken_parent_chains', severity: 'warning', finder: findBrokenParentChains, autofix: autofixArchivedParentEdges },
+  {
+    name: 'broken_parent_chains',
+    severity: 'warning',
+    finder: findBrokenParentChains,
+    autofix: autofixArchivedParentEdges
+  },
   { name: 'replaces_chains', severity: 'warning', finder: findReplacesChains },
   { name: 'contradicts_with_hierarchy', severity: 'warning', finder: findContradictsWithHierarchy },
   { name: 'contradiction_in_cluster', severity: 'warning', finder: findContradictionInCluster },
-  { name: 'contradicts_redundant_with_replaces', severity: 'info', finder: findContradictsRedundantWithReplaces },
+  {
+    name: 'contradicts_redundant_with_replaces',
+    severity: 'info',
+    finder: findContradictsRedundantWithReplaces
+  },
   { name: 'contradicts_to_archived', severity: 'info', finder: findContradictsToArchived },
-  { name: 'supports_self_conflict', severity: 'critical', finder: findSupportsSelfConflict },
+  { name: 'supports_self_conflict', severity: 'critical', finder: findSupportsSelfConflict }
 ]
 
 const DRIFT_CHECKS: CheckDef[] = [
   { name: 'missing_embeddings', severity: 'info', finder: findMissingEmbeddings },
   { name: 'dead_primers', severity: 'info', finder: findDeadPrimers },
-  { name: 'importance_outliers', severity: 'info', finder: findImportanceOutliers },
+  { name: 'importance_outliers', severity: 'info', finder: findImportanceOutliers }
 ]
 
 const CATEGORIES: Array<{ name: string; checks: CheckDef[] }> = [
@@ -200,10 +260,13 @@ const CATEGORIES: Array<{ name: string; checks: CheckDef[] }> = [
   { name: 'connectivity', checks: CONNECTIVITY_CHECKS },
   { name: 'content_quality', checks: CONTENT_CHECKS },
   { name: 'semantic_consistency', checks: SEMANTIC_CHECKS },
-  { name: 'data_drift', checks: DRIFT_CHECKS },
+  { name: 'data_drift', checks: DRIFT_CHECKS }
 ]
 
-export function runHealthCheckService(options: HealthCheckOptions = {}, d: Database = getDb()): HealthReport {
+export function runHealthCheckService(
+  options: HealthCheckOptions = {},
+  d: Database = getDb()
+): HealthReport {
   const stats = getGraphStats(d)
 
   let categories: CategoryResult[] = CATEGORIES.map(({ name, checks }) => ({
@@ -217,11 +280,15 @@ export function runHealthCheckService(options: HealthCheckOptions = {}, d: Datab
       .filter(c => c.checks.length > 0)
   }
 
-  let critical = 0, warning = 0, info = 0
+  let critical = 0,
+    warning = 0,
+    info = 0
   let scoredInfo = 0
-  let criticalCats = 0, warningCats = 0
+  let criticalCats = 0,
+    warningCats = 0
   for (const cat of categories) {
-    let catCritical = false, catWarning = false
+    let catCritical = false,
+      catWarning = false
     for (const check of cat.checks) {
       if (check.severity === 'critical') {
         critical += check.count
@@ -247,9 +314,10 @@ export function runHealthCheckService(options: HealthCheckOptions = {}, d: Datab
   const penaltyCritical = criticalCats * CRITICAL_CATEGORY_PENALTY
   const penaltyWarning = warningCats * WARNING_CATEGORY_PENALTY
   const penaltyInfo = scoredInfo * INFO_OCCURRENCE_PENALTY
-  const health_score = Math.max(0, Math.min(100,
-    100 - penaltyCritical - penaltyWarning - penaltyInfo
-  ))
+  const health_score = Math.max(
+    0,
+    Math.min(100, 100 - penaltyCritical - penaltyWarning - penaltyInfo)
+  )
   const scoreBreakdown: ScoreBreakdown = {
     critical_categories: criticalCats,
     warning_categories: warningCats,

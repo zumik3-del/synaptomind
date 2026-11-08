@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { closeDb } from '../../db/init'
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
@@ -37,7 +37,10 @@ function callTool(request: { name: string; arguments?: Record<string, unknown> }
   const args = request.arguments ?? {}
   const scoped = CWD_ACTIONS[request.name]
   const needsCwd = scoped?.includes(String(args.action)) === true
-  return client.callTool({ ...request, arguments: needsCwd ? { cwd: UNSCOPED_CWD, ...args } : args } as Parameters<Client['callTool']>[0])
+  return client.callTool({
+    ...request,
+    arguments: needsCwd ? { cwd: UNSCOPED_CWD, ...args } : args
+  } as Parameters<Client['callTool']>[0])
 }
 
 async function setupClient(): Promise<Client> {
@@ -90,16 +93,66 @@ beforeAll(async () => {
 
 // ── Numeric schema validation ───────────────────────────────────────────────
 
-const invalidNumericCases: Array<{ label: string; name: string; args: Record<string, unknown>; param: string }> = [
-  { label: 'negative limit', name: 'memory_recall', args: { action: 'search', query: 'x', limit: -1 }, param: 'limit' },
-  { label: 'non-integer limit', name: 'memory_recall', args: { action: 'search', query: 'x', limit: 1.5 }, param: 'limit' },
-  { label: 'zero limit', name: 'memory_recall', args: { action: 'search', query: 'x', limit: 0 }, param: 'limit' },
-  { label: 'negative max_degree', name: 'memory_recall', args: { action: 'chain', thought_id: 'x', max_degree: -2 }, param: 'max_degree' },
-  { label: 'non-integer max_degree', name: 'memory_recall', args: { action: 'context', query: 'x', max_degree: 2.5 }, param: 'max_degree' },
-  { label: 'negative timeline limit', name: 'memory_reflect', args: { action: 'timeline', limit: -5 }, param: 'limit' },
-  { label: 'non-integer timeline limit', name: 'memory_reflect', args: { action: 'timeline', limit: 1.5 }, param: 'limit' },
-  { label: 'negative graph limit', name: 'memory_crystallize', args: { action: 'graph', limit: -1 }, param: 'limit' },
-  { label: 'negative frontier k', name: 'memory_status', args: { action: 'frontier', k: -3 }, param: 'k' }
+const invalidNumericCases: Array<{
+  label: string
+  name: string
+  args: Record<string, unknown>
+  param: string
+}> = [
+  {
+    label: 'negative limit',
+    name: 'memory_recall',
+    args: { action: 'search', query: 'x', limit: -1 },
+    param: 'limit'
+  },
+  {
+    label: 'non-integer limit',
+    name: 'memory_recall',
+    args: { action: 'search', query: 'x', limit: 1.5 },
+    param: 'limit'
+  },
+  {
+    label: 'zero limit',
+    name: 'memory_recall',
+    args: { action: 'search', query: 'x', limit: 0 },
+    param: 'limit'
+  },
+  {
+    label: 'negative max_degree',
+    name: 'memory_recall',
+    args: { action: 'chain', thought_id: 'x', max_degree: -2 },
+    param: 'max_degree'
+  },
+  {
+    label: 'non-integer max_degree',
+    name: 'memory_recall',
+    args: { action: 'context', query: 'x', max_degree: 2.5 },
+    param: 'max_degree'
+  },
+  {
+    label: 'negative timeline limit',
+    name: 'memory_reflect',
+    args: { action: 'timeline', limit: -5 },
+    param: 'limit'
+  },
+  {
+    label: 'non-integer timeline limit',
+    name: 'memory_reflect',
+    args: { action: 'timeline', limit: 1.5 },
+    param: 'limit'
+  },
+  {
+    label: 'negative graph limit',
+    name: 'memory_crystallize',
+    args: { action: 'graph', limit: -1 },
+    param: 'limit'
+  },
+  {
+    label: 'negative frontier k',
+    name: 'memory_status',
+    args: { action: 'frontier', k: -3 },
+    param: 'k'
+  }
 ]
 
 describe('numeric parameter schema validation', () => {
@@ -205,7 +258,9 @@ describe('shared request contract parity (audit M8)', () => {
       expect(String(data)).toContain('offset')
     }
 
-    const ok = parseResult(await callTool({ name: 'memory_crystallize', arguments: { action: 'graph', offset: 0 } }))
+    const ok = parseResult(
+      await callTool({ name: 'memory_crystallize', arguments: { action: 'graph', offset: 0 } })
+    )
     expect(ok.isError).toBe(false)
   })
 
@@ -243,18 +298,31 @@ describe('memory_recall context honors project_id', () => {
     // Marker exists only in the default project.
     await callTool({
       name: 'memory_store',
-      arguments: { action: 'create', content: `${MARKER} lives in the default project`, status: 'active' }
+      arguments: {
+        action: 'create',
+        content: `${MARKER} lives in the default project`,
+        status: 'active'
+      }
     })
 
     const proj = await callTool({
       name: 'memory_manage',
-      arguments: { action: 'create', name: 'ContextScopeEmpty', local_path: '/tmp/context-scope-empty' }
+      arguments: {
+        action: 'create',
+        name: 'ContextScopeEmpty',
+        local_path: '/tmp/context-scope-empty'
+      }
     })
     parseResult(proj)
 
     const result = await callTool({
       name: 'memory_recall',
-      arguments: { action: 'context', query: MARKER, cwd: '/tmp/context-scope-empty', compact: false }
+      arguments: {
+        action: 'context',
+        query: MARKER,
+        cwd: '/tmp/context-scope-empty',
+        compact: false
+      }
     })
     const { data, isError } = parseResult(result)
 
@@ -281,7 +349,12 @@ describe('memory_recall context honors project_id', () => {
     })
     await callTool({
       name: 'memory_store',
-      arguments: { action: 'create', content: `${MARKER} inside target`, status: 'active', cwd: '/tmp/context-scope-hit' }
+      arguments: {
+        action: 'create',
+        content: `${MARKER} inside target`,
+        status: 'active',
+        cwd: '/tmp/context-scope-hit'
+      }
     })
 
     const result = await callTool({
@@ -316,11 +389,17 @@ describe('structuredContent mirrors the text payload', () => {
   })
 
   test('memory_status config (raw-text payload inside the envelope)', async () => {
-    const result = await callTool({ name: 'memory_status', arguments: { action: 'config' } }) as ToolResult
+    const result = (await callTool({
+      name: 'memory_status',
+      arguments: { action: 'config' }
+    })) as ToolResult
     // The content channel stays raw text; the structured channel carries the
     // shared envelope with the same text in `item.text`.
     expect(result.isError).not.toBe(true)
-    const envelope = result.structuredContent?.result as { item: { text: string }; meta: { action: string } }
+    const envelope = result.structuredContent?.result as {
+      item: { text: string }
+      meta: { action: string }
+    }
     expect(envelope.item.text).toBe(result.content[0].text)
     expect(envelope.meta.action).toBe('config')
   })
@@ -339,7 +418,9 @@ describe('structuredContent mirrors the text payload', () => {
     const { tools } = await client.listTools()
     expect(tools.length).toBe(11)
     for (const tool of tools) {
-      const outputSchema = tool.outputSchema as { required?: string[]; properties?: Record<string, unknown> } | undefined
+      const outputSchema = tool.outputSchema as
+        | { required?: string[]; properties?: Record<string, unknown> }
+        | undefined
       expect(outputSchema).toBeDefined()
       expect(outputSchema?.required).toContain('result')
       expect(Object.keys(outputSchema?.properties ?? {})).toEqual(['result'])
@@ -359,25 +440,65 @@ describe('no bare-string tool results (#2135)', () => {
   })
 
   test('representative tool calls never return a bare string in result', async () => {
-    const created = parseResult(await callTool({
-      name: 'memory_store',
-      arguments: { action: 'create', content: 'no-bare-string probe' }
-    }))
+    const created = parseResult(
+      await callTool({
+        name: 'memory_store',
+        arguments: { action: 'create', content: 'no-bare-string probe' }
+      })
+    )
     const thoughtId = created.data.id as string
 
     const cases: Array<{ label: string; call: () => Promise<unknown> }> = [
-      { label: 'memory_store create', call: () => callTool({ name: 'memory_store', arguments: { action: 'create', content: 'x' } }) },
-      { label: 'memory_recall search', call: () => callTool({ name: 'memory_recall', arguments: { action: 'search', query: 'x' } }) },
-      { label: 'memory_manage list', call: () => callTool({ name: 'memory_manage', arguments: { action: 'list' } }) },
-      { label: 'memory_primers list', call: () => callTool({ name: 'memory_primers', arguments: { action: 'list' } }) },
-      { label: 'memory_reflect timeline', call: () => callTool({ name: 'memory_reflect', arguments: { action: 'timeline' } }) },
-      { label: 'memory_crystallize graph', call: () => callTool({ name: 'memory_crystallize', arguments: { action: 'graph' } }) },
-      { label: 'memory_status slots', call: () => callTool({ name: 'memory_status', arguments: { action: 'slots' } }) },
-      { label: 'memory_status config', call: () => callTool({ name: 'memory_status', arguments: { action: 'config' } }) },
-      { label: 'edge_review list', call: () => callTool({ name: 'edge_review', arguments: { action: 'list' } }) },
-      { label: 'retention_review list', call: () => callTool({ name: 'retention_review', arguments: { action: 'list' } }) },
+      {
+        label: 'memory_store create',
+        call: () =>
+          callTool({ name: 'memory_store', arguments: { action: 'create', content: 'x' } })
+      },
+      {
+        label: 'memory_recall search',
+        call: () => callTool({ name: 'memory_recall', arguments: { action: 'search', query: 'x' } })
+      },
+      {
+        label: 'memory_manage list',
+        call: () => callTool({ name: 'memory_manage', arguments: { action: 'list' } })
+      },
+      {
+        label: 'memory_primers list',
+        call: () => callTool({ name: 'memory_primers', arguments: { action: 'list' } })
+      },
+      {
+        label: 'memory_reflect timeline',
+        call: () => callTool({ name: 'memory_reflect', arguments: { action: 'timeline' } })
+      },
+      {
+        label: 'memory_crystallize graph',
+        call: () => callTool({ name: 'memory_crystallize', arguments: { action: 'graph' } })
+      },
+      {
+        label: 'memory_status slots',
+        call: () => callTool({ name: 'memory_status', arguments: { action: 'slots' } })
+      },
+      {
+        label: 'memory_status config',
+        call: () => callTool({ name: 'memory_status', arguments: { action: 'config' } })
+      },
+      {
+        label: 'edge_review list',
+        call: () => callTool({ name: 'edge_review', arguments: { action: 'list' } })
+      },
+      {
+        label: 'retention_review list',
+        call: () => callTool({ name: 'retention_review', arguments: { action: 'list' } })
+      },
       { label: 'memory_guide', call: () => callTool({ name: 'memory_guide', arguments: {} }) },
-      { label: 'memory_supersede archive', call: () => callTool({ name: 'memory_supersede', arguments: { action: 'archive', thought_id: thoughtId, confirm: true } }) },
+      {
+        label: 'memory_supersede archive',
+        call: () =>
+          callTool({
+            name: 'memory_supersede',
+            arguments: { action: 'archive', thought_id: thoughtId, confirm: true }
+          })
+      }
     ]
 
     for (const c of cases) {

@@ -48,7 +48,12 @@ function assertProposalFields(p: NonNullable<PlacementDecision['proposal']>) {
 
 /** Seed a strict-majority fixture: two neighbours in one cluster + a source. */
 function seedMajorityFixture(): [string, string, string, string] {
-  const clusterId = seedThought({ id: 'c-major', content: 'majority cluster', is_cluster: 1, project_id: 'default' })
+  const clusterId = seedThought({
+    id: 'c-major',
+    content: 'majority cluster',
+    is_cluster: 1,
+    project_id: 'default'
+  })
   const n1 = seedThought({ content: 'neighbour one' })
   const n2 = seedThought({ content: 'neighbour two' })
   const sourceId = seedThought({ content: 'source thought' })
@@ -68,7 +73,15 @@ describe('proposePlacement', () => {
       const result = await proposePlacement(
         source,
         {},
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }, { id: n2, similarity: 0.8 }] }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({
+            [sourceId]: [
+              { id: n1, similarity: 0.9 },
+              { id: n2, similarity: 0.8 }
+            ]
+          })
+        },
         db
       )
       expect(result.proposal).not.toBeNull()
@@ -84,8 +97,18 @@ describe('proposePlacement', () => {
 
     test('a cluster tie (1 v 1) is not a strict majority: falls through', async () => {
       const db = getDb()
-      const c1 = seedThought({ id: 'c1', content: 'cluster one', is_cluster: 1, project_id: 'default' })
-      const c2 = seedThought({ id: 'c2', content: 'cluster two', is_cluster: 1, project_id: 'default' })
+      const c1 = seedThought({
+        id: 'c1',
+        content: 'cluster one',
+        is_cluster: 1,
+        project_id: 'default'
+      })
+      const c2 = seedThought({
+        id: 'c2',
+        content: 'cluster two',
+        is_cluster: 1,
+        project_id: 'default'
+      })
       const n1 = seedThought({ content: 'member of c1' })
       const n2 = seedThought({ content: 'member of c2' })
       const sourceId = seedThought({ content: 'source' })
@@ -95,7 +118,15 @@ describe('proposePlacement', () => {
       const result = await proposePlacement(
         source,
         {},
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }, { id: n2, similarity: 0.85 }] }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({
+            [sourceId]: [
+              { id: n1, similarity: 0.9 },
+              { id: n2, similarity: 0.85 }
+            ]
+          })
+        },
         db
       )
       expect(result.proposal).toBeNull()
@@ -114,7 +145,15 @@ describe('proposePlacement', () => {
       const result = await proposePlacement(
         source,
         {},
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.95 }, { id: n2, similarity: 0.8 }] }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({
+            [sourceId]: [
+              { id: n1, similarity: 0.95 },
+              { id: n2, similarity: 0.8 }
+            ]
+          })
+        },
         db
       )
       expect(result.proposal).not.toBeNull()
@@ -135,7 +174,10 @@ describe('proposePlacement', () => {
       const result = await proposePlacement(
         source,
         {},
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }] }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }] })
+        },
         db
       )
       expect(result.proposal?.kind).toBe('parent')
@@ -151,12 +193,17 @@ describe('proposePlacement', () => {
       const result = await proposePlacement(
         source,
         {},
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }] }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }] })
+        },
         db
       )
       expect(result.proposal).toBeNull()
       expect(result.reason).toContain('no neighbour belongs to a cluster')
-      expect(result.reason).toContain('no parent/develops chain node among the embedding neighbours')
+      expect(result.reason).toContain(
+        'no parent/develops chain node among the embedding neighbours'
+      )
     })
   })
 
@@ -165,13 +212,26 @@ describe('proposePlacement', () => {
       const db = getDb()
       const sourceId = seedThought({ content: 'source' })
       const source = getThoughtRow(db, sourceId)!
-      const result = await proposePlacement(source, {}, { embed: stubEmbed(), searchNeighbors: stubSearch({}) }, db)
-      expect(result).toEqual({ proposal: null, reason: 'no embedding neighbours above the similarity threshold' })
+      const result = await proposePlacement(
+        source,
+        {},
+        { embed: stubEmbed(), searchNeighbors: stubSearch({}) },
+        db
+      )
+      expect(result).toEqual({
+        proposal: null,
+        reason: 'no embedding neighbours above the similarity threshold'
+      })
     })
 
     test('returns null immediately when the source is a cluster thought', async () => {
       const db = getDb()
-      const clusterId = seedThought({ id: 'c-src', content: 'source cluster', is_cluster: 1, project_id: 'default' })
+      const clusterId = seedThought({
+        id: 'c-src',
+        content: 'source cluster',
+        is_cluster: 1,
+        project_id: 'default'
+      })
       let embedCalls = 0
       const source = getThoughtRow(db, clusterId)!
       const result = await proposePlacement(
@@ -219,7 +279,10 @@ describe('proposePlacement', () => {
         { embed: async () => [new Float32Array(384)], searchNeighbors: stubSearch({}) }, // 1 vector for 2 candidates
         db
       )
-      expect(result).toEqual({ proposal: null, reason: 'embedder returned a mismatched number of vectors' })
+      expect(result).toEqual({
+        proposal: null,
+        reason: 'embedder returned a mismatched number of vectors'
+      })
     })
 
     test('considers a draft source (the source is unshifted into the pool)', async () => {
@@ -232,7 +295,10 @@ describe('proposePlacement', () => {
       const result = await proposePlacement(
         source,
         {},
-        { embed: stubEmbed(), searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }] }) },
+        {
+          embed: stubEmbed(),
+          searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }] })
+        },
         db
       )
       expect(result.proposal?.kind).toBe('parent')

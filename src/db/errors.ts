@@ -51,9 +51,9 @@ export class ThoughtContentConflictError extends Error {
     super(
       existingId
         ? `A live thought in this project already has this content (${existingId}). ` +
-          'Edit that thought or archive it before reusing the content.'
+            'Edit that thought or archive it before reusing the content.'
         : 'Another live thought in this project already has this content. ' +
-          'Edit that thought or archive it before reusing the content.'
+            'Edit that thought or archive it before reusing the content.'
     )
     this.name = 'ThoughtContentConflictError'
   }

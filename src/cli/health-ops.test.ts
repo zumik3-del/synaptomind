@@ -10,7 +10,10 @@ import { runOpsHealthCheck } from './index'
 const users = config.users
 const path = config.db.path
 const dir = mkdtempSync(join(tmpdir(), 'ops-health-'))
-afterEach(() => { config.users = users; config.db.path = path })
+afterEach(() => {
+  config.users = users
+  config.db.path = path
+})
 
 test('all configured missing users fail without creating databases', async () => {
   const missing = join(dir, 'missing.db')

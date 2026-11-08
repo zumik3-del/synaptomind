@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { promoteThoughtToPrimer } from '../../db/primers'
@@ -46,7 +46,9 @@ function seedPrimer(hitCount = 12): { thoughtId: string; primerId: string } {
 
 /** Whether a primer row is still in the main db (raw SQL, no cut-only symbol). */
 function primerExists(id: string): boolean {
-  const row = getDb().prepare(`SELECT COUNT(*) AS c FROM primers WHERE id = ?`).get(id) as { c: number }
+  const row = getDb().prepare(`SELECT COUNT(*) AS c FROM primers WHERE id = ?`).get(id) as {
+    c: number
+  }
   return row.c > 0
 }
 
@@ -120,7 +122,7 @@ describe('memory_primers delete', () => {
       name: 'memory_primers',
       arguments: { action: 'delete', primer_id: primerId }
     })
-    const token = (JSON.parse((preview as any).content[0].text)).item.preview_token
+    const token = JSON.parse((preview as any).content[0].text).item.preview_token
     const result = await client.callTool({
       name: 'memory_primers',
       arguments: { action: 'delete', primer_id: primerId, confirm: true, preview_token: token }
@@ -163,7 +165,10 @@ describe('memory_primers delete', () => {
   test('delete without primer_id is refused with an error envelope', async () => {
     const client = await setupClient()
 
-    const result = await client.callTool({ name: 'memory_primers', arguments: { action: 'delete' } })
+    const result = await client.callTool({
+      name: 'memory_primers',
+      arguments: { action: 'delete' }
+    })
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(true)

@@ -64,7 +64,10 @@ function architectureDecisionsContent(db: Database): string {
   return bullets.join('\n')
 }
 
-export function getSlots(opts?: { projectId?: string; names?: string[]; limit?: number; offset?: number }, d: Database = getDb()): SlotView[] {
+export function getSlots(
+  opts?: { projectId?: string; names?: string[]; limit?: number; offset?: number },
+  d: Database = getDb()
+): SlotView[] {
   const projectId = opts?.projectId || undefined
   const filter = opts?.names?.length ? new Set(opts.names) : null
 
@@ -77,11 +80,21 @@ export function getSlots(opts?: { projectId?: string; names?: string[]; limit?: 
       if (name === 'architecture_decisions') content = architectureDecisionsContent(d)
       else content = pendingItemsContent(d, opts?.limit, opts?.offset)
       const { content: truncatedContent, truncated } = truncate(content, maxChars)
-      views.push({ name, scope: 'global', virtual: true, content: truncatedContent, truncated, max_chars: maxChars, updated_at: null })
+      views.push({
+        name,
+        scope: 'global',
+        virtual: true,
+        content: truncatedContent,
+        truncated,
+        max_chars: maxChars,
+        updated_at: null
+      })
       continue
     }
     // Explicit: project-scoped row wins over the global fallback.
-    const row = (projectId ? getSlotRow(d, name, 'project', projectId) : undefined) ?? getSlotRow(d, name, 'global', null)
+    const row =
+      (projectId ? getSlotRow(d, name, 'project', projectId) : undefined) ??
+      getSlotRow(d, name, 'global', null)
     const maxChars = row?.max_chars ?? config.slots.defaultMaxChars
     const { content, truncated } = truncate(row?.content ?? '', maxChars)
     views.push({

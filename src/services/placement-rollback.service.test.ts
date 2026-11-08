@@ -29,7 +29,7 @@ import {
   NOW_LATER,
   PAST,
   pairFingerprint,
-  RUN_ID,
+  RUN_ID
 } from '../test/proposal-apply-helpers'
 import { applyProposalService } from './placement-apply.service'
 import { rollbackService } from './placement-rollback.service'
@@ -74,14 +74,16 @@ function beforeCutoffFor(now: string, ttlDays = config.placement.proposalTtlDays
  * `decideRollback` reads for `idempotent` / `edge_id`.
  */
 function setDecidedAt(db: Database, id: string, decidedAt: string | null): void {
-  const { changes } = db.prepare('UPDATE placement_proposals SET decided_at = ? WHERE id = ?').run(decidedAt, id)
+  const { changes } = db
+    .prepare('UPDATE placement_proposals SET decided_at = ? WHERE id = ?')
+    .run(decidedAt, id)
   if (changes === 0) throw new Error(`proposal '${id}' not found`)
 }
 
 function rowOf(db: Database, id: string): { state: string; decided_at: string | null } {
-  const row = db.prepare('SELECT state, decided_at FROM placement_proposals WHERE id = ?').get(id) as
-    | { state: string; decided_at: string | null }
-    | undefined
+  const row = db
+    .prepare('SELECT state, decided_at FROM placement_proposals WHERE id = ?')
+    .get(id) as { state: string; decided_at: string | null } | undefined
   if (!row) throw new Error(`proposal '${id}' not found`)
   return row
 }
@@ -89,7 +91,10 @@ function rowOf(db: Database, id: string): { state: string; decided_at: string | 
 /** The report item for one row, by id — manifest order is covered in the apply suite. */
 function itemFor(report: RollbackReport, proposalId: string): RollbackItemReport {
   const item = report.items.find(i => i.proposal_id === proposalId)
-  if (!item) throw new Error(`no report item for '${proposalId}': ${report.items.map(i => i.proposal_id).join(', ')}`)
+  if (!item)
+    throw new Error(
+      `no report item for '${proposalId}': ${report.items.map(i => i.proposal_id).join(', ')}`
+    )
   return item
 }
 
@@ -112,8 +117,18 @@ interface AcceptedEdge {
  * accept it — the one revertible mutation the queue can still perform.
  */
 function acceptedEdgeRow(db: Database, id: string): AcceptedEdge {
-  const source = seedThought({ id: `${id}-s`, content: `${id} source content`, status: 'active', created_at: NOW })
-  const target = seedThought({ id: `${id}-t`, content: `${id} target content`, status: 'active', created_at: PAST })
+  const source = seedThought({
+    id: `${id}-s`,
+    content: `${id} source content`,
+    status: 'active',
+    created_at: NOW
+  })
+  const target = seedThought({
+    id: `${id}-t`,
+    content: `${id} target content`,
+    status: 'active',
+    created_at: PAST
+  })
   const row = insertProposal(db, {
     project_id: 'default',
     source_thought_id: source,
@@ -127,7 +142,11 @@ function acceptedEdgeRow(db: Database, id: string): AcceptedEdge {
     payload: '{}',
     fingerprint: pairFingerprint(db, source, target)
   })
-  const out = applyProposalService(row.id, { confirm: true, now: NOW, runId: RUN_ID, decidedBy: 'tester' }, db)
+  const out = applyProposalService(
+    row.id,
+    { confirm: true, now: NOW, runId: RUN_ID, decidedBy: 'tester' },
+    db
+  )
   expect(out.status).toBe('accepted')
   assertAccepted(db, row.id)
   return { rowId: row.id, source, target }
@@ -360,7 +379,9 @@ describe('F-14 guard order', () => {
     const pair = acceptedEdgeRow(db, 'f14-order')
     setDecidedAt(db, pair.rowId, ANCIENT)
     // drift the fingerprint as well
-    db.prepare("UPDATE thoughts SET updated_at = '2099-01-01T00:00:00.000Z' WHERE id = ?").run(pair.source)
+    db.prepare("UPDATE thoughts SET updated_at = '2099-01-01T00:00:00.000Z' WHERE id = ?").run(
+      pair.source
+    )
 
     const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
 
@@ -397,8 +418,18 @@ describe('F-14 AC-8: in-window behaviour is unchanged', () => {
 
   test('a removed-kind row is refused with a typed reason, and the window does not shadow it', () => {
     const db = getDb()
-    const source = seedThought({ id: 'f14-8-merge-s', content: 'matrix merge src', status: 'active', created_at: NOW })
-    const target = seedThought({ id: 'f14-8-merge-t', content: 'matrix merge tgt', status: 'active', created_at: PAST })
+    const source = seedThought({
+      id: 'f14-8-merge-s',
+      content: 'matrix merge src',
+      status: 'active',
+      created_at: NOW
+    })
+    const target = seedThought({
+      id: 'f14-8-merge-t',
+      content: 'matrix merge tgt',
+      status: 'active',
+      created_at: PAST
+    })
     // In-window on purpose: the refusal must come from the removed-kind guard, not the window.
     const mergeRowId = 'row-f14-8-merge'
     db.prepare(`

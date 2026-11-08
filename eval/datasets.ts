@@ -10,12 +10,36 @@
 import type { EvalScenario, EvalThought } from './types'
 
 const DISTRACTORS: EvalThought[] = [
-  { id: 'd1', content: 'The marketing crew launched a newsletter campaign for autumn.', distractor: true },
-  { id: 'd2', content: 'Kubernetes cluster autoscaling thresholds were tuned last week.', distractor: true },
-  { id: 'd3', content: 'The office espresso machine needs a replacement water filter.', distractor: true },
-  { id: 'd4', content: 'A rare bird species was observed near the northern lake.', distractor: true },
-  { id: 'd5', content: 'The quarterly budget review is scheduled for Friday afternoon.', distractor: true },
-  { id: 'd6', content: 'Ancient Roman aqueducts used gravity to transport water across valleys.', distractor: true }
+  {
+    id: 'd1',
+    content: 'The marketing crew launched a newsletter campaign for autumn.',
+    distractor: true
+  },
+  {
+    id: 'd2',
+    content: 'Kubernetes cluster autoscaling thresholds were tuned last week.',
+    distractor: true
+  },
+  {
+    id: 'd3',
+    content: 'The office espresso machine needs a replacement water filter.',
+    distractor: true
+  },
+  {
+    id: 'd4',
+    content: 'A rare bird species was observed near the northern lake.',
+    distractor: true
+  },
+  {
+    id: 'd5',
+    content: 'The quarterly budget review is scheduled for Friday afternoon.',
+    distractor: true
+  },
+  {
+    id: 'd6',
+    content: 'Ancient Roman aqueducts used gravity to transport water across valleys.',
+    distractor: true
+  }
 ]
 
 // Relative timestamps keep the recency scenario stable over time: the fresh
@@ -38,7 +62,11 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
     category: 'explicit-fact',
     description: 'A distinctive single fact is retrieved for a direct query.',
     thoughts: [
-      { id: 'port-api', content: 'The production API server listens on port 3005.', projectId: 'infra' },
+      {
+        id: 'port-api',
+        content: 'The production API server listens on port 3005.',
+        projectId: 'infra'
+      },
       { id: 'port-mcp', content: 'The MCP server listens on port 3006.', projectId: 'infra' },
       {
         id: 'db-file',
@@ -60,11 +88,19 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
     thoughts: [
       { id: 'hop-alice', content: 'Alice leads the platform team.', projectId: 'org' },
       { id: 'hop-owner', content: 'The platform team owns the billing service.', projectId: 'org' },
-      { id: 'hop-db', content: 'The billing service uses the PostgreSQL database.', projectId: 'org' },
+      {
+        id: 'hop-db',
+        content: 'The billing service uses the PostgreSQL database.',
+        projectId: 'org'
+      },
       ...DISTRACTORS
     ],
     queries: [
-      { query: 'platform team billing service database', relevant: ['hop-owner', 'hop-db'], topK: 5 },
+      {
+        query: 'platform team billing service database',
+        relevant: ['hop-owner', 'hop-db'],
+        topK: 5
+      },
       { query: 'who leads the platform team', relevant: ['hop-alice'] }
     ]
   },
@@ -173,7 +209,10 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
       { id: 'rq-api', content: 'The HTTP API exposes a thoughts endpoint on port 3005.' },
       { id: 'rq-mcp', content: 'The MCP server exposes memory tools over stdio.' },
       { id: 'rq-db', content: 'Thoughts are stored in SQLite using vector and full-text indexes.' },
-      { id: 'rq-embed', content: 'Embeddings are produced by a local huggingface model in a child process.' },
+      {
+        id: 'rq-embed',
+        content: 'Embeddings are produced by a local huggingface model in a child process.'
+      },
       { id: 'rq-decay', content: 'Importance decays over time and stale thoughts are archived.' },
       ...DISTRACTORS
     ],

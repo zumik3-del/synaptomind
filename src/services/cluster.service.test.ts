@@ -34,7 +34,11 @@ test('createClusterService applies tags', () => {
   const a = seedThought()
   const result = createClusterService({ thoughtIds: [a], tags: ['custom-tag'] })
   const db = getDb()
-  const tags = db.prepare("SELECT tg.name FROM thought_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE tt.thought_id = ?").all(result.cluster.id) as { name: string }[]
+  const tags = db
+    .prepare(
+      'SELECT tg.name FROM thought_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE tt.thought_id = ?'
+    )
+    .all(result.cluster.id) as { name: string }[]
   expect(tags.some(t => t.name === 'custom-tag')).toBeTrue()
   expect(tags.some(t => t.name === 'cluster')).toBeTrue()
 })

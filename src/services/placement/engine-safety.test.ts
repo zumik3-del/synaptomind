@@ -22,10 +22,10 @@ afterEach(closeDb)
 // ── time constants ────────────────────────────────────────────────────────────
 
 const NOW = '2026-01-01T00:00:00.000Z'
-const T0  = '2025-01-01T00:00:00.000Z'
-const T1  = '2025-02-01T00:00:00.000Z'
-const T2  = '2025-03-01T00:00:00.000Z'
-const T3  = '2025-04-01T00:00:00.000Z'
+const T0 = '2025-01-01T00:00:00.000Z'
+const T1 = '2025-02-01T00:00:00.000Z'
+const T2 = '2025-03-01T00:00:00.000Z'
+const T3 = '2025-04-01T00:00:00.000Z'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,9 @@ function okEmbed(): (texts: string[]) => Promise<Float32Array[]> {
 }
 
 function failEmbed(): (texts: string[]) => Promise<Float32Array[]> {
-  return async () => { throw new Error('embedder exploded') }
+  return async () => {
+    throw new Error('embedder exploded')
+  }
 }
 
 /**
@@ -49,12 +51,12 @@ function stubSearch(map: Record<string, Array<{ id: string; similarity: number }
 function fp(db: Database): Record<string, number> {
   const c = (sql: string) => (db.prepare(sql).get() as { n: number }).n
   return {
-    thoughts:        c('SELECT COUNT(*) AS n FROM thoughts'),
-    active:          c("SELECT COUNT(*) AS n FROM thoughts WHERE status='active'"),
-    archived:        c("SELECT COUNT(*) AS n FROM thoughts WHERE status='archived'"),
-    clusterEdges:    c("SELECT COUNT(*) AS n FROM edges WHERE type='cluster'"),
-    edges:           c('SELECT COUNT(*) AS n FROM edges'),
-    clusterThoughts: c('SELECT COUNT(*) AS n FROM thoughts WHERE is_cluster=1'),
+    thoughts: c('SELECT COUNT(*) AS n FROM thoughts'),
+    active: c("SELECT COUNT(*) AS n FROM thoughts WHERE status='active'"),
+    archived: c("SELECT COUNT(*) AS n FROM thoughts WHERE status='archived'"),
+    clusterEdges: c("SELECT COUNT(*) AS n FROM edges WHERE type='cluster'"),
+    edges: c('SELECT COUNT(*) AS n FROM edges'),
+    clusterThoughts: c('SELECT COUNT(*) AS n FROM thoughts WHERE is_cluster=1')
   }
 }
 
@@ -80,17 +82,29 @@ function importedIdentifiers(src: string): string[] {
 // Writers the placement layer must never pull in (ADR §2.4 — propose-only).
 const WRITER_IMPORTS = [
   // edges
-  'createEdge', 'deleteEdge', 'createEdgeService', 'deleteEdgeService', 'createEdgesService',
+  'createEdge',
+  'deleteEdge',
+  'createEdgeService',
+  'deleteEdgeService',
+  'createEdgesService',
   // thoughts / lifecycle
-  'createThought', 'updateThought', 'deleteThought', 'archiveThought',
-  'createThoughtWithParentService', 'createThoughtWithUrlLinksService',
-  'updateThoughtByIdService', 'archiveThoughtByIdService', 'mergeThoughtsService',
+  'createThought',
+  'updateThought',
+  'deleteThought',
+  'archiveThought',
+  'createThoughtWithParentService',
+  'createThoughtWithUrlLinksService',
+  'updateThoughtByIdService',
+  'archiveThoughtByIdService',
+  'mergeThoughtsService',
   // clusters
   'createClusterService',
   // crystallize / supersede surface
   'crystallize',
   // misc writers (unlikely to leak, but part of the guardrail)
-  'deleteEdges', 'insertEmbedding', 'boostImportance',
+  'deleteEdges',
+  'insertEmbedding',
+  'boostImportance'
 ]
 
 // ── no-write guarantee ───────────────────────────────────────────────────────
@@ -119,35 +133,58 @@ describe('no-write guarantee', () => {
     seedThought({ id: 'fw-merge-src', content: 'dup fox', created_at: T3 })
     seedThought({ id: 'fw-merge-tgt', content: 'dup fox jumped', created_at: T0 })
     seedThought({ id: 'fw-re-old', content: 'postgres for storage persists data', created_at: T0 })
-    seedThought({ id: 'fw-re-new', content: 'postgres now for storage persists data', created_at: T1 })
+    seedThought({
+      id: 'fw-re-new',
+      content: 'postgres now for storage persists data',
+      created_at: T1
+    })
     seedEdge('fw-c', 'fw-m', 'cluster')
 
     const before = fp(db)
     // Keep / standalone.
-    await proposePlacementPlan({ thoughtId: 'fw-keep' }, { now: NOW }, { embed: okEmbed(), searchNeighbors: stubSearch({}) }, db)
+    await proposePlacementPlan(
+      { thoughtId: 'fw-keep' },
+      { now: NOW },
+      { embed: okEmbed(), searchNeighbors: stubSearch({}) },
+      db
+    )
     // Degraded keep (embedder throws).
     await proposePlacementPlan({ thoughtId: 'fw-keep' }, { now: NOW }, { embed: failEmbed() }, db)
     // Merge + related edge coexist (merge wins).
     await proposePlacementPlan(
       { thoughtId: 'fw-merge-src' },
       { now: NOW },
-      { embed: okEmbed(), searchNeighbors: stubSearch({ 'fw-merge-src': [{ id: 'fw-merge-tgt', similarity: 0.9 }] }) },
+      {
+        embed: okEmbed(),
+        searchNeighbors: stubSearch({ 'fw-merge-src': [{ id: 'fw-merge-tgt', similarity: 0.9 }] })
+      },
       db
     )
     // Replaces+archive (supersede + active target).
     await proposePlacementPlan(
       { thoughtId: 'fw-re-new' },
       { now: NOW },
-      { embed: okEmbed(), searchNeighbors: stubSearch({ 'fw-re-new': [{ id: 'fw-re-old', similarity: 0.9 }] }) },
+      {
+        embed: okEmbed(),
+        searchNeighbors: stubSearch({ 'fw-re-new': [{ id: 'fw-re-old', similarity: 0.9 }] })
+      },
       db
     )
     // Draft path.
-    await proposePlacementPlan({ content: 'some draft content', projectId: 'default' }, { now: NOW }, { embed: okEmbed(), searchNeighbors: stubSearch({}) }, db)
+    await proposePlacementPlan(
+      { content: 'some draft content', projectId: 'default' },
+      { now: NOW },
+      { embed: okEmbed(), searchNeighbors: stubSearch({}) },
+      db
+    )
     // Cluster placement.
     await proposePlacementPlan(
       { thoughtId: 'fw-m' },
       { now: NOW },
-      { embed: okEmbed(), searchNeighbors: stubSearch({ 'fw-m': [{ id: 'fw-keep', similarity: 0.9 }] }) },
+      {
+        embed: okEmbed(),
+        searchNeighbors: stubSearch({ 'fw-m': [{ id: 'fw-keep', similarity: 0.9 }] })
+      },
       db
     )
     const after = fp(db)

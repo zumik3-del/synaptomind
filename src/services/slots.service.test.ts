@@ -40,7 +40,11 @@ test('getSlots treats an unknown name as no slot (persona is not a slot anymore)
 test('getSlots architecture_decisions content from primers', () => {
   const id = seedThought({ content: 'use SQLite for local storage' })
   const db = getDb()
-  db.prepare('INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)').run(id, 5, new Date().toISOString())
+  db.prepare('INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)').run(
+    id,
+    5,
+    new Date().toISOString()
+  )
   const slots = getSlots({ names: ['architecture_decisions'] })
   expect(slots[0].content).toContain('use SQLite for local storage')
 })
@@ -54,7 +58,9 @@ test('getSlots architecture_decisions renders only the topN primers', () => {
     const top = seedThought({ content: 'top hit decision' })
     const middle = seedThought({ content: 'middle hit decision' })
     const low = seedThought({ content: 'low hit decision' })
-    const insert = db.prepare('INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)')
+    const insert = db.prepare(
+      'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
+    )
     insert.run(top, 30, now)
     insert.run(middle, 20, now)
     insert.run(low, 10, now)
@@ -87,7 +93,9 @@ test('getSlots architecture_decisions renders ONE bullet when the configured top
     const top = seedThought({ content: 'top hit decision' })
     const middle = seedThought({ content: 'middle hit decision' })
     const low = seedThought({ content: 'low hit decision' })
-    const insert = db.prepare('INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)')
+    const insert = db.prepare(
+      'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
+    )
     insert.run(top, 30, now)
     insert.run(middle, 20, now)
     insert.run(low, 10, now)
@@ -111,7 +119,9 @@ test('getSlots architecture_decisions renders ONE bullet when the configured top
     const now = new Date().toISOString()
     const top = seedThought({ content: 'top hit decision' })
     const low = seedThought({ content: 'low hit decision' })
-    const insert = db.prepare('INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)')
+    const insert = db.prepare(
+      'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
+    )
     insert.run(top, 30, now)
     insert.run(low, 10, now)
 
@@ -134,8 +144,16 @@ test('getSlots architecture_decisions renders the default 3 bullets when the con
   try {
     const db = getDb()
     const now = new Date().toISOString()
-    const insert = db.prepare('INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)')
-    for (const [content, hits] of [['one', 50], ['two', 40], ['three', 30], ['four', 20], ['five', 10]] as const) {
+    const insert = db.prepare(
+      'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
+    )
+    for (const [content, hits] of [
+      ['one', 50],
+      ['two', 40],
+      ['three', 30],
+      ['four', 20],
+      ['five', 10]
+    ] as const) {
       insert.run(seedThought({ content }), hits, now)
     }
 

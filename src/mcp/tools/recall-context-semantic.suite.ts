@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer as SdkMcpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer as SdkMcpServer } from '@modelcontextprotocol/server'
 import { getDb } from '../../db/container'
 import { closeDb, initDb } from '../../db/init'
 import { drainPendingEmbeddings, isVecExtensionAvailable, seedThought } from '../../test/helpers'
@@ -33,7 +33,11 @@ async function setupClient() {
 function parseResult(r: unknown) {
   const rr = r as { content: Array<{ text: string }>; isError?: boolean }
   const text = rr.content?.[0]?.text ?? '{}'
-  try { return { data: JSON.parse(text), isError: rr.isError === true } } catch { return { data: text, isError: rr.isError === true } }
+  try {
+    return { data: JSON.parse(text), isError: rr.isError === true }
+  } catch {
+    return { data: text, isError: rr.isError === true }
+  }
 }
 
 beforeEach(async () => {
@@ -54,7 +58,10 @@ describe('recall context semantic', () => {
     const buf = Buffer.from(VECTOR.buffer, VECTOR.byteOffset, VECTOR.byteLength)
     db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(id, buf)
 
-    const r = await client.callTool({ name: 'memory_recall', arguments: { action: 'context', query: 'zzzznomatchtoken', compact: false } })
+    const r = await client.callTool({
+      name: 'memory_recall',
+      arguments: { action: 'context', query: 'zzzznomatchtoken', compact: false }
+    })
     const { data, isError } = parseResult(r)
     expect(isError).toBe(false)
     expect(data.item.thought.id).toBe(id)

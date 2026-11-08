@@ -85,7 +85,12 @@ export interface RefusedApplyResult extends ApplyResultBase {
   refusal: RunRefusal
 }
 
-export type ApplyResult = DryRunApplyResult | AcceptedApplyResult | StaleApplyResult | FailedApplyResult | RefusedApplyResult
+export type ApplyResult =
+  | DryRunApplyResult
+  | AcceptedApplyResult
+  | StaleApplyResult
+  | FailedApplyResult
+  | RefusedApplyResult
 
 export interface ApplyBatchOutcome {
   results: ApplyResult[]

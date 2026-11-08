@@ -29,5 +29,6 @@ export function validateActionFields(
 ): void {
   const allowed = new Set(fields[action] ?? [])
   const irrelevant = Object.keys(args).filter(key => all.has(key) && !allowed.has(key))
-  if (irrelevant.length) throw new Error(`${irrelevant.join(', ')} is not applicable to ${action} action`)
+  if (irrelevant.length)
+    throw new Error(`${irrelevant.join(', ')} is not applicable to ${action} action`)
 }

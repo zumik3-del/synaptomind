@@ -1,11 +1,11 @@
-import { Database } from "bun:sqlite";
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { config } from "../config";
-import { getDb, setDb } from "../db/container";
-import { closeDb, initDb } from "../db/init";
-import { vec0Path } from "../runtime-mode";
+import { Database } from 'bun:sqlite'
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { config } from '../config'
+import { getDb, setDb } from '../db/container'
+import { closeDb, initDb } from '../db/init'
+import { vec0Path } from '../runtime-mode'
 
 /**
  * A migrated `:memory:` image, serialized once per test process.
@@ -18,33 +18,33 @@ import { vec0Path } from "../runtime-mode";
  * The image is invalidated when `config.embedder.dimensions` changes, because
  * the `vec_thoughts` DDL is rendered with it (same guard as `withVecDb`).
  */
-let memoryImage: Uint8Array | null = null;
-let memoryImageDimensions: number | null = null;
+let memoryImage: Uint8Array | null = null
+let memoryImageDimensions: number | null = null
 
 /** `Database.deserialize` landed after some Bun releases; keep the old path as a fallback. */
 const deserialize = (
-	Database as unknown as {
-		deserialize?: (serialized: Uint8Array) => Database;
-	}
-).deserialize;
+  Database as unknown as {
+    deserialize?: (serialized: Uint8Array) => Database
+  }
+).deserialize
 
 function buildMemoryImage(): Uint8Array {
-	initDb({ dbPath: ":memory:", runMigrations: true });
-	// Copy: the source view dies with the template connection below.
-	const image = new Uint8Array(getDb().serialize());
-	closeDb();
-	return image;
+  initDb({ dbPath: ':memory:', runMigrations: true })
+  // Copy: the source view dies with the template connection below.
+  const image = new Uint8Array(getDb().serialize())
+  closeDb()
+  return image
 }
 
 function memoryTemplate(): Uint8Array {
-	const dimensions = config.embedder.dimensions;
-	if (memoryImage !== null && memoryImageDimensions === dimensions) {
-		return memoryImage;
-	}
-	closeDb();
-	memoryImage = buildMemoryImage();
-	memoryImageDimensions = dimensions;
-	return memoryImage;
+  const dimensions = config.embedder.dimensions
+  if (memoryImage !== null && memoryImageDimensions === dimensions) {
+    return memoryImage
+  }
+  closeDb()
+  memoryImage = buildMemoryImage()
+  memoryImageDimensions = dimensions
+  return memoryImage
 }
 
 /**
@@ -55,18 +55,18 @@ function memoryTemplate(): Uint8Array {
  * `Database.deserialize`.
  */
 export function createTestDb(): void {
-	closeDb();
-	if (deserialize === undefined) {
-		initDb({ dbPath: ":memory:", runMigrations: true });
-		return;
-	}
-	const db = deserialize(memoryTemplate());
-	const busyTimeout = Number.isFinite(config.db.busyTimeout)
-		? Math.max(0, Math.floor(config.db.busyTimeout))
-		: 5000;
-	db.run(`PRAGMA busy_timeout = ${busyTimeout}`);
-	db.run("PRAGMA foreign_keys = ON");
-	setDb(db);
+  closeDb()
+  if (deserialize === undefined) {
+    initDb({ dbPath: ':memory:', runMigrations: true })
+    return
+  }
+  const db = deserialize(memoryTemplate())
+  const busyTimeout = Number.isFinite(config.db.busyTimeout)
+    ? Math.max(0, Math.floor(config.db.busyTimeout))
+    : 5000
+  db.run(`PRAGMA busy_timeout = ${busyTimeout}`)
+  db.run('PRAGMA foreign_keys = ON')
+  setDb(db)
 }
 
 /**
@@ -80,17 +80,17 @@ export function createTestDb(): void {
  * onto a path production no longer loads.
  */
 export function isVecExtensionAvailable(): boolean {
-	try {
-		const probe = new Database(":memory:");
-		try {
-			probe.loadExtension(vec0Path());
-		} finally {
-			probe.close();
-		}
-		return true;
-	} catch {
-		return false;
-	}
+  try {
+    const probe = new Database(':memory:')
+    try {
+      probe.loadExtension(vec0Path())
+    } finally {
+      probe.close()
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -103,8 +103,8 @@ export function isVecExtensionAvailable(): boolean {
  * (task #1569, R1 freshness), which is what the R1 regression test pins.
  */
 export function drainPendingEmbeddings(ids: string[]): void {
-	const stmt = getDb().prepare("DELETE FROM pending_embeddings WHERE thought_id = ?");
-	for (const id of ids) stmt.run(id);
+  const stmt = getDb().prepare('DELETE FROM pending_embeddings WHERE thought_id = ?')
+  for (const id of ids) stmt.run(id)
 }
 
 /**
@@ -120,41 +120,41 @@ export function drainPendingEmbeddings(ids: string[]): void {
  * cases; the copy is verified equivalent to a fresh migration (identical schema,
  * identical seeded rows — 24 tables, 0 differences).
  */
-let vecDbTemplateRoot: string | null = null;
-let vecDbTemplatePath: string | null = null;
-let vecDbTemplateDimensions: number | null = null;
+let vecDbTemplateRoot: string | null = null
+let vecDbTemplatePath: string | null = null
+let vecDbTemplateDimensions: number | null = null
 
 function vecDbTemplate(): string {
-	const dimensions = config.embedder.dimensions;
-	if (vecDbTemplatePath !== null && vecDbTemplateDimensions === dimensions) {
-		return vecDbTemplatePath;
-	}
-	// A dimensions change rebuilds `vec_thoughts`, so the cached image is stale.
-	if (vecDbTemplateRoot !== null) {
-		rmSync(vecDbTemplateRoot, { recursive: true, force: true });
-	}
-	vecDbTemplateRoot = null;
-	vecDbTemplatePath = null;
-	vecDbTemplateDimensions = null;
+  const dimensions = config.embedder.dimensions
+  if (vecDbTemplatePath !== null && vecDbTemplateDimensions === dimensions) {
+    return vecDbTemplatePath
+  }
+  // A dimensions change rebuilds `vec_thoughts`, so the cached image is stale.
+  if (vecDbTemplateRoot !== null) {
+    rmSync(vecDbTemplateRoot, { recursive: true, force: true })
+  }
+  vecDbTemplateRoot = null
+  vecDbTemplatePath = null
+  vecDbTemplateDimensions = null
 
-	const root = mkdtempSync(join(tmpdir(), "synaptomind-vec-template-"));
-	const template = join(root, "template.db");
-	try {
-		initDb({ dbPath: template, runMigrations: true });
-		// Checkpoints the WAL away, so the single file is a self-contained image.
-		closeDb();
-	} catch (err) {
-		closeDb();
-		rmSync(root, { recursive: true, force: true });
-		throw err;
-	}
-	vecDbTemplateRoot = root;
-	vecDbTemplatePath = template;
-	vecDbTemplateDimensions = dimensions;
-	process.once("exit", () => {
-		rmSync(root, { recursive: true, force: true });
-	});
-	return template;
+  const root = mkdtempSync(join(tmpdir(), 'synaptomind-vec-template-'))
+  const template = join(root, 'template.db')
+  try {
+    initDb({ dbPath: template, runMigrations: true })
+    // Checkpoints the WAL away, so the single file is a self-contained image.
+    closeDb()
+  } catch (err) {
+    closeDb()
+    rmSync(root, { recursive: true, force: true })
+    throw err
+  }
+  vecDbTemplateRoot = root
+  vecDbTemplatePath = template
+  vecDbTemplateDimensions = dimensions
+  process.once('exit', () => {
+    rmSync(root, { recursive: true, force: true })
+  })
+  return template
 }
 
 /**
@@ -165,119 +165,114 @@ function vecDbTemplate(): string {
  * The DB is a byte copy of `vecDbTemplate()`, not a fresh migration run: same
  * schema and same initial rows at a fraction of the cost.
  */
-export async function withVecDb<T>(
-	fn: (db: Database) => T | Promise<T>,
-): Promise<T> {
-	const dir = mkdtempSync(join(tmpdir(), "synaptomind-vec-"));
-	const dbPath = join(dir, "test.db");
-	try {
-		copyFileSync(vecDbTemplate(), dbPath);
-		initDb({ dbPath, runMigrations: true });
-		return await fn(getDb());
-	} finally {
-		closeDb();
-		rmSync(dir, { recursive: true, force: true });
-	}
+export async function withVecDb<T>(fn: (db: Database) => T | Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), 'synaptomind-vec-'))
+  const dbPath = join(dir, 'test.db')
+  try {
+    copyFileSync(vecDbTemplate(), dbPath)
+    initDb({ dbPath, runMigrations: true })
+    return await fn(getDb())
+  } finally {
+    closeDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 export function seedThought(overrides?: {
-	id?: string;
-	content?: string;
-	status?: string;
-	tags?: string | null;
-	source?: string | null;
-	project_id?: string;
-	is_cluster?: number | null;
-	is_protected?: number | null;
-	is_global?: number | null;
-	importance?: number;
-	/** Fixed ISO-8601 `created_at` for deterministic recency tests. */
-	created_at?: string;
-	/** Pending surfacing delay; NULL/omitted means immediately eligible. */
-	surface_after?: string | null;
+  id?: string
+  content?: string
+  status?: string
+  tags?: string | null
+  source?: string | null
+  project_id?: string
+  is_cluster?: number | null
+  is_protected?: number | null
+  is_global?: number | null
+  importance?: number
+  /** Fixed ISO-8601 `created_at` for deterministic recency tests. */
+  created_at?: string
+  /** Pending surfacing delay; NULL/omitted means immediately eligible. */
+  surface_after?: string | null
 }): string {
-	const db = getDb();
-	const id = overrides?.id ?? Bun.randomUUIDv7();
-	const now = overrides?.created_at ?? new Date().toISOString();
-	const projectId = overrides?.project_id ?? "default";
-	const isCluster = overrides?.is_cluster ?? 0;
-	// Ensure project exists
-	db.prepare(
-		`INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, ?, ?)`,
-	).run(
-		projectId,
-		projectId === "default" ? "Default" : `Project ${projectId.slice(0, 8)}`,
-		new Date().toISOString(),
-	);
-	db.prepare(`
+  const db = getDb()
+  const id = overrides?.id ?? Bun.randomUUIDv7()
+  const now = overrides?.created_at ?? new Date().toISOString()
+  const projectId = overrides?.project_id ?? 'default'
+  const isCluster = overrides?.is_cluster ?? 0
+  // Ensure project exists
+  db.prepare(`INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, ?, ?)`).run(
+    projectId,
+    projectId === 'default' ? 'Default' : `Project ${projectId.slice(0, 8)}`,
+    new Date().toISOString()
+  )
+  db.prepare(`
     INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_protected, is_global, created_at, updated_at, surface_after)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-		id,
-		overrides?.content ?? "test thought",
-		overrides?.status ?? "active",
-		overrides?.source ?? "test",
-		projectId,
-		isCluster,
-		overrides?.is_protected ?? 1,
-		overrides?.is_global ?? 0,
-		now,
-		now,
-		overrides?.surface_after ?? null,
-	);
-	const existing = db
-		.prepare(`SELECT 1 FROM thought_importance WHERE thought_id = ?`)
-		.get(id) as { 1: unknown } | undefined;
-	if (!existing) {
-		db.prepare(`
+    id,
+    overrides?.content ?? 'test thought',
+    overrides?.status ?? 'active',
+    overrides?.source ?? 'test',
+    projectId,
+    isCluster,
+    overrides?.is_protected ?? 1,
+    overrides?.is_global ?? 0,
+    now,
+    now,
+    overrides?.surface_after ?? null
+  )
+  const existing = db.prepare(`SELECT 1 FROM thought_importance WHERE thought_id = ?`).get(id) as
+    | { 1: unknown }
+    | undefined
+  if (!existing) {
+    db.prepare(`
       INSERT INTO thought_importance (thought_id, importance, hit_count, last_decay, created_at)
       VALUES (?, ?, 0, ?, ?)
-    `).run(id, overrides?.importance ?? 1.0, now, now);
-	}
-	// Seed tags if provided (JSON string or array)
-	const tagsRaw = overrides?.tags;
-	if (tagsRaw) {
-		try {
-			const tagNames = Array.isArray(tagsRaw) ? tagsRaw : JSON.parse(tagsRaw);
-			if (Array.isArray(tagNames)) {
-				for (const name of tagNames) {
-					const existingTag = db
-						.prepare(`SELECT id FROM tags WHERE name = ? COLLATE NOCASE`)
-						.get(name) as { id: string } | undefined;
-					let tagId: string;
-					if (existingTag) {
-						tagId = existingTag.id;
-					} else {
-						tagId = Bun.randomUUIDv7();
-						db.prepare(
-							`INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)`,
-						).run(tagId, name, now);
-					}
-					db.prepare(
-						`INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)`,
-					).run(id, tagId);
-				}
-			}
-		} catch {
-			// ignore malformed JSON
-		}
-	}
-	return id;
+    `).run(id, overrides?.importance ?? 1.0, now, now)
+  }
+  // Seed tags if provided (JSON string or array)
+  const tagsRaw = overrides?.tags
+  if (tagsRaw) {
+    try {
+      const tagNames = Array.isArray(tagsRaw) ? tagsRaw : JSON.parse(tagsRaw)
+      if (Array.isArray(tagNames)) {
+        for (const name of tagNames) {
+          const existingTag = db
+            .prepare(`SELECT id FROM tags WHERE name = ? COLLATE NOCASE`)
+            .get(name) as { id: string } | undefined
+          let tagId: string
+          if (existingTag) {
+            tagId = existingTag.id
+          } else {
+            tagId = Bun.randomUUIDv7()
+            db.prepare(`INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)`).run(
+              tagId,
+              name,
+              now
+            )
+          }
+          db.prepare(`INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)`).run(
+            id,
+            tagId
+          )
+        }
+      }
+    } catch {
+      // ignore malformed JSON
+    }
+  }
+  return id
 }
 
-export function seedEdge(
-	sourceId: string,
-	targetId: string,
-	type: string = "develops",
-): string {
-	const db = getDb();
-	const id = Bun.randomUUIDv7();
-	const now = new Date().toISOString();
-	db.prepare(`
+export function seedEdge(sourceId: string, targetId: string, type: string = 'develops'): string {
+  const db = getDb()
+  const id = Bun.randomUUIDv7()
+  const now = new Date().toISOString()
+  db.prepare(`
     INSERT INTO edges (id, source_id, target_id, type, created_at)
     VALUES (?, ?, ?, ?, ?)
-  `).run(id, sourceId, targetId, type, now);
-	return id;
+  `).run(id, sourceId, targetId, type, now)
+  return id
 }
 
 /**
@@ -295,51 +290,47 @@ export function seedEdge(
  * later calls only insert.
  */
 export function seedLegacyPairEdge(
-	sourceId: string,
-	targetId: string,
-	type: string = "related",
+  sourceId: string,
+  targetId: string,
+  type: string = 'related'
 ): string {
-	const db = getDb();
-	const pairIndex = db
-		.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_edges_pair'`)
-		.get();
-	if (pairIndex) {
-		const otherIndexes = db
-			.prepare(
-				`SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'edges' AND name <> 'idx_edges_pair' AND sql IS NOT NULL`,
-			)
-			.all() as { sql: string }[];
-		db.run(`CREATE TABLE edges_legacy (
+  const db = getDb()
+  const pairIndex = db
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_edges_pair'`)
+    .get()
+  if (pairIndex) {
+    const otherIndexes = db
+      .prepare(
+        `SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'edges' AND name <> 'idx_edges_pair' AND sql IS NOT NULL`
+      )
+      .all() as { sql: string }[]
+    db.run(`CREATE TABLE edges_legacy (
       id         TEXT PRIMARY KEY,
       source_id  TEXT NOT NULL REFERENCES thoughts(id) ON DELETE CASCADE,
       target_id  TEXT NOT NULL REFERENCES thoughts(id) ON DELETE CASCADE,
       type       TEXT NOT NULL DEFAULT 'related',
       created_at TEXT NOT NULL
-    )`);
-		db.run(
-			`INSERT INTO edges_legacy (id, source_id, target_id, type, created_at)
-       SELECT id, source_id, target_id, type, created_at FROM edges`,
-		);
-		db.run(`DROP TABLE edges`);
-		db.run(`ALTER TABLE edges_legacy RENAME TO edges`);
-		for (const index of otherIndexes) db.run(index.sql);
-	}
-	return seedEdge(sourceId, targetId, type);
+    )`)
+    db.run(
+      `INSERT INTO edges_legacy (id, source_id, target_id, type, created_at)
+       SELECT id, source_id, target_id, type, created_at FROM edges`
+    )
+    db.run(`DROP TABLE edges`)
+    db.run(`ALTER TABLE edges_legacy RENAME TO edges`)
+    for (const index of otherIndexes) db.run(index.sql)
+  }
+  return seedEdge(sourceId, targetId, type)
 }
 
 export function seedEmbedding(thoughtId: string): void {
-	const db = getDb();
-	const embedding = new Float32Array(384);
-	try {
-		db.prepare("INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)").run(
-			thoughtId,
-			Buffer.from(
-				embedding.buffer as ArrayBuffer,
-				embedding.byteOffset,
-				embedding.byteLength,
-			),
-		);
-	} catch {
-		// vec_thoughts may not exist in :memory: tests without vec0
-	}
+  const db = getDb()
+  const embedding = new Float32Array(384)
+  try {
+    db.prepare('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)').run(
+      thoughtId,
+      Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength)
+    )
+  } catch {
+    // vec_thoughts may not exist in :memory: tests without vec0
+  }
 }

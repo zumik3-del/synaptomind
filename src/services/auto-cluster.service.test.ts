@@ -4,7 +4,12 @@ import { closeDb } from '../db/init'
 import * as searchDb from '../db/search'
 import * as vectorSearchDb from '../db/search-vector'
 import { config, DEFAULTS } from '../config'
-import { findComponents, generateClusterTitle, groupCandidates, runAutoClusterJob } from './auto-cluster.service'
+import {
+  findComponents,
+  generateClusterTitle,
+  groupCandidates,
+  runAutoClusterJob
+} from './auto-cluster.service'
 import type { AutoClusterOptions } from './auto-cluster.service'
 import type { ClusterCandidate } from '../db/thoughts'
 import { getDb } from '../db/container'
@@ -30,7 +35,13 @@ test('generateClusterTitle handles single-word content', () => {
 // ── findComponents ───────────────────────────────────────────────────────────
 
 test('findComponents groups connected nodes', () => {
-  const components = findComponents([['a', 'b'], ['b', 'c']], ['a', 'b', 'c', 'd'])
+  const components = findComponents(
+    [
+      ['a', 'b'],
+      ['b', 'c']
+    ],
+    ['a', 'b', 'c', 'd']
+  )
   expect(components).toHaveLength(2)
   const groupWithD = components.find(g => g.includes('d'))
   expect(groupWithD).toEqual(['d'])
@@ -44,7 +55,14 @@ test('findComponents handles no pairs', () => {
 })
 
 test('findComponents handles all connected', () => {
-  const components = findComponents([['a', 'b'], ['b', 'c'], ['c', 'd']], ['a', 'b', 'c', 'd'])
+  const components = findComponents(
+    [
+      ['a', 'b'],
+      ['b', 'c'],
+      ['c', 'd']
+    ],
+    ['a', 'b', 'c', 'd']
+  )
   expect(components).toHaveLength(1)
   expect(components[0].sort()).toEqual(['a', 'b', 'c', 'd'])
 })
@@ -53,9 +71,33 @@ test('findComponents handles all connected', () => {
 
 test('groupCandidates groups by neighbor function', () => {
   const candidates: ClusterCandidate[] = [
-    { id: '1', content: 'a', status: 'active', created_at: '2025-01-01', tags: [], source: null, project_id: 'default' },
-    { id: '2', content: 'b', status: 'active', created_at: '2025-01-02', tags: [], source: null, project_id: 'default' },
-    { id: '3', content: 'c', status: 'active', created_at: '2025-01-03', tags: [], source: null, project_id: 'default' }
+    {
+      id: '1',
+      content: 'a',
+      status: 'active',
+      created_at: '2025-01-01',
+      tags: [],
+      source: null,
+      project_id: 'default'
+    },
+    {
+      id: '2',
+      content: 'b',
+      status: 'active',
+      created_at: '2025-01-02',
+      tags: [],
+      source: null,
+      project_id: 'default'
+    },
+    {
+      id: '3',
+      content: 'c',
+      status: 'active',
+      created_at: '2025-01-03',
+      tags: [],
+      source: null,
+      project_id: 'default'
+    }
   ]
   const neighborFn = (id: string): string[] => {
     if (id === '1') return ['2']
@@ -70,8 +112,24 @@ test('groupCandidates groups by neighbor function', () => {
 
 test('groupCandidates filters groups smaller than minMembers', () => {
   const candidates: ClusterCandidate[] = [
-    { id: '1', content: 'a', status: 'active', created_at: '2025-01-01', tags: [], source: null, project_id: 'default' },
-    { id: '2', content: 'b', status: 'active', created_at: '2025-01-02', tags: [], source: null, project_id: 'default' }
+    {
+      id: '1',
+      content: 'a',
+      status: 'active',
+      created_at: '2025-01-01',
+      tags: [],
+      source: null,
+      project_id: 'default'
+    },
+    {
+      id: '2',
+      content: 'b',
+      status: 'active',
+      created_at: '2025-01-02',
+      tags: [],
+      source: null,
+      project_id: 'default'
+    }
   ]
   const groups = groupCandidates(candidates, () => [], 3)
   expect(groups).toHaveLength(0)
@@ -108,7 +166,10 @@ test('runAutoClusterJob requires an explicit dryRun', () => {
 /** `_meta` keys shaped like the removed job replay (`<job>_run` / `<job>_result`). */
 function jobReplayKeys(): string[] {
   const rows = getDb().prepare(`SELECT key FROM _meta`).all() as { key: string }[]
-  return rows.map(row => row.key).filter(key => key.endsWith('_run') || key.endsWith('_result')).sort()
+  return rows
+    .map(row => row.key)
+    .filter(key => key.endsWith('_run') || key.endsWith('_result'))
+    .sort()
 }
 
 test('runAutoClusterJob writes no _meta job-run/result keys', async () => {
@@ -117,7 +178,10 @@ test('runAutoClusterJob writes no _meta job-run/result keys', async () => {
   // Positive control on the detector: the exact keys the deleted `recordJobRun`
   // wrote are recognised, so an empty answer below is evidence, not a dead query.
   for (const key of ['last_auto_cluster_run', 'last_auto_cluster_result']) {
-    db.prepare(`INSERT INTO _meta (key, value) VALUES (?, ?)`).run(key, key === 'last_auto_cluster_run' ? new Date().toISOString() : '{}')
+    db.prepare(`INSERT INTO _meta (key, value) VALUES (?, ?)`).run(
+      key,
+      key === 'last_auto_cluster_run' ? new Date().toISOString() : '{}'
+    )
   }
   expect(jobReplayKeys()).toEqual(['last_auto_cluster_result', 'last_auto_cluster_run'])
   db.prepare(`DELETE FROM _meta WHERE key LIKE 'last_auto_cluster%'`).run()
@@ -140,7 +204,13 @@ test('runAutoClusterJob writes no _meta job-run/result keys', async () => {
   )
   expect(applied.dry_run).toBe(false)
   expect(applied.clusters_created).toBe(1)
-  expect(db.prepare(`SELECT COUNT(*) AS cnt FROM thoughts WHERE is_cluster = 1 AND source = 'auto_cluster'`).get()).toEqual({ cnt: 1 })
+  expect(
+    db
+      .prepare(
+        `SELECT COUNT(*) AS cnt FROM thoughts WHERE is_cluster = 1 AND source = 'auto_cluster'`
+      )
+      .get()
+  ).toEqual({ cnt: 1 })
 
   expect(jobReplayKeys()).toEqual([])
 })
@@ -153,15 +223,20 @@ test('runAutoClusterJob writes no _meta job-run/result keys', async () => {
  */
 function seedFourThoughts(): string[] {
   const past = new Date(Date.now() - 10 * 86400000).toISOString()
-  return ['A', 'B', 'C', 'D'].map(tag => seedThought({ content: `thought ${tag}`, created_at: past }))
+  return ['A', 'B', 'C', 'D'].map(tag =>
+    seedThought({ content: `thought ${tag}`, created_at: past })
+  )
 }
 
 test('runAutoClusterJob: minSimilarity 0.3 groups A-B only (distances 0.25/0.5/0.6, minMembers=2)', async () => {
   const ids = seedFourThoughts()
   const dist: Record<string, number> = {
-    [`${ids[0]}|${ids[1]}`]: 0.25, [`${ids[1]}|${ids[0]}`]: 0.25,
-    [`${ids[1]}|${ids[2]}`]: 0.5,  [`${ids[2]}|${ids[1]}`]: 0.5,
-    [`${ids[2]}|${ids[3]}`]: 0.6,  [`${ids[3]}|${ids[2]}`]: 0.6
+    [`${ids[0]}|${ids[1]}`]: 0.25,
+    [`${ids[1]}|${ids[0]}`]: 0.25,
+    [`${ids[1]}|${ids[2]}`]: 0.5,
+    [`${ids[2]}|${ids[1]}`]: 0.5,
+    [`${ids[2]}|${ids[3]}`]: 0.6,
+    [`${ids[3]}|${ids[2]}`]: 0.6
   }
   const deps = {
     embed: async (_texts: string[]) => _texts.map(() => new Float32Array(384)),
@@ -180,9 +255,12 @@ test('runAutoClusterJob: minSimilarity 0.3 groups A-B only (distances 0.25/0.5/0
 test('runAutoClusterJob: minSimilarity 0.68 groups all four (distances 0.25/0.5/0.6, minMembers=2)', async () => {
   const ids = seedFourThoughts()
   const dist: Record<string, number> = {
-    [`${ids[0]}|${ids[1]}`]: 0.25, [`${ids[1]}|${ids[0]}`]: 0.25,
-    [`${ids[1]}|${ids[2]}`]: 0.5,  [`${ids[2]}|${ids[1]}`]: 0.5,
-    [`${ids[2]}|${ids[3]}`]: 0.6,  [`${ids[3]}|${ids[2]}`]: 0.6
+    [`${ids[0]}|${ids[1]}`]: 0.25,
+    [`${ids[1]}|${ids[0]}`]: 0.25,
+    [`${ids[1]}|${ids[2]}`]: 0.5,
+    [`${ids[2]}|${ids[1]}`]: 0.5,
+    [`${ids[2]}|${ids[3]}`]: 0.6,
+    [`${ids[3]}|${ids[2]}`]: 0.6
   }
   const deps = {
     embed: async (_texts: string[]) => _texts.map(() => new Float32Array(384)),
@@ -201,9 +279,12 @@ test('runAutoClusterJob: minSimilarity 0.68 groups all four (distances 0.25/0.5/
 test('runAutoClusterJob: omitted minSimilarity falls back to config default (recalibrated 0.09)', async () => {
   const ids = seedFourThoughts()
   const dist: Record<string, number> = {
-    [`${ids[0]}|${ids[1]}`]: 0.05, [`${ids[1]}|${ids[0]}`]: 0.05,
-    [`${ids[1]}|${ids[2]}`]: 0.5,  [`${ids[2]}|${ids[1]}`]: 0.5,
-    [`${ids[2]}|${ids[3]}`]: 0.6,  [`${ids[3]}|${ids[2]}`]: 0.6
+    [`${ids[0]}|${ids[1]}`]: 0.05,
+    [`${ids[1]}|${ids[0]}`]: 0.05,
+    [`${ids[1]}|${ids[2]}`]: 0.5,
+    [`${ids[2]}|${ids[1]}`]: 0.5,
+    [`${ids[2]}|${ids[3]}`]: 0.6,
+    [`${ids[3]}|${ids[2]}`]: 0.6
   }
   const deps = {
     embed: async (_texts: string[]) => _texts.map(() => new Float32Array(384)),
@@ -211,10 +292,7 @@ test('runAutoClusterJob: omitted minSimilarity falls back to config default (rec
       ids.filter(x => x !== id).map(x => ({ id: x, distance: dist[`${id}|${x}`] ?? 0.9 }))
   }
   // minSimilarity omitted — should use config.autoCluster.minSimilarity (= DEFAULTS.autoCluster.minSimilarity after recalibration)
-  const result = await runAutoClusterJob(
-    { minAgeDays: 0, minMembers: 2, dryRun: true },
-    deps
-  )
+  const result = await runAutoClusterJob({ minAgeDays: 0, minMembers: 2, dryRun: true }, deps)
   expect(result.groups).toHaveLength(1)
   expect(result.groups[0].members.length).toBe(2)
   expect(result.groups[0].members).toEqual(expect.arrayContaining([ids[0], ids[1]]))
@@ -226,9 +304,12 @@ test('runAutoClusterJob: explicit minSimilarity overrides config default after r
   // proving the explicit option still wins over the recalibrated default.
   const ids = seedFourThoughts()
   const dist: Record<string, number> = {
-    [`${ids[0]}|${ids[1]}`]: 0.25, [`${ids[1]}|${ids[0]}`]: 0.25,
-    [`${ids[1]}|${ids[2]}`]: 0.5,  [`${ids[2]}|${ids[1]}`]: 0.5,
-    [`${ids[2]}|${ids[3]}`]: 0.6,  [`${ids[3]}|${ids[2]}`]: 0.6
+    [`${ids[0]}|${ids[1]}`]: 0.25,
+    [`${ids[1]}|${ids[0]}`]: 0.25,
+    [`${ids[1]}|${ids[2]}`]: 0.5,
+    [`${ids[2]}|${ids[1]}`]: 0.5,
+    [`${ids[2]}|${ids[3]}`]: 0.6,
+    [`${ids[3]}|${ids[2]}`]: 0.6
   }
   const deps = {
     embed: async (_texts: string[]) => _texts.map(() => new Float32Array(384)),
@@ -296,7 +377,9 @@ function seedClusterCandidates(count: number, past: string): string[] {
 test('runAutoClusterJob: makes 0 embedder calls when every candidate has a stored vector', async () => {
   await withVecDb(async () => {
     const past = new Date(Date.now() - 10 * 86400000).toISOString()
-    const ids = ['A', 'B', 'C'].map(tag => seedThought({ content: `thought ${tag}`, created_at: past }))
+    const ids = ['A', 'B', 'C'].map(tag =>
+      seedThought({ content: `thought ${tag}`, created_at: past })
+    )
     const vector = new Float32Array(384)
     vector[0] = 1
     for (const id of ids) storeVec(id, vector)
@@ -322,7 +405,9 @@ test('runAutoClusterJob: makes 0 embedder calls when every candidate has a store
 test('runAutoClusterJob: embeds only the candidates missing a stored vector, in candidate order', async () => {
   await withVecDb(async () => {
     const past = new Date(Date.now() - 10 * 86400000).toISOString()
-    const ids = ['A', 'B', 'C'].map(tag => seedThought({ content: `thought ${tag}`, created_at: past }))
+    const ids = ['A', 'B', 'C'].map(tag =>
+      seedThought({ content: `thought ${tag}`, created_at: past })
+    )
     const stored = new Float32Array(384)
     stored[0] = 1
     // The newest candidate (listClusterCandidates orders created_at DESC) is the gap.
@@ -350,25 +435,38 @@ test('runAutoClusterJob: embeds only the candidates missing a stored vector, in 
 test('runAutoClusterJob: group composition is unchanged with stored vectors (in-memory distances)', async () => {
   await withVecDb(async () => {
     const past = new Date(Date.now() - 10 * 86400000).toISOString()
-    const ids = ['A', 'B', 'C', 'D'].map(tag => seedThought({ content: `thought ${tag}`, created_at: past }))
+    const ids = ['A', 'B', 'C', 'D'].map(tag =>
+      seedThought({ content: `thought ${tag}`, created_at: past })
+    )
     // Pairwise distances A-B 0.05 / B-C 0.25 / C-D 0.5, plus the 0.6 pair, the
     // distances the injected-lookup fixtures calibrate against. Each candidate
     // sits at a cumulative angle delta where `cos(delta) = 1 - distance`, so the
     // stored cosines are exact in float64 and both thresholds stay unambiguous:
     // 0.09 admits only A-B, 0.3 admits the A-B-C chain.
     const angles = [0, angleForDistance(0.05)]
-    for (const distance of [0.25, 0.5]) angles.push(angles[angles.length - 1]! + angleForDistance(distance))
+    for (const distance of [0.25, 0.5])
+      angles.push(angles[angles.length - 1]! + angleForDistance(distance))
     for (let i = 0; i < ids.length; i++) storeVec(ids[i]!, clusterVec(angles[i]!))
 
     // 0.3 (explicit): the 0.05 and 0.25 links connect → the A-B-C chain.
-    const strict = await runAutoClusterJob({ minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: true })
+    const strict = await runAutoClusterJob({
+      minAgeDays: 0,
+      minMembers: 2,
+      minSimilarity: 0.3,
+      dryRun: true
+    })
     expect(strict.groups).toHaveLength(1)
     expect(strict.groups[0].members.length).toBe(3)
     expect(strict.groups[0].members).toEqual(expect.arrayContaining([ids[0], ids[1], ids[2]]))
 
     // 0.09 (calibrated config default): only the 0.05 link clears it → A-B.
     // `minMembers` stays explicit so this compares thresholds, not defaults.
-    const relaxed = await runAutoClusterJob({ minAgeDays: 0, minMembers: 2, minSimilarity: 0.09, dryRun: true })
+    const relaxed = await runAutoClusterJob({
+      minAgeDays: 0,
+      minMembers: 2,
+      minSimilarity: 0.09,
+      dryRun: true
+    })
     expect(relaxed.groups).toHaveLength(1)
     expect(relaxed.groups[0].members.length).toBe(2)
     expect(relaxed.groups[0].members).toEqual(expect.arrayContaining([ids[0], ids[1]]))
@@ -378,13 +476,20 @@ test('runAutoClusterJob: group composition is unchanged with stored vectors (in-
 test('runAutoClusterJob: the default path issues no per-candidate vec0 search', async () => {
   await withVecDb(async () => {
     const past = new Date(Date.now() - 10 * 86400000).toISOString()
-    const ids = ['A', 'B', 'C'].map(tag => seedThought({ content: `thought ${tag}`, created_at: past }))
+    const ids = ['A', 'B', 'C'].map(tag =>
+      seedThought({ content: `thought ${tag}`, created_at: past })
+    )
     const vector = new Float32Array(384)
     vector[0] = 1
     for (const id of ids) storeVec(id, vector)
 
     const searchSpy = spyOn(searchDb, 'searchThoughts')
-    const result = await runAutoClusterJob({ minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: true })
+    const result = await runAutoClusterJob({
+      minAgeDays: 0,
+      minMembers: 2,
+      minSimilarity: 0.3,
+      dryRun: true
+    })
 
     expect(searchSpy.mock.calls.length).toBe(0)
     expect(result.groups).toHaveLength(1)
@@ -475,7 +580,12 @@ test('runAutoClusterJob: stored-vector groups match the injected pre-change look
           .sort((a, b) => a.distance - b.distance)
           .slice(0, topK)
 
-      const inMemory = await runAutoClusterJob({ minAgeDays: 0, minMembers: 2, minSimilarity, dryRun: true })
+      const inMemory = await runAutoClusterJob({
+        minAgeDays: 0,
+        minMembers: 2,
+        minSimilarity,
+        dryRun: true
+      })
       const preChange = await runAutoClusterJob(
         { minAgeDays: 0, minMembers: 2, minSimilarity, dryRun: true },
         { searchNeighbors: injected }
@@ -499,7 +609,12 @@ test('runAutoClusterJob: minSimilarity is a DISTANCE threshold, not a similarity
     storeClusterVec(ids[1]!, Math.acos(0.1))
     storeClusterVec(ids[2]!, -Math.acos(0.92))
 
-    const result = await runAutoClusterJob({ minAgeDays: 0, minMembers: 2, minSimilarity: 0.09, dryRun: true })
+    const result = await runAutoClusterJob({
+      minAgeDays: 0,
+      minMembers: 2,
+      minSimilarity: 0.09,
+      dryRun: true
+    })
 
     // Only the 0.08-distance pair is a link; 0.90 (similarity 0.10 >= 0.09) is not.
     expect(groupSets(result.groups)).toEqual([[ids[0]!, ids[2]!].sort()])
@@ -580,7 +695,12 @@ test('runAutoClusterJob: the default path runs no vec0 neighbour query (spy + po
     const vectorSpy = spyOn(vectorSearchDb, 'vecSearchIds')
     let afterRun = -1
     try {
-      const result = await runAutoClusterJob({ minAgeDays: 0, minMembers: 2, minSimilarity: 0.09, dryRun: true })
+      const result = await runAutoClusterJob({
+        minAgeDays: 0,
+        minMembers: 2,
+        minSimilarity: 0.09,
+        dryRun: true
+      })
       afterRun = vectorSpy.mock.calls.length
       expect(result.groups).toHaveLength(1)
 

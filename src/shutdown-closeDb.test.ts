@@ -24,9 +24,9 @@ describe('parent shutdown invokes closeDb (no WAL residue)', () => {
       env: {
         ...process.env,
         SYNAPTOMIND_DB_PATH: dbPath,
-        SYNAPTOMIND_EMBEDDER_ENABLED: 'false',
+        SYNAPTOMIND_EMBEDDER_ENABLED: 'false'
       },
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe']
     })
 
     // Wait for the stdio server to be ready.

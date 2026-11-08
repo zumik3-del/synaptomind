@@ -8,13 +8,22 @@ afterEach(closeDb)
 
 function tagThought(id: string, tag: string): void {
   const db = getDb()
-  let tagRow = db.prepare('SELECT id FROM tags WHERE name = ?').get(tag) as { id: string } | undefined
+  let tagRow = db.prepare('SELECT id FROM tags WHERE name = ?').get(tag) as
+    | { id: string }
+    | undefined
   if (!tagRow) {
     const tagId = Bun.randomUUIDv7()
-    db.prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)').run(tagId, tag, new Date().toISOString())
+    db.prepare('INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?)').run(
+      tagId,
+      tag,
+      new Date().toISOString()
+    )
     tagRow = { id: tagId }
   }
-  db.prepare('INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)').run(id, tagRow.id)
+  db.prepare('INSERT OR IGNORE INTO thought_tags (thought_id, tag_id) VALUES (?, ?)').run(
+    id,
+    tagRow.id
+  )
 }
 
 test('getFrontierService returns empty when no candidates', () => {
@@ -58,7 +67,9 @@ test('getFrontierService excludes replaced thoughts', () => {
   tagThought(a, 'directive')
   tagThought(b, 'directive')
   const db = getDb()
-  db.prepare("INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'replaces', ?)").run('e1', b, a, new Date().toISOString())
+  db.prepare(
+    "INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'replaces', ?)"
+  ).run('e1', b, a, new Date().toISOString())
   const result = getFrontierService()
   expect(result.items.find(i => i.thought_id === a)).toBeUndefined()
   expect(result.items.find(i => i.thought_id === b)).toBeDefined()
@@ -113,7 +124,9 @@ test('getFrontierService uses depends_on for blocking', () => {
   tagThought(b, 'directive')
   const db = getDb()
   // A depends_on B → A is blocked by B (B must be done first)
-  db.prepare("INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'depends_on', ?)").run('e1', a, b, new Date().toISOString())
+  db.prepare(
+    "INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'depends_on', ?)"
+  ).run('e1', a, b, new Date().toISOString())
   const result = getFrontierService()
   const itemA = result.items.find(i => i.thought_id === a)
   const itemB = result.items.find(i => i.thought_id === b)
@@ -130,7 +143,9 @@ test('getFrontierService does not block via develops edge', () => {
   tagThought(a, 'directive')
   tagThought(b, 'directive')
   const db = getDb()
-  db.prepare("INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'develops', ?)").run('e1', a, b, new Date().toISOString())
+  db.prepare(
+    "INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'develops', ?)"
+  ).run('e1', a, b, new Date().toISOString())
   const result = getFrontierService()
   const itemB = result.items.find(i => i.thought_id === b)
   expect(itemB).toBeDefined()
@@ -143,7 +158,9 @@ test('getFrontierService keeps contradicted thoughts (only replaces removes)', (
   tagThought(a, 'directive')
   tagThought(b, 'directive')
   const db = getDb()
-  db.prepare("INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'contradicts', ?)").run('e1', a, b, new Date().toISOString())
+  db.prepare(
+    "INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'contradicts', ?)"
+  ).run('e1', a, b, new Date().toISOString())
   const result = getFrontierService()
   // contradiction is symmetric and neither side is authoritative — both stay
   expect(result.items.find(i => i.thought_id === a)).toBeDefined()
@@ -158,7 +175,12 @@ test('getFrontierService excludes an archived pending thought', () => {
 
 test('getFrontierService includes a due pending thought with reason=pending', () => {
   const past = new Date(Date.now() - 86_400_000).toISOString()
-  const id = seedThought({ content: 'due pending', status: 'draft', tags: '["pending"]', surface_after: past })
+  const id = seedThought({
+    content: 'due pending',
+    status: 'draft',
+    tags: '["pending"]',
+    surface_after: past
+  })
   const result = getFrontierService()
   expect(result.items.find(i => i.thought_id === id)).toBeDefined()
   expect(result.items.find(i => i.thought_id === id)!.reason).toBe('pending')
@@ -166,13 +188,23 @@ test('getFrontierService includes a due pending thought with reason=pending', ()
 
 test('getFrontierService excludes a pending thought whose surface_after is in the future', () => {
   const future = new Date(Date.now() + 7 * 86_400_000).toISOString()
-  const id = seedThought({ content: 'future pending', status: 'draft', tags: '["pending"]', surface_after: future })
+  const id = seedThought({
+    content: 'future pending',
+    status: 'draft',
+    tags: '["pending"]',
+    surface_after: future
+  })
   const result = getFrontierService()
   expect(result.items.find(i => i.thought_id === id)).toBeUndefined()
 })
 
 test('getFrontierService includes a pending thought with NULL surface_after immediately', () => {
-  const id = seedThought({ content: 'null-surface pending', status: 'draft', tags: '["pending"]', surface_after: null })
+  const id = seedThought({
+    content: 'null-surface pending',
+    status: 'draft',
+    tags: '["pending"]',
+    surface_after: null
+  })
   const result = getFrontierService()
   expect(result.items.find(i => i.thought_id === id)).toBeDefined()
 })

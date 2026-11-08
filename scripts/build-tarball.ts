@@ -139,7 +139,9 @@ function pack(archive: string, rootDir: string, mtime: number): void {
   if (!/unrecognized|unknown|illegal|not supported/i.test(first.stderr)) {
     throw new Error(`tar failed: ${first.stderr.trim()}`)
   }
-  console.warn(`tar lacks reproducible flags (${first.stderr.trim().split('\n')[0]}) — packing plain`)
+  console.warn(
+    `tar lacks reproducible flags (${first.stderr.trim().split('\n')[0]}) — packing plain`
+  )
   const plain = tar(contents)
   if (plain.status !== 0) throw new Error(`tar failed: ${plain.stderr.trim()}`)
 }
@@ -153,12 +155,13 @@ function assertTree(dir: string, label: string): void {
   const exe = join(dir, 'synaptomind')
   if ((statSync(exe).mode & 0o111) === 0) throw new Error(`${label}: synaptomind is not executable`)
   for (const file of OPTIONAL) {
-    if (!existsSync(join(dir, file))) console.warn(`${label}: optional seed file ${file} is missing`)
+    if (!existsSync(join(dir, file)))
+      console.warn(`${label}: optional seed file ${file} is missing`)
   }
 }
 
 function assertArchive(entries: string[], rootDir: string, asset: string): void {
-  const tops = new Set(entries.map((entry) => entry.split('/')[0]))
+  const tops = new Set(entries.map(entry => entry.split('/')[0]))
   if (tops.size !== 1 || !tops.has(rootDir)) {
     throw new Error(
       `${asset}: expected exactly one top-level directory ${rootDir}/, found ${[...tops].join(', ')}`
@@ -170,9 +173,9 @@ function assertArchive(entries: string[], rootDir: string, asset: string): void 
     }
   }
   const files = new Set(
-    entries.filter((e) => !e.endsWith('/')).map((e) => e.slice(`${rootDir}/`.length))
+    entries.filter(e => !e.endsWith('/')).map(e => e.slice(`${rootDir}/`.length))
   )
-  const missing = REQUIRED.filter((file) => !files.has(file))
+  const missing = REQUIRED.filter(file => !files.has(file))
   if (missing.length > 0) {
     throw new Error(`${asset}: required entries absent from the archive: ${missing.join(', ')}`)
   }
@@ -227,7 +230,11 @@ function main(): void {
     { from: BINARY, to: join(payload, 'synaptomind'), mode: 0o755 },
     { from: VEC0, to: join(payload, 'vec0.so'), mode: 0o644 },
     { from: lib, to: join(payload, 'lib', 'libonnxruntime.so.1'), mode: 0o644 },
-    { from: join(ROOT, 'config.json.example'), to: join(payload, 'config.json.example'), mode: 0o644 },
+    {
+      from: join(ROOT, 'config.json.example'),
+      to: join(payload, 'config.json.example'),
+      mode: 0o644
+    },
     { from: join(ROOT, '.env.example'), to: join(payload, '.env.example'), mode: 0o644 }
   ]
   for (const { from, to, mode } of staged) {
@@ -242,8 +249,8 @@ function main(): void {
   if (entries.status !== 0) throw new Error(`cannot list ${assetName}: ${entries.stderr.trim()}`)
   const listing = entries.stdout
     .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
   assertArchive(listing, rootDir, assetName)
 
   // Real unpack: the only proof that the artifact a host installs is sound.
@@ -259,10 +266,15 @@ function main(): void {
     rmSync(unpack, { recursive: true, force: true })
   }
 
-  const unpackedBytes = REQUIRED.reduce((sum, file) => sum + statSync(join(STAGE, rootDir, file)).size, 0)
+  const unpackedBytes = REQUIRED.reduce(
+    (sum, file) => sum + statSync(join(STAGE, rootDir, file)).size,
+    0
+  )
   const archiveBytes = statSync(archive).size
 
-  console.log(`platform        ${platform} (ASSET_PATTERN: ${appName}-\${TAG}-\${OS}-\${ARCH}.tar.gz)`)
+  console.log(
+    `platform        ${platform} (ASSET_PATTERN: ${appName}-\${TAG}-\${OS}-\${ARCH}.tar.gz)`
+  )
   console.log(`archive root    ${rootDir}/`)
   console.log(`asset           ${assetName}`)
   console.log(`archive bytes   ${archiveBytes} (${mib(archiveBytes)})`)

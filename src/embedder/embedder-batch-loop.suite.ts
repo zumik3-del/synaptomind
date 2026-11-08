@@ -149,7 +149,9 @@ globalThis.setInterval = ((handler: () => void, timeout?: number) => {
 // ── fixture ─────────────────────────────────────────────────────────────────
 bootstrapDb()
 // vec_thoughts is a vec0 virtual table — v002 skips it on `:memory:` databases.
-getDb().prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)').run()
+getDb()
+  .prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)')
+  .run()
 
 /**
  * Seed a queued thought whose content and `content_hash` are written TOGETHER
@@ -158,11 +160,15 @@ getDb().prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, e
  */
 function seedQueued(content: string, hash: string): string {
   const id = seedThought({ content })
-  getDb().prepare('UPDATE thoughts SET content = ?, content_hash = ? WHERE id = ?').run(content, hash, id)
+  getDb()
+    .prepare('UPDATE thoughts SET content = ?, content_hash = ? WHERE id = ?')
+    .run(content, hash, id)
   return id
 }
 
-function queueRow(id: string): { attempts: number; is_error: number; last_error: string | null } | null {
+function queueRow(
+  id: string
+): { attempts: number; is_error: number; last_error: string | null } | null {
   const found = getDb()
     .prepare('SELECT attempts, is_error, last_error FROM pending_embeddings WHERE thought_id = ?')
     .get(id) as { attempts: number; is_error: number; last_error: string | null } | undefined
@@ -174,7 +180,11 @@ function storedMarker(id: string): number | undefined {
     | { embedding: Uint8Array }
     | undefined
   if (!stored) return undefined
-  return new Float32Array(stored.embedding.buffer, stored.embedding.byteOffset, stored.embedding.byteLength / 4)[0]
+  return new Float32Array(
+    stored.embedding.buffer,
+    stored.embedding.byteOffset,
+    stored.embedding.byteLength / 4
+  )[0]
 }
 
 interface LogRow {
@@ -198,7 +208,12 @@ function logRows(): LogRow[] {
     const trimmed = line.trim()
     if (!trimmed) continue
     try {
-      const obj = JSON.parse(trimmed) as { level?: string; type?: string; msg?: string; meta?: unknown }
+      const obj = JSON.parse(trimmed) as {
+        level?: string
+        type?: string
+        msg?: string
+        meta?: unknown
+      }
       rows.push({
         level: obj.level ?? '',
         type: obj.type ?? '',
@@ -212,7 +227,8 @@ function logRows(): LogRow[] {
   return rows
 }
 
-const skipLogs = (): LogRow[] => logRows().filter(r => r.type === 'embedding' && r.message.includes('mid-batch'))
+const skipLogs = (): LogRow[] =>
+  logRows().filter(r => r.type === 'embedding' && r.message.includes('mid-batch'))
 const backoffLogs = (): LogRow[] => logRows().filter(r => r.message.includes('Backing off'))
 
 async function waitFor(what: string, probe: () => boolean, timeoutMs = 10_000): Promise<void> {
@@ -255,80 +271,78 @@ test('the shipped process validates the model with the configured dtype', () => 
   expect(call.cacheDir).toBe(config.embedder.cacheDir)
 })
 
-test(
-  'AC6 (real loop): an all-failed batch drives the backoff, and the store fault reaches handleFailedItem with its message',
-  async () => {
-    await waitFor('the all-failed backoff log', () => backoffLogs().length > 0)
+test('AC6 (real loop): an all-failed batch drives the backoff, and the store fault reaches handleFailedItem with its message', async () => {
+  await waitFor('the all-failed backoff log', () => backoffLogs().length > 0)
 
-    // AC1 through the REAL `storeRow`: the thrown message is carried into
-    // `failed` and recorded on the queue row by `handleFailedItem`.
-    const row = queueRow(failedId)
-    expect(row?.last_error).toBe('boom')
-    expect(row?.attempts).toBeGreaterThanOrEqual(5)
+  // AC1 through the REAL `storeRow`: the thrown message is carried into
+  // `failed` and recorded on the queue row by `handleFailedItem`.
+  const row = queueRow(failedId)
+  expect(row?.last_error).toBe('boom')
+  expect(row?.attempts).toBeGreaterThanOrEqual(5)
 
-    const allFailedLog = logRows().find(r => r.type === 'embedding' && r.message.startsWith('Batch failed: all'))
-    expect(allFailedLog).toBeDefined()
-  },
-  20_000
-)
+  const allFailedLog = logRows().find(
+    r => r.type === 'embedding' && r.message.startsWith('Batch failed: all')
+  )
+  expect(allFailedLog).toBeDefined()
+}, 20_000)
 
-test(
-  'AC2/AC5/AC6/AC8 (real loop): a skipped row never reaches deleteFromQueue, is logged, and does not advance the backoff',
-  async () => {
-    const backoffBefore = backoffLogs().length
+test('AC2/AC5/AC6/AC8 (real loop): a skipped row never reaches deleteFromQueue, is logged, and does not advance the backoff', async () => {
+  const backoffBefore = backoffLogs().length
 
-    // Phase B fixture:
-    //  · `stableId` keeps the hash its batch reads → stored, deleted, vector written;
-    //  · `skipId` is edited inside every embed step → skipped on every batch.
-    control.storeThrows = false
-    getDb().prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(failedId)
-    const stableId = seedQueued('stable content', 'hash-stable')
-    let editSeq = 0
-    const skipId = seedQueued('skip content', 'hash-skip-0')
-    control.edit = () => {
-      editSeq++
-      getDb()
-        .prepare('UPDATE thoughts SET content = ?, content_hash = ? WHERE id = ?')
-        .run(`skip content ${editSeq}`, `hash-skip-${editSeq}`, skipId)
-    }
+  // Phase B fixture:
+  //  · `stableId` keeps the hash its batch reads → stored, deleted, vector written;
+  //  · `skipId` is edited inside every embed step → skipped on every batch.
+  control.storeThrows = false
+  getDb().prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(failedId)
+  const stableId = seedQueued('stable content', 'hash-stable')
+  let editSeq = 0
+  const skipId = seedQueued('skip content', 'hash-skip-0')
+  control.edit = () => {
+    editSeq++
+    getDb()
+      .prepare('UPDATE thoughts SET content = ?, content_hash = ? WHERE id = ?')
+      .run(`skip content ${editSeq}`, `hash-skip-${editSeq}`, skipId)
+  }
 
-    await waitFor('six mid-batch-skip batches', () => skipLogs().length >= 6)
-    // Freeze the worker (empty queue from the worker's point of view) so the
-    // snapshot below is stable.
-    control.drainQueue = true
-    await Bun.sleep(20)
+  await waitFor('six mid-batch-skip batches', () => skipLogs().length >= 6)
+  // Freeze the worker (empty queue from the worker's point of view) so the
+  // snapshot below is stable.
+  control.drainQueue = true
+  await Bun.sleep(20)
 
-    // AC8 — the success path still deletes the queue row and writes the vector.
-    expect(deleteCalls.flat()).toContain(stableId)
-    expect(queueRow(stableId)).toBeNull()
-    expect(storedMarker(stableId)).toBe(EMBED_MARKER)
+  // AC8 — the success path still deletes the queue row and writes the vector.
+  expect(deleteCalls.flat()).toContain(stableId)
+  expect(queueRow(stableId)).toBeNull()
+  expect(storedMarker(stableId)).toBe(EMBED_MARKER)
 
-    // AC2 — THE INVARIANT: the shipped loop never handed the skipped id to the
-    // delete path, so its freshness signal survives…
-    expect(deleteCalls.flat()).not.toContain(skipId)
-    expect(skipLogs().length).toBeGreaterThanOrEqual(6)
-    const skipped = queueRow(skipId)
-    expect(skipped).not.toBeNull()
-    // `attempts` is 1, not 6: every mid-batch edit fires the v035 trigger, whose
-    // `INSERT OR REPLACE` re-creates the queue row and resets the counter, so the
-    // recorded attempt means "skips since the last content change". What matters
-    // is that an attempt IS recorded and the row stays retryable.
-    expect(skipped?.attempts).toBeGreaterThanOrEqual(1)
-    expect(skipped?.is_error).toBe(0)
-    // AC5 — …the skip recorded an attempt carrying the shared reason…
-    expect(skipped?.last_error).toBe(realQueueFns.CONTENT_CHANGED_REASON)
+  // AC2 — THE INVARIANT: the shipped loop never handed the skipped id to the
+  // delete path, so its freshness signal survives…
+  expect(deleteCalls.flat()).not.toContain(skipId)
+  expect(skipLogs().length).toBeGreaterThanOrEqual(6)
+  const skipped = queueRow(skipId)
+  expect(skipped).not.toBeNull()
+  // `attempts` is 1, not 6: every mid-batch edit fires the v035 trigger, whose
+  // `INSERT OR REPLACE` re-creates the queue row and resets the counter, so the
+  // recorded attempt means "skips since the last content change". What matters
+  // is that an attempt IS recorded and the row stays retryable.
+  expect(skipped?.attempts).toBeGreaterThanOrEqual(1)
+  expect(skipped?.is_error).toBe(0)
+  // AC5 — …the skip recorded an attempt carrying the shared reason…
+  expect(skipped?.last_error).toBe(realQueueFns.CONTENT_CHANGED_REASON)
 
-    // AC5 — …and the batch logged a warning carrying skippedCount/reason/ids.
-    const skipRow = skipLogs().at(-1)!
-    const metadata = JSON.parse(skipRow.metadata ?? '{}') as { skippedCount?: number; reason?: string; ids?: string[] }
-    expect(skipRow.level).toBe('warning')
-    expect(metadata.reason).toBe(realQueueFns.CONTENT_CHANGED_REASON)
-    expect(metadata.skippedCount).toBeGreaterThanOrEqual(1)
-    expect(metadata.ids).toContain(skipId)
+  // AC5 — …and the batch logged a warning carrying skippedCount/reason/ids.
+  const skipRow = skipLogs().at(-1)!
+  const metadata = JSON.parse(skipRow.metadata ?? '{}') as {
+    skippedCount?: number
+    reason?: string
+    ids?: string[]
+  }
+  expect(skipRow.level).toBe('warning')
+  expect(metadata.reason).toBe(realQueueFns.CONTENT_CHANGED_REASON)
+  expect(metadata.skippedCount).toBeGreaterThanOrEqual(1)
+  expect(metadata.ids).toContain(skipId)
 
-    // AC6 — backoff tracks embedder health: six-plus all-skipped batches added
-    // no backoff step, while the all-failed phase did.
-    expect(backoffLogs().length).toBe(backoffBefore)
-  },
-  20_000
-)
+  // AC6 — backoff tracks embedder health: six-plus all-skipped batches added
+  // no backoff step, while the all-failed phase did.
+  expect(backoffLogs().length).toBe(backoffBefore)
+}, 20_000)

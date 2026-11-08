@@ -8,10 +8,18 @@ test('retention-review config clamps page size and importance floor and falls ba
   const original = console.error
   console.error = error
   try {
-    expect(sanitizeRetentionReviewBounds({ pageSize: 101.8, importanceFloor: -1, minAgeDays: 0 }, defaults))
-      .toEqual({ pageSize: 100, importanceFloor: 0, minAgeDays: 30 })
-    expect(sanitizeRetentionReviewBounds({ pageSize: 'bad', importanceFloor: Infinity, minAgeDays: undefined }, defaults))
-      .toEqual(defaults)
+    expect(
+      sanitizeRetentionReviewBounds(
+        { pageSize: 101.8, importanceFloor: -1, minAgeDays: 0 },
+        defaults
+      )
+    ).toEqual({ pageSize: 100, importanceFloor: 0, minAgeDays: 30 })
+    expect(
+      sanitizeRetentionReviewBounds(
+        { pageSize: 'bad', importanceFloor: Infinity, minAgeDays: undefined },
+        defaults
+      )
+    ).toEqual(defaults)
     expect(error).toHaveBeenCalled()
   } finally {
     console.error = original
@@ -23,8 +31,12 @@ test('valid retention-review config values do not warn', () => {
   const original = console.error
   console.error = error
   try {
-    expect(sanitizeRetentionReviewBounds({ pageSize: 15, importanceFloor: 0.4, minAgeDays: 45 }, defaults))
-      .toEqual({ pageSize: 15, importanceFloor: 0.4, minAgeDays: 45 })
+    expect(
+      sanitizeRetentionReviewBounds(
+        { pageSize: 15, importanceFloor: 0.4, minAgeDays: 45 },
+        defaults
+      )
+    ).toEqual({ pageSize: 15, importanceFloor: 0.4, minAgeDays: 45 })
     expect(error).not.toHaveBeenCalled()
   } finally {
     console.error = original

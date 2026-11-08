@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb } from '../../db/container'
 import { closeDb } from '../../db/init'
 import { createThoughtWithUrlLinksService } from '../../services/url_links.service'
@@ -42,12 +42,16 @@ function parseResult(result: unknown): { data: any; isError: boolean } {
 }
 
 function dbSource(id: string): string | null {
-  const row = getDb().prepare('SELECT source FROM thoughts WHERE id = ?').get(id) as { source: string | null } | undefined
+  const row = getDb().prepare('SELECT source FROM thoughts WHERE id = ?').get(id) as
+    | { source: string | null }
+    | undefined
   return row?.source ?? null
 }
 
 function dbIsGlobal(id: string): number | null {
-  const row = getDb().prepare('SELECT is_global FROM thoughts WHERE id = ?').get(id) as { is_global: number } | undefined
+  const row = getDb().prepare('SELECT is_global FROM thoughts WHERE id = ?').get(id) as
+    | { is_global: number }
+    | undefined
   return row?.is_global ?? null
 }
 

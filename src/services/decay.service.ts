@@ -30,11 +30,20 @@ export function runDecayJob(d?: Database): void {
   }
 }
 
-const job = createIntervalJob({
-  name: 'decay',
-  intervalMs: config.decay.intervalMs,
-  onError
-}, () => { runDecayJob() })
+const job = createIntervalJob(
+  {
+    name: 'decay',
+    intervalMs: config.decay.intervalMs,
+    onError
+  },
+  () => {
+    runDecayJob()
+  }
+)
 
-export function startDecayJob(): void { job.start() }
-export function stopDecayJob(): void { job.stop() }
+export function startDecayJob(): void {
+  job.start()
+}
+export function stopDecayJob(): void {
+  job.stop()
+}

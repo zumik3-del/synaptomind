@@ -51,7 +51,10 @@ function windowRefusal(row: PlacementProposalRow, now: string): Decision | null 
   }
   const decidedMs = row.decided_at === null ? Number.NaN : Date.parse(row.decided_at)
   if (Number.isNaN(decidedMs)) {
-    return { action: 'refused', reason: 'accepted row has no decided_at; cannot verify the rollback window' }
+    return {
+      action: 'refused',
+      reason: 'accepted row has no decided_at; cannot verify the rollback window'
+    }
   }
 
   const cutoff = new Date(nowMs - ttlDays * MS_PER_DAY).toISOString()
@@ -117,7 +120,11 @@ function summarize(items: RollbackItemReport[]): RollbackReport['summary'] {
  * performs each inverse in its own transaction and marks the row `rolled_back`
  * with `decided_at` (so retention can prune it). Returns the per-row report.
  */
-export function rollbackService(runId: string, options: RollbackOptions = {}, d: Database = getDb()): RollbackReport {
+export function rollbackService(
+  runId: string,
+  options: RollbackOptions = {},
+  d: Database = getDb()
+): RollbackReport {
   if (!runId) throw new ValidationError('run_id is required')
 
   const confirm = options.confirm === true
@@ -132,13 +139,23 @@ export function rollbackService(runId: string, options: RollbackOptions = {}, d:
     const decision = decideRollback(row, now, d)
     if (decision.action !== 'revert') {
       if (confirm) {
-        insertLog('warning', 'placement', `Rollback ${decision.action} proposal ${row.id}: ${decision.reason}`, {
-          proposal_id: row.id,
-          run_id: runId,
-          item_kind: row.item_kind
-        })
+        insertLog(
+          'warning',
+          'placement',
+          `Rollback ${decision.action} proposal ${row.id}: ${decision.reason}`,
+          {
+            proposal_id: row.id,
+            run_id: runId,
+            item_kind: row.item_kind
+          }
+        )
       }
-      items.push({ proposal_id: row.id, item_kind: row.item_kind, action: decision.action, reason: decision.reason })
+      items.push({
+        proposal_id: row.id,
+        item_kind: row.item_kind,
+        action: decision.action,
+        reason: decision.reason
+      })
       continue
     }
 

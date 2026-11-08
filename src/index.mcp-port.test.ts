@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { spawn } from 'node:child_process'
-import { existsSync, linkSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  linkSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -73,9 +81,9 @@ async function runServer(mcpPort: string): Promise<RunResult> {
         SYNAPTOMIND_DB_PATH: join(SCRATCH, 'db', 'synaptomind.db'),
         SYNAPTOMIND_EMBEDDER_ENABLED: 'false',
         // Belt and braces: nothing may reach a model cache outside the scratch.
-        SYNAPTOMIND_EMBEDDER_CACHE_DIR: join(SCRATCH, 'huggingface'),
+        SYNAPTOMIND_EMBEDDER_CACHE_DIR: join(SCRATCH, 'huggingface')
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe']
     })
     let out = ''
     child.stdout.on('data', d => (out += d))
@@ -150,29 +158,40 @@ describe('index.ts — the MCP listener bind failure', () => {
 describe('index.ts — user database alias startup guard', () => {
   async function rejectAliases(paths: string[]): Promise<RunResult> {
     const configPath = join(SCRATCH, 'config.json')
-    writeFileSync(configPath, JSON.stringify({ users: paths.map((dbPath, i) => ({
-      id: ['alice', 'bob'][i], dbPath, tokenSha256: String(i + 1).repeat(64),
-    })) }))
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        users: paths.map((dbPath, i) => ({
+          id: ['alice', 'bob'][i],
+          dbPath,
+          tokenSha256: String(i + 1).repeat(64)
+        }))
+      })
+    )
     return new Promise((res, rej) => {
       // stdio mode never binds a listener, even if the guard regresses. The
       // completely scratch environment cannot inherit production overrides.
       const child = spawn(process.execPath, ['run', INDEX_TS, '--stdio', '--no-embedder'], {
         cwd: SCRATCH,
         env: {
-          PATH: process.env.PATH, HOME: SCRATCH,
+          PATH: process.env.PATH,
+          HOME: SCRATCH,
           SYNAPTOMIND_CONFIG: configPath,
           SYNAPTOMIND_DB_PATH: join(SCRATCH, 'legacy.db'),
           SYNAPTOMIND_EMBEDDER_ENABLED: 'false',
-          SYNAPTOMIND_EMBEDDER_CACHE_DIR: join(SCRATCH, 'cache'),
+          SYNAPTOMIND_EMBEDDER_CACHE_DIR: join(SCRATCH, 'cache')
         },
-        stdio: ['pipe', 'pipe', 'pipe'],
+        stdio: ['pipe', 'pipe', 'pipe']
       })
       let out = ''
       child.stdout.on('data', d => (out += d))
       child.stderr.on('data', d => (out += d))
       child.once('error', rej)
       const timer = setTimeout(() => child.kill('SIGKILL'), 10_000)
-      child.once('close', code => { clearTimeout(timer); res({ code, out }) })
+      child.once('close', code => {
+        clearTimeout(timer)
+        res({ code, out })
+      })
     })
   }
 

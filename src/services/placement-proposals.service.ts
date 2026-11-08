@@ -29,7 +29,7 @@ import {
   listProposals,
   updateProposalState,
   type InsertProposalInput,
-  type PlacementProposalRow,
+  type PlacementProposalRow
 } from '../db/placement-proposals'
 import { getThoughtRow } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
@@ -51,7 +51,10 @@ import type {
   ListOptions,
   RejectOptions
 } from './placement-proposals.types'
-import { clampListLimit, resolveMaxProposalsPerEnqueue } from './placement-proposals.helpers.service'
+import {
+  clampListLimit,
+  resolveMaxProposalsPerEnqueue
+} from './placement-proposals.helpers.service'
 
 export { computeFingerprint, pairFingerprint } from './placement-proposals.mapping.service'
 export type { FingerprintInput } from './placement-proposals.mapping.service'
@@ -66,11 +69,17 @@ export type {
   RejectOptions
 } from './placement-proposals.types'
 
-export function getProposalService(id: string, d: Database = getDb()): PlacementProposalRow | undefined {
+export function getProposalService(
+  id: string,
+  d: Database = getDb()
+): PlacementProposalRow | undefined {
   return getProposal(d, id)
 }
 
-export function listAcceptedProposalsByRunService(runId: string, d: Database = getDb()): PlacementProposalRow[] {
+export function listAcceptedProposalsByRunService(
+  runId: string,
+  d: Database = getDb()
+): PlacementProposalRow[] {
   return listAcceptedProposalsByRun(d, runId)
 }
 
@@ -111,8 +120,10 @@ export function enqueuePlanService(
   const run = d.transaction(() => {
     // Count only live (non-expired) pending rows so overdue rows do not
     // consume the cap; the retention job marks them expired (ADR §2.4).
-    const pending = listProposals(d, { state: 'pending', limit: maxPending + cappedItems.length + 1 })
-      .filter(row => row.expires_at === null || row.expires_at > now)
+    const pending = listProposals(d, {
+      state: 'pending',
+      limit: maxPending + cappedItems.length + 1
+    }).filter(row => row.expires_at === null || row.expires_at > now)
     const keys = new Set(pending.map(toItemKey))
     let pendingCount = pending.length
 
@@ -155,9 +166,10 @@ export function enqueuePlanService(
 
   const rows = run()
   // Clearer output grouping by target/type for review readability.
-  rows.sort((a, b) =>
-    String(a.item_kind).localeCompare(String(b.item_kind)) ||
-    String(a.target_id ?? '').localeCompare(String(b.target_id ?? ''))
+  rows.sort(
+    (a, b) =>
+      String(a.item_kind).localeCompare(String(b.item_kind)) ||
+      String(a.target_id ?? '').localeCompare(String(b.target_id ?? ''))
   )
   return { proposals: rows, skipped, skipped_kinds: skippedKinds }
 }
@@ -186,7 +198,10 @@ export async function enqueueThoughtProposals(
   return enqueuePlanService(plan, { now: options.now, maxProposals: maxPerEnqueue }, d)
 }
 
-export function listPlacementProposalsService(options: ListOptions = {}, d: Database = getDb()): PlacementProposalRow[] {
+export function listPlacementProposalsService(
+  options: ListOptions = {},
+  d: Database = getDb()
+): PlacementProposalRow[] {
   const state = options.state ?? 'pending'
   const now = options.now ?? new Date().toISOString()
   const sourceThoughtId = options.sourceThoughtId ?? options.source_thought_id
@@ -195,7 +210,9 @@ export function listPlacementProposalsService(options: ListOptions = {}, d: Data
   const itemKind = options.itemKind ?? options.item_kind
   const includeRetired = options.includeRetired ?? options.include_retired ?? false
   if (createdAfter !== undefined && !isoDateTimeSchema.safeParse(createdAfter).success) {
-    throw new ValidationError(`Invalid created_after: ${String(createdAfter)}. Must be a valid ISO timestamp.`)
+    throw new ValidationError(
+      `Invalid created_after: ${String(createdAfter)}. Must be a valid ISO timestamp.`
+    )
   }
   const rows = listProposals(d, {
     state,
@@ -217,11 +234,17 @@ export function listPlacementProposalsService(options: ListOptions = {}, d: Data
   return result
 }
 
-export function rejectPlacementProposalService(proposalId: string, options: RejectOptions = {}, d: Database = getDb()): PlacementProposalRow {
+export function rejectPlacementProposalService(
+  proposalId: string,
+  options: RejectOptions = {},
+  d: Database = getDb()
+): PlacementProposalRow {
   const existing = getProposal(d, proposalId)
   if (!existing) throw new NotFoundError(`placement proposal '${proposalId}' not found`)
   if (existing.state !== 'pending') {
-    throw new ValidationError(`placement proposal '${proposalId}' is '${existing.state}', not 'pending'`)
+    throw new ValidationError(
+      `placement proposal '${proposalId}' is '${existing.state}', not 'pending'`
+    )
   }
   const updated = updateProposalState(d, proposalId, {
     state: 'rejected',

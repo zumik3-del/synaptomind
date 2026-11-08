@@ -41,11 +41,26 @@ import { insertLog } from '../logging/log'
 import { evaluateGates, plannedEdge } from './apply-gates.service'
 import { resolveApplyRunId, resolveBatchRunId } from './apply-run-envelope.service'
 import { createEdgeService } from './edges.service'
-import type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriterCall } from './placement-apply.types'
+import type {
+  AcceptedApplyResult,
+  ApplyBatchOutcome,
+  ApplyOptions,
+  ApplyResult,
+  PlannedWriterCall
+} from './placement-apply.types'
 import { pairFingerprint } from './placement-proposals.service'
 import { type ApplyWriterCall, planWriterCalls, type WriterCall } from './writer-calls.service'
 
-export type { AcceptedApplyResult, ApplyBatchOutcome, ApplyOptions, ApplyResult, PlannedWriter, PlannedWriterCall, RefusedApplyResult, RunRefusal } from './placement-apply.types'
+export type {
+  AcceptedApplyResult,
+  ApplyBatchOutcome,
+  ApplyOptions,
+  ApplyResult,
+  PlannedWriter,
+  PlannedWriterCall,
+  RefusedApplyResult,
+  RunRefusal
+} from './placement-apply.types'
 
 /**
  * Per-run cap on the edge items one apply run may write (task #1961).
@@ -109,7 +124,11 @@ function mapWriterError(err: unknown): WriterErrorOutcome {
     const stale = err.message.toLowerCase().includes('already archived')
     return { kind: stale ? 'stale' : 'failed', reason: err.message }
   }
-  if (err instanceof ClusterEdgeValidationError || err instanceof InvalidEdgeTypeError || err instanceof SelfLoopEdgeError) {
+  if (
+    err instanceof ClusterEdgeValidationError ||
+    err instanceof InvalidEdgeTypeError ||
+    err instanceof SelfLoopEdgeError
+  ) {
     return { kind: 'failed', reason: err.message }
   }
   if (err instanceof NotFoundError) return { kind: 'stale', reason: err.message }
@@ -129,14 +148,29 @@ function acceptIdempotent(
   d: Database
 ): AcceptedApplyResult {
   const result = JSON.stringify({ idempotent: true, run_id: runId })
-  updateProposalState(d, row.id, { state: 'accepted', decided_at: now, decided_by: decidedBy, applied_at: now, result, run_id: runId })
+  updateProposalState(d, row.id, {
+    state: 'accepted',
+    decided_at: now,
+    decided_by: decidedBy,
+    applied_at: now,
+    result,
+    run_id: runId
+  })
   insertLog('info', 'placement', `Applied placement proposal ${row.id} (idempotent)`, {
     proposal_id: row.id,
     item_kind: row.item_kind,
     agent: decidedBy,
     run_id: runId
   })
-  return { proposal_id: row.id, item_kind: row.item_kind, status: 'accepted', idempotent: true, calls: plannedCalls(row), result, run_id: runId }
+  return {
+    proposal_id: row.id,
+    item_kind: row.item_kind,
+    status: 'accepted',
+    idempotent: true,
+    calls: plannedCalls(row),
+    result,
+    run_id: runId
+  }
 }
 
 /**
@@ -144,7 +178,14 @@ function acceptIdempotent(
  * outcome. A failed row stays `pending` so the caller can fix the precondition
  * and retry (ADR §2.2, §2.6).
  */
-function persistOutcome(row: PlacementProposalRow, status: 'stale' | 'failed', reason: string, now: string, decidedBy: string | null, d: Database): void {
+function persistOutcome(
+  row: PlacementProposalRow,
+  status: 'stale' | 'failed',
+  reason: string,
+  now: string,
+  decidedBy: string | null,
+  d: Database
+): void {
   const terminal = status === 'stale'
   const result = JSON.stringify({ status, reason })
   updateProposalState(d, row.id, {
@@ -154,8 +195,14 @@ function persistOutcome(row: PlacementProposalRow, status: 'stale' | 'failed', r
     applied_at: null,
     result
   })
-  const prefix = terminal ? `Placement proposal ${row.id} is stale` : `Placement proposal ${row.id} failed to apply`
-  insertLog('warning', 'placement', `${prefix}: ${reason}`, { proposal_id: row.id, item_kind: row.item_kind, reason })
+  const prefix = terminal
+    ? `Placement proposal ${row.id} is stale`
+    : `Placement proposal ${row.id} failed to apply`
+  insertLog('warning', 'placement', `${prefix}: ${reason}`, {
+    proposal_id: row.id,
+    item_kind: row.item_kind,
+    reason
+  })
 }
 
 /**
@@ -164,7 +211,11 @@ function persistOutcome(row: PlacementProposalRow, status: 'stale' | 'failed', r
  * Returns a typed result — a `stale` refusal is a return value, not a throw.
  * Only an unknown proposal id throws `NotFoundError`.
  */
-export function applyProposalService(proposalId: string, options: ApplyOptions = {}, d: Database = getDb()): ApplyResult {
+export function applyProposalService(
+  proposalId: string,
+  options: ApplyOptions = {},
+  d: Database = getDb()
+): ApplyResult {
   const row = getProposal(d, proposalId)
   if (!row) throw new NotFoundError(`placement proposal '${proposalId}' not found`)
 
@@ -188,10 +239,19 @@ export function applyProposalService(proposalId: string, options: ApplyOptions =
   // no writer is called (ADR §2.7). The run it was accepted under is echoed
   // back, so this stays a faithful report of the row.
   if (row.state === 'accepted') {
-    return { ...base, status: 'accepted', idempotent: true, calls: [], result: row.result, run_id: row.run_id }
+    return {
+      ...base,
+      status: 'accepted',
+      idempotent: true,
+      calls: [],
+      result: row.result,
+      run_id: row.run_id
+    }
   }
-  if (row.state === 'stale') return { ...base, status: 'stale', reason: 'proposal is already stale' }
-  if (row.state !== 'pending') return { ...base, status: 'failed', reason: `proposal is '${row.state}', not 'pending'` }
+  if (row.state === 'stale')
+    return { ...base, status: 'stale', reason: 'proposal is already stale' }
+  if (row.state !== 'pending')
+    return { ...base, status: 'failed', reason: `proposal is '${row.state}', not 'pending'` }
 
   const gate = evaluateGates(row, options, d)
 
@@ -311,7 +371,9 @@ export function applyBatchService(
   // #1961). Rows that write no edge (already accepted → idempotent re-read,
   // stale, failed, a retired kind) do not count. A dry-run is refused too, so a
   // preview and the confirm that follows report the same verdict.
-  const pendingEdges = rows.filter(row => row !== undefined && row.item_kind === 'edge' && row.state === 'pending').length
+  const pendingEdges = rows.filter(
+    row => row !== undefined && row.item_kind === 'edge' && row.state === 'pending'
+  ).length
   if (pendingEdges > MAX_EDGE_ITEMS_PER_RUN) {
     return {
       results: [],
@@ -333,12 +395,17 @@ export function applyBatchService(
     try {
       results.push(applyProposalService(proposalId, { ...options, runId: batchRunId }, d))
     } catch (err) {
-      errors.push({ proposal_id: proposalId, error: err instanceof Error ? err.message : String(err) })
+      errors.push({
+        proposal_id: proposalId,
+        error: err instanceof Error ? err.message : String(err)
+      })
     }
   }
   // Hand the envelope back only when a row actually joined it: a batch that
   // accepted nothing (e.g. every item went `stale`) has no manifest to roll
   // back, so reporting an id there would send the caller after an empty run.
-  const joinedRun = batchRunId !== undefined && results.some(r => r.status === 'accepted' && r.run_id === batchRunId)
+  const joinedRun =
+    batchRunId !== undefined &&
+    results.some(r => r.status === 'accepted' && r.run_id === batchRunId)
   return joinedRun ? { results, errors, run_id: batchRunId } : { results, errors }
 }

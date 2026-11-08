@@ -1,5 +1,10 @@
 import { config } from '../config'
-import { attemptPromote, getPrimerByThoughtId, getPrimerIds, promoteThoughtToPrimer } from '../db/primers'
+import {
+  attemptPromote,
+  getPrimerByThoughtId,
+  getPrimerIds,
+  promoteThoughtToPrimer
+} from '../db/primers'
 import { getDb } from '../db'
 import type { SearchResult } from '../db/search'
 import { getThoughtImportance, incrementHitCount } from '../db/importance'
@@ -28,7 +33,10 @@ export function extractResultIds(results: SearchResult[] | GroupedResult[]): str
 }
 
 /** FI-07: count hits and auto-promote frequently-searched thoughts to primers. */
-export function updatePrimerHits(results: SearchResult[] | GroupedResult[], d: Database = getDb()): void {
+export function updatePrimerHits(
+  results: SearchResult[] | GroupedResult[],
+  d: Database = getDb()
+): void {
   const ids = extractResultIds(results)
   if (ids.length === 0) return
   for (const id of ids) {

@@ -31,7 +31,8 @@ export function parseContradictionMode(raw: string | undefined): ContradictionMo
 export function parseOptionalNumber(raw: string | undefined, name: string): number | undefined {
   if (raw === undefined || raw === '') return undefined
   const value = Number.parseFloat(raw)
-  if (!Number.isFinite(value)) throw new ValidationError(`invalid ${name} '${raw}'; expected a number`)
+  if (!Number.isFinite(value))
+    throw new ValidationError(`invalid ${name} '${raw}'; expected a number`)
   return value
 }
 

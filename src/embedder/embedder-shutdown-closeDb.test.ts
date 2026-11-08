@@ -23,9 +23,9 @@ describe('embedder child shutdown invokes closeDb (no WAL residue)', () => {
       env: {
         ...process.env,
         SYNAPTOMIND_DB_PATH: dbPath,
-        SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT: '600000',
+        SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT: '600000'
       },
-      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     })
 
     // Wait for the ready IPC (deterministic) instead of a fixed sleep.

@@ -68,7 +68,9 @@ export async function generateEmbeddings(batch: string[]): Promise<Float32Array[
   const pipe = await getExtractor()
   return Promise.all(
     batch.map(text =>
-      pipe(E5_PREFIX.passage + text, { pooling: 'mean', normalize: true }).then(r => r.data as Float32Array)
+      pipe(E5_PREFIX.passage + text, { pooling: 'mean', normalize: true }).then(
+        r => r.data as Float32Array
+      )
     )
   )
 }

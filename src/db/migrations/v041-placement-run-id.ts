@@ -12,7 +12,9 @@ export default {
     // body commits, so a crash in between replays this migration. SQLite has
     // no `ADD COLUMN IF NOT EXISTS`, hence the column probe: replaying must be
     // a no-op, not a "duplicate column name" failure that blocks startup.
-    const columns = db.prepare('PRAGMA table_info(placement_proposals)').all() as Array<{ name: string }>
+    const columns = db.prepare('PRAGMA table_info(placement_proposals)').all() as Array<{
+      name: string
+    }>
     if (!columns.some(column => column.name === 'run_id')) {
       db.exec('ALTER TABLE placement_proposals ADD COLUMN run_id TEXT')
     }

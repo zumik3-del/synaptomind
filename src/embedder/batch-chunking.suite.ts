@@ -34,7 +34,11 @@ afterEach(() => {
  * `calls` records every `embed_batch` frame; the stub echoes each text as
  * `Float32Array([Number(text)])` so a vector identifies its own input text.
  */
-function clientWithIpcSpy(): { client: EmbedderClient; calls: IpcCall[]; readyCalls: () => number } {
+function clientWithIpcSpy(): {
+  client: EmbedderClient
+  calls: IpcCall[]
+  readyCalls: () => number
+} {
   const client = new EmbedderClient()
   const calls: IpcCall[] = []
   let readyCalls = 0
@@ -90,12 +94,16 @@ test('splits a batch larger than the chunk into ceil(N/chunk) IPC requests', asy
 
 test('a batch of exactly one chunk stays a single request, one more text adds a second', async () => {
   const short = clientWithIpcSpy()
-  await short.client.generateEmbeddings(Array.from({ length: EMBEDDER_BATCH_CHUNK }, (_, i) => String(i)))
+  await short.client.generateEmbeddings(
+    Array.from({ length: EMBEDDER_BATCH_CHUNK }, (_, i) => String(i))
+  )
   expect(short.calls).toHaveLength(1)
   expect(short.calls[0]!.texts).toHaveLength(EMBEDDER_BATCH_CHUNK)
 
   const over = clientWithIpcSpy()
-  await over.client.generateEmbeddings(Array.from({ length: EMBEDDER_BATCH_CHUNK + 1 }, (_, i) => String(i)))
+  await over.client.generateEmbeddings(
+    Array.from({ length: EMBEDDER_BATCH_CHUNK + 1 }, (_, i) => String(i))
+  )
   expect(over.calls).toHaveLength(2)
   expect(over.calls.map(c => c.texts.length)).toEqual([EMBEDDER_BATCH_CHUNK, 1])
 })

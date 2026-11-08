@@ -14,6 +14,8 @@ export default {
         updated_at TEXT NOT NULL
       )
     `)
-    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_slots_key ON slots(name, scope, COALESCE(scope_id, ''))`)
+    db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_slots_key ON slots(name, scope, COALESCE(scope_id, ''))`
+    )
   }
 }

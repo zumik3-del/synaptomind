@@ -10,7 +10,10 @@ const THOUGHT_ID_RETIRED = 'thought_id is retired for link action; use source_id
 export const linkHandler: ActionHandler = {
   input: z
     .object({
-      thought_id: z.never({ error: THOUGHT_ID_RETIRED }).optional().describe('Retired; use source_id instead.'),
+      thought_id: z
+        .never({ error: THOUGHT_ID_RETIRED })
+        .optional()
+        .describe('Retired; use source_id instead.'),
       source_id: z.string({ error: SOURCE_REQUIRED }).min(1, SOURCE_REQUIRED).optional(),
       target_id: z.string({ error: TARGET_REQUIRED }).optional()
     })
@@ -22,7 +25,11 @@ export const linkHandler: ActionHandler = {
       }
     }),
   run(args: ActionArgs) {
-    const edge = createEdgeService(args.source_id as string, args.target_id as string, args.edge_type as string | undefined)
+    const edge = createEdgeService(
+      args.source_id as string,
+      args.target_id as string,
+      args.edge_type as string | undefined
+    )
     // Every id on the wire is a string, so a caller never has to cast.
     return itemEnvelope('link', {
       id: String(edge.id),

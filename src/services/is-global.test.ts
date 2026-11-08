@@ -87,7 +87,10 @@ describe('is_global — DB layer', () => {
 
 describe('is_global — service layer', () => {
   test('createThoughtWithUrlLinksService forwards is_global to the row', () => {
-    const thought = createThoughtWithUrlLinksService({ content: 'svc global create', is_global: true })
+    const thought = createThoughtWithUrlLinksService({
+      content: 'svc global create',
+      is_global: true
+    })
     expect(thought.is_global).toBe(1)
     expect(rawIsGlobal(thought.id)).toBe(1)
   })

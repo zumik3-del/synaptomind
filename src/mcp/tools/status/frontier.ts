@@ -9,8 +9,15 @@ export const frontierHandler: ActionHandler = {
     limit: z.number().int().min(1).max(50, 'frontier limit must be at most 50').optional()
   }),
   run(args: ActionArgs) {
-    const { scope, warnings, projectId } = requireEnvelopeScope(args.cwd, 'memory_status', 'frontier')
-    const { items } = getFrontierService({ project_id: projectId, k: args.limit as number | undefined })
+    const { scope, warnings, projectId } = requireEnvelopeScope(
+      args.cwd,
+      'memory_status',
+      'frontier'
+    )
+    const { items } = getFrontierService({
+      project_id: projectId,
+      k: args.limit as number | undefined
+    })
     return collectionEnvelope('frontier', items, { scope, warnings })
   }
 }

@@ -19,7 +19,9 @@ function hash(content: string, projectId: string): string {
 
 function seedWithHash(content: string, projectId: string, status: string): string {
   const id = seedThought({ content, project_id: projectId, status })
-  getDb().prepare(`UPDATE thoughts SET content_hash = ? WHERE id = ?`).run(hash(content, projectId), id)
+  getDb()
+    .prepare(`UPDATE thoughts SET content_hash = ? WHERE id = ?`)
+    .run(hash(content, projectId), id)
   return id
 }
 
@@ -43,7 +45,9 @@ describe('assertNoLiveContentConflict', () => {
   test('ignores the thought being edited itself', () => {
     const db = getDb()
     const self = seedWithHash('own content', 'p1', 'active')
-    expect(() => assertNoLiveContentConflict(db, self, hash('own content', 'p1'), 'p1', 'active')).not.toThrow()
+    expect(() =>
+      assertNoLiveContentConflict(db, self, hash('own content', 'p1'), 'p1', 'active')
+    ).not.toThrow()
   })
 
   test('an archived holder and another project do not block', () => {
@@ -52,8 +56,12 @@ describe('assertNoLiveContentConflict', () => {
     const elsewhere = seedWithHash('other project content', 'p2', 'active')
     const target = seedWithHash('mine', 'p1', 'active')
 
-    expect(() => assertNoLiveContentConflict(db, target, hash('freed content', 'p1'), 'p1', 'active')).not.toThrow()
-    expect(() => assertNoLiveContentConflict(db, target, hash('other project content', 'p1'), 'p1', 'active')).not.toThrow()
+    expect(() =>
+      assertNoLiveContentConflict(db, target, hash('freed content', 'p1'), 'p1', 'active')
+    ).not.toThrow()
+    expect(() =>
+      assertNoLiveContentConflict(db, target, hash('other project content', 'p1'), 'p1', 'active')
+    ).not.toThrow()
     expect(archived).toBeString()
     expect(elsewhere).toBeString()
   })
@@ -63,7 +71,9 @@ describe('assertNoLiveContentConflict', () => {
     seedWithHash('shared', 'p1', 'active')
     const target = seedWithHash('mine', 'p1', 'draft')
     // Archiving releases the slot, so the guard must not fire for it.
-    expect(() => assertNoLiveContentConflict(db, target, hash('shared', 'p1'), 'p1', 'archived')).not.toThrow()
+    expect(() =>
+      assertNoLiveContentConflict(db, target, hash('shared', 'p1'), 'p1', 'archived')
+    ).not.toThrow()
   })
 
   test('a NULL hash (legacy row) is not checked', () => {
@@ -83,7 +93,11 @@ describe('isContentDedupeViolation', () => {
     let thrown: unknown
     try {
       // One statement, two rows, one hash: the SQLite half of the invariant.
-      db.prepare(`UPDATE thoughts SET content_hash = ? WHERE id IN (?, ?)`).run(hash('collision', 'p1'), first, second)
+      db.prepare(`UPDATE thoughts SET content_hash = ? WHERE id IN (?, ?)`).run(
+        hash('collision', 'p1'),
+        first,
+        second
+      )
     } catch (err) {
       thrown = err
     }
@@ -93,13 +107,16 @@ describe('isContentDedupeViolation', () => {
 
   test('any other constraint fault stays a plain error', () => {
     const uniqueOther = Object.assign(new Error('UNIQUE constraint failed: thoughts.id'), {
-      code: 'SQLITE_CONSTRAINT_UNIQUE',
+      code: 'SQLITE_CONSTRAINT_UNIQUE'
     })
     expect(isContentDedupeViolation(uniqueOther)).toBeFalse()
 
-    const wrongCode = Object.assign(new Error('UNIQUE constraint failed: thoughts.content_hash, thoughts.project_id'), {
-      code: 'SQLITE_CONSTRAINT_CHECK',
-    })
+    const wrongCode = Object.assign(
+      new Error('UNIQUE constraint failed: thoughts.content_hash, thoughts.project_id'),
+      {
+        code: 'SQLITE_CONSTRAINT_CHECK'
+      }
+    )
     expect(isContentDedupeViolation(wrongCode)).toBeFalse()
 
     expect(isContentDedupeViolation(new Error('disk I/O error'))).toBeFalse()

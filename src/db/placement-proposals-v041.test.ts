@@ -7,7 +7,7 @@ import {
   insertProposal,
   listProposals,
   type InsertProposalInput,
-  updateProposalState,
+  updateProposalState
 } from './placement-proposals'
 
 beforeEach(createTestDb)
@@ -23,7 +23,7 @@ function makeInput(overrides?: Partial<InsertProposalInput>): InsertProposalInpu
     rationale: overrides?.rationale ?? 'test rationale',
     payload: overrides?.payload ?? JSON.stringify({ foo: 'bar' }),
     fingerprint: overrides?.fingerprint ?? 'fp-1',
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -31,26 +31,23 @@ function makeInput(overrides?: Partial<InsertProposalInput>): InsertProposalInpu
 
 test('v041: run_id column present on placement_proposals after fresh migration', () => {
   const db = getDb()
-  const cols = db
-    .prepare(`PRAGMA table_info(placement_proposals)`)
-    .all() as { name: string }[]
-  expect(cols.map((c) => c.name)).toContain('run_id')
+  const cols = db.prepare(`PRAGMA table_info(placement_proposals)`).all() as { name: string }[]
+  expect(cols.map(c => c.name)).toContain('run_id')
 })
 
 test('v041: idx_pp_run index exists after fresh migration', () => {
   const db = getDb()
-  const indexes = db
-    .prepare(`PRAGMA index_list('placement_proposals')`)
-    .all() as { name: string }[]
-  expect(indexes.map((i) => i.name)).toContain('idx_pp_run')
+  const indexes = db.prepare(`PRAGMA index_list('placement_proposals')`).all() as { name: string }[]
+  expect(indexes.map(i => i.name)).toContain('idx_pp_run')
 })
 
 test('v041: idx_pp_run covers (run_id, state) columns', () => {
   const db = getDb()
-  const info = db
-    .prepare(`PRAGMA index_info('idx_pp_run')`)
-    .all() as { cid: number; name: string }[]
-  const colNames = info.map((i) => i.name)
+  const info = db.prepare(`PRAGMA index_info('idx_pp_run')`).all() as {
+    cid: number
+    name: string
+  }[]
+  const colNames = info.map(i => i.name)
   expect(colNames).toContain('run_id')
   expect(colNames).toContain('state')
   expect(info).toHaveLength(2)
@@ -58,9 +55,9 @@ test('v041: idx_pp_run covers (run_id, state) columns', () => {
 
 test('v041: schema_version is 41 after fresh init', () => {
   const db = getDb()
-  const row = db
-    .prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`)
-    .get() as { value: string } | undefined
+  const row = db.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
+    | { value: string }
+    | undefined
   expect(row?.value).toBe('47')
 })
 
@@ -69,30 +66,28 @@ test('v041: schema_version is 41 after fresh init', () => {
 test('v041: re-running init on same in-memory DB is idempotent', () => {
   const db = getDb()
   // Save the schema version before re-init
-  const before = db
-    .prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`)
-    .get() as { value: string } | undefined
+  const before = db.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
+    | { value: string }
+    | undefined
   expect(before?.value).toBe('47')
 
   // Re-initialize with the same :memory: path — this should not throw
   // and should leave schema intact.
   initDb({ dbPath: ':memory:', runMigrations: true })
   const db2 = getDb()
-  const after = db2
-    .prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`)
-    .get() as { value: string } | undefined
+  const after = db2.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
+    | { value: string }
+    | undefined
   expect(after?.value).toBe('47')
 
   // run_id column still present
-  const cols = db2
-    .prepare(`PRAGMA table_info(placement_proposals)`)
-    .all() as { name: string }[]
-  expect(cols.map((c) => c.name)).toContain('run_id')
+  const cols = db2.prepare(`PRAGMA table_info(placement_proposals)`).all() as { name: string }[]
+  expect(cols.map(c => c.name)).toContain('run_id')
   // index still present
-  const indexes = db2
-    .prepare(`PRAGMA index_list('placement_proposals')`)
-    .all() as { name: string }[]
-  expect(indexes.map((i) => i.name)).toContain('idx_pp_run')
+  const indexes = db2.prepare(`PRAGMA index_list('placement_proposals')`).all() as {
+    name: string
+  }[]
+  expect(indexes.map(i => i.name)).toContain('idx_pp_run')
 })
 
 // ── run_id persistence via insertProposal ────────────────────────────────────
@@ -126,7 +121,7 @@ test('v041: distinct run_id does NOT create a second live pending row for the sa
     rationale: 'dedup test',
     payload: '{"d":1}',
     fingerprint: 'fp-dedup',
-    expires_at: null,
+    expires_at: null
   }
   const first = insertProposal(db, { ...input, run_id: 'run-1' })
   const second = insertProposal(db, { ...input, run_id: 'run-2' })
@@ -135,7 +130,9 @@ test('v041: distinct run_id does NOT create a second live pending row for the sa
   // run_id is NOT updated on the refresh path (only payload/fingerprint/etc.)
   expect(first.run_id).toBe('run-1')
   // Only one row exists total
-  expect(db.prepare('SELECT COUNT(*) AS c FROM placement_proposals').get() as { c: number }).toEqual({ c: 1 })
+  expect(
+    db.prepare('SELECT COUNT(*) AS c FROM placement_proposals').get() as { c: number }
+  ).toEqual({ c: 1 })
 })
 
 // ── updateProposalState: run_id COALESCE behavior ────────────────────────────
@@ -192,7 +189,9 @@ test('v041: a retired triage_archive row stays readable without a migration', ()
 
   const row = getProposal(getDb(), 'retired-archive')
   expect(row!.item_kind).toBe('triage_archive')
-  expect(listProposals(getDb(), { state: 'accepted', item_kind: 'triage_archive' }).map(r => r.id)).toEqual(['retired-archive'])
+  expect(
+    listProposals(getDb(), { state: 'accepted', item_kind: 'triage_archive' }).map(r => r.id)
+  ).toEqual(['retired-archive'])
 })
 
 // ── new ProposalState value round-trips ──────────────────────────────────────
@@ -202,8 +201,8 @@ test('v041: rolled_back state round-trips through update/list', () => {
   const row = insertProposal(db, makeInput())
   const updated = updateProposalState(db, row.id, { state: 'rolled_back' })
   expect(updated!.state).toBe('rolled_back')
-  const found = db
-    .prepare("SELECT state FROM placement_proposals WHERE id = ?")
-    .get(row.id) as { state: string }
+  const found = db.prepare('SELECT state FROM placement_proposals WHERE id = ?').get(row.id) as {
+    state: string
+  }
   expect(found.state).toBe('rolled_back')
 })

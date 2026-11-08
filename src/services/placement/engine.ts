@@ -82,7 +82,12 @@ export interface PlacementPlanDeps {
  * built from `content`. Throws only on invalid *input* (missing thought, bad
  * arguments) — never on an embedder failure.
  */
-function resolveThought(input: PlacementPlanInput, options: PlacementPlanOptions, d: Database, now: string): Thought {
+function resolveThought(
+  input: PlacementPlanInput,
+  options: PlacementPlanOptions,
+  d: Database,
+  now: string
+): Thought {
   if (input.thoughtId !== undefined) {
     const thought = getThoughtRow(d, input.thoughtId)
     if (!thought) throw new NotFoundError(`Thought '${input.thoughtId}' not found`)
@@ -143,7 +148,8 @@ export async function proposePlacementPlan(
     }
   }
 
-  const { projectId, maxClusterSize, minSimilarity, topK, maxCandidates } = resolvePlacementBaseOptions(options, thought)
+  const { projectId, maxClusterSize, minSimilarity, topK, maxCandidates } =
+    resolvePlacementBaseOptions(options, thought)
   const maxProposals = options.maxProposals ?? config.edgeDetect.maxProposals
   const embed = deps.embed ?? generateEmbeddings
 
@@ -184,13 +190,20 @@ export async function proposePlacementPlan(
 
   const edges: EdgeProposal[] = []
   if (!degraded) {
-    const excluded = getEdgePairKeys(d, pool.map(t => t.id))
+    const excluded = getEdgePairKeys(
+      d,
+      pool.map(t => t.id)
+    )
     // One batched standing lookup for the source and every candidate, hoisted
     // out of the pair loop (2 queries total instead of 2 per pair).
     const standing = annotateGraphStanding(d, [thought.id, ...pool.map(t => t.id)])
     for (const pair of pairs) {
       const otherId =
-        pair.source_id === thought.id ? pair.target_id : pair.target_id === thought.id ? pair.source_id : undefined
+        pair.source_id === thought.id
+          ? pair.target_id
+          : pair.target_id === thought.id
+            ? pair.source_id
+            : undefined
       if (otherId === undefined) continue
       const key = pairKey(thought.id, otherId)
       if (excluded.has(key)) continue

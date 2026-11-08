@@ -34,10 +34,20 @@ interface StagedEval {
 interface Report {
   regressions: Array<Record<string, unknown>>
   /** Ungated pass (the one thresholds and the exit code gate on). */
-  relevanceGate?: { minRelevance: number; candidates: number; droppedRows: number; queriesWithDrops: number }
+  relevanceGate?: {
+    minRelevance: number
+    candidates: number
+    droppedRows: number
+    queriesWithDrops: number
+  }
   /** Report-only gated pass (task #2191). */
   gated?: {
-    relevanceGate?: { minRelevance: number; candidates: number; droppedRows: number; queriesWithDrops: number }
+    relevanceGate?: {
+      minRelevance: number
+      candidates: number
+      droppedRows: number
+      queriesWithDrops: number
+    }
   }
 }
 
@@ -78,12 +88,16 @@ function runCli(
   args: string[] = [],
   env: Record<string, string> = {}
 ): { status: number | null; output: string } {
-  const res = spawnSync('bun', ['run', join(staged.dir, 'index.ts'), ...args, '--out', staged.out], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    timeout: 180_000,
-    env: { ...process.env, ...env }
-  })
+  const res = spawnSync(
+    'bun',
+    ['run', join(staged.dir, 'index.ts'), ...args, '--out', staged.out],
+    {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      timeout: 180_000,
+      env: { ...process.env, ...env }
+    }
+  )
   return { status: res.status, output: `${res.stdout ?? ''}\n${res.stderr ?? ''}` }
 }
 

@@ -76,7 +76,8 @@ function clampRecencyWeight(value: number | undefined): number {
 }
 
 function clampRecencyHalfLifeDays(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value) || value <= 0) return DEFAULT_RECENCY_HALF_LIFE_DAYS
+  if (value === undefined || !Number.isFinite(value) || value <= 0)
+    return DEFAULT_RECENCY_HALF_LIFE_DAYS
   return Math.min(Math.max(value, MIN_RECENCY_HALF_LIFE_DAYS), MAX_RECENCY_HALF_LIFE_DAYS)
 }
 
@@ -111,7 +112,9 @@ export function normalizeSearchOptions(options: SearchServiceOptions): Normalize
   // `undefined` = caller did not choose → the measured default gate applies;
   // an explicit `0` = caller asked for the pre-#2178 fail-open result set.
   const minRelevance =
-    options.minRelevance === undefined ? DEFAULT_MIN_RELEVANCE : clampUnitInterval(options.minRelevance)
+    options.minRelevance === undefined
+      ? DEFAULT_MIN_RELEVANCE
+      : clampUnitInterval(options.minRelevance)
   const confidenceFloor =
     options.confidenceFloor !== undefined
       ? clampUnitInterval(options.confidenceFloor)

@@ -10,7 +10,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
-  writeFileSync,
+  writeFileSync
 } from 'node:fs'
 import { join } from 'node:path'
 import { guardRealStateDir, installCleanup, mkTempTree } from './tmp-fixtures'
@@ -115,8 +115,8 @@ function seed(opts: { kind?: Kind; broken?: string } = {}): Fixture {
       opts.broken
         ? `case " $* " in *" ${opts.broken} "*) echo "stub: ${opts.broken} failed" >&2; exit 1 ;; esac`
         : ':',
-      'exec "$@"',
-    ].join('\n'),
+      'exec "$@"'
+    ].join('\n')
   )
   chmodSync(join(stubs, 'sudo'), 0o755)
   return { root, unitFile, src, stubs, target }
@@ -127,11 +127,15 @@ function write(fx: Fixture, mode?: string) {
   // MODE is passed as a third ARGUMENT only when the caller supplies one, the
   // way install.sh and update.sh call it (they inherit the mode instead).
   const script = '. "$1"\nwrite_file_atomically "$2" "$3" ' + (mode ? '"$4"' : '')
-  const res = spawnSync('bash', ['-c', script, 'write_file_atomically', LIB, fx.unitFile, fx.src, ...(mode ? [mode] : [])], {
-    encoding: 'utf8',
-    env: { ...process.env, PATH: `${fx.stubs}:${process.env.PATH}`, APP_NAME: APP },
-    timeout: 30_000,
-  })
+  const res = spawnSync(
+    'bash',
+    ['-c', script, 'write_file_atomically', LIB, fx.unitFile, fx.src, ...(mode ? [mode] : [])],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${fx.stubs}:${process.env.PATH}`, APP_NAME: APP },
+      timeout: 30_000
+    }
+  )
   return { status: res.status, stdout: res.stdout, stderr: res.stderr }
 }
 
@@ -145,7 +149,7 @@ function destState(fx: Fixture): 'absent' | 'dangling link' | 'file' {
 
 /** Staging litter in the destination's directory (a name systemd never loads). */
 function leftovers(fx: Fixture): string[] {
-  return readdirSync(join(fx.root, 'unit')).filter((f) => f.includes('.new.'))
+  return readdirSync(join(fx.root, 'unit')).filter(f => f.includes('.new.'))
 }
 
 const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
@@ -162,12 +166,14 @@ describe.skipIf(isRoot)('write_file_atomically — the destination is never abse
         // THE INVARIANT. Not "the write failed" — the destination is still
         // there, exactly as the run found it.
         expect(destState(fx), `${broken}: the destination must not pass through absent`).toBe(
-          'dangling link',
+          'dangling link'
         )
         // And the report says what is really there, not "it does not exist".
-        expect(res.stderr, `${broken}: the report must name the real state`).toContain('dangling link')
+        expect(res.stderr, `${broken}: the report must name the real state`).toContain(
+          'dangling link'
+        )
         expect(res.stderr, `${broken}: it must not claim the file is gone`).not.toContain(
-          'it does not exist',
+          'it does not exist'
         )
         expect(leftovers(fx), `${broken}: no staging litter`).toEqual([])
       } finally {
@@ -184,7 +190,9 @@ describe.skipIf(isRoot)('write_file_atomically — the destination is never abse
       try {
         const res = write(fx)
         expect(res.status, `${broken}: the write must be refused`).not.toBe(0)
-        expect(destState(fx), `${broken}: the destination must not pass through absent`).toBe('file')
+        expect(destState(fx), `${broken}: the destination must not pass through absent`).toBe(
+          'file'
+        )
         expect(readFileSync(fx.unitFile, 'utf8'), `${broken}: byte-identical`).toBe(OLD_UNIT)
         expect(leftovers(fx), `${broken}: no staging litter`).toEqual([])
       } finally {

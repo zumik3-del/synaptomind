@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { z } from 'zod/v4'
-import { InMemoryTransport, McpServer as SdkMcpServer } from "@modelcontextprotocol/server";
-import type { McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer as SdkMcpServer } from '@modelcontextprotocol/server'
+import type { McpServer } from '@modelcontextprotocol/server'
 import { Client } from '@modelcontextprotocol/client'
 import { closeDb } from '../../db/init'
 import { createTestDb, seedThought } from '../../test/helpers'
@@ -48,10 +48,16 @@ function parseResult(result: unknown): { text: string; isError: boolean } {
 }
 
 /** Wrap a register function in a fake server and return the registered callback. */
-function captureTool(register: (server: McpServer) => void): (args: Record<string, unknown>) => Promise<unknown> {
+function captureTool(
+  register: (server: McpServer) => void
+): (args: Record<string, unknown>) => Promise<unknown> {
   let handler: ((args: Record<string, unknown>) => Promise<unknown>) | undefined
   const fakeServer = {
-    registerTool: (_name: string, _config: unknown, cb: (args: Record<string, unknown>) => Promise<unknown>) => {
+    registerTool: (
+      _name: string,
+      _config: unknown,
+      cb: (args: Record<string, unknown>) => Promise<unknown>
+    ) => {
       handler = cb
       return { enable: () => {}, disable: () => {}, remove: () => {} }
     }
@@ -74,7 +80,10 @@ const demoConfig: ActionToolConfig = {
       run: () => ({ ok: true })
     },
     passthrough: {
-      run: () => ({ content: [{ type: 'text' as const, text: 'raw text' }], structuredContent: { result: 'raw text' } })
+      run: () => ({
+        content: [{ type: 'text' as const, text: 'raw text' }],
+        structuredContent: { result: 'raw text' }
+      })
     },
     boom: {
       run: () => {
@@ -118,10 +127,19 @@ describe('registerActionTool dispatch mechanics', () => {
   })
 
   test('multiple action validation issues are joined in schema order', async () => {
-    const handler = captureTool(server => registerActionTool(server, {
-      name: 'multi', description: 'validation probe', inputSchema: { action: z.string() },
-      handlers: { check: { input: z.object({ a: z.string('first issue'), b: z.number('second issue') }), run: () => ({ ok: true }) } }
-    }))
+    const handler = captureTool(server =>
+      registerActionTool(server, {
+        name: 'multi',
+        description: 'validation probe',
+        inputSchema: { action: z.string() },
+        handlers: {
+          check: {
+            input: z.object({ a: z.string('first issue'), b: z.number('second issue') }),
+            run: () => ({ ok: true })
+          }
+        }
+      })
+    )
     const result = (await handler({ action: 'check', a: 1, b: 'x' })) as ToolResult
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toBe('first issue; second issue')
@@ -221,16 +239,35 @@ const KNOWN_ACTION_CASES: Array<{
   tool: string
   args: () => Record<string, unknown>
 }> = [
-  { label: 'memory_recall search', tool: 'memory_recall', args: () => ({ action: 'search', query: 'known action marker', cwd: '/tmp/mcp-unscoped' }) },
+  {
+    label: 'memory_recall search',
+    tool: 'memory_recall',
+    args: () => ({ action: 'search', query: 'known action marker', cwd: '/tmp/mcp-unscoped' })
+  },
   {
     label: 'memory_supersede archive',
     tool: 'memory_supersede',
-    args: () => ({ action: 'archive', thought_id: seedThought({ content: 'archive dispatch probe' }) })
+    args: () => ({
+      action: 'archive',
+      thought_id: seedThought({ content: 'archive dispatch probe' })
+    })
   },
-  { label: 'memory_status slots', tool: 'memory_status', args: () => ({ action: 'slots', cwd: '/tmp/mcp-unscoped' }) },
+  {
+    label: 'memory_status slots',
+    tool: 'memory_status',
+    args: () => ({ action: 'slots', cwd: '/tmp/mcp-unscoped' })
+  },
   { label: 'memory_manage list', tool: 'memory_manage', args: () => ({ action: 'list' }) },
-  { label: 'memory_crystallize graph', tool: 'memory_crystallize', args: () => ({ action: 'graph' }) },
-  { label: 'memory_reflect timeline', tool: 'memory_reflect', args: () => ({ action: 'timeline', cwd: '/tmp/mcp-unscoped' }) },
+  {
+    label: 'memory_crystallize graph',
+    tool: 'memory_crystallize',
+    args: () => ({ action: 'graph' })
+  },
+  {
+    label: 'memory_reflect timeline',
+    tool: 'memory_reflect',
+    args: () => ({ action: 'timeline', cwd: '/tmp/mcp-unscoped' })
+  },
   { label: 'memory_primers list', tool: 'memory_primers', args: () => ({ action: 'list' }) }
 ]
 
@@ -249,7 +286,10 @@ describe('known action routes to a handler on every action tool', () => {
 describe('unknown action returns a structured error on every action tool', () => {
   for (const { name } of ACTION_REGISTRARS) {
     test(name, async () => {
-      const result = await client.callTool({ name, arguments: { action: 'definitely_not_an_action' } })
+      const result = await client.callTool({
+        name,
+        arguments: { action: 'definitely_not_an_action' }
+      })
       const { text, isError } = parseResult(result)
 
       expect(isError).toBe(true)
@@ -260,14 +300,60 @@ describe('unknown action returns a structured error on every action tool', () =>
 
 // ── Action-conditional required fields through the public surface ────────────
 
-const REQUIRED_FIELD_CASES: Array<{ label: string; tool: string; args: Record<string, unknown>; message: string }> = [
-  { label: 'recall get', tool: 'memory_recall', args: { action: 'get' }, message: 'thought_id is required for get action' },
-  { label: 'recall search', tool: 'memory_recall', args: { action: 'search' }, message: 'query is required for search action' },
-  { label: 'recall context', tool: 'memory_recall', args: { action: 'context' }, message: 'query or thought_id is required for context action' },  { label: 'recall chain', tool: 'memory_recall', args: { action: 'chain' }, message: 'thought_id is required for chain action' },
-  { label: 'recall clusters', tool: 'memory_recall', args: { action: 'clusters' }, message: 'query is required for clusters action' },
-  { label: 'store create', tool: 'memory_store', args: { action: 'create' }, message: 'content is required for create action' },
-  { label: 'store update', tool: 'memory_store', args: { action: 'update' }, message: 'thought_id is required for update action' },
-  { label: 'store link', tool: 'memory_store', args: { action: 'link' }, message: 'source_id is required for link action' },
+const REQUIRED_FIELD_CASES: Array<{
+  label: string
+  tool: string
+  args: Record<string, unknown>
+  message: string
+}> = [
+  {
+    label: 'recall get',
+    tool: 'memory_recall',
+    args: { action: 'get' },
+    message: 'thought_id is required for get action'
+  },
+  {
+    label: 'recall search',
+    tool: 'memory_recall',
+    args: { action: 'search' },
+    message: 'query is required for search action'
+  },
+  {
+    label: 'recall context',
+    tool: 'memory_recall',
+    args: { action: 'context' },
+    message: 'query or thought_id is required for context action'
+  },
+  {
+    label: 'recall chain',
+    tool: 'memory_recall',
+    args: { action: 'chain' },
+    message: 'thought_id is required for chain action'
+  },
+  {
+    label: 'recall clusters',
+    tool: 'memory_recall',
+    args: { action: 'clusters' },
+    message: 'query is required for clusters action'
+  },
+  {
+    label: 'store create',
+    tool: 'memory_store',
+    args: { action: 'create' },
+    message: 'content is required for create action'
+  },
+  {
+    label: 'store update',
+    tool: 'memory_store',
+    args: { action: 'update' },
+    message: 'thought_id is required for update action'
+  },
+  {
+    label: 'store link',
+    tool: 'memory_store',
+    args: { action: 'link' },
+    message: 'source_id is required for link action'
+  },
   {
     label: 'supersede archive',
     tool: 'memory_supersede',
@@ -280,7 +366,12 @@ const REQUIRED_FIELD_CASES: Array<{ label: string; tool: string; args: Record<st
     args: { action: 'merge' },
     message: 'source_id is required for merge action'
   },
-  { label: 'manage create', tool: 'memory_manage', args: { action: 'create' }, message: 'name is required for create action' },
+  {
+    label: 'manage create',
+    tool: 'memory_manage',
+    args: { action: 'create' },
+    message: 'name is required for create action'
+  },
   {
     label: 'manage update',
     tool: 'memory_manage',
@@ -293,7 +384,12 @@ const REQUIRED_FIELD_CASES: Array<{ label: string; tool: string; args: Record<st
     args: { action: 'delete' },
     message: 'project_id is required for delete action'
   },
-  { label: 'manage resolve', tool: 'memory_manage', args: { action: 'resolve' }, message: 'cwd is required for resolve action' },
+  {
+    label: 'manage resolve',
+    tool: 'memory_manage',
+    args: { action: 'resolve' },
+    message: 'cwd is required for resolve action'
+  },
   {
     label: 'crystallize cluster',
     tool: 'memory_crystallize',
@@ -331,7 +427,11 @@ describe('store update status enum keeps one message per invalid value', () => {
   const storeDispatch = () => captureTool(registerMemoryStore)
 
   test('a bogus status gets the generic enum error, not the archived guidance', async () => {
-    const result = (await storeDispatch()({ action: 'update', thought_id: 'irrelevant', status: 'bogus' })) as ToolResult
+    const result = (await storeDispatch()({
+      action: 'update',
+      thought_id: 'irrelevant',
+      status: 'bogus'
+    })) as ToolResult
     const { text, isError } = parseResult(result)
 
     expect(isError).toBe(true)
@@ -342,7 +442,11 @@ describe('store update status enum keeps one message per invalid value', () => {
   })
 
   test('status=archived still names the supersede archive path', async () => {
-    const result = (await storeDispatch()({ action: 'update', thought_id: 'irrelevant', status: 'archived' })) as ToolResult
+    const result = (await storeDispatch()({
+      action: 'update',
+      thought_id: 'irrelevant',
+      status: 'archived'
+    })) as ToolResult
     const { text, isError } = parseResult(result)
 
     expect(isError).toBe(true)
@@ -356,7 +460,10 @@ describe('store update status enum keeps one message per invalid value', () => {
 
 describe('memory_status action=config raw-text passthrough', () => {
   test('returns the raw config text as both content and structuredContent.result', async () => {
-    const result = (await client.callTool({ name: 'memory_status', arguments: { action: 'config' } })) as ToolResult
+    const result = (await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'config' }
+    })) as ToolResult
 
     expect(result.isError).not.toBe(true)
     expect(result.content).toHaveLength(1)
@@ -366,7 +473,10 @@ describe('memory_status action=config raw-text passthrough', () => {
     expect(result.content[0].text).toContain('SynaptoMind Configuration')
     // The content channel stays raw; the structured channel carries the shared
     // envelope with the same text in `item.text` (task #2179).
-    const envelope = result.structuredContent?.result as { item: { text: string }; meta: { action: string } }
+    const envelope = result.structuredContent?.result as {
+      item: { text: string }
+      meta: { action: string }
+    }
     expect(envelope.item.text).toBe(result.content[0].text)
     expect(envelope.meta.action).toBe('config')
   })

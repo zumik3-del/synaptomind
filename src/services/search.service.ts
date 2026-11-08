@@ -7,7 +7,13 @@ import type { Thought } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
 import { generateEmbedding } from '../embedder/client'
 import { parseTags } from '../utils'
-import { type IdLookup, idNotFoundWarning, keepsUnderRelevanceGate, runIdLookup, type SearchOutcome } from './search-outcome.service'
+import {
+  type IdLookup,
+  idNotFoundWarning,
+  keepsUnderRelevanceGate,
+  runIdLookup,
+  type SearchOutcome
+} from './search-outcome.service'
 import { normalizeSearchOptions, type NormalizedSearchOptions } from './search-normalize.service'
 import { applyGraphStanding } from './search-standing.service'
 import { calibrateRelevance } from './text-similarity.service'
@@ -16,7 +22,9 @@ export type { SearchOutcome, SearchOutcomeReason } from './search-outcome.servic
 
 const EMBEDDING_TIMEOUT_MS = 5_000
 
-async function generateEmbeddingWithFallback(query: string): Promise<{ embedding: Float32Array; degraded: boolean }> {
+async function generateEmbeddingWithFallback(
+  query: string
+): Promise<{ embedding: Float32Array; degraded: boolean }> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const embedding = await Promise.race([
@@ -27,7 +35,10 @@ async function generateEmbeddingWithFallback(query: string): Promise<{ embedding
     ])
     return { embedding, degraded: false }
   } catch (err) {
-    console.error('[search] embedding generation failed, falling back to BM25:', err instanceof Error ? err.message : err)
+    console.error(
+      '[search] embedding generation failed, falling back to BM25:',
+      err instanceof Error ? err.message : err
+    )
     return { embedding: new Float32Array(0), degraded: true }
   } finally {
     if (timer) clearTimeout(timer)
@@ -154,9 +165,7 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
     }
   }
 
-  const filtered = options.tagFilter
-    ? filterByTags(dbResults, options.tagFilter, d)
-    : dbResults
+  const filtered = options.tagFilter ? filterByTags(dbResults, options.tagFilter, d) : dbResults
   const standing = applyGraphStanding(filtered, options, d)
   // Gate after standing annotation (a suppressed row is already gone) and
   // before the final `topK` slice; the DB-slice overfetch above backfills it.
@@ -222,7 +231,10 @@ function resolveIdLookup(
   }
 }
 
-export async function searchThoughts(options: SearchServiceOptions, d: Database = getDb()): Promise<SearchResult[]> {
+export async function searchThoughts(
+  options: SearchServiceOptions,
+  d: Database = getDb()
+): Promise<SearchResult[]> {
   const { items, degraded } = await runSearch(options, d)
   // Preserve a top-level degraded flag for empty result sets (consumed by
   // getContextService and other in-process callers; not an array own-property
@@ -249,7 +261,10 @@ export async function searchThoughtsOutcome(
 function filterByTags(results: SearchResult[], tagFilter: string, d: Database): SearchResult[] {
   const tagNames = parseTags(tagFilter)
   if (!tagNames || tagNames.length === 0) return results
-  const tagMap = getThoughtTagsBatch(d, results.map(r => r.thought.id))
+  const tagMap = getThoughtTagsBatch(
+    d,
+    results.map(r => r.thought.id)
+  )
   return results.filter(r => {
     const tags = tagMap.get(r.thought.id) ?? []
     const thoughtTagNames = new Set(tags.map(t => t.name.toLowerCase()))
@@ -257,11 +272,17 @@ function filterByTags(results: SearchResult[], tagFilter: string, d: Database): 
   })
 }
 
-export function groupResultsByCluster(results: SearchResult[], d: Database = getDb()): GroupedResult[] {
+export function groupResultsByCluster(
+  results: SearchResult[],
+  d: Database = getDb()
+): GroupedResult[] {
   const clusterMap = new Map<string, SearchResult[]>()
   const nonCluster: SearchResult[] = []
 
-  const clusterByThought = getClusterForThoughtBatch(d, results.map(r => r.thought.id))
+  const clusterByThought = getClusterForThoughtBatch(
+    d,
+    results.map(r => r.thought.id)
+  )
 
   // `getClusterForThoughtBatch` already returns the cluster Thought objects, so
   // build a lookup by cluster id and avoid a second SELECT per cluster below.

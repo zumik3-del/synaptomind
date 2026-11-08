@@ -74,7 +74,6 @@ export function clearHealthProbeCache(): void {
   lastRegistryFingerprint = registryFingerprint()
 }
 
-
 function collectDatabases(d?: Database): Array<{ userId?: string; db: Database }> {
   invalidateCacheIfRegistryChanged()
   if (registry.size > 0) {

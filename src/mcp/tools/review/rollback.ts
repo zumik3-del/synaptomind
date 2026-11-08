@@ -1,7 +1,10 @@
 import { z } from 'zod/v4'
 import { rollbackService as rollbackRun } from '../../../services/placement-rollback.service'
 import { listAcceptedProposalsByRunService } from '../../../services/placement-proposals.service'
-import { createPreviewTokenService, consumePreviewTokenService } from '../../../services/preview-tokens.service'
+import {
+  createPreviewTokenService,
+  consumePreviewTokenService
+} from '../../../services/preview-tokens.service'
 import { collectionEnvelope } from '../envelope'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 import { AGENT } from './apply'
@@ -18,7 +21,10 @@ function rollbackFingerprint(runId: string, rows: { id: string; state: string }[
  * the caller supplies it, so it is already known.
  */
 export const rollbackHandler: ActionHandler = {
-  input: z.object({ run_id: requiredString('run_id is required for rollback action'), preview_token: z.string().optional() }),
+  input: z.object({
+    run_id: requiredString('run_id is required for rollback action'),
+    preview_token: z.string().optional()
+  }),
   run(args: ActionArgs) {
     const runId = args.run_id as string
     const confirm = args.confirm === true
@@ -41,6 +47,9 @@ export const rollbackHandler: ActionHandler = {
     if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
 
     const report = rollbackRun(runId, { confirm: true, decidedBy: AGENT })
-    return collectionEnvelope('rollback', report.items, { total: report.items.length, counts: report.summary })
+    return collectionEnvelope('rollback', report.items, {
+      total: report.items.length,
+      counts: report.summary
+    })
   }
 }

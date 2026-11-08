@@ -27,11 +27,15 @@ const DIMENSIONS = config.embedder.dimensions
 function seedUserDb(path: string, contents: string[]): void {
   const db = openDatabase({ dbPath: path, runMigrations: true })
   const now = new Date().toISOString()
-  db.run('INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, ?, ?)', ['default', 'Default', now])
+  db.run('INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, ?, ?)', [
+    'default',
+    'Default',
+    now
+  ])
   for (const content of contents) {
     db.run(
       'INSERT INTO thoughts (id, content, status, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [Bun.randomUUIDv7(), content, 'active', 'default', now, now],
+      [Bun.randomUUIDv7(), content, 'active', 'default', now, now]
     )
   }
   db.close(true)
@@ -44,7 +48,7 @@ seedUserDb(healthyPath, ['healthy-private-marker-1', 'healthy-private-marker-2']
 
 config.users = [
   { id: 'broken', dbPath: brokenPath, tokenSha256: '0'.repeat(64) },
-  { id: 'healthy', dbPath: healthyPath, tokenSha256: '1'.repeat(64) },
+  { id: 'healthy', dbPath: healthyPath, tokenSha256: '1'.repeat(64) }
 ]
 config.embedder.pollIntervalMs = 10
 config.embedder.batchSize = 10
@@ -71,7 +75,7 @@ mock.module('./model', () => ({
       v[0] = 0.5
       return v
     }),
-  resetExtractor: () => {},
+  resetExtractor: () => {}
 }))
 
 await import('./embedder-process')
@@ -101,8 +105,9 @@ function counts(path: string): Counts {
     db.loadExtension(vec0Path())
     const pending = db.query('SELECT count(*) AS n FROM pending_embeddings').get() as { n: number }
     const vectors = db.query('SELECT count(*) AS n FROM vec_thoughts').get() as { n: number }
-    const contents = (db.query('SELECT content FROM thoughts ORDER BY content').all() as Array<{ content: string }>)
-      .map(r => r.content)
+    const contents = (
+      db.query('SELECT content FROM thoughts ORDER BY content').all() as Array<{ content: string }>
+    ).map(r => r.content)
     return { pending: pending.n, vectors: vectors.n, contents }
   } finally {
     db.close()

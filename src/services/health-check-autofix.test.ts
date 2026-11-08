@@ -26,7 +26,9 @@ test('checks with autofix hook report auto_fixable=true', () => {
   const b = seedThought({ content: 'B' })
   const db = getDb()
   const edgeId = crypto.randomUUID()
-  db.prepare('INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)').run(edgeId, a, b, 'related', new Date().toISOString())
+  db.prepare(
+    'INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(edgeId, a, b, 'related', new Date().toISOString())
   db.run('PRAGMA foreign_keys = OFF')
   db.prepare('DELETE FROM thoughts WHERE id = ?').run(a)
   db.run('PRAGMA foreign_keys = ON')
@@ -53,7 +55,9 @@ test('broken_parent_chains autofix only deletes edges to archived targets', () =
   seedEdge(parent, draftChild, 'parent')
 
   // Verify both edges exist before fix.
-  const before = getDb().prepare("SELECT target_id FROM edges WHERE type = 'parent'").all() as Array<{ target_id: string }>
+  const before = getDb()
+    .prepare("SELECT target_id FROM edges WHERE type = 'parent'")
+    .all() as Array<{ target_id: string }>
   expect(before.map(r => r.target_id).sort()).toEqual([archivedChild, draftChild].sort())
 
   const _rp = runHealthRepairService()
@@ -79,7 +83,9 @@ test('empty_cluster autofix removes the empty cluster thought', () => {
   runHealthRepairService({ confirm: true, preview_token: _rp.preview_token })
 
   const db = getDb()
-  const row = db.prepare('SELECT status FROM thoughts WHERE id = ?').get(clusterId) as { status: string } | undefined
+  const row = db.prepare('SELECT status FROM thoughts WHERE id = ?').get(clusterId) as
+    | { status: string }
+    | undefined
   expect(row?.status).toBe('archived')
 })
 
@@ -88,7 +94,9 @@ test('orphan_edge autofix removes the dangling edge', () => {
   const b = seedThought({ content: 'B' })
   const db = getDb()
   const edgeId = crypto.randomUUID()
-  db.prepare('INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)').run(edgeId, a, b, 'related', new Date().toISOString())
+  db.prepare(
+    'INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(edgeId, a, b, 'related', new Date().toISOString())
   db.run('PRAGMA foreign_keys = OFF')
   db.prepare('DELETE FROM thoughts WHERE id = ?').run(a)
   db.run('PRAGMA foreign_keys = ON')

@@ -16,10 +16,10 @@ afterEach(closeDb)
 // ── time constants ────────────────────────────────────────────────────────────
 
 const NOW = '2026-01-01T00:00:00.000Z'
-const T0  = '2025-01-01T00:00:00.000Z'
-const T1  = '2025-02-01T00:00:00.000Z'
-const T2  = '2025-03-01T00:00:00.000Z'
-const T3  = '2025-04-01T00:00:00.000Z'
+const T0 = '2025-01-01T00:00:00.000Z'
+const T1 = '2025-02-01T00:00:00.000Z'
+const T2 = '2025-03-01T00:00:00.000Z'
+const T3 = '2025-04-01T00:00:00.000Z'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,9 @@ function mismatchEmbed(record?: number[]): (texts: string[]) => Promise<Float32A
 }
 
 function failEmbed(): (texts: string[]) => Promise<Float32Array[]> {
-  return async () => { throw new Error('embedder exploded') }
+  return async () => {
+    throw new Error('embedder exploded')
+  }
 }
 
 /**
@@ -53,7 +55,7 @@ function stubSearch(map: Record<string, Array<{ id: string; similarity: number }
 /** Fixture for determinism / ordering tests: four neutral thoughts. */
 function seedOrderingFixture() {
   seedThought({ id: 'd-src', content: 'neutral topic alpha', created_at: T0 })
-  seedThought({ id: 'd-a', content: 'neutral topic beta',  created_at: T1 })
+  seedThought({ id: 'd-a', content: 'neutral topic beta', created_at: T1 })
   seedThought({ id: 'd-b', content: 'neutral topic gamma', created_at: T2 })
   seedThought({ id: 'd-c', content: 'neutral topic delta', created_at: T3 })
   return {
@@ -61,10 +63,10 @@ function seedOrderingFixture() {
     search: {
       'd-src': [
         { id: 'd-c', similarity: 0.95 },
-        { id: 'd-a', similarity: 0.90 },
-        { id: 'd-b', similarity: 0.90 },
-      ],
-    },
+        { id: 'd-a', similarity: 0.9 },
+        { id: 'd-b', similarity: 0.9 }
+      ]
+    }
   }
 }
 
@@ -105,13 +107,22 @@ describe('proposePlacementPlan', () => {
     test('options.maxProposals caps the emitted edges', async () => {
       const db = getDb()
       seedThought({ id: 'cap-s', content: 'topic alpha', created_at: T0 })
-      seedThought({ id: 'cap-a', content: 'topic beta',  created_at: T0 })
+      seedThought({ id: 'cap-a', content: 'topic beta', created_at: T0 })
       seedThought({ id: 'cap-b', content: 'topic gamma', created_at: T0 })
       seedThought({ id: 'cap-c', content: 'topic delta', created_at: T0 })
       const p = await proposePlacementPlan(
         { thoughtId: 'cap-s' },
         { now: NOW, maxProposals: 2 },
-        { embed: okEmbed(), searchNeighbors: stubSearch({ 'cap-s': [{ id: 'cap-a', similarity: 0.95 }, { id: 'cap-b', similarity: 0.9 }, { id: 'cap-c', similarity: 0.85 }] }) },
+        {
+          embed: okEmbed(),
+          searchNeighbors: stubSearch({
+            'cap-s': [
+              { id: 'cap-a', similarity: 0.95 },
+              { id: 'cap-b', similarity: 0.9 },
+              { id: 'cap-c', similarity: 0.85 }
+            ]
+          })
+        },
         db
       )
       expect(p.edges).toHaveLength(2)
@@ -126,13 +137,16 @@ describe('proposePlacementPlan', () => {
     test('one plan embeds and searches each candidate exactly once', async () => {
       const db = getDb()
       seedThought({ id: 'cost-s', content: 'topic alpha', created_at: T0 })
-      seedThought({ id: 'cost-a', content: 'topic beta',  created_at: T0 })
+      seedThought({ id: 'cost-a', content: 'topic beta', created_at: T0 })
       seedThought({ id: 'cost-b', content: 'topic gamma', created_at: T0 })
 
       let searchCalls = 0
       const countingSearch = (_id: string, _emb: Float32Array, _topK: number) => {
         searchCalls++
-        return [{ id: 'cost-a', similarity: 0.9 }, { id: 'cost-b', similarity: 0.8 }]
+        return [
+          { id: 'cost-a', similarity: 0.9 },
+          { id: 'cost-b', similarity: 0.8 }
+        ]
       }
       const embedSizes: number[] = []
 
@@ -221,11 +235,18 @@ describe('proposePlacementPlan', () => {
   describe('input resolution & edge cases', () => {
     test('draft content: thought_id is the sentinel; edge source_id carries the sentinel', async () => {
       const db = getDb()
-      const tgt = seedThought({ id: 'dr-tgt', content: 'the quick brown fox jumped', created_at: T1 })
+      const tgt = seedThought({
+        id: 'dr-tgt',
+        content: 'the quick brown fox jumped',
+        created_at: T1
+      })
       const p = await proposePlacementPlan(
         { content: 'the quick brown fox', projectId: 'default' },
         { now: NOW },
-        { embed: okEmbed(), searchNeighbors: stubSearch({ [DRAFT_THOUGHT_ID]: [{ id: tgt, similarity: 0.9 }] }) },
+        {
+          embed: okEmbed(),
+          searchNeighbors: stubSearch({ [DRAFT_THOUGHT_ID]: [{ id: tgt, similarity: 0.9 }] })
+        },
         db
       )
       expect(p.thought_id).toBe(DRAFT_THOUGHT_ID)
@@ -238,24 +259,34 @@ describe('proposePlacementPlan', () => {
     })
 
     test('unknown thoughtId rejects NotFoundError', async () => {
-      await expect(proposePlacementPlan({ thoughtId: 'nonexistent-uuid-here' }, { now: NOW }, {}, getDb()))
-        .rejects.toBeInstanceOf(NotFoundError)
+      await expect(
+        proposePlacementPlan({ thoughtId: 'nonexistent-uuid-here' }, { now: NOW }, {}, getDb())
+      ).rejects.toBeInstanceOf(NotFoundError)
     })
 
     test('neither thoughtId nor content rejects ValidationError', async () => {
-      await expect(proposePlacementPlan({}, { now: NOW }, {}, getDb()))
-        .rejects.toBeInstanceOf(ValidationError)
+      await expect(proposePlacementPlan({}, { now: NOW }, {}, getDb())).rejects.toBeInstanceOf(
+        ValidationError
+      )
     })
 
     test('cluster source short-circuits to keep without embedding', async () => {
       const db = getDb()
-      const src = seedThought({ id: 'cs-src', content: 'source cluster', is_cluster: 1, created_at: T0 })
+      const src = seedThought({
+        id: 'cs-src',
+        content: 'source cluster',
+        is_cluster: 1,
+        created_at: T0
+      })
       let embedCalls = 0
       const p = await proposePlacementPlan(
         { thoughtId: src },
         { now: NOW },
         {
-          embed: async () => { embedCalls += 1; return [] },
+          embed: async () => {
+            embedCalls += 1
+            return []
+          },
           searchNeighbors: stubSearch({})
         },
         db

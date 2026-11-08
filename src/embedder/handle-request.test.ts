@@ -42,10 +42,21 @@ describe('handleEmbedderRequest', () => {
     calls.length = 0
     const { replies, send } = collect()
 
-    await handleEmbedderRequest({ id: 'r2', method: 'embed_batch', params: { texts: ['a', 'b'] } }, send, MODEL)
+    await handleEmbedderRequest(
+      { id: 'r2', method: 'embed_batch', params: { texts: ['a', 'b'] } },
+      send,
+      MODEL
+    )
 
     expect(replies).toEqual([
-      { type: 'result', id: 'r2', embedding: [[4, 5, 6], [4, 5, 6]] }
+      {
+        type: 'result',
+        id: 'r2',
+        embedding: [
+          [4, 5, 6],
+          [4, 5, 6]
+        ]
+      }
     ])
     // The batch reaches the model once, in order — not one call per text.
     expect(calls).toEqual([['a', 'b']])
@@ -68,7 +79,11 @@ describe('handleEmbedderRequest', () => {
   test('a thrown model error is reported as an error reply', async () => {
     const { replies, send } = collect()
 
-    await handleEmbedderRequest({ id: 'r4', method: 'embed', params: { text: '__fail__' } }, send, MODEL)
+    await handleEmbedderRequest(
+      { id: 'r4', method: 'embed', params: { text: '__fail__' } },
+      send,
+      MODEL
+    )
 
     expect(replies).toEqual([{ type: 'error', id: 'r4', error: 'model exploded' }])
   })

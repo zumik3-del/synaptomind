@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadFreshConfig } from './test/fresh-config'
@@ -8,13 +17,19 @@ let root = ''
 const secret = 'sensitive database contents'
 const hashes = ['a'.repeat(64), 'b'.repeat(64)]
 
-beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'synaptomind-db-identity-')) })
-afterEach(() => { rmSync(root, { recursive: true, force: true }) })
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), 'synaptomind-db-identity-'))
+})
+afterEach(() => {
+  rmSync(root, { recursive: true, force: true })
+})
 
 function load(paths: string[]) {
   return loadFreshConfig({
     env: { SYNAPTOMIND_USER_TOKEN_ALICE: undefined, SYNAPTOMIND_USER_TOKEN_BOB: undefined },
-    configFile: { users: paths.map((dbPath, i) => ({ id: ['alice', 'bob'][i], dbPath, tokenSha256: hashes[i] })) }
+    configFile: {
+      users: paths.map((dbPath, i) => ({ id: ['alice', 'bob'][i], dbPath, tokenSha256: hashes[i] }))
+    }
   })
 }
 
@@ -81,10 +96,13 @@ describe('user database filesystem identities', () => {
     const two = join(root, 'two.db')
     const result = await loadFreshConfig({
       env: { SYNAPTOMIND_USER_TOKEN_ALICE: undefined, SYNAPTOMIND_USER_TOKEN_BOB: undefined },
-      configFile: { db: { path: one }, users: [
-        { id: 'alice', dbPath: one, tokenSha256: hashes[0] },
-        { id: 'bob', dbPath: two, tokenSha256: hashes[1] }
-      ] }
+      configFile: {
+        db: { path: one },
+        users: [
+          { id: 'alice', dbPath: one, tokenSha256: hashes[0] },
+          { id: 'bob', dbPath: two, tokenSha256: hashes[1] }
+        ]
+      }
     })
     expect(result.error).toBeUndefined()
     expect(result.config?.users).toHaveLength(2)

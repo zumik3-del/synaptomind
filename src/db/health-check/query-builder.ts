@@ -22,9 +22,7 @@ export const THOUGHTS = 'thoughts t'
  * status to require it too (the active-thought finders).
  */
 export function regularThoughtsWhere(status?: ThoughtStatus): string {
-  return status === undefined
-    ? 't.is_cluster = 0'
-    : `t.is_cluster = 0 AND t.status = '${status}'`
+  return status === undefined ? 't.is_cluster = 0' : `t.is_cluster = 0 AND t.status = '${status}'`
 }
 
 /** Equality binding one edge endpoint to its thought row. */
@@ -50,11 +48,19 @@ export function noIncidentEdges(opts?: { sourceOnly?: boolean; type?: EdgeType }
 }
 
 /** JOIN clause: the thought's incident edges, optionally type-filtered. */
-export function joinIncidentEdges(opts?: { left?: boolean; sourceOnly?: boolean; type?: EdgeType }): string {
+export function joinIncidentEdges(opts?: {
+  left?: boolean
+  sourceOnly?: boolean
+  type?: EdgeType
+}): string {
   return `${opts?.left ? 'LEFT ' : ''}JOIN edges e ON ${incidentOn(opts)}`
 }
 
 /** JOIN clause binding an edge endpoint to its thought row (edge-driven). */
-export function joinEdgeEndpoint(side: 'source' | 'target', thoughtAlias: string, left = false): string {
+export function joinEdgeEndpoint(
+  side: 'source' | 'target',
+  thoughtAlias: string,
+  left = false
+): string {
   return `${left ? 'LEFT ' : ''}JOIN thoughts ${thoughtAlias} ON ${edgeEndpoint(side, thoughtAlias)}`
 }

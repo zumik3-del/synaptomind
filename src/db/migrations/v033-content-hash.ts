@@ -12,7 +12,9 @@ export default {
 
     db.run(`CREATE INDEX IF NOT EXISTS idx_thoughts_content_hash ON thoughts(content_hash)`)
 
-    const rows = db.prepare(`SELECT id, content, project_id FROM thoughts WHERE content_hash IS NULL`).all() as {
+    const rows = db
+      .prepare(`SELECT id, content, project_id FROM thoughts WHERE content_hash IS NULL`)
+      .all() as {
       id: string
       content: string
       project_id: string
@@ -20,7 +22,9 @@ export default {
 
     const update = db.prepare(`UPDATE thoughts SET content_hash = ? WHERE id = ?`)
     for (const row of rows) {
-      const hash = createHash('sha256').update(row.content + row.project_id).digest('hex')
+      const hash = createHash('sha256')
+        .update(row.content + row.project_id)
+        .digest('hex')
       update.run(hash, row.id)
     }
   }

@@ -20,7 +20,11 @@ healthCheckRouter.get('/health-check', c => {
 })
 
 healthCheckRouter.post('/health-check/repair', async c => {
-  const data = await jsonBodyOrDefault(c, {}, repairBodySchema) as { confirm?: boolean; preview_token?: string; severity?: Severity }
+  const data = (await jsonBodyOrDefault(c, {}, repairBodySchema)) as {
+    confirm?: boolean
+    preview_token?: string
+    severity?: Severity
+  }
   const result = runHealthRepairService({
     confirm: data.confirm,
     preview_token: data.preview_token,

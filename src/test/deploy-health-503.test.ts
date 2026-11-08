@@ -10,14 +10,18 @@ rc=$?
 printf '\nRESULT:%s:%s\n' "$rc" "$HEALTH_FAILURE"`
   const result = Bun.spawnSync(['bash', '-c', script], {
     env: { ...process.env, TEST_BODY: body, TEST_CODE: code, TEST_EXPECTED: expected },
-    stdout: 'pipe', stderr: 'pipe'
+    stdout: 'pipe',
+    stderr: 'pipe'
   })
   return result.stdout.toString() + result.stderr.toString()
 }
 
-const body = (version: string, embedder = 'ok') => JSON.stringify({
-  status: 'degraded', version, checks: { database: 'degraded', embedder }
-})
+const body = (version: string, embedder = 'ok') =>
+  JSON.stringify({
+    status: 'degraded',
+    version,
+    checks: { database: 'degraded', embedder }
+  })
 
 test('expected degraded 503 is accepted with warning', () => {
   const output = gate(body('1.2.3', 'not ready'))
@@ -25,9 +29,11 @@ test('expected degraded 503 is accepted with warning', () => {
   expect(output).toContain('degraded database')
 })
 test('wrong version is rejected', () => expect(gate(body('9.0.0'))).toContain('RESULT:1:version'))
-test('failed embedder is rejected', () => expect(gate(body('1.2.3', 'failed'))).toContain('RESULT:1:embedder'))
+test('failed embedder is rejected', () =>
+  expect(gate(body('1.2.3', 'failed'))).toContain('RESULT:1:embedder'))
 test('malformed and duplicate JSON are rejected', () => {
   expect(gate('{')).toContain('RESULT:1:contract')
   expect(gate('{"status":"degraded","status":"degraded"}')).toContain('RESULT:1:contract')
 })
-test('transport failure does not become success', () => expect(gate('', '000')).toContain('RESULT:1:timeout'))
+test('transport failure does not become success', () =>
+  expect(gate('', '000')).toContain('RESULT:1:timeout'))

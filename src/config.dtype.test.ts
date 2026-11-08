@@ -85,7 +85,11 @@ describe('embedder.dtype — declared contract', () => {
   test('the env override SYNAPTOMIND_EMBEDDER_DTYPE targets embedder.dtype as a string', () => {
     const mapping = ENV_MAPPINGS.find(m => m.path === 'embedder.dtype')
 
-    expect(mapping).toEqual({ env: 'SYNAPTOMIND_EMBEDDER_DTYPE', path: 'embedder.dtype', type: 'string' })
+    expect(mapping).toEqual({
+      env: 'SYNAPTOMIND_EMBEDDER_DTYPE',
+      path: 'embedder.dtype',
+      type: 'string'
+    })
   })
 })
 
@@ -98,7 +102,21 @@ describe('assertEmbedderDtype — the fail-fast gate', () => {
   // fp16 is a REAL transformers.js dtype; accepting it here would point the
   // validator at a file the fp32/q8 mapping does not describe, so the gate must
   // stay a closed set rather than "any dtype transformers knows".
-  const REJECTED: unknown[] = ['fp16', 'int8', 'FP32', 'Q8', 'q4', '', ' fp32', undefined, null, 42, true, {}, []]
+  const REJECTED: unknown[] = [
+    'fp16',
+    'int8',
+    'FP32',
+    'Q8',
+    'q4',
+    '',
+    ' fp32',
+    undefined,
+    null,
+    42,
+    true,
+    {},
+    []
+  ]
 
   test.each(REJECTED.map(value => [JSON.stringify(value) ?? String(value), value]))(
     'rejects %s, naming the value and the allowed set',

@@ -78,10 +78,7 @@ export function mainCheckoutRoot(repoRoot: string): string | null {
  * fall back to": the caller leaves the resolution alone and the suite fails
  * with the production error message.
  */
-export function resolveVec0(options: {
-  repoRoot: string
-  cwd?: string
-}): Vec0Resolution | null {
+export function resolveVec0(options: { repoRoot: string; cwd?: string }): Vec0Resolution | null {
   const { repoRoot } = options
   const cwd = options.cwd ?? repoRoot
   const cwdVec0 = join(cwd, VEC0_FILENAME)

@@ -1,10 +1,19 @@
 import { z } from 'zod/v4'
 import { deleteEdgeService, findEdgeService } from '../../../services/edges.service'
-import { createPreviewTokenService, consumePreviewTokenService } from '../../../services/preview-tokens.service'
+import {
+  createPreviewTokenService,
+  consumePreviewTokenService
+} from '../../../services/preview-tokens.service'
 import { itemEnvelope } from '../envelope'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
-function edgeFingerprint(edge: { id: string; source_id: string; target_id: string; type: string; created_at: string }): string {
+function edgeFingerprint(edge: {
+  id: string
+  source_id: string
+  target_id: string
+  type: string
+  created_at: string
+}): string {
   return `${edge.id}:${edge.source_id}:${edge.target_id}:${edge.type}:${edge.created_at}`
 }
 
@@ -29,7 +38,13 @@ export const unlinkHandler: ActionHandler = {
         {
           status: 'preview',
           edge_id: edgeId,
-          edge: { id: edge.id, source_id: edge.source_id, target_id: edge.target_id, type: edge.type, created_at: edge.created_at },
+          edge: {
+            id: edge.id,
+            source_id: edge.source_id,
+            target_id: edge.target_id,
+            type: edge.type,
+            created_at: edge.created_at
+          },
           consequence,
           preview_token: token,
           instruction
@@ -42,7 +57,12 @@ export const unlinkHandler: ActionHandler = {
     if (edge) {
       const currentFingerprint = edgeFingerprint(edge)
       if (!previewToken) throw new Error('preview_token is required')
-      const verification = consumePreviewTokenService(previewToken, 'unlink', edgeId, currentFingerprint)
+      const verification = consumePreviewTokenService(
+        previewToken,
+        'unlink',
+        edgeId,
+        currentFingerprint
+      )
       if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
     }
 

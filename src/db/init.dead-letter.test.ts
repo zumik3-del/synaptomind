@@ -23,7 +23,9 @@ function seedDeadLetter(): string {
   // the insert trigger queues the thought; turn it into a dead letter
   const id = seedThought({ content: 'poison' })
   getDb()
-    .prepare('UPDATE pending_embeddings SET is_error = 1, attempts = 10, error = ? WHERE thought_id = ?')
+    .prepare(
+      'UPDATE pending_embeddings SET is_error = 1, attempts = 10, error = ? WHERE thought_id = ?'
+    )
     .run('boom', id)
   return id
 }

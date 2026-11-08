@@ -11,7 +11,7 @@
  * ever calls it; the throw keeps that honest.
  */
 function sharpStub(): never {
-	throw new Error('sharp is not bundled in this build (text-only embeddings)')
+  throw new Error('sharp is not bundled in this build (text-only embeddings)')
 }
 
 export default sharpStub

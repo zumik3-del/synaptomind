@@ -30,7 +30,9 @@ export default {
       FROM _pe_old
     `)
     db.run(`DROP TABLE _pe_old`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_pending_embeddings_queue ON pending_embeddings(is_error, created_at)`)
+    db.run(
+      `CREATE INDEX IF NOT EXISTS idx_pending_embeddings_queue ON pending_embeddings(is_error, created_at)`
+    )
     db.exec(`
       CREATE TRIGGER trg_thoughts_insert_pending
       AFTER INSERT ON thoughts

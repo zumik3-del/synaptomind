@@ -179,7 +179,10 @@ export function findThoughtsByIdQuery(
           .all(idQuery.pattern, ...scope.params)
   ) as IdRow[]
 
-  const tagMap = getThoughtTagsBatch(db, rows.map(r => r.id))
+  const tagMap = getThoughtTagsBatch(
+    db,
+    rows.map(r => r.id)
+  )
   return rows.map(row => {
     const thought = rowToThought(row as unknown as Record<string, unknown>)
     thought.tags = tagMap.get(row.id) ?? []

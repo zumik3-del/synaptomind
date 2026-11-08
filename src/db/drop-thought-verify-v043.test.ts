@@ -16,15 +16,19 @@ beforeEach(createTestDb)
 afterEach(closeDb)
 
 function tableNames(db: Database): string[] {
-  return (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`).all() as {
-    name: string
-  }[]).map(row => row.name)
+  return (
+    db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`).all() as {
+      name: string
+    }[]
+  ).map(row => row.name)
 }
 
 function indexNames(db: Database): string[] {
-  return (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name`).all() as {
-    name: string
-  }[]).map(row => row.name)
+  return (
+    db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name`).all() as {
+      name: string
+    }[]
+  ).map(row => row.name)
 }
 
 /** The bootstrap tables `initDb` creates before the migration list runs (`init.ts`). */
@@ -39,7 +43,9 @@ function bootstrap(db: Database): void {
     target_id TEXT NOT NULL REFERENCES thoughts(id) ON DELETE CASCADE,
     type TEXT NOT NULL DEFAULT 'related', created_at TEXT NOT NULL, UNIQUE(source_id, target_id, type)
   )`)
-  db.exec(`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, created_at TEXT NOT NULL)`)
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, created_at TEXT NOT NULL)`
+  )
   db.exec(`CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)`)
 }
 

@@ -9,7 +9,7 @@
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb, closeDb } from '../../db'
 import { getEdgePairBetween } from '../../db/edges'
 import { createTestDb, seedThought, seedEdge } from '../../test/helpers'
@@ -38,7 +38,11 @@ function parseResult(result: unknown): { data: any; isError: boolean; text: stri
   const r = result as { content: Array<{ type: string; text: string }>; isError?: boolean }
   const text = r.content?.[0]?.text ?? '{}'
   let parsed: unknown = text
-  try { parsed = JSON.parse(text) } catch { /* keep text */ }
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    /* keep text */
+  }
   return { data: parsed, isError: r.isError === true, text }
 }
 
@@ -151,7 +155,12 @@ describe('memory_store unlink', () => {
     })
     await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'unlink', edge_id: edgeId, confirm: true, preview_token: parseResult(firstPreview).data.item.preview_token }
+      arguments: {
+        action: 'unlink',
+        edge_id: edgeId,
+        confirm: true,
+        preview_token: parseResult(firstPreview).data.item.preview_token
+      }
     })
 
     // Second delete — idempotent
@@ -214,7 +223,13 @@ describe('memory_store retype', () => {
     const retypeToken = parseResult(retypePreview).data.item.preview_token
     const result = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports', confirm: true, preview_token: retypeToken }
+      arguments: {
+        action: 'retype',
+        edge_id: edgeId,
+        new_type: 'supports',
+        confirm: true,
+        preview_token: retypeToken
+      }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
@@ -239,7 +254,12 @@ describe('memory_store retype', () => {
     })
     const unlink = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'unlink', edge_id: data.item.edge_id, confirm: true, preview_token: parseResult(unlinkPreview).data.item.preview_token }
+      arguments: {
+        action: 'unlink',
+        edge_id: data.item.edge_id,
+        confirm: true,
+        preview_token: parseResult(unlinkPreview).data.item.preview_token
+      }
     })
     const { data: unlinked, isError: unlinkError } = parseResult(unlink)
     expect(unlinkError).toBe(false)
@@ -261,7 +281,13 @@ describe('memory_store retype', () => {
     const retypeToken = parseResult(retypePreview).data?.item?.preview_token
     const result = await client.callTool({
       name: 'memory_store',
-      arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports', confirm: true, preview_token: retypeToken }
+      arguments: {
+        action: 'retype',
+        edge_id: edgeId,
+        new_type: 'supports',
+        confirm: true,
+        preview_token: retypeToken
+      }
     })
     const { isError, text } = parseResult(result)
     expect(isError).toBe(true)
@@ -338,7 +364,9 @@ describe('memory_store retype', () => {
     expect(text).toContain("Cluster thoughts cannot have 'related' edges")
 
     // No mutation — the cluster edge is untouched
-    const edge = db.prepare('SELECT * FROM edges WHERE id = ?').get(edgeId) as { type: string } | undefined
+    const edge = db.prepare('SELECT * FROM edges WHERE id = ?').get(edgeId) as
+      | { type: string }
+      | undefined
     expect(edge).toBeTruthy()
     expect(edge!.type).toBe('cluster')
   })

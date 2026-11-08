@@ -6,7 +6,9 @@ import * as importanceDb from '../db/importance'
 import { runDecayJob } from './decay.service'
 
 beforeEach(createTestDb)
-afterEach(() => { closeDb() })
+afterEach(() => {
+  closeDb()
+})
 
 /**
  * The decay job decays importance and nothing else.
@@ -28,11 +30,15 @@ describe('runDecayJob', () => {
     const d = getDb()
     const id = seedThought({ status: 'active', is_protected: 0 })
     const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString()
-    d.prepare(`UPDATE thought_importance SET importance = 0.8, last_decay = ? WHERE thought_id = ?`).run(twoDaysAgo, id)
+    d.prepare(
+      `UPDATE thought_importance SET importance = 0.8, last_decay = ? WHERE thought_id = ?`
+    ).run(twoDaysAgo, id)
 
     runDecayJob(d)
 
-    const row = d.prepare(`SELECT importance FROM thought_importance WHERE thought_id = ?`).get(id) as {
+    const row = d
+      .prepare(`SELECT importance FROM thought_importance WHERE thought_id = ?`)
+      .get(id) as {
       importance: number
     }
     expect(row.importance).toBeLessThan(0.8)
@@ -43,15 +49,18 @@ describe('runDecayJob', () => {
     const id = seedThought({ status: 'active', is_protected: 0 })
     const sixtyDaysAgo = new Date(Date.now() - 60 * 86400000).toISOString()
     d.prepare(`UPDATE thoughts SET created_at = ? WHERE id = ?`).run(sixtyDaysAgo, id)
-    d.prepare(`UPDATE thought_importance SET importance = 0.05, last_decay = ?, created_at = ? WHERE thought_id = ?`)
-      .run(sixtyDaysAgo, sixtyDaysAgo, id)
+    d.prepare(
+      `UPDATE thought_importance SET importance = 0.05, last_decay = ?, created_at = ? WHERE thought_id = ?`
+    ).run(sixtyDaysAgo, sixtyDaysAgo, id)
 
     runDecayJob(d)
 
     // The branch is gone, not merely disabled: the thought stays active …
     expect(getThoughtRow(d, id)?.status).toBe('active')
     // … while the job still did its remaining half.
-    const row = d.prepare(`SELECT importance FROM thought_importance WHERE thought_id = ?`).get(id) as {
+    const row = d
+      .prepare(`SELECT importance FROM thought_importance WHERE thought_id = ?`)
+      .get(id) as {
       importance: number
     }
     expect(row.importance).toBeLessThan(0.05)

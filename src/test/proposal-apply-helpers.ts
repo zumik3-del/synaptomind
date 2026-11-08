@@ -33,7 +33,7 @@ export function pairFingerprint(db: Database, sourceId: string, targetId: string
       targetId: '',
       targetUpdatedAt: '',
       targetStatus: '',
-      existingEdgeType: null,
+      existingEdgeType: null
     })
   }
   const target = getThoughtRow(db, targetId)
@@ -45,7 +45,7 @@ export function pairFingerprint(db: Database, sourceId: string, targetId: string
     targetId,
     targetUpdatedAt: target.updated_at,
     targetStatus: target.status,
-    existingEdgeType: null,
+    existingEdgeType: null
   })
 }
 
@@ -67,7 +67,7 @@ function edgePairFingerprint(db: Database, sourceId: string, targetId: string): 
     targetId,
     targetUpdatedAt: target.updated_at,
     targetStatus: target.status,
-    existingEdgeType: getEdgePairBetween(db, sourceId, targetId)?.type ?? null,
+    existingEdgeType: getEdgePairBetween(db, sourceId, targetId)?.type ?? null
   })
 }
 
@@ -87,7 +87,7 @@ export function insertPendingEdge(
     rationale: 'test edge',
     payload: '{}',
     fingerprint: edgePairFingerprint(db, sourceId, targetId),
-    direction: 'symmetric',
+    direction: 'symmetric'
   })
 }
 
@@ -108,9 +108,9 @@ export function assertAccepted(db: Database, id: string): void {
 }
 
 export function assertRolledBack(db: Database, id: string): void {
-  const row = db.prepare('SELECT state, decided_at FROM placement_proposals WHERE id = ?').get(id) as
-    | { state: string; decided_at: string | null }
-    | undefined
+  const row = db
+    .prepare('SELECT state, decided_at FROM placement_proposals WHERE id = ?')
+    .get(id) as { state: string; decided_at: string | null } | undefined
   expect(row).toBeDefined()
   expect(row!.state).toBe('rolled_back')
   expect(row!.decided_at).not.toBeNull()

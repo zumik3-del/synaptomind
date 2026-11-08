@@ -41,7 +41,15 @@
 
 import { describe, expect, test, afterEach } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { join } from 'node:path'
 import { readAppEnvValues, sandboxAppEnvText } from './app-env-targets'
 import { guardProductionPaths, resolveTargets } from './app-targets'
@@ -107,7 +115,10 @@ interface Sandbox {
 const V1 = '1.0.0'
 const V2 = '2.0.0'
 
-function seedSandbox(target: { label: string; deployDir: string; appEnvPath: string }, opts: { initialVersion?: string } = {}): Sandbox {
+function seedSandbox(
+  target: { label: string; deployDir: string; appEnvPath: string },
+  opts: { initialVersion?: string } = {}
+): Sandbox {
   const root = ensureRoot(`sandbox-${target.label}-`)
   const label = target.label
   const values = readAppEnvValues(target.appEnvPath)
@@ -127,7 +138,7 @@ function seedSandbox(target: { label: string; deployDir: string; appEnvPath: str
     GIT_AUTHOR_NAME: 'fixture',
     GIT_AUTHOR_EMAIL: 'fixture@test',
     GIT_COMMITTER_NAME: 'fixture',
-    GIT_COMMITTER_EMAIL: 'fixture@test',
+    GIT_COMMITTER_EMAIL: 'fixture@test'
   }
   const git = (...args: string[]) => {
     const res = spawnSync('git', args, { encoding: 'utf8', cwd: originWork, env: gitEnv })
@@ -135,7 +146,10 @@ function seedSandbox(target: { label: string; deployDir: string; appEnvPath: str
   }
   const writeTree = (v: string) => {
     mkdirSync(originWork, { recursive: true })
-    writeFileSync(join(originWork, 'package.json'), `${JSON.stringify({ name: label, version: v }, null, 2)}\n`)
+    writeFileSync(
+      join(originWork, 'package.json'),
+      `${JSON.stringify({ name: label, version: v }, null, 2)}\n`
+    )
     writeFileSync(join(originWork, '.env.example'), `${label.toUpperCase()}_SETTING=\n`)
   }
   const publishSource = (v: string) => {
@@ -155,9 +169,19 @@ function seedSandbox(target: { label: string; deployDir: string; appEnvPath: str
     writeFileSync(join(stage, label), `#!/bin/sh\necho "${label} ${v}"\n`)
     chmodSync(join(stage, label), 0o755)
     mkdirSync(join(releases, tag), { recursive: true })
-    const tar = spawnSync('tar', ['-czf', join(releases, tag, `${label}-${tag}-linux-x86_64.tar.gz`), '-C', join(root, '.payload'), topDir], {
-      encoding: 'utf8',
-    })
+    const tar = spawnSync(
+      'tar',
+      [
+        '-czf',
+        join(releases, tag, `${label}-${tag}-linux-x86_64.tar.gz`),
+        '-C',
+        join(root, '.payload'),
+        topDir
+      ],
+      {
+        encoding: 'utf8'
+      }
+    )
     expect(tar.status, tar.stderr).toBe(0)
   }
   binary ? publishBinary(version) : publishSource(version)
@@ -169,7 +193,13 @@ function seedSandbox(target: { label: string; deployDir: string; appEnvPath: str
   const unitFile = join(root, 'unit', `${label}.service`)
   mkdirSync(join(root, 'unit'), { recursive: true })
   const deployDir = join(root, 'deploy')
-  cpSync(DEPLOY_DIR, deployDir, { recursive: true, filter: (src) => !src.endsWith('.test.ts') && !src.endsWith('app-targets.ts') && !src.endsWith('app-env-targets.ts') })
+  cpSync(DEPLOY_DIR, deployDir, {
+    recursive: true,
+    filter: src =>
+      !src.endsWith('.test.ts') &&
+      !src.endsWith('app-targets.ts') &&
+      !src.endsWith('app-env-targets.ts')
+  })
 
   const overrides: Record<string, string> = {
     INSTALL_DIR: installDir,
@@ -179,10 +209,14 @@ function seedSandbox(target: { label: string; deployDir: string; appEnvPath: str
     EXEC_START: join(installDir, label),
     ...(binary
       ? { RELEASES_BASE: `file://${releases}`, RELEASE_API: '' }
-      : { REPO_URL: `file://${originGit}`, CHECKOUT_POLICY: 'stable' }),
+      : { REPO_URL: `file://${originGit}`, CHECKOUT_POLICY: 'stable' })
   }
   for (const [key, value] of Object.entries(overrides)) {
-    expect(value.startsWith(`${root}/`) || !['INSTALL_DIR', 'DATA_DIR', 'RUN_DIR', 'HOOKS_DIR', 'EXEC_START'].includes(key), `${key}=${value} escapes the fixture root`).toBe(true)
+    expect(
+      value.startsWith(`${root}/`) ||
+        !['INSTALL_DIR', 'DATA_DIR', 'RUN_DIR', 'HOOKS_DIR', 'EXEC_START'].includes(key),
+      `${key}=${value} escapes the fixture root`
+    ).toBe(true)
   }
   writeFileSync(join(deployDir, 'app.env'), sandboxAppEnvText(target.appEnvPath, overrides))
 
@@ -206,8 +240,8 @@ function seedSandbox(target: { label: string; deployDir: string; appEnvPath: str
       '  touch|chmod|cp|mv|rm|install|systemctl|mkdir|ln|chown) ;;',
       '  *) echo "STUB-SUDO: refused command ${1:-}" >&2; exit 99 ;;',
       'esac',
-      'exec "$@"',
-    ].join('\n'),
+      'exec "$@"'
+    ].join('\n')
   )
   // systemctl: `is-active` must answer for real, because update.sh branches on
   // it; `restart` records the payload's version the way ExecStart would.
@@ -228,8 +262,8 @@ function seedSandbox(target: { label: string; deployDir: string; appEnvPath: str
       '  restart) launch restart ;;',
       '  stop) rm -f ' + q(join(stateDir, 'serving')) + ' ;;',
       'esac',
-      'exit 0',
-    ].join('\n'),
+      'exit 0'
+    ].join('\n')
   )
   // curl: serves the release asset from the local release dir, and the health
   // body the current test wants. `healthBody` is a mutable cell so a test can
@@ -251,8 +285,8 @@ function seedSandbox(target: { label: string; deployDir: string; appEnvPath: str
       // here rather than at the call site keeps one stub for every fetch.
       `  file://*) cp "\${url#file://}" "$out"; exit \$? ;;`,
       `  *) cat ${q(healthFile)}; printf '\\n'; exit 0 ;;`,
-      'esac',
-    ].join('\n'),
+      'esac'
+    ].join('\n')
   )
   // bun: records argv and creates the artefact a build would produce, so a build
   // step that "succeeded" is observable as a file rather than as an exit code.
@@ -267,17 +301,24 @@ function seedSandbox(target: { label: string; deployDir: string; appEnvPath: str
       `  mkdir -p ${q(join(installDir, 'build'))}`,
       `  printf 'built\\n' > ${q(join(installDir, 'build', 'index.js'))}`,
       'fi',
-      'exit 0',
-    ].join('\n'),
+      'exit 0'
+    ].join('\n')
   )
   // stat: report a foreign owner so apply_ownership takes the branch it added
   // (it skips a chown that would change nothing). Only %U:%G is intercepted;
   // %a drives the unit's preserved mode and must stay real.
   writeFileSync(
     join(stubsDir, 'stat'),
-    ['#!/usr/bin/env bash', 'for a in "$@"; do', `  if [ "$a" = "%U:%G" ]; then printf 'root:root\\n'; exit 0; fi`, 'done', 'exec /usr/bin/stat "$@"'].join('\n'),
+    [
+      '#!/usr/bin/env bash',
+      'for a in "$@"; do',
+      `  if [ "$a" = "%U:%G" ]; then printf 'root:root\\n'; exit 0; fi`,
+      'done',
+      'exec /usr/bin/stat "$@"'
+    ].join('\n')
   )
-  for (const name of ['sudo', 'systemctl', 'curl', 'bun', 'stat']) chmodSync(join(stubsDir, name), 0o755)
+  for (const name of ['sudo', 'systemctl', 'curl', 'bun', 'stat'])
+    chmodSync(join(stubsDir, name), 0o755)
 
   const sb: Sandbox = {
     target,
@@ -307,7 +348,7 @@ function seedSandbox(target: { label: string; deployDir: string; appEnvPath: str
       }
       if (!existsSync(pkg)) return ''
       return /"version": *"([^"]*)"/.exec(readFileSync(pkg, 'utf8'))?.[1] ?? ''
-    },
+    }
   }
   return sb
 }
@@ -322,7 +363,7 @@ function sandboxEnv(sb: Sandbox, extra: Record<string, string> = {}): Record<str
     UNIT_FILE: sb.unitFile,
     HEALTH_TIMEOUT: '2',
     HEALTH_CONFIRM_TIMEOUT: '1',
-    ...extra,
+    ...extra
   })
 }
 
@@ -346,7 +387,7 @@ function install(sb: Sandbox, args: string[] = [], extra: Record<string, string>
     encoding: 'utf8',
     env: sandboxEnv(sb, extra),
     cwd: sb.root,
-    timeout: 120_000,
+    timeout: 120_000
   })
 }
 
@@ -359,12 +400,13 @@ function install(sb: Sandbox, args: string[] = [], extra: Record<string, string>
  */
 function update(sb: Sandbox, args: string[] = [], extra: Record<string, string> = {}) {
   const script = join(sb.runDir, 'scripts', 'update.sh')
-  if (!existsSync(script)) throw new Error(`no installed update.sh at ${script} — install.sh never ran to completion`)
+  if (!existsSync(script))
+    throw new Error(`no installed update.sh at ${script} — install.sh never ran to completion`)
   return spawnSync('bash', [script, '--yes', ...tagArgs(sb), ...args], {
     encoding: 'utf8',
     env: sandboxEnv(sb, extra),
     cwd: sb.runDir,
-    timeout: 120_000,
+    timeout: 120_000
   })
 }
 
@@ -394,173 +436,213 @@ describe('deploy/sandbox — install, health gate, update, rollback', () => {
   for (const target of TARGETS.resolved) {
     const values = readAppEnvValues(target.appEnvPath)
 
-    test(`${target.label} (DIST=${values.DIST}): a fresh install completes and the health gate passes`, () => {
-      const sb = seedSandbox(target)
-      const res = install(sb)
-      expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0)
-      expect(res.stdout).toContain('Done.')
+    test(
+      `${target.label} (DIST=${values.DIST}): a fresh install completes and the health gate passes`,
+      () => {
+        const sb = seedSandbox(target)
+        const res = install(sb)
+        expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0)
+        expect(res.stdout).toContain('Done.')
 
-      // The gate really was consulted, and it really accepted this app's own
-      // `{"ok":true}` — which is what the three health keys in app.env buy.
-      expect(`${res.stdout}${res.stderr}`).toMatch(/Service is healthy/)
-      // The disabled version check is stated, once: a caveat reported by
-      // silence would be indistinguishable from a gate that never ran.
-      const warnings = res.stderr.split('\n').filter((l) => l.includes('version check is DISABLED'))
-      expect(warnings).toHaveLength(1)
+        // The gate really was consulted, and it really accepted this app's own
+        // `{"ok":true}` — which is what the three health keys in app.env buy.
+        expect(`${res.stdout}${res.stderr}`).toMatch(/Service is healthy/)
+        // The disabled version check is stated, once: a caveat reported by
+        // silence would be indistinguishable from a gate that never ran.
+        const warnings = res.stderr.split('\n').filter(l => l.includes('version check is DISABLED'))
+        expect(warnings).toHaveLength(1)
 
-      // The payload landed where the app.env said, and reports the version the
-      // origin published.
-      expect(sb.installedVersion()).toBe(V1)
-      expect(existsSync(sb.dataDir), 'DATA_DIR was never created').toBe(true)
-      // Canonical layout: the data dir is reachable from the install dir too.
-      expect(existsSync(join(sb.installDir, 'data'))).toBe(true)
+        // The payload landed where the app.env said, and reports the version the
+        // origin published.
+        expect(sb.installedVersion()).toBe(V1)
+        expect(existsSync(sb.dataDir), 'DATA_DIR was never created').toBe(true)
+        // Canonical layout: the data dir is reachable from the install dir too.
+        expect(existsSync(join(sb.installDir, 'data'))).toBe(true)
 
-      // A unit was written — inside the fixture, named for THIS app.
-      expect(existsSync(sb.unitFile), `no unit at ${sb.unitFile}`).toBe(true)
-      const unit = readFileSync(sb.unitFile, 'utf8')
-      expect(unit).toContain(`ExecStart=${join(sb.installDir, target.label)}`)
-      expect(unit).toContain('Restart=always')
-      expect(unit).toContain(`ReadWritePaths=${sb.installDir} ${sb.dataDir}`)
-      // The sandboxed app.env copied into the state dir, not the shipped one.
-      expect(readFileSync(join(sb.runDir, 'scripts', 'app.env'), 'utf8')).toContain(`RUN_DIR="${sb.runDir}"`)
+        // A unit was written — inside the fixture, named for THIS app.
+        expect(existsSync(sb.unitFile), `no unit at ${sb.unitFile}`).toBe(true)
+        const unit = readFileSync(sb.unitFile, 'utf8')
+        expect(unit).toContain(`ExecStart=${join(sb.installDir, target.label)}`)
+        expect(unit).toContain('Restart=always')
+        expect(unit).toContain(`ReadWritePaths=${sb.installDir} ${sb.dataDir}`)
+        // The sandboxed app.env copied into the state dir, not the shipped one.
+        expect(readFileSync(join(sb.runDir, 'scripts', 'app.env'), 'utf8')).toContain(
+          `RUN_DIR="${sb.runDir}"`
+        )
 
-      // Helpers and hooks, so the update below runs the same files an operator has.
-      for (const f of ['update.sh', 'updater.sh', 'uninstall.sh', 'common.sh', 'app.env']) {
-        expect(existsSync(join(sb.runDir, 'scripts', f)), `helper ${f} was not installed`).toBe(true)
-      }
-      for (const f of ['pre-update', 'post-update']) {
-        expect(existsSync(join(sb.runDir, 'hooks', f)), `hook ${f} was not installed`).toBe(true)
-      }
-
-      // Nothing privileged escaped: every sudo/systemctl call the run made is in
-      // the fixture's log, and that log contains only fixture paths.
-      const calls = privCalls(sb.privLog)
-      expect(calls.length).toBeGreaterThan(0)
-      for (const call of calls) {
-        expect(call, `privileged call outside the fixture: ${call}`).toContain(sb.root)
-      }
-    }, BUDGET_MS)
-
-    test(`${target.label}: an UNHEALTHY endpoint fails the install and never says Done`, () => {
-      // The negative control for the test above. Without it, "the gate passed"
-      // and "the gate was never reached" are the same observation.
-      const sb = seedSandbox(target)
-      serveHealth(sb, UNHEALTHY_BODY)
-      const res = install(sb)
-      expect(res.status, `${res.stdout}\n${res.stderr}`).not.toBe(0)
-      expect(res.stdout).not.toContain('Done.')
-      expect(`${res.stdout}${res.stderr}`).toMatch(/health check|did not pass the health check/i)
-    }, BUDGET_MS)
-
-    test(`${target.label}: update is idempotent — a second run changes nothing`, () => {
-      const sb = seedSandbox(target)
-      expect(install(sb).status).toBe(0)
-      const before = sb.installedVersion()
-      expect(before).toBe(V1)
-
-      const res = update(sb)
-      expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0)
-      // Idempotence is the OBSERVED state, not the message: same version still
-      // installed, and the health gate passed again rather than being skipped.
-      expect(sb.installedVersion()).toBe(before)
-      expect(`${res.stdout}${res.stderr}`).toMatch(/Already up to date|Done\. Now at/)
-      expect(`${res.stdout}${res.stderr}`).not.toMatch(/ERROR/)
-    }, BUDGET_MS)
-
-    test(`${target.label}: update to a NEW version swaps the payload and re-passes the gate`, () => {
-      const sb = seedSandbox(target)
-      expect(install(sb).status).toBe(0)
-      expect(sb.installedVersion()).toBe(V1)
-
-      sb.publishVersion(V2)
-      const res = update(sb)
-      expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0)
-      expect(sb.installedVersion(), `${res.stdout}\n${res.stderr}`).toBe(V2)
-      expect(`${res.stdout}${res.stderr}`).toMatch(/Done\. Now at/)
-      // A source app re-ran the same install+build pair the update path shares
-      // with install.sh; the trace proves the pair ran on the UPDATE, which is
-      // the invariant gap (a) closed by moving it into lib/common.sh.
-      if (values.DIST === 'source') {
-        const bunCalls = readFileSync(sb.bunLog, 'utf8').split('\n').filter(Boolean)
-        expect(bunCalls.length, 'the update ran no build').toBeGreaterThanOrEqual(4)
-        expect(bunCalls.some((c) => c.includes('install')), 'the update installed no dependencies').toBe(true)
-        expect(bunCalls.some((c) => c.includes('run build')), 'the update ran no build').toBe(true)
-      }
-    }, BUDGET_MS)
-
-    test(`${target.label}: a failed health gate blocks the update and leaves a rollback point`, () => {
-      const sb = seedSandbox(target)
-      expect(install(sb).status).toBe(0)
-      expect(sb.installedVersion()).toBe(V1)
-
-      sb.publishVersion(V2)
-      serveHealth(sb, UNHEALTHY_BODY)
-      const res = update(sb)
-      expect(res.status, `${res.stdout}\n${res.stderr}`).not.toBe(0)
-      expect(res.stdout).not.toMatch(/Done\. Now at/)
-      // Rollback is NEVER automatic (ADR §2.6): the payload is still the new one,
-      // and the operator is told what to do instead.
-      expect(res.stderr).toMatch(/rollback/i)
-      expect(res.stderr).toMatch(/did not finish cleanly|not verified|unverified|health/i)
-    }, BUDGET_MS)
-
-    test(`${target.label}: rollback works — the printed remedy restores the previous version`, () => {
-      const sb = seedSandbox(target)
-      expect(install(sb).status).toBe(0)
-      expect(sb.installedVersion()).toBe(V1)
-
-      sb.publishVersion(V2)
-      serveHealth(sb, UNHEALTHY_BODY)
-      const failed = update(sb)
-      expect(failed.status, `${failed.stdout}\n${failed.stderr}`).not.toBe(0)
-      expect(sb.installedVersion(), 'the failed update did not land its payload, so there is nothing to roll back').toBe(V2)
-
-      // ── the rollback point ──
-      // For DIST=binary the framework keeps a `.prev` beside every file in
-      // BINARY_ROLLBACK_FILES. Asserting the FILE exists is the rollback point:
-      // without it the remedy has nothing to move back.
-      const prevPath = join(sb.installDir, `${target.label}.prev`)
-      if (values.DIST === 'binary') {
-        expect(existsSync(prevPath), `no rollback point at ${prevPath}`).toBe(true)
-        const prev = spawnSync(prevPath, ['--version'], { encoding: 'utf8' })
-        expect((prev.stdout ?? '').trim().split(/\s+/)[1], 'the .prev is not the previous version').toBe(V1)
-      }
-
-      // ── run the remedy the framework printed, and check the state afterwards ──
-      // The remedy is executed, not just pattern-matched: a rollback instruction
-      // that is printed but does not restore anything is the failure mode.
-      serveHealth(sb, HEALTHY_BODY)
-      if (values.DIST === 'binary') {
-        for (const f of values.BINARY_ROLLBACK_FILES.split(/\s+/).filter(Boolean)) {
-          const prev = join(sb.installDir, `${f}.prev`)
-          if (existsSync(prev)) spawnSync('mv', ['-f', prev, join(sb.installDir, f)])
+        // Helpers and hooks, so the update below runs the same files an operator has.
+        for (const f of ['update.sh', 'updater.sh', 'uninstall.sh', 'common.sh', 'app.env']) {
+          expect(existsSync(join(sb.runDir, 'scripts', f)), `helper ${f} was not installed`).toBe(
+            true
+          )
         }
-      } else {
-        // The source remedy update.sh prints is a single command line built from
-        // PREV_REF + INSTALL_FLAGS + BUILD_CMD. Take it verbatim off the output
-        // rather than reconstructing it, so this proves the PRINTED remedy works.
-        const line = failed.stderr.split('\n').find((l) => l.includes('rollback:'))
-        expect(line, `no rollback remedy in:\n${failed.stderr}`).toBeTruthy()
-        const prevRef = /previous commit: (\S+)/.exec(failed.stderr)?.[1]
-        expect(prevRef, 'the remedy does not name the previous commit').toBeTruthy()
-        const remedy = line!.replace(/^.*rollback:\s*/, '').trim()
-        expect(remedy).toContain(prevRef!)
-        const run = spawnSync('bash', ['-c', remedy], {
-          encoding: 'utf8',
-          env: sandboxEnv(sb),
-          cwd: sb.runDir,
-          timeout: 120_000,
-        })
-        expect(run.status, `the printed remedy failed: ${run.stderr}`).toBe(0)
-      }
+        for (const f of ['pre-update', 'post-update']) {
+          expect(existsSync(join(sb.runDir, 'hooks', f)), `hook ${f} was not installed`).toBe(true)
+        }
 
-      expect(sb.installedVersion(), 'the rollback did not restore the previous version').toBe(V1)
+        // Nothing privileged escaped: every sudo/systemctl call the run made is in
+        // the fixture's log, and that log contains only fixture paths.
+        const calls = privCalls(sb.privLog)
+        expect(calls.length).toBeGreaterThan(0)
+        for (const call of calls) {
+          expect(call, `privileged call outside the fixture: ${call}`).toContain(sb.root)
+        }
+      },
+      BUDGET_MS
+    )
 
-      // And the rolled-back tree comes back up: a rollback that leaves a payload
-      // that cannot serve is not a rollback.
-      const res = install(sb, ['--force'])
-      expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0)
-      expect(`${res.stdout}${res.stderr}`).toMatch(/Service is healthy/)
-    }, BUDGET_MS)
+    test(
+      `${target.label}: an UNHEALTHY endpoint fails the install and never says Done`,
+      () => {
+        // The negative control for the test above. Without it, "the gate passed"
+        // and "the gate was never reached" are the same observation.
+        const sb = seedSandbox(target)
+        serveHealth(sb, UNHEALTHY_BODY)
+        const res = install(sb)
+        expect(res.status, `${res.stdout}\n${res.stderr}`).not.toBe(0)
+        expect(res.stdout).not.toContain('Done.')
+        expect(`${res.stdout}${res.stderr}`).toMatch(/health check|did not pass the health check/i)
+      },
+      BUDGET_MS
+    )
+
+    test(
+      `${target.label}: update is idempotent — a second run changes nothing`,
+      () => {
+        const sb = seedSandbox(target)
+        expect(install(sb).status).toBe(0)
+        const before = sb.installedVersion()
+        expect(before).toBe(V1)
+
+        const res = update(sb)
+        expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0)
+        // Idempotence is the OBSERVED state, not the message: same version still
+        // installed, and the health gate passed again rather than being skipped.
+        expect(sb.installedVersion()).toBe(before)
+        expect(`${res.stdout}${res.stderr}`).toMatch(/Already up to date|Done\. Now at/)
+        expect(`${res.stdout}${res.stderr}`).not.toMatch(/ERROR/)
+      },
+      BUDGET_MS
+    )
+
+    test(
+      `${target.label}: update to a NEW version swaps the payload and re-passes the gate`,
+      () => {
+        const sb = seedSandbox(target)
+        expect(install(sb).status).toBe(0)
+        expect(sb.installedVersion()).toBe(V1)
+
+        sb.publishVersion(V2)
+        const res = update(sb)
+        expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0)
+        expect(sb.installedVersion(), `${res.stdout}\n${res.stderr}`).toBe(V2)
+        expect(`${res.stdout}${res.stderr}`).toMatch(/Done\. Now at/)
+        // A source app re-ran the same install+build pair the update path shares
+        // with install.sh; the trace proves the pair ran on the UPDATE, which is
+        // the invariant gap (a) closed by moving it into lib/common.sh.
+        if (values.DIST === 'source') {
+          const bunCalls = readFileSync(sb.bunLog, 'utf8').split('\n').filter(Boolean)
+          expect(bunCalls.length, 'the update ran no build').toBeGreaterThanOrEqual(4)
+          expect(
+            bunCalls.some(c => c.includes('install')),
+            'the update installed no dependencies'
+          ).toBe(true)
+          expect(
+            bunCalls.some(c => c.includes('run build')),
+            'the update ran no build'
+          ).toBe(true)
+        }
+      },
+      BUDGET_MS
+    )
+
+    test(
+      `${target.label}: a failed health gate blocks the update and leaves a rollback point`,
+      () => {
+        const sb = seedSandbox(target)
+        expect(install(sb).status).toBe(0)
+        expect(sb.installedVersion()).toBe(V1)
+
+        sb.publishVersion(V2)
+        serveHealth(sb, UNHEALTHY_BODY)
+        const res = update(sb)
+        expect(res.status, `${res.stdout}\n${res.stderr}`).not.toBe(0)
+        expect(res.stdout).not.toMatch(/Done\. Now at/)
+        // Rollback is NEVER automatic (ADR §2.6): the payload is still the new one,
+        // and the operator is told what to do instead.
+        expect(res.stderr).toMatch(/rollback/i)
+        expect(res.stderr).toMatch(/did not finish cleanly|not verified|unverified|health/i)
+      },
+      BUDGET_MS
+    )
+
+    test(
+      `${target.label}: rollback works — the printed remedy restores the previous version`,
+      () => {
+        const sb = seedSandbox(target)
+        expect(install(sb).status).toBe(0)
+        expect(sb.installedVersion()).toBe(V1)
+
+        sb.publishVersion(V2)
+        serveHealth(sb, UNHEALTHY_BODY)
+        const failed = update(sb)
+        expect(failed.status, `${failed.stdout}\n${failed.stderr}`).not.toBe(0)
+        expect(
+          sb.installedVersion(),
+          'the failed update did not land its payload, so there is nothing to roll back'
+        ).toBe(V2)
+
+        // ── the rollback point ──
+        // For DIST=binary the framework keeps a `.prev` beside every file in
+        // BINARY_ROLLBACK_FILES. Asserting the FILE exists is the rollback point:
+        // without it the remedy has nothing to move back.
+        const prevPath = join(sb.installDir, `${target.label}.prev`)
+        if (values.DIST === 'binary') {
+          expect(existsSync(prevPath), `no rollback point at ${prevPath}`).toBe(true)
+          const prev = spawnSync(prevPath, ['--version'], { encoding: 'utf8' })
+          expect(
+            (prev.stdout ?? '').trim().split(/\s+/)[1],
+            'the .prev is not the previous version'
+          ).toBe(V1)
+        }
+
+        // ── run the remedy the framework printed, and check the state afterwards ──
+        // The remedy is executed, not just pattern-matched: a rollback instruction
+        // that is printed but does not restore anything is the failure mode.
+        serveHealth(sb, HEALTHY_BODY)
+        if (values.DIST === 'binary') {
+          for (const f of values.BINARY_ROLLBACK_FILES.split(/\s+/).filter(Boolean)) {
+            const prev = join(sb.installDir, `${f}.prev`)
+            if (existsSync(prev)) spawnSync('mv', ['-f', prev, join(sb.installDir, f)])
+          }
+        } else {
+          // The source remedy update.sh prints is a single command line built from
+          // PREV_REF + INSTALL_FLAGS + BUILD_CMD. Take it verbatim off the output
+          // rather than reconstructing it, so this proves the PRINTED remedy works.
+          const line = failed.stderr.split('\n').find(l => l.includes('rollback:'))
+          expect(line, `no rollback remedy in:\n${failed.stderr}`).toBeTruthy()
+          const prevRef = /previous commit: (\S+)/.exec(failed.stderr)?.[1]
+          expect(prevRef, 'the remedy does not name the previous commit').toBeTruthy()
+          const remedy = line!.replace(/^.*rollback:\s*/, '').trim()
+          expect(remedy).toContain(prevRef!)
+          const run = spawnSync('bash', ['-c', remedy], {
+            encoding: 'utf8',
+            env: sandboxEnv(sb),
+            cwd: sb.runDir,
+            timeout: 120_000
+          })
+          expect(run.status, `the printed remedy failed: ${run.stderr}`).toBe(0)
+        }
+
+        expect(sb.installedVersion(), 'the rollback did not restore the previous version').toBe(V1)
+
+        // And the rolled-back tree comes back up: a rollback that leaves a payload
+        // that cannot serve is not a rollback.
+        const res = install(sb, ['--force'])
+        expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0)
+        expect(`${res.stdout}${res.stderr}`).toMatch(/Service is healthy/)
+      },
+      BUDGET_MS
+    )
   }
 })

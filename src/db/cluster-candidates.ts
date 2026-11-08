@@ -50,7 +50,10 @@ export function listClusterCandidates(db: Database, minAgeDays: number): Cluster
     project_id: string
     created_at: string
   }[]
-  const tagMap = getThoughtTagsBatch(db, rows.map(r => r.id))
+  const tagMap = getThoughtTagsBatch(
+    db,
+    rows.map(r => r.id)
+  )
   return rows.map(r => ({
     id: r.id,
     content: r.content,

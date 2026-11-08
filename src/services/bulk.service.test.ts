@@ -58,7 +58,10 @@ test('bulkCreateThoughtsService reports per-item failures without aborting the r
 
 test('bulkCreateThoughtsService applies the default project to items without one', () => {
   seedThought({ content: 'anchor', project_id: 'bulk-project' })
-  const result = bulkCreateThoughtsService([{ content: 'inherits the default project' }], 'bulk-project')
+  const result = bulkCreateThoughtsService(
+    [{ content: 'inherits the default project' }],
+    'bulk-project'
+  )
   expect(result.errors).toEqual([])
   expect(getThoughtByIdService(result.created[0].thought.id)?.project_id).toBe('bulk-project')
 })

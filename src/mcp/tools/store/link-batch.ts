@@ -1,5 +1,9 @@
 import { z } from 'zod/v4'
-import { createEdgesBatchService, EDGE_TYPES, type LinkBatchItem } from '../../../services/edges.service'
+import {
+  createEdgesBatchService,
+  EDGE_TYPES,
+  type LinkBatchItem
+} from '../../../services/edges.service'
 import { BATCH_ITEMS_MAX } from '../../../validation'
 import { collectionEnvelope } from '../envelope'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
@@ -44,7 +48,12 @@ export const linkBatchHandler: ActionHandler = {
     const failures = new Map(result.errors.map(error => [error.index, error.error]))
     const rows: LinkBatchRow[] = links.map((link, index) => {
       const error = failures.get(index)
-      const row: LinkBatchRow = { index, status: error === undefined ? 'linked' : 'failed', source: link.source, target: link.target }
+      const row: LinkBatchRow = {
+        index,
+        status: error === undefined ? 'linked' : 'failed',
+        source: link.source,
+        target: link.target
+      }
       if (link.type !== undefined) row.type = link.type
       if (error !== undefined) row.error = error
       return row

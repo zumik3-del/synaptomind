@@ -1,7 +1,11 @@
 import { describe, expect, jest, test } from 'bun:test'
 import { Hono } from 'hono'
 import { config } from '../config'
-import { apiRateLimitMiddleware, createRateLimitMiddleware, mcpRateLimitMiddleware } from './rate-limit'
+import {
+  apiRateLimitMiddleware,
+  createRateLimitMiddleware,
+  mcpRateLimitMiddleware
+} from './rate-limit'
 
 // rate-limit.ts captures the max in a module constant at import time — read it
 // from the same config object here instead of hard-coding 200.
@@ -27,7 +31,9 @@ function appWithMiddleware(): Hono {
 // rate-limit.ts derives the client key from the Bun socket peer (getConnInfo),
 // not from x-forwarded-for (config.rateLimit.trustProxy defaults to false). The
 // in-process `app.request` has no server, so provide a fake one via the Env slot.
-function envFor(ip: string): { server: { requestIP: () => { address: string; family: string; port: number } } } {
+function envFor(ip: string): {
+  server: { requestIP: () => { address: string; family: string; port: number } }
+} {
   return { server: { requestIP: () => ({ address: ip, family: 'IPv4', port: 1234 }) } }
 }
 
@@ -65,7 +71,11 @@ describe('rateLimitMiddleware', () => {
 
     // '1.2.3.4' is already exhausted in the test above; a spoofed header must
     // not borrow another client's bucket.
-    const res = await app.request('/x', { headers: { 'x-forwarded-for': '1.2.3.4' } }, envFor('9.9.9.9'))
+    const res = await app.request(
+      '/x',
+      { headers: { 'x-forwarded-for': '1.2.3.4' } },
+      envFor('9.9.9.9')
+    )
 
     expect(res.status).toBe(200)
   })

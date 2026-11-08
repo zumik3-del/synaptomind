@@ -40,7 +40,11 @@ export function findMergeTarget(pool: Thought[], source: Thought): MergeTarget |
     const exact = sourceNorm.length > 0 && candidateNorm === sourceNorm
     const overlap = exact ? 1 : jaccard(sourceNorm, candidateNorm)
     if (!exact && overlap < MERGE_OVERLAP_MIN) continue
-    if (best === undefined || overlap > best.overlap || (overlap === best.overlap && candidate.id < best.id)) {
+    if (
+      best === undefined ||
+      overlap > best.overlap ||
+      (overlap === best.overlap && candidate.id < best.id)
+    ) {
       best = { id: candidate.id, overlap }
     }
   }

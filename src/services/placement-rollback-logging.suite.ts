@@ -20,7 +20,14 @@ import { closeDb, getDb } from '../db'
 import { getEdgePairBetween } from '../db/edges'
 import { getThoughtRow } from '../db/thoughts'
 import { createTestDb, seedThought } from '../test/helpers'
-import { assertAccepted, insertPendingEdge, NOW, NOW_LATER, PAST, RUN_ID } from '../test/proposal-apply-helpers'
+import {
+  assertAccepted,
+  insertPendingEdge,
+  NOW,
+  NOW_LATER,
+  PAST,
+  RUN_ID
+} from '../test/proposal-apply-helpers'
 
 // The real module first, so the spy re-exports everything except the writer.
 const realLog = await import('../logging/log')
@@ -81,8 +88,18 @@ interface AcceptedEdge {
 
 /** Accept one `edge` row between a fresh active pair at `NOW`; returns its id and ends. */
 function acceptedRow(db: Database, id: string): AcceptedEdge {
-  const source = seedThought({ id: `${id}-s`, content: `${id} source content`, status: 'active', created_at: NOW })
-  const target = seedThought({ id: `${id}-t`, content: `${id} target content`, status: 'active', created_at: PAST })
+  const source = seedThought({
+    id: `${id}-s`,
+    content: `${id} source content`,
+    status: 'active',
+    created_at: NOW
+  })
+  const target = seedThought({
+    id: `${id}-t`,
+    content: `${id} target content`,
+    status: 'active',
+    created_at: PAST
+  })
   const row = insertPendingEdge(db, source, target, 'related')
   const out = applyProposalService(row.id, { confirm: true, now: NOW, runId: RUN_ID }, db)
   expect(out.status).toBe('accepted')
@@ -97,7 +114,9 @@ function edgeHeld(db: Database, pair: AcceptedEdge): boolean {
 
 /** Age an accepted row in place (see placement-rollback.service.test.ts:74). */
 function setDecidedAt(db: Database, id: string, decidedAt: string | null): void {
-  const { changes } = db.prepare('UPDATE placement_proposals SET decided_at = ? WHERE id = ?').run(decidedAt, id)
+  const { changes } = db
+    .prepare('UPDATE placement_proposals SET decided_at = ? WHERE id = ?')
+    .run(decidedAt, id)
   if (changes === 0) throw new Error(`proposal '${id}' not found`)
 }
 
@@ -112,7 +131,9 @@ function clearLogs(): void {
 
 /** Ids of every thought row — the hard-delete witness (AC-F14-7). */
 function thoughtIds(db: Database): string[] {
-  return (db.prepare('SELECT id FROM thoughts ORDER BY id').all() as { id: string }[]).map(r => r.id)
+  return (db.prepare('SELECT id FROM thoughts ORDER BY id').all() as { id: string }[]).map(
+    r => r.id
+  )
 }
 
 // ── AC-F14-7: one warning per confirm-time window refusal ─────────────────────

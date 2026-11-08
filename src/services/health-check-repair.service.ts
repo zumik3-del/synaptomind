@@ -14,7 +14,10 @@ export interface HealthRepairResult {
   report?: HealthReport
 }
 
-function runAutoFix(db: Database, categories: HealthReport['categories']): Array<{ category: string; name: string; count: number }> {
+function runAutoFix(
+  db: Database,
+  categories: HealthReport['categories']
+): Array<{ category: string; name: string; count: number }> {
   const repaired: Array<{ category: string; name: string; count: number }> = []
   for (const cat of categories) {
     for (const check of cat.checks) {
@@ -34,7 +37,8 @@ function healthRepairFingerprint(report: HealthReport): string {
       const details = Array.isArray(check.details) ? check.details : []
       for (const detail of details as Array<Record<string, unknown>>) {
         if (check.name === 'broken_parent_chains') {
-          if (detail.target_status === 'archived' && typeof detail.edge_id === 'string') ids.push(detail.edge_id)
+          if (detail.target_status === 'archived' && typeof detail.edge_id === 'string')
+            ids.push(detail.edge_id)
         } else if (check.name === 'orphaned_cluster_members') {
           if (typeof detail.cluster_edge_id === 'string') ids.push(detail.cluster_edge_id)
         } else if (typeof detail.id === 'string') {
@@ -48,7 +52,7 @@ function healthRepairFingerprint(report: HealthReport): string {
 
 export function runHealthRepairService(
   options: { confirm?: boolean; preview_token?: string; severity?: Severity } = {},
-  d: Database = getDb(),
+  d: Database = getDb()
 ): HealthRepairResult {
   const confirm = options.confirm === true
   const fullReport = runHealthCheckService({}, d)
@@ -66,12 +70,18 @@ export function runHealthRepairService(
 
   const previewToken = options.preview_token
   if (!previewToken) throw new ValidationError('preview_token is required')
-  const verification = consumePreviewTokenService(previewToken, 'health_repair', 'health', fingerprint, d)
-  if (!verification.valid) throw new ValidationError(`preview token ${verification.reason ?? 'invalid'}`)
+  const verification = consumePreviewTokenService(
+    previewToken,
+    'health_repair',
+    'health',
+    fingerprint,
+    d
+  )
+  if (!verification.valid)
+    throw new ValidationError(`preview token ${verification.reason ?? 'invalid'}`)
 
   const repaired = runAutoFix(d, fullReport.categories)
 
   const report = runHealthCheckService({ severity: options.severity }, d)
   return { status: 'executed', action: 'repair', repaired, report }
 }
-

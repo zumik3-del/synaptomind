@@ -2,11 +2,16 @@ import { expect, test } from 'bun:test'
 
 test('multi-user HTTP isolation over real database files (isolated process)', async () => {
   const proc = Bun.spawn(['bun', 'test', './src/mcp/http-transport.file-dbs.suite.ts'], {
-    cwd: `${import.meta.dir}/../..`, env: process.env, stdout: 'pipe', stderr: 'pipe'
+    cwd: `${import.meta.dir}/../..`,
+    env: process.env,
+    stdout: 'pipe',
+    stderr: 'pipe'
   })
   const deadline = setTimeout(() => proc.kill(), 30_000)
   const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited
   ])
   clearTimeout(deadline)
   const output = stdout + stderr

@@ -89,7 +89,10 @@ function resolved(out: string, key: string): string {
 }
 
 /** Write a config.json into the scratch cwd and load the config from there. */
-async function loadWithFile(fileConfig: unknown, env: Record<string, string> = {}): Promise<LoadResult> {
+async function loadWithFile(
+  fileConfig: unknown,
+  env: Record<string, string> = {}
+): Promise<LoadResult> {
   const cwd = scratchDir()
   writeFileSync(join(cwd, 'config.json'), JSON.stringify(fileConfig))
   return loadConfig(cwd, env)

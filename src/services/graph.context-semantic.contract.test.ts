@@ -14,7 +14,9 @@ test('graph.context-semantic suite (isolated process)', async () => {
   ])
 
   if (exitCode !== 0) {
-    console.error('[graph.context-semantic.contract.test] isolated suite failed:\n' + stdout + '\n' + stderr)
+    console.error(
+      '[graph.context-semantic.contract.test] isolated suite failed:\n' + stdout + '\n' + stderr
+    )
   }
   expect(exitCode).toBe(0)
   expect(stdout + stderr).toContain('0 fail')

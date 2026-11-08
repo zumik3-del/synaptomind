@@ -14,21 +14,36 @@ export type ProposalItemKind = 'edge'
  * readable (their state is shown in `list`) but can never be applied or rolled
  * back.
  */
-export type LegacyProposalItemKind = 'placement' | 'lifecycle' | 'triage_activate' | 'triage_archive'
+export type LegacyProposalItemKind =
+  | 'placement'
+  | 'lifecycle'
+  | 'triage_activate'
+  | 'triage_archive'
 
 /** Every kind a stored row can carry — the live kinds plus the removed ones. */
 export type StoredProposalItemKind = ProposalItemKind | LegacyProposalItemKind
 
 /** Is this a kind the queue no longer supports (tasks #1942, #1946)? */
 export function isLegacyItemKind(kind: string): kind is LegacyProposalItemKind {
-  return kind === 'placement' || kind === 'lifecycle' || kind === 'triage_activate' || kind === 'triage_archive'
+  return (
+    kind === 'placement' ||
+    kind === 'lifecycle' ||
+    kind === 'triage_activate' ||
+    kind === 'triage_archive'
+  )
 }
 
 /**
  * Queue lifecycle: `pending` is live, every other state is terminal (ADR §2.2).
  * `rolled_back` marks rows reverted by an explicit run rollback (ADR 2026-09-29 §2.8).
  */
-export type ProposalState = 'pending' | 'accepted' | 'rejected' | 'expired' | 'stale' | 'rolled_back'
+export type ProposalState =
+  | 'pending'
+  | 'accepted'
+  | 'rejected'
+  | 'expired'
+  | 'stale'
+  | 'rolled_back'
 
 export interface PlacementProposalRow {
   id: string
@@ -166,7 +181,10 @@ export function getProposal(db: Database, id: string): PlacementProposalRow | un
 }
 
 /** List proposals, newest first; defaults to live `pending` rows (ADR §2.9). */
-export function listProposals(db: Database, options: ListProposalsOptions = {}): PlacementProposalRow[] {
+export function listProposals(
+  db: Database,
+  options: ListProposalsOptions = {}
+): PlacementProposalRow[] {
   const state = options.state ?? 'pending'
   const limit = Math.floor(options.limit ?? 100)
   const clauses = ['state = ?']
@@ -191,7 +209,9 @@ export function listProposals(db: Database, options: ListProposalsOptions = {}):
   }
   params.push(limit)
   return db
-    .prepare(`SELECT * FROM placement_proposals WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT ?`)
+    .prepare(
+      `SELECT * FROM placement_proposals WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT ?`
+    )
     .all(...params) as PlacementProposalRow[]
 }
 
@@ -248,7 +268,11 @@ export function updateProposalState(
  * forever. They are now decided-at-`now` and pruned one retention window later,
  * like every other terminal row.
  */
-export function deleteExpired(db: Database, cutoff: string, now: string = new Date().toISOString()): number {
+export function deleteExpired(
+  db: Database,
+  cutoff: string,
+  now: string = new Date().toISOString()
+): number {
   const expired = db
     .prepare(
       `UPDATE placement_proposals SET state = 'expired', decided_at = ?
@@ -256,7 +280,9 @@ export function deleteExpired(db: Database, cutoff: string, now: string = new Da
     )
     .run(now, now).changes
   const pruned = db
-    .prepare(`DELETE FROM placement_proposals WHERE state != 'pending' AND decided_at IS NOT NULL AND decided_at < ?`)
+    .prepare(
+      `DELETE FROM placement_proposals WHERE state != 'pending' AND decided_at IS NOT NULL AND decided_at < ?`
+    )
     .run(cutoff).changes
   return expired + pruned
 }

@@ -31,17 +31,27 @@ export const getHandler: ActionHandler = {
     if (!thought) throw new NotFoundError(`Thought '${id}' not found`)
     const compact = args.compact !== false
     const fields = args.fields
-    const chain = args.include_edges ? getChainService(id, 'both', args.max_degree as number | undefined) : null
+    const chain = args.include_edges
+      ? getChainService(id, 'both', args.max_degree as number | undefined)
+      : null
     if (args.include_edges && !chain) throw new NotFoundError(`Thought '${id}' not found`)
     // One batch read for the thought and every neighbour the answer will emit.
-    const urlLinks = args.include_url_links === true
-      ? loadUrlLinks([thought, ...(chain?.upstream ?? []).map(e => e.thought), ...(chain?.downstream ?? []).map(e => e.thought)])
-      : undefined
+    const urlLinks =
+      args.include_url_links === true
+        ? loadUrlLinks([
+            thought,
+            ...(chain?.upstream ?? []).map(e => e.thought),
+            ...(chain?.downstream ?? []).map(e => e.thought)
+          ])
+        : undefined
     const shaped = shapeThought(thought, compact, fields, urlLinks) as Thought
     if (!chain) return itemEnvelope('get', shaped)
     const edges = (list: unknown): unknown =>
       Array.isArray(list)
-        ? list.map((e: { edge: unknown; thought?: Thought }) => ({ ...e, thought: e?.thought ? shapeThought(e.thought, compact, fields, urlLinks) : e?.thought }))
+        ? list.map((e: { edge: unknown; thought?: Thought }) => ({
+            ...e,
+            thought: e?.thought ? shapeThought(e.thought, compact, fields, urlLinks) : e?.thought
+          }))
         : list
     return itemEnvelope('get', {
       ...shaped,

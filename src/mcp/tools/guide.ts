@@ -1,4 +1,4 @@
-import type { McpServer } from "@modelcontextprotocol/server";
+import type { McpServer } from '@modelcontextprotocol/server'
 import { getAdvertisedSoftLimitService } from '../../services/settings.service'
 import { toolOutputShape } from './utils'
 
@@ -103,12 +103,16 @@ memory_reflect reflect writes thoughts, it is not read-only: decisions create ac
 }
 
 export function registerMemoryGuide(server: McpServer) {
-  server.registerTool('memory_guide', {
-    description: 'Reference for tools, parameters, and system behavior',
-    outputSchema: toolOutputShape
-  }, async () => {
-    const softLimit = getAdvertisedSoftLimitService()
-    const text = buildGuideText(softLimit)
-    return { content: [{ type: 'text' as const, text }], structuredContent: { result: { text } } }
-  })
+  server.registerTool(
+    'memory_guide',
+    {
+      description: 'Reference for tools, parameters, and system behavior',
+      outputSchema: toolOutputShape
+    },
+    async () => {
+      const softLimit = getAdvertisedSoftLimitService()
+      const text = buildGuideText(softLimit)
+      return { content: [{ type: 'text' as const, text }], structuredContent: { result: { text } } }
+    }
+  )
 }
