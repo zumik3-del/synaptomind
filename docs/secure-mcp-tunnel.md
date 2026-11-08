@@ -53,6 +53,8 @@ unset OPENAI_TUNNEL_RUNTIME_KEY
 
 Generate a stdio profile. The MCP command explicitly sets every runtime path
 that would otherwise depend on the tunnel process's working directory.
+The example uses the checkout's database; if a shared server owns background
+work, use that server's actual database path instead.
 
 ```bash
 tunnel-client init \
@@ -63,6 +65,16 @@ tunnel-client init \
   --health-listen-addr 127.0.0.1:8080 \
   --mcp-command "/usr/bin/env SYNAPTOMIND_DB_PATH=$SYNAPTOMIND_DIR/data/synaptomind.db SYNAPTOMIND_EMBEDDER_CACHE_DIR=$SYNAPTOMIND_DIR/data/huggingface $BUN_BIN run $SYNAPTOMIND_DIR/src/index.ts --stdio"
 ```
+
+By default `--stdio` does not start the embedder or background jobs at startup.
+An embedding request can still start a local embedder child on demand; it does
+not reuse the shared server's child. Run a separate server against the same
+database to own the background jobs, or, for a standalone
+single-user deployment without a shared server, add `--stdio-standalone` to
+the MCP command. Do not start multiple owners for the same database. Standalone
+stdio is unavailable with multi-user configuration; in multi-user mode stdio
+uses the isolated legacy `db.path`, not a user database. See
+[stdio ownership](CONFIG.md#stdio-ownership) and [multi-user configuration](CONFIG.md#users-multi-user).
 
 Review `$TUNNEL_PROFILE_DIR/synaptomind.yaml`. Keep the health/admin listener on
 loopback. Port `8080` is fixed here so every later health command uses the same
@@ -123,11 +135,17 @@ time this integration was written, it consists of:
 - `memory_reflect`
 - `memory_primers`
 - `edge_review`
+- `retention_review`
 - `memory_guide`
 
 Web ChatGPT does not have a reliable local filesystem working directory. It
-should call `memory_manage` with `action=list`, select a canonical project ID,
-and pass `project_id` instead of inventing `cwd`.
+should call `memory_manage` with `action=list`, select the intended project's
+registered `local_path`, and pass that server-side path as `cwd` for scoped
+operations. If the project has no registered path, an operator must register
+one first. Verify it with `memory_manage action=resolve`: an unknown path can
+make scoped searches fall back to all projects with a warning. Do not pass
+`project_id` to thought or scoped-memory actions; it remains an identifier for
+`memory_manage` project update and delete operations.
 
 ## Security boundary
 

@@ -866,12 +866,15 @@ with an optional `title` and `tags`) answers `item: { cluster, edges, members }`
 (`{ source_id, target_id, type }`), and `meta.counts.members`/`meta.counts.edges` repeat the two
 sizes. `cwd` selects the project of the new cluster.
 
-`auto_cluster` (Union-Find grouping over active thoughts, tuned by the `autoCluster.*` settings in
+`auto_cluster` (Union-Find grouping over eligible active and draft thoughts, tuned by the `autoCluster.*` settings in
 [CONFIG.md](CONFIG.md)) answers `{ items: <groups>, meta }` with `meta.counts.candidates` and
 `meta.counts.clusters`. It previews when `confirm` is absent or false — `meta.preview` carries the
 token, the consequence and the confirm instruction — and `confirm: true` executes. The retired
 `dry_run` input is rejected with a hint to use `confirm`. `cwd` does not apply to `auto_cluster` —
 the run is global.
+
+Despite the name, `min_similarity` is a maximum cosine **distance**, not a minimum similarity:
+neighbours qualify when their distance is strictly below the threshold. Lower values are tighter.
 
 ## `edge_review` — placement proposals
 

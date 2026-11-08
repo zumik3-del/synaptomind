@@ -1,5 +1,8 @@
 # Thought Scenarios
 
+These are illustrative calls, not executable syntax. In each project-scoped
+example, replace `/path/to/project` with the project's registered server-side path.
+
 ## Scenario 1: Creating a New Project
 
 ```
@@ -25,7 +28,7 @@
 ## Scenario 2: Session Start — Context Loading
 
 ```
-Agent boots → memory_status(action=slots) →
+Agent boots → memory_status(action=slots, cwd="/path/to/project") →
   pending_items (due pending thoughts),
   architecture_decisions (from primers),
   project_context (previous reflections),
@@ -36,16 +39,16 @@ Agent boots → memory_status(action=slots) →
 ## Scenario 3: Working on a Task
 
 ```
-1. memory_recall(action=search, "how we did X") → find existing thoughts, avoid duplicates
-2. memory_store(action=create, "decided to use Y", tags=["decision"]) → record the decision
-3. memory_store(action=link, thought_id=new_thought, target_id=existing, edge_type="develops") → grow the graph
-4. memory_store(action=create, "need to do Z", tags=["todo", "pending"]) → plan the next step
+1. memory_recall(action=search, query="how we did X", cwd="/path/to/project") → find existing thoughts, avoid duplicates
+2. memory_store(action=create, content="decided to use Y", tags=["decision"], cwd="/path/to/project") → record the decision
+3. memory_store(action=link, source_id=new_thought, target_id=existing, edge_type="develops") → grow the graph
+4. memory_store(action=create, content="need to do Z", tags=["todo", "pending"], cwd="/path/to/project") → plan the next step
 ```
 
 ## Scenario 4: Sleeping Thoughts (Deferred Surfacing)
 
 ```
-memory_reflect(action=reflect, pending=["write auth tests", "update docs"], wake_days=7)
+memory_reflect(action=reflect, pending=["write auth tests", "update docs"], wake_days=7, cwd="/path/to/project")
   → each pending thought is created as a draft tagged `pending` + `reflect`
     with surface_after = now + 7 days
   → nothing surfaces for 7 days...
@@ -64,7 +67,8 @@ memory_reflect(
   goals_add: ["migrate to sessions"],
   decisions: ["Use server-side sessions instead of JWT", "Redis for session storage"],
   pending: ["Load test sessions", "Update API docs"],
-  wake_days: 14
+  wake_days: 14,
+  cwd: "/path/to/project"
 )
 ```
 
@@ -81,7 +85,7 @@ cleaned up without touching hand-created thoughts.
 ## Scenario 6: Frontier — What to Do Next
 
 ```
-memory_status(action=frontier)
+memory_status(action=frontier, cwd="/path/to/project")
   → candidates: active/draft thoughts tagged directive, todo or pending
     whose surface_after delay has elapsed (or is unset)
   → excluded: clusters, thoughts replaced by a `replaces` edge, and legacy

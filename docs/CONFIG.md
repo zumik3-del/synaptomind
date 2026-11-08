@@ -45,10 +45,10 @@ cp .env.example .env
 ### Stdio ownership
 
 A stdio MCP client talks to the same SQLite database as the HTTP server. By
-default (`mcp.stdioStandalone=false`) the stdio process does **not** start the
-embedder child process, or decay job — the
-shared HTTP server is their single owner. This avoids every client spawning its
-own embedder and schedulers against one DB.
+default (`mcp.stdioStandalone=false`) the stdio process does **not** start an
+embedder child or background jobs at startup; the shared HTTP server owns the
+scheduled jobs. An embedding request can still start a local child on demand;
+stdio does not reuse the HTTP server's embedder process.
 
 To run stdio as a fully standalone node (no separate server), enable local
 ownership with either:
@@ -196,8 +196,9 @@ the cap on emitted edge proposals. The draft health check reuses the candidate-p
 bound only.
 
 No standalone detection route or `memory_status` action exists any more: a candidate
-is only ever a proposal, produced by the read-only placement engine, and an edge
-appears only when it is confirmed with `memory_store action=link`.
+is only ever a proposal, produced by the read-only placement engine. An edge can
+be created directly with `memory_store action=link`, or by applying a queued
+proposal with `edge_review action=apply` or `apply_batch` and explicit confirmation.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
