@@ -27,7 +27,7 @@ export function registerMemoryCrystallize(server: McpServer) {
       title: z.string().optional().describe('Cluster title. OPTIONAL for "cluster". IGNORED for "graph" and "auto_cluster".'),
       tags: z.array(z.string()).optional().describe('Tags. OPTIONAL for "cluster". IGNORED for "graph" and "auto_cluster".'),
       min_age_days: z.coerce.number().int().min(0).max(3650).optional().describe('Min age in days (default from config). OPTIONAL for "auto_cluster". IGNORED for "graph" and "cluster".'),
-      min_similarity: z.coerce.number().min(0).max(1).optional().describe('Min similarity threshold 0-1 (default from config). OPTIONAL for "auto_cluster". IGNORED for "graph" and "cluster".'),
+      min_similarity: z.coerce.number().min(0).max(1).optional().describe('Maximum cosine distance between neighbours (0-1; lower is tighter, default from config). OPTIONAL for "auto_cluster". IGNORED for "graph" and "cluster".'),
       min_members: z.coerce.number().int().min(1).max(1000).optional().describe('Min members per cluster (default from config). OPTIONAL for "auto_cluster". IGNORED for "graph" and "cluster".'),
       confirm: z.boolean().optional().describe('CONSUMED by "auto_cluster" (true creates clusters; false/omitted previews). IGNORED for "graph" and "cluster".'),
       preview_token: z.string().optional().describe('OPTIONAL preview token returned by a prior preview. CONSUMED by "auto_cluster" (true executes with token validation; missing/stale fails). IGNORED for "graph" and "cluster".'),

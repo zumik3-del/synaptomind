@@ -1,5 +1,8 @@
 # Thought Scenarios
 
+These are illustrative calls, not executable syntax. In each project-scoped
+example, replace `/path/to/project` with the project's registered server-side path.
+
 ## Scenario 1: Creating a New Project
 
 ```
@@ -25,7 +28,7 @@
 ## Scenario 2: Session Start — Context Loading
 
 ```
-Agent boots → memory_status(action=slots) →
+Agent boots → memory_status(action=slots, cwd="/path/to/project") →
   pending_items (due pending thoughts),
   architecture_decisions (from primers),
   project_context (previous reflections),
@@ -36,18 +39,19 @@ Agent boots → memory_status(action=slots) →
 ## Scenario 3: Working on a Task
 
 ```
-1. memory_recall(action=search, "how we did X") → find existing thoughts, avoid duplicates
-2. memory_store(action=create, "decided to use Y", tags=["decision"]) → record the decision
-3. memory_store(action=link, thought_id=new_thought, target_id=existing, edge_type="develops") → grow the graph
-4. memory_store(action=create, "need to do Z", tags=["todo", "pending"]) → plan the next step
+1. memory_recall(action=search, query="how we did X", cwd="/path/to/project") → find existing thoughts, avoid duplicates
+2. memory_store(action=create, content="decided to use Y", tags=["decision"], cwd="/path/to/project") → record the decision
+3. memory_store(action=link, source_id=new_thought, target_id=existing, edge_type="develops") → grow the graph
+4. memory_store(action=create, content="need to do Z", tags=["todo", "pending"], cwd="/path/to/project") → plan the next step
 ```
 
 ## Scenario 4: Sleeping Thoughts (Deferred Surfacing)
 
 ```
-memory_reflect(action=reflect, pending=["write auth tests", "update docs"], wake_days=7)
-  → each pending thought is created as a draft tagged `pending` + `reflect`
+memory_reflect(action=reflect, pending=["write auth tests", "update docs"], wake_days=7, cwd="/path/to/project")
+  → each new pending thought is created as a draft tagged `pending` + `reflect`
     with surface_after = now + 7 days
+  → existing live thoughts with the same project and content are left unchanged
   → nothing surfaces for 7 days...
   → once due, the thought appears in the frontier (reason `pending`)
     and in the pending_items slot
@@ -64,7 +68,8 @@ memory_reflect(
   goals_add: ["migrate to sessions"],
   decisions: ["Use server-side sessions instead of JWT", "Redis for session storage"],
   pending: ["Load test sessions", "Update API docs"],
-  wake_days: 14
+  wake_days: 14,
+  cwd: "/path/to/project"
 )
 ```
 
@@ -72,8 +77,8 @@ What happens inside:
 - `summary` → appended to `project_context` slot (with timestamp)
 - `goals_add` → adds entries to `active_goals`; `goals_remove` removes stored goal lines
   matching case-insensitively by substring
-- `decisions` → creates **active** thoughts with tags `decision` + `reflect` (knowledge graph, not in frontier — frontier only surfaces `directive`/`todo`/`pending` thoughts)
-- `pending` → creates **draft** thoughts with tags `pending` + `reflect` and `surface_after = now + wake_days` (they join the frontier once due)
+- `decisions` → creates **active** thoughts with tags `decision` + `reflect`, skipping similar decisions and live content duplicates in the same project
+- `pending` → creates **draft** thoughts with tags `pending` + `reflect` and `surface_after = now + wake_days` (they join the frontier once due); existing live content duplicates in the project are unchanged
 
 The `reflect` tag marks every thought reflect created, so reflect output can be filtered or
 cleaned up without touching hand-created thoughts.
@@ -81,7 +86,7 @@ cleaned up without touching hand-created thoughts.
 ## Scenario 6: Frontier — What to Do Next
 
 ```
-memory_status(action=frontier)
+memory_status(action=frontier, cwd="/path/to/project")
   → candidates: active/draft thoughts tagged directive, todo or pending
     whose surface_after delay has elapsed (or is unset)
   → excluded: clusters, thoughts replaced by a `replaces` edge, and legacy
@@ -94,7 +99,9 @@ memory_status(action=frontier)
 ## Scenario 7: Grouping and Cluster Maintenance
 
 ```
-memory_crystallize(action=auto_cluster) → similar thoughts grouped into clusters (Union-Find)
+memory_crystallize(action=auto_cluster) → preview global groups (Union-Find); take meta.preview.token
+memory_crystallize(action=auto_cluster, confirm=true, preview_token=<token>) → create clusters
+  → global operation: cwd is ignored; repeat the same clustering options on confirm
 memory_crystallize(action=graph) → inspect thoughts and edges
 memory_crystallize(action=cluster) → create a cluster thought from thought_ids
 

@@ -231,9 +231,9 @@ For clients that prefer stdio:
 
 By default the stdio process is a **single-owner client**: it opens an MCP
 session against the shared database but does **not** start its own embedder
-child process or the decay / proposal-retention jobs. Those
-are owned by the standalone HTTP server, so N stdio clients no longer spawn N
-embedders and N schedulers against one DB.
+child process or the decay / proposal-retention jobs at startup. The standalone
+HTTP server owns the scheduled jobs. An embedding request can still start a
+local child on demand; stdio does not reuse the HTTP server's embedder process.
 
 If you run stdio with no separate server, opt into local ownership with the
 `--stdio-standalone` flag (`args: ["run", "...", "--stdio", "--stdio-standalone"]`)

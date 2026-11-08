@@ -29,6 +29,7 @@ import {
   type EnvelopeReason
 } from './envelope'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import { allActionFields, validateActionFields } from './action-fields'
 
 const ACTION_FIELDS: Record<string, string[]> = {
   search: ['query', 'status', 'cwd', 'tag', 'is_cluster', 'group_by_cluster', 'min_importance', 'hybrid', 'recency_weight', 'recency_half_life_days', 'min_relevance', 'supersession_mode', 'contradiction_mode', 'limit', 'compact', 'fields', 'include_url_links'],
@@ -38,13 +39,7 @@ const ACTION_FIELDS: Record<string, string[]> = {
   get: ['thought_id', 'include_edges', 'max_degree', 'compact', 'fields', 'include_url_links'],
   list: ['status', 'cwd', 'tag', 'is_cluster', 'limit', 'offset', 'compact', 'fields', 'include_url_links']
 }
-const ACTION_FIELDS_ALL = new Set(Object.values(ACTION_FIELDS).flat())
-
-function validateActionFields(action: string, args: ActionArgs): void {
-  const allowed = new Set(ACTION_FIELDS[action] ?? [])
-  const irrelevant = Object.keys(args).filter(key => ACTION_FIELDS_ALL.has(key) && !allowed.has(key))
-  if (irrelevant.length) throw new Error(`${irrelevant.join(', ')} is not applicable to ${action} action`)
-}
+const ACTION_FIELDS_ALL = allActionFields(ACTION_FIELDS)
 
 /**
  * The array-returning search service hangs the collection-level `degraded`
@@ -284,7 +279,7 @@ export function registerMemoryRecall(server: McpServer) {
     },
     handlers: Object.fromEntries(Object.entries(handlers).map(([action, handler]) => [action, {
       ...handler,
-      async run(args: ActionArgs) { validateActionFields(action, args); return handler.run(args) }
+      async run(args: ActionArgs) { validateActionFields(action, args, ACTION_FIELDS, ACTION_FIELDS_ALL); return handler.run(args) }
     }]))
   })
 }

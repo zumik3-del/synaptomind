@@ -52,6 +52,20 @@ jobs:
       - name: "Lint: docs (no dead ai-workdir references)"
         run: bun run lint:docs
 
+      # Advisory: duplication is a quality signal, NOT a merge gate. The step reports
+      # clones and `--exitCode 1` marks it failed (0.13% at the 6-line floor), and
+      # `continue-on-error` keeps the job green so every later step still runs. A
+      # genuine hit is fixed by extracting the shared code — there is no baseline, no
+      # allowlist and no `jscpd:ignore` escape hatch by design: a suppression would
+      # hide exactly the copies this is meant to surface. Test files are excluded
+      # because they legitimately repeat fixtures/assertion blocks (they alone
+      # measure 2.28%). `--exitCode 1` supplements the 0.01% threshold: as src/ grows,
+      # a single clone can fall under that percentage and must still be reported.
+      # Mirrors the local `bun run lint:dup`; jscpd is pinned to v3 by the lockfile.
+      - name: "Lint: duplication (jscpd, advisory)"
+        continue-on-error: true
+        run: bun run lint:dup
+
       - name: "Type-check: tsc"
         run: bun run tsc --noEmit
 

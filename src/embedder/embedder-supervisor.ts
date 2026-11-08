@@ -172,6 +172,9 @@ export class EmbedderSupervisor {
   }
 
   protected async ensureReady(): Promise<void> {
+    if (!config.embedder.enabled || process.argv.includes('--no-embedder')) {
+      throw new EmbedderUnavailableError('Embedder is disabled')
+    }
     if (this.ready) return
     if (!this.ensureReadyPromise) {
       const p = this.runEnsureReady().finally(() => {

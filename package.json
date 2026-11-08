@@ -23,6 +23,7 @@
     "eval": "bun run eval/index.ts",
     "lint": "bunx biome check src/ eval/",
     "lint:docs": "bun run scripts/check-doc-refs.ts",
+    "lint:dup": "jscpd src --min-lines 6 --min-tokens 50 --threshold 0.01 --exitCode 1 --reporters console --ignore \"**/*.test.ts,**/*.suite.ts,**/__fixtures__/**,src/test/**\"",
     "smoke": "bash scripts/smoke-test.sh",
     "release": "bash scripts/release.sh",
     "changelog": "bun run scripts/changelog.ts",
@@ -50,6 +51,7 @@
     "@commitlint/config-conventional": "^21.2.2",
     "@types/bun": "^1.4.0",
     "husky": "^9.1.7",
+    "jscpd": "^3.5.10",
     "typescript": "^7.0.2"
   }
 }
