@@ -80,10 +80,21 @@ Local embedding model for semantic search. No API keys required.
 | `embedder.dimensions` | `SYNAPTOMIND_EMBEDDER_DIMENSIONS` | `384` | Embedding vector dimensions |
 | `embedder.pollIntervalMs` | `SYNAPTOMIND_EMBEDDER_POLL_INTERVAL` | `7000` | How often to check for pending embeddings (ms) |
 | `embedder.cacheDir` | `SYNAPTOMIND_EMBEDDER_CACHE_DIR` | `./data/huggingface` | Model cache directory (~449 MB with `fp32`, ~113 MB with `q8`, after first load) |
-| `embedder.idleTimeoutMs` | `SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT` | `600000` | Unload model after this idle time (ms). 0 = never unload |
-| `embedder.precache` | `SYNAPTOMIND_EMBEDDER_PRECACHE` | `false` | Download model on startup instead of on first use |
+| `embedder.idleTimeoutMs` | `SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT` | `600000` | Unload after this idle time (ms): the embedder process exits and the next request starts a new one. A queue poll that finds pending embeddings or an IPC request resets the countdown. `0` = never unload, the same effect as `embedder.precache` |
+| `embedder.precache` | `SYNAPTOMIND_EMBEDDER_PRECACHE` | `false` | When `true`, keeps the embedder process resident instead of letting it unload after `embedder.idleTimeoutMs` (same effect as `idleTimeoutMs: 0`), so the model stays loaded and the first request after a quiet period pays no reload. It does not download or preload anything at startup: model files are fetched on the first process start either way, and the ONNX session still loads on the first embedding request |
 | `embedder.resetDeadLetters` | `SYNAPTOMIND_RESET_DEAD_LETTER` | `false` | Re-queue dead-lettered embeddings on startup. Off by default: a poisonous thought would otherwise get fresh attempts on every restart. Enable after fixing an embedding bug to retry failed items |
 | `embedder.batchSize` | `SYNAPTOMIND_EMBEDDER_BATCH_SIZE` | `8` | Embeddings per batch. Higher = faster but more RAM |
+
+**Note:** The embedder child starts with the server, not with the first request:
+`startEmbedderProcess()` runs at boot in every process that owns background jobs (see
+[Stdio ownership](#stdio-ownership)), unless `embedder.enabled=false` or `--no-embedder`.
+`embedder.precache` and `embedder.idleTimeoutMs` never change that; they only decide whether the
+child survives between requests. On start the child validates the model files (downloading any
+missing one) and then polls the embedding queue; the model itself is loaded into memory by the
+first embedding it computes. The queue worker lives inside that child, so a thought queued after an
+idle unload stays pending until the next embedding request starts a child — keep
+`embedder.precache=true` or `embedder.idleTimeoutMs=0` on a host that must embed with no other
+traffic.
 
 **Note:** Switching `embedder.dtype` shifts embedding values only slightly — measured on the default
 model with transformers.js 4.2.0, the fp32↔q8 cosine drift is ≤0.0061, far under the ~0.19 median distance between two different
