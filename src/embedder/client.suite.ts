@@ -80,6 +80,7 @@ function useLifecycleStub(
     | 'crash-then-recover'
     | 'ready-no-answer'
     | 'idle-exit-on-request'
+    | 'idle-exit-no-msg'
     | 'crash-on-request'
     | 'idle-exit-once',
   hangMs?: number
@@ -379,6 +380,40 @@ test('a superseded idle-exit child cannot clobber its respawned successor (#1784
 
   await client.stopEmbedderProcess()
 }, 20_000)
+
+test('a clean exit without the exiting message leaves the state stopped', async () => {
+  const stub = useLifecycleStub('idle-exit-no-msg')
+  await startEmbedderProcess()
+  expect(getEmbedderState()).toBe('ok')
+
+  const err: unknown = await generateEmbedding('hello').catch(e => e)
+
+  expect(err).toBeInstanceOf(EmbedderUnavailableError)
+  expect((err as EmbedderUnavailableError).statusCode).toBe(503)
+  expect((err as Error).message).toBe('Embedder process exited')
+  expect(stub.exited()).toBe(true)
+  expect(getEmbedderState()).toBe('stopped')
+  expect(getHealthService().checks.embedder).toBe('not ready')
+
+  const vector = await generateEmbedding('hello')
+  expect(Array.from(vector)).toEqual([5, 1, 2])
+  expect(stub.attempts()).toBe(2)
+  expect(getEmbedderState()).toBe('ok')
+}, 15_000)
+
+test('a non-zero exit still latches the state as failed', async () => {
+  useLifecycleStub('crash-on-request')
+  await startEmbedderProcess()
+  expect(getEmbedderState()).toBe('ok')
+
+  const err: unknown = await generateEmbedding('hello').catch(e => e)
+
+  expect(err).toBeInstanceOf(EmbedderUnavailableError)
+  expect((err as EmbedderUnavailableError).statusCode).toBe(503)
+  expect((err as Error).message).toBe('Embedder process crashed')
+  expect(getEmbedderState()).toBe('failed')
+  expect(getHealthService().checks.embedder).toBe('failed')
+}, 15_000)
 
 // ── #2153: single-flight readiness, backoff/cooldown, kill-before-respawn ───
 // Coverage for the hardening in embedder-client.ts: one shared promise/owner,

@@ -69,8 +69,7 @@ function clearTimers(): void {
 
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer)
-  if (config.embedder.precache) {
-    // Precache mode: keep the embedder process (and its model) resident.
+  if (config.embedder.precache || config.embedder.idleTimeoutMs <= 0) {
     idleTimer = null
     return
   }
