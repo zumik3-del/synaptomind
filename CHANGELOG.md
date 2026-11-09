@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.22.1
+
+> November 9, 2026
+
+- [`4866eb63`](https://github.com/zumik3-del/synaptomind/commit/4866eb63df17be2a140121c2b8779a1f140089a4): fix(embedder): pass the idle config to the child under the SYNAPTOMIND_ names
+- [`95759878`](https://github.com/zumik3-del/synaptomind/commit/957598788eeed29e95cf11f57d2efb9b455ac4d5): test(process): cover the rejected-shutdown path
+- [`0fe65f41`](https://github.com/zumik3-del/synaptomind/commit/0fe65f4177ebffd5c5dabfd07345c0424fd80e2d): fix(embedder): checkpoint the child DB before closing it on unload
+- [`67ba4adb`](https://github.com/zumik3-del/synaptomind/commit/67ba4adb28188dcdfff9df5b8dbaba15d907e4aa): fix(process): fail fast on rejected shutdown and show log errors in text mode
+- [`0dc97b55`](https://github.com/zumik3-del/synaptomind/commit/0dc97b557b11a2a6660bac91702deb248622072b): fix(process): log runtime errors instead of exiting the server
+- [`4b778f86`](https://github.com/zumik3-del/synaptomind/commit/4b778f86f1ed329421525caf18278ae95950502c): docs(embedder): correct precache and idleTimeoutMs semantics
+- [`607d874a`](https://github.com/zumik3-del/synaptomind/commit/607d874a22a9fa34f1f5dcae8a7cc64f65e6ef10): fix(embedder): report a clean idle exit as stopped and honor idleTimeoutMs=0
+- [`d556f90d`](https://github.com/zumik3-del/synaptomind/commit/d556f90d7c6b24450f6879a652131e3f1eedc8a4): docs(agents): default to no code comments
+- [`02930856`](https://github.com/zumik3-del/synaptomind/commit/029308569700f56932114da5c198d279cddd852a): test(deploy): decouple the self-audit checks from line layout
+- [`aaa253a4`](https://github.com/zumik3-del/synaptomind/commit/aaa253a4cd7b225501fb8b729f2aa3a6ba3d357a): test(deploy): make the IN_NS_HOME self-audit tolerant of line wrapping
+- [`bc80ecda`](https://github.com/zumik3-del/synaptomind/commit/bc80ecdaebc37ea6823858d68d8959b6501501ea): chore: format deploy/updater.sh.test.ts after the CodeQL fix
+- [`744bc3c4`](https://github.com/zumik3-del/synaptomind/commit/744bc3c45a35a5f6d863fed552ca12f73f4fa754): Potential fix for pull request finding 'CodeQL / Shell command built from environment values'
+- [`ce26ac55`](https://github.com/zumik3-del/synaptomind/commit/ce26ac552f00254eade851886902ba99bc22dca6): Potential fix for pull request finding 'CodeQL / Shell command built from environment values'
+- [`21799b0a`](https://github.com/zumik3-del/synaptomind/commit/21799b0a84cc8626b131ff0b75e0f8e90132dc71): docs: document the Biome formatting standard and its blocking gate
+- [`643bb916`](https://github.com/zumik3-del/synaptomind/commit/643bb916540770b53dbb3bf31e0250927c5881e4): ci: gate formatting with a blocking biome format:check step
+- [`148843ea`](https://github.com/zumik3-del/synaptomind/commit/148843eab2b138bade50130926a294934b025900): chore: add the reformat commit to .git-blame-ignore-revs
+- [`78bbb28d`](https://github.com/zumik3-del/synaptomind/commit/78bbb28dc7295fddc901a807afe643cb74382712): chore: format the TypeScript tree with Biome
+- [`f597f93e`](https://github.com/zumik3-del/synaptomind/commit/f597f93e8bd4c5dface5f8ed11122d0698cdfeac): refactor(mcp,db): extract the three duplicated blocks jscpd reported
+- [`c47d7fe3`](https://github.com/zumik3-del/synaptomind/commit/c47d7fe3bfbeac9d5020217e65ceea12eaba63a4): ci(lint): make the duplication check advisory and tighten it to 6 lines
+- [`a1dbfe62`](https://github.com/zumik3-del/synaptomind/commit/a1dbfe620e38103a020eb436f8911b2bf038b2cd): ci(lint): add blocking jscpd duplication gate for src/
+- [`5e3d2059`](https://github.com/zumik3-del/synaptomind/commit/5e3d2059f8223ec9d442b83682e506370dfefc12): fix(embedder,reflect): honor disabled embedder and dedup reflections
+- [`32a3034a`](https://github.com/zumik3-del/synaptomind/commit/32a3034ad24652d81595a95964a1284dc9f7af10): docs(mcp): correct stdio ownership, cwd scoping and cluster semantics
+
 ## v0.22.0
 
 > November 7, 2026
