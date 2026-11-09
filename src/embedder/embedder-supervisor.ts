@@ -138,8 +138,8 @@ export class EmbedderSupervisor {
       },
       env: {
         ...process.env,
-        EMBEDDER_PRECACHE: this.deps.getEmbedderPrecache() ? 'true' : 'false',
-        EMBEDDER_IDLE_TIMEOUT: String(this.deps.getEmbedderIdleTimeoutMs())
+        SYNAPTOMIND_EMBEDDER_PRECACHE: this.deps.getEmbedderPrecache() ? 'true' : 'false',
+        SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT: String(this.deps.getEmbedderIdleTimeoutMs())
       },
       stdout: 'pipe',
       stderr: 'pipe'
