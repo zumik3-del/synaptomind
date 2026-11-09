@@ -160,9 +160,15 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   process.exit(0)
 }
 
+function failShutdown(err: unknown): never {
+  const detail = err instanceof Error ? (err.stack ?? err.message) : String(err)
+  console.error(`[synaptomind] shutdown failed: ${detail}`)
+  process.exit(1)
+}
+
 function registerShutdownSignals(extra?: () => void | Promise<void>): void {
   const handler = (): void => {
-    void shutdown(extra)
+    shutdown(extra).catch(failShutdown)
   }
   process.on('SIGTERM', handler)
   process.on('SIGINT', handler)
@@ -175,7 +181,7 @@ if (isStdio) {
   // A stdio MCP client disconnects by closing our stdin; the SDK transport
   // does not surface that, so trigger the shared shutdown ourselves.
   const onDisconnect = (): void => {
-    void shutdown()
+    shutdown().catch(failShutdown)
   }
   process.stdin.on('end', onDisconnect)
   process.stdin.on('close', onDisconnect)
