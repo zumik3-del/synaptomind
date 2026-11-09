@@ -220,3 +220,6 @@ if (isStdio) {
     server.stop()
   })
 }
+
+const { installProcessHandlers } = await import('./process-handlers')
+installProcessHandlers()
