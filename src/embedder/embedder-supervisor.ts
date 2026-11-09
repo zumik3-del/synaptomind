@@ -138,8 +138,8 @@ export class EmbedderSupervisor {
       },
       env: {
         ...process.env,
-        EMBEDDER_PRECACHE: this.deps.getEmbedderPrecache() ? 'true' : 'false',
-        EMBEDDER_IDLE_TIMEOUT: String(this.deps.getEmbedderIdleTimeoutMs())
+        SYNAPTOMIND_EMBEDDER_PRECACHE: this.deps.getEmbedderPrecache() ? 'true' : 'false',
+        SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT: String(this.deps.getEmbedderIdleTimeoutMs())
       },
       stdout: 'pipe',
       stderr: 'pipe'
@@ -164,7 +164,8 @@ export class EmbedderSupervisor {
       .then(code => {
         if (generation !== this.generation) return
         this.proc = null
-        if (!this.dead && !this.shuttingDown) {
+        const cleanExit = code === 0 && !child.signalCode
+        if (!this.dead && !this.shuttingDown && !cleanExit) {
           console.error(`[embedder] process exited unexpectedly with code ${code}`)
           this.startFailed = true
         }
@@ -177,7 +178,11 @@ export class EmbedderSupervisor {
         this.dead = true
         this.ready = false
         if (!this.shuttingDown) {
-          this.ipc.rejectAllPending(new EmbedderUnavailableError('Embedder process crashed'))
+          this.ipc.rejectAllPending(
+            new EmbedderUnavailableError(
+              cleanExit ? 'Embedder process exited' : 'Embedder process crashed'
+            )
+          )
         }
       })
       .catch(() => {})

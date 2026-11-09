@@ -67,10 +67,18 @@ function clearTimers(): void {
   }
 }
 
+function closeAllDbs(): void {
+  closeDb()
+  for (const e of entries) {
+    try {
+      e.db?.close(true)
+    } catch {}
+  }
+}
+
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer)
-  if (config.embedder.precache) {
-    // Precache mode: keep the embedder process (and its model) resident.
+  if (config.embedder.precache || config.embedder.idleTimeoutMs <= 0) {
     idleTimer = null
     return
   }
@@ -82,14 +90,7 @@ function resetIdleTimer() {
     process.send?.({ type: 'exiting' })
     clearTimers()
     resetExtractor()
-    for (const e of entries) {
-      try {
-        e.db?.close(true)
-      } catch {
-        /* ignore */
-      }
-    }
-    closeDb()
+    closeAllDbs()
     process.exit(0)
   }, config.embedder.idleTimeoutMs)
 }
@@ -303,14 +304,7 @@ process.on('message', async (raw: unknown) => {
     console.log('[embedder] shutdown requested, exiting')
     clearTimers()
     resetExtractor()
-    for (const e of entries) {
-      try {
-        e.db?.close(true)
-      } catch {
-        /* ignore */
-      }
-    }
-    closeDb()
+    closeAllDbs()
     process.exit(0)
     return
   }

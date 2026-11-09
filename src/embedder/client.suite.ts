@@ -27,6 +27,7 @@ import {
 // again in afterEach.
 const STUB_PATH = `${import.meta.dir}/__fixtures__/stub-embedder.ts`
 const LIFECYCLE_STUB_PATH = `${import.meta.dir}/__fixtures__/stub-embedder-lifecycle.ts`
+const ENV_STUB_PATH = `${import.meta.dir}/__fixtures__/stub-embedder-env.ts`
 
 // Scratch dirs for the lifecycle stub's attempt counter, removed in afterEach.
 const scratchDirs: string[] = []
@@ -52,6 +53,7 @@ afterEach(async () => {
   delete process.env.SYNAPTOMIND_STUB_ATTEMPT_FILE
   delete process.env.SYNAPTOMIND_STUB_REQUEST_FILE
   delete process.env.SYNAPTOMIND_STUB_EXIT_FILE
+  delete process.env.SYNAPTOMIND_STUB_ENV_FILE
   delete process.env.EMBEDDER_BACKOFF_BASE_MS
   for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
@@ -80,6 +82,7 @@ function useLifecycleStub(
     | 'crash-then-recover'
     | 'ready-no-answer'
     | 'idle-exit-on-request'
+    | 'idle-exit-no-msg'
     | 'crash-on-request'
     | 'idle-exit-once',
   hangMs?: number
@@ -112,12 +115,64 @@ async function waitFor(check: () => boolean, what: string, timeoutMs = 20_000): 
   throw new Error(`timed out after ${timeoutMs}ms waiting for: ${what}`)
 }
 
+function readChildEnv(file: string): Record<string, string | null> {
+  return JSON.parse(readFileSync(file, 'utf8'))
+}
+
+function envStubScratch(): { envFile: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'synaptomind-embedder-'))
+  scratchDirs.push(dir)
+  const envFile = join(dir, 'env.json')
+  process.env.SYNAPTOMIND_EMBEDDER_SCRIPT = ENV_STUB_PATH
+  process.env.SYNAPTOMIND_STUB_ENV_FILE = envFile
+  return { envFile }
+}
+
 test('startEmbedderProcess becomes ready against the stub subprocess', async () => {
   expect(isEmbedderReady()).toBe(false)
 
   await startEmbedderProcess()
 
   expect(isEmbedderReady()).toBe(true)
+})
+
+test('injected deps reach the spawned child as SYNAPTOMIND_ env values', async () => {
+  const { envFile } = envStubScratch()
+  const client = new EmbedderClient({
+    getEmbedderPrecache: () => true,
+    getEmbedderIdleTimeoutMs: () => 0,
+    insertLog: () => {},
+    isCompiled: () => false
+  })
+  try {
+    await client.startEmbedderProcess()
+    const env = readChildEnv(envFile)
+    expect(env.precache).toBe('true')
+    expect(env.idleTimeoutMs).toBe('0')
+  } finally {
+    await client.stopEmbedderProcess()
+    delete process.env.SYNAPTOMIND_STUB_ENV_FILE
+  }
+})
+
+test('default deps forward the configured precache and idle timeout to the child', async () => {
+  const { envFile } = envStubScratch()
+  const precache = config.embedder.precache
+  const idleTimeoutMs = config.embedder.idleTimeoutMs
+  config.embedder.precache = true
+  config.embedder.idleTimeoutMs = 42_000
+  const client = new EmbedderClient()
+  try {
+    await client.startEmbedderProcess()
+    const env = readChildEnv(envFile)
+    expect(env.precache).toBe('true')
+    expect(env.idleTimeoutMs).toBe('42000')
+  } finally {
+    config.embedder.precache = precache
+    config.embedder.idleTimeoutMs = idleTimeoutMs
+    await client.stopEmbedderProcess()
+    delete process.env.SYNAPTOMIND_STUB_ENV_FILE
+  }
 })
 
 // The opt-in mutant reproduces the pre-fix ensureReady implementation without
@@ -379,6 +434,40 @@ test('a superseded idle-exit child cannot clobber its respawned successor (#1784
 
   await client.stopEmbedderProcess()
 }, 20_000)
+
+test('a clean exit without the exiting message leaves the state stopped', async () => {
+  const stub = useLifecycleStub('idle-exit-no-msg')
+  await startEmbedderProcess()
+  expect(getEmbedderState()).toBe('ok')
+
+  const err: unknown = await generateEmbedding('hello').catch(e => e)
+
+  expect(err).toBeInstanceOf(EmbedderUnavailableError)
+  expect((err as EmbedderUnavailableError).statusCode).toBe(503)
+  expect((err as Error).message).toBe('Embedder process exited')
+  expect(stub.exited()).toBe(true)
+  expect(getEmbedderState()).toBe('stopped')
+  expect(getHealthService().checks.embedder).toBe('not ready')
+
+  const vector = await generateEmbedding('hello')
+  expect(Array.from(vector)).toEqual([5, 1, 2])
+  expect(stub.attempts()).toBe(2)
+  expect(getEmbedderState()).toBe('ok')
+}, 15_000)
+
+test('a non-zero exit still latches the state as failed', async () => {
+  useLifecycleStub('crash-on-request')
+  await startEmbedderProcess()
+  expect(getEmbedderState()).toBe('ok')
+
+  const err: unknown = await generateEmbedding('hello').catch(e => e)
+
+  expect(err).toBeInstanceOf(EmbedderUnavailableError)
+  expect((err as EmbedderUnavailableError).statusCode).toBe(503)
+  expect((err as Error).message).toBe('Embedder process crashed')
+  expect(getEmbedderState()).toBe('failed')
+  expect(getHealthService().checks.embedder).toBe('failed')
+}, 15_000)
 
 // ── #2153: single-flight readiness, backoff/cooldown, kill-before-respawn ───
 // Coverage for the hardening in embedder-client.ts: one shared promise/owner,

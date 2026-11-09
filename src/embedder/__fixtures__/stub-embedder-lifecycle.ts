@@ -26,6 +26,10 @@
 //                         stub-embedder — the superseded-child race of #1784: the
 //                         respawned successor is already live when attempt 1's
 //                         late `exited` fires, so that exit must be inert.
+//   'idle-exit-no-msg'    attempt 1 announces 'ready' and, on its first request,
+//                         exits 0 WITHOUT sending {'exiting'} (the lost-IPC
+//                         idle unload of #2345); attempt 2+ serves requests like
+//                         stub-embedder.
 //
 // SYNAPTOMIND_STUB_ATTEMPT_FILE counts spawns into a file, so the parent can
 // tell which attempt is in flight without racing on the client's own state.
@@ -33,8 +37,9 @@
 // window in which an unlatched state would read 'starting'); in 'idle-exit-once'
 // it is instead how long attempt 1 lingers after 'exiting' (the window in which
 // its successor spawns and becomes ready). SYNAPTOMIND_STUB_EXIT_FILE is written
-// by 'idle-exit-once' attempt 1 just before it exits, so the parent can await the
-// late exit deterministically. The client forwards the environment to the child
+// by 'idle-exit-once' attempt 1 just before it exits, and by 'idle-exit-no-msg'
+// attempt 1 before its silent exit, so the parent can await the exit
+// deterministically. The client forwards the environment to the child
 // (spawnProcess passes ...process.env).
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 
@@ -68,6 +73,12 @@ function answering(): void {
     // being registered in its pending map before it triggers a reject path.
     const requestFile = process.env.SYNAPTOMIND_STUB_REQUEST_FILE
     if (requestFile) writeFileSync(requestFile, message.id ?? '')
+    if (mode === 'idle-exit-no-msg') {
+      const exitFile = process.env.SYNAPTOMIND_STUB_EXIT_FILE
+      if (exitFile) writeFileSync(exitFile, String(attempt))
+      process.exit(0)
+      return
+    }
     if (mode === 'idle-exit-on-request' || mode === 'idle-exit-once') {
       // The idle unload: the parent's IPC handler sees 'exiting' while the
       // request is still pending, then the process leaves on its own. In
@@ -138,13 +149,14 @@ function serving(): void {
   setInterval(() => {}, 1_000)
 }
 
-if (mode === 'idle-exit-once' && attempt >= 2) {
+if ((mode === 'idle-exit-once' || mode === 'idle-exit-no-msg') && attempt >= 2) {
   serving()
 } else if (
   mode === 'ready-no-answer' ||
   mode === 'idle-exit-on-request' ||
   mode === 'crash-on-request' ||
-  mode === 'idle-exit-once'
+  mode === 'idle-exit-once' ||
+  mode === 'idle-exit-no-msg'
 ) {
   answering()
 } else if (mode === 'crash-then-recover') {
