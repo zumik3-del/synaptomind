@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path'
 
 const INDEX_TS = resolve(import.meta.dir, 'index.ts')
 const PRELOAD_TS = resolve(import.meta.dir, 'test', 'process-handlers-preload.ts')
+const FAIL_PRELOAD_TS = resolve(import.meta.dir, 'test', 'fail-shutdown-preload.ts')
 
 let SCRATCH = ''
 
@@ -30,6 +31,67 @@ function waitFor(condition: () => boolean, timeoutMs: number): Promise<boolean> 
     }
     poll()
   })
+}
+
+interface EntryRun {
+  child: ReturnType<typeof spawn>
+  out: () => string
+  err: () => string
+  exited: Promise<number | null>
+  code: () => number | null | undefined
+}
+
+function spawnEntry(
+  args: string[],
+  options: { preload?: string; stdin?: 'ignore' | 'pipe' } = {}
+): EntryRun {
+  const child = spawn(
+    process.execPath,
+    ['run', ...(options.preload ? ['--preload', options.preload] : []), INDEX_TS, ...args],
+    {
+      cwd: SCRATCH,
+      env: {
+        ...process.env,
+        SYNAPTOMIND_CONFIG: join(SCRATCH, 'config.json'),
+        SYNAPTOMIND_PORT: '0',
+        SYNAPTOMIND_MCP_HTTP_PORT: '0',
+        SYNAPTOMIND_DB_PATH: join(SCRATCH, 'db', 'synaptomind.db'),
+        SYNAPTOMIND_EMBEDDER_ENABLED: 'false',
+        SYNAPTOMIND_EMBEDDER_CACHE_DIR: join(SCRATCH, 'huggingface')
+      },
+      stdio: [options.stdin ?? 'ignore', 'pipe', 'pipe']
+    }
+  )
+  let stdout = ''
+  let stderr = ''
+  let exitCode: number | null | undefined
+  const exited = new Promise<number | null>(resolveExit =>
+    child.once('exit', code => {
+      exitCode = code
+      resolveExit(code)
+    })
+  )
+  child.stdout?.on('data', chunk => (stdout += chunk))
+  child.stderr?.on('data', chunk => (stderr += chunk))
+  return {
+    child,
+    out: () => stdout + stderr,
+    err: () => stderr,
+    exited,
+    code: () => exitCode
+  }
+}
+
+async function settlesWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T | 'timeout'> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<'timeout'>(resolveTimeout => {
+    timer = setTimeout(() => resolveTimeout('timeout'), timeoutMs)
+  })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 describe('index.ts — the shipped process handlers', () => {
@@ -129,6 +191,63 @@ describe('index.ts — the shipped process handlers', () => {
     } finally {
       clearTimeout(killTimer)
       child.kill('SIGKILL')
+    }
+  }, 60_000)
+
+  test('a rejected shutdown on SIGTERM is reported and exits 1', async () => {
+    SCRATCH = mkdtempSync(join(tmpdir(), 'synapto-sigterm-fail-'))
+    const run = spawnEntry(['--no-embedder'], { preload: FAIL_PRELOAD_TS })
+    const killTimer = setTimeout(() => run.child.kill('SIGKILL'), 60_000)
+
+    try {
+      const wired = await waitFor(
+        () =>
+          (existsSync(join(SCRATCH, 'shutdown-wired.json')) &&
+            run.out().includes('[synaptomind] API server running on')) ||
+          run.code() !== undefined,
+        30_000
+      )
+      expect(run.code(), run.out()).toBeUndefined()
+      expect(wired, run.out()).toBe(true)
+
+      run.child.kill('SIGTERM')
+      expect(await settlesWithin(run.exited, 15_000), run.out()).toBe(1)
+      expect(run.err()).toContain('[synaptomind] shutdown failed:')
+      expect(run.err()).toContain('injected shutdown failure')
+      expect(run.err()).toContain('[synaptomind] process exiting with code 1')
+    } finally {
+      clearTimeout(killTimer)
+      run.child.kill('SIGKILL')
+    }
+  }, 60_000)
+
+  test('a rejected shutdown on the stdio disconnect path is reported and exits 1', async () => {
+    SCRATCH = mkdtempSync(join(tmpdir(), 'synapto-stdio-fail-'))
+    const run = spawnEntry(['--stdio', '--no-embedder'], {
+      preload: FAIL_PRELOAD_TS,
+      stdin: 'pipe'
+    })
+    const killTimer = setTimeout(() => run.child.kill('SIGKILL'), 60_000)
+
+    try {
+      const ready = await waitFor(
+        () =>
+          (existsSync(join(SCRATCH, 'shutdown-wired.json')) &&
+            run.out().includes('MCP server running in stdio mode')) ||
+          run.code() !== undefined,
+        30_000
+      )
+      expect(run.code(), run.out()).toBeUndefined()
+      expect(ready, run.out()).toBe(true)
+
+      run.child.stdin?.end()
+      expect(await settlesWithin(run.exited, 15_000), run.out()).toBe(1)
+      expect(run.err()).toContain('[synaptomind] shutdown failed:')
+      expect(run.err()).toContain('injected shutdown failure')
+      expect(run.err()).toContain('[synaptomind] process exiting with code 1')
+    } finally {
+      clearTimeout(killTimer)
+      run.child.kill('SIGKILL')
     }
   }, 60_000)
 })
