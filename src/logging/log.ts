@@ -76,7 +76,8 @@ function formatEntry(entry: LogEntry, format: 'text' | 'json'): string {
     return JSON.stringify(obj)
   }
   const meta = entry.metadata ? ' ' + JSON.stringify(entry.metadata) : ''
-  return `${entry.timestamp} ${entry.level} [${entry.type}] [${entry.source}] ${entry.message}${meta}`
+  const err = entry.error ? ` error=${JSON.stringify(entry.error)}` : ''
+  return `${entry.timestamp} ${entry.level} [${entry.type}] [${entry.source}] ${entry.message}${meta}${err}`
 }
 
 export class StreamSink implements LogSink {
