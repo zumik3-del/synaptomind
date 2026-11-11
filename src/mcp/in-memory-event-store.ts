@@ -1,7 +1,6 @@
 // Extracted from src/mcp/http-transport.ts (architectural audit, ziptask #1578):
 // the event store plus the session-lifecycle helpers it was bundled with.
 import { config } from '../config'
-import type { Context } from 'hono'
 import type {
   McpServer,
   EventStore,
@@ -113,31 +112,4 @@ export async function disposePair(
   } catch {
     /* already closed */
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function containsInitialize(body: unknown): boolean {
-  const messages = Array.isArray(body) ? body : [body]
-  return messages.some(msg => isRecord(msg) && msg.method === 'initialize')
-}
-
-type SessionlessProbe = { initialize: true; body: unknown } | { initialize: false }
-
-/**
- * Classify a sessionless request without building a transport: only a POST
- * carrying a JSON-RPC `initialize` message may open a session. Consumes the
- * body, so the parsed value is returned for `handleRequest({ parsedBody })`.
- */
-export async function probeInitializeRequest(c: Context): Promise<SessionlessProbe> {
-  if (c.req.method !== 'POST') return { initialize: false }
-  let body: unknown
-  try {
-    body = await c.req.json()
-  } catch {
-    return { initialize: false }
-  }
-  return containsInitialize(body) ? { initialize: true, body } : { initialize: false }
 }

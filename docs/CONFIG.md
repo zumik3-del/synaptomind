@@ -37,10 +37,78 @@ cp .env.example .env
 | `mcp.instructionsFile` | `SYNAPTOMIND_MCP_INSTRUCTIONS_FILE` | `""` | Path to custom MCP instructions file (markdown). Falls back to built-in instructions |
 | `mcp.stdioStandalone` | `SYNAPTOMIND_MCP_STDIO_STANDALONE` | `false` | When `true`, a `--stdio` process also starts the embedder and background jobs. By default, the shared HTTP server owns scheduled jobs and stdio does not start an embedder at startup; embedding requests can still start a local child on demand. See [Stdio ownership](#stdio-ownership) |
 | `mcp.corsOrigins` | `SYNAPTOMIND_MCP_CORS_ORIGINS` | `[]` | Comma-separated allowed CORS origins for the MCP HTTP transport. Empty = no CORS headers |
-| `mcp.maxSessions` | `SYNAPTOMIND_MCP_MAX_SESSIONS` | `100` | Max concurrent MCP sessions **per user** (one user exhausting it cannot lock out the others) |
-| `mcp.sessionTtlMs` | `SYNAPTOMIND_MCP_SESSION_TTL_MS` | `3600000` | Session idle timeout in ms (1h) |
-| `mcp.keepAliveMs` | `SYNAPTOMIND_MCP_KEEPALIVE_MS` | `10000` | Keep-alive interval in ms |
-| `mcp.maxEventsPerSession` | `SYNAPTOMIND_MCP_MAX_EVENTS_PER_SESSION` | `1000` | Max events buffered per session |
+| `mcp.maxSessions` | `SYNAPTOMIND_MCP_MAX_SESSIONS` | `100` | Max concurrent **legacy** sessions per user (one user exhausting it cannot lock out the others). Legacy (2025-era) transport only: the 2026-07-28 era serves every request with a fresh instance and issues no `mcp-session-id`, so there is no session to cap |
+| `mcp.sessionTtlMs` | `SYNAPTOMIND_MCP_SESSION_TTL_MS` | `3600000` | Idle timeout of a **legacy** session in ms (1h). Legacy-only: the 2026-07-28 era keeps no session between requests, so nothing idles |
+| `mcp.keepAliveMs` | `SYNAPTOMIND_MCP_KEEPALIVE_MS` | `10000` | SSE keep-alive interval in ms, on both eras |
+| `mcp.maxEventsPerSession` | `SYNAPTOMIND_MCP_MAX_EVENTS_PER_SESSION` | `1000` | Max events buffered per **legacy** session for `Last-Event-ID` replay. The 2026-07-28 era has no event store, so no replay to buffer |
+| `mcp.maxSubscriptions` | `SYNAPTOMIND_MCP_MAX_SUBSCRIPTIONS` | `128` | Max concurrent `subscriptions/listen` streams on the 2026-07-28 era, process-wide (not per user). The stream past the cap is refused in-band with `-32603 "Subscription limit reached"` |
+
+### HTTP transport and protocol revisions
+
+`/mcp` serves two request eras on the same path. The era is decided per request
+from the request itself; no setting chooses it.
+
+- **2026-07-28 (modern, stateless).** Each request is served by a fresh server
+  instance and its own single-use transport. No `mcp-session-id` is issued, no
+  server or transport outlives the exchange, and there is nothing for a sweep or
+  a TTL to expire. A request enters this era when it carries the 2026-07-28
+  per-request `_meta` envelope claim: the `server/discover` probe, envelope
+  `tools/call`, and the protocol errors this path answers itself (an
+  unsupported-revision claim, a malformed envelope, a body that parses but is not
+  a JSON-RPC message — see below).
+- **2025 era (legacy, sessionful).** The 2025-era revisions (latest
+  `2025-11-25`), served by the unchanged sessionful transport: `initialize`
+  issues an `mcp-session-id`, follow-up requests present it, `GET` opens an SSE
+  stream with keep-alive frames, and a dropped stream resumes from
+  `Last-Event-ID`. Every claim-less POST is served here — including the
+  `initialize` handshake — as are body-less `GET`/`DELETE` session operations
+  and a body that is empty or not valid JSON.
+
+**A body that parses but is not a JSON-RPC message is served here.** `{}`,
+`null`, `"x"` and `[1]` all parse as JSON and none is a JSON-RPC message, so the
+modern path answers them itself with `400` `-32600` (invalid request) — `"Bad
+Request: the request body is not a valid JSON-RPC message"`, or `"Bad Request:
+JSON-RPC batch contains an invalid message"` for a bad batch — with or without an
+`mcp-session-id`. Only an empty or unparseable body is routed to the legacy path
+instead. For an existing client this changes one wire answer: a session request
+with such a body used to reach the 2025 transport and get `400` `-32700` `"Parse
+error: Invalid JSON-RPC message"`; it now gets the modern `400` `-32600`, and an
+unknown session id no longer turns it into `404` `-32001`.
+
+**Observable check order on `/mcp`.** A `POST` is checked in this order:
+authentication (`401`), the declared-`Content-Length` bound (`413`, detailed
+below), media type (`415` — a `Content-Type` whose type is not `application/json`;
+parameters such as `charset` are ignored), era classification, then the legacy
+session lookup (`404` `-32001` unknown id, `403` `-32002` a session created by
+another token), and only once a session is found does the session transport
+parse the body. So a `text/plain` POST is `415` even with an unknown session id,
+while a valid JSON-RPC request carrying that same unknown id is still `404`
+`-32001`, and an unparseable body with an unknown id is `404` rather than the
+transport's `-32700`.
+
+Negotiation is the client's decision, not a server setting. A client that does
+not negotiate never sends the probe and opens a 2025 session, exactly as before
+this change. A negotiating client probes with `server/discover`; the modern
+answer selects the 2026-07-28 era for that connection, and the client then
+attaches the envelope to its following requests. A client that falls back after
+an unrecognised probe is served by the 2025 handshake; that silent fallback is
+expected and needs no action on the server.
+
+**Request body bound: 5 MB (5242880 bytes) on both eras.** A declared
+`Content-Length` above it is answered `413` before the body is read; a chunked
+body is read up to the same limit and then answered `413`
+(`{"jsonrpc":"2.0","error":{"code":-32000,"message":"Request body too large (max 5MB)"},"id":null}`).
+Before the 2026-07-28 path existed, the 5 MB bound was enforced only by the
+middleware, and the legacy session path inherited the transport's own 4 MB
+default, so a 4–5 MB session request used to be rejected and is now served.
+
+**Modern streams are not resumable.** The 2026-07-28 handler keeps no event
+store, so `Last-Event-ID` replay does not exist there: a dropped
+`subscriptions/listen` stream is re-opened by the client as a new subscription.
+Open listen streams are the only long-lived resource on the modern path, and they
+are bounded by `mcp.maxSubscriptions` (default `128`). The stream past the cap is
+refused in-band with `-32603 "Subscription limit reached"` — HTTP 200, before
+the subscription acknowledgement.
 
 ### Stdio ownership
 
@@ -485,7 +553,8 @@ environment by the logging module, `src/logging/log.ts:112`). Off by default.
   "mcp": {
     "httpPort": 3006, "instructionsFile": "", "stdioStandalone": false,
     "corsOrigins": [], "maxSessions": 100, "sessionTtlMs": 3600000,
-    "keepAliveMs": 10000, "maxEventsPerSession": 1000
+    "keepAliveMs": 10000, "maxEventsPerSession": 1000,
+    "maxSubscriptions": 128
   },
   "db": { "path": "./data/synaptomind.db", "busyTimeout": 5000 },
   "embedder": {

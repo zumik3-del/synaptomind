@@ -43,6 +43,7 @@ interface Config {
     sessionTtlMs: number
     keepAliveMs: number
     maxEventsPerSession: number
+    maxSubscriptions: number
   }
   db: { path: string; busyTimeout: number }
   log: { level: string; file: string; format: string; fileMaxBytes: number; fileMaxFiles: number }
@@ -97,7 +98,8 @@ export const DEFAULTS: Config = {
     maxSessions: 100,
     sessionTtlMs: 3600_000,
     keepAliveMs: 10_000,
-    maxEventsPerSession: 1000
+    maxEventsPerSession: 1000,
+    maxSubscriptions: 128
   },
   db: { path: './data/synaptomind.db', busyTimeout: 5000 },
   log: { level: 'info', file: '', format: 'text', fileMaxBytes: 10485760, fileMaxFiles: 3 },
@@ -188,6 +190,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_MCP_SESSION_TTL_MS', 'mcp.sessionTtlMs', 'int'),
   M('SYNAPTOMIND_MCP_KEEPALIVE_MS', 'mcp.keepAliveMs', 'int'),
   M('SYNAPTOMIND_MCP_MAX_EVENTS_PER_SESSION', 'mcp.maxEventsPerSession', 'int'),
+  M('SYNAPTOMIND_MCP_MAX_SUBSCRIPTIONS', 'mcp.maxSubscriptions', 'int'),
 
   M('SYNAPTOMIND_DB_PATH', 'db.path', 'string'),
   M('SYNAPTOMIND_DB_BUSY_TIMEOUT', 'db.busyTimeout', 'int'),
