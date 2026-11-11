@@ -1,4 +1,3 @@
-import { ValidationError } from '../../errors'
 import { resolveProjectService } from '../../services/projects.service'
 
 /**
@@ -185,32 +184,22 @@ export function resolveEnvelopeScope(cwd: string | undefined): {
 }
 
 /**
- * Enforce the hard `cwd` requirement of a project-scoped read action.
+ * Resolve the scope and project filter of a read answer (task #2445).
  *
- * A missing scope used to silently widen the search to every project; it now
- * fails with an actionable error naming the argument to pass and the call that
- * checks whether the path is registered. The MCP surface is the only agent
- * wire since the 0.20 HTTP shrink, so every project-scoped read is strict.
+ * `cwd` is optional on the read side: a missing or empty one is not an error,
+ * the answer spans every project and says so through the warning
+ * {@link resolveEnvelopeScope} raises. `scopeProjectId(null)` is `undefined`,
+ * so the read services receive no project filter and cover every project.
  */
-export function requireCwd(cwd: unknown, tool: string, action: string): string {
-  if (typeof cwd === 'string' && cwd.trim().length > 0) return cwd
-  throw new ValidationError(
-    `cwd is required for ${tool} action=${action}: pass the project working directory (the repository root) so the answer stays inside one project — a call without cwd would search every project. Run memory_manage action=resolve with that path first if the project is not registered yet.`
+export function readEnvelopeScope(cwd: unknown): {
+  scope: EnvelopeScope | null
+  warnings: string[]
+  projectId: string | undefined
+} {
+  const { scope, warnings } = resolveEnvelopeScope(
+    typeof cwd === 'string' && cwd.trim().length > 0 ? cwd : undefined
   )
-}
-
-/** Enforce `cwd` and resolve the scope in one step (hard-cwd actions). */
-export function requireEnvelopeScope(
-  cwd: unknown,
-  tool: string,
-  action: string
-): { scope: EnvelopeScope; warnings: string[]; projectId: string | undefined } {
-  const resolved = requireCwd(cwd, tool, action)
-  const { scope, warnings } = resolveEnvelopeScope(resolved)
-  // `resolveEnvelopeScope` only returns `null` for a missing cwd, which
-  // `requireCwd` already rejected; a present-but-unknown cwd yields a scope.
-  const effective = scope ?? { project: null, project_name: null, global: true }
-  return { scope: effective, warnings, projectId: scopeProjectId(effective) }
+  return { scope, warnings, projectId: scopeProjectId(scope) }
 }
 
 /**

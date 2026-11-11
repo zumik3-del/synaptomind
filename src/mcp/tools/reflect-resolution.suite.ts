@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { McpServer } from '@modelcontextprotocol/server'
-import { closeDb } from '../../db/init'
+import { closeDb, getDb } from '../../db'
+import { resolveDefaultProjectId } from '../../db/projects'
 import { createTestDb } from '../../test/helpers'
 import { registerMemoryReflect } from './reflect'
 
@@ -92,17 +93,31 @@ describe('memory_reflect project resolution failure', () => {
     expect(result.content[0].text).toBe(RESOLUTION_FAILURE)
   })
 
-  test('reflect without cwd is rejected before resolution (hard-cwd contract)', async () => {
+  test('reflect without cwd writes to the default project instead of being rejected', async () => {
     const handler = captureTool(registerMemoryReflect)
+    const decision = 'cwd-less reflect decision'
     const result = (await handler({
       action: 'reflect',
+      decisions: [decision],
       summary: 'control run without project scope'
     })) as ToolResult
 
-    // The hard-cwd guard fires first, so the mocked (throwing) resolver is
-    // never reached and the caller gets the actionable message instead.
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain('cwd is required for memory_reflect action=reflect')
-    expect(result.content[0].text).not.toBe(RESOLUTION_FAILURE)
+    // cwd is optional since #2445: an absent one is a write to the resolved
+    // default project, so the (mocked, throwing) path resolver is never reached
+    // and no rejection is raised.
+    expect(result.isError).toBeFalsy()
+    expect(result.content[0].text).not.toContain(RESOLUTION_FAILURE)
+    const payload = result.structuredContent?.result as {
+      item: { decisions_created: number }
+      meta: { scope: unknown; warnings: string[] }
+    }
+    expect(payload.item.decisions_created).toBe(1)
+    expect(payload.meta.scope).toBeNull()
+    expect(payload.meta.warnings).toEqual([])
+
+    const row = getDb()
+      .prepare('SELECT project_id FROM thoughts WHERE content = ?')
+      .get(decision) as { project_id: string }
+    expect(row.project_id).toBe(resolveDefaultProjectId(getDb()))
   })
 })

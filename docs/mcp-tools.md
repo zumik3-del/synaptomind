@@ -1,7 +1,9 @@
 > **Migration note (next release):** every MCP action now answers in one response envelope —
-> `{ items, meta }` for collections, `{ item, meta }` for single objects — `cwd` is required for
-> the eight project-scoped actions, and an id-shaped `query` resolves that thought directly. See
-> the **Migration notes (response envelope, hard cwd, id lookup)** section at the end of this
+> `{ items, meta }` for collections, `{ item, meta }` for single objects — `cwd` is optional on
+> the project-scoped actions (it narrows an answer to one project; without it a read answers
+> across every project and says so in `meta`, except `memory_status action=propose`, whose plan
+> stays project-pinned), and an id-shaped `query` resolves that thought directly.
+> See the **Migration notes (response envelope, cwd scope, id lookup)** section at the end of this
 > document for the full list of breaking changes.
 >
 > **Migration note (v0.19):** Project scoping on MCP tools uses `cwd` (working directory) instead of `project_id`. The exception is `memory_manage` actions `update` and `delete`, which require `project_id` to identify the project. See the **Migration notes (v0.19 MCP UX cleanup)** section at the end of this document for the full list (compact defaults, preview tokens, `edge_review` canonical keys, retired inputs).
@@ -53,7 +55,7 @@ The envelope is the payload of the wire envelope described in
 | Key | Type | Description |
 |---|---|---|
 | `action` | string | The action that produced the answer (`search`, `slots`, `link_batch`, ...) |
-| `scope` | object \| null | Resolved project scope, or `null` for actions that are not project-scoped |
+| `scope` | object \| null | Resolved project scope; `null` when the call carried no `cwd` or the action is not project-scoped |
 | `counts` | object | Row accounting (see below) |
 | `degraded` | boolean | `true` when the answer is degraded (semantic leg down, missing best match) |
 | `warnings` | string[] | Non-fatal notes; empty when there are none |
@@ -67,9 +69,16 @@ The envelope is the payload of the wire envelope described in
 ```
 
 - `project` is the project id and `project_name` its display name;
-- `global: true` with `project: null` means the answer spans every project — either the action is
-  not project-scoped, or `cwd` names a path that is not registered (then `warnings` carries a
+- `null` means the answer was not scoped to a project: the call omitted `cwd` (then `warnings`
+  carries a `no cwd` note — `no cwd — the answer spans every project` for the readers that widen,
+  the project-pinned note of [propose](#actionpropose) for that one) or the action is not
+  project-scoped;
+- `global: true` with `project: null` means the answer spans every project although a `cwd` was
+  given — it names a path that is not registered (then `warnings` carries a
   `cwd "..." matches no known project` note). The call still succeeds; it just is not narrowed.
+  `memory_status action=propose` is the exception: its plan never widens, so the same path yields one
+  composed note that pairs the unknown-path fact with the pinning clause and never claims a
+  cross-project answer ([Working directory](#working-directory-cwd)).
 
 `counts` always carries three shared keys plus whatever the action can report:
 
@@ -194,35 +203,86 @@ failure is a bad request and repeating it will not help.
 
 ## Working directory (`cwd`)
 
-`cwd` is the **required** scope argument of every project-scoped MCP action:
+`cwd` is the **optional** scope argument of every project-scoped MCP action: it limits an answer to
+one project, and omitting it — or passing an empty string — is never an error: a reader answers
+across every project and declares that in `meta`, while a writer falls back to the default project.
+The one reader that never widens is `memory_status action=propose`, whose plan stays pinned to the
+project of the thought it addresses (see below).
 
-| Tool | Actions requiring `cwd` |
+| Tool | Actions taking `cwd` |
 |---|---|
-| `memory_recall` | `search`, `clusters`, `list` |
-| `memory_status` | `slots`, `frontier`, `propose` |
+| `memory_recall` | `search`, `context`, `clusters`, `list` |
+| `memory_status` | `slots`, `frontier`, `propose` (pinned, never widened — see below) |
 | `memory_reflect` | `reflect`, `timeline` |
+| `memory_crystallize` | `graph`, `cluster` |
+| `edge_review` | `list` |
+| `memory_manage` | `resolve` — the one action that requires it |
 
-The other actions either address their rows by id (`get`, `chain`, `unlink`, `archive`, ...) or are
-global by design (`health`, `config`, `primers`, `crystallize auto_cluster`), so they take no
-`cwd`.
+The actions outside the table either address their rows by id (`get`, `chain`, `unlink`, `archive`,
+...) or are global by design (`health`, `config`, `primers`, `crystallize auto_cluster`), so they
+take no `cwd`. Writes that name a target project (`memory_store` `create`/`update`, `bulk_create`,
+`memory_supersede merge`, `edge_review enqueue`) accept it too, and land in the project it resolves
+to.
 
-A call that omits it — or passes an empty string — is rejected before anything runs
-(`requireCwd`, `src/mcp/tools/envelope.ts:182-188`):
+Except `propose` (below), a read that omits `cwd` succeeds and declares the widened answer in
+`meta`: `scope` is `null` and `warnings` carries `no cwd — the answer spans every project`
+(`resolveEnvelopeScope`, `src/mcp/tools/envelope.ts:167-184`):
 
 ```json
 {
-  "error": {
-    "message": "cwd is required for memory_recall action=search: pass the project working directory (the repository root) so the answer stays inside one project — a call without cwd would search every project. Run memory_manage action=resolve with that path first if the project is not registered yet.",
-    "statusCode": 400,
-    "retryable": false
+  "items": [
+    { "id": "01a172b6-5dfc-73e5-b28e-91236675b273", "content": "MCP_DOC_MARKER: the envelope example thought", "status": "active", "tags": [], "project": "Doc Probe" }
+  ],
+  "meta": {
+    "action": "list",
+    "scope": null,
+    "counts": { "limit": 1, "offset": 0, "total": 4, "returned": 1, "filtered_out": 3 },
+    "degraded": false,
+    "warnings": ["no cwd — the answer spans every project"]
   }
 }
 ```
 
-`cwd` is optional for `memory_recall context` (it scopes the query path when given; an
-id-addressed context lookup is project-free) and for every write action, which lands in the
-project `cwd` resolves to (or the default project when `cwd` is absent). An unknown path is never
-an error: it yields `scope.global: true` plus a warning, and the action answers across projects.
+`memory_manage action=resolve` is the exception: there the path is the input rather than a scope, so
+a call without `cwd` fails with an `isError` envelope naming the argument
+(`src/mcp/tools/manage.ts:109`).
+
+`memory_status action=slots` adds a second warning without `cwd`, because only the global slot rows
+are read and the project-scoped overrides stay unapplied (`src/mcp/tools/status/slots.ts:11-12`,
+`:34-38`).
+
+`memory_status action=propose` is the one read that never widens: `cwd` scopes its candidate pool to
+one project, and without it — or with a path that resolves to no project — the plan stays pinned to
+the project the addressed thought belongs to, or to the default project for draft `content`
+(`src/services/placement/engine.ts:84-112`, `:151-156`; `src/services/placement/placement.ts:92-93`;
+`src/mcp/tools/status/propose.ts:6-36`).
+A cwd-less call replaces the broadening note with one of two pinning notes:
+
+`no cwd — propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to`
+
+with draft content it is
+`no cwd — propose is not cross-project: the plan is restricted to the default project (draft content)`.
+
+A path that resolves to no project gets **one** composed warning instead of the generic broadening
+one (`src/mcp/tools/status/propose.ts:33-35`): the unknown-path fact with its resolve hint, then the
+same pinning clause, and no `the answer spans every project` claim anywhere in it:
+
+`cwd "<path>" matches no known project (check it with memory_manage action=resolve) — propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to`
+
+with draft content it is
+`cwd "<path>" matches no known project (check it with memory_manage action=resolve) — propose is not cross-project: the plan is restricted to the default project (draft content)`.
+
+So the plan is still pinned, never widened, while `scope` stays the unresolved
+`{ project: null, project_name: null, global: true }`: the warning, not the scope, states the project
+the plan really used.
+
+A write action resolves `cwd` the same way but lands in the project it names, or in the default
+project when `cwd` is absent, and raises no scope warning — nothing widens. `memory_reflect
+action=reflect` is a write in this sense; its own section below spells out where each of its outputs
+lands. A read given a path that is not registered is never an error either: it reports
+`scope.global: true` plus a warning and answers across every project — `propose` excepted: its plan is
+always pinned, so the same path yields the single composed note above, which pairs the unknown-path
+fact with the pinning clause instead of claiming a cross-project answer.
 
 There is no HTTP counterpart to that rule: the HTTP listener serves only `/health` and the
 `/api/health-check` pair, so a REST client cannot reach a thought at all
@@ -348,10 +408,12 @@ remove the field from requests. Retired names are not accepted aliases.
 
 ### `action=search`
 
-Hybrid (RRF) / vector search. Arguments: `query` (required), `cwd` (required), `hybrid` (boolean,
-default true: RRF fusion of the vector and BM25 legs; false = vector leg only), `status` (default
-active), `tag`, `is_cluster`, `group_by_cluster`, `min_importance`, `limit`, `min_relevance`,
-`recency_weight`, `recency_half_life_days`, `supersession_mode`, `contradiction_mode`.
+Hybrid (RRF) / vector search. Arguments: `query` (required), `cwd` (optional: it scopes the
+search to one project; omitted, every project is searched, with a `meta.warnings` note), `hybrid`
+(boolean, default true: RRF fusion of the vector and BM25 legs; false = vector leg only), `status`
+(default active), `tag`, `is_cluster`, `group_by_cluster`, `min_importance`, `limit`,
+`min_relevance`, `recency_weight`, `recency_half_life_days`, `supersession_mode`,
+`contradiction_mode`.
 
 Result: `{ items, meta }`. Each item is `{ thought }` — plus the safety annotations that apply and,
 behind `compact: false`, the ranking metadata:
@@ -529,7 +591,8 @@ default `min_relevance` gate of `search` would turn a weak-but-real neighbourhoo
 
 `chain` walks a parent/develops chain: `{ item: { thought, upstream, downstream }, meta }`;
 `max_degree` bounds chain/context traversal and is distinct from `limit`, which caps returned
-results. `clusters` is a cluster-only search: `{ items, meta }` of search items, `cwd` required;
+results. `clusters` is a cluster-only search: `{ items, meta }` of search items, with `cwd`
+optional like `search` (omitted, it searches every project and says so in `meta.warnings`);
 an explicit `is_cluster: false` is rejected, because it contradicts what the action is. An
 id-shaped query goes through the same id lookup as `search`
 ([Id lookup](#id-lookup)), with the cluster constraint applied to both forms — a prefix is
@@ -540,12 +603,13 @@ action exists to exclude (`src/mcp/tools/recall-id-lookup.test.ts:140-172`).
 
 ### `action=list`
 
-Paginated inventory of thoughts without a search query. `cwd` is required.
+Paginated inventory of thoughts without a search query. `cwd` is optional: it scopes the page to
+one project, and omitted, the page spans every project with a `meta.warnings` note.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `status` | enum | no | `draft`, `active`, `archived`, or `all` (default: all) |
-| `cwd` | string | yes | Resolve the project scope |
+| `cwd` | string | no | Restrict the page to one project (omitted = every project) |
 | `tag` | string | no | Restrict to thoughts carrying this tag |
 | `is_cluster` | boolean | no | `true` = only clusters, `false` = only non-clusters |
 | `limit` | integer | no | Page size (1–500, default 50) |
@@ -947,8 +1011,8 @@ so a single call can narrow eligibility or page without reconfiguring anything
 
 ## `memory_reflect` — session reflection
 
-`cwd` is required for both actions. `action=reflect` is **not read-only**: it writes slots and
-thoughts, and answers `{ item: <counts>, meta }`.
+`cwd` is optional for both actions, though the two use it differently. `action=reflect` is **not
+read-only**: it writes slots and thoughts, and answers `{ item: <counts>, meta }`.
 
 - `summary` is appended (with a timestamp) to the `project_context` slot.
 - `goals_add` adds goals to `active_goals`; `goals_remove` removes stored goal lines when the
@@ -981,9 +1045,19 @@ output is identifiable and can be filtered (`memory_recall` with `tag: "reflect"
 without touching hand-created thoughts. It is additive: statuses, dedup and the scheduled
 surface time are unchanged, and no read path keys off it.
 
+A `cwd`-less `reflect` is a write without a project scope, and its outputs split: `summary`
+and `goals_add`/`goals_remove` land in the **global** `project_context`/`active_goals` rows (a slot
+is project-scoped only when a project resolved,
+`src/services/session-reflection.service.ts:106`), while `decisions` and `pending` thoughts are
+created in the default project (`src/services/session-reflection.service.ts:171-186`,
+`:198-207`). The answer reports `meta.scope: null` and raises no warning, like every other write
+(`writeEnvelopeScope`, `src/mcp/tools/envelope.ts:214-220`). With a registered `cwd`, all of them
+land in that project instead.
+
 `action=timeline` is the plain paginated thought list (`status`, `cwd`, `limit`, `offset`) as
-`{ items, meta }`; `meta.counts` carries the `limit` and `offset` that actually ran (defaults
-applied) beside the shared `total`/`returned`/`filtered_out`.
+`{ items, meta }`; `cwd` scopes it to one project, and omitted, it lists every project with the
+standard `no cwd` warning. `meta.counts` carries the `limit` and `offset` that actually ran
+(defaults applied) beside the shared `total`/`returned`/`filtered_out`.
 
 ## `memory_primers` — the always-at-hand set
 
@@ -1022,7 +1096,14 @@ the server; if the request is sent, invocation validation returns the migration 
 
 ### `action=slots` (read-only)
 
-`cwd` is required. Answers `{ items, meta }` with one item per slot
+`cwd` is optional: with it the project-scoped slot row wins over the global fallback. Without it
+only the **global** rows are read, and `meta.warnings` adds a second note:
+
+`no project scope — the project-scoped slot overrides were not applied (pass cwd to read them)`
+
+That warning is cwd-less only — a present path, registered or not, keeps the pre-existing answer
+(`src/mcp/tools/status/slots.ts:11-12`, `:34-38`; the read is
+`src/services/slots.service.ts:94-97`). Answers `{ items, meta }` with one item per slot
 (`{ name, scope, virtual, content, truncated, max_chars, updated_at }`). Slots are **read-only**
 through this tool: it never writes. `pending_items` is derived from thoughts tagged `pending` (the
 same set the frontier surfaces); `architecture_decisions` from primers (most-hit first);
@@ -1033,8 +1114,9 @@ underlying thoughts (virtual slots) or use `memory_reflect` (`summary` appends t
 
 ### `action=frontier`
 
-`cwd` is required. Answers `{ items, meta }` with the frontier entries, `limit` (1–50) bounding the
-page.
+`cwd` is optional: with it the answer is the frontier of one project, and omitted, it spans every
+project with `meta.scope: null` and the `no cwd — the answer spans every project` warning. Answers
+`{ items, meta }` with the frontier entries, `limit` (1–50) bounding the page.
 
 ### `action=config` / `action=health`
 
@@ -1045,8 +1127,33 @@ per-check detail arrays (omitted, and content fields shortened, by default).
 
 ### `action=propose`
 
-Read-only placement plan (placement, edges, lifecycle); never writes, `cwd` required. Answers
-`{ item: <plan>, meta }`; default output is slim (top 3 edges, no signals) — pass
+Read-only placement plan (placement, edges, lifecycle); never writes. `cwd` is optional, but this
+reader never widens: with it the plan is restricted to that project, and without it — or with a path
+that resolves to no project — the plan stays pinned to the project of the thought it addresses
+(`thought_id`), or to the default project for draft `content`.
+
+A cwd-less call says so in `meta.warnings`, in place of the `no cwd — the answer spans every project`
+note:
+
+`no cwd — propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to`
+
+and, for draft content,
+`no cwd — propose is not cross-project: the plan is restricted to the default project (draft content)`.
+
+A path that resolves to no project gets **one** composed warning instead of the generic note, so
+`meta.warnings` holds a single string — the unknown-path fact with its resolve hint, then the pinning
+clause, and no `the answer spans every project` claim:
+
+`cwd "<path>" matches no known project (check it with memory_manage action=resolve) — propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to`
+
+and, for draft content,
+`cwd "<path>" matches no known project (check it with memory_manage action=resolve) — propose is not cross-project: the plan is restricted to the default project (draft content)`.
+
+`meta.scope` stays the unresolved `{ project: null, project_name: null, global: true }` in that case:
+the warning, not the scope, records that the plan stayed inside one project
+(`src/mcp/tools/status/propose.ts:24-36`).
+
+Answers `{ item: <plan>, meta }`; default output is slim (top 3 edges, no signals) — pass
 `include_signals=true` or `compact=false` for full output. `meta.counts.total` is the number of
 planned edges and `meta.degraded` mirrors the plan's degraded flag.
 
@@ -1084,7 +1191,7 @@ Resolve it with the edge writers above, then re-run the check:
 Both edge writes are dry-run first: preview with `confirm` omitted, then re-issue with
 `confirm: true`.
 
-## Migration notes (response envelope, hard cwd, id lookup)
+## Migration notes (response envelope, cwd scope, id lookup)
 
 Breaking changes for MCP clients (the HTTP surface has no thought endpoints to be affected —
 see [API.md](API.md)):
@@ -1097,11 +1204,23 @@ see [API.md](API.md)):
    Read `items`/`item` and `meta.counts` instead. Write-side answers that used to be a bare
    object now nest it under `item`. The one exception is
    `memory_crystallize action=graph` (nodes in `items`, edges beside them).
-2. **`cwd` is required.** `memory_recall` `search`/`clusters`/`list`, `memory_status`
-   `slots`/`frontier`/`propose` and `memory_reflect` `reflect`/`timeline` reject a call without
-   `cwd` (a `400` error envelope naming the argument and the `memory_manage action=resolve`
-   check). They used to widen silently to every project; an unknown-but-present `cwd` still
-   answers globally, with a warning.
+2. **`cwd` is optional.** No action rejects a call without `cwd` except `memory_manage
+   action=resolve`, where the path is the input rather than a scope. `memory_recall`
+   `search`/`clusters`/`list`, `memory_status` `slots`/`frontier` and `memory_reflect`
+   `reflect`/`timeline` (plus the older optional readers `memory_recall context`,
+   `memory_crystallize graph`/`cluster` and `edge_review list`) answer across every project when
+   `cwd` is absent, with `meta.scope: null` and a `no cwd — the answer spans every project`
+   warning; `memory_status action=slots` adds that only the global slot rows were read. An
+   unknown-but-present `cwd` keeps answering globally, with its own warning.
+   `memory_status action=propose` is the exception among the readers: it takes `cwd` but never
+   widens, and a cwd-less call keeps the plan pinned to the addressed thought's project (or to the
+   default project for a draft) with a `no cwd — propose is not cross-project: ...` warning instead
+   of the broadening note. An unknown-but-present `cwd` gets a single composed warning instead — one
+   string that carries the unknown-path fact and then the pinning clause,
+   `cwd "..." matches no known project (check it with memory_manage action=resolve) — propose is
+   not cross-project: ...` — so nothing claims the answer spans every project.
+   `memory_reflect action=reflect` is a write: without `cwd` its `decisions`/`pending` thoughts go
+   to the default project and its `summary`/`goals` to the global slots, with no warning.
 3. **Preview gate moved.** A preview answer always sets
    `meta.preview = { token, destructive: true, consequence?, instruction? }` (token `null` for
    `unlink_batch` and `retention_review` `compact`). Single-object previews keep the same fields

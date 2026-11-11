@@ -400,8 +400,12 @@ curl "http://127.0.0.1:3005/api/health-check?severity=warning" \
 | Guide | `memory_guide` |
 
 Every action answers in one response envelope — `{ items, meta }` for collections, `{ item, meta }`
-for single objects — and the project-scoped actions require a `cwd` argument. For action-level
-detail (parameters, the dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
+for single objects — and the project-scoped actions take an optional `cwd` that narrows an answer
+to one project: without it a read answers across every project and says so in `meta`, while a
+created thought lands in the default project. `memory_status action=propose` is the exception
+among the readers: its plan stays pinned to the project of the thought it addresses. For
+action-level detail (parameters, the dry-run/confirm pattern, examples), see
+[docs/mcp-tools.md](docs/mcp-tools.md).
 
 **Breaking 0.x changes:** this release prunes several 0.x subsystems from the MCP tools,
 the HTTP surface and the configuration surface. The 0.20 release shrinks HTTP to the three

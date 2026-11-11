@@ -13,8 +13,9 @@
  * - output hygiene: tag names are plain strings and 0/1 flag columns are
  *   booleans everywhere in the payload.
  *
- * Two further describes pin the hard `cwd` contract and the shaping guarantees
- * (`fields` selection, `reason` passthrough).
+ * Three further describes pin the optional `cwd` contract (task #2445), the
+ * cross-project reach of a cwd-less read and the shaping guarantees (`fields`
+ * selection, `reason` passthrough).
  *
  * The table is checked against the advertised `action` enum of every tool, so a
  * newly added action fails this suite until it is covered here — the surface
@@ -34,16 +35,32 @@ import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb, closeDb } from '../../db'
 import { getEdgePairBetween } from '../../db/edges'
 import { getThoughtRow } from '../../db/thoughts'
+import { resolveDefaultProjectId } from '../../db/projects'
 import { insertProposal } from '../../db/placement-proposals'
 import { computeFingerprint } from '../../services/placement-proposals.service'
 import { createTestDb, seedEdge, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
+/**
+ * Deterministic stand-in for the embedder: identical text maps to the same
+ * one-hot vector (cosine similarity 1), distinct text to orthogonal vectors.
+ * The placement engine only pairs candidates above the recall floor, so a
+ * neighbour exists exactly when the text is shared — the lever the project-scope
+ * assertions on `propose` need.
+ */
+function stubEmbedding(text: string): Float32Array {
+  const vector = new Float32Array(384)
+  let hash = 0
+  for (const char of text) hash = (hash * 31 + char.charCodeAt(0)) | 0
+  vector[Math.abs(hash) % vector.length] = 1
+  return vector
+}
+
 // Search/cluster/enqueue run the embedding legs; the queue shares one mocked
 // module with the other MCP contract tests.
 mock.module('../../embedder/client', () => ({
-  generateEmbedding: () => new Float32Array(384),
-  generateEmbeddings: (texts: string[]) => texts.map(() => new Float32Array(384)),
+  generateEmbedding: (text: string) => stubEmbedding(text),
+  generateEmbeddings: (texts: string[]) => texts.map(stubEmbedding),
   restartEmbedder: () => {},
   isEmbedderReady: () => true
 }))
@@ -783,62 +800,406 @@ describe('action table completeness', () => {
   })
 })
 
-// ── hard cwd contract ────────────────────────────────────────────────────────
+// ── optional cwd contract (task #2445) ───────────────────────────────────────
 
-/** Project-scoped actions that refuse to run without `cwd` (task #2179). */
-const CWD_REQUIRED: Array<{ tool: string; action: string; args: Record<string, unknown> }> = [
-  { tool: 'memory_recall', action: 'search', args: { query: 'conformance source alpha' } },
-  { tool: 'memory_recall', action: 'clusters', args: { query: 'conformance cluster' } },
-  { tool: 'memory_recall', action: 'list', args: {} },
-  { tool: 'memory_status', action: 'slots', args: {} },
-  { tool: 'memory_status', action: 'frontier', args: {} },
-  { tool: 'memory_status', action: 'propose', args: { content: 'conformance draft proposal' } },
-  { tool: 'memory_reflect', action: 'reflect', args: { summary: 'conformance reflect' } },
-  { tool: 'memory_reflect', action: 'timeline', args: {} }
+/**
+ * What a cwd-less answer says about itself: the scope is `null` and the rows
+ * span every project. The note is raised by `readEnvelopeScope`, so every read
+ * action below answers it, while `memory_reflect action=reflect` stays silent —
+ * it is a write and lands in the resolved default project (task #2445).
+ */
+const NO_CWD_WARNING = 'no cwd — the answer spans every project'
+
+/** The second, slots-only note: the project-scoped overrides stay unread. */
+const SLOTS_OVERRIDES_WARNING =
+  'no project scope — the project-scoped slot overrides were not applied (pass cwd to read them)'
+
+interface CwdContractCase {
+  tool: string
+  action: string
+  args: (f: Fixture) => Record<string, unknown>
+  /** A read action declares the widening; the reflect write must stay silent. */
+  warns: boolean
+}
+
+/** The actions that used to reject a missing cwd (task #2179, relaxed by #2445). */
+const CWD_OPTIONAL: CwdContractCase[] = [
+  {
+    tool: 'memory_recall',
+    action: 'search',
+    args: () => ({ query: 'conformance source alpha' }),
+    warns: true
+  },
+  {
+    tool: 'memory_recall',
+    action: 'clusters',
+    args: () => ({ query: 'conformance cluster' }),
+    warns: true
+  },
+  { tool: 'memory_recall', action: 'list', args: () => ({}), warns: true },
+  { tool: 'memory_status', action: 'slots', args: () => ({}), warns: true },
+  { tool: 'memory_status', action: 'frontier', args: () => ({}), warns: true },
+  {
+    tool: 'memory_reflect',
+    action: 'reflect',
+    args: () => ({ summary: 'conformance cwd-less reflect' }),
+    warns: false
+  },
+  { tool: 'memory_reflect', action: 'timeline', args: () => ({}), warns: true }
 ]
 
-describe('cwd is required for project-scoped actions', () => {
-  for (const c of CWD_REQUIRED) {
-    test(`${c.tool} action=${c.action} without cwd names the fix`, async () => {
-      const { isError, text } = readResult(
-        await client.callTool({ name: c.tool, arguments: { action: c.action, ...c.args } } as never)
-      )
-      expect(isError).toBe(true)
-      expect(text).toContain(`cwd is required for ${c.tool} action=${c.action}`)
-      expect(text).toContain('pass the project working directory')
-      expect(text).toContain('memory_manage action=resolve')
+/** Call one contract case and return its `meta`, failing on an error answer. */
+async function cwdContractMeta(c: CwdContractCase, cwd?: string): Promise<Record<string, unknown>> {
+  const { payload, isError, text } = readResult(
+    await client.callTool({
+      name: c.tool,
+      arguments: { action: c.action, ...c.args(fx), ...(cwd === undefined ? {} : { cwd }) }
+    } as never)
+  )
+  if (isError) throw new Error(`${c.tool} ${c.action} answered isError: ${text}`)
+  if (!isPlainObject(payload))
+    throw new Error(`${c.tool} ${c.action}: payload is not an object: ${text}`)
+  const meta = payload.meta
+  if (!isPlainObject(meta)) throw new Error(`${c.tool} ${c.action}: meta is not an object`)
+  return meta
+}
+
+describe('cwd is optional: a call without it answers with no scope', () => {
+  for (const c of CWD_OPTIONAL) {
+    test(`${c.tool} action=${c.action} answers without cwd and reports scope null`, async () => {
+      const meta = await cwdContractMeta(c)
+      expect(meta.scope).toBeNull()
+      if (c.warns) {
+        expect(meta.warnings).toContain(NO_CWD_WARNING)
+      } else {
+        expect(meta.warnings).toEqual([])
+      }
     })
 
-    test(`${c.tool} action=${c.action} with cwd succeeds`, async () => {
-      const { isError } = readResult(
-        await client.callTool({
-          name: c.tool,
-          arguments: { action: c.action, ...c.args, cwd: CWD }
-        } as never)
-      )
-      expect(isError).toBe(false)
+    test(`${c.tool} action=${c.action} with a registered cwd scopes the answer`, async () => {
+      const meta = await cwdContractMeta(c, CWD)
+      expect(meta.scope).toEqual({
+        project: PROJECT,
+        project_name: 'Conformance',
+        global: false
+      })
+      expect(meta.warnings).not.toContain(NO_CWD_WARNING)
     })
   }
 
-  test('the no-cwd rejections are non-destructive and idempotent', async () => {
-    const db = getDb()
-    const snapshot = () =>
-      (['thoughts', 'edges', 'projects', 'placement_proposals'] as const)
-        .map(table => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n)
-        .join(':')
-    const before = snapshot()
-    for (let round = 0; round < 2; round++) {
-      for (const c of CWD_REQUIRED) {
-        const { isError } = readResult(
-          await client.callTool({
-            name: c.tool,
-            arguments: { action: c.action, ...c.args }
-          } as never)
-        )
-        expect(isError).toBe(true)
-      }
-      expect(snapshot()).toBe(before)
+  test('slots without cwd also notes that the project-scoped overrides were not applied', async () => {
+    const meta = await cwdContractMeta({
+      tool: 'memory_status',
+      action: 'slots',
+      args: () => ({}),
+      warns: true
+    })
+    expect(meta.warnings).toEqual([NO_CWD_WARNING, SLOTS_OVERRIDES_WARNING])
+  })
+})
+
+// ── propose without cwd stays project-pinned (tasks #2448/#2449) ─────────────
+
+/**
+ * `propose` is the one relaxed read that is *not* cross-project: the plan is
+ * built against exactly one project, so its note names that project instead of
+ * reusing the generic "spans every project" string (a false claim that let the
+ * defect through, tasks #2448/#2449).
+ */
+const PROPOSE_THOUGHT_PIN =
+  'propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to'
+const PROPOSE_DRAFT_PIN =
+  'propose is not cross-project: the plan is restricted to the default project (draft content)'
+/** The same clause, introduced by the missing-`cwd` cause (`scope: null`). */
+const PROPOSE_THOUGHT_WARNING = `no cwd — ${PROPOSE_THOUGHT_PIN}`
+const PROPOSE_DRAFT_WARNING = `no cwd — ${PROPOSE_DRAFT_PIN}`
+
+/**
+ * A path no `projects` row registers. It resolves to a known-unresolved scope
+ * (`global: true`), which is not the same as a missing `cwd` (`scope: null`), so
+ * `propose` must still say it is not cross-project (tasks #2448/#2454).
+ */
+const UNREGISTERED_CWD = '/tmp/opencode/unregistered-project'
+/** The unknown-path fact with its resolve hint — restated locally since #2456. */
+const UNKNOWN_PATH_CAUSE = `cwd "${UNREGISTERED_CWD}" matches no known project (check it with memory_manage action=resolve)`
+/**
+ * The one note each unregistered-cwd case answers (task #2456): the cause and the
+ * pinning clause it explains, instead of the generic note plus a pin. Keeping the
+ * pin shared with the cwd-less cases is what makes the two shapes comparable.
+ */
+const PROPOSE_THOUGHT_UNREGISTERED_WARNING = `${UNKNOWN_PATH_CAUSE} — ${PROPOSE_THOUGHT_PIN}`
+const PROPOSE_DRAFT_UNREGISTERED_WARNING = `${UNKNOWN_PATH_CAUSE} — ${PROPOSE_DRAFT_PIN}`
+/** The widening claim that is false for `propose` in every cwd shape. */
+const SPANS_EVERY_PROJECT_CLAIM = 'the answer spans every project'
+
+/** Call `propose` and return the plan's proposed edge targets plus its `meta`. */
+async function proposeTargets(
+  args: Record<string, unknown>,
+  cwd?: string
+): Promise<{ targets: string[]; meta: Record<string, unknown> }> {
+  const { payload, isError, text } = readResult(
+    await client.callTool({
+      name: 'memory_status',
+      arguments: { action: 'propose', ...args, ...(cwd === undefined ? {} : { cwd }) }
+    } as never)
+  )
+  if (isError) throw new Error(`memory_status propose answered isError: ${text}`)
+  const body = payload as {
+    item: { edges: Array<{ target_id: string }> }
+    meta: Record<string, unknown>
+  }
+  return { targets: body.item.edges.map(edge => edge.target_id), meta: body.meta }
+}
+
+/**
+ * Both projects hold a thought with the *same* text, so the stub embedder makes
+ * either twin a strong neighbour: whichever project the plan really used is
+ * visible in the proposed edge targets.
+ */
+describe('memory_status action=propose without cwd reports the scope it used', () => {
+  test('a draft plans against the default project, not every project', async () => {
+    const text = 'propose-scope default twin'
+    const defaultTwin = seedThought({
+      content: text,
+      project_id: resolveDefaultProjectId(getDb())
+    })
+    const otherTwin = seedThought({ content: text, project_id: OTHER_PROJECT })
+
+    const { targets, meta } = await proposeTargets({ content: text })
+    expect(meta.scope).toBeNull()
+    expect(meta.warnings).toEqual([PROPOSE_DRAFT_WARNING])
+    expect(meta.warnings).not.toContain(NO_CWD_WARNING)
+    expect(targets).toEqual([defaultTwin])
+    expect(targets).not.toContain(otherTwin)
+  })
+
+  test('a thought_id plans against that thought’s project', async () => {
+    const text = 'propose-scope owned twin'
+    const source = seedThought({ content: text, project_id: PROJECT })
+    const scopedTwin = seedThought({ content: text, project_id: PROJECT })
+    const otherTwin = seedThought({ content: text, project_id: OTHER_PROJECT })
+
+    const { targets, meta } = await proposeTargets({ thought_id: source })
+    expect(meta.scope).toBeNull()
+    expect(meta.warnings).toEqual([PROPOSE_THOUGHT_WARNING])
+    expect(meta.warnings).not.toContain(NO_CWD_WARNING)
+    expect(targets).toEqual([scopedTwin])
+    expect(targets).not.toContain(otherTwin)
+  })
+
+  test('with cwd the envelope keeps its pre-#2445 shape: scope resolved, no warning', async () => {
+    const source = seedThought({ content: 'propose-scope cited thought', project_id: PROJECT })
+
+    const { meta } = await proposeTargets({ thought_id: source }, CWD)
+    expect(meta.scope).toEqual({
+      project: PROJECT,
+      project_name: 'Conformance',
+      global: false
+    })
+    expect(meta.warnings).toEqual([])
+  })
+})
+
+/**
+ * The residual #2448 case: a `cwd` that is present but unregistered. #2453 keyed
+ * the pinning note on `projectId === undefined`, because that is what the planner
+ * really reacts to; a scope-based branch would have treated this path like a
+ * missing `cwd` and dropped the pinning note. #2456 then folded the two notes
+ * into one: the unknown path (with its resolve hint) is the cause, the pinning
+ * clause is what it explains, and the false "the answer spans every project"
+ * tail is gone. Both cases below pin the exact single string, guard against the
+ * old claim resurfacing, and prove the plan is not widened by the bad path.
+ */
+describe('memory_status action=propose with an unregistered cwd answers one accurate note', () => {
+  test('a thought_id note names the unknown path and its pinning clause', async () => {
+    const text = 'propose-unregistered owned twin'
+    const source = seedThought({ content: text, project_id: PROJECT })
+    const scopedTwin = seedThought({ content: text, project_id: PROJECT })
+    const otherTwin = seedThought({ content: text, project_id: OTHER_PROJECT })
+
+    const absentCwd = await proposeTargets({ thought_id: source })
+    const { targets, meta } = await proposeTargets({ thought_id: source }, UNREGISTERED_CWD)
+    const warnings = meta.warnings as string[]
+    expect(meta.scope).toEqual({ project: null, project_name: null, global: true })
+    expect(warnings).toEqual([PROPOSE_THOUGHT_UNREGISTERED_WARNING])
+    expect(warnings.join('\n')).not.toContain(SPANS_EVERY_PROJECT_CLAIM)
+    expect(targets).toEqual(absentCwd.targets)
+    expect(targets).toEqual([scopedTwin])
+    expect(targets).not.toContain(otherTwin)
+  })
+
+  test('a draft note names the unknown path and its draft pinning clause', async () => {
+    const text = 'propose-unregistered draft twin'
+    const defaultTwin = seedThought({
+      content: text,
+      project_id: resolveDefaultProjectId(getDb())
+    })
+    const otherTwin = seedThought({ content: text, project_id: OTHER_PROJECT })
+
+    const absentCwd = await proposeTargets({ content: text })
+    const { targets, meta } = await proposeTargets({ content: text }, UNREGISTERED_CWD)
+    const warnings = meta.warnings as string[]
+    expect(meta.scope).toEqual({ project: null, project_name: null, global: true })
+    expect(warnings).toEqual([PROPOSE_DRAFT_UNREGISTERED_WARNING])
+    expect(warnings.join('\n')).not.toContain(SPANS_EVERY_PROJECT_CLAIM)
+    expect(targets).toEqual(absentCwd.targets)
+    expect(targets).toEqual([defaultTwin])
+    expect(targets).not.toContain(otherTwin)
+  })
+})
+
+describe('memory_reflect action=reflect without cwd writes to the default project', () => {
+  test('decisions and pending land there with scope null and no warning', async () => {
+    const decision = 'cwd-less reflect decision marker'
+    const pending = 'cwd-less reflect pending marker'
+    const { payload, isError } = readResult(
+      await client.callTool({
+        name: 'memory_reflect',
+        arguments: {
+          action: 'reflect',
+          summary: 'cwd-less reflect summary',
+          decisions: [decision],
+          pending: [pending]
+        }
+      } as never)
+    )
+    expect(isError).toBe(false)
+    const body = payload as {
+      item: { decisions_created: number; pending_created: number; summary_appended: boolean }
+      meta: Record<string, unknown>
     }
+    expect(body.meta.scope).toBeNull()
+    expect(body.meta.warnings).toEqual([])
+    expect(body.item.decisions_created).toBe(1)
+    expect(body.item.pending_created).toBe(1)
+
+    const db = getDb()
+    const defaultId = resolveDefaultProjectId(db)
+    const rows = db
+      .prepare('SELECT content, project_id FROM thoughts WHERE content IN (?, ?)')
+      .all(decision, pending) as Array<{ content: string; project_id: string }>
+    expect(rows).toHaveLength(2)
+    for (const row of rows) expect(row.project_id).toBe(defaultId)
+  })
+
+  test('it lands where a cwd-less memory_store create lands', async () => {
+    const decision = 'cwd-less equivalence decision'
+    const reflected = readResult(
+      await client.callTool({
+        name: 'memory_reflect',
+        arguments: { action: 'reflect', decisions: [decision] }
+      } as never)
+    )
+    expect(reflected.isError).toBe(false)
+
+    const created = readResult(
+      await client.callTool({
+        name: 'memory_store',
+        arguments: { action: 'create', content: 'cwd-less equivalence store row' }
+      } as never)
+    )
+    expect(created.isError).toBe(false)
+    const storedId = (created.payload as { item: { id: string } }).item.id
+
+    const db = getDb()
+    const projectOf = (content: string) =>
+      (
+        db.prepare('SELECT project_id FROM thoughts WHERE content = ?').get(content) as {
+          project_id: string
+        }
+      ).project_id
+    const storedProject = (
+      db.prepare('SELECT project_id FROM thoughts WHERE id = ?').get(storedId) as {
+        project_id: string
+      }
+    ).project_id
+    expect(projectOf(decision)).toBe(storedProject)
+    expect(storedProject).toBe(resolveDefaultProjectId(db))
+  })
+})
+
+// ── a cwd-less read really spans every project ───────────────────────────────
+
+/** A second project nothing has registered — `cwd` can only address project A. */
+const OTHER_PROJECT = 'proj-conformance-b'
+const OTHER_CONTENT = 'crossscoped alpha row in project B'
+const SCOPED_CONTENT = 'crossscoped alpha row in project A'
+
+/** One active thought in project A (reachable by `cwd`) and one in project B. */
+function seedCrossProjectRows(): { scopedId: string; otherId: string } {
+  return {
+    scopedId: seedThought({ content: SCOPED_CONTENT, project_id: PROJECT }),
+    otherId: seedThought({ content: OTHER_CONTENT, project_id: OTHER_PROJECT })
+  }
+}
+
+/** Ids of the thought rows a collection answer emitted. */
+function answerIds(payload: unknown): string[] {
+  const items = (payload as { items: Array<{ thought?: { id?: string }; id?: string }> }).items
+  return items.map(row => row.thought?.id ?? row.id ?? '')
+}
+
+async function crossProjectRows(
+  tool: string,
+  action: string,
+  args: Record<string, unknown>,
+  cwd?: string
+): Promise<string[]> {
+  const { payload, isError, text } = readResult(
+    await client.callTool({
+      name: tool,
+      arguments: { action, ...args, ...(cwd === undefined ? {} : { cwd }) }
+    } as never)
+  )
+  if (isError) throw new Error(`${tool} ${action} answered isError: ${text}`)
+  return answerIds(payload)
+}
+
+describe('a cwd-less search spans every project', () => {
+  test('both projects’ rows are visible without cwd, and only project A’s with one', async () => {
+    const { scopedId, otherId } = seedCrossProjectRows()
+
+    const all = await crossProjectRows('memory_recall', 'search', { query: 'crossscoped' })
+    expect(all.sort()).toEqual([scopedId, otherId].sort())
+
+    const scoped = await crossProjectRows('memory_recall', 'search', { query: 'crossscoped' }, CWD)
+    expect(scoped).toEqual([scopedId])
+  })
+})
+
+describe('a cwd-less list spans every project', () => {
+  test('both projects’ rows are listed without cwd, and only project A’s with one', async () => {
+    const { scopedId, otherId } = seedCrossProjectRows()
+
+    const all = await crossProjectRows('memory_recall', 'list', {})
+    expect(all).toEqual(expect.arrayContaining([scopedId, otherId]))
+
+    const scoped = await crossProjectRows('memory_recall', 'list', {}, CWD)
+    expect(scoped).toContain(scopedId)
+    expect(scoped).not.toContain(otherId)
+  })
+})
+
+describe('a cwd-less timeline spans every project', () => {
+  test('both projects’ rows are listed without cwd, and only project A’s with one', async () => {
+    const { scopedId, otherId } = seedCrossProjectRows()
+
+    const all = await crossProjectRows('memory_reflect', 'timeline', {})
+    expect(all).toEqual(expect.arrayContaining([scopedId, otherId]))
+
+    const scoped = await crossProjectRows('memory_reflect', 'timeline', {}, CWD)
+    expect(scoped).toContain(scopedId)
+    expect(scoped).not.toContain(otherId)
+  })
+})
+
+describe('memory_manage action=resolve still requires cwd', () => {
+  test('a cwd-less resolve is rejected with the actionable message', async () => {
+    const { isError, text } = readResult(
+      await client.callTool({ name: 'memory_manage', arguments: { action: 'resolve' } } as never)
+    )
+    expect(isError).toBe(true)
+    expect(text).toContain('cwd is required for resolve action')
   })
 })
 

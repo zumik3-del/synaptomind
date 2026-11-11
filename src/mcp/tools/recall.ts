@@ -22,7 +22,7 @@ import { shapeSearchItem } from './recall/shape'
 import {
   collectionEnvelope,
   itemEnvelope,
-  requireEnvelopeScope,
+  readEnvelopeScope,
   type EnvelopeReason
 } from './envelope'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
@@ -136,7 +136,7 @@ function finalizeSearchAction(
   action: 'search' | 'clusters',
   outcome: SearchOutcome,
   args: ActionArgs,
-  scope: ReturnType<typeof requireEnvelopeScope>['scope'],
+  scope: ReturnType<typeof readEnvelopeScope>['scope'],
   warnings: string[],
   groupByCluster: boolean
 ) {
@@ -160,9 +160,9 @@ function finalizeSearchAction(
   })
 }
 
-function queryActionPreamble(args: ActionArgs, action: 'search' | 'clusters') {
+function queryActionPreamble(args: ActionArgs) {
   const limit = (args.limit as number) ?? 10
-  const { scope, warnings, projectId } = requireEnvelopeScope(args.cwd, 'memory_recall', action)
+  const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
   return { limit, scope, warnings, projectId }
 }
 
@@ -175,7 +175,7 @@ const handlers = {
       status: thoughtStatusSchema.default('active')
     }),
     async run(args: ActionArgs) {
-      const { limit, scope, warnings, projectId } = queryActionPreamble(args, 'search')
+      const { limit, scope, warnings, projectId } = queryActionPreamble(args)
       const baseOptions = buildSearchOptions({
         query: args.query as string,
         topK: limit,
@@ -238,7 +238,7 @@ const handlers = {
       status: thoughtStatusSchema.default('active')
     }),
     async run(args: ActionArgs) {
-      const { limit, scope, warnings, projectId } = queryActionPreamble(args, 'clusters')
+      const { limit, scope, warnings, projectId } = queryActionPreamble(args)
       // This action lists cluster thoughts by definition, so an explicit
       // `is_cluster=false` contradicts it.
       if (args.is_cluster === false) {
@@ -271,7 +271,7 @@ const handlers = {
       status: z.enum(['draft', 'active', 'archived', 'all']).default('all')
     }),
     run(args: ActionArgs) {
-      const { scope, warnings, projectId } = requireEnvelopeScope(args.cwd, 'memory_recall', 'list')
+      const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
       const page = listThoughtsPageService({
         status: args.status as string | undefined,
         project_id: projectId,
@@ -301,7 +301,7 @@ const handlers = {
 export function registerMemoryRecall(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_recall',
-    description: `Search and retrieve thoughts. Every action answers in one envelope: collections return { items, meta }, single objects return { item, meta }. meta = { action, scope, counts: { total, returned, filtered_out }, degraded, warnings } plus an optional reason (no_match, ambiguous_id, id_not_found). Id lookup: a query that is a full UUID or a hex prefix of at least 13 characters is resolved against thought ids before the semantic and lexical legs. A full UUID is an explicit reference and ignores status/cwd/tag/min_importance; a prefix is only a timestamp window, so it takes the status/cwd scope of the call like any other query, and a prefix that addresses nothing inside that scope falls back to the ordinary search. is_cluster is a shape constraint rather than a scope, so it applies to both forms: clusters never answers a non-cluster row (the request comes back empty with a reason). An addressed id never widens to other rows (a prefix that addresses several answers every one of them, at most limit rows, with reason ambiguous_id). The resolution never suppresses a contested hit: standing, superseded_by and contradicted_by are annotated, while low_confidence keeps its retrieval meaning (no BM25 anchor, cosine below the floor) and stays false on an id hit. A miss is not an answer: when an id-shaped query addresses no thought, the answer is the ordinary search for the same text with an id_not_found note in meta.warnings (reason id_not_found only when that fallback matched nothing either), so a hex-looking word stays searchable. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/cwd/tag/is_cluster filters; limit/offset and the total ride in meta.counts, never in a row). Status defaults: search/clusters active, list all; pass status to override. cwd is REQUIRED for search, clusters and list (it scopes the answer to one project); it is optional for context and not used by get/chain. Relevance: an omitted min_relevance applies the default gate to cosine-only search/clusters hits (they surface as meta.counts.filtered_out, never as a reason), while BM25-anchored and id rows are never gated. context is exempt from that default gate — it asks for the single best match, so it keeps the pre-gate best match unless a caller passes min_relevance, which is a service-level opt-in there (the tool argument applies to search/clusters). Output modes: compact (default true) keeps the minimal thought fields (id, content, status, tags as strings, project) and no per-hit score block, but never hides a safety annotation — standing is emitted unless it is 'current', and superseded_by/contradicted_by plus low_confidence: true are emitted whenever they apply, so a contested or weak hit never looks clean; ranking metadata, match_source included (['id'] marks an id-addressed hit), is opt-in. compact=false adds that metadata (scores { similarity, distance, rrf_score, bm25_score, relevance, recency_score, final_score }, match_source, plus standing: 'current' and low_confidence: false as neutral markers). An explicit fields selection returns only those thought columns and drops the ranking metadata — scores and match_source, so an id hit is no longer labelled as one; safety annotations, include_url_links and get's include_edges output are not thought columns and stay. include_url_links (default false, all six actions) adds url_links to every thought the answer emits — [{text, url, label}] read in one batch query, never trimmed by fields and never hidden by compact; with true and no links the key is [], and with the argument omitted or false the key is absent.`,
+    description: `Search and retrieve thoughts. Every action answers in one envelope: collections return { items, meta }, single objects return { item, meta }. meta = { action, scope, counts: { total, returned, filtered_out }, degraded, warnings } plus an optional reason (no_match, ambiguous_id, id_not_found). Id lookup: a query that is a full UUID or a hex prefix of at least 13 characters is resolved against thought ids before the semantic and lexical legs. A full UUID is an explicit reference and ignores status/cwd/tag/min_importance; a prefix is only a timestamp window, so it takes the status/cwd scope of the call like any other query, and a prefix that addresses nothing inside that scope falls back to the ordinary search. is_cluster is a shape constraint rather than a scope, so it applies to both forms: clusters never answers a non-cluster row (the request comes back empty with a reason). An addressed id never widens to other rows (a prefix that addresses several answers every one of them, at most limit rows, with reason ambiguous_id). The resolution never suppresses a contested hit: standing, superseded_by and contradicted_by are annotated, while low_confidence keeps its retrieval meaning (no BM25 anchor, cosine below the floor) and stays false on an id hit. A miss is not an answer: when an id-shaped query addresses no thought, the answer is the ordinary search for the same text with an id_not_found note in meta.warnings (reason id_not_found only when that fallback matched nothing either), so a hex-looking word stays searchable. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/cwd/tag/is_cluster filters; limit/offset and the total ride in meta.counts, never in a row). Status defaults: search/clusters active, list all; pass status to override. cwd is optional for search, clusters, list and context: it scopes the answer to one project, and omitting it answers across every project with a meta.warnings note (get/chain do not take it). Relevance: an omitted min_relevance applies the default gate to cosine-only search/clusters hits (they surface as meta.counts.filtered_out, never as a reason), while BM25-anchored and id rows are never gated. context is exempt from that default gate — it asks for the single best match, so it keeps the pre-gate best match unless a caller passes min_relevance, which is a service-level opt-in there (the tool argument applies to search/clusters). Output modes: compact (default true) keeps the minimal thought fields (id, content, status, tags as strings, project) and no per-hit score block, but never hides a safety annotation — standing is emitted unless it is 'current', and superseded_by/contradicted_by plus low_confidence: true are emitted whenever they apply, so a contested or weak hit never looks clean; ranking metadata, match_source included (['id'] marks an id-addressed hit), is opt-in. compact=false adds that metadata (scores { similarity, distance, rrf_score, bm25_score, relevance, recency_score, final_score }, match_source, plus standing: 'current' and low_confidence: false as neutral markers). An explicit fields selection returns only those thought columns and drops the ranking metadata — scores and match_source, so an id hit is no longer labelled as one; safety annotations, include_url_links and get's include_edges output are not thought columns and stay. include_url_links (default false, all six actions) adds url_links to every thought the answer emits — [{text, url, label}] read in one batch query, never trimmed by fields and never hidden by compact; with true and no links the key is [], and with the argument omitted or false the key is absent.`,
     inputSchema: {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters', 'list']).describe('Action'),
       query: z
@@ -323,7 +323,7 @@ export function registerMemoryRecall(server: McpServer) {
         .string()
         .optional()
         .describe(
-          'Working directory — resolves the project scope reported in meta.scope. REQUIRED for search/clusters/list (a call without it is rejected); OPTIONAL for context; IGNORED for get/chain.'
+          'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for search/clusters/list/context: omitting it (or passing no registered path) answers across every project and says so in meta.warnings. IGNORED for get/chain.'
         ),
       tag: z
         .string()

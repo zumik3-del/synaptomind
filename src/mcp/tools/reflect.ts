@@ -3,20 +3,18 @@ import type { McpServer } from '@modelcontextprotocol/server'
 import { reflectSessionService } from '../../services/slots.service'
 import { listThoughtsPageService, type Thought } from '../../services/thoughts.service'
 import { thoughtStatusSchema, timelineLimitSchema } from '../../validation'
-import { itemEnvelope, collectionEnvelope, requireEnvelopeScope } from './envelope'
-import { shapeThought, loadUrlLinks } from './utils'
+import { itemEnvelope, collectionEnvelope, readEnvelopeScope, writeEnvelopeScope } from './envelope'
+import { resolveProjectId, shapeThought, loadUrlLinks } from './utils'
 import { registerActionTool, type ActionArgs } from './action-tool'
 
 const handlers = {
   reflect: {
     run(args: ActionArgs) {
       // Resolved inside the dispatch try so resolution failures return the
-      // isError envelope like every other action (audit F9).
-      const { scope, warnings, projectId } = requireEnvelopeScope(
-        args.cwd,
-        'memory_reflect',
-        'reflect'
-      )
+      // isError envelope like every other action (audit F9). Write semantics:
+      // an absent cwd writes to the resolved default project (like
+      // memory_store create/update) and reports no scope rather than a warning.
+      const projectId = resolveProjectId(args.cwd as string | undefined)
       const result = reflectSessionService({
         summary: args.summary as string | undefined,
         goals_add: args.goals_add as string[] | undefined,
@@ -26,17 +24,13 @@ const handlers = {
         wake_days: args.wake_days as number | undefined,
         project_id: projectId
       })
-      return itemEnvelope('reflect', result, { scope, warnings })
+      return itemEnvelope('reflect', result, writeEnvelopeScope(args.cwd))
     }
   },
 
   timeline: {
     run(args: ActionArgs) {
-      const { scope, warnings, projectId } = requireEnvelopeScope(
-        args.cwd,
-        'memory_reflect',
-        'timeline'
-      )
+      const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
       const page = listThoughtsPageService({
         status: args.status as 'draft' | 'active' | 'archived' | undefined,
         project_id: projectId,
@@ -65,7 +59,7 @@ const handlers = {
 export function registerMemoryReflect(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_reflect',
-    description: `Session management. Every action answers { items, meta } (timeline) or { item, meta } (reflect); meta = { action, scope, counts, degraded, warnings }. cwd is REQUIRED for both actions. Actions: reflect (summary, decisions, pending, goals), timeline (paginated thought inventory with the shared read-surface hygiene; limit/offset/total ride in meta.counts, never in a row; include_url_links adds the url links of every row, default false).`,
+    description: `Session management. Every action answers { items, meta } (timeline) or { item, meta } (reflect); meta = { action, scope, counts, degraded, warnings }. cwd is optional for both actions: reflect treats it as a write scope (omitted, decisions/pending land in the default project and meta.scope is null), while timeline reads across every project when it is omitted and says so in meta.warnings. Actions: reflect (summary, decisions, pending, goals), timeline (paginated thought inventory with the shared read-surface hygiene; limit/offset/total ride in meta.counts, never in a row; include_url_links adds the url links of every row, default false).`,
     inputSchema: {
       action: z.enum(['reflect', 'timeline']).describe('Action'),
       summary: z
@@ -115,7 +109,7 @@ export function registerMemoryReflect(server: McpServer) {
         .string()
         .optional()
         .describe(
-          'Working directory — REQUIRED for both actions; resolves the project scope reported in meta.scope.'
+          'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for both actions: reflect writes to the resolved project, or to the default project when it is absent; timeline answers across every project when it is absent and says so in meta.warnings.'
         ),
       status: thoughtStatusSchema
         .optional()
