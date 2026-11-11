@@ -135,6 +135,34 @@ function streamBody(totalBytes: number): ReadableStream<Uint8Array> {
   })
 }
 
+// Locked by #2442: an early rejection that leaves the request body unread keeps
+// that request in flight, so Bun's server.stop() waits forever and the suite
+// died as a bare 5 s bun-test timeout. Bound the stop, so a comeback names the
+// cause instead of hiding inside the runner's timeout.
+const STOP_TIMEOUT_MS = 2_000
+
+async function expectStopResolves(server: McpHttpHandle, label: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      server.stop(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `${label}: server.stop() did not resolve within ${STOP_TIMEOUT_MS} ms — a request body left unread keeps the request in flight`
+              )
+            ),
+          STOP_TIMEOUT_MS
+        )
+      })
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
 beforeEach(createTestDb)
 
 afterAll(() => {
@@ -377,7 +405,7 @@ describe('negative ladder (modern path)', () => {
         id: null
       })
     } finally {
-      await server.stop()
+      await expectStopResolves(server, '413 declared length with an oversized body')
     }
   })
 
@@ -421,6 +449,54 @@ describe('negative ladder (modern path)', () => {
       })
     } finally {
       await server.stop()
+    }
+  })
+})
+
+// #2442: the 401 and the 415 below also answer before the body is consumed
+// (auth runs first, the media-type gate runs before any read), and the 413 in
+// the ladder above is the third shape. Together they cover every early rejection
+// that used to keep a request in flight and stall the graceful shutdown.
+describe('shutdown after a rejection that leaves the body unread (#2442)', () => {
+  const OVERSIZED = 5 * 1024 * 1024 + 10
+
+  test('a 401 on an oversized POST still lets server.stop() resolve', async () => {
+    const { base, server } = await startServer()
+    try {
+      const res = await post(base, 'x'.repeat(OVERSIZED), {
+        authorization: 'Bearer not-the-secret'
+      })
+      expect(res.status).toBe(401)
+      expect(await res.json()).toEqual({ error: 'Unauthorized' })
+    } finally {
+      await expectStopResolves(server, '401 with an oversized body')
+    }
+  })
+
+  test('a 415 on an oversized text/plain POST still lets server.stop() resolve', async () => {
+    const { base, server } = await startServer()
+    try {
+      // Chunked, so the declared-length 413 guard cannot pre-empt the 415.
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: authHeaders({
+          'content-type': 'text/plain',
+          accept: 'application/json, text/event-stream'
+        }),
+        body: streamBody(OVERSIZED)
+      })
+      expect(res.status).toBe(415)
+      expect(await res.json()).toEqual({
+        jsonrpc: '2.0',
+        error: {
+          code: -32000,
+          message: 'Unsupported Media Type: Content-Type must be application/json'
+        },
+        id: null
+      })
+      expect(server.getSessions().size).toBe(0)
+    } finally {
+      await expectStopResolves(server, '415 with an oversized body')
     }
   })
 })

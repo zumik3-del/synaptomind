@@ -80,6 +80,16 @@ export function startMcpHttpServer(
     })
   )
 
+  // Bun settles an in-flight request only once its body is consumed; an early
+  // rejection that leaves the body unread makes server.stop() wait forever.
+  app.use('/mcp', async (c, next) => {
+    await next()
+    if (c.req.method !== 'POST' || c.res.status < 400 || c.req.raw.bodyUsed) return
+    try {
+      await c.req.raw.arrayBuffer()
+    } catch {}
+  })
+
   app.use('/mcp', authMiddleware)
 
   // Resolve the DB handle for a resolved user ref (legacy singleton or per-user
