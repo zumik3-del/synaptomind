@@ -7,7 +7,7 @@ import {
   type McpServer,
   WebStandardStreamableHTTPServerTransport
 } from '@modelcontextprotocol/server'
-import { resolveUser, type UserRef } from '../auth'
+import type { UserRef } from '../auth'
 import { als } from '../db/container'
 import { disposePair, InMemoryEventStore } from './in-memory-event-store'
 import {
@@ -69,28 +69,15 @@ function trackStreamActivity(response: Response, session: Session): Response {
 export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promise<Response> {
   const { sessions, modern, maxSessions, keepAliveMs, maxRequestBodyBytes } = deps
 
-  async function serveSession(
-    c: Context,
-    ref: UserRef,
-    db: Database | undefined,
-    session: Session,
-    parsed: unknown
-  ): Promise<Response> {
+  async function serveSession(c: Context, session: Session, parsed: unknown): Promise<Response> {
     session.lastAccess = Date.now()
     return trackStreamActivity(
-      await als.run({ userId: ref.userId, db: db as Database }, () =>
-        session.transport.handleRequest(c.req.raw, { parsedBody: parsed })
-      ),
+      await session.transport.handleRequest(c.req.raw, { parsedBody: parsed }),
       session
     )
   }
 
-  async function createSession(
-    c: Context,
-    ref: UserRef,
-    db: Database | undefined,
-    parsed: unknown
-  ): Promise<Response> {
+  async function createSession(c: Context, ref: UserRef, parsed: unknown): Promise<Response> {
     // Only an initialize request may create a session. Rejecting anything else
     // here avoids building (then immediately disposing) a full McpServer +
     // transport on every stray request (F21).
@@ -109,51 +96,44 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
       return c.json({ error: 'Too many sessions' }, 429)
     }
 
-    // Bind ALS before building the server so registration-time DB reads
-    // (e.g. store.ts soft-limit description) resolve per user.
-    return als.run({ userId: ref.userId, db: db as Database }, async () => {
-      const mcpServer = createMcpServer()
-      const transport = new WebStandardStreamableHTTPServerTransport({
-        sessionIdGenerator: () => crypto.randomUUID(),
-        keepAliveMs,
-        maxRequestBodySize: maxRequestBodyBytes,
-        eventStore: new InMemoryEventStore(),
-        onsessioninitialized: id => {
-          sessions.set(id, {
-            server: mcpServer,
-            transport,
-            lastAccess: Date.now(),
-            userId: ref.userId
-          })
-        },
-        onsessionclosed: id => {
-          sessions.delete(id)
-        }
-      })
-
-      try {
-        await mcpServer.connect(transport)
-        const response = await transport.handleRequest(c.req.raw, { parsedBody: parsed })
-        const session = transport.sessionId ? sessions.get(transport.sessionId) : undefined
-        // A request that failed to register a session must not leak its pair.
-        if (!session) {
-          await disposePair(mcpServer, transport)
-          return response
-        }
-        return trackStreamActivity(response, session)
-      } catch (err) {
-        await disposePair(mcpServer, transport)
-        throw err
+    // ALS { userId, db } is bound for the whole /mcp chain by the transport
+    // middleware, so registration-time DB reads resolve per user.
+    const mcpServer = createMcpServer()
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: () => crypto.randomUUID(),
+      keepAliveMs,
+      maxRequestBodySize: maxRequestBodyBytes,
+      eventStore: new InMemoryEventStore(),
+      onsessioninitialized: id => {
+        sessions.set(id, {
+          server: mcpServer,
+          transport,
+          lastAccess: Date.now(),
+          userId: ref.userId
+        })
+      },
+      onsessionclosed: id => {
+        sessions.delete(id)
       }
     })
+
+    try {
+      await mcpServer.connect(transport)
+      const response = await transport.handleRequest(c.req.raw, { parsedBody: parsed })
+      const session = transport.sessionId ? sessions.get(transport.sessionId) : undefined
+      // A request that failed to register a session must not leak its pair.
+      if (!session) {
+        await disposePair(mcpServer, transport)
+        return response
+      }
+      return trackStreamActivity(response, session)
+    } catch (err) {
+      await disposePair(mcpServer, transport)
+      throw err
+    }
   }
 
-  async function serveLegacy(
-    c: Context,
-    ref: UserRef,
-    db: Database | undefined,
-    parsed: unknown
-  ): Promise<Response> {
+  async function serveLegacy(c: Context, ref: UserRef, parsed: unknown): Promise<Response> {
     const sessionId = c.req.header('mcp-session-id')
 
     if (sessionId) {
@@ -178,16 +158,17 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
           403
         )
       }
-      return serveSession(c, ref, db, session, parsed)
+      return serveSession(c, session, parsed)
     }
 
-    return createSession(c, ref, db, parsed)
+    return createSession(c, ref, parsed)
   }
 
   return async (c: Context): Promise<Response> => {
-    const ref =
-      ((c as any).get('mcpUser') as UserRef | undefined) ??
-      resolveUser(c.req.header('Authorization'))
+    // Tripwire only: the /mcp middleware chain already resolves the bearer,
+    // binds { userId, db } to ALS and answers 401/503. Keep the route
+    // fail-closed should the mount order ever change.
+    const ref: UserRef | undefined = c.get('mcpUser')
     if (!ref) return c.json({ error: 'Unauthorized' }, 401)
 
     const db = (als.getStore() as { db?: Database } | undefined)?.db
@@ -214,7 +195,7 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
       parsed === undefined ||
       (await isLegacyRequest(c.req.raw, parsed, { maxRequestBodySize: maxRequestBodyBytes }))
 
-    if (legacy) return serveLegacy(c, ref, db, parsed)
+    if (legacy) return serveLegacy(c, ref, parsed)
     return modern.fetch(c.req.raw, { parsedBody: parsed })
   }
 }
