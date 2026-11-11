@@ -18,7 +18,7 @@ const handlers = {
 export function registerMemoryStatus(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_status',
-    description: `Query system state (read-only). Every action answers in one envelope: { items, meta } for collections (slots, frontier) or { item, meta } for single objects (config, health, propose); meta = { action, scope, counts: { total, returned, filtered_out }, degraded, warnings }. cwd is REQUIRED for slots, frontier and propose (it scopes the answer to one project). Actions: slots (read-only; pending_items derived from pending thoughts, architecture_decisions from primers; slots_limit/offset paging), frontier (limit result count, 1-50), config, health, propose (read-only plan).`,
+    description: `Query system state (read-only). Every action answers in one envelope: { items, meta } for collections (slots, frontier) or { item, meta } for single objects (config, health, propose); meta = { action, scope, counts: { total, returned, filtered_out }, degraded, warnings }. cwd is optional for slots, frontier and propose (it scopes the answer to one project); omitting it leaves meta.scope null and is noted in meta.warnings — slots then reads only the global slot rows (the project-scoped overrides are not applied), frontier answers across every project, and propose is never cross-project: the plan stays confined to the addressed thought's project, or to the default project for a draft. Actions: slots (read-only; pending_items derived from pending thoughts, architecture_decisions from primers; slots_limit/offset paging), frontier (limit result count, 1-50), config, health, propose (read-only plan).`,
     inputSchema: {
       action: z.enum(['slots', 'frontier', 'config', 'health', 'propose']).describe('Action'),
       names: z
@@ -60,7 +60,7 @@ export function registerMemoryStatus(server: McpServer) {
         .string()
         .optional()
         .describe(
-          'Working directory — REQUIRED for "slots", "frontier", "propose" (it resolves the project scope reported in meta.scope); a call without it is rejected. IGNORED for "config", "health".'
+          'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for "slots", "frontier" and "propose": omitting it leaves meta.scope null and is noted in meta.warnings (an unregistered path raises a global scope and its own warning). Without a registered scope, "slots" reads only the global slot rows and does not apply the project-scoped overrides, "frontier" answers across every project, and "propose" is never cross-project: the plan stays confined to the addressed thought\'s own project, or to the default project for a draft. IGNORED for "config", "health".'
         ),
       thought_id: z
         .string()
