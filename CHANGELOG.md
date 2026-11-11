@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.23.0
+
+> November 11, 2026
+
+- [`de7a409f`](https://github.com/zumik3-del/synaptomind/commit/de7a409f9c89a0204f7fe699b7675f66dda2ee4a): refactor(mcp): drop the duplicated auth/ALS resolution in the /mcp route
+- [`43a97df1`](https://github.com/zumik3-del/synaptomind/commit/43a97df13d2b0d9914d991f7aab00ed0ed4ebdc3): feat(mcp): serve revision 2026-07-28 beside the legacy session transport
+
 ## v0.22.1
 
 > November 9, 2026
