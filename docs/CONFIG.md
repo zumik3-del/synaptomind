@@ -95,12 +95,18 @@ an unrecognised probe is served by the 2025 handshake; that silent fallback is
 expected and needs no action on the server.
 
 **Request body bound: 5 MB (5242880 bytes) on both eras.** A declared
-`Content-Length` above it is answered `413` before the body is read; a chunked
-body is read up to the same limit and then answered `413`
+`Content-Length` above it is answered `413` without parsing the body — the
+guard decides from the declared length alone — and the body that follows is
+drained off the connection and then discarded, never parsed or inspected
 (`{"jsonrpc":"2.0","error":{"code":-32000,"message":"Request body too large (max 5MB)"},"id":null}`).
-Before the 2026-07-28 path existed, the 5 MB bound was enforced only by the
-middleware, and the legacy session path inherited the transport's own 4 MB
-default, so a 4–5 MB session request used to be rejected and is now served.
+The drain is deliberate: Bun holds a request in flight until its body is
+consumed, so a body left unread would make a graceful shutdown wait on the
+rejected request. A chunked body declares no length, so it is read up to the
+same limit and then answered `413`. The same drain applies to any `POST` the
+chain answers with an error before consuming the body. Before the 2026-07-28
+path existed, the 5 MB bound was enforced only by the middleware, and the
+legacy session path inherited the transport's own 4 MB default, so a 4–5 MB
+session request used to be rejected and is now served.
 
 **Modern streams are not resumable.** The 2026-07-28 handler keeps no event
 store, so `Last-Event-ID` replay does not exist there: a dropped
