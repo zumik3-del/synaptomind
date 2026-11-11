@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.23.1
+
+> November 11, 2026
+
+- [`c09c378a`](https://github.com/zumik3-del/synaptomind/commit/c09c378a2054580fb487b3f76d54e8bfc7bfd1b6): feat(mcp): make cwd optional on every project-scoped action
+- [`b80600d3`](https://github.com/zumik3-del/synaptomind/commit/b80600d3475288b46ba0857c81ca785d7ac5da7c): fix(mcp): drain an unread request body so a rejected POST cannot stall shutdown
+
 ## v0.23.0
 
 > November 11, 2026
