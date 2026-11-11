@@ -12,7 +12,8 @@
     "maxSessions": 100,
     "sessionTtlMs": 3600000,
     "keepAliveMs": 10000,
-    "maxEventsPerSession": 1000
+    "maxEventsPerSession": 1000,
+    "maxSubscriptions": 128
   },
   "db": {
     "path": "./data/synaptomind.db",

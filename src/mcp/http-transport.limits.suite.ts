@@ -10,6 +10,7 @@ process.env.SYNAPTOMIND_MCP_MAX_SESSIONS = '2'
 process.env.SYNAPTOMIND_MCP_SESSION_TTL_MS = '1234'
 process.env.SYNAPTOMIND_MCP_KEEPALIVE_MS = '4321'
 process.env.SYNAPTOMIND_MCP_MAX_EVENTS_PER_SESSION = '3'
+process.env.SYNAPTOMIND_MCP_MAX_SUBSCRIPTIONS = '5'
 process.env.SYNAPTOMIND_SECRET = 'mcp-limits-suite-secret'
 delete process.env.SYNAPTOMIND_SERVICE_TOKEN
 delete process.env.SYNAPTOMIND_ALLOW_INSECURE
@@ -67,6 +68,7 @@ test('mcp transport limit env overrides parse as ints', () => {
   expect(config.mcp.sessionTtlMs).toBe(1234)
   expect(config.mcp.keepAliveMs).toBe(4321)
   expect(config.mcp.maxEventsPerSession).toBe(3)
+  expect(config.mcp.maxSubscriptions).toBe(5)
 })
 
 test('transport constants are assigned from config.mcp', () => {
@@ -76,6 +78,7 @@ test('transport constants are assigned from config.mcp', () => {
   expect(transportSource).toContain('const MAX_SESSIONS = config.mcp.maxSessions')
   expect(transportSource).toContain('const SESSION_TTL_MS = config.mcp.sessionTtlMs')
   expect(transportSource).toContain('const KEEPALIVE_MS = config.mcp.keepAliveMs')
+  expect(transportSource).toContain('const MAX_SUBSCRIPTIONS = config.mcp.maxSubscriptions')
   expect(storeSource).toContain(
     'export const MAX_EVENTS_PER_SESSION = config.mcp.maxEventsPerSession'
   )

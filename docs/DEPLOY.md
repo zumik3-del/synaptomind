@@ -195,7 +195,9 @@ Operationally:
   warning (see [Upgrade safety](#upgrade-safety)); containers report unhealthy.
 - The pre-update backup covers each `users[].dbPath` and prints one snapshot per
   database; [Rollback](#rollback) restores each database separately.
-- `mcp.maxSessions` is a per-user cap.
+- `mcp.maxSessions` is a per-user cap on legacy (2025-era) sessions; the
+  2026-07-28 era keeps none, its listen streams are bounded by
+  `mcp.maxSubscriptions`.
 - MCP stdio stays single-user: it opens `db.path` only and refuses to start when
   that path aliases a user database.
 

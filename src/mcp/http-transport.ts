@@ -8,19 +8,13 @@ import { als, getDb, getUserDb } from '../db/container'
 import type { Database } from 'bun:sqlite'
 import { mcpRateLimitMiddleware } from '../middleware/rate-limit'
 import { createMcpServer } from './server'
-import { disposePair, InMemoryEventStore, probeInitializeRequest } from './in-memory-event-store'
+import { disposePair } from './in-memory-event-store'
 import type { Context } from 'hono'
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server'
-import type { McpServer } from '@modelcontextprotocol/server'
+import { createMcpHandler } from '@modelcontextprotocol/server'
+import { createMcpRouteHandler, type Session } from './mcp-route'
+import { bodyTooLargeResponse } from './request-body'
 
-export interface Session {
-  server: McpServer
-  transport: WebStandardStreamableHTTPServerTransport
-  lastAccess: number
-  // Immutable identity of the user who created this session. Compared against
-  // the re-resolved caller on every follow-up request (security: no hijack).
-  userId: string
-}
+export type { Session } from './mcp-route'
 
 export interface McpHttpHandle {
   stop(): Promise<void>
@@ -33,11 +27,13 @@ interface McpHttpOptions {
 }
 
 // Transport limits are config-driven (F16); see config.mcp.
-// MAX_SESSIONS is a per-user cap: one authenticated user cannot exhaust the
-// budget and get 429 for everyone else.
+// MAX_SESSIONS is a per-user cap on legacy sessions: one authenticated user
+// cannot exhaust the budget and get 429 for everyone else. The modern era keeps
+// no session, so MAX_SUBSCRIPTIONS bounds its listen streams instead.
 const MAX_SESSIONS = config.mcp.maxSessions
 const SESSION_TTL_MS = config.mcp.sessionTtlMs
 const KEEPALIVE_MS = config.mcp.keepAliveMs
+const MAX_SUBSCRIPTIONS = config.mcp.maxSubscriptions
 // Mirrors the API guard in src/api/router.ts (5 MB).
 export const MAX_REQUEST_BODY_BYTES = 5_242_880
 
@@ -49,35 +45,6 @@ export function mcpErrorHandler(err: Error, c: Context): Response {
     { jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null },
     500
   )
-}
-
-function countUserSessions(sessions: Map<string, Session>, userId: string): number {
-  let count = 0
-  for (const session of sessions.values()) if (session.userId === userId) count++
-  return count
-}
-
-/**
- * Keep a session's `lastAccess` fresh while an SSE body is flowing. The SDK's
- * keep-alive frames (every {@link KEEPALIVE_MS}) flow through the body, so a
- * long-lived GET stream stays active and the TTL sweeper cannot close it (F4).
- */
-function trackStreamActivity(response: Response, session: Session): Response {
-  const contentType = response.headers.get('content-type') ?? ''
-  if (!response.body || !contentType.includes('text/event-stream')) return response
-  const tracked = response.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        session.lastAccess = Date.now()
-        controller.enqueue(chunk)
-      }
-    })
-  )
-  return new Response(tracked, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers
-  })
 }
 
 export function startMcpHttpServer(
@@ -105,6 +72,8 @@ export function startMcpHttpServer(
         'mcp-session-id',
         'Last-Event-ID',
         'mcp-protocol-version',
+        'Mcp-Method',
+        'Mcp-Name',
         'Authorization'
       ],
       exposeHeaders: ['mcp-session-id', 'mcp-protocol-version']
@@ -148,16 +117,7 @@ export function startMcpHttpServer(
 
   app.use('/mcp', async (c, next) => {
     const contentLength = parseInt(c.req.header('content-length') || '0', 10)
-    if (contentLength > MAX_REQUEST_BODY_BYTES) {
-      return c.json(
-        {
-          jsonrpc: '2.0',
-          error: { code: -32000, message: 'Request body too large (max 5MB)' },
-          id: null
-        },
-        413
-      )
-    }
+    if (contentLength > MAX_REQUEST_BODY_BYTES) return bodyTooLargeResponse()
     return next()
   })
 
@@ -173,108 +133,26 @@ export function startMcpHttpServer(
   // Never hold the process open: shutdown owns the lifecycle via stop().
   sessionCleanup.unref()
 
-  app.all('/mcp', async c => {
-    const ref =
-      ((c as any).get('mcpUser') as UserRef | undefined) ??
-      resolveUser(c.req.header('Authorization'))
-    if (!ref) return c.json({ error: 'Unauthorized' }, 401)
-
-    const db = (als.getStore() as { db?: Database } | undefined)?.db
-    if (!db && ref.kind !== 'legacy')
-      return new Response(JSON.stringify({ error: 'Database unavailable' }), {
-        status: 503,
-        headers: { 'content-type': 'application/json' }
-      })
-
-    const sessionId = c.req.header('mcp-session-id')
-
-    if (sessionId) {
-      const session = sessions.get(sessionId)
-      if (!session) {
-        return c.json(
-          { jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null },
-          404
-        )
-      }
-      // Re-resolve identity on every request: a session id alone never grants
-      // access. Check before touching lastAccess so a mismatched caller cannot
-      // keep the victim's session alive (and never delete the session on
-      // mismatch — that would be a cross-user DoS).
-      if (session.userId !== ref.userId) {
-        return c.json(
-          {
-            jsonrpc: '2.0',
-            error: { code: -32002, message: 'Session does not belong to the presented token' },
-            id: null
-          },
-          403
-        )
-      }
-      session.lastAccess = Date.now()
-      return trackStreamActivity(
-        await als.run({ userId: ref.userId, db: db as Database }, () =>
-          session.transport.handleRequest(c.req.raw)
-        ),
-        session
-      )
-    }
-
-    // Sessionless: only an initialize request may create a session. Rejecting
-    // anything else here avoids building (then immediately disposing) a full
-    // McpServer + transport on every stray request (F21).
-    const probe = await probeInitializeRequest(c)
-    if (!probe.initialize) {
-      return c.json(
-        {
-          jsonrpc: '2.0',
-          error: { code: -32000, message: 'Bad Request: Mcp-Session-Id header is required' },
-          id: null
-        },
-        400
-      )
-    }
-
-    if (countUserSessions(sessions, ref.userId) >= MAX_SESSIONS) {
-      return c.json({ error: 'Too many sessions' }, 429)
-    }
-
-    // Bind ALS before building the server so registration-time DB reads
-    // (e.g. store.ts soft-limit description) resolve per user.
-    return als.run({ userId: ref.userId, db: db as Database }, async () => {
-      const mcpServer = createMcpServer()
-      const transport = new WebStandardStreamableHTTPServerTransport({
-        sessionIdGenerator: () => crypto.randomUUID(),
-        keepAliveMs: KEEPALIVE_MS,
-        eventStore: new InMemoryEventStore(),
-        onsessioninitialized: id => {
-          sessions.set(id, {
-            server: mcpServer,
-            transport,
-            lastAccess: Date.now(),
-            userId: ref.userId
-          })
-        },
-        onsessionclosed: id => {
-          sessions.delete(id)
-        }
-      })
-
-      try {
-        await mcpServer.connect(transport)
-        const response = await transport.handleRequest(c.req.raw, { parsedBody: probe.body })
-        const session = transport.sessionId ? sessions.get(transport.sessionId) : undefined
-        // A request that failed to register a session must not leak its pair.
-        if (!session) {
-          await disposePair(mcpServer, transport)
-          return response
-        }
-        return trackStreamActivity(response, session)
-      } catch (err) {
-        await disposePair(mcpServer, transport)
-        throw err
-      }
-    })
+  // One process-wide 2026-07-28 entry. `legacy: 'reject'` keeps a routing
+  // disagreement a protocol error instead of a second serving path; the legacy
+  // era is served below by the sessionful transport. The factory stays
+  // unmemoized: a factory instance may not be reused by a second request.
+  const modern = createMcpHandler(() => createMcpServer(), {
+    legacy: 'reject',
+    keepAliveMs: KEEPALIVE_MS,
+    maxSubscriptions: MAX_SUBSCRIPTIONS,
+    maxRequestBodySize: MAX_REQUEST_BODY_BYTES
   })
+
+  const route = createMcpRouteHandler({
+    sessions,
+    modern,
+    maxSessions: MAX_SESSIONS,
+    keepAliveMs: KEEPALIVE_MS,
+    maxRequestBodyBytes: MAX_REQUEST_BODY_BYTES
+  })
+
+  app.all('/mcp', route)
 
   // Liveness only: no version or build/transport details for unauthenticated callers.
   app.get('/health', c => c.json({ status: 'ok' }))
@@ -289,11 +167,12 @@ export function startMcpHttpServer(
   return {
     async stop() {
       clearInterval(sessionCleanup)
-      // Close every per-session server/transport before dropping the map so SSE
+      // Close every session and the modern entry before dropping the map so SSE
       // streams and their keep-alive timers are torn down deterministically.
-      await Promise.allSettled(
-        [...sessions.values()].map(session => disposePair(session.server, session.transport))
-      )
+      await Promise.allSettled([
+        ...[...sessions.values()].map(session => disposePair(session.server, session.transport)),
+        modern.close()
+      ])
       sessions.clear()
       await server.stop()
     },
