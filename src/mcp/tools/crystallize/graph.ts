@@ -1,5 +1,5 @@
 import { getGraphDataService } from '../../../services/graph.service'
-import { collectionEnvelope, resolveEnvelopeScope, scopeProjectId } from '../envelope'
+import { collectionEnvelope, readEnvelopeScope } from '../envelope'
 import { projectFields } from '../utils'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
@@ -18,9 +18,9 @@ import type { ActionArgs, ActionHandler } from '../action-tool'
  */
 export const graphHandler: ActionHandler = {
   run(args: ActionArgs) {
-    const { scope, warnings } = resolveEnvelopeScope(args.cwd as string | undefined)
+    const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
     const data = getGraphDataService(
-      scopeProjectId(scope),
+      projectId,
       args.status as string | undefined,
       args.limit as number | undefined,
       args.offset as number | undefined

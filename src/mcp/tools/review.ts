@@ -14,13 +14,7 @@ import {
   createPreviewTokenService,
   consumePreviewTokenService
 } from '../../services/preview-tokens.service'
-import {
-  collectionEnvelope,
-  itemEnvelope,
-  resolveEnvelopeScope,
-  scopeProjectId,
-  writeEnvelopeScope
-} from './envelope'
+import { collectionEnvelope, itemEnvelope, readEnvelopeScope, writeEnvelopeScope } from './envelope'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { applyHandler, AGENT } from './review/apply'
@@ -49,11 +43,10 @@ const handlers = {
 
   list: {
     run(args: ActionArgs) {
-      // A read: the scope comes from the shared read-side helper, so a cwd-less
-      // or unregistered call reports a `meta.warning` instead of silently
-      // spanning every project (task #2187).
-      const { scope, warnings } = resolveEnvelopeScope(args.cwd as string | undefined)
-      const projectId = scopeProjectId(scope)
+      // A read: the scope comes from the shared read-side helper, so a cwd-less,
+      // blank or unregistered call reports a `meta.warning` instead of silently
+      // spanning every project (tasks #2187, #2461).
+      const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
       const includeRetired = args.include_retired === true
       const state = args.state as ListOptions['state']
       const itemKind = args.item_kind as ListOptions['itemKind']

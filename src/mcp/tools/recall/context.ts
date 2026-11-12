@@ -2,7 +2,7 @@ import { z } from 'zod/v4'
 import { NotFoundError } from '../../../errors'
 import { getChainService, getContextService } from '../../../services/graph.service'
 import { shapeThought, shapeChain, loadUrlLinks } from '../utils'
-import { itemEnvelope, resolveEnvelopeScope, scopeProjectId } from '../envelope'
+import { itemEnvelope, readEnvelopeScope } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
 const CONTEXT_REQUIRED = 'query or thought_id is required for context action'
@@ -12,8 +12,8 @@ const CONTEXT_REQUIRED = 'query or thought_id is required for context action'
  * chain }, meta }`. It accepts either a text `query` (best match + its chain)
  * or a `thought_id` (that thought + its chain, reusing the chain traversal
  * logic). At least one of the two must be supplied. With `thought_id` the call
- * is id-addressed and needs no `cwd`; the query path scopes to `cwd` when it is
- * given and reports the (global) scope in `meta` when it is not.
+ * is id-addressed and needs no `cwd`; the query path scopes to `cwd` when it
+ * names a project and reports the (global) scope in `meta` when it does not.
  *
  * The query path is deliberately ungated: it wants the single best match, so
  * the default relevance gate of the search surface would turn a weak-but-real
@@ -62,10 +62,10 @@ export const contextHandler: ActionHandler = {
       })
     }
 
-    const { scope, warnings } = resolveEnvelopeScope(args.cwd as string | undefined)
+    const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
     const context = await getContextService(args.query as string, {
       maxDegree,
-      projectFilter: scopeProjectId(scope)
+      projectFilter: projectId
     })
     if (!context) throw new NotFoundError(`No context found for query '${args.query}'`)
     if (!context.best_match) {

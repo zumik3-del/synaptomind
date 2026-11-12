@@ -13,9 +13,10 @@ const GLOBAL_ONLY_WARNING =
 
 /**
  * `memory_status` action=slots: `{ items, meta }`, one item per slot. `cwd` is
- * optional: without it the explicit slots answer their global rows, so the
- * overrides warning declares what the answer left out. A present (even
- * unregistered) cwd keeps its pre-#2445 answer, so the warning is cwd-less only.
+ * optional: without a resolved project the explicit slots answer their global
+ * rows, so the overrides warning declares what the answer left out — keyed on
+ * `projectId`, because a path no project owns reads the same global-only rows
+ * as a missing one (task #2461).
  */
 export const slotsHandler: ActionHandler = {
   run(args: ActionArgs) {
@@ -31,10 +32,9 @@ export const slotsHandler: ActionHandler = {
       Array.isArray(fields) && fields.length > 0
         ? (slots.map(s => projectFields(s, { fields })) as unknown as typeof slots)
         : slots
-    const hasCwd = typeof args.cwd === 'string' && args.cwd.trim().length > 0
     return collectionEnvelope('slots', items, {
       scope,
-      warnings: hasCwd ? warnings : [...warnings, GLOBAL_ONLY_WARNING]
+      warnings: projectId === undefined ? [...warnings, GLOBAL_ONLY_WARNING] : warnings
     })
   }
 }
