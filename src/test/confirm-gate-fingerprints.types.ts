@@ -8,7 +8,7 @@
  * (thoughts, clusters, projects, primers). Test-only.
  */
 import type { Database } from 'bun:sqlite'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { promoteThoughtToPrimer } from '../db/primers'
 import { createProjectService } from '../services/projects.service'
 import { seedEdge, seedThought } from './helpers'
