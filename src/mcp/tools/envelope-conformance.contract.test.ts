@@ -1292,3 +1292,119 @@ describe('empty and ambiguous search pass a reason through meta', () => {
     expect(body.meta.reason).toBe('ambiguous_id')
   })
 })
+
+// ── scope notes on a write and on slots (task #2462) ─────────────────────────
+
+/**
+ * The read-side note for a path no project owns — the unknown-path cause plus
+ * the widening fact, as `resolveEnvelopeScope` composes it (task #2461). It is
+ * the note a *read* raises; a write must never emit it, because a write cannot
+ * widen.
+ */
+const UNKNOWN_CWD_WARNING = `cwd "${UNREGISTERED_CWD}" matches no known project — the answer spans every project (check it with memory_manage action=resolve)`
+
+/**
+ * `slots` keys the overrides note on the *resolved project*, not on whether a
+ * `cwd` was passed (#2461): a path no project owns reads the same global-only
+ * rows as an omitted one, so it earns the note too. The three shapes below pin
+ * the exact warning set of each.
+ */
+describe('memory_status action=slots keys its overrides note on the resolved project', () => {
+  const slotsMeta = (cwd?: string) =>
+    cwdContractMeta({ tool: 'memory_status', action: 'slots', args: () => ({}), warns: true }, cwd)
+
+  test('a registered cwd resolves the project and raises no note', async () => {
+    const meta = await slotsMeta(CWD)
+    expect(meta.scope).toEqual({ project: PROJECT, project_name: 'Conformance', global: false })
+    expect(meta.warnings).toEqual([])
+  })
+
+  test('an unregistered cwd notes the unknown path and the skipped overrides', async () => {
+    const meta = await slotsMeta(UNREGISTERED_CWD)
+    expect(meta.scope).toEqual({ project: null, project_name: null, global: true })
+    expect(meta.warnings).toEqual([UNKNOWN_CWD_WARNING, SLOTS_OVERRIDES_WARNING])
+  })
+
+  test('an omitted cwd notes the missing scope and the skipped overrides', async () => {
+    const meta = await slotsMeta()
+    expect(meta.scope).toBeNull()
+    expect(meta.warnings).toEqual([NO_CWD_WARNING, SLOTS_OVERRIDES_WARNING])
+  })
+})
+
+/**
+ * A write never widens, so it never earns a widening note (#2461). With an
+ * unregistered path the only trace is `scope.global: true`; the row still lands
+ * where the action puts it — the default project for a create, its own project
+ * for an id-addressed update. Both cases also guard the old read-flavoured
+ * claim, and assert that had a note been raised, it would have to name the real
+ * destination instead of a project the path does not own.
+ */
+describe('a write with an unregistered cwd raises no widening note and keeps its real destination', () => {
+  test('create lands in the default project with scope.global and no warning', async () => {
+    const content = 'unregistered cwd create row'
+    const { payload, isError } = readResult(
+      await client.callTool({
+        name: 'memory_store',
+        arguments: { action: 'create', content, cwd: UNREGISTERED_CWD }
+      } as never)
+    )
+    expect(isError).toBe(false)
+
+    const db = getDb()
+    const destination = resolveDefaultProjectId(db)
+    const body = payload as { item: { project_id: string }; meta: Record<string, unknown> }
+    const warnings = body.meta.warnings as string[]
+    expect(body.meta.scope).toEqual({ project: null, project_name: null, global: true })
+    expect(warnings).toEqual([])
+    expect(warnings.join('\n')).not.toContain(SPANS_EVERY_PROJECT_CLAIM)
+
+    const row = db.prepare('SELECT project_id FROM thoughts WHERE content = ?').get(content) as {
+      project_id: string
+    }
+    expect(row.project_id).toBe(destination)
+    const destinationName = (
+      db.prepare('SELECT name FROM projects WHERE id = ?').get(destination) as { name: string }
+    ).name
+    for (const warning of warnings) expect(warning).toContain(destinationName)
+  })
+
+  test('update keeps the row’s own project with scope.global and no warning', async () => {
+    const { payload, isError } = readResult(
+      await client.callTool({
+        name: 'memory_store',
+        arguments: {
+          action: 'update',
+          thought_id: fx.source,
+          content: 'conformance source alpha revised',
+          cwd: UNREGISTERED_CWD
+        }
+      } as never)
+    )
+    expect(isError).toBe(false)
+
+    const body = payload as { item: { project_id: string }; meta: Record<string, unknown> }
+    const warnings = body.meta.warnings as string[]
+    expect(body.meta.scope).toEqual({ project: null, project_name: null, global: true })
+    expect(warnings).toEqual([])
+    expect(warnings.join('\n')).not.toContain(SPANS_EVERY_PROJECT_CLAIM)
+    expect(body.item.project_id).toBe(PROJECT)
+    for (const warning of warnings) expect(warning).toContain('Conformance')
+  })
+})
+
+describe('a whitespace-only cwd reads exactly like an omitted one', () => {
+  test('memory_recall list answers scope null, the widening note and the same meta', async () => {
+    const c: CwdContractCase = {
+      tool: 'memory_recall',
+      action: 'list',
+      args: () => ({}),
+      warns: true
+    }
+    const omitted = await cwdContractMeta(c)
+    const blank = await cwdContractMeta(c, '   ')
+    expect(blank.scope).toBeNull()
+    expect(blank.warnings).toEqual([NO_CWD_WARNING])
+    expect(blank).toEqual(omitted)
+  })
+})
