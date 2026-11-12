@@ -18,15 +18,8 @@ interface SearchRow {
 }
 
 const DAY_MS = 86_400_000
-/** Half-life applied when the caller passes a non-finite or `<= 0` value. */
 export const FALLBACK_RECENCY_HALF_LIFE_DAYS = 30
 
-/**
- * Exponential recency decay `0.5 ^ (ageDays / halfLifeDays)` ∈ (0, 1].
- * `ageDays = max(0, (nowMs - Date.parse(createdAt)) / 86_400_000)`. An
- * unparseable `createdAt` is treated as age 0 (decay 1); the result is never
- * `NaN`. `halfLifeDays` is expected strictly positive (normalised by callers).
- */
 function recencyDecay(createdAt: string, nowMs: number, halfLifeDays: number): number {
   const created = Date.parse(createdAt)
   if (Number.isNaN(created)) return 1
@@ -34,50 +27,22 @@ function recencyDecay(createdAt: string, nowMs: number, halfLifeDays: number): n
   return 0.5 ** (ageDays / halfLifeDays)
 }
 
-/**
- * Score signals needed to hydrate ordered ids into `SearchResult`s: the
- * per-leg score maps and the confidence floor for the `low_confidence`
- * verdict.
- */
 export interface SearchHydrationContext {
   vecSimById: Map<string, number>
   bm25ScoreById: Map<string, number>
   rrfScoreById: Map<string, number>
-  /**
-   * Cosine-similarity floor for the `low_confidence` verdict (config
-   * `search.confidence.vectorFloor`, supplied by the caller as a plain number).
-   */
   confidenceFloor: number
 }
 
-/**
- * Recency-boost configuration and the RRF normalisation divisor needed to
- * compute `recency_score`/`final_score` and re-rank.
- */
 export interface SearchRecencyContext {
-  /**
-   * RRF normalisation divisor for the combined score: `nNonEmptyLegs / (RRF_K +
-   * 1)`, where `nNonEmptyLegs` is the number of non-empty fusion lists. `0` on
-   * the vector-only path (unused there — `similarity` is the relevance term).
-   */
   rrfMax: number
-  /** Whether the recency boost is enabled (`recencyWeight > 0`); fast path when false. */
   recencyActive: boolean
-  /** Recency boost weight; `<= 0` disables scoring (fast path). */
   recencyWeight: number
-  /** Decay half-life in days (strictly positive). */
   recencyHalfLifeDays: number
-  /** Clock used for the age computation. */
   nowMs: number
 }
 
-/**
- * Strong-match predicate shared by the `low_confidence` flag (DB layer) and the
- * `min_relevance` filter (service layer), so the two can never diverge:
- * a lexical (BM25) anchor always passes, as does an explicit id lookup;
- * otherwise a vector hit passes only when `similarity >= floor`. A result with
- * neither leg is never a strong match.
- */
+// Shared with the service's relevance gate, so `low_confidence` and `min_relevance` cannot diverge.
 export function isStrongMatch(
   result: Pick<SearchResult, 'match_source' | 'similarity'>,
   floor: number
@@ -88,12 +53,6 @@ export function isStrongMatch(
   return result.match_source.includes('embedding') && sim >= floor
 }
 
-/**
- * Attach `recency_score`/`final_score` and re-rank by the combined score when
- * the recency boost is enabled. `relevant` is the raw RRF normalised by
- * `rrfMax` on the fused path, or `similarity` on the vector-only path. The sort
- * is stable: equal `final_score` keeps the incoming relevance order.
- */
 function applyRecencyScoring(results: SearchResult[], scores: SearchRecencyContext): void {
   if (!scores.recencyActive) return
   for (const result of results) {
@@ -110,12 +69,6 @@ function applyRecencyScoring(results: SearchResult[], scores: SearchRecencyConte
   results.sort((a, b) => (b.final_score ?? 0) - (a.final_score ?? 0))
 }
 
-/**
- * Hydrate ordered ids into `SearchResult`s: load rows (re-applying the shared
- * filters), attach tags, map the score context onto the public signal fields in
- * the fixed `vector`, `bm25` leg order, compute the `low_confidence` verdict,
- * then apply recency scoring/re-ranking.
- */
 export function fetchThoughtsByIds(
   db: Database,
   orderedIds: string[],
@@ -152,7 +105,6 @@ export function fetchThoughtsByIds(
     const thought = rowToThought(r as unknown as Record<string, unknown>)
     thought.tags = tagMap.get(r.id) ?? []
 
-    // Fixed leg order: embedding, bm25.
     const matchSource: SearchMatchSource[] = []
     if (sim !== undefined) matchSource.push('embedding')
     if (bm25 !== undefined) matchSource.push('bm25')
@@ -165,8 +117,7 @@ export function fetchThoughtsByIds(
         hydration.confidenceFloor
       )
     }
-    // Cosine signals only when the embedding leg matched; BM25-only hits omit
-    // them so a keyword match is not misread as zero relevance.
+    // Cosine signals only for embedding-leg hits, so a keyword match is not misread as zero relevance.
     if (sim !== undefined) {
       result.distance = 1 - sim
       result.similarity = sim

@@ -7,12 +7,7 @@ import { COMPACT_FIELDS } from './field-selection'
 export * from './field-selection'
 type McpTextContent = { type: 'text'; text: string }
 
-/**
- * Declared output shape shared by every MCP tool. Tools multiplex several
- * actions with heterogeneous payloads, so the typed envelope keeps a single
- * stable contract: every successful result is `{ result: <payload> }`, where
- * the payload matches the JSON in `content[].text`.
- */
+// Every tool declares `{ result }`; the payload inside matches `content[].text`.
 export const toolOutputShape = {
   result: z
     .unknown()
@@ -25,8 +20,7 @@ export function jsonResult(data: unknown): {
   content: McpTextContent[]
   structuredContent: { result: unknown }
 } {
-  // Bare string payloads are wrapped so no action ever returns a bare string
-  // in `result`; arrays/objects pass through unchanged.
+  // A bare string payload is wrapped so no action ever returns a bare string in `result`.
   const payload = typeof data === 'string' ? { text: data } : data
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
@@ -34,26 +28,13 @@ export function jsonResult(data: unknown): {
   }
 }
 
-/** HTTP-style metadata an error envelope can carry on top of its message. */
 export interface ErrorEnvelopeMeta {
-  /** Domain status code (`src/errors.ts`) surfaced so clients see the class of failure. */
   statusCode?: number
-  /** True when the caller can safely repeat the same request (transient/availability failures). */
   retryable?: boolean
 }
 
-/**
- * Build the `isError` envelope for an action failure.
- *
- * The human-readable message stays in `content`, exactly as before. When the
- * thrown error carries HTTP-style metadata, it is mirrored into the envelope's
- * `structuredContent.result.error` so an MCP client can tell a transient
- * embedder failure (503, retry) apart from a server bug (audit M6). Unclassified
- * errors keep the plain `{ content, isError }` shape — no `result` key is
- * synthesized for them. The tool's declared output schema is `{ result }` and
- * the SDK's client only validates `structuredContent` when present, so nesting
- * the metadata under `result` keeps both sides schema-compliant.
- */
+// Unclassified errors keep the plain `{ content, isError }` shape: no `result` key is synthesized,
+// so the declared `{ result }` schema stays valid only where metadata actually exists.
 export function errorResult(
   message: string,
   meta: ErrorEnvelopeMeta = {}
@@ -83,7 +64,6 @@ export function resolveProjectId(cwd?: string): string | undefined {
   return undefined
 }
 
-// Output formatting accepts heterogeneous values; parseTags instead normalizes input filters.
 function stringifyTags(tags: unknown): string[] {
   if (!Array.isArray(tags)) return []
   return tags.map(t => {
@@ -97,42 +77,26 @@ function stringifyTags(tags: unknown): string[] {
   })
 }
 
-/** Thought columns stored as SQLite 0/1 that the read surface exposes as booleans. */
+/** Stored as SQLite 0/1, exposed as booleans. */
 const BOOLEAN_FIELDS = new Set(['is_protected', 'is_global', 'is_cluster'])
 
-// Decode stored/read values; db's toBit encodes optional boolean inputs instead.
 function toBoolean(value: unknown): boolean {
   return value === true || value === 1
 }
 
-/**
- * Read-surface hygiene for one thought column: tags become plain strings
- * (never `{ id, name }`) and the 0/1 flag columns become booleans, so a client
- * never has to know the storage encoding.
- */
 function hygienicValue(field: string, value: unknown): unknown {
   if (field === 'tags') return stringifyTags(value)
   if (BOOLEAN_FIELDS.has(field)) return toBoolean(value)
   return value
 }
 
-/** Apply {@link hygienicValue} across a whole thought object (full output). */
 function hygienicThought(t: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(t)) out[key] = hygienicValue(key, value)
   return out
 }
 
-/**
- * Shape one thought for the wire: `compact` trims to the minimal field set,
- * `fields` selects exactly the named columns, and both apply the read-surface
- * hygiene (tag names as strings, flag columns as booleans). An empty selection
- * returns the full thought with the same hygiene applied.
- *
- * `urlLinks` (opt-in, `include_url_links: true`) attaches the thought's url
- * links **after** the projection, so neither `compact` nor `fields` can hide a
- * surface the caller explicitly asked for (ADR §4 of the 0.20 HTTP shrink).
- */
+// `urlLinks` is attached after the projection, so neither `compact` nor `fields` can hide it.
 export function shapeThought(
   thought: unknown,
   compact?: boolean,
@@ -145,7 +109,6 @@ export function shapeThought(
   return { ...(shaped as Record<string, unknown>), url_links: urlLinksOf(thought, urlLinks) }
 }
 
-/** {@link shapeThought} without the opt-in url-links surface. */
 function projectThoughtShape(thought: unknown, compact?: boolean, fields?: unknown): unknown {
   if (!thought || typeof thought !== 'object' || Array.isArray(thought)) return thought
   const t = thought as Record<string, unknown>
@@ -175,12 +138,7 @@ function projectThoughtShape(thought: unknown, compact?: boolean, fields?: unkno
   return out
 }
 
-/**
- * Shape a thought chain (best_match neighbourhood) for compact/fields output.
- * Shared by the recall `context` and `get` handlers (DRY). `urlLinks` reaches
- * every thought object in the result — the chain head and both neighbourhoods —
- * because "primary thought only" is a rule a caller cannot remember.
- */
+// `urlLinks` reaches every thought in the chain — head and both neighbourhoods — by design.
 export function shapeChain(
   chain: ChainResult | null | undefined,
   compact: boolean,
@@ -212,28 +170,14 @@ export function shapeChain(
   }
 }
 
-// ── Opt-in url links (ADR §4 of the 0.20 HTTP shrink, task #2202) ────────────
-// The removed `GET /api/thoughts/:id/links` read surface moved into the MCP
-// thought output: one `include_url_links` flag per tool, default false. The
-// links of a whole response are read in a single batch query (never per
-// thought) and attached after `shapeThought`, so `compact` cannot hide them and
-// `fields` cannot trim them.
-
-/** One url link as the read surface emits it: `text` mirrors the create-time input. */
 export interface UrlLinkView {
   text: string
   url: string
   label: string
 }
 
-/** Url links of one response, keyed by thought id. */
 export type BatchUrlLinks = Map<string, UrlLinkView[]>
 
-/**
- * Read the url links of every thought a response is about to emit, in one query.
- * Empty (`[]`) is attached later for a thought without links, so "asked and
- * there are none" stays distinguishable from "did not ask".
- */
 export function loadUrlLinks(thoughts: ReadonlyArray<unknown>): BatchUrlLinks {
   const ids: string[] = []
   for (const thought of thoughts) {
@@ -254,7 +198,6 @@ export function loadUrlLinks(thoughts: ReadonlyArray<unknown>): BatchUrlLinks {
   return byThought
 }
 
-/** The url links of one raw thought; `[]` when it has none. */
 function urlLinksOf(thought: unknown, urlLinks: BatchUrlLinks): UrlLinkView[] {
   if (!thought || typeof thought !== 'object') return []
   const id = (thought as { id?: unknown }).id

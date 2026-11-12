@@ -1,23 +1,3 @@
-/**
- * Persisted placement-proposal queue (ADR 2026-09-28 P8, §2.2–2.4 / R3).
- *
- * Read-only with respect to the graph: this module maps a `PlacementPlan`
- * (produced by the propose-only engine) to rows in `placement_proposals` and
- * manages the review worklist (`list`/`reject`). It never calls a graph writer;
- * applying a queued item is R4 (`placement-apply.service.ts`).
- *
- * Mapping (ADR §2.2, §2.5) — since task #1942 the queue creates `edge` items
- * only: every emitted `EdgeProposal` becomes one `edge` item. A plan's
- * `placement` proposal and its queueable `lifecycle` action are *skipped* and
- * reported in the enqueue outcome, so a caller learns what was dropped instead
- * of losing it silently.
- *
- * Staleness (ADR §2.3): every row stores a `fingerprint` of the exact graph
- * snapshot an apply would touch. Re-enqueue refreshes the live row (dedup is
- * enforced by the partial unique index, `db/placement-proposals.ts`); `list`
- * hides terminal/expired rows by default.
- */
-
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { getDb } from '../db'
@@ -108,7 +88,6 @@ export function enqueuePlanService(
   const items = mapped.items
   if (items.length === 0) return { proposals: [], skipped, skipped_kinds: skippedKinds }
 
-  // Reduce enqueue noise: cap the number of auto-generated proposals per enqueue.
   const maxPerEnqueue = resolveMaxProposalsPerEnqueue(options)
   const cappedItems = items.slice(0, maxPerEnqueue)
   if (cappedItems.length === 0) return { proposals: [], skipped, skipped_kinds: skippedKinds }
@@ -118,8 +97,7 @@ export function enqueuePlanService(
   const projectId = source.project_id ?? null
 
   const run = d.transaction(() => {
-    // Count only live (non-expired) pending rows so overdue rows do not
-    // consume the cap; the retention job marks them expired (ADR §2.4).
+    // Overdue rows do not consume the cap; retention only marks them expired later.
     const pending = listProposals(d, {
       state: 'pending',
       limit: maxPending + cappedItems.length + 1
@@ -165,7 +143,6 @@ export function enqueuePlanService(
   })
 
   const rows = run()
-  // Clearer output grouping by target/type for review readability.
   rows.sort(
     (a, b) =>
       String(a.item_kind).localeCompare(String(b.item_kind)) ||
@@ -174,15 +151,6 @@ export function enqueuePlanService(
   return { proposals: rows, skipped, skipped_kinds: skippedKinds }
 }
 
-/**
- * Propose a read-only placement plan for a persisted thought and enqueue its
- * confirmable items (ADR §2.9 / R5). The surface stays thin behind this
- * service call; drafts are rejected (OQ-2) because both the engine's draft
- * sentinel and `enqueuePlanService` refuse a non-persisted source.
- *
- * The outcome reports the queued rows *and* the plan items that were skipped
- * because their kind is no longer supported (task #1942).
- */
 export async function enqueueThoughtProposals(
   thoughtId: string,
   options: EnqueueThoughtOptions = {},
@@ -226,8 +194,6 @@ export function listPlacementProposalsService(
   if (state === 'pending') {
     result = result.filter(row => row.expires_at === null || row.expires_at > now)
   }
-  // Hide retired (legacy) kinds by default unless an explicit item_kind filter
-  // or include_retired opts them back in (task #2125).
   if (itemKind === undefined && !includeRetired) {
     result = result.filter(row => !isLegacyItemKind(row.item_kind))
   }

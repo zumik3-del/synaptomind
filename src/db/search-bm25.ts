@@ -2,12 +2,7 @@ import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import { insertLog } from '../logging'
 import { isStopword } from './stopwords'
 
-/**
- * Builds an FTS5 MATCH expression from the query tokens: special characters are
- * escaped, function words (ru + en stopwords) are dropped, and each remaining
- * token is phrase-quoted. Returns `''` when nothing meaningful is left so
- * callers short-circuit to an empty result instead of a blanket match.
- */
+// An empty expression must short-circuit the caller: an empty FTS5 MATCH would become a blanket match.
 function toFtsQuery(query: string): string {
   const tokens = query
     .split(/\s+/)
@@ -25,15 +20,9 @@ function toFtsQuery(query: string): string {
 
 export interface ScoredId {
   id: string
-  /** Relevance score, higher = more relevant (raw FTS5 `bm25()` negated). */
   score: number
 }
 
-/**
- * Internal scored BM25 leg. Exposes the raw FTS5 `bm25()` value negated so the
- * public `bm25_score` follows "higher = more relevant"; the ordering (FTS5
- * returns more negative for more relevant rows) is unchanged.
- */
 export function bm25ScoredIds(
   db: Database,
   query: string,
@@ -66,15 +55,7 @@ export function bm25SearchIds(db: Database, query: string, limit: number): strin
   return bm25ScoredIds(db, query, limit).map(r => r.id)
 }
 
-/**
- * BM25 leg scoped by the shared filter fragment: the best `min(1000, limit * 3)` global FTS
- * matches, filtered, re-sorted and capped at `limit`. The oversample only buys headroom below
- * `limit = 334`; at the service's width (`limit = 1000`) it equals `limit`, so there the leg is
- * "the best 1000 global matches, filtered". Degrades to the unfiltered leg on failure.
- *
- * The join lets the planner drive from `thoughts` and drop the subquery order, so the outer
- * `ORDER BY fts.score, fts.thought_id` must be stated.
- */
+// The join can make the planner drop the subquery order, so the outer `ORDER BY` must be stated.
 export function bm25ScoredIdsFiltered(
   db: Database,
   query: string,
@@ -111,10 +92,8 @@ export function bm25ScoredIdsFiltered(
       error: err instanceof Error ? err.message : String(err)
     })
     if (throwOnError) throw err
-    // Preserve historical graceful fallback to the unfiltered leg for direct callers.
-    // Note: the search service calls this helper with throwOnError=true so a
-    // filtered failure surfaces as `degraded` (no fallback) and project scoping
-    // is not silently widened; direct callers keep the graceful fallback.
+    // The service passes `throwOnError: true` so a filtered failure surfaces as `degraded` rather
+    // than silently widening the scope to the unfiltered leg; direct callers keep the fallback.
     return bm25ScoredIds(db, query, limit, throwOnError)
   }
 }

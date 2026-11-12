@@ -1,27 +1,3 @@
-/**
- * Read-only placement proposer (ADR 2026-09-28, P4 / §2.2).
- *
- * For one thought it decides *where the thought belongs*: an existing cluster
- * (a majority of its embedding neighbours already live in one cluster) or under
- * a parent (`parent`/`develops`) chain node, or nothing. It only ever
- * *proposes*: it reuses the shared embedding-pair generator
- * ({@link findEmbeddingNeighborPairs}) and existing db read helpers, and never
- * calls an edge/cluster/lifecycle writer (ADR §2.4).
- *
- * Reuse (ADR §2.2, "must not duplicate"):
- *   - pair generation → `edge-candidates.service.ts`
- *   - candidate vectors → `resolveCandidateEmbeddings` (stored `vec_thoughts`
- *     rows; the embedder runs only for candidates without a current one)
- *   - embedding ranking → the in-memory candidate matrix
- *     (`buildInMemoryNeighborLookup`, no vec0 query per candidate)
- *   - cluster membership → `getClusterForThoughtBatch` / `getClusterMembers`
- *   - hierarchy lookup  → `getThoughtEdges`
- *
- * Project scope is enforced structurally: the candidate pool is loaded for one
- * project, and `findEmbeddingNeighborPairs` keeps only neighbours that are in
- * that pool, so cross-project neighbours can never enter a proposal.
- */
-
 import type { Database } from 'bun:sqlite'
 import { config } from '../../config'
 import { getDb } from '../../db'
@@ -38,47 +14,22 @@ import {
 } from '../edge-candidates.service'
 import type { PlacementProposal } from './types'
 
-/** Directed hierarchy edge types that make a thought a chain node. */
 const HIERARCHY_EDGE_TYPES = new Set(['parent', 'develops'])
 
-/**
- * The outcome of {@link proposePlacement}: a proposal, or `null` when nothing
- * applies. `reason` is always present and explains the decision (why this
- * target, or why every branch was skipped).
- */
 export interface PlacementDecision {
   proposal: PlacementProposal | null
   reason: string
 }
 
 export interface PlacementOptions {
-  /** Project scope; defaults to the thought's own project. */
   projectId?: string
-  /** Existing cluster size at or above which the cluster is skipped. */
   maxClusterSize?: number
-  /** Recall floor for embedding neighbours (default `edgeDetect.minSimilarity`). */
   minSimilarity?: number
-  /** Neighbour-search width (default `edgeDetect.topK`). */
   topK?: number
-  /** Candidate-pool bound (default `edgeDetect.maxCandidates`). */
   maxCandidates?: number
-  /**
-   * Precomputed embedding-neighbour pairs for this thought, produced by the
-   * shared pool the caller already built. When set, {@link proposePlacement}
-   * skips the candidate-pool build, the embedder round-trip and the vector
-   * search and derives its neighbours from these pairs directly. This is the
-   * seam that lets the engine reuse its single embedding pass instead of
-   * repeating it (ADR §2.2 "must not duplicate"); the pairs are identical to
-   * what this function would compute, so determinism is unchanged.
-   */
   precomputedPairs?: ReturnType<typeof findEmbeddingNeighborPairs>
 }
 
-/**
- * Shared normalisation of the placement option defaults. Used by both
- * {@link proposePlacement} and the placement engine so the defaults are
- * defined once (DRY).
- */
 export function resolvePlacementBaseOptions(
   options: PlacementOptions,
   thought: Thought
@@ -98,7 +49,6 @@ export function resolvePlacementBaseOptions(
   }
 }
 
-/** Injectable dependencies, mirroring `EdgeDetectDeps` for deterministic tests. */
 export interface PlacementDeps {
   embed?: (texts: string[]) => Promise<Float32Array[]>
   searchNeighbors?: SearchNeighborsFn
@@ -113,15 +63,6 @@ function noPlacement(reason: string): PlacementDecision {
   return { proposal: null, reason }
 }
 
-/**
- * Active, non-cluster thoughts of one project, bounded so neighbour search
- * stays cheap. The source thought is always present (it may be a draft that is
- * not returned by the active-only query) so that pair generation can surface
- * its neighbours.
- *
- * Exported so the placement engine can embed the exact same pool (one shared
- * embedding pass) instead of duplicating the candidate-selection logic.
- */
 export function buildCandidatePool(
   d: Database,
   thought: Thought,
@@ -133,11 +74,11 @@ export function buildCandidatePool(
     project_id: projectId,
     limit: maxCandidates
   }).filter(t => !t.is_cluster)
+  // The source can be a draft the active-only query skips; pair generation needs it present.
   if (!pool.some(t => t.id === thought.id)) pool.unshift(thought)
   return pool
 }
 
-/** The source's neighbours from the shared pair generator, best similarity first. */
 function neighborsOf(
   thoughtId: string,
   pairs: ReturnType<typeof findEmbeddingNeighborPairs>
@@ -160,12 +101,6 @@ function neighborsOf(
     .sort((a, b) => b.similarity - a.similarity || a.id.localeCompare(b.id))
 }
 
-/**
- * Propose the cluster that the majority of the source's clustered neighbours
- * belong to. Returns `null` and appends to `reasons` when there is no
- * clustered neighbour, no strict majority, or the majority cluster is at/over
- * the size cap (lessons #934/#928).
- */
 function proposeCluster(
   d: Database,
   neighbors: ScoredNeighbor[],
@@ -180,7 +115,6 @@ function proposeCluster(
   const counts = new Map<string, { clusterId: string; count: number; similaritySum: number }>()
   for (const neighbor of neighbors) {
     const cluster = clusterMap.get(neighbor.id)
-    // Cross-project clusters are ignored even if an edge crossed projects.
     if (!cluster || cluster.project_id !== projectId) continue
     const entry = counts.get(cluster.id) ?? { clusterId: cluster.id, count: 0, similaritySum: 0 }
     entry.count += 1
@@ -224,11 +158,6 @@ function proposeCluster(
   }
 }
 
-/**
- * Propose attaching the source under the nearest embedding neighbour that
- * already participates in a `parent`/`develops` chain (`getThoughtEdges`).
- * Returns `null` and appends to `reasons` when no neighbour is a chain node.
- */
 function proposeParent(
   d: Database,
   neighbors: ScoredNeighbor[],
@@ -253,14 +182,7 @@ function proposeParent(
   return null
 }
 
-/**
- * Observe the single live embedder call {@link resolveCandidateEmbeddings} makes.
- *
- * The shared resolver reports a failing embedder and a vector-count mismatch
- * with the same thrown error, while this proposer keeps two distinct
- * degradation reasons for its caller — so the one live call is measured here
- * instead of re-deriving which candidates were missing.
- */
+// The shared resolver throws one error for two failures; the call is measured to keep them distinct.
 function observeEmbed(embed: (texts: string[]) => Promise<Float32Array[]>): {
   embed: (texts: string[]) => Promise<Float32Array[]>
   countMismatch: () => boolean
@@ -280,12 +202,6 @@ function observeEmbed(embed: (texts: string[]) => Promise<Float32Array[]>): {
   }
 }
 
-/**
- * Propose where one thought belongs, or `null` with a reason. Read-only: the
- * result is an advisory {@link PlacementProposal} (cluster then parent
- * precedence) and no edge/cluster/lifecycle mutation is performed. Never
- * throws: a missing embedder degrades to "no placement".
- */
 export async function proposePlacement(
   thought: Thought,
   options: PlacementOptions = {},
@@ -300,8 +216,6 @@ export async function proposePlacement(
   let pairs: ReturnType<typeof findEmbeddingNeighborPairs>
 
   if (options.precomputedPairs) {
-    // The caller already built the pool and ran the single shared embedding
-    // pass; reuse its pairs instead of repeating the vector search.
     pairs = options.precomputedPairs
   } else {
     const pool = buildCandidatePool(d, thought, projectId, maxCandidates)
@@ -309,9 +223,6 @@ export async function proposePlacement(
 
     let embeddings: Float32Array[]
     try {
-      // Stored `vec_thoughts` vectors cover the pool: only a candidate without a
-      // current one (no row at all, or queued in `pending_embeddings`) reaches
-      // the embedder, so an already-embedded pool costs zero embedder calls.
       embeddings = await resolveCandidateEmbeddings(pool, observed.embed, d)
     } catch (err) {
       console.error('[placement] embedding failed, no placement proposed:', err)
@@ -322,9 +233,6 @@ export async function proposePlacement(
       )
     }
 
-    // Default: neighbours are ranked in memory from that matrix (SIMILARITY
-    // semantics — `similarity >= minSimilarity`), so a run issues no vec0 query
-    // per candidate. An injected lookup still wins.
     const searchNeighbors: SearchNeighborsFn =
       deps.searchNeighbors ?? buildInMemoryNeighborLookup(pool, embeddings)
 

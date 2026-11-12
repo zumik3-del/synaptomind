@@ -12,7 +12,6 @@ export interface AutoClusterOptions {
   minAgeDays?: number
   minSimilarity?: number
   minMembers?: number
-  /** Required: a run always states whether it applies or only previews. */
   dryRun: boolean
 }
 
@@ -28,7 +27,6 @@ interface AutoClusterResult {
   clusters_created: number
 }
 
-/** Neighbor lookup used to build the proximity graph. Injected for tests. */
 interface AutoClusterDeps {
   embed?: (texts: string[]) => Promise<Float32Array[]>
   searchNeighbors?: (
@@ -38,14 +36,12 @@ interface AutoClusterDeps {
   ) => Array<{ id: string; distance: number }>
 }
 
-/** Title heuristic: first 3 words of the newest thought's content (issue #196). */
 export function generateClusterTitle(thoughts: { content: string; created_at: string }[]): string {
   const newest = thoughts.reduce((a, b) => (a.created_at >= b.created_at ? a : b))
   const words = newest.content.trim().split(/\s+/).filter(Boolean)
   return words.slice(0, 3).join(' ')
 }
 
-/** Union-Find connected components from a list of undirected pairs. */
 export function findComponents(pairs: Array<[string, string]>, allIds: string[]): string[][] {
   const parent = new Map<string, string>()
   for (const id of allIds) parent.set(id, id)
@@ -79,7 +75,6 @@ export function findComponents(pairs: Array<[string, string]>, allIds: string[])
   return [...groups.values()]
 }
 
-/** Group candidates into clusters by proximity. Neighbor set is injected. */
 export function groupCandidates(
   candidates: ClusterCandidate[],
   neighborFn: (thoughtId: string) => string[],
@@ -103,20 +98,11 @@ const defaultSearchNeighbors = (
   candidates: ClusterCandidate[],
   embeddings: Float32Array[]
 ): NonNullable<AutoClusterDeps['searchNeighbors']> => {
-  // Default: rank the candidates in memory (`distance = 1 - cosineSimilarity`).
-  // Asking the lookup for every neighbour (`topK`) keeps the single distance
-  // filter in `neighborFn` the only threshold the run applies.
+  // Asks for every neighbour so the distance filter lives only in `neighborFn`.
   const lookup = buildInMemoryDistanceLookup(candidates, embeddings)
   return (_candidateId, _embedding, topK) => lookup(_candidateId, topK)
 }
 
-/**
- * Batch auto-clustering (issue #196). Candidates are draft/active thoughts older
- * than minAgeDays without cluster edges; groups are connected components of
- * thoughts whose embeddings are within minSimilarity (distance); each group with
- * >= minMembers members becomes a cluster (source='auto_cluster'). dryRun only
- * computes groups without creating anything.
- */
 export async function runAutoCluster(
   options: AutoClusterOptions,
   deps: AutoClusterDeps = {},

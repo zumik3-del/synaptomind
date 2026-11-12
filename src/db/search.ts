@@ -27,9 +27,8 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     minImportance
   } = options
 
-  // Defensive normalisation (the service clamps first): a non-positive or
-  // non-finite weight disables the boost; a non-positive/non-finite half-life
-  // falls back to 30 so the decay never divides by zero.
+  // Defensive normalisation: the service clamps first, but a direct caller's bad value must not
+  // divide by zero or activate a boost it cannot score.
   const recencyWeight =
     options.recencyWeight !== undefined &&
     Number.isFinite(options.recencyWeight) &&
@@ -45,12 +44,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
   const nowMs =
     options.nowMs !== undefined && Number.isFinite(options.nowMs) ? options.nowMs : Date.now()
   const recency = { recencyActive: recencyWeight > 0, recencyWeight, recencyHalfLifeDays, nowMs }
-  // Floor applied when `confidenceFloor` is omitted/non-finite. Reads the
-  // canonical `search.confidence.vectorFloor` default straight from `DEFAULTS`
-  // (not the mutable live `config`), so this DB fallback cannot silently drift
-  // from the config default. Production always goes through the service, which
-  // supplies the resolved, clamped value. `config.ts` is a leaf module (fs/path
-  // only), so this import introduces no cycle.
+  // Defaults come from `DEFAULTS`, not the mutable live config, so the DB fallback cannot drift.
   const confidenceFloor =
     options.confidenceFloor !== undefined && Number.isFinite(options.confidenceFloor)
       ? options.confidenceFloor
@@ -66,14 +60,8 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
   const residual = buildResidualFilterSQL({ statusFilter, clusterFilter, minImportance })
   const filterSql = filter.sql
 
-  // A filtered vec0 leg ranks inside the addressed partition (`v.scope IN
-  // (project, '__global__')`, ADR 2026-11-12), so `pool` is a width *within* the
-  // project rather than a slice of the whole corpus: the cap no longer decides
-  // whether a small project's answers are reachable (#2478 measured 0.000 past
-  // the foreign-row count). Any residual filter keeps the whole cap — status,
-  // cluster and importance are still post-KNN filters and can starve within the
-  // project — while the unfiltered path keeps the topK-derived width and its
-  // lower cost.
+  // A filtered vec0 leg ranks inside the addressed partition, so `pool` is a width within the
+  // project; a residual filter keeps the whole cap because those filters are still post-KNN.
   const unfilteredPool = Math.min(
     CANDIDATE_POOL_MAX,
     Math.max(topK * CANDIDATE_POOL_MULTIPLIER, topK)
@@ -89,10 +77,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
       degraded = true
       vecIds = []
     }
-    // A short filtered leg is only "no such thought" when the filter matches no
-    // more embedded rows than the pool delivered; when it matches more, the
-    // cutoff starved the leg (a small project behind >cap nearer foreign rows)
-    // and the answer must say so instead of reading as an empty project.
+    // A short filtered leg means starvation only when the filter matches more embedded rows.
     if (filterSql && vecIds.length < topK) {
       try {
         if (countFilteredVectors(db, scope, residual) > vecIds.length) degraded = true
@@ -100,10 +85,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
         degraded = true
       }
     }
-    // That count cannot see the opposite failure: a *full* topK of `__global__`
-    // rows whose pool the project's own rows never entered. The project is then
-    // absent from an answer that claims to be project-scoped, so probe the
-    // project itself (ADR 2026-11-12 §7.4).
+    // The reverse failure: a full topK of `__global__` rows can leave the addressed project absent.
     if (projectFilter) {
       try {
         if (addressedProjectShutOut(db, projectFilter, residual, vecIds)) degraded = true
@@ -122,11 +104,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
       { vecSimById, bm25ScoreById: new Map(), rrfScoreById: new Map(), confidenceFloor },
       { rrfMax: 0, ...recency }
     )
-    // Degradation is surfaced once at the collection level (below); per-result
-    // annotation is owned by the service layer so the embedding leg's state is
-    // folded in. The filtered BM25 leg does not fall back to the unfiltered
-    // leg here — a filtered failure is reported as degraded to keep project
-    // scoping intact (the helper's own fallback is for direct callers only).
     Object.assign(out, { degraded })
     return out
   }
@@ -142,8 +119,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
   }
   const bm25ScoreById = new Map(bm25Scored.map(r => [r.id, r.score]))
   const fusionLists = [vecIds.map(v => v.id), bm25Scored.map(r => r.id)]
-  // A thought ranked #1 in every non-empty list reaches the RRF maximum, so
-  // normalising by it keeps `relevant` order-preserving and in `(0, 1]`.
   const rrfMax = fusionLists.filter(list => list.length > 0).length / (RRF_K + 1)
   const merged = rrfMerge(fusionLists).slice(0, topK)
   const rrfScoreById = new Map(merged.map(m => [m.id, m.score]))
@@ -154,9 +129,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     { vecSimById, bm25ScoreById, rrfScoreById, confidenceFloor },
     { rrfMax, ...recency }
   )
-  // Per-result degradation is owned by the service layer (embedding leg state
-  // is folded there); only the collection-level flag is set here. See the
-  // non-hybrid branch above for the filtered-BM25 fallback rationale.
   Object.assign(out, { degraded })
   return out
 }

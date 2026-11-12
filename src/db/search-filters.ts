@@ -18,7 +18,6 @@ function getClusterFilterSQL(filter: 'only' | 'exclude'): SqlFragment {
   return { sql: 'AND (t.is_cluster IS NULL OR t.is_cluster = 0) ', params: [] }
 }
 
-/** `status`, `cluster` and `importance` — the predicates that are not project scope. */
 function residualFragments(options: FilterOptions): SqlFragment[] {
   const fragments: SqlFragment[] = []
   if (options.statusFilter) {
@@ -40,27 +39,16 @@ function concat(fragments: SqlFragment[]): SqlFragment {
   }
 }
 
-/**
- * The partition predicate for the vec0 leg (ADR 2026-11-12): a project-scoped
- * search ranks inside the addressed project plus the global partition, so recall
- * stops depending on how many foreign rows rank nearer. The alias `v` must be
- * `vec_thoughts`. Empty when no project is addressed — the unscoped leg keeps
- * today's single global walk.
- */
+// The alias `v` must be `vec_thoughts`. Empty when no project is addressed (single global walk).
 export function buildVecScopeSQL(options: FilterOptions): SqlFragment {
   if (!options.projectFilter) return { sql: '', params: [] }
   return { sql: `AND v.scope IN (?, '${VEC_SCOPE_GLOBAL}') `, params: [options.projectFilter] }
 }
 
-/**
- * Build the shared `AND ...` filter fragment (and its bindings) applied to both
- * the vector and BM25 legs. The alias `t` must be the `thoughts` table in the
- * consuming query.
- */
+// The alias `t` must be `thoughts`. A global thought stays visible from any project: the flag
+// widens, never narrows.
 export function buildFilterSQL(options: FilterOptions): SqlFragment {
   const fragments = residualFragments(options)
-  // Global thoughts (is_global = 1) are always visible from a project-scoped
-  // search: the flag is a widening mechanism, never a narrowing one.
   if (options.projectFilter) {
     fragments.splice(options.statusFilter ? 1 : 0, 0, {
       sql: 'AND (t.project_id = ? OR t.is_global = 1) ',
@@ -70,12 +58,8 @@ export function buildFilterSQL(options: FilterOptions): SqlFragment {
   return concat(fragments)
 }
 
-/**
- * The same predicate without its project clause. The partition count
- * (`countFilteredVectors`) uses it to drive the query from `thoughts`, where the
- * project equality is an index lookup; a `(project_id = ? OR is_global = 1)`
- * clause would defeat that index and turn the count back into a corpus scan.
- */
+// No project clause: `(project_id = ? OR is_global = 1)` in a count driven from `thoughts` would
+// defeat the project index and turn the probe back into a corpus scan.
 export function buildResidualFilterSQL(options: FilterOptions): SqlFragment {
   return concat(residualFragments(options))
 }

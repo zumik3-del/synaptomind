@@ -1,24 +1,3 @@
-/**
- * Deterministic propose-only placement engine (ADR 2026-09-28, P5 / §2.2–2.7).
- *
- * Assembles one {@link PlacementPlan} for a single thought from the signal
- * layer (`signals.ts`), the declarative edge-type rules (`edge-type-rules.ts`)
- * and the placement proposer (`placement.ts`). It is strictly read-only: it
- * never mutates the graph and never persists a proposal. Confirmation always
- * happens through the existing write tools.
- *
- * Determinism (ADR §2.7): static ordered rule tables, stable sorts
- * (`confidence` desc, then `target_id` asc) and an injectable `now`. The same
- * database snapshot plus the same `now` yields an identical plan; pairs that
- * already carry any edge are excluded, and proposals are deduplicated by
- * canonical unordered pair key.
- *
- * Degradation (mirrors `edge-detect`): an unavailable embedder sets
- * `degraded: true` and never throws — the plan falls back to lexical-only
- * signals, so a lexical near-duplicate can still yield a `merge` lifecycle
- * while embedding-based edge proposals are suppressed.
- */
-
 import type { Database } from 'bun:sqlite'
 import { config } from '../../config'
 import { getDb } from '../../db'
@@ -41,47 +20,29 @@ import { buildCandidatePool, proposePlacement, resolvePlacementBaseOptions } fro
 import { extractPairSignals } from './signals'
 import type { EdgeProposal, PlacementPlan, PlacementProposal } from './types'
 
-/** Plan `thought_id` used for an unpersisted draft analysed via `content`. */
 export const DRAFT_THOUGHT_ID = '(draft)'
 
-/** Input: an existing thought id, or raw draft content (mutually exclusive). */
 export interface PlacementPlanInput {
-  /** Existing thought to analyse (takes precedence over `content`). */
   thoughtId?: string
-  /** Draft content to analyse when the thought is not persisted yet. */
   content?: string
-  /** Project scope for a draft (falls back to `options.projectId`, then default). */
   projectId?: string
 }
 
 export interface PlacementPlanOptions {
-  /** Clock override for deterministic tests (default `new Date().toISOString()`). */
   now?: string
-  /** Project scope; defaults to the thought's own project. */
   projectId?: string
-  /** Existing cluster size at or above which the cluster placement is skipped. */
   maxClusterSize?: number
-  /** Recall floor for embedding neighbours (default `edgeDetect.minSimilarity`). */
   minSimilarity?: number
-  /** Neighbour-search width (default `edgeDetect.topK`). */
   topK?: number
-  /** Candidate-pool bound (default `edgeDetect.maxCandidates`). */
   maxCandidates?: number
-  /** Cap on emitted edge proposals (default `edgeDetect.maxProposals`). */
   maxProposals?: number
 }
 
-/** Injectable dependencies, mirroring `PlacementDeps` for deterministic tests. */
 export interface PlacementPlanDeps {
   embed?: (texts: string[]) => Promise<Float32Array[]>
   searchNeighbors?: SearchNeighborsFn
 }
 
-/**
- * Resolve the analysed thought: an existing row by id, or a synthetic draft row
- * built from `content`. Throws only on invalid *input* (missing thought, bad
- * arguments) — never on an embedder failure.
- */
 function resolveThought(
   input: PlacementPlanInput,
   options: PlacementPlanOptions,
@@ -114,14 +75,6 @@ function resolveThought(
   throw new ValidationError('provide either thoughtId (existing thought) or content (draft)')
 }
 
-/**
- * Assemble the deterministic, read-only {@link PlacementPlan} for one thought.
- *
- * `input` references an existing thought id or draft content. `options.now`
- * makes the plan clock-free; `deps.embed` / `deps.searchNeighbors` are
- * injectable for deterministic tests. Never throws on an embedder failure —
- * that sets `degraded: true` and falls back to lexical-only signals.
- */
 export async function proposePlacementPlan(
   input: PlacementPlanInput,
   options: PlacementPlanOptions = {},
@@ -139,8 +92,6 @@ export async function proposePlacementPlan(
     generated_at: now
   }
 
-  // A cluster thought is an aggregate with no atomic claim: nothing to place
-  // or link, and it must never be treated as a merge/link source.
   if (thought.is_cluster) {
     return {
       ...base,
@@ -160,13 +111,7 @@ export async function proposePlacementPlan(
   let degraded = false
   let pairs: ReturnType<typeof findEmbeddingNeighborPairs> = []
   try {
-    // Stored `vec_thoughts` vectors cover the pool: only a candidate without a
-    // current one (no row at all, or queued in `pending_embeddings`) reaches the
-    // embedder, so an already-embedded pool costs zero embedder calls.
     const embeddings = await resolveCandidateEmbeddings(pool, embed, d)
-    // Default: neighbours are ranked in memory from that matrix (SIMILARITY
-    // semantics — `similarity >= minSimilarity`), so a run issues no vec0 query
-    // per candidate. An injected lookup still wins.
     const searchNeighbors = deps.searchNeighbors ?? buildInMemoryNeighborLookup(pool, embeddings)
     pairs = findEmbeddingNeighborPairs(pool, embeddings, minSimilarity, searchNeighbors, topK)
   } catch (err) {
@@ -176,9 +121,6 @@ export async function proposePlacementPlan(
 
   let placement: PlacementProposal | null = null
   if (!degraded) {
-    // Reuse the pairs the shared pass above already produced: the proposer
-    // would otherwise rebuild the same pool and repeat the vector search
-    // (ADR §2.2 "must not duplicate").
     const decision = await proposePlacement(
       thought,
       { projectId, maxClusterSize, minSimilarity, topK, maxCandidates, precomputedPairs: pairs },
@@ -194,8 +136,6 @@ export async function proposePlacementPlan(
       d,
       pool.map(t => t.id)
     )
-    // One batched standing lookup for the source and every candidate, hoisted
-    // out of the pair loop (2 queries total instead of 2 per pair).
     const standing = annotateGraphStanding(d, [thought.id, ...pool.map(t => t.id)])
     for (const pair of pairs) {
       const otherId =
@@ -223,8 +163,7 @@ export async function proposePlacementPlan(
 
   edges.sort((a, b) => b.confidence - a.confidence || a.target_id.localeCompare(b.target_id))
   const cappedEdges = edges.slice(0, maxProposals)
-  // Probe the *uncapped* list so a supersede candidate that sorts past
-  // `maxProposals` still wins lifecycle precedence (ADR §2.6).
+  // Probing the uncapped list lets a supersede candidate past `maxProposals` still win.
   const replaceEdge = edges.find(
     e => e.rule_id === 'supersede.newer_replaces_older' && e.signals.targetStatus === 'active'
   )

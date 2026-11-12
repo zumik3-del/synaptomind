@@ -7,19 +7,11 @@ import { insertLog } from '../logging/log'
 import { createIntervalJob, jobDatabases } from './jobs.service'
 import type { Database } from 'bun:sqlite'
 
-/** What one retention sweep removed, per kind: the two counts are unrelated. */
 export interface PlacementRetentionResult {
-  /** Placement proposals expired (pending) or pruned (decided past the TTL). */
   proposals: number
-  /** Expired preview tokens deleted. */
   tokens: number
 }
 
-/**
- * Expire `pending` placement proposals whose `expires_at` has passed and prune
- * terminal rows decided before the TTL cutoff (ADR §2.4). Uses the
- * `placement_proposals.deleteExpired` DB helper.
- */
 export function cleanupPlacementProposals(d: Database = getDb()): PlacementRetentionResult {
   const ttlDays = config.placement.proposalTtlDays
 
@@ -33,7 +25,6 @@ export function cleanupPlacementProposals(d: Database = getDb()): PlacementReten
     }
   }
 
-  // Sweep expired preview tokens (task #2154).
   const tokens = deleteExpiredPreviewTokens(d)
   if (tokens > 0) {
     insertLog('info', 'placement-retention', `Swept ${tokens} expired preview tokens`)
@@ -47,15 +38,10 @@ const onError = (err: unknown): void =>
     error: String(err)
   })
 
-/**
- * One tick: run the retention sweep once per registered DB, sequentially.
- * bun:sqlite is synchronous, so a single synchronous pass keeps the reentrancy
- * guard (in `createIntervalJob`) wrapping the whole tick rather than each DB.
- */
+// One synchronous pass per tick, so the reentrancy guard in `createIntervalJob` wraps the whole tick.
 const sweepAll = (): void => {
   for (const db of jobDatabases()) {
     try {
-      // `cleanupPlacementProposals` already logs the affected counts.
       cleanupPlacementProposals(db)
     } catch (err) {
       onError(err)
@@ -69,8 +55,7 @@ const job = createIntervalJob(
 )
 
 export function startPlacementRetentionJob(): void {
-  // Sweep once at boot: the interval is daily, so a host that restarts more
-  // often than that would otherwise never prune anything.
+  // A daily interval never fires on a host that restarts more often, so sweep once at boot.
   try {
     sweepAll()
   } catch (err) {

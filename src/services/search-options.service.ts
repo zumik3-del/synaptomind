@@ -4,10 +4,7 @@ import type { ContradictionMode, SearchServiceOptions, SupersessionMode } from '
 const SUPERSESSION_MODES: readonly SupersessionMode[] = ['off', 'flag', 'suppress']
 const CONTRADICTION_MODES: readonly ContradictionMode[] = ['off', 'flag']
 
-/**
- * Agent-facing default for superseded thoughts is `suppress` (the library
- * default stays `flag`); an explicit but unknown value is a 400.
- */
+// The agent-facing default is `suppress`, while the library default stays `flag`.
 const DEFAULT_SUPERSESSION_MODE: SupersessionMode = 'suppress'
 const DEFAULT_CONTRADICTION_MODE: ContradictionMode = 'flag'
 
@@ -23,11 +20,6 @@ export function parseContradictionMode(raw: string | undefined): ContradictionMo
   throw new ValidationError(`invalid contradiction_mode '${raw}'; expected off|flag`)
 }
 
-/**
- * Parse an optional numeric query parameter. An absent/empty value is
- * `undefined`; a present but unparseable value is a 400 (`ValidationError`).
- * Out-of-range finite values are left to the service clamps.
- */
 export function parseOptionalNumber(raw: string | undefined, name: string): number | undefined {
   if (raw === undefined || raw === '') return undefined
   const value = Number.parseFloat(raw)
@@ -36,11 +28,6 @@ export function parseOptionalNumber(raw: string | undefined, name: string): numb
   return value
 }
 
-/**
- * Already-parsed search inputs shared by the MCP tool and the service layer.
- * Surface-specific extraction (query presence, `k` parsing, cluster string
- * flags, project resolution) stays at the call site.
- */
 export interface SearchOptionsParams {
   query: string
   topK: number
@@ -57,11 +44,6 @@ export interface SearchOptionsParams {
   minRelevance?: number
 }
 
-/**
- * Assemble the shared `SearchServiceOptions` from parsed inputs. The `status`
- * default and the field mapping live here; standing modes pass through
- * untouched so callers that omit them keep the library defaults (`flag`).
- */
 export function buildSearchOptions(params: SearchOptionsParams): SearchServiceOptions {
   return {
     query: params.query,
