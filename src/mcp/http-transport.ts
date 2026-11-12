@@ -6,7 +6,7 @@ import { config } from '../config'
 import { authMiddleware } from '../middleware/auth'
 import { als, getDb, getUserDb } from '../context/container'
 import type { Database } from 'bun:sqlite'
-import { mcpRateLimitMiddleware } from '../middleware/rate-limit'
+import { createRateLimitMiddleware } from '../middleware/rate-limit'
 import { createMcpServer } from './server'
 import { disposePair } from './in-memory-event-store'
 import type { Context } from 'hono'
@@ -62,6 +62,9 @@ export function startMcpHttpServer(
 ): McpHttpHandle {
   const app = new Hono()
   const sessions = new Map<string, Session>()
+  // Per-server limiter: a second MCP server in the same process (each test file
+  // starts its own) keeps its own quota.
+  const rateLimit = createRateLimitMiddleware()
 
   getValidTokens()
 
@@ -134,7 +137,7 @@ export function startMcpHttpServer(
     return als.run({ userId: ref.userId, db: db as Database }, next)
   })
 
-  app.use('/mcp', mcpRateLimitMiddleware)
+  app.use('/mcp', rateLimit)
 
   app.use('/mcp', async (c, next) => {
     const contentLength = parseInt(c.req.header('content-length') || '0', 10)

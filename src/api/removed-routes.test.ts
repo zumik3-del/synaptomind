@@ -18,11 +18,6 @@ import { createApp } from './router'
 process.env.SYNAPTOMIND_SECRET = 'test-token'
 const app = createApp()
 
-// A dedicated peer address keeps this file's requests out of the process-wide
-// rate-limit bucket shared by every other in-process `app.request` (same trick
-// as `src/middleware/rate-limit.test.ts`).
-const ENV = { server: { requestIP: () => ({ address: '10.42.0.77', family: 'IPv4', port: 1234 }) } }
-
 const THOUGHT = '01a00000-0000-7000-8000-000000000001'
 
 interface FormerRoute {
@@ -127,17 +122,13 @@ beforeEach(createTestDb)
 afterEach(closeDb)
 
 async function call(method: string, path: string): Promise<Response> {
-  return app.request(
-    materialise(path),
-    {
-      method,
-      headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
-      // A body keeps a hypothetically surviving route from failing validation
-      // with 400: the only acceptable answer below is 404.
-      ...(method === 'GET' || method === 'DELETE' ? {} : { body: '{}' })
-    },
-    ENV
-  )
+  return app.request(materialise(path), {
+    method,
+    headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
+    // A body keeps a hypothetically surviving route from failing validation
+    // with 400: the only acceptable answer below is 404.
+    ...(method === 'GET' || method === 'DELETE' ? {} : { body: '{}' })
+  })
 }
 
 test('the ledger matches the removed-route table in docs/API.md exactly', () => {
@@ -197,7 +188,7 @@ for (const route of FORMER_ROUTES) {
 }
 
 test('the two surviving /api routes are still mounted behind the same middlewares', async () => {
-  const unauthorized = await app.request('/api/health-check', {}, ENV)
+  const unauthorized = await app.request('/api/health-check', {})
   expect(unauthorized.status).toBe(401)
 
   const report = await call('GET', '/api/health-check')

@@ -1,11 +1,7 @@
 import { describe, expect, jest, test } from 'bun:test'
 import { Hono } from 'hono'
 import { config } from '../config'
-import {
-  apiRateLimitMiddleware,
-  createRateLimitMiddleware,
-  mcpRateLimitMiddleware
-} from './rate-limit'
+import { createRateLimitMiddleware } from './rate-limit'
 
 // rate-limit.ts captures the max in a module constant at import time — read it
 // from the same config object here instead of hard-coding 200.
@@ -25,7 +21,7 @@ function appFor(middleware: RateLimitMiddleware): Hono {
 }
 
 function appWithMiddleware(): Hono {
-  return appFor(apiRateLimitMiddleware)
+  return appFor(createRateLimitMiddleware())
 }
 
 // rate-limit.ts derives the client key from the Bun socket peer (getConnInfo),
@@ -38,8 +34,8 @@ function envFor(ip: string): {
 }
 
 describe('rateLimitMiddleware', () => {
-  // Each test uses a distinct peer address, so the module-level store cannot
-  // leak counters between tests.
+  // Every test builds its own middleware instance, so no counter can leak
+  // between tests and none depends on another test running first.
   test(`allows ${MAX} requests per window from one IP, then 429s`, async () => {
     const app = appWithMiddleware()
     const ip = '1.2.3.4'
@@ -68,12 +64,21 @@ describe('rateLimitMiddleware', () => {
 
   test('ignores spoofable x-forwarded-for when no proxy is trusted', async () => {
     const app = appWithMiddleware()
+    const exhausted = '1.2.3.4'
+    const exhaustedEnv = envFor(exhausted)
 
-    // '1.2.3.4' is already exhausted in the test above; a spoofed header must
-    // not borrow another client's bucket.
+    for (let i = 0; i < MAX; i++) {
+      const res = await app.request('/x', undefined, exhaustedEnv)
+      if (res.status !== 200) {
+        throw new Error(`request ${i + 1} of ${MAX} was rejected with ${res.status}`)
+      }
+    }
+    expect((await app.request('/x', undefined, exhaustedEnv)).status).toBe(429)
+
+    // A spoofed header must not borrow the exhausted client's bucket.
     const res = await app.request(
       '/x',
-      { headers: { 'x-forwarded-for': '1.2.3.4' } },
+      { headers: { 'x-forwarded-for': exhausted } },
       envFor('9.9.9.9')
     )
 
@@ -100,25 +105,6 @@ describe('createRateLimitMiddleware — per-instance isolation', () => {
     const allowed = await appB.request('/x', undefined, env)
     expect(allowed.status).toBe(200)
     expect(await allowed.text()).toBe('ok')
-  })
-
-  test('api and mcp export instances do not share state', async () => {
-    const api = appFor(apiRateLimitMiddleware)
-    const mcp = appFor(mcpRateLimitMiddleware)
-    const env = envFor('198.18.0.2')
-
-    for (let i = 0; i < MAX; i++) {
-      const res = await api.request('/x', undefined, env)
-      if (res.status !== 200) {
-        throw new Error(`api request ${i + 1} of ${MAX} rejected with ${res.status}`)
-      }
-    }
-    expect((await api.request('/x', undefined, env)).status).toBe(429)
-
-    // Exhausting the API quota must leave the MCP quota untouched.
-    const mcpRes = await mcp.request('/x', undefined, env)
-    expect(mcpRes.status).toBe(200)
-    expect(await mcpRes.text()).toBe('ok')
   })
 })
 
