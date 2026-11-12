@@ -17,6 +17,7 @@ import {
   deleteThought,
   getThought,
   listThoughts,
+  rowToThought,
   updateThought
 } from './thoughts'
 
@@ -52,6 +53,32 @@ test('schema has no denormalized thoughts.tags column (issue #152)', () => {
   )
   expect(cols).not.toContain('tags')
   expect(cols).toContain('content')
+  expect(cols).not.toContain('content_language')
+})
+
+function thoughtsRow(content: string): Record<string, unknown> {
+  const db = getDb()
+  const created = createThought(db, { content })
+  return db.prepare('SELECT * FROM thoughts WHERE id = ?').get(created.id) as Record<
+    string,
+    unknown
+  >
+}
+
+test('rowToThought maps content_language when the row projects it', () => {
+  const thought = rowToThought({ ...thoughtsRow('projected language'), content_language: 'ru' })
+  expect(Object.hasOwn(thought, 'content_language')).toBeTrue()
+  expect(thought.content_language).toBe('ru')
+})
+
+test('rowToThought adds no content_language key when the row does not project it', () => {
+  const thought = rowToThought(thoughtsRow('unprojected language'))
+  expect(Object.hasOwn(thought, 'content_language')).toBeFalse()
+})
+
+test('rowToThought adds no content_language key for a projected NULL', () => {
+  const thought = rowToThought({ ...thoughtsRow('null language'), content_language: null })
+  expect(Object.hasOwn(thought, 'content_language')).toBeFalse()
 })
 
 test('getThought returns thought by id', () => {
