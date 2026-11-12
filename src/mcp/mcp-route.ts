@@ -8,7 +8,7 @@ import {
   WebStandardStreamableHTTPServerTransport
 } from '@modelcontextprotocol/server'
 import type { UserRef } from '../auth'
-import { als } from '../db/container'
+import { als } from '../context/container'
 import { disposePair, InMemoryEventStore } from './in-memory-event-store'
 import {
   bodyTooLargeResponse,

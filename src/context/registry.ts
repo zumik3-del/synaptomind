@@ -1,21 +1,17 @@
 // Registry facade for multi-user SynaptoMind.
 //
-// Wraps the container registry (Map<userId, Database> + ALS) with per-user
+// Wraps the container registry (userId -> Database map + ALS) with per-user
 // unavailability tracking and the boot fan-out that opens/migrates/registers
 // every configured user DB before listeners open.
 //
-// Re-exports the container surface so callers can treat `db/registry` as the
-// canonical registry module.
+// Re-exports the container surface so `context/registry` is the canonical entry
+// to the connection context.
 
 export * from './container'
 
 import { config } from '../config'
-import { openDatabase } from './init'
-import {
-  clearRegistry as clearRegistryContainer,
-  register as registerContainer,
-  setDb
-} from './container'
+import { openDatabase } from '../db/init'
+import { clearRegistry, register, setDb } from './container'
 
 // ---------------------------------------------------------------------------
 // Per-user unavailability state
@@ -53,7 +49,7 @@ export interface BootFanOutResult {
 }
 
 export function bootFanOut(): BootFanOutResult {
-  clearRegistryContainer()
+  clearRegistry()
   clearUnavailable()
 
   const users = Array.isArray(config.users) ? config.users : []
@@ -73,7 +69,7 @@ export function bootFanOut(): BootFanOutResult {
   for (const u of users) {
     try {
       const db = openDatabase({ dbPath: u.dbPath, runMigrations: true })
-      registerContainer(u.id, db)
+      register(u.id, db)
       registered.push(u.id)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

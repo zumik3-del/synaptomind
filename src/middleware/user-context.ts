@@ -1,6 +1,6 @@
 import type { Context, Next } from 'hono'
 import { resolveUser } from '../auth'
-import { als, getDb, getUserDb } from '../db/container'
+import { als, getDb, getUserDb } from '../context/container'
 
 // Binds the resolved user's database to the async execution context for the
 // duration of the request. Runs after authMiddleware (which is the pure 401 gate).
