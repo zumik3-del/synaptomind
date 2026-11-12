@@ -10,10 +10,7 @@ import {
   deleteRetentionReviewCandidateService,
   protectRetentionReviewCandidateService
 } from '../../services/retention-review-actions.service'
-import {
-  createPreviewTokenService,
-  consumePreviewTokenService
-} from '../../services/preview-tokens.service'
+import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 import { collectionEnvelope, itemEnvelope } from './envelope'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { shapeThought } from './utils'
@@ -57,33 +54,28 @@ const handlers = {
       thought_id: requiredString('thought_id is required for delete action'),
       preview_token: z.string().optional()
     }),
-    run(args: ActionArgs) {
+    async run(args: ActionArgs) {
       const id = args.thought_id as string
-      const confirm = args.confirm === true
-      const previewToken = args.preview_token as string | undefined
       const thought = getThoughtByIdService(id)
-      const fp = thought
-        ? `${thought.id}:${thought.status}:${thought.created_at}:${thought.is_protected}`
-        : `missing:${id}`
-
-      if (!confirm) {
-        const result = deleteRetentionReviewCandidateService(id, { confirm: false })
-        const token = createPreviewTokenService('retention_delete', id, fp)
-        return itemEnvelope(
-          'delete',
-          { ...(result as unknown as Record<string, unknown>), preview_token: token },
-          { preview: { token, instruction: result.instruction } }
-        )
-      }
-
-      if (thought) {
-        if (!previewToken) throw new Error('preview_token is required')
-        const verification = consumePreviewTokenService(previewToken, 'retention_delete', id, fp)
-        if (!verification.valid)
-          throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-      }
-
-      return itemEnvelope('delete', deleteRetentionReviewCandidateService(id, { confirm: true }))
+      const outcome = await runGuarded(args, {
+        kind: 'retention_delete',
+        targetId: id,
+        fingerprint: () =>
+          thought
+            ? fingerprintOf(thought.id, thought.status, thought.created_at, thought.is_protected)
+            : null,
+        preview: token => {
+          const result = deleteRetentionReviewCandidateService(id, { confirm: false })
+          return itemEnvelope(
+            'delete',
+            { ...(result as unknown as Record<string, unknown>), preview_token: token },
+            { preview: { token, instruction: result.instruction } }
+          )
+        },
+        apply: () =>
+          itemEnvelope('delete', deleteRetentionReviewCandidateService(id, { confirm: true }))
+      })
+      return outcome.value
     }
   },
   compact: {

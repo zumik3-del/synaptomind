@@ -5,22 +5,9 @@ import {
   getPrimerService,
   deletePrimerService
 } from '../../services/primers.service'
-import {
-  createPreviewTokenService,
-  consumePreviewTokenService
-} from '../../services/preview-tokens.service'
+import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 import { collectionEnvelope, itemEnvelope } from './envelope'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
-
-function primerFingerprint(primer: {
-  id: string
-  thought_id: string
-  hit_count: number
-  promoted_at: string | null
-  created_at: string
-}): string {
-  return `${primer.id}:${primer.thought_id}:${primer.hit_count}:${primer.promoted_at ?? ''}:${primer.created_at}`
-}
 
 const handlers = {
   list: {
@@ -34,55 +21,51 @@ const handlers = {
       primer_id: requiredString('primer_id is required for delete action'),
       preview_token: z.string().optional()
     }),
-    run(args: ActionArgs) {
+    async run(args: ActionArgs) {
       const primerId = args.primer_id as string
-      const confirm = args.confirm === true
-      const previewToken = args.preview_token as string | undefined
-
-      if (!confirm) {
-        const primer = getPrimerService(primerId)
-        if (!primer) return itemEnvelope('delete', { status: 'not_found', primer_id: primerId })
-        const token = createPreviewTokenService(
-          'primer_delete',
-          primerId,
-          primerFingerprint(primer)
-        )
-        const consequence = `Removes the primer for thought '${primer.thought_id}' from the always-at-hand set.`
-        const instruction = `Call memory_primers again with action=delete, primer_id=${primerId}, confirm=true to proceed.`
-        return itemEnvelope(
-          'delete',
-          {
-            status: 'preview',
-            primer_id: primerId,
-            primer: {
-              id: primer.id,
-              thought_id: primer.thought_id,
-              hit_count: primer.hit_count,
-              promoted_at: primer.promoted_at,
-              created_at: primer.created_at
-            },
-            consequence,
-            instruction,
-            preview_token: token
-          },
-          { preview: { token, consequence, instruction } }
-        )
-      }
-
       const primer = getPrimerService(primerId)
-      if (primer) {
-        const fp = primerFingerprint(primer)
-        if (!previewToken) throw new Error('preview_token is required')
-        const verification = consumePreviewTokenService(previewToken, 'primer_delete', primerId, fp)
-        if (!verification.valid)
-          throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-      }
+      if (!primer) return itemEnvelope('delete', { status: 'not_found', primer_id: primerId })
 
-      const deleted = deletePrimerService(primerId)
-      return itemEnvelope('delete', {
-        status: deleted ? 'deleted' : 'not_found',
-        primer_id: primerId
+      const outcome = await runGuarded(args, {
+        kind: 'primer_delete',
+        targetId: primerId,
+        fingerprint: () =>
+          fingerprintOf(
+            primer.id,
+            primer.thought_id,
+            primer.hit_count,
+            primer.promoted_at,
+            primer.created_at
+          ),
+        preview: token => {
+          const consequence = `Removes the primer for thought '${primer.thought_id}' from the always-at-hand set.`
+          const instruction = `Call memory_primers again with action=delete, primer_id=${primerId}, confirm=true to proceed.`
+          return itemEnvelope(
+            'delete',
+            {
+              status: 'preview',
+              primer_id: primerId,
+              primer: {
+                id: primer.id,
+                thought_id: primer.thought_id,
+                hit_count: primer.hit_count,
+                promoted_at: primer.promoted_at,
+                created_at: primer.created_at
+              },
+              consequence,
+              instruction,
+              preview_token: token
+            },
+            { preview: { token, consequence, instruction } }
+          )
+        },
+        apply: () =>
+          itemEnvelope('delete', {
+            status: deletePrimerService(primerId) ? 'deleted' : 'not_found',
+            primer_id: primerId
+          })
       })
+      return outcome.value
     }
   }
 }

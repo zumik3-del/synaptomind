@@ -10,10 +10,7 @@ import {
 import { isLegacyItemKind, getProposalService } from '../../services/placement-proposals.service'
 import type { PlacementProposalRow } from '../../services/placement-proposals.service'
 import { applyBatchService } from '../../services/placement-apply.service'
-import {
-  createPreviewTokenService,
-  consumePreviewTokenService
-} from '../../services/preview-tokens.service'
+import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 import { collectionEnvelope, itemEnvelope, readEnvelopeScope, writeEnvelopeScope } from './envelope'
 import { resolveProjectId } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
@@ -100,22 +97,29 @@ const handlers = {
       proposal_ids: z.array(z.string()).min(1, 'proposal_ids must be a non-empty array'),
       preview_token: z.string().optional()
     }),
-    run(args: ActionArgs) {
+    async run(args: ActionArgs) {
       const proposalIds = args.proposal_ids as string[]
-      const confirm = args.confirm === true
-      const previewToken = args.preview_token as string | undefined
       const rows = proposalIds.map(id => getProposalService(id))
-      function fp() {
-        return rows
-          .map((r: PlacementProposalRow | undefined, i: number) =>
-            r
-              ? `${r.id}:${r.state}:${r.fingerprint}:${r.created_at}:${r.expires_at ?? ''}:${r.result ?? ''}:${r.run_id ?? ''}`
-              : `missing:${proposalIds[i]}`
-          )
-          .join('|')
-      }
+      const fingerprint = fingerprintOf(
+        rows.map((row: PlacementProposalRow | undefined, i: number) =>
+          row
+            ? [
+                row.id,
+                row.state,
+                row.fingerprint,
+                row.created_at,
+                row.expires_at,
+                row.result,
+                row.run_id
+              ]
+            : ['missing', proposalIds[i]]
+        )
+      )
       /** Rows of the batch outcome, with the per-proposal errors folded in as failed rows. */
-      function envelopeFor(outcome: ReturnType<typeof applyBatchService>, previewToken?: string) {
+      function envelopeFor(
+        outcome: ReturnType<typeof applyBatchService>,
+        previewToken?: string | null
+      ) {
         const items = [
           ...outcome.results,
           ...outcome.errors.map(error => ({
@@ -136,33 +140,23 @@ const handlers = {
           ...(previewToken === undefined ? {} : { preview: { token: previewToken } })
         })
       }
-      if (!confirm) {
-        const result = applyBatchService(proposalIds, {
-          confirm: false,
-          runId: args.run_id as string | undefined,
-          limit: args.limit as number | undefined,
-          decidedBy: AGENT
-        })
-        const token = createPreviewTokenService('apply_batch', proposalIds.join(','), fp())
-        return envelopeFor(result, token)
-      }
-      const current = fp()
-      if (!previewToken) throw new Error('preview_token is required')
-      const verification = consumePreviewTokenService(
-        previewToken,
-        'apply_batch',
-        proposalIds.join(','),
-        current
-      )
-      if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-      return envelopeFor(
+      const runBatch = (confirm: boolean) =>
         applyBatchService(proposalIds, {
-          confirm: true,
+          confirm,
           runId: args.run_id as string | undefined,
           limit: args.limit as number | undefined,
           decidedBy: AGENT
         })
-      )
+      const outcome = await runGuarded(args, {
+        kind: 'apply_batch',
+        targetId: proposalIds.join(','),
+        fingerprint: () => fingerprint,
+        preview: () => runBatch(false),
+        apply: () => runBatch(true)
+      })
+      return outcome.status === 'preview'
+        ? envelopeFor(outcome.value, outcome.token)
+        : envelopeFor(outcome.value)
     }
   },
 
