@@ -175,9 +175,20 @@ say `degraded: true`. The structural fix (#2494, ADR 2026-11-12) gives
 `vec_thoughts` a `scope TEXT PARTITION KEY` (`project_id`, or `__global__` /
 `__unassigned__`) and filters the vector leg with `v.scope IN (?, '__global__')`.
 The KNN now ranks inside the addressed partition, so `k` is a width *within the
-project* and foreign rows no longer set the reach. Status/cluster/importance stay
-post-KNN filters, and `countFilteredVectors` reports the only starvation left —
-a project whose own rows fill the pool.
+project* and other projects' rows no longer set the reach. Starvation is reduced,
+not gone: after the scope change `degraded: true` covers three cases
+(`src/db/search.ts:85-113`). A leg that failed sets it (the vector or BM25 query
+raised, `src/db/search.ts:85-91` / `134-142`). Status/cluster/importance are
+still post-KNN filters, so a filtered leg can come back shorter than its width
+while the scoped filters match more embedded rows than it delivered —
+`countFilteredVectors` (`src/db/search-vector.ts:18`) counts those rows and the
+leg compares the count against what it actually delivered
+(`src/db/search.ts:96-102`). `__global__` rows also share the addressed
+partition, so a full `topK` of nearer globals can consume the whole walk and
+leave the project out of an answer that claims to be project-scoped —
+`addressedProjectShutOut` (`src/db/search-vector.ts:78`) probes the project
+itself and degrades when no delivered row belongs to it
+(`src/db/search.ts:107-113`).
 
 The scenario seeds three deliberately unequal projects and asks the query inside
 the smallest one. Every row of the two larger projects ranks nearer the query than
