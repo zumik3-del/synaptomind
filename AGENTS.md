@@ -47,10 +47,9 @@ unsorted (`organizeImports` is off) and JSON is excluded from both scripts, so a
 `getDb()` is called nowhere else in `services/`. db-layer functions take `db: Database` as required
 first param. Inside `d.transaction(...)` pass `d` to every call. Tests: `beforeEach(createTestDb)`;
 pass `db` only for specific instances (file-backed DB for vec0). Never mock `Database`.
-Two documented deviations resolve the connection lazily inside the body, because the callers run
-before `initDb()` or must observe db unavailability instead of throwing:
-`settings.service.ts getAdvertisedSoftLimitService(d?)` and `health.service.ts getHealthService(d?)`.
-`decay.service.ts runDecayJob(d?)` resolves lazily the same way.
+Two documented deviations resolve the connection lazily inside the body: `health.service.ts
+getHealthService(d?)` must observe db unavailability instead of throwing, and `decay.service.ts
+runDecayJob(d?)` also runs before the handle is guaranteed.
 A third deliberate form passes `d: Database` as a required positional (not trailing) where the call
 must receive the caller's transaction handle or the function is a pure helper: `apply-gates.service.ts`,
 `candidate-embeddings.service.ts`, `health-check-drafts.service.ts`, `health.service.ts`,
