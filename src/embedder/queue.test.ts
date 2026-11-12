@@ -4,6 +4,7 @@ import { createTestDb, seedThought } from '../test/helpers'
 import { getDb } from '../db/container'
 import {
   MAX_ATTEMPTS,
+  deleteEmbeddedFromQueue,
   deleteFromQueue,
   findPendingEmbeddings,
   handleFailedItem,
@@ -239,4 +240,72 @@ test('deleteFromQueue removes only the given rows', () => {
 
 test('deleteFromQueue tolerates an empty id list', () => {
   expect(() => deleteFromQueue(getDb(), [])).not.toThrow()
+})
+
+// ── the hash-guarded retire step (#2471, audit F8) ───────────────────────────
+//
+// A batch retires its rows at the very END — long after `insertEmbedding`
+// checked the hash — so by then the v035 trigger may have replaced the queue
+// row under a NEW hash. `deleteEmbeddedFromQueue` therefore drops a row only
+// while `thoughts.content_hash` still equals the hash the vector was built from.
+// These are the DB-seam pins of that guard: no `Database` mock anywhere.
+
+function setContent(id: string, content: string, contentHash: string): void {
+  getDb()
+    .prepare('UPDATE thoughts SET content = ?, content_hash = ? WHERE id = ?')
+    .run(content, contentHash, id)
+}
+
+function queued(id: string): boolean {
+  return getDb().prepare('SELECT 1 FROM pending_embeddings WHERE thought_id = ?').get(id) !== null
+}
+
+test('deleteEmbeddedFromQueue retires a row whose content hash still matches', () => {
+  const db = getDb()
+  const id = seedThought({ content: 'stable' })
+  setContent(id, 'stable', 'hash-a')
+
+  deleteEmbeddedFromQueue(db, [{ id, contentHash: 'hash-a' }])
+
+  expect(queued(id)).toBeFalse()
+})
+
+test('deleteEmbeddedFromQueue keeps a row whose content already changed, so the next poll re-embeds it', () => {
+  const db = getDb()
+  const id = seedThought({ content: 'old' })
+  // The batch read the row at hash-old; the trigger has since replaced the queue
+  // row under hash-new. Retiring by id alone would drop that fresh row forever.
+  setContent(id, 'new', 'hash-new')
+
+  deleteEmbeddedFromQueue(db, [{ id, contentHash: 'hash-old' }])
+
+  expect(queued(id)).toBeTrue()
+  // NOT stranded: the surviving row is what hands the update to the next poll.
+  expect(findPendingEmbeddings(db, 10)).toContainEqual({
+    id,
+    content: 'new',
+    contentHash: 'hash-new'
+  })
+})
+
+test('deleteEmbeddedFromQueue judges every row on its own hash', () => {
+  const db = getDb()
+  const fresh = seedThought({ content: 'fresh' })
+  const stale = seedThought({ content: 'stale' })
+  // Distinct hashes: the v046 content-dedupe index forbids two live thoughts
+  // sharing one (content_hash, project) pair.
+  setContent(fresh, 'fresh', 'hash-fresh')
+  setContent(stale, 'stale', 'hash-stale')
+
+  deleteEmbeddedFromQueue(db, [
+    { id: fresh, contentHash: 'hash-fresh' },
+    { id: stale, contentHash: 'hash-batch-read' }
+  ])
+
+  expect(queued(fresh)).toBeFalse()
+  expect(queued(stale)).toBeTrue()
+})
+
+test('deleteEmbeddedFromQueue tolerates an empty row list', () => {
+  expect(() => deleteEmbeddedFromQueue(getDb(), [])).not.toThrow()
 })
