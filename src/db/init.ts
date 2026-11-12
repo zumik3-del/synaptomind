@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { config } from '../config'
 import { vec0Path } from '../runtime-mode'
-import { clearDb, getDb, setDb } from './container'
+import { clearDb, getDb, setDb } from '../context/container'
 import { MIGRATIONS } from './migrations'
 import { backupDatabase } from './backup'
 

@@ -1,5 +1,11 @@
 import type { Database } from 'bun:sqlite'
-import { getDb, registry } from '../db'
+import {
+  getDb,
+  getUserDb,
+  listRegisteredUsers,
+  listUserDatabases,
+  registrySize
+} from '../context/container'
 import { config } from '../config'
 import { getEmbedderState, type EmbedderState } from '../embedder/client-core'
 import { VERSION } from '../version'
@@ -33,7 +39,7 @@ const probeCache = new Map<Database, CachedProbe>()
 let lastRegistryFingerprint = ''
 
 function registryFingerprint(): string {
-  return `${registry.size}:${[...registry.keys()].sort().join(',')}`
+  return `${registrySize()}:${listRegisteredUsers().sort().join(',')}`
 }
 
 function invalidateCacheIfRegistryChanged(): void {
@@ -76,9 +82,8 @@ export function clearHealthProbeCache(): void {
 
 function collectDatabases(d?: Database): Array<{ userId?: string; db: Database }> {
   invalidateCacheIfRegistryChanged()
-  if (registry.size > 0) {
-    return [...registry.entries()].map(([userId, db]) => ({ userId, db }))
-  }
+  const entries = listUserDatabases()
+  if (entries.length > 0) return entries
   try {
     return [{ db: d ?? getDb() }]
   } catch {
@@ -91,7 +96,7 @@ export function getHealthService(d?: Database): HealthCheckResult {
   const checks: Record<string, string> = {}
 
   const dbs = collectDatabases(d)
-  let allOk = !(config.users?.length && config.users.some(user => !registry.has(user.id)))
+  let allOk = !(config.users?.length && config.users.some(user => !getUserDb(user.id)))
   if (dbs.length === 0) {
     checks.database = 'degraded'
     allOk = false
