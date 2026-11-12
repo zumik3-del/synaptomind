@@ -205,11 +205,15 @@ and the scored `k`, so the comparison isolates the pool from RRF and the filter:
 | `vector-k5-control` | vector only | 5 | 1.000 | 0.400 |
 | `hybrid-k5-control` | hybrid | 5 | 1.000 | 0.400 |
 
-Measured 2026-11-12 with the deterministic embedder; no `--real` result for this
-scenario is recorded (`eval/thresholds.json` carries no `pool-dilution` entry in
-either mode), so the table is deterministic-mode evidence. 905-row default
-corpus (700 / 200 / 5, 900 nearer rows) and the 4 505-row acceptance corpus
-(3 000 / 1 500 / 5) both score 1.000 on every arm.
+Measured 2026-11-12 with the deterministic embedder, and reproduced with the
+production embedder: `bun run eval --real` on the integrated head (`dev` @
+`aebdc528`) scores `vector-k10` and `hybrid-k10` recall 1.000 / precision 0.600,
+both controls 1.000, with "No gating regressions." The scenario is `measureOnly`,
+so no `--real` row exists in `eval/thresholds.json` (it carries no `pool-dilution`
+entry in either mode) — the real-mode pass is a report-level observation, and the
+gate itself is the thresholds file's overall/category set. 905-row default corpus
+(700 / 200 / 5, 900 nearer rows) and the 4 505-row acceptance corpus
+(3 000 / 1 500 / 5) both score 1.000 on every arm in deterministic mode.
 
 What the numbers say:
 
