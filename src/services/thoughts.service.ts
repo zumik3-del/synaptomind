@@ -38,7 +38,7 @@ export function createThoughtWithParentService(
   d: Database = getDb()
 ): Thought {
   validateStatus(data.status)
-  validateContentLength(data.content, getThoughtLimitsDB(d))
+  validateContentLength(data.content, getThoughtLimitsDB())
   const create = d.transaction(() => {
     const thought = dbCreateThought(d, data)
     if (parentId) {
@@ -73,7 +73,7 @@ export function updateThoughtByIdService(
 ): Thought | null {
   validateStatus(data.status)
   if (data.content !== undefined) {
-    validateContentLength(data.content, getThoughtLimitsDB(d), id)
+    validateContentLength(data.content, getThoughtLimitsDB(), id)
   }
   if (data.surface_after !== undefined && data.surface_after !== null) {
     if (

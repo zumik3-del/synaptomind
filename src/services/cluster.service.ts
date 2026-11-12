@@ -49,7 +49,7 @@ export function createClusterService(
   const content = title || `Cluster of ${thoughtIds.length} thoughts`
   const clusterTags = ['cluster', ...(tags || [])]
 
-  validateContentLength(content, getThoughtLimitsDB(d))
+  validateContentLength(content, getThoughtLimitsDB())
 
   const run = d.transaction(() => {
     const clusterThought = createThought(d, {
