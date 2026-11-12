@@ -12,7 +12,12 @@ import { disposePair } from './in-memory-event-store'
 import type { Context } from 'hono'
 import { createMcpHandler } from '@modelcontextprotocol/server'
 import { createMcpRouteHandler, type Session } from './mcp-route'
-import { bodyTooLargeResponse } from './request-body'
+import {
+  bodyTooLargeResponse,
+  clientAbortResponse,
+  drainRejectedBody,
+  isClientAbort
+} from './request-body'
 
 export type { Session } from './mcp-route'
 
@@ -38,8 +43,11 @@ const MAX_SUBSCRIPTIONS = config.mcp.maxSubscriptions
 export const MAX_REQUEST_BODY_BYTES = 5_242_880
 
 // Unknown errors must never surface as Hono's default non-JSON 500: MCP clients
-// parse JSON-RPC, so respond with a JSON-RPC internal-error envelope.
+// parse JSON-RPC, so respond with a JSON-RPC internal-error envelope. A client
+// that aborts mid-body is not a server fault (the body read rejects while the
+// socket is already gone), so answer the SDK's own parse error and log nothing.
 export function mcpErrorHandler(err: Error, c: Context): Response {
+  if (isClientAbort(err)) return clientAbortResponse()
   console.error('[synaptomind] MCP HTTP unhandled error:', err)
   return c.json(
     { jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null },
@@ -81,13 +89,13 @@ export function startMcpHttpServer(
   )
 
   // Bun settles an in-flight request only once its body is consumed; an early
-  // rejection that leaves the body unread makes server.stop() wait forever.
+  // rejection that leaves the body unread makes server.stop() wait forever. The
+  // drain is bounded and discards the rest, so a rejected upload cannot buy
+  // unbounded buffering or an arbitrarily late 4xx.
   app.use('/mcp', async (c, next) => {
     await next()
     if (c.req.method !== 'POST' || c.res.status < 400 || c.req.raw.bodyUsed) return
-    try {
-      await c.req.raw.arrayBuffer()
-    } catch {}
+    await drainRejectedBody(c.req.raw)
   })
 
   app.use('/mcp', authMiddleware)
