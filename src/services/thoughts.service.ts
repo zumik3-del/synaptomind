@@ -63,7 +63,7 @@ export function createThoughtWithParentService(
     return thought
   })
   const thought = create()
-  return { ...thought, content_language: config.contentLanguage } as Thought
+  return { ...thought, content_language: config.contentLanguage }
 }
 
 export function updateThoughtByIdService(
@@ -97,7 +97,7 @@ export function updateThoughtByIdService(
   })
   const updated = run()
   if (!updated) return null
-  return { ...updated, content_language: config.contentLanguage } as Thought
+  return { ...updated, content_language: config.contentLanguage }
 }
 
 export function archiveThoughtByIdService(id: string, d: Database = getDb()): Thought | null {

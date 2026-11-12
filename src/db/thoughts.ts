@@ -34,6 +34,11 @@ export interface Thought {
   archived_at: string | null
   /** Pending surfacing delay; NULL means immediately eligible. */
   surface_after: string | null
+  /**
+   * Configured content language. Not a stored column: the write services set it
+   * (issue #98), and `rowToThought` maps it only when a query projects it.
+   */
+  content_language?: string
 }
 
 export interface CreateThoughtInput {
@@ -79,7 +84,7 @@ export interface ListThoughtsOptions extends ThoughtListFilters {
 export const THOUGHTS_PAGE_LIMIT_DEFAULT = 50
 
 export function rowToThought(row: Record<string, unknown>): Thought {
-  return {
+  const thought: Thought = {
     id: row.id as string,
     content: row.content as string,
     status: row.status as string,
@@ -95,6 +100,8 @@ export function rowToThought(row: Record<string, unknown>): Thought {
     archived_at: (row.archived_at as string) ?? null,
     surface_after: (row.surface_after as string) ?? null
   }
+  if (typeof row.content_language === 'string') thought.content_language = row.content_language
+  return thought
 }
 
 const THOUGHT_BASE_SELECT =
