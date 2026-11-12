@@ -7,7 +7,7 @@ import { generateEmbeddings, resetExtractor } from './model'
 import { ensureModelFiles } from './model-validator'
 import {
   CONTENT_CHANGED_REASON,
-  deleteFromQueue,
+  deleteEmbeddedFromQueue,
   findPendingEmbeddings,
   handleFailedItem,
   hasPendingEmbeddings,
@@ -136,7 +136,13 @@ async function processOneDb(idx: number): Promise<boolean> {
 
     for (const f of failed) handleFailedItem(db, f.id, f.error)
     for (const id of contentChanged) handleFailedItem(db, id, CONTENT_CHANGED_REASON)
-    if (succeeded.length > 0) deleteFromQueue(db, succeeded)
+    if (succeeded.length > 0) {
+      const stored = new Set(succeeded)
+      deleteEmbeddedFromQueue(
+        db,
+        rows.filter(r => stored.has(r.id))
+      )
+    }
 
     if (failed.length > 0 && succeeded.length > 0) {
       insertLog(

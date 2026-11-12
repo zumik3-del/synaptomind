@@ -78,7 +78,7 @@ mock.module('../db/pending-embeddings', () => ({
     writes.push({ db: idOf(db), row })
     return true
   },
-  deleteFromQueue: () => {},
+  deleteEmbeddedFromQueue: () => {},
   handleFailedItem: () => {},
   hasPendingEmbeddings: () => true,
   requeueEmbeddings: () => {},

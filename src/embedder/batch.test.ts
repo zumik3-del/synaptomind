@@ -12,6 +12,7 @@ import {
 } from './batch'
 import {
   CONTENT_CHANGED_REASON,
+  deleteEmbeddedFromQueue,
   deleteFromQueue,
   findPendingEmbeddings,
   handleFailedItem,
@@ -225,8 +226,9 @@ function midBatchFixture(): { id: string; oldHash: string; newHash: string; rows
 }
 
 /**
- * The shipped batch composition (`embedder-process.ts:81-89`) driven with the
- * real classifier, the real `insertEmbedding` and the real `deleteFromQueue`.
+ * The shipped batch composition (`embedder-process.ts` `processOneDb`) driven
+ * with the real classifier, the real `insertEmbedding` and the real
+ * `deleteEmbeddedFromQueue`.
  *
  * `embedder-process.ts` cannot be imported: it is a side-effect module (it calls
  * `initDb()`, validates the model and starts the poll worker on import). The loop
@@ -244,7 +246,13 @@ function runBatchComposition(rows: EmbeddingRow[], embeddings: Float32Array[]): 
 
   for (const f of failed) handleFailedItem(db, f.id, f.error)
   for (const id of contentChanged) handleFailedItem(db, id, CONTENT_CHANGED_REASON)
-  if (succeeded.length > 0) deleteFromQueue(db, succeeded)
+  if (succeeded.length > 0) {
+    const stored = new Set(succeeded)
+    deleteEmbeddedFromQueue(
+      db,
+      rows.filter(r => stored.has(r.id))
+    )
+  }
 
   return { succeeded, failed, contentChanged }
 }
