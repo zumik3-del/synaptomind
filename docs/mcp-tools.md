@@ -571,8 +571,28 @@ observed in the measurement while dropping 2 of 200 self-relevant top-1 hits.
   over-fetched so gated rows are backfilled. Drops appear as `counts.filtered_out`, not as a
   `reason`.
 
-`degraded: true` means a leg of the search was unavailable (for example the embedder is down); the
-answer is still the best available one.
+`degraded: true` means the answer was produced under a known loss and must not be read as complete
+truth; it is still the best available answer. A search reports it for three distinct reasons:
+
+- **A leg was unavailable** — the embedder failed or timed out, so the query ran without a vector
+  leg (and on the hybrid path fell back to BM25), or the vector/BM25 query raised
+  (`src/services/search.service.ts:25-46`, `src/db/search.ts:85-91`,
+  `src/db/search.ts:134-142`).
+- **A filtered vector leg was cut short by the candidate pool** — status, cluster and importance
+  are post-KNN filters, so the leg can deliver fewer rows than the width it requested while the
+  scoped filters match more embedded thoughts than it delivered (`countFilteredVectors`,
+  `src/db/search-vector.ts:18`; the comparison is `src/db/search.ts:96-102`).
+- **The addressed project was shut out of a full answer** — no delivered row belongs to that
+  project, yet the project has embedded rows matching the same residual filters, because nearer
+  `__global__` rows consumed the whole partition walk (`addressedProjectShutOut`,
+  `src/db/search-vector.ts:78`; `src/db/search.ts:107-113`).
+
+The third case is why a project-scoped answer that contains no row of the addressed project while
+that project has matching embedded rows comes back `degraded: true`: it is reported as a degraded
+answer, not as a quietly short or empty list that would read as "this project has nothing to say".
+An answer carrying at least one row of the addressed project is not degraded for that reason, and
+a project with no matching embedded row is a genuine short or empty answer — as long as no leg
+failed.
 
 ### `action=get`
 
