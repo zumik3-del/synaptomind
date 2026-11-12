@@ -1,11 +1,11 @@
 import type { Database } from 'bun:sqlite'
 import { DEFAULTS } from '../config'
 import { bm25ScoredIds, bm25ScoredIdsFiltered } from './search-bm25'
-import { buildFilterSQL } from './search-filters'
+import { buildFilterSQL, buildResidualFilterSQL, buildVecScopeSQL } from './search-filters'
 import { FALLBACK_RECENCY_HALF_LIFE_DAYS, fetchThoughtsByIds } from './search-hydrate'
 import { RRF_K, rrfMerge } from './search-rrf'
 import type { SearchOptions, SearchResult } from './search-types'
-import { vecSearchIds } from './search-vector'
+import { addressedProjectShutOut, countFilteredVectors, vecSearchIds } from './search-vector'
 
 export type { SearchResult } from './search-types'
 export { bm25SearchIds } from './search-bm25'
@@ -26,7 +26,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     clusterFilter,
     minImportance
   } = options
-  const pool = Math.min(CANDIDATE_POOL_MAX, Math.max(topK * CANDIDATE_POOL_MULTIPLIER, topK))
 
   // Defensive normalisation (the service clamps first): a non-positive or
   // non-finite weight disables the boost; a non-positive/non-finite half-life
@@ -57,21 +56,60 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
       ? options.confidenceFloor
       : DEFAULTS.search.confidence.vectorFloor
 
-  const { sql: filterSql, params: filterParams } = buildFilterSQL({
+  const filter = buildFilterSQL({
     statusFilter,
     projectFilter,
     clusterFilter,
     minImportance
   })
+  const scope = buildVecScopeSQL({ projectFilter })
+  const residual = buildResidualFilterSQL({ statusFilter, clusterFilter, minImportance })
+  const filterSql = filter.sql
+
+  // A filtered vec0 leg ranks inside the addressed partition (`v.scope IN
+  // (project, '__global__')`, ADR 2026-11-12), so `pool` is a width *within* the
+  // project rather than a slice of the whole corpus: the cap no longer decides
+  // whether a small project's answers are reachable (#2478 measured 0.000 past
+  // the foreign-row count). Any residual filter keeps the whole cap — status,
+  // cluster and importance are still post-KNN filters and can starve within the
+  // project — while the unfiltered path keeps the topK-derived width and its
+  // lower cost.
+  const unfilteredPool = Math.min(
+    CANDIDATE_POOL_MAX,
+    Math.max(topK * CANDIDATE_POOL_MULTIPLIER, topK)
+  )
+  const pool = filterSql ? CANDIDATE_POOL_MAX : unfilteredPool
 
   let degraded = false
   let vecIds: Array<{ id: string; distance: number }> = []
   if (embedding.length > 0) {
     try {
-      vecIds = vecSearchIds(db, embedding, pool, filterSql, filterParams, topK, true)
+      vecIds = vecSearchIds(db, embedding, pool, scope, filter, topK, true)
     } catch {
       degraded = true
       vecIds = []
+    }
+    // A short filtered leg is only "no such thought" when the filter matches no
+    // more embedded rows than the pool delivered; when it matches more, the
+    // cutoff starved the leg (a small project behind >cap nearer foreign rows)
+    // and the answer must say so instead of reading as an empty project.
+    if (filterSql && vecIds.length < topK) {
+      try {
+        if (countFilteredVectors(db, scope, residual) > vecIds.length) degraded = true
+      } catch {
+        degraded = true
+      }
+    }
+    // That count cannot see the opposite failure: a *full* topK of `__global__`
+    // rows whose pool the project's own rows never entered. The project is then
+    // absent from an answer that claims to be project-scoped, so probe the
+    // project itself (ADR 2026-11-12 §7.4).
+    if (projectFilter) {
+      try {
+        if (addressedProjectShutOut(db, projectFilter, residual, vecIds)) degraded = true
+      } catch {
+        degraded = true
+      }
     }
   }
   const vecSimById = new Map(vecIds.map(v => [v.id, 1 - v.distance]))
@@ -96,7 +134,7 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
   let bm25Scored: ReturnType<typeof bm25ScoredIds> = []
   try {
     bm25Scored = filterSql
-      ? bm25ScoredIdsFiltered(db, query, pool, filterSql, filterParams, true)
+      ? bm25ScoredIdsFiltered(db, query, pool, filter.sql, filter.params, true)
       : bm25ScoredIds(db, query, pool, true)
   } catch {
     degraded = true

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { config } from '../config'
 import { getDb } from '../db'
-import { getThoughtLimits } from '../db/settings'
+import { getThoughtLimitsDB } from '../db/settings'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError, ThoughtContentConflictError, ValidationError } from '../errors'
 import {
@@ -18,6 +18,7 @@ import { validateContentLength } from '../validation'
 // The thought limits are config-only since task #2201.
 const originalSoftLimit = config.thoughts.softLimit
 const originalHardLimitBufferPercent = config.thoughts.hardLimitBufferPercent
+const originalContentLanguage = config.contentLanguage
 
 beforeEach(createTestDb)
 afterEach(() => {
@@ -25,6 +26,7 @@ afterEach(() => {
   closeDb()
   config.thoughts.softLimit = originalSoftLimit
   config.thoughts.hardLimitBufferPercent = originalHardLimitBufferPercent
+  config.contentLanguage = originalContentLanguage
 })
 
 test('getThoughtByIdService returns thought', () => {
@@ -43,7 +45,7 @@ test('createThoughtWithParentService creates thought without parent', () => {
   expect(t.id).toBeString()
   expect(t.content).toBe('test thought')
   expect(t.tags).toHaveLength(1)
-  expect((t as unknown as Record<string, unknown>).content_language).toBe('en')
+  expect(t.content_language).toBe(config.contentLanguage)
 })
 
 test('createThoughtWithParentService creates thought with parent edge', () => {
@@ -68,12 +70,40 @@ test('createThoughtWithParentService rejects content over hard limit', () => {
   expect(() => createThoughtWithParentService({ content: longContent })).toThrow(ValidationError)
 })
 
+test('createThoughtWithParentService stamps content_language from config', () => {
+  config.contentLanguage = 'ru'
+  const t = createThoughtWithParentService({ content: 'language probe' })
+  expect(Object.hasOwn(t, 'content_language')).toBeTrue()
+  expect(t.content_language).toBe('ru')
+})
+
 test('updateThoughtByIdService updates content', () => {
   const id = seedThought()
   const updated = updateThoughtByIdService(id, { content: 'updated' })
   expect(updated).not.toBeNull()
   expect(updated!.content).toBe('updated')
-  expect((updated! as unknown as Record<string, unknown>).content_language).toBe('en')
+  expect(updated!.content_language).toBe(config.contentLanguage)
+})
+
+test('updateThoughtByIdService stamps content_language from config', () => {
+  const id = seedThought()
+  config.contentLanguage = 'ru'
+  const updated = updateThoughtByIdService(id, { content: 'language probe' })
+  expect(Object.hasOwn(updated!, 'content_language')).toBeTrue()
+  expect(updated!.content_language).toBe('ru')
+})
+
+test('read paths do not own content_language', () => {
+  config.contentLanguage = 'ru'
+  const id = seedThought({ content: 'read probe' })
+
+  const read = getThoughtByIdService(id)
+  expect(Object.hasOwn(read!, 'content_language')).toBeFalse()
+  expect(read!.content_language).toBeUndefined()
+
+  const listed = listThoughtsPageService().thoughts.find(t => t.id === id)
+  expect(listed).toBeDefined()
+  expect(Object.hasOwn(listed!, 'content_language')).toBeFalse()
 })
 
 test('updateThoughtByIdService returns null for unknown id', () => {
@@ -183,7 +213,7 @@ test('createThoughtWithUrlLinksService creates thought with links', () => {
 })
 
 test('validateContentLength does not throw under soft limit', () => {
-  expect(() => validateContentLength('short', getThoughtLimits(getDb()))).not.toThrow()
+  expect(() => validateContentLength('short', getThoughtLimitsDB())).not.toThrow()
 })
 
 // ── Padded hard-limit boundary (issue #123) ─────────────────────────────────
@@ -191,7 +221,7 @@ test('validateContentLength does not throw under soft limit', () => {
 test('createThoughtWithParentService accepts content exactly at the derived hard limit', () => {
   config.thoughts.softLimit = 10 // soft 10 -> hard 15
   config.thoughts.hardLimitBufferPercent = 50
-  const { hardLimit } = getThoughtLimits(getDb())
+  const { hardLimit } = getThoughtLimitsDB()
   expect(hardLimit).toBe(15)
 
   const thought = createThoughtWithParentService({ content: 'x'.repeat(hardLimit) })
@@ -201,7 +231,7 @@ test('createThoughtWithParentService accepts content exactly at the derived hard
 test('createThoughtWithParentService rejects content one char over the derived hard limit', () => {
   config.thoughts.softLimit = 10 // soft 10 -> hard 15
   config.thoughts.hardLimitBufferPercent = 50
-  const { hardLimit } = getThoughtLimits(getDb())
+  const { hardLimit } = getThoughtLimitsDB()
 
   expect(() => createThoughtWithParentService({ content: 'x'.repeat(hardLimit + 1) })).toThrow(
     ValidationError
@@ -211,7 +241,7 @@ test('createThoughtWithParentService rejects content one char over the derived h
 test('content between soft and hard limit is accepted (soft limit is advisory)', () => {
   config.thoughts.softLimit = 10 // soft 10 -> hard 15
   config.thoughts.hardLimitBufferPercent = 50
-  const { softLimit, hardLimit } = getThoughtLimits(getDb())
+  const { softLimit, hardLimit } = getThoughtLimitsDB()
   const middle = softLimit + 1
   expect(middle).toBeGreaterThan(softLimit)
   expect(middle).toBeLessThan(hardLimit)
@@ -223,7 +253,7 @@ test('updateThoughtByIdService enforces the derived hard limit and accepts the e
   const id = seedThought({ content: 'short' })
   config.thoughts.softLimit = 10 // soft 10 -> hard 15
   config.thoughts.hardLimitBufferPercent = 50
-  const { hardLimit } = getThoughtLimits(getDb())
+  const { hardLimit } = getThoughtLimitsDB()
 
   expect(() => updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(
     ValidationError

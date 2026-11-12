@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { createTestDb, seedThought } from '../test/helpers'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { ThoughtContentConflictError } from './errors'
 import { closeDb } from './init'
 import {
@@ -17,6 +17,7 @@ import {
   deleteThought,
   getThought,
   listThoughts,
+  rowToThought,
   updateThought
 } from './thoughts'
 
@@ -52,6 +53,32 @@ test('schema has no denormalized thoughts.tags column (issue #152)', () => {
   )
   expect(cols).not.toContain('tags')
   expect(cols).toContain('content')
+  expect(cols).not.toContain('content_language')
+})
+
+function thoughtsRow(content: string): Record<string, unknown> {
+  const db = getDb()
+  const created = createThought(db, { content })
+  return db.prepare('SELECT * FROM thoughts WHERE id = ?').get(created.id) as Record<
+    string,
+    unknown
+  >
+}
+
+test('rowToThought maps content_language when the row projects it', () => {
+  const thought = rowToThought({ ...thoughtsRow('projected language'), content_language: 'ru' })
+  expect(Object.hasOwn(thought, 'content_language')).toBeTrue()
+  expect(thought.content_language).toBe('ru')
+})
+
+test('rowToThought adds no content_language key when the row does not project it', () => {
+  const thought = rowToThought(thoughtsRow('unprojected language'))
+  expect(Object.hasOwn(thought, 'content_language')).toBeFalse()
+})
+
+test('rowToThought adds no content_language key for a projected NULL', () => {
+  const thought = rowToThought({ ...thoughtsRow('null language'), content_language: null })
+  expect(Object.hasOwn(thought, 'content_language')).toBeFalse()
 })
 
 test('getThought returns thought by id', () => {
@@ -495,7 +522,9 @@ test('decayImportance skips recent last_decay', () => {
  * precondition assertion below proves the row under test really exists.
  */
 function seedVecTable(db: Database): void {
-  db.prepare(`CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)`).run()
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB, scope TEXT)`
+  ).run()
 }
 
 test('deleteThought removes the thought, its vec row and its orphan tag', () => {
@@ -504,8 +533,14 @@ test('deleteThought removes the thought, its vec row and its orphan tag', () => 
   const doomed = seedThought({ content: 'doomed thought', tags: '["orphan-tag-unique"]' })
   const keeper = seedThought({ content: 'keeper thought', tags: '["shared-tag"]' })
   const alsoKeeper = seedThought({ content: 'another keeper', tags: '["shared-tag"]' })
-  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(doomed, Buffer.alloc(0))
-  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(keeper, Buffer.alloc(0))
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+    doomed,
+    Buffer.alloc(0)
+  )
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+    keeper,
+    Buffer.alloc(0)
+  )
 
   // Precondition: the row this test deletes is really there.
   expect(db.prepare(`SELECT 1 FROM vec_thoughts WHERE id = ?`).get(doomed)).not.toBeNull()

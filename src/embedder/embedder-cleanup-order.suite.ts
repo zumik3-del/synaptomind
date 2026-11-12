@@ -3,7 +3,7 @@ import { afterAll, expect, mock, test } from 'bun:test'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 
 const MODE = process.env.SYNAPTOMIND_CLEANUP_MODE ?? 'legacy-idle'
 const MULTI = MODE.startsWith('multi-')
@@ -60,8 +60,9 @@ mock.module('../db/pending-embeddings', () => ({
   CONTENT_CHANGED_REASON: 'changed',
   findPendingEmbeddings: () => [],
   insertEmbedding: () => true,
-  deleteFromQueue: () => {},
+  deleteEmbeddedFromQueue: () => {},
   handleFailedItem: () => {},
+  hasPendingEmbeddings: () => true,
   requeueEmbeddings: () => {},
   sweepOrphanedThoughts: () => []
 }))

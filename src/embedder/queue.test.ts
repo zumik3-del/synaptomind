@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { closeDb } from '../db/init'
 import { createTestDb, seedThought } from '../test/helpers'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import {
   MAX_ATTEMPTS,
+  deleteEmbeddedFromQueue,
   deleteFromQueue,
   findPendingEmbeddings,
   handleFailedItem,
+  hasPendingEmbeddings,
   insertEmbedding,
   sweepOrphanedThoughts
 } from '../db/pending-embeddings'
@@ -16,7 +18,9 @@ beforeEach(() => {
   // vec_thoughts is a vec0 virtual table — unavailable in :memory: databases.
   // Stub it as a plain table like the verify/health-check tests do.
   getDb()
-    .prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)')
+    .prepare(
+      'CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB, scope TEXT)'
+    )
     .run()
 })
 
@@ -77,6 +81,25 @@ test('findPendingEmbeddings skips dead-lettered rows and respects the limit', ()
   expect(findPendingEmbeddings(db, 1).map(p => p.id)).toEqual([a])
 })
 
+test('hasPendingEmbeddings is true only while a retryable row is queued (#2468)', () => {
+  const db = getDb()
+  const live = seedThought({ content: 'live' })
+  const dead = seedThought({ content: 'dead letter' })
+  enqueue(live, '2026-01-01T00:00:00.000Z')
+  enqueue(dead, '2026-01-02T00:00:00.000Z')
+  getDb().prepare('UPDATE pending_embeddings SET is_error = 1 WHERE thought_id = ?').run(dead)
+
+  expect(hasPendingEmbeddings(db)).toBe(true)
+
+  // Dead letters leave the poll loop until an opt-in reset, so a poison row must
+  // not keep the orphan sweep disabled — the tick guard is about real work.
+  db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(live)
+  expect(hasPendingEmbeddings(db)).toBe(false)
+
+  db.prepare('DELETE FROM pending_embeddings').run()
+  expect(hasPendingEmbeddings(db)).toBe(false)
+})
+
 test('sweepOrphanedThoughts returns only thoughts with no vec row and no pending row', () => {
   const db = getDb()
   const orphan = seedThought({ content: 'orphan' })
@@ -88,7 +111,7 @@ test('sweepOrphanedThoughts returns only thoughts with no vec row and no pending
     // the insert trigger queued every seeded thought — clear non-orphans
     db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(id)
   }
-  db.prepare('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)').run(
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
     embedded,
     Buffer.alloc(0)
   )
@@ -219,4 +242,72 @@ test('deleteFromQueue removes only the given rows', () => {
 
 test('deleteFromQueue tolerates an empty id list', () => {
   expect(() => deleteFromQueue(getDb(), [])).not.toThrow()
+})
+
+// ── the hash-guarded retire step (#2471, audit F8) ───────────────────────────
+//
+// A batch retires its rows at the very END — long after `insertEmbedding`
+// checked the hash — so by then the v035 trigger may have replaced the queue
+// row under a NEW hash. `deleteEmbeddedFromQueue` therefore drops a row only
+// while `thoughts.content_hash` still equals the hash the vector was built from.
+// These are the DB-seam pins of that guard: no `Database` mock anywhere.
+
+function setContent(id: string, content: string, contentHash: string): void {
+  getDb()
+    .prepare('UPDATE thoughts SET content = ?, content_hash = ? WHERE id = ?')
+    .run(content, contentHash, id)
+}
+
+function queued(id: string): boolean {
+  return getDb().prepare('SELECT 1 FROM pending_embeddings WHERE thought_id = ?').get(id) !== null
+}
+
+test('deleteEmbeddedFromQueue retires a row whose content hash still matches', () => {
+  const db = getDb()
+  const id = seedThought({ content: 'stable' })
+  setContent(id, 'stable', 'hash-a')
+
+  deleteEmbeddedFromQueue(db, [{ id, contentHash: 'hash-a' }])
+
+  expect(queued(id)).toBeFalse()
+})
+
+test('deleteEmbeddedFromQueue keeps a row whose content already changed, so the next poll re-embeds it', () => {
+  const db = getDb()
+  const id = seedThought({ content: 'old' })
+  // The batch read the row at hash-old; the trigger has since replaced the queue
+  // row under hash-new. Retiring by id alone would drop that fresh row forever.
+  setContent(id, 'new', 'hash-new')
+
+  deleteEmbeddedFromQueue(db, [{ id, contentHash: 'hash-old' }])
+
+  expect(queued(id)).toBeTrue()
+  // NOT stranded: the surviving row is what hands the update to the next poll.
+  expect(findPendingEmbeddings(db, 10)).toContainEqual({
+    id,
+    content: 'new',
+    contentHash: 'hash-new'
+  })
+})
+
+test('deleteEmbeddedFromQueue judges every row on its own hash', () => {
+  const db = getDb()
+  const fresh = seedThought({ content: 'fresh' })
+  const stale = seedThought({ content: 'stale' })
+  // Distinct hashes: the v046 content-dedupe index forbids two live thoughts
+  // sharing one (content_hash, project) pair.
+  setContent(fresh, 'fresh', 'hash-fresh')
+  setContent(stale, 'stale', 'hash-stale')
+
+  deleteEmbeddedFromQueue(db, [
+    { id: fresh, contentHash: 'hash-fresh' },
+    { id: stale, contentHash: 'hash-batch-read' }
+  ])
+
+  expect(queued(fresh)).toBeFalse()
+  expect(queued(stale)).toBeTrue()
+})
+
+test('deleteEmbeddedFromQueue tolerates an empty row list', () => {
+  expect(() => deleteEmbeddedFromQueue(getDb(), [])).not.toThrow()
 })

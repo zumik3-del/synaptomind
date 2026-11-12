@@ -81,10 +81,3 @@ export function startPlacementRetentionJob(): void {
 export function stopPlacementRetentionJob(): void {
   job.stop()
 }
-
-// Aliases for tests / callers that want to drive a single tick directly.
-export const runPlacementRetentionSweep = sweepAll
-export const runPlacementRetentionTick = sweepAll
-export const runPlacementRetentionJob = sweepAll
-export const runPlacementRetentionJobs = sweepAll
-export const runPlacementRetentionAll = sweepAll

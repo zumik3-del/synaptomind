@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb, initDb } from './init'
 import {
   getProposal,
@@ -58,7 +58,7 @@ test('v041: schema_version is 41 after fresh init', () => {
   const row = db.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
     | { value: string }
     | undefined
-  expect(row?.value).toBe('47')
+  expect(row?.value).toBe('48')
 })
 
 // ── v041 migration: idempotent re-run ────────────────────────────────────────
@@ -69,7 +69,7 @@ test('v041: re-running init on same in-memory DB is idempotent', () => {
   const before = db.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
     | { value: string }
     | undefined
-  expect(before?.value).toBe('47')
+  expect(before?.value).toBe('48')
 
   // Re-initialize with the same :memory: path — this should not throw
   // and should leave schema intact.
@@ -78,7 +78,7 @@ test('v041: re-running init on same in-memory DB is idempotent', () => {
   const after = db2.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
     | { value: string }
     | undefined
-  expect(after?.value).toBe('47')
+  expect(after?.value).toBe('48')
 
   // run_id column still present
   const cols = db2.prepare(`PRAGMA table_info(placement_proposals)`).all() as { name: string }[]

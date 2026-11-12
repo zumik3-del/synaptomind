@@ -8,7 +8,7 @@ import {
   isValidEdgeType,
   retypeEdge
 } from './edges'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb } from './init'
 import { getThoughtImportance } from './importance'
 

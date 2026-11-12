@@ -4,15 +4,20 @@ import { serve } from 'bun'
 import { getValidTokens, resolveUser, type UserRef } from '../auth'
 import { config } from '../config'
 import { authMiddleware } from '../middleware/auth'
-import { als, getDb, getUserDb } from '../db/container'
+import { als, getDb, getUserDb } from '../context/container'
 import type { Database } from 'bun:sqlite'
-import { mcpRateLimitMiddleware } from '../middleware/rate-limit'
+import { createRateLimitMiddleware } from '../middleware/rate-limit'
 import { createMcpServer } from './server'
 import { disposePair } from './in-memory-event-store'
 import type { Context } from 'hono'
 import { createMcpHandler } from '@modelcontextprotocol/server'
 import { createMcpRouteHandler, type Session } from './mcp-route'
-import { bodyTooLargeResponse } from './request-body'
+import {
+  bodyTooLargeResponse,
+  clientAbortResponse,
+  drainRejectedBody,
+  isClientAbort
+} from './request-body'
 
 export type { Session } from './mcp-route'
 
@@ -38,8 +43,11 @@ const MAX_SUBSCRIPTIONS = config.mcp.maxSubscriptions
 export const MAX_REQUEST_BODY_BYTES = 5_242_880
 
 // Unknown errors must never surface as Hono's default non-JSON 500: MCP clients
-// parse JSON-RPC, so respond with a JSON-RPC internal-error envelope.
+// parse JSON-RPC, so respond with a JSON-RPC internal-error envelope. A client
+// that aborts mid-body is not a server fault (the body read rejects while the
+// socket is already gone), so answer the SDK's own parse error and log nothing.
 export function mcpErrorHandler(err: Error, c: Context): Response {
+  if (isClientAbort(err)) return clientAbortResponse()
   console.error('[synaptomind] MCP HTTP unhandled error:', err)
   return c.json(
     { jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null },
@@ -54,6 +62,9 @@ export function startMcpHttpServer(
 ): McpHttpHandle {
   const app = new Hono()
   const sessions = new Map<string, Session>()
+  // Per-server limiter: a second MCP server in the same process (each test file
+  // starts its own) keeps its own quota.
+  const rateLimit = createRateLimitMiddleware()
 
   getValidTokens()
 
@@ -80,14 +91,17 @@ export function startMcpHttpServer(
     })
   )
 
-  // Bun settles an in-flight request only once its body is consumed; an early
-  // rejection that leaves the body unread makes server.stop() wait forever.
+  // Bun settles an in-flight request only once its body reaches the end; an early
+  // rejection that leaves the body unread makes server.stop() wait forever. The
+  // drain is bounded and discards the rest, so a rejected upload cannot buy
+  // unbounded buffering or an arbitrarily late 4xx.
   app.use('/mcp', async (c, next) => {
     await next()
     if (c.req.method !== 'POST' || c.res.status < 400 || c.req.raw.bodyUsed) return
-    try {
-      await c.req.raw.arrayBuffer()
-    } catch {}
+    const outcome = await drainRejectedBody(c.req.raw)
+    // A cancelled body does not settle the request, so the only way to let
+    // server.stop() through is to end the connection with the answer (#2464).
+    if (outcome === 'abandoned') c.header('Connection', 'close')
   })
 
   app.use('/mcp', authMiddleware)
@@ -123,7 +137,7 @@ export function startMcpHttpServer(
     return als.run({ userId: ref.userId, db: db as Database }, next)
   })
 
-  app.use('/mcp', mcpRateLimitMiddleware)
+  app.use('/mcp', rateLimit)
 
   app.use('/mcp', async (c, next) => {
     const contentLength = parseInt(c.req.header('content-length') || '0', 10)

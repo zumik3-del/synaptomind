@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createTestDb, seedThought, withVecDb } from '../test/helpers'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb } from './init'
 import { getPendingEmbeddingIds, getThoughtEmbeddingsBatch } from './embeddings'
 
@@ -18,7 +18,7 @@ function vec384(values: number[] = []): Float32Array {
 /** Store one raw vector in vec_thoughts (file-backed DB / vec0 only). */
 function insertVec(id: string, vector: Float32Array): void {
   getDb()
-    .prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`)
+    .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
     .run(id, Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength))
 }
 

@@ -1,5 +1,5 @@
 export {
-  closeLogDb,
+  closeLogging,
   insertLog,
   Logger,
   StreamSink,

@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { openDatabase } from '../db/init'
-import { clearDb, clearRegistry, register } from '../db/container'
+import { clearDb, clearRegistry, register } from '../context/container'
 import { config, hashUserToken } from '../config'
 import { upsertSlot } from '../db/slots'
 

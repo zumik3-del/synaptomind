@@ -38,7 +38,7 @@ export function createThoughtWithParentService(
   d: Database = getDb()
 ): Thought {
   validateStatus(data.status)
-  validateContentLength(data.content, getThoughtLimitsDB(d))
+  validateContentLength(data.content, getThoughtLimitsDB())
   const create = d.transaction(() => {
     const thought = dbCreateThought(d, data)
     if (parentId) {
@@ -63,7 +63,7 @@ export function createThoughtWithParentService(
     return thought
   })
   const thought = create()
-  return { ...thought, content_language: config.contentLanguage } as Thought
+  return { ...thought, content_language: config.contentLanguage }
 }
 
 export function updateThoughtByIdService(
@@ -73,7 +73,7 @@ export function updateThoughtByIdService(
 ): Thought | null {
   validateStatus(data.status)
   if (data.content !== undefined) {
-    validateContentLength(data.content, getThoughtLimitsDB(d), id)
+    validateContentLength(data.content, getThoughtLimitsDB(), id)
   }
   if (data.surface_after !== undefined && data.surface_after !== null) {
     if (
@@ -97,7 +97,7 @@ export function updateThoughtByIdService(
   })
   const updated = run()
   if (!updated) return null
-  return { ...updated, content_language: config.contentLanguage } as Thought
+  return { ...updated, content_language: config.contentLanguage }
 }
 
 export function archiveThoughtByIdService(id: string, d: Database = getDb()): Thought | null {

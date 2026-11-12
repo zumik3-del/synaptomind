@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { getDb, registry } from '../db'
+import { getDb, listUserDatabases } from '../context/container'
 
 interface IntervalJobOptions {
   name: string
@@ -15,7 +15,8 @@ interface IntervalJobOptions {
  * Shared by all interval jobs to avoid copy-pasted resolution logic (DRY).
  */
 export function jobDatabases(): Database[] {
-  if (registry.size > 0) return [...registry.values()]
+  const entries = listUserDatabases()
+  if (entries.length > 0) return entries.map(entry => entry.db)
   try {
     return [getDb()]
   } catch {

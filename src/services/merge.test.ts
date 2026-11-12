@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import { getThoughtRow } from '../db/thoughts'
 import { ValidationError } from '../errors'

@@ -146,6 +146,18 @@ export interface MissingEmbedding {
   content: string
 }
 
+/**
+ * A `vec_thoughts` row whose denormalised partition disagrees with its thought
+ * (ADR 2026-11-12 §5.5). A stale scope is a miss, never a leak — hydration
+ * re-applies the full predicate — so this is a warning, repaired by VEC-MOVE.
+ */
+export interface ScopeMismatch {
+  id: string
+  content: string
+  expected_scope: string
+  actual_scope: string
+}
+
 export interface DeadPrimer {
   thought_id: string
   content: string

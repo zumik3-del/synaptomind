@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from '
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { config } from '../../config'
-import { getDb } from '../../db/container'
+import { getDb } from '../../context/container'
 import { closeDb } from '../../db/init'
 import { getThought } from '../../db/thoughts'
 import { createTestDb, seedThought } from '../../test/helpers'
@@ -483,7 +483,7 @@ describe('memory_recall', () => {
       arguments: { action: 'create', content: 'cluster marker' }
     })
     const { data: cluster } = parseResult(cl)
-    const { getDb } = await import('../../db/container')
+    const { getDb } = await import('../../context/container')
     const db = getDb()
     db.prepare('UPDATE thoughts SET is_cluster = 1 WHERE id = ?').run(cluster.item.id)
 

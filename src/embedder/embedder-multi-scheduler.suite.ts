@@ -52,7 +52,7 @@ mock.module('../db/init', () => ({
     return dbs[dbPath]
   }
 }))
-mock.module('../db/container', () => ({
+mock.module('../context/container', () => ({
   getDb: () => {
     throw new Error('unexpected legacy mode')
   }
@@ -78,8 +78,9 @@ mock.module('../db/pending-embeddings', () => ({
     writes.push({ db: idOf(db), row })
     return true
   },
-  deleteFromQueue: () => {},
+  deleteEmbeddedFromQueue: () => {},
   handleFailedItem: () => {},
+  hasPendingEmbeddings: () => true,
   requeueEmbeddings: () => {},
   sweepOrphanedThoughts: () => []
 }))

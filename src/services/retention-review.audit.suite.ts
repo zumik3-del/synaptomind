@@ -12,7 +12,7 @@ mock.module('../logging/log', () => ({
   insertLog: (...args: [string, string, string, Record<string, unknown>?]) =>
     entries.push({ level: args[0], type: args[1], message: args[2], metadata: args[3] })
 }))
-const { getDb } = await import('../db/container')
+const { getDb } = await import('../context/container')
 const {
   deleteRetentionReviewCandidateService,
   protectRetentionReviewCandidateService,

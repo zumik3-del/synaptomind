@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb } from '../test/helpers'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb } from './init'
 import type { Migration } from './migrations'
 import { MIGRATIONS } from './migrations'
@@ -100,5 +100,5 @@ test('v043: a fresh DB and a v042 -> v043 migrated DB produce the same table set
 })
 
 test('v043: registered as the head migration version', () => {
-  expect(MIGRATIONS.at(-1)?.version).toBe(47)
+  expect(MIGRATIONS.at(-1)?.version).toBe(48)
 })

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { createTestDb, seedThought } from '../test/helpers'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb } from './init'
 import v019 from './migrations/v019-thought-verify'
 import v025 from './migrations/v025-timestamp-normalize'

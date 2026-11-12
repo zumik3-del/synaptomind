@@ -18,6 +18,8 @@ export type EmbedFn = (text: string) => Float32Array | Promise<Float32Array>
 interface QuerySearchOptions {
   recencyWeight?: number
   recencyHalfLifeDays?: number
+  /** `false` runs the vector leg only (see `EvalQuery.hybrid`). */
+  hybrid?: boolean
 }
 
 type Searcher = (
@@ -90,6 +92,7 @@ function baseOptions(
     query,
     topK,
     projectFilter,
+    hybrid: options?.hybrid,
     supersessionMode: 'suppress',
     contradictionMode: 'flag',
     minRelevance: gateValue(gate),

@@ -389,6 +389,57 @@ operator hook reported.
 database file is `/var/lib/synaptomind/synaptomind.db` — there is no `data/`
 under `/var/lib/synaptomind`.
 
+**v048: project-scoped vector index.** The first boot after updating to a
+release that carries v048 copies the whole vector corpus once. A staging copy of
+the embeddings and the rebuilt `vec_thoughts` table coexist inside one migration
+transaction — ≈1.5 KB per row at 384 dimensions, so ~150 MB at 100k rows and
+~1.5 GB at 1M, transiently doubled in the WAL. The migration refuses to start
+when the data filesystem has less than 2 × that staged size free and fails the
+boot with an actionable message (free space and restart) instead of dying
+mid-transaction, so check `df` on the data filesystem before a large upgrade.
+Its rollback is the generic one above — restore the pre-update backup and the
+previous payload: v048 is forward-only and the schema-version guard refuses a
+v48 database from an older binary.
+
+The same migration also makes the server write `vec_thoughts` for the first
+time: moving a thought to another project (or toggling `is_global`) repartitions
+its vector inside the caller's transaction, while the embedder child writes that
+table from its own process. WAL admits one writer, so the child's writes queue
+behind the server's transaction instead of conflicting: they run in autocommit,
+so a write starts its own transaction and consults `busy_timeout`
+(`src/db/pending-embeddings.ts:160-181`, called from
+`src/embedder/embedder-process.ts:104-112`). The one exception is the server's
+own read→write upgrade, the first window below. A move never fails *because of*
+the repartition — the trigger's statements run under the write lock the caller's
+`UPDATE thoughts` already holds, so they add cost (0.25 ms/row in a bulk move)
+but no way to lose the lock (`src/db/v048-vec-move-contention.test.ts` pins this
+both with and without the trigger). Two windows remain; v048 creates neither, it
+only widens the second:
+
+- **A write after a read fails fast, not late.** A deferred transaction whose
+  first statement is a read has no `db.busyTimeout` protection left for the
+  statement that writes: SQLite does not run the busy handler when a read
+  transaction upgrades to a write, so it gets `database is locked`
+  *immediately* if the embedder child holds the write lock at that instant
+  (measured 0.07 ms with a 40 ms timeout). That is the shape of a `content`,
+  `status` or `project_id` change — the pre-check `SELECT` at
+  `src/db/thoughts.ts:256-258` runs before the `UPDATE` at `:280`, inside the
+  deferred transaction at `:207` — and of a tag *merge*, which reads the current
+  tags first (`src/db/tags.ts:34`). Nothing is half-applied and a retry
+  succeeds; this predates v048 and applies to those updates, not only to a
+  project move. A tag *replace* starts with its own write (`src/db/tags.ts:40`,
+  reached from `src/db/thoughts.ts:215-221`), as does an attribute-only edit
+  (`is_protected`, `is_global`, `archived_at`, …): those consult `busy_timeout`
+  and wait instead of failing at once.
+- **A bulk move is the one long write window.** Deleting a project reassigns
+  every one of its thoughts in a single transaction, at ≈0.25 ms/row measured on
+  this host at 384 dimensions: ~6 ms for a single move, ~1.2 s at 5 000 rows, and
+  the default `busy_timeout` of 5 000 ms is reached at ~20 000 rows. The child's
+  own writes wait out that window and are unaffected below it; above it they fail
+  and are retried, and ten consecutive failures dead-letter a row until an opt-in
+  `embedder.resetDeadLetters` reset. Raise `db.busyTimeout`
+  (`SYNAPTOMIND_DB_BUSY_TIMEOUT`) before deleting a project that large.
+
 ### Logging
 
 Application logs now route to stdout/stderr (info/debug to stdout, warning/error

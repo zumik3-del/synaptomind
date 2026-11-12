@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { config } from '../config'
-import { clearRegistry, getDb, register } from '../db/container'
+import { clearRegistry, getDb, register } from '../context/container'
 import { closeDb } from '../db/init'
 import { clearHealthProbeCache } from '../services/health.service'
 import { createTestDb } from '../test/helpers'

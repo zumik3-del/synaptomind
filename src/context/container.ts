@@ -1,13 +1,18 @@
+// The connection context: process-wide handle registry plus the async-local
+// per-request binding. Infrastructure, not persistence — db query modules never
+// import it, adapters (mcp, middleware, the entry point) may. The map itself
+// stays private; consumers go through the accessors below.
+
 import type { Database } from 'bun:sqlite'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { config } from '../config'
-
-export const registry: Map<string, Database> = new Map()
 
 export interface UserContext {
   userId: string
   db: Database
 }
+
+const registry: Map<string, Database> = new Map()
 
 export const als: AsyncLocalStorage<UserContext> = new AsyncLocalStorage<UserContext>()
 
@@ -36,12 +41,20 @@ export function clearRegistry(): void {
   registry.clear()
 }
 
+export function registrySize(): number {
+  return registry.size
+}
+
 export function getUserDb(userId: string): Database | undefined {
   return registry.get(userId)
 }
 
 export function listRegisteredUsers(): string[] {
   return [...registry.keys()]
+}
+
+export function listUserDatabases(): Array<{ userId: string; db: Database }> {
+  return [...registry.entries()].map(([userId, db]) => ({ userId, db }))
 }
 
 export function setDb(database: Database): void {

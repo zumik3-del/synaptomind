@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { createEdge } from '../db/edges'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import { bm25SearchIds, type SearchResult } from '../db/search'
 import type { GraphStanding } from '../db/graph-annotations'

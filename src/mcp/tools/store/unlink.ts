@@ -1,41 +1,28 @@
 import { z } from 'zod/v4'
 import { deleteEdgeService, findEdgeService } from '../../../services/edges.service'
-import {
-  createPreviewTokenService,
-  consumePreviewTokenService
-} from '../../../services/preview-tokens.service'
+import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.service'
 import { itemEnvelope } from '../envelope'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
-
-function edgeFingerprint(edge: {
-  id: string
-  source_id: string
-  target_id: string
-  type: string
-  created_at: string
-}): string {
-  return `${edge.id}:${edge.source_id}:${edge.target_id}:${edge.type}:${edge.created_at}`
-}
 
 export const unlinkHandler: ActionHandler = {
   input: z.object({
     edge_id: requiredString('edge_id is required for unlink action'),
     preview_token: z.string().optional()
   }),
-  run(args: ActionArgs) {
+  async run(args: ActionArgs) {
     const edgeId = args.edge_id as string
-    const confirm = args.confirm === true
-    const previewToken = args.preview_token as string | undefined
+    const edge = findEdgeService(edgeId)
+    if (!edge) return itemEnvelope('unlink', { status: 'not_found', edge_id: edgeId })
 
-    if (!confirm) {
-      const edge = findEdgeService(edgeId)
-      if (!edge) return itemEnvelope('unlink', { status: 'not_found', edge_id: edgeId })
-      const token = createPreviewTokenService('unlink', edgeId, edgeFingerprint(edge))
-      const consequence = `Removes the '${edge.type}' edge between '${edge.source_id}' and '${edge.target_id}'.`
-      const instruction = `Call memory_store again with action=unlink, edge_id=${edgeId}, confirm=true to proceed.`
-      return itemEnvelope(
-        'unlink',
-        {
+    const outcome = await runGuarded(args, {
+      kind: 'unlink',
+      targetId: edgeId,
+      fingerprint: () =>
+        fingerprintOf(edge.id, edge.source_id, edge.target_id, edge.type, edge.created_at),
+      preview: token => {
+        const consequence = `Removes the '${edge.type}' edge between '${edge.source_id}' and '${edge.target_id}'.`
+        const instruction = `Call memory_store again with action=unlink, edge_id=${edgeId}, confirm=true to proceed.`
+        return {
           status: 'preview',
           edge_id: edgeId,
           edge: {
@@ -48,25 +35,16 @@ export const unlinkHandler: ActionHandler = {
           consequence,
           preview_token: token,
           instruction
-        },
-        { preview: { token } }
-      )
-    }
+        }
+      },
+      apply: () => ({
+        status: deleteEdgeService(edgeId) ? 'deleted' : 'not_found',
+        edge_id: edgeId
+      })
+    })
 
-    const edge = findEdgeService(edgeId)
-    if (edge) {
-      const currentFingerprint = edgeFingerprint(edge)
-      if (!previewToken) throw new Error('preview_token is required')
-      const verification = consumePreviewTokenService(
-        previewToken,
-        'unlink',
-        edgeId,
-        currentFingerprint
-      )
-      if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-    }
-
-    const deleted = deleteEdgeService(edgeId)
-    return itemEnvelope('unlink', { status: deleted ? 'deleted' : 'not_found', edge_id: edgeId })
+    return outcome.status === 'preview'
+      ? itemEnvelope('unlink', outcome.value, { preview: { token: outcome.token } })
+      : itemEnvelope('unlink', outcome.value)
   }
 }

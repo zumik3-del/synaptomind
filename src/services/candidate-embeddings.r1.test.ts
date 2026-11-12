@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { getPendingEmbeddingIds, getThoughtEmbeddingsBatch } from '../db/embeddings'
 import { closeDb } from '../db/init'
 import { createTestDb, drainPendingEmbeddings, seedThought, withVecDb } from '../test/helpers'
@@ -43,7 +43,7 @@ function markers(vectors: Float32Array[]): number[] {
  */
 function storeVec(id: string, vector: Float32Array): void {
   getDb()
-    .prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`)
+    .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
     .run(id, Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength))
   drainPendingEmbeddings([id])
 }

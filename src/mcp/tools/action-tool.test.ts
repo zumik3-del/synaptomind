@@ -28,13 +28,12 @@ mock.module('../../embedder/client', () => ({
   isEmbedderReady: () => true
 }))
 
-mock.module('../../services/auto-cluster.service', () => ({
-  __esModule: true,
-  runAutoClusterJob: async (options: Record<string, unknown>) => {
-    capturedAutoClusterOptions = options
-    return { dry_run: true, candidates: 0, groups: [], clusters_created: 0 }
-  }
-}))
+// `auto_cluster`'s option pass-through (the one case needing a capturing stub of
+// `../../services/auto-cluster.service`, task #925/#930) lives in
+// `action-tool.auto-cluster.suite.ts`: `mock.module` is process-global and cannot
+// be undone, so registered here it froze the auto-cluster plan for every later
+// file of the same `bun test` process — under the serial oracle that silently
+// made the auto-cluster fingerprint matrix vacuous (task #2496).
 
 type ToolResult = {
   content: Array<{ type: string; text: string }>
@@ -482,118 +481,11 @@ describe('memory_status action=config raw-text passthrough', () => {
   })
 })
 
-// ── auto_cluster option pass-through (task #925 / #930) ─────────────────────
-
-/**
- * Capture the options object received by a mocked runAutoClusterJob so the
- * handler's numeric-string coercion path is exercised end-to-end.
- */
-let capturedAutoClusterOptions: Record<string, unknown> | undefined
-
-// Re-set up the client after the module mock so it picks up the mocked service.
-let mockClient: Client
-
-async function setupMockClient(): Promise<Client> {
-  const s = new SdkMcpServer({ name: 'test', version: '0.0.0' })
-  registerAllMemoryTools(s)
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
-  await s.connect(serverTransport)
-  const c = new Client({ name: 'test-client', version: '0.0.0' })
-  await c.connect(clientTransport)
-  return c
-}
-
-beforeEach(async () => {
-  capturedAutoClusterOptions = undefined
-  mockClient = await setupMockClient()
-})
-
-describe('auto_cluster option pass-through over an in-memory MCP client', () => {
-  test('numeric-string args are coerced and passed through as numbers', async () => {
-    const preview = await mockClient.callTool({
-      name: 'memory_crystallize',
-      arguments: {
-        action: 'auto_cluster',
-        min_similarity: '0.68',
-        min_members: '5',
-        min_age_days: '1'
-      }
-    })
-    const token1 = JSON.parse((preview as any).content[0].text).meta.preview.token
-    const result = await mockClient.callTool({
-      name: 'memory_crystallize',
-      arguments: {
-        action: 'auto_cluster',
-        min_similarity: '0.68',
-        min_members: '5',
-        min_age_days: '1',
-        confirm: true,
-        preview_token: token1
-      }
-    })
-    const { isError } = parseResult(result)
-    expect(isError).toBe(false)
-    expect(capturedAutoClusterOptions).toEqual({
-      minSimilarity: 0.68,
-      minMembers: 5,
-      minAgeDays: 1,
-      dryRun: false
-    })
-  })
-
-  test('native-number args are passed through unchanged', async () => {
-    const preview = await mockClient.callTool({
-      name: 'memory_crystallize',
-      arguments: {
-        action: 'auto_cluster',
-        min_similarity: 0.68,
-        min_members: 5,
-        min_age_days: 1
-      }
-    })
-    const token2 = JSON.parse((preview as any).content[0].text).meta.preview.token
-    const result = await mockClient.callTool({
-      name: 'memory_crystallize',
-      arguments: {
-        action: 'auto_cluster',
-        min_similarity: 0.68,
-        min_members: 5,
-        min_age_days: 1,
-        confirm: true,
-        preview_token: token2
-      }
-    })
-    const { isError } = parseResult(result)
-    expect(isError).toBe(false)
-    expect(capturedAutoClusterOptions).toEqual({
-      minSimilarity: 0.68,
-      minMembers: 5,
-      minAgeDays: 1,
-      dryRun: false
-    })
-  })
-
-  test('omitted optional fields fall back to undefined (service uses config defaults)', async () => {
-    const result = await mockClient.callTool({
-      name: 'memory_crystallize',
-      arguments: { action: 'auto_cluster' }
-    })
-    const { isError } = parseResult(result)
-    expect(isError).toBe(false)
-    expect(capturedAutoClusterOptions).toEqual({
-      minAgeDays: undefined,
-      minSimilarity: undefined,
-      minMembers: undefined,
-      dryRun: true
-    })
-  })
-})
-
 // ── advertised schema: string-typed numerics accepted, invalid rejected ──────
 
 describe('auto_cluster advertised schema accepts string numerics and rejects invalid', () => {
   test('accepts string min_similarity within [0,1]', async () => {
-    const result = await mockClient.callTool({
+    const result = await client.callTool({
       name: 'memory_crystallize',
       arguments: { action: 'auto_cluster', min_similarity: '0.5' }
     })
@@ -601,7 +493,7 @@ describe('auto_cluster advertised schema accepts string numerics and rejects inv
   })
 
   test('accepts string min_members as int', async () => {
-    const result = await mockClient.callTool({
+    const result = await client.callTool({
       name: 'memory_crystallize',
       arguments: { action: 'auto_cluster', min_members: '3' }
     })
@@ -609,7 +501,7 @@ describe('auto_cluster advertised schema accepts string numerics and rejects inv
   })
 
   test('accepts string min_age_days as int', async () => {
-    const result = await mockClient.callTool({
+    const result = await client.callTool({
       name: 'memory_crystallize',
       arguments: { action: 'auto_cluster', min_age_days: '7' }
     })
@@ -617,7 +509,7 @@ describe('auto_cluster advertised schema accepts string numerics and rejects inv
   })
 
   test('rejects string min_similarity outside [0,1]', async () => {
-    const result = await mockClient.callTool({
+    const result = await client.callTool({
       name: 'memory_crystallize',
       arguments: { action: 'auto_cluster', min_similarity: '1.5' }
     })
@@ -625,7 +517,7 @@ describe('auto_cluster advertised schema accepts string numerics and rejects inv
   })
 
   test('rejects non-numeric string for min_similarity', async () => {
-    const result = await mockClient.callTool({
+    const result = await client.callTool({
       name: 'memory_crystallize',
       arguments: { action: 'auto_cluster', min_similarity: 'not-a-number' }
     })
@@ -633,7 +525,7 @@ describe('auto_cluster advertised schema accepts string numerics and rejects inv
   })
 
   test('rejects non-integer string for min_members', async () => {
-    const result = await mockClient.callTool({
+    const result = await client.callTool({
       name: 'memory_crystallize',
       arguments: { action: 'auto_cluster', min_members: '2.5' }
     })
@@ -641,7 +533,7 @@ describe('auto_cluster advertised schema accepts string numerics and rejects inv
   })
 
   test('rejects negative string for min_age_days', async () => {
-    const result = await mockClient.callTool({
+    const result = await client.callTool({
       name: 'memory_crystallize',
       arguments: { action: 'auto_cluster', min_age_days: '-1' }
     })

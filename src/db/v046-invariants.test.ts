@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { config } from '../config'
 import { vec0Path } from '../runtime-mode'
 import { computeContentHash } from '../utils'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb, initDb } from './init'
 import { MIGRATIONS } from './migrations'
 
@@ -142,7 +142,7 @@ test('v046 drops self-loops and keeps one edge per pair, a specific relation bea
   closeDb()
 
   openRaw(path, db => {
-    expect(schemaVersion(db)).toBe('47')
+    expect(schemaVersion(db)).toBe('48')
     const remaining = (
       db.prepare(`SELECT id FROM edges ORDER BY id`).all() as { id: string }[]
     ).map(r => r.id)

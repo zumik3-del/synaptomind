@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { insertLog } from '../logging'
+import { scopeSql } from './vec-schema'
 
 export const MAX_ATTEMPTS = 10
 
@@ -17,6 +18,17 @@ export function findPendingEmbeddings(
     LIMIT ?
   `)
     .all(limit) as { id: string; content: string; contentHash: string }[]
+}
+
+/**
+ * Whether the worker has retryable queue work, i.e. the same rows
+ * `findPendingEmbeddings` would hand it.
+ *
+ * Dead letters are excluded on purpose: they leave the poll loop until an opt-in
+ * reset, so counting them would let one poison row disable the orphan sweep.
+ */
+export function hasPendingEmbeddings(db: Database): boolean {
+  return db.prepare('SELECT 1 FROM pending_embeddings WHERE is_error = 0 LIMIT 1').get() !== null
 }
 
 // Archive-status thoughts are excluded from default search — re-embedding them
@@ -55,10 +67,40 @@ export function requeueEmbeddings(db: Database, ids: string[]): void {
   tx()
 }
 
+/** Retires rows regardless of freshness — the batch path uses `deleteEmbeddedFromQueue`. */
 export function deleteFromQueue(db: Database, ids: string[]) {
   const del = db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?')
   const tx = db.transaction(() => {
     for (const id of ids) del.run(id)
+  })
+  tx()
+}
+
+/** A queue row whose vector was written, with the `content_hash` it was embedded from. */
+export interface EmbeddedRow {
+  id: string
+  contentHash: string
+}
+
+/**
+ * Retire the queue rows of a stored batch, but only while the thought's
+ * `content_hash` still equals the hash its vector was embedded from.
+ *
+ * The delete is the last step of a batch, long after the hash check inside
+ * `insertEmbedding`, so a content update committed by the server in between has
+ * already re-queued the thought under its NEW hash (v035 trigger). Deleting by
+ * id alone drops that fresh row and strands the stale vector with no freshness
+ * signal — permanently (audit F8). The guard is evaluated by the DELETE itself,
+ * so the row stays queued and the next poll re-embeds it.
+ */
+export function deleteEmbeddedFromQueue(db: Database, rows: EmbeddedRow[]): void {
+  const del = db.prepare(`
+    DELETE FROM pending_embeddings
+    WHERE thought_id = ?
+      AND NOT EXISTS (SELECT 1 FROM thoughts WHERE id = ? AND content_hash <> ?)
+  `)
+  const tx = db.transaction(() => {
+    for (const row of rows) del.run(row.id, row.id, row.contentHash)
   })
   tx()
 }
@@ -127,10 +169,19 @@ export function insertEmbedding(
     )
     return false
   }
+  // VEC-DEL by id alone (a partition predicate silently misses after a move),
+  // then VEC-UPSERT: the partition is read in the same statement as the insert,
+  // so a thought whose project moved during the batch lands in its new partition
+  // and never a stale one (ADR 2026-11-12 §5.4).
   db.run('DELETE FROM vec_thoughts WHERE id = ?', [id])
-  db.run('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)', [
-    id,
-    Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength)
-  ])
+  db.run(
+    `INSERT INTO vec_thoughts (id, embedding, scope)
+     SELECT ?, ?, ${scopeSql('t')} FROM thoughts t WHERE t.id = ?`,
+    [
+      id,
+      Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength),
+      id
+    ]
+  )
   return true
 }

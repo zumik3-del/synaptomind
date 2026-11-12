@@ -157,8 +157,15 @@ export function scopeProjectId(scope: EnvelopeScope | null): string | undefined 
   return scope && !scope.global ? (scope.project ?? undefined) : undefined
 }
 
+/** The project scope a present `cwd` names, or the unresolved `{ global: true }` one. */
+function scopeForCwd(cwd: string): EnvelopeScope {
+  const project = resolveProjectService(cwd)
+  if (!project) return { project: null, project_name: null, global: true }
+  return { project: project.id, project_name: project.name, global: false }
+}
+
 /**
- * Resolve the project scope of an answer from `cwd`.
+ * Resolve the project scope of a read answer from `cwd`.
  *
  * `cwd` absent → no scope and a warning that the answer spans every project.
  * `cwd` unknown to the project table → a global scope with a warning; the call
@@ -171,16 +178,16 @@ export function resolveEnvelopeScope(cwd: string | undefined): {
   if (cwd === undefined) {
     return { scope: null, warnings: ['no cwd — the answer spans every project'] }
   }
-  const project = resolveProjectService(cwd)
-  if (!project) {
+  const scope = scopeForCwd(cwd)
+  if (scope.global) {
     return {
-      scope: { project: null, project_name: null, global: true },
+      scope,
       warnings: [
         `cwd "${cwd}" matches no known project — the answer spans every project (check it with memory_manage action=resolve)`
       ]
     }
   }
-  return { scope: { project: project.id, project_name: project.name, global: false }, warnings: [] }
+  return { scope, warnings: [] }
 }
 
 /**
@@ -203,18 +210,19 @@ export function readEnvelopeScope(cwd: unknown): {
 }
 
 /**
- * Resolve the scope of a write answer (task #2181).
+ * Resolve the scope of a write answer (task #2181, #2461).
  *
- * A write action keeps `cwd` optional, so unlike the read side there is nothing
- * to enforce: `cwd` given → its project scope (with the "unknown cwd" warning
- * when the path is not registered); `cwd` absent → no scope and no warning,
- * because the write lands in the resolved default project rather than spanning
- * every project.
+ * A write never widens, so it never earns a widening note: it lands in the
+ * project its `cwd` names, or — when the path is absent, blank or registered to
+ * no project — wherever the action's own target dictates (a created row falls
+ * back to the default project, an id-addressed update keeps its row's project).
+ * Only the first case is knowable here, so an unregistered path raises no note
+ * either: `scope.global: true` is the trace that the path scoped nothing.
  */
 export function writeEnvelopeScope(cwd: unknown): {
   scope: EnvelopeScope | null
   warnings: string[]
 } {
   if (typeof cwd !== 'string' || cwd.trim().length === 0) return { scope: null, warnings: [] }
-  return resolveEnvelopeScope(cwd)
+  return { scope: scopeForCwd(cwd), warnings: [] }
 }

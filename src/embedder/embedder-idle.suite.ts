@@ -53,7 +53,7 @@ mock.module('../db/init', () => ({
     }
   })
 }))
-mock.module('../db/container', () => ({
+mock.module('../context/container', () => ({
   getDb: () => {
     throw new Error('unexpected legacy mode')
   }
@@ -71,10 +71,11 @@ mock.module('../db/pending-embeddings', () => ({
   CONTENT_CHANGED_REASON: 'changed',
   findPendingEmbeddings: () => (queued ? [{ id: 'row', content: 'row', contentHash: 'hash' }] : []),
   insertEmbedding: () => true,
-  deleteFromQueue: () => {
+  deleteEmbeddedFromQueue: () => {
     queued = false
   },
   handleFailedItem: () => {},
+  hasPendingEmbeddings: () => true,
   requeueEmbeddings: () => {},
   sweepOrphanedThoughts: () => []
 }))

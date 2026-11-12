@@ -445,11 +445,4 @@ export function validateUsers(input: unknown, source = 'config.json'): UserConfi
   return result
 }
 
-export const sanitizeUsers = validateUsers
-export const assertUsers = validateUsers
-export const validateUserList = validateUsers
-export const assertUserList = validateUsers
-export const sanitizeUserList = validateUsers
-export const validateUsersConfig = validateUsers
-
 export const config: Config = applyEnvOverrides(loadFileConfig())

@@ -8,11 +8,11 @@ import {
   findComponents,
   generateClusterTitle,
   groupCandidates,
-  runAutoClusterJob
+  runAutoCluster
 } from './auto-cluster.service'
 import type { AutoClusterOptions } from './auto-cluster.service'
 import type { ClusterCandidate } from '../db/thoughts'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
@@ -135,23 +135,23 @@ test('groupCandidates filters groups smaller than minMembers', () => {
   expect(groups).toHaveLength(0)
 })
 
-// ── runAutoClusterJob ────────────────────────────────────────────────────────
+// ── runAutoCluster ────────────────────────────────────────────────────────
 
-test('runAutoClusterJob returns empty when no candidates', async () => {
-  const result = await runAutoClusterJob({ minAgeDays: 999, dryRun: true })
+test('runAutoCluster returns empty when no candidates', async () => {
+  const result = await runAutoCluster({ minAgeDays: 999, dryRun: true })
   expect(result.candidates).toBe(0)
   expect(result.clusters_created).toBe(0)
 })
 
-test('runAutoClusterJob dry run does not create clusters', async () => {
-  const result = await runAutoClusterJob({ dryRun: true, minAgeDays: 0 })
+test('runAutoCluster dry run does not create clusters', async () => {
+  const result = await runAutoCluster({ dryRun: true, minAgeDays: 0 })
   expect(result.dry_run).toBeTrue()
   expect(result.clusters_created).toBe(0)
 })
 
-// ── runAutoClusterJob: the option is explicit (#2201) ────────────────────────
+// ── runAutoCluster: the option is explicit (#2201) ────────────────────────
 
-test('runAutoClusterJob requires an explicit dryRun', () => {
+test('runAutoCluster requires an explicit dryRun', () => {
   // `undefined extends …` is false only while the member is required, so this
   // line stops compiling the moment `dryRun?:` comes back — `bun run tsc
   // --noEmit` is the gate for the type half. A run may never inherit its mode
@@ -161,7 +161,7 @@ test('runAutoClusterJob requires an explicit dryRun', () => {
   expect(DRY_RUN_IS_REQUIRED).toBe(true)
 })
 
-// ── runAutoClusterJob: no write-only _meta job replay (#2201) ────────────────
+// ── runAutoCluster: no write-only _meta job replay (#2201) ────────────────
 
 /** `_meta` keys shaped like the removed job replay (`<job>_run` / `<job>_result`). */
 function jobReplayKeys(): string[] {
@@ -172,7 +172,7 @@ function jobReplayKeys(): string[] {
     .sort()
 }
 
-test('runAutoClusterJob writes no _meta job-run/result keys', async () => {
+test('runAutoCluster writes no _meta job-run/result keys', async () => {
   const db = getDb()
 
   // Positive control on the detector: the exact keys the deleted `recordJobRun`
@@ -188,7 +188,7 @@ test('runAutoClusterJob writes no _meta job-run/result keys', async () => {
   expect(jobReplayKeys()).toEqual([])
 
   // Former recordRun() call site 1: the empty-candidate early return.
-  const empty = await runAutoClusterJob({ minAgeDays: 999, dryRun: true })
+  const empty = await runAutoCluster({ minAgeDays: 999, dryRun: true })
   expect(empty.candidates).toBe(0)
   expect(jobReplayKeys()).toEqual([])
 
@@ -198,7 +198,7 @@ test('runAutoClusterJob writes no _meta job-run/result keys', async () => {
     embed: async (texts: string[]) => texts.map(() => new Float32Array(384)),
     searchNeighbors: (id: string) => ids.filter(x => x !== id).map(x => ({ id: x, distance: 0 }))
   }
-  const applied = await runAutoClusterJob(
+  const applied = await runAutoCluster(
     { minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: false },
     deps
   )
@@ -215,7 +215,7 @@ test('runAutoClusterJob writes no _meta job-run/result keys', async () => {
   expect(jobReplayKeys()).toEqual([])
 })
 
-// ── runAutoClusterJob with injected embed + searchNeighbors ───────────────────
+// ── runAutoCluster with injected embed + searchNeighbors ───────────────────
 
 /**
  * Build four past-dated thoughts and return their IDs in order [A, B, C, D].
@@ -228,7 +228,7 @@ function seedFourThoughts(): string[] {
   )
 }
 
-test('runAutoClusterJob: minSimilarity 0.3 groups A-B only (distances 0.25/0.5/0.6, minMembers=2)', async () => {
+test('runAutoCluster: minSimilarity 0.3 groups A-B only (distances 0.25/0.5/0.6, minMembers=2)', async () => {
   const ids = seedFourThoughts()
   const dist: Record<string, number> = {
     [`${ids[0]}|${ids[1]}`]: 0.25,
@@ -243,7 +243,7 @@ test('runAutoClusterJob: minSimilarity 0.3 groups A-B only (distances 0.25/0.5/0
     searchNeighbors: (id: string) =>
       ids.filter(x => x !== id).map(x => ({ id: x, distance: dist[`${id}|${x}`] ?? 0.9 }))
   }
-  const result = await runAutoClusterJob(
+  const result = await runAutoCluster(
     { minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: true },
     deps
   )
@@ -252,7 +252,7 @@ test('runAutoClusterJob: minSimilarity 0.3 groups A-B only (distances 0.25/0.5/0
   expect(result.groups[0].members).toEqual(expect.arrayContaining([ids[0], ids[1]]))
 })
 
-test('runAutoClusterJob: minSimilarity 0.68 groups all four (distances 0.25/0.5/0.6, minMembers=2)', async () => {
+test('runAutoCluster: minSimilarity 0.68 groups all four (distances 0.25/0.5/0.6, minMembers=2)', async () => {
   const ids = seedFourThoughts()
   const dist: Record<string, number> = {
     [`${ids[0]}|${ids[1]}`]: 0.25,
@@ -267,7 +267,7 @@ test('runAutoClusterJob: minSimilarity 0.68 groups all four (distances 0.25/0.5/
     searchNeighbors: (id: string) =>
       ids.filter(x => x !== id).map(x => ({ id: x, distance: dist[`${id}|${x}`] ?? 0.9 }))
   }
-  const result = await runAutoClusterJob(
+  const result = await runAutoCluster(
     { minAgeDays: 0, minMembers: 2, minSimilarity: 0.68, dryRun: true },
     deps
   )
@@ -276,7 +276,7 @@ test('runAutoClusterJob: minSimilarity 0.68 groups all four (distances 0.25/0.5/
   expect(result.groups[0].members).toEqual(expect.arrayContaining(ids))
 })
 
-test('runAutoClusterJob: omitted minSimilarity falls back to config default (recalibrated 0.09)', async () => {
+test('runAutoCluster: omitted minSimilarity falls back to config default (recalibrated 0.09)', async () => {
   const ids = seedFourThoughts()
   const dist: Record<string, number> = {
     [`${ids[0]}|${ids[1]}`]: 0.05,
@@ -292,13 +292,13 @@ test('runAutoClusterJob: omitted minSimilarity falls back to config default (rec
       ids.filter(x => x !== id).map(x => ({ id: x, distance: dist[`${id}|${x}`] ?? 0.9 }))
   }
   // minSimilarity omitted — should use config.autoCluster.minSimilarity (= DEFAULTS.autoCluster.minSimilarity after recalibration)
-  const result = await runAutoClusterJob({ minAgeDays: 0, minMembers: 2, dryRun: true }, deps)
+  const result = await runAutoCluster({ minAgeDays: 0, minMembers: 2, dryRun: true }, deps)
   expect(result.groups).toHaveLength(1)
   expect(result.groups[0].members.length).toBe(2)
   expect(result.groups[0].members).toEqual(expect.arrayContaining([ids[0], ids[1]]))
 })
 
-test('runAutoClusterJob: explicit minSimilarity overrides config default after recalibration', async () => {
+test('runAutoCluster: explicit minSimilarity overrides config default after recalibration', async () => {
   // Same distance layout as the 0.3 test: A-B=0.25, B-C=0.5, C-D=0.6.
   // Passing minSimilarity=0.3 explicitly should group only A-B (2 members),
   // proving the explicit option still wins over the recalibrated default.
@@ -316,7 +316,7 @@ test('runAutoClusterJob: explicit minSimilarity overrides config default after r
     searchNeighbors: (id: string) =>
       ids.filter(x => x !== id).map(x => ({ id: x, distance: dist[`${id}|${x}`] ?? 0.9 }))
   }
-  const result = await runAutoClusterJob(
+  const result = await runAutoCluster(
     { minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: true },
     deps
   )
@@ -338,7 +338,7 @@ test('runAutoClusterJob: explicit minSimilarity overrides config default after r
  */
 function storeVec(id: string, vector: Float32Array): void {
   getDb()
-    .prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`)
+    .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
     .run(id, Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength))
   drainPendingEmbeddings([id])
 }
@@ -361,7 +361,9 @@ function seedClusterCandidates(count: number, past: string): string[] {
     INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_protected, is_global, created_at, updated_at)
     VALUES (?, ?, 'active', 'test', 'default', 0, 1, 0, ?, ?)
   `)
-  const insertVec = db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`)
+  const insertVec = db.prepare(
+    `INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`
+  )
   db.transaction(() => {
     for (let i = 0; i < count; i++) {
       const id = `11111111-1111-7111-8111-${String(i).padStart(12, '0')}`
@@ -374,7 +376,7 @@ function seedClusterCandidates(count: number, past: string): string[] {
   return ids
 }
 
-test('runAutoClusterJob: makes 0 embedder calls when every candidate has a stored vector', async () => {
+test('runAutoCluster: makes 0 embedder calls when every candidate has a stored vector', async () => {
   await withVecDb(async () => {
     const past = new Date(Date.now() - 10 * 86400000).toISOString()
     const ids = ['A', 'B', 'C'].map(tag =>
@@ -385,7 +387,7 @@ test('runAutoClusterJob: makes 0 embedder calls when every candidate has a store
     for (const id of ids) storeVec(id, vector)
 
     let embedCalls = 0
-    const result = await runAutoClusterJob(
+    const result = await runAutoCluster(
       { minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: true },
       {
         embed: async texts => {
@@ -402,7 +404,7 @@ test('runAutoClusterJob: makes 0 embedder calls when every candidate has a store
   })
 })
 
-test('runAutoClusterJob: embeds only the candidates missing a stored vector, in candidate order', async () => {
+test('runAutoCluster: embeds only the candidates missing a stored vector, in candidate order', async () => {
   await withVecDb(async () => {
     const past = new Date(Date.now() - 10 * 86400000).toISOString()
     const ids = ['A', 'B', 'C'].map(tag =>
@@ -414,7 +416,7 @@ test('runAutoClusterJob: embeds only the candidates missing a stored vector, in 
     storeVec(ids[2], stored)
 
     const seen: string[][] = []
-    const result = await runAutoClusterJob(
+    const result = await runAutoCluster(
       { minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: true },
       {
         embed: async texts => {
@@ -432,7 +434,7 @@ test('runAutoClusterJob: embeds only the candidates missing a stored vector, in 
   })
 })
 
-test('runAutoClusterJob: group composition is unchanged with stored vectors (in-memory distances)', async () => {
+test('runAutoCluster: group composition is unchanged with stored vectors (in-memory distances)', async () => {
   await withVecDb(async () => {
     const past = new Date(Date.now() - 10 * 86400000).toISOString()
     const ids = ['A', 'B', 'C', 'D'].map(tag =>
@@ -449,7 +451,7 @@ test('runAutoClusterJob: group composition is unchanged with stored vectors (in-
     for (let i = 0; i < ids.length; i++) storeVec(ids[i]!, clusterVec(angles[i]!))
 
     // 0.3 (explicit): the 0.05 and 0.25 links connect → the A-B-C chain.
-    const strict = await runAutoClusterJob({
+    const strict = await runAutoCluster({
       minAgeDays: 0,
       minMembers: 2,
       minSimilarity: 0.3,
@@ -461,7 +463,7 @@ test('runAutoClusterJob: group composition is unchanged with stored vectors (in-
 
     // 0.09 (calibrated config default): only the 0.05 link clears it → A-B.
     // `minMembers` stays explicit so this compares thresholds, not defaults.
-    const relaxed = await runAutoClusterJob({
+    const relaxed = await runAutoCluster({
       minAgeDays: 0,
       minMembers: 2,
       minSimilarity: 0.09,
@@ -473,7 +475,7 @@ test('runAutoClusterJob: group composition is unchanged with stored vectors (in-
   })
 })
 
-test('runAutoClusterJob: the default path issues no per-candidate vec0 search', async () => {
+test('runAutoCluster: the default path issues no per-candidate vec0 search', async () => {
   await withVecDb(async () => {
     const past = new Date(Date.now() - 10 * 86400000).toISOString()
     const ids = ['A', 'B', 'C'].map(tag =>
@@ -484,7 +486,7 @@ test('runAutoClusterJob: the default path issues no per-candidate vec0 search', 
     for (const id of ids) storeVec(id, vector)
 
     const searchSpy = spyOn(searchDb, 'searchThoughts')
-    const result = await runAutoClusterJob({
+    const result = await runAutoCluster({
       minAgeDays: 0,
       minMembers: 2,
       minSimilarity: 0.3,
@@ -497,7 +499,7 @@ test('runAutoClusterJob: the default path issues no per-candidate vec0 search', 
   })
 })
 
-test('runAutoClusterJob: 200 stored-vector candidates need 0 embedder calls and reach one group', async () => {
+test('runAutoCluster: 200 stored-vector candidates need 0 embedder calls and reach one group', async () => {
   await withVecDb(async () => {
     const past = new Date(Date.now() - 10 * 86400000).toISOString()
     // Small N on purpose: the 3000-candidate timing run is an O(N^2) job that
@@ -508,7 +510,7 @@ test('runAutoClusterJob: 200 stored-vector candidates need 0 embedder calls and 
     const ids = seedClusterCandidates(200, past)
     let embedCalls = 0
 
-    const result = await runAutoClusterJob(
+    const result = await runAutoCluster(
       { minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: true },
       {
         embed: async texts => {
@@ -553,7 +555,7 @@ function groupSets(groups: Array<{ members: string[] }>): string[][] {
   return groups.map(g => [...g.members].sort()).sort((a, b) => a[0]!.localeCompare(b[0]!))
 }
 
-test('runAutoClusterJob: stored-vector groups match the injected pre-change lookup (0.05/0.25/0.5/0.6)', async () => {
+test('runAutoCluster: stored-vector groups match the injected pre-change lookup (0.05/0.25/0.5/0.6)', async () => {
   // Chain fixture from the contract: consecutive distances 0.05 / 0.25 / 0.5 /
   // 0.6, so 0.09 admits only A-B and 0.3 admits the A-B-C chain.
   const links = [0.05, 0.25, 0.5, 0.6]
@@ -580,13 +582,13 @@ test('runAutoClusterJob: stored-vector groups match the injected pre-change look
           .sort((a, b) => a.distance - b.distance)
           .slice(0, topK)
 
-      const inMemory = await runAutoClusterJob({
+      const inMemory = await runAutoCluster({
         minAgeDays: 0,
         minMembers: 2,
         minSimilarity,
         dryRun: true
       })
-      const preChange = await runAutoClusterJob(
+      const preChange = await runAutoCluster(
         { minAgeDays: 0, minMembers: 2, minSimilarity, dryRun: true },
         { searchNeighbors: injected }
       )
@@ -599,7 +601,7 @@ test('runAutoClusterJob: stored-vector groups match the injected pre-change look
   }
 })
 
-test('runAutoClusterJob: minSimilarity is a DISTANCE threshold, not a similarity one', async () => {
+test('runAutoCluster: minSimilarity is a DISTANCE threshold, not a similarity one', async () => {
   await withVecDb(async () => {
     const ids = ['X', 'Y', 'Z'].map(tag => seedOldThought(`thought ${tag}`))
     // cos(X,Y) = 0.10 (distance 0.90) and cos(X,Z) = 0.92 (distance 0.08): the
@@ -609,7 +611,7 @@ test('runAutoClusterJob: minSimilarity is a DISTANCE threshold, not a similarity
     storeClusterVec(ids[1]!, Math.acos(0.1))
     storeClusterVec(ids[2]!, -Math.acos(0.92))
 
-    const result = await runAutoClusterJob({
+    const result = await runAutoCluster({
       minAgeDays: 0,
       minMembers: 2,
       minSimilarity: 0.09,
@@ -621,7 +623,7 @@ test('runAutoClusterJob: minSimilarity is a DISTANCE threshold, not a similarity
   })
 })
 
-test('runAutoClusterJob: an injected searchNeighbors overrides the in-memory default', async () => {
+test('runAutoCluster: an injected searchNeighbors overrides the in-memory default', async () => {
   await withVecDb(async () => {
     const ids = ['A', 'B', 'C'].map(tag => seedOldThought(`thought ${tag}`))
     // Identical stored vectors: the in-memory path would see distance 0 for all
@@ -634,7 +636,7 @@ test('runAutoClusterJob: an injected searchNeighbors overrides the in-memory def
       return ids.filter(other => other !== id).map(other => ({ id: other, distance: 0.9 }))
     }
 
-    const result = await runAutoClusterJob(
+    const result = await runAutoCluster(
       { minAgeDays: 0, minMembers: 2, minSimilarity: 0.09, dryRun: true },
       { searchNeighbors: injected }
     )
@@ -644,14 +646,14 @@ test('runAutoClusterJob: an injected searchNeighbors overrides the in-memory def
   })
 })
 
-test('runAutoClusterJob: a mixed run (stored + embedded) reaches every candidate', async () => {
+test('runAutoCluster: a mixed run (stored + embedded) reaches every candidate', async () => {
   await withVecDb(async () => {
     const ids = ['A', 'B', 'C'].map(tag => seedOldThought(`thought ${tag}`))
     storeClusterVec(ids[0]!, 0)
     storeClusterVec(ids[1]!, Math.acos(0.92))
     const seen: string[][] = []
 
-    const result = await runAutoClusterJob(
+    const result = await runAutoCluster(
       { minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: true },
       {
         embed: async texts => {
@@ -668,13 +670,13 @@ test('runAutoClusterJob: a mixed run (stored + embedded) reaches every candidate
   })
 })
 
-test('runAutoClusterJob: the freshly embedded vector is used for the missing candidate', async () => {
+test('runAutoCluster: the freshly embedded vector is used for the missing candidate', async () => {
   await withVecDb(async () => {
     const ids = ['A', 'B', 'C'].map(tag => seedOldThought(`thought ${tag}`))
     storeClusterVec(ids[0]!, 0)
     storeClusterVec(ids[1]!, Math.acos(0.92))
 
-    const result = await runAutoClusterJob(
+    const result = await runAutoCluster(
       { minAgeDays: 0, minMembers: 2, minSimilarity: 0.09, dryRun: true },
       {
         // Orthogonal to both stored vectors. A misaligned matrix (C receiving
@@ -688,14 +690,14 @@ test('runAutoClusterJob: the freshly embedded vector is used for the missing can
   })
 })
 
-test('runAutoClusterJob: the default path runs no vec0 neighbour query (spy + positive control)', async () => {
+test('runAutoCluster: the default path runs no vec0 neighbour query (spy + positive control)', async () => {
   await withVecDb(async () => {
     const ids = ['A', 'B', 'C'].map(tag => seedOldThought(`thought ${tag}`))
     for (const id of ids) storeClusterVec(id, 0)
     const vectorSpy = spyOn(vectorSearchDb, 'vecSearchIds')
     let afterRun = -1
     try {
-      const result = await runAutoClusterJob({
+      const result = await runAutoCluster({
         minAgeDays: 0,
         minMembers: 2,
         minSimilarity: 0.09,
@@ -715,7 +717,7 @@ test('runAutoClusterJob: the default path runs no vec0 neighbour query (spy + po
   })
 })
 
-test('runAutoClusterJob: a wrong-count embedder reply propagates instead of degrading', async () => {
+test('runAutoCluster: a wrong-count embedder reply propagates instead of degrading', async () => {
   const ids = ['A', 'B', 'C'].map(tag => seedOldThought(`thought ${tag}`))
   expect(ids).toHaveLength(3)
 
@@ -723,7 +725,7 @@ test('runAutoClusterJob: a wrong-count embedder reply propagates instead of degr
   // embedder owes three vectors. Unlike edge-detect / auto-link, auto-cluster
   // has no try/catch around the resolver: the mismatch surfaces to the caller.
   await expect(
-    runAutoClusterJob(
+    runAutoCluster(
       { minAgeDays: 0, minMembers: 2, dryRun: true },
       { embed: async () => [clusterVec(0)] }
     )

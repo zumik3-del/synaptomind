@@ -42,9 +42,9 @@ const { serve } = await import('bun')
 const { app } = await import('./app')
 const { config } = await import('./config')
 const { closeDb, openDatabase } = await import('./db/init')
-const { als, bootFanOut } = await import('./db/registry')
+const { als, bootFanOut } = await import('./context/registry')
 const { startEmbedderProcess, stopEmbedderProcess } = await import('./embedder/client')
-const { closeLogDb } = await import('./logging')
+const { closeLogging } = await import('./logging')
 const { startMcpHttpServer } = await import('./mcp/http-transport')
 const { createMcpServer } = await import('./mcp/server')
 const { StdioServerTransport } = await import('@modelcontextprotocol/server/stdio')
@@ -145,16 +145,16 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   stopDecayJob()
   stopPlacementRetentionJob()
   await stopEmbedderProcess()
-  closeLogDb()
+  closeLogging()
   if (extra) await extra()
   try {
-    const { registry } = await import('./db/registry')
-    for (const [, db] of registry) {
+    const { clearRegistry, listUserDatabases } = await import('./context/registry')
+    for (const { db } of listUserDatabases()) {
       try {
         db.close(true)
       } catch {}
     }
-    registry.clear()
+    clearRegistry()
   } catch {}
   closeDb()
   process.exit(0)

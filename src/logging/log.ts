@@ -304,7 +304,7 @@ export class Logger {
       }
   }
 
-  closeLogDb(): void {
+  closeLogging(): void {
     for (const s of this.sinks)
       try {
         s.close()
@@ -329,6 +329,6 @@ export function insertLog(
   defaultStore.insertLog(level, type_, message, metadata, source, timestamp)
 }
 
-export function closeLogDb(): void {
-  defaultStore.closeLogDb()
+export function closeLogging(): void {
+  defaultStore.closeLogging()
 }

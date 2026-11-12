@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
-import type { DeadPrimer, ImportanceOutlier, MissingEmbedding } from './types'
+import { scopeSql } from '../vec-schema'
+import type { DeadPrimer, ImportanceOutlier, MissingEmbedding, ScopeMismatch } from './types'
 
 export function findMissingEmbeddings(db: Database): MissingEmbedding[] {
   try {
@@ -12,6 +13,27 @@ export function findMissingEmbeddings(db: Database): MissingEmbedding[] {
         )
     `)
       .all() as MissingEmbedding[]
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The v048 invariant: one denormalised `scope` column, so exactly one row can
+ * disagree. A non-zero count means the vector index points at a partition its
+ * thought no longer lives in; the repair is VEC-MOVE (delete + re-insert of the
+ * stored blob), never an UPDATE, which vec0 refuses on a partition column.
+ */
+export function findScopeMismatches(db: Database): ScopeMismatch[] {
+  try {
+    return db
+      .prepare(`
+      SELECT v.id, t.content, ${scopeSql('t')} AS expected_scope, v.scope AS actual_scope
+      FROM vec_thoughts v
+      JOIN thoughts t ON t.id = v.id
+      WHERE v.scope <> ${scopeSql('t')}
+    `)
+      .all() as ScopeMismatch[]
   } catch {
     return []
   }

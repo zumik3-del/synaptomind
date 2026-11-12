@@ -19,7 +19,7 @@ writeFileSync(
 
 const { config } = await import('./config')
 const { createTestDb, seedThought } = await import('./test/helpers')
-const { getDb } = await import('./db/container')
+const { getDb } = await import('./context/container')
 const { closeDb } = await import('./db/init')
 const { listRetentionReviewCandidatesService } = await import('./services/retention-review.service')
 

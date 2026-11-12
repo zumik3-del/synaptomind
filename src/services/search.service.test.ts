@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { createEdge } from '../db/edges'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import {
   createTestDb,
@@ -34,7 +34,10 @@ function itVec(name: string, fn: (db: Database) => void | Promise<void>): void {
 /** Seed a specific 384-d vector so cosine similarity is controllable. */
 function seedVecEmbeddingRaw(db: Database, thoughtId: string, vector: Float32Array): void {
   const buf = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength)
-  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf)
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+    thoughtId,
+    buf
+  )
 }
 
 describe('searchThoughts', () => {

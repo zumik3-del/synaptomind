@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import { classifyBatch } from './batch'
 import { createTestDb, seedThought } from '../test/helpers'
@@ -13,7 +13,9 @@ import {
 beforeEach(() => {
   createTestDb()
   getDb()
-    .prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)')
+    .prepare(
+      'CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB, scope TEXT)'
+    )
     .run()
 })
 

@@ -1,6 +1,10 @@
-import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
+import { afterAll, beforeEach, describe, expect, spyOn, test } from 'bun:test'
+import { once } from 'node:events'
+import { connect, type Socket } from 'node:net'
 import { createTestDb } from '../test/helpers'
-import { startMcpHttpServer, type McpHttpHandle } from './http-transport'
+import { mcpErrorHandler, startMcpHttpServer, type McpHttpHandle } from './http-transport'
+import { DRAIN_BODY_BYTES } from './request-body'
+import type { Context } from 'hono'
 
 // Dual-era routing (ADR 2026-11-11, task #2434): the modern 2026-07-28 leg is
 // entered by the SDK's own predicate, the legacy sessionful leg is unchanged,
@@ -44,6 +48,7 @@ delete process.env.SYNAPTOMIND_ALLOW_INSECURE
 
 interface RunningServer {
   base: string
+  port: number
   server: McpHttpHandle
 }
 
@@ -58,7 +63,7 @@ async function freePort(): Promise<number> {
 async function startServer(corsOrigins?: string[]): Promise<RunningServer> {
   const port = await freePort()
   const server = startMcpHttpServer('127.0.0.1', port, { corsOrigins })
-  return { base: `http://127.0.0.1:${port}`, server }
+  return { base: `http://127.0.0.1:${port}`, port, server }
 }
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
@@ -140,6 +145,83 @@ function streamBody(totalBytes: number): ReadableStream<Uint8Array> {
 // died as a bare 5 s bun-test timeout. Bound the stop, so a comeback names the
 // cause instead of hiding inside the runner's timeout.
 const STOP_TIMEOUT_MS = 2_000
+
+// A body that reports what the socket actually moved, so the drain's bound is
+// observable from the client side: `sent()` is what left the process,
+// `cancelObserved()` fires when Bun cancels the source (the server stopped
+// reading), and `saturated()` fires once the whole body was handed over.
+interface RecordingUpload {
+  body: ReadableStream<Uint8Array>
+  sent(): number
+  sentAtCancel(): number | undefined
+  cancelObserved(): Promise<void>
+  saturated(): Promise<void>
+}
+
+interface RecordingOptions {
+  chunkBytes?: number
+  onSent?(sent: number): void
+}
+
+function recordingUpload(
+  totalBytes: number,
+  { chunkBytes = 16 * 1024, onSent }: RecordingOptions = {}
+): RecordingUpload {
+  const chunk = new Uint8Array(chunkBytes).fill(0x78)
+  let sent = 0
+  let sentAtCancel: number | undefined
+  let markCancelled: () => void = () => {}
+  let markSaturated: () => void = () => {}
+  const cancelObserved = new Promise<void>(resolve => (markCancelled = resolve))
+  const saturated = new Promise<void>(resolve => (markSaturated = resolve))
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent >= totalBytes) {
+        controller.close()
+        return
+      }
+      const size = Math.min(chunkBytes, totalBytes - sent)
+      controller.enqueue(chunk.subarray(0, size))
+      sent += size
+      if (sent >= totalBytes) {
+        markSaturated()
+        return
+      }
+      onSent?.(sent)
+    },
+    cancel() {
+      sentAtCancel = sent
+      markCancelled()
+    }
+  })
+  return {
+    body,
+    sent: () => sent,
+    sentAtCancel: () => sentAtCancel,
+    cancelObserved: () => cancelObserved,
+    saturated: () => saturated
+  }
+}
+
+// Same shape as expectStopResolves, for the client-side observation a drain
+// bound or an abort has to produce: a comeback names the missing signal instead
+// of hanging until the runner's timeout.
+async function expectWithinDeadline(work: Promise<void>, label: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} within ${STOP_TIMEOUT_MS} ms`)),
+          STOP_TIMEOUT_MS
+        )
+      })
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
 
 async function expectStopResolves(server: McpHttpHandle, label: string): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -661,6 +743,383 @@ describe('CORS (T-neg-8)', () => {
       expect(denied.headers.get('access-control-allow-origin')).toBeNull()
     } finally {
       await server.stop()
+    }
+  })
+})
+
+// #2463: the drain that settles a rejected POST is bounded to DRAIN_BODY_BYTES,
+// and a client that closes the socket mid-body is answered, not blamed. Both
+// cases drive the real listener. The drain lives in the `/mcp` middleware that
+// wraps the whole chain, so it runs BEFORE era classification and applies to
+// both eras alike: the 401 below is refused by the auth middleware (no era yet),
+// the 415 by the route's media-type gate — neither reaches the legacy session
+// ladder or the modern entry, which is exactly why they are the drain's shapes.
+const DRAIN_UPLOAD_BYTES = 8 * 1024 * 1024
+// The server stops reading at the cap; when the cancel lands the client may be
+// one socket-buffer window ahead of it, so that window is allowed on top. The
+// unbounded shape this replaces moved the whole 8 MiB.
+const SOCKET_WINDOW_BYTES = 128 * 1024
+
+describe('bounded drain of a rejected body (#2463)', () => {
+  test('T-drain-1: a 401 on a chunked 8 MiB POST answers at the 64 KiB cap and cancels the upload', async () => {
+    const { base, server } = await startServer()
+    const upload = recordingUpload(DRAIN_UPLOAD_BYTES)
+    try {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: { authorization: 'Bearer not-the-secret', 'content-type': 'application/json' },
+        body: upload.body
+      })
+      expect(res.status).toBe(401)
+      expect(await res.json()).toEqual({ error: 'Unauthorized' })
+
+      // An abandoned body cannot be settled by the cancel, so the answer has to
+      // end the connection; that is also what a fetch client sees here (#2488).
+      expect(res.headers.get('connection')).toBe('close')
+
+      // The rejection is already answered; the drain then cancels instead of
+      // reading 8 MiB, which is the only way the bound is visible from here.
+      await expectWithinDeadline(
+        upload.cancelObserved(),
+        'the rejected upload was never cancelled, so the drain read past the cap'
+      )
+      expect(upload.sentAtCancel()).toBeNumber()
+      expect(upload.sentAtCancel()!).toBeLessThanOrEqual(DRAIN_BODY_BYTES + SOCKET_WINDOW_BYTES)
+      expect(upload.sent()).toBeLessThan(DRAIN_UPLOAD_BYTES / 4)
+    } finally {
+      await expectStopResolves(server, '401 with a chunked 8 MiB body')
+    }
+  })
+
+  test('T-drain-2: a 415 on the modern path drains a sub-cap body to the end instead of cancelling it', async () => {
+    const { base, server } = await startServer()
+    // Under the cap on purpose: the bound must not truncate a body the drain can
+    // still settle completely, which is what keeps the request from stalling.
+    const upload = recordingUpload(40 * 1024)
+    try {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: modernHeaders('server/discover', { 'content-type': 'text/plain' }),
+        body: upload.body
+      })
+      expect(res.status).toBe(415)
+      expect(await res.json()).toEqual({
+        jsonrpc: '2.0',
+        error: {
+          code: -32000,
+          message: 'Unsupported Media Type: Content-Type must be application/json'
+        },
+        id: null
+      })
+      await expectWithinDeadline(
+        upload.saturated(),
+        'the drain stopped before the end of a rejected body under the cap'
+      )
+      expect(upload.sent()).toBe(40 * 1024)
+      expect(upload.sentAtCancel()).toBeUndefined()
+      // A body drained to its end is consumed, not abandoned: the connection has
+      // nothing outstanding and must stay reusable.
+      expect(res.headers.get('connection')).not.toBe('close')
+      // The modern-shaped rejection never touched the sessionful leg.
+      expect(server.getSessions().size).toBe(0)
+    } finally {
+      await expectStopResolves(server, '415 with a sub-cap body')
+    }
+  })
+})
+
+// #2464: the header is only the announcement — an abandoned body settles the
+// request when the connection actually ends, and a consumed one must leave the
+// connection reusable. fetch hides both, so these cases speak HTTP/1.1 on a raw
+// socket and read the exchange frame by frame.
+interface WireResponse {
+  status: number
+  headers: Map<string, string>
+  body: string
+}
+
+class WireConnection {
+  private buffer: Buffer = Buffer.alloc(0)
+  private closed = false
+  private readonly waiters = new Set<() => void>()
+
+  private constructor(private readonly socket: Socket) {
+    socket.on('data', (chunk: Buffer) => {
+      this.buffer = Buffer.concat([this.buffer, chunk])
+      this.notify()
+    })
+    const markClosed = () => {
+      this.closed = true
+      this.notify()
+    }
+    socket.on('close', markClosed)
+    socket.on('error', markClosed)
+  }
+
+  static async open(port: number): Promise<WireConnection> {
+    const socket = connect({ host: '127.0.0.1', port })
+    await once(socket, 'connect')
+    return new WireConnection(socket)
+  }
+
+  send(data: string | Buffer): void {
+    this.socket.write(data)
+  }
+
+  /** One Content-Length delimited response; the server answers JSON here. */
+  async readResponse(label: string): Promise<WireResponse> {
+    for (;;) {
+      const headEnd = this.buffer.indexOf('\r\n\r\n')
+      if (headEnd !== -1) {
+        const [statusLine = '', ...headerLines] = this.buffer
+          .subarray(0, headEnd)
+          .toString('latin1')
+          .split('\r\n')
+        const headers = new Map<string, string>()
+        for (const line of headerLines) {
+          const colon = line.indexOf(':')
+          if (colon !== -1) {
+            headers.set(line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim())
+          }
+        }
+        const length = Number(headers.get('content-length'))
+        if (Number.isNaN(length)) {
+          throw new Error(`${label}: response without Content-Length: ${statusLine}`)
+        }
+        const bodyStart = headEnd + 4
+        if (this.buffer.length >= bodyStart + length) {
+          const body = this.buffer.subarray(bodyStart, bodyStart + length).toString('utf8')
+          this.buffer = this.buffer.subarray(bodyStart + length)
+          return { status: Number.parseFloat(statusLine.split(' ')[1] ?? ''), headers, body }
+        }
+      }
+      if (this.closed) throw new Error(`${label}: the connection closed before a complete response`)
+      await this.wait()
+    }
+  }
+
+  async waitForClose(label: string): Promise<void> {
+    await expectWithinDeadline(
+      (async () => {
+        while (!this.closed) await this.wait()
+      })(),
+      label
+    )
+  }
+
+  destroy(): void {
+    this.socket.destroy()
+  }
+
+  private notify(): void {
+    for (const wake of this.waiters) wake()
+    this.waiters.clear()
+  }
+
+  private wait(): Promise<void> {
+    return new Promise<void>(resolve => this.waiters.add(resolve))
+  }
+}
+
+interface RawPost {
+  authorization: string
+  contentLength: number
+  contentType?: string
+  extraHeaders?: string[]
+}
+
+function rawPostHead({
+  authorization,
+  contentLength,
+  contentType = 'application/json',
+  extraHeaders = []
+}: RawPost): string {
+  return [
+    'POST /mcp HTTP/1.1',
+    'Host: 127.0.0.1',
+    `Authorization: Bearer ${authorization}`,
+    `Content-Type: ${contentType}`,
+    ...extraHeaders,
+    `Content-Length: ${contentLength}`,
+    '',
+    ''
+  ].join('\r\n')
+}
+
+describe('connection handling of a rejected body (#2464)', () => {
+  // The drain middleware wraps the whole `/mcp` chain, so it runs before era
+  // classification and both eras are drained by the same code. The 401 here is
+  // answered before an era exists at all (auth gate), which is the abandoned
+  // shape: over the cap, so the drain cancels instead of reading it.
+  test('T-drain-3: an abandoned over-cap body is answered 401 with Connection: close and ends the connection', async () => {
+    const { port, server } = await startServer()
+    const connection = await WireConnection.open(port)
+    try {
+      // Declared 8 MiB, 4 KiB on the wire: the client still has bytes to send,
+      // which is exactly the shape a bare cancel left in flight (#2463 → #2488).
+      connection.send(
+        rawPostHead({ authorization: 'not-the-secret', contentLength: DRAIN_UPLOAD_BYTES })
+      )
+      connection.send(Buffer.alloc(4 * 1024, 0x78))
+      const res = await connection.readResponse('401 on an abandoned 8 MiB body')
+      expect(res.status).toBe(401)
+      expect(JSON.parse(res.body)).toEqual({ error: 'Unauthorized' })
+      expect(res.headers.get('connection')).toBe('close')
+      // The close itself is what settles the request; without it server.stop()
+      // waits forever, which the bound on stop() in the finally block reports.
+      await connection.waitForClose(
+        'the abandoned request was never closed, so server.stop() would wait for it'
+      )
+    } finally {
+      connection.destroy()
+      await expectStopResolves(server, '401 with an abandoned 8 MiB body')
+    }
+  })
+
+  // The rejected request below carries no modern version claim, so it is the
+  // legacy shape (the same shape T-neg-6 names) — but the 415 gate answers
+  // before era classification, just as it does for the modern-shaped upload in
+  // T-drain-2, and the drain middleware wraps both eras alike. The follow-up on
+  // the same socket proves the drained connection survived, which is exactly
+  // what the abandoned path gives up.
+  test('T-drain-4: a sub-cap rejection keeps the connection alive for the next request', async () => {
+    const { port, server } = await startServer()
+    const connection = await WireConnection.open(port)
+    const body = Buffer.alloc(40 * 1024, 0x78)
+    try {
+      connection.send(
+        rawPostHead({
+          authorization: SECRET,
+          contentType: 'text/plain',
+          contentLength: body.byteLength
+        })
+      )
+      connection.send(body)
+      const rejected = await connection.readResponse('415 on a sub-cap body')
+      expect(rejected.status).toBe(415)
+      expect(JSON.parse(rejected.body)).toEqual({
+        jsonrpc: '2.0',
+        error: {
+          code: -32000,
+          message: 'Unsupported Media Type: Content-Type must be application/json'
+        },
+        id: null
+      })
+      expect(rejected.headers.get('connection')).not.toBe('close')
+
+      const discover = JSON.stringify(DISCOVER_MESSAGE)
+      connection.send(
+        rawPostHead({
+          authorization: SECRET,
+          contentLength: Buffer.byteLength(discover),
+          extraHeaders: [
+            'Accept: application/json, text/event-stream',
+            `mcp-protocol-version: ${MODERN}`,
+            'mcp-method: server/discover'
+          ]
+        })
+      )
+      connection.send(discover)
+      const next = await connection.readResponse('the request after a sub-cap rejection')
+      expect(next.status).toBe(200)
+      expect(JSON.parse(next.body).result.supportedVersions).toContain(MODERN)
+      expect(server.getSessions().size).toBe(0)
+    } finally {
+      connection.destroy()
+      await expectStopResolves(server, '415 with a sub-cap body')
+    }
+  })
+})
+
+// #2463: Bun rejects the body read with a DOMException named AbortError when the
+// client closes the socket mid-upload. That is the caller going away, not a
+// server fault: it must answer 4xx and must not log at error level.
+function clientAbortError(): Error {
+  return new DOMException('The connection was closed.', 'AbortError')
+}
+
+// The minimal Context an error handler uses: only the non-abort branch touches
+// it, and this stub is Hono's own `c.json` shape.
+function stubContext(): Context {
+  return {
+    json: (body: unknown, status = 200) => Response.json(body, { status })
+  } as unknown as Context
+}
+
+describe('a mid-body client abort (#2463)', () => {
+  test('T-abort-1: the abort answers 400 with -32700 and logs nothing', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const res = mcpErrorHandler(clientAbortError(), stubContext())
+      expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({
+        jsonrpc: '2.0',
+        error: { code: -32700, message: 'Parse error: Invalid JSON' },
+        id: null
+      })
+      expect(errorSpy).toHaveBeenCalledTimes(0)
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  test('T-abort-1: a genuine internal error still answers 500 and logs once', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const res = mcpErrorHandler(new Error('boom'), stubContext())
+      expect(res.status).toBe(500)
+      expect(await res.json()).toEqual({
+        jsonrpc: '2.0',
+        error: { code: -32603, message: 'Internal error' },
+        id: null
+      })
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  test('T-abort-2: a real mid-upload abort logs nothing at error level and never stalls shutdown', async () => {
+    const { base, server } = await startServer()
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+    const controller = new AbortController()
+    // Abort once the upload is visibly moving AND the request is on the wire:
+    // aborting inside the pull would cancel before the headers are flushed, and
+    // the abort would then never reach the server's body read. A zero-delay
+    // macrotask lets Bun push the frames it already has — a real client timing,
+    // not a sleep standing in for one.
+    let abortAfterStart: () => void = () => {}
+    const uploadStarted = new Promise<void>(resolve => (abortAfterStart = resolve))
+    const upload = recordingUpload(DRAIN_UPLOAD_BYTES, {
+      onSent: sent => {
+        if (sent < 2 * 16 * 1024) return
+        setTimeout(() => {
+          controller.abort()
+          abortAfterStart()
+        }, 0)
+      }
+    })
+    try {
+      const outcomePromise = fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: upload.body,
+        signal: controller.signal
+      }).then(
+        res => res,
+        (err: Error) => err
+      )
+      await expectWithinDeadline(
+        uploadStarted,
+        'the upload never started, so no abort could reach the server'
+      )
+      const outcome = await outcomePromise
+      expect(outcome).toBeInstanceOf(Error)
+      expect((outcome as Error).name).toBe('AbortError')
+      await expectStopResolves(server, 'client abort mid-body')
+      expect(errorSpy).toHaveBeenCalledTimes(0)
+    } finally {
+      errorSpy.mockRestore()
     }
   })
 })

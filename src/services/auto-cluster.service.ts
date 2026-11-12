@@ -117,7 +117,7 @@ const defaultSearchNeighbors = (
  * >= minMembers members becomes a cluster (source='auto_cluster'). dryRun only
  * computes groups without creating anything.
  */
-export async function runAutoClusterJob(
+export async function runAutoCluster(
   options: AutoClusterOptions,
   deps: AutoClusterDeps = {},
   d: Database = getDb()

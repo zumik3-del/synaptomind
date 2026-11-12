@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import {
   createTestDb,
@@ -7,11 +7,12 @@ import {
   seedThought,
   withVecDb
 } from '../test/helpers'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb } from './init'
 import { bm25SearchIds, isStrongMatch, rrfMerge, searchThoughts } from './search'
 import { bm25ScoredIds } from './search-bm25'
 import { buildFilterSQL } from './search-filters'
+import * as vectorSearchDb from './search-vector'
 
 const VEC_AVAILABLE = isVecExtensionAvailable()
 
@@ -291,13 +292,19 @@ function seedThoughtRow(db: Database, id: string, content: string): void {
 
 function seedVecEmbedding(db: Database, thoughtId: string): void {
   const buf = Buffer.from(new Float32Array(384).buffer)
-  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf)
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+    thoughtId,
+    buf
+  )
 }
 
 /** Seed a specific 384-d vector so cosine similarity is controllable. */
 function seedVecEmbeddingRaw(db: Database, thoughtId: string, vector: Float32Array): void {
   const buf = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength)
-  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf)
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+    thoughtId,
+    buf
+  )
 }
 
 function seedFts(db: Database, thoughtId: string, content: string): void {
@@ -1138,4 +1145,165 @@ test('searchThoughts reports degraded when the vec leg throws', () => {
     hybrid: true
   })
   expect((results as { degraded?: boolean }).degraded).toBe(true)
+})
+
+// ── candidate pool width (F2 stopgap, task #2480) ───────────────────────────
+
+describe('candidate pool width', () => {
+  /** The `pool` argument of every real vec0 call made while `fn` runs. */
+  async function poolsSeen(fn: () => void): Promise<number[]> {
+    const spy = spyOn(vectorSearchDb, 'vecSearchIds')
+    try {
+      fn()
+      return spy.mock.calls.map(call => call[2])
+    } finally {
+      spy.mockRestore()
+    }
+  }
+
+  itVec(
+    'a filtered search takes the pool cap while an unfiltered one keeps the topK width',
+    async db => {
+      const embedding = new Float32Array(384)
+      const pools = await poolsSeen(() => {
+        searchThoughts(db, { embedding, topK: 5, hybrid: false, projectFilter: 'project-a' })
+        searchThoughts(db, { embedding, topK: 5, hybrid: false })
+      })
+
+      // The vec0 predicate runs after the KNN cutoff, so a filter only gets the
+      // rows inside the pool: #2478 lost the ground truth until the pool passed
+      // the 900 nearer foreign rows, which the topK-derived width cannot reach.
+      expect(pools[0]).toBe(1000)
+      // The unfiltered path keeps the pre-fix expression and its cost.
+      expect(pools[1]).toBe(50)
+    }
+  )
+
+  itVec(
+    'the filtered pool ignores topK, and the unfiltered one grows then stops at the cap',
+    async db => {
+      const embedding = new Float32Array(384)
+      const pools = await poolsSeen(() => {
+        searchThoughts(db, { embedding, topK: 1, hybrid: false, projectFilter: 'project-a' })
+        searchThoughts(db, { embedding, topK: 40, hybrid: false, projectFilter: 'project-a' })
+        searchThoughts(db, { embedding, topK: 40, hybrid: false })
+        searchThoughts(db, { embedding, topK: 200, hybrid: false })
+      })
+
+      // k=40 is what the service derives from the production default k=10
+      // (`candidateK = topK × 4`): its unfiltered pool is 400, the filtered one
+      // is the cap that recovered the ground truth.
+      expect(pools).toEqual([1000, 1000, 400, 1000])
+    }
+  )
+})
+
+// ── project starvation behind the global partition (F4, task #2500) ─────────
+
+describe('project-scoped starvation', () => {
+  const PROJECT = 'proj-addressed'
+  const FOREIGN = 'proj-foreign'
+  /** `CANDIDATE_POOL_MAX` in `db/search.ts`: the `k` a filtered leg walks. */
+  const POOL_MAX = 1000
+  const STAMP = '2020-01-01T00:00:00.000Z'
+
+  function vectorBuffer(vector: Float32Array): Buffer {
+    return Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength)
+  }
+
+  function insertProject(db: Database, id: string): void {
+    db.prepare(`INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (?, ?, ?)`).run(
+      id,
+      id,
+      STAMP
+    )
+  }
+
+  /**
+   * `count` global thoughts whose vectors sit in the `__global__` partition,
+   * every one of them nearer to `query` than any project row can be: the crowd a
+   * project-scoped leg walks into.
+   */
+  function seedNearerGlobals(db: Database, query: Float32Array, count: number): void {
+    insertProject(db, FOREIGN)
+    const insertThought = db.prepare(`
+      INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_protected, is_global, created_at, updated_at)
+      VALUES (?, ?, 'active', 'test', ?, 0, 1, 1, ?, ?)
+    `)
+    const insertVector = db.prepare(
+      `INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, '__global__')`
+    )
+    const blob = vectorBuffer(query)
+    db.transaction(() => {
+      for (let i = 0; i < count; i++) {
+        const id = `global-${i}`
+        insertThought.run(id, `global filler ${i}`, FOREIGN, STAMP, STAMP)
+        insertVector.run(id, blob)
+      }
+    })()
+  }
+
+  itVec('a full topK of globals does not report a starved project as healthy', db => {
+    insertProject(db, PROJECT)
+    const query = new Float32Array(384)
+    query[0] = 1
+    // Similarity 0 to the query, so every global filler outranks it.
+    const far = new Float32Array(384)
+    far[1] = 1
+    const own = seedThought({ content: 'addressed project row', project_id: PROJECT })
+    db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, ?)`).run(
+      own,
+      vectorBuffer(far),
+      PROJECT
+    )
+    seedNearerGlobals(db, query, POOL_MAX + 1)
+
+    const results = searchThoughts(db, {
+      embedding: query,
+      topK: 5,
+      hybrid: false,
+      projectFilter: PROJECT
+    })
+
+    // The pool is consumed by nearer globals, so the answer is a full topK of
+    // them and the project's own row never reaches the residual filter…
+    expect(results).toHaveLength(5)
+    expect(results.map(r => r.thought.id)).not.toContain(own)
+    // …which is exactly the case the signal must not call healthy: the project
+    // has an embedded row these filters match, so `degraded: false` would read as
+    // "this project has nothing to say".
+    expect((results as { degraded?: boolean }).degraded).toBe(true)
+  })
+
+  itVec('a complete small-project answer stays healthy', db => {
+    insertProject(db, PROJECT)
+    const query = new Float32Array(384)
+    query[0] = 1
+    const own = seedThought({ content: 'small project answer', project_id: PROJECT })
+    const global = seedThought({ content: 'visible global', project_id: FOREIGN, is_global: 1 })
+    const far = new Float32Array(384)
+    far[1] = 1
+    db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, ?)`).run(
+      own,
+      vectorBuffer(query),
+      PROJECT
+    )
+    db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, ?)`).run(
+      global,
+      vectorBuffer(far),
+      '__global__'
+    )
+
+    const results = searchThoughts(db, {
+      embedding: query,
+      topK: 5,
+      hybrid: false,
+      projectFilter: PROJECT
+    })
+
+    // The project's own row is in the answer, so nothing was shut out and the
+    // short result is complete truth rather than starvation.
+    expect(results.map(r => r.thought.id).sort()).toEqual([global, own].sort())
+    expect((results as { degraded?: boolean }).degraded).toBe(false)
+  })
 })

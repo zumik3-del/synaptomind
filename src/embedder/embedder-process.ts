@@ -1,15 +1,16 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { closeDb, initDb, openDatabase } from '../db/init'
 import { insertLog } from '../logging'
 import { generateEmbeddings, resetExtractor } from './model'
 import { ensureModelFiles } from './model-validator'
 import {
   CONTENT_CHANGED_REASON,
-  deleteFromQueue,
+  deleteEmbeddedFromQueue,
   findPendingEmbeddings,
   handleFailedItem,
+  hasPendingEmbeddings,
   insertEmbedding,
   requeueEmbeddings,
   sweepOrphanedThoughts
@@ -20,7 +21,11 @@ import { type EmbeddingRow, type FailedRow, type RowOutcome, classifyBatch } fro
 
 const BATCH_SIZE = config.embedder.batchSize
 const MAX_CONSECUTIVE_FAILURES = 5
-const SWEEP_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
+// Safety net only: the v035 trigger queues every create and update, so a thought
+// that is neither queued nor vectorised means a trigger gap or a pre-trigger row,
+// not a normal write. Boot + hourly bounds that worst case at one interval (≤1 h)
+// and a tick is skipped entirely while the worker has queue work to do.
+const SWEEP_INTERVAL_MS = 60 * 60 * 1000
 
 interface DbEntry {
   id: string
@@ -131,7 +136,13 @@ async function processOneDb(idx: number): Promise<boolean> {
 
     for (const f of failed) handleFailedItem(db, f.id, f.error)
     for (const id of contentChanged) handleFailedItem(db, id, CONTENT_CHANGED_REASON)
-    if (succeeded.length > 0) deleteFromQueue(db, succeeded)
+    if (succeeded.length > 0) {
+      const stored = new Set(succeeded)
+      deleteEmbeddedFromQueue(
+        db,
+        rows.filter(r => stored.has(r.id))
+      )
+    }
 
     if (failed.length > 0 && succeeded.length > 0) {
       insertLog(
@@ -266,6 +277,7 @@ async function processSweep(): Promise<void> {
     const db = entry.db
     if (!db) continue
     try {
+      if (hasPendingEmbeddings(db)) continue
       const orphans = sweepOrphanedThoughts(db, BATCH_SIZE)
       if (orphans.length > 0) {
         requeueEmbeddings(
@@ -295,6 +307,7 @@ function startWorker(): void {
   pollTimer = setInterval(() => {
     void processBatch()
   }, config.embedder.pollIntervalMs)
+  void processSweep()
   sweepTimer = setInterval(processSweep, SWEEP_INTERVAL_MS)
 }
 

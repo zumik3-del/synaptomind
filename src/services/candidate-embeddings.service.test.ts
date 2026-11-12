@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, drainPendingEmbeddings, withVecDb } from '../test/helpers'
 import { closeDb } from '../db/init'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { resolveCandidateEmbeddings } from './candidate-embeddings.service'
 
 beforeEach(createTestDb)
@@ -22,7 +22,7 @@ function vec(marker: number): Float32Array {
  */
 function storeVec(id: string, vector: Float32Array): void {
   getDb()
-    .prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`)
+    .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
     .run(id, Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength))
   drainPendingEmbeddings([id])
 }

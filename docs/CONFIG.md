@@ -46,23 +46,31 @@ cp .env.example .env
 ### HTTP transport and protocol revisions
 
 `/mcp` serves two request eras on the same path. The era is decided per request
-from the request itself; no setting chooses it.
+from the request itself — its `mcp-protocol-version` header and its body — and no
+setting or query parameter chooses it.
 
 - **2026-07-28 (modern, stateless).** Each request is served by a fresh server
   instance and its own single-use transport. No `mcp-session-id` is issued, no
   server or transport outlives the exchange, and there is nothing for a sweep or
-  a TTL to expire. A request enters this era when it carries the 2026-07-28
-  per-request `_meta` envelope claim: the `server/discover` probe, envelope
-  `tools/call`, and the protocol errors this path answers itself (an
-  unsupported-revision claim, a malformed envelope, a body that parses but is not
-  a JSON-RPC message — see below).
+  a TTL to expire. A POST is routed here when it carries the 2026-07-28
+  per-request `_meta` envelope claim — `params._meta` holding the reserved
+  `io.modelcontextprotocol/protocolVersion` key: the `server/discover` probe and
+  envelope `tools/call` — or, for a single JSON-RPC request or notification,
+  when it carries no claim but presents an `mcp-protocol-version` header naming a
+  modern revision (`2026-07-28` or later): this path then answers a claim-less
+  request itself with the missing-envelope `400` `-32602`, or with a header/body
+  disagreement `400` `-32020` when the body is an `initialize` handshake. This
+  path also answers the protocol errors it owns (an unsupported-revision claim, a
+  malformed envelope, a body that parses but is not a JSON-RPC message — see
+  below). The decision is the `isLegacyRequest` predicate exported by
+  `@modelcontextprotocol/server` and called once in `src/mcp/mcp-route.ts`.
 - **2025 era (legacy, sessionful).** The 2025-era revisions (latest
   `2025-11-25`), served by the unchanged sessionful transport: `initialize`
   issues an `mcp-session-id`, follow-up requests present it, `GET` opens an SSE
   stream with keep-alive frames, and a dropped stream resumes from
-  `Last-Event-ID`. Every claim-less POST is served here — including the
-  `initialize` handshake — as are body-less `GET`/`DELETE` session operations
-  and a body that is empty or not valid JSON.
+  `Last-Event-ID`. Every POST the modern path does not take is served here —
+  the `initialize` handshake and a legacy batch included — as are body-less
+  `GET`/`DELETE` session operations and a body that is empty or not valid JSON.
 
 **A body that parses but is not a JSON-RPC message is served here.** `{}`,
 `null`, `"x"` and `[1]` all parse as JSON and none is a JSON-RPC message, so the
@@ -97,16 +105,30 @@ expected and needs no action on the server.
 **Request body bound: 5 MB (5242880 bytes) on both eras.** A declared
 `Content-Length` above it is answered `413` without parsing the body — the
 guard decides from the declared length alone — and the body that follows is
-drained off the connection and then discarded, never parsed or inspected
+drained up to `DRAIN_BODY_BYTES` (64 KiB, `src/mcp/request-body.ts`) and
+discarded, never parsed or inspected
 (`{"jsonrpc":"2.0","error":{"code":-32000,"message":"Request body too large (max 5MB)"},"id":null}`).
-The drain is deliberate: Bun holds a request in flight until its body is
-consumed, so a body left unread would make a graceful shutdown wait on the
-rejected request. A chunked body declares no length, so it is read up to the
-same limit and then answered `413`. The same drain applies to any `POST` the
-chain answers with an error before consuming the body. Before the 2026-07-28
-path existed, the 5 MB bound was enforced only by the middleware, and the
-legacy session path inherited the transport's own 4 MB default, so a 4–5 MB
-session request used to be rejected and is now served.
+The drain is deliberate: Bun settles a request only once its body reaches the
+end, and an unread body makes a graceful shutdown wait on the rejected request.
+The same bounded drain applies to any `POST` the chain answers with an error
+before consuming the body. Past the cap the drain stops reading — a body whose
+declared length is already over it is cancelled without reading a byte, a
+chunked one as soon as the running total passes 64 KiB — so the `4xx` does not
+wait out the rest of the upload and the drain itself buffers nothing. A rejected
+request that has no body, or whose body reaches its end within the cap, is
+`consumed`: the answer carries no `Connection: close`, so the connection stays
+keep-alive for the next request. Cancelling the stream does not settle the
+request, though: Bun writes the `4xx` and keeps the connection in flight with
+the rest of the body unread, so a client that still has bytes to send would
+leave `server.stop()` waiting. The drain therefore reports `consumed` or
+`abandoned` (`DrainOutcome` in `src/mcp/request-body.ts`), and an abandoned body
+makes the answer carry `Connection: close` (`src/mcp/http-transport.ts`): the
+connection ends with the answer, which is what settles the request. A chunked
+body declares no length, so the 5 MB bound is enforced by the read itself: it is
+read up to that bound and then answered `413`. Before the 2026-07-28 path
+existed, the 5 MB bound was enforced only by the middleware, and the legacy
+session path inherited the transport's own 4 MB default, so a 4–5 MB session
+request used to be rejected and is now served.
 
 **Modern streams are not resumable.** The 2026-07-28 handler keeps no event
 store, so `Last-Event-ID` replay does not exist there: a dropped
