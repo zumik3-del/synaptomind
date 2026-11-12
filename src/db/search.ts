@@ -5,7 +5,7 @@ import { buildFilterSQL } from './search-filters'
 import { FALLBACK_RECENCY_HALF_LIFE_DAYS, fetchThoughtsByIds } from './search-hydrate'
 import { RRF_K, rrfMerge } from './search-rrf'
 import type { SearchOptions, SearchResult } from './search-types'
-import { vecSearchIds } from './search-vector'
+import { countFilteredVectors, vecSearchIds } from './search-vector'
 
 export type { SearchResult } from './search-types'
 export { bm25SearchIds } from './search-bm25'
@@ -26,7 +26,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     clusterFilter,
     minImportance
   } = options
-  const pool = Math.min(CANDIDATE_POOL_MAX, Math.max(topK * CANDIDATE_POOL_MULTIPLIER, topK))
 
   // Defensive normalisation (the service clamps first): a non-positive or
   // non-finite weight disables the boost; a non-positive/non-finite half-life
@@ -64,6 +63,21 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     minImportance
   })
 
+  // A filter is applied inside the vec0 query *after* the KNN cutoff (`v.k =
+  // pool`), so rows of the requested project/status/cluster that rank below the
+  // cutoff never reach it (#2478). On a 905-row, three-project DB with 900
+  // nearer foreign rows the topK-derived pool (400 at the production default)
+  // scored recall@5 = 0.000 and recovered only from a pool past 900 — more than
+  // the ×10 multiplier yields at the default k. A filtered search therefore
+  // takes the whole cap; the cap itself is unchanged (a wider pool needs the
+  // schema decision the task defers). The unfiltered path keeps the topK-derived
+  // width, and with it its cost.
+  const unfilteredPool = Math.min(
+    CANDIDATE_POOL_MAX,
+    Math.max(topK * CANDIDATE_POOL_MULTIPLIER, topK)
+  )
+  const pool = filterSql ? CANDIDATE_POOL_MAX : unfilteredPool
+
   let degraded = false
   let vecIds: Array<{ id: string; distance: number }> = []
   if (embedding.length > 0) {
@@ -72,6 +86,17 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     } catch {
       degraded = true
       vecIds = []
+    }
+    // A short filtered leg is only "no such thought" when the filter matches no
+    // more embedded rows than the pool delivered; when it matches more, the
+    // cutoff starved the leg (a small project behind >cap nearer foreign rows)
+    // and the answer must say so instead of reading as an empty project.
+    if (filterSql && vecIds.length < topK) {
+      try {
+        if (countFilteredVectors(db, filterSql, filterParams) > vecIds.length) degraded = true
+      } catch {
+        degraded = true
+      }
     }
   }
   const vecSimById = new Map(vecIds.map(v => [v.id, 1 - v.distance]))

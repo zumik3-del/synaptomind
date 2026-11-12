@@ -1,35 +1,35 @@
-// F2 probe (task #2478): multi-project dilution of the filtered vector leg.
+// F2 probe (tasks #2478 measurement, #2479 stopgap).
 //
-// `db/search.ts` derives ONE global candidate pool for both legs
-// (`topK × 10`, capped at 1000 — `db/search.ts:15-16,29`) and the vec0 leg
-// applies the project/status/cluster filter to that pool afterwards inside the
-// same query (`db/search-vector.ts:28-39`: `v.embedding MATCH ? AND v.k = ?`
-// with the filter fragment in the WHERE clause). Rows of the requested project
-// that rank below the pool cutoff never reach the filter, so a narrow project on
-// a large database can contribute nothing to the vector leg — silently, with no
-// `degraded` flag on the outcome.
+// `db/search.ts` derives ONE candidate pool for both legs and applies the
+// project/status/cluster filter to it afterwards inside the vec0 query
+// (`db/search-vector.ts`: `v.embedding MATCH ? AND v.k = ?` with the filter
+// fragment in the WHERE clause). Rows of the requested project that rank below
+// the cutoff never reach the filter, so a narrow project on a large database can
+// contribute nothing — silently, with no `degraded` flag on the outcome.
 //
-// The corpus is a deliberate size gradient (fleet > depot > lighthouse) in which
-// every row of the two larger projects sits closer to the query than any row of
-// the smallest one, so the ranked neighbourhood is dominated by projects the
-// query does not ask for while the ground truth lives in the smallest project.
+// #2478 measured that on this corpus: with 900 rows ranking nearer than the
+// ground truth the topK-derived default pool (400 at production k=10) scored
+// recall@5 = 0.000 on both the vector leg and hybrid, `degraded === false`, while
+// a pool past 900 recovered both. The #2479 stopgap therefore pins a filtered
+// search to the existing cap (`CANDIDATE_POOL_MAX`), so the default arms below
+// now score 1.000; the raw-leg threshold (pool `nearer` -> 0 rows, `nearer + 1`
+// -> 1, cap -> 5) stays pinned in `multiproject-dilution.test.ts`, since the
+// search layer can no longer ask for a narrow filtered pool.
 //
-// The arms exist to isolate the cause, all against the same seeded corpus:
+// The arms stay comparable across the fix: the same query, filter and corpus,
+// differing only in the search legs and the scored k.
 //   - `hybrid-k5` vs `vector-k5` differ only in the search legs, so a loss that
 //     shows up in both is not an RRF artifact;
-//   - `vector-k5-pool1000` keeps the query, the filter and the scored k and
-//     changes only the overfetch (`poolTopK`), so a recovery there attributes the
-//     loss to the pool width — and `vector-k5-pool520` sits below the number of
-//     globally nearer rows, which brackets where the loss starts;
-//   - `hybrid-k5-pool1000` asks whether widening recovers the user-facing path
-//     too (the BM25 leg has its own overfetch, `db/search-bm25.ts:84-105`, so it
-//     can mask the vector loss at smaller corpora — see the BM25-mask case in
-//     `multiproject-dilution.test.ts`);
-//   - the `*-control` arms repeat the narrow-pool calls on a query whose answers
-//     are the globally nearest rows, so a zero from the diluted arms cannot be
-//     blamed on the filter, on the pool plumbing or on the harness;
-//   - `vector-k10` shows the k dependence, since a larger k also widens the
-//     derived pool.
+//   - `vector-k10` is the production default k, whose pre-fix pool was 400 and
+//     whose post-fix pool is the cap;
+//   - the `*-control` arms repeat the narrow-project calls on a query whose
+//     answers are the globally nearest rows, so a zero from the diluted arms
+//     cannot be blamed on the filter, on the pool plumbing or on the harness.
+//
+// Residual, measured and not fixed here: past the cap (more than 1000 nearer
+// foreign rows) the loss returns, and that is when the response must carry
+// `degraded = true` instead of an empty list. Scoping the vec0 leg by project
+// (a partition/metadata column) is the structural fix, not part of the stopgap.
 
 import type { EvalQuery, EvalScenario, EvalThought } from './types'
 
@@ -54,8 +54,9 @@ export interface DilutionCorpusSizes {
 
 /**
  * Default corpus: 900 rows rank nearer than the ground truth and the queried
- * project holds 5, which puts the ground truth past both the default vector pool
- * (200) and the default BM25 overfetch (600) — the production shape.
+ * project holds 5 — the pre-fix shape where the topK-derived vector pool (200 at
+ * k=5) starves the filter, and still under the 1000 cap so the stopgap's
+ * cap-wide filtered pool reaches the answers.
  */
 export const DILUTION_CORPUS: Required<DilutionCorpusSizes> = { big: 700, mid: 200 }
 
@@ -113,8 +114,10 @@ function corpus(sizes: Required<DilutionCorpusSizes>): EvalThought[] {
   return thoughts
 }
 
-// The diluted query, searched in the smallest project. `hybrid`/`poolTopK` are
-// the only knobs that move between arms; everything else is held constant.
+// The diluted query, searched in the smallest project. `hybrid`/`topK` are the
+// only knobs that move between arms; everything else is held constant. The
+// overfetch knob (`poolTopK`) is gone: a filtered search takes the cap, so it
+// could no longer narrow the pool the fix is measured on.
 function dilutedQueries(): EvalQuery[] {
   const diluted = {
     query: DILUTION_QUERY,
@@ -127,19 +130,13 @@ function dilutedQueries(): EvalQuery[] {
     projectFilter: DILUTION_PROJECTS.small
   }
   return [
-    // Default pool (k=5 -> candidate pool 200): hybrid is the user-facing path.
+    // User-facing path at the harness k.
     { ...diluted, label: 'hybrid-k5' },
-    // Same pool, vector leg only: no BM25, no RRF.
+    // Same corpus, vector leg only: no BM25, no RRF.
     { ...diluted, label: 'vector-k5', hybrid: false },
-    // k=10 also widens the derived pool (400) while the scored k grows.
+    // The production default k; its pre-fix pool was 400, now the cap.
     { ...diluted, label: 'vector-k10', hybrid: false, topK: 10 },
-    // Pool 520 = still below the 900 rows that rank nearer than the ground truth.
-    { ...diluted, label: 'vector-k5-pool520', hybrid: false, poolTopK: 13 },
-    // Pool at its 1000 cap: above the nearer rows, so the filter finally sees them.
-    { ...diluted, label: 'vector-k5-pool1000', hybrid: false, poolTopK: 50 },
-    // Does widening recover the user-facing (hybrid) path as well?
-    { ...diluted, label: 'hybrid-k5-pool1000', poolTopK: 50 },
-    // Control arms: same narrow pool, a query whose answers are globally nearest.
+    // Control arms: a query whose answers are globally nearest.
     { ...control, label: 'vector-k5-control', hybrid: false },
     { ...control, label: 'hybrid-k5-control' }
   ]
@@ -158,7 +155,7 @@ export function buildMultiProjectDilutionScenario(
     name: options.name ?? 'multi-project-pool-dilution',
     category: 'pool-dilution',
     description:
-      'The filtered vec0 leg draws from a global candidate pool: a query whose ground truth lives in the smallest of three unequal projects loses recall when the pool is narrower than the number of globally nearer rows.',
+      'The filtered vec0 leg draws from a global candidate pool: a query whose ground truth lives in the smallest of three unequal projects recovers only when the pool is wider than the number of globally nearer rows (#2478). The stopgap pins a filtered pool to the cap, so these arms now recover; the raw-leg threshold stays pinned in the test.',
     // A probe, not a retrieval floor: its recall is the F2 measurement, so it
     // must never enter the aggregates or the recorded thresholds.
     measureOnly: true,
