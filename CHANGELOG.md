@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.24.1
+
+> November 12, 2026
+
+- [`603907c3`](https://github.com/zumik3-del/synaptomind/commit/603907c356e73a578841b91d44c49bb57307c14a): fix(search): deterministic BM25 tie order and stricter leg tests
+- [`27273314`](https://github.com/zumik3-del/synaptomind/commit/272733149af56092751acbc4c490de51ab5ffd41): fix(search): order the project-filtered BM25 leg before the cap
+
 ## v0.24.0
 
 > November 12, 2026
