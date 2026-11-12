@@ -1,4 +1,6 @@
 import { afterAll, beforeEach, describe, expect, spyOn, test } from 'bun:test'
+import { once } from 'node:events'
+import { connect, type Socket } from 'node:net'
 import { createTestDb } from '../test/helpers'
 import { mcpErrorHandler, startMcpHttpServer, type McpHttpHandle } from './http-transport'
 import { DRAIN_BODY_BYTES } from './request-body'
@@ -46,6 +48,7 @@ delete process.env.SYNAPTOMIND_ALLOW_INSECURE
 
 interface RunningServer {
   base: string
+  port: number
   server: McpHttpHandle
 }
 
@@ -60,7 +63,7 @@ async function freePort(): Promise<number> {
 async function startServer(corsOrigins?: string[]): Promise<RunningServer> {
   const port = await freePort()
   const server = startMcpHttpServer('127.0.0.1', port, { corsOrigins })
-  return { base: `http://127.0.0.1:${port}`, server }
+  return { base: `http://127.0.0.1:${port}`, port, server }
 }
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
@@ -770,6 +773,10 @@ describe('bounded drain of a rejected body (#2463)', () => {
       expect(res.status).toBe(401)
       expect(await res.json()).toEqual({ error: 'Unauthorized' })
 
+      // An abandoned body cannot be settled by the cancel, so the answer has to
+      // end the connection; that is also what a fetch client sees here (#2488).
+      expect(res.headers.get('connection')).toBe('close')
+
       // The rejection is already answered; the drain then cancels instead of
       // reading 8 MiB, which is the only way the bound is visible from here.
       await expectWithinDeadline(
@@ -810,9 +817,215 @@ describe('bounded drain of a rejected body (#2463)', () => {
       )
       expect(upload.sent()).toBe(40 * 1024)
       expect(upload.sentAtCancel()).toBeUndefined()
+      // A body drained to its end is consumed, not abandoned: the connection has
+      // nothing outstanding and must stay reusable.
+      expect(res.headers.get('connection')).not.toBe('close')
       // The modern-shaped rejection never touched the sessionful leg.
       expect(server.getSessions().size).toBe(0)
     } finally {
+      await expectStopResolves(server, '415 with a sub-cap body')
+    }
+  })
+})
+
+// #2464: the header is only the announcement — an abandoned body settles the
+// request when the connection actually ends, and a consumed one must leave the
+// connection reusable. fetch hides both, so these cases speak HTTP/1.1 on a raw
+// socket and read the exchange frame by frame.
+interface WireResponse {
+  status: number
+  headers: Map<string, string>
+  body: string
+}
+
+class WireConnection {
+  private buffer: Buffer = Buffer.alloc(0)
+  private closed = false
+  private readonly waiters = new Set<() => void>()
+
+  private constructor(private readonly socket: Socket) {
+    socket.on('data', (chunk: Buffer) => {
+      this.buffer = Buffer.concat([this.buffer, chunk])
+      this.notify()
+    })
+    const markClosed = () => {
+      this.closed = true
+      this.notify()
+    }
+    socket.on('close', markClosed)
+    socket.on('error', markClosed)
+  }
+
+  static async open(port: number): Promise<WireConnection> {
+    const socket = connect({ host: '127.0.0.1', port })
+    await once(socket, 'connect')
+    return new WireConnection(socket)
+  }
+
+  send(data: string | Buffer): void {
+    this.socket.write(data)
+  }
+
+  /** One Content-Length delimited response; the server answers JSON here. */
+  async readResponse(label: string): Promise<WireResponse> {
+    for (;;) {
+      const headEnd = this.buffer.indexOf('\r\n\r\n')
+      if (headEnd !== -1) {
+        const [statusLine = '', ...headerLines] = this.buffer
+          .subarray(0, headEnd)
+          .toString('latin1')
+          .split('\r\n')
+        const headers = new Map<string, string>()
+        for (const line of headerLines) {
+          const colon = line.indexOf(':')
+          if (colon !== -1) {
+            headers.set(line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim())
+          }
+        }
+        const length = Number(headers.get('content-length'))
+        if (Number.isNaN(length)) {
+          throw new Error(`${label}: response without Content-Length: ${statusLine}`)
+        }
+        const bodyStart = headEnd + 4
+        if (this.buffer.length >= bodyStart + length) {
+          const body = this.buffer.subarray(bodyStart, bodyStart + length).toString('utf8')
+          this.buffer = this.buffer.subarray(bodyStart + length)
+          return { status: Number.parseFloat(statusLine.split(' ')[1] ?? ''), headers, body }
+        }
+      }
+      if (this.closed) throw new Error(`${label}: the connection closed before a complete response`)
+      await this.wait()
+    }
+  }
+
+  async waitForClose(label: string): Promise<void> {
+    await expectWithinDeadline(
+      (async () => {
+        while (!this.closed) await this.wait()
+      })(),
+      label
+    )
+  }
+
+  destroy(): void {
+    this.socket.destroy()
+  }
+
+  private notify(): void {
+    for (const wake of this.waiters) wake()
+    this.waiters.clear()
+  }
+
+  private wait(): Promise<void> {
+    return new Promise<void>(resolve => this.waiters.add(resolve))
+  }
+}
+
+interface RawPost {
+  authorization: string
+  contentLength: number
+  contentType?: string
+  extraHeaders?: string[]
+}
+
+function rawPostHead({
+  authorization,
+  contentLength,
+  contentType = 'application/json',
+  extraHeaders = []
+}: RawPost): string {
+  return [
+    'POST /mcp HTTP/1.1',
+    'Host: 127.0.0.1',
+    `Authorization: Bearer ${authorization}`,
+    `Content-Type: ${contentType}`,
+    ...extraHeaders,
+    `Content-Length: ${contentLength}`,
+    '',
+    ''
+  ].join('\r\n')
+}
+
+describe('connection handling of a rejected body (#2464)', () => {
+  // The drain middleware wraps the whole `/mcp` chain, so it runs before era
+  // classification and both eras are drained by the same code. The 401 here is
+  // answered before an era exists at all (auth gate), which is the abandoned
+  // shape: over the cap, so the drain cancels instead of reading it.
+  test('T-drain-3: an abandoned over-cap body is answered 401 with Connection: close and ends the connection', async () => {
+    const { port, server } = await startServer()
+    const connection = await WireConnection.open(port)
+    try {
+      // Declared 8 MiB, 4 KiB on the wire: the client still has bytes to send,
+      // which is exactly the shape a bare cancel left in flight (#2463 → #2488).
+      connection.send(
+        rawPostHead({ authorization: 'not-the-secret', contentLength: DRAIN_UPLOAD_BYTES })
+      )
+      connection.send(Buffer.alloc(4 * 1024, 0x78))
+      const res = await connection.readResponse('401 on an abandoned 8 MiB body')
+      expect(res.status).toBe(401)
+      expect(JSON.parse(res.body)).toEqual({ error: 'Unauthorized' })
+      expect(res.headers.get('connection')).toBe('close')
+      // The close itself is what settles the request; without it server.stop()
+      // waits forever, which the bound on stop() in the finally block reports.
+      await connection.waitForClose(
+        'the abandoned request was never closed, so server.stop() would wait for it'
+      )
+    } finally {
+      connection.destroy()
+      await expectStopResolves(server, '401 with an abandoned 8 MiB body')
+    }
+  })
+
+  // The rejected request below carries no modern version claim, so it is the
+  // legacy shape (the same shape T-neg-6 names) — but the 415 gate answers
+  // before era classification, just as it does for the modern-shaped upload in
+  // T-drain-2, and the drain middleware wraps both eras alike. The follow-up on
+  // the same socket proves the drained connection survived, which is exactly
+  // what the abandoned path gives up.
+  test('T-drain-4: a sub-cap rejection keeps the connection alive for the next request', async () => {
+    const { port, server } = await startServer()
+    const connection = await WireConnection.open(port)
+    const body = Buffer.alloc(40 * 1024, 0x78)
+    try {
+      connection.send(
+        rawPostHead({
+          authorization: SECRET,
+          contentType: 'text/plain',
+          contentLength: body.byteLength
+        })
+      )
+      connection.send(body)
+      const rejected = await connection.readResponse('415 on a sub-cap body')
+      expect(rejected.status).toBe(415)
+      expect(JSON.parse(rejected.body)).toEqual({
+        jsonrpc: '2.0',
+        error: {
+          code: -32000,
+          message: 'Unsupported Media Type: Content-Type must be application/json'
+        },
+        id: null
+      })
+      expect(rejected.headers.get('connection')).not.toBe('close')
+
+      const discover = JSON.stringify(DISCOVER_MESSAGE)
+      connection.send(
+        rawPostHead({
+          authorization: SECRET,
+          contentLength: Buffer.byteLength(discover),
+          extraHeaders: [
+            'Accept: application/json, text/event-stream',
+            `mcp-protocol-version: ${MODERN}`,
+            'mcp-method: server/discover'
+          ]
+        })
+      )
+      connection.send(discover)
+      const next = await connection.readResponse('the request after a sub-cap rejection')
+      expect(next.status).toBe(200)
+      expect(JSON.parse(next.body).result.supportedVersions).toContain(MODERN)
+      expect(server.getSessions().size).toBe(0)
+    } finally {
+      connection.destroy()
       await expectStopResolves(server, '415 with a sub-cap body')
     }
   })
