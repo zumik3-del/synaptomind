@@ -1,30 +1,11 @@
-import type { Database } from 'bun:sqlite'
-import { getDb } from '../db'
-import {
-  configuredSoftLimit,
-  getAdvertisedSoftLimit as resolveAdvertisedSoftLimit
-} from '../db/settings'
+import { getThoughtLimitsDB } from '../db/settings'
 
 /**
- * Thin service wrappers over the runtime-settings meta accessors. They keep the
- * API/tool layers free of direct db access (findings F2/#1) and give every
- * consumer one resolution path (finding F13): the store tool reads the limit at
- * registration and the guide reads it at call time through this module.
- *
- * Each wrapper takes the connection as a trailing defaulted param per the DI
- * convention, so a caller with a specific connection can pass it through.
+ * The advertised thought soft limit: the single resolution path for the store
+ * tool and the guide (finding F13), while the API/tool layers stay free of
+ * direct db access. The computation is config-only (findings F7/#2201), so the
+ * wrapper takes no connection and cannot throw before `initDb()`.
  */
-/**
- * The advertised thought soft limit. Unlike the wrappers above this one cannot
- * default its connection to `getDb()`: registration may run before `initDb()`
- * in some harnesses, and the default expression would throw outside the guard.
- * So the connection is resolved lazily inside the guard, which keeps the
- * pre-init degradation to config that the db layer used to own.
- */
-export function getAdvertisedSoftLimitService(d?: Database): number {
-  try {
-    return resolveAdvertisedSoftLimit(d ?? getDb())
-  } catch {
-    return configuredSoftLimit()
-  }
+export function getAdvertisedSoftLimitService(): number {
+  return getThoughtLimitsDB().softLimit
 }

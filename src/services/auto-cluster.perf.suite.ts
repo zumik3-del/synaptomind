@@ -16,7 +16,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db/container'
 import { closeDb } from '../db/init'
 import { createTestDb, drainPendingEmbeddings, withVecDb } from '../test/helpers'
-import { runAutoClusterJob } from './auto-cluster.service'
+import { runAutoCluster } from './auto-cluster.service'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
@@ -53,14 +53,14 @@ function seedClusterCandidates(count: number, past: string): string[] {
   return ids
 }
 
-test('runAutoClusterJob: 3000 stored-vector candidates complete well under 10 s with 0 embedder calls', async () => {
+test('runAutoCluster: 3000 stored-vector candidates complete well under 10 s with 0 embedder calls', async () => {
   await withVecDb(async () => {
     const past = new Date(Date.now() - 10 * 86400000).toISOString()
     const ids = seedClusterCandidates(3000, past)
     let embedCalls = 0
     const started = performance.now()
 
-    const result = await runAutoClusterJob(
+    const result = await runAutoCluster(
       { minAgeDays: 0, minMembers: 2, minSimilarity: 0.3, dryRun: true },
       {
         embed: async texts => {

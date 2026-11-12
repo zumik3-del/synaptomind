@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import { runAutoClusterJob } from '../../../services/auto-cluster.service'
+import { runAutoCluster } from '../../../services/auto-cluster.service'
 import {
   createPreviewTokenService,
   consumePreviewTokenService
@@ -38,7 +38,7 @@ export const autoClusterHandler: ActionHandler = {
       minMembers: optionalNumber(args.min_members)
     }
     if (!confirm) {
-      const result = await runAutoClusterJob({ ...opts, dryRun: true })
+      const result = await runAutoCluster({ ...opts, dryRun: true })
       const token = createPreviewTokenService(
         'auto_cluster',
         'global',
@@ -59,12 +59,12 @@ export const autoClusterHandler: ActionHandler = {
         }
       })
     }
-    const dry = await runAutoClusterJob({ ...opts, dryRun: true })
+    const dry = await runAutoCluster({ ...opts, dryRun: true })
     const fp = autoClusterFingerprint(dry)
     if (!previewToken) throw new Error('preview_token is required')
     const verification = consumePreviewTokenService(previewToken, 'auto_cluster', 'global', fp)
     if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-    const result = await runAutoClusterJob({ ...opts, dryRun: false })
+    const result = await runAutoCluster({ ...opts, dryRun: false })
     return collectionEnvelope('auto_cluster', result.groups, {
       total: result.candidates,
       counts: { candidates: result.candidates, clusters: result.clusters_created }

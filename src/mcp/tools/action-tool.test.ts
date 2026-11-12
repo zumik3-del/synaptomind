@@ -30,7 +30,7 @@ mock.module('../../embedder/client', () => ({
 
 mock.module('../../services/auto-cluster.service', () => ({
   __esModule: true,
-  runAutoClusterJob: async (options: Record<string, unknown>) => {
+  runAutoCluster: async (options: Record<string, unknown>) => {
     capturedAutoClusterOptions = options
     return { dry_run: true, candidates: 0, groups: [], clusters_created: 0 }
   }
@@ -485,7 +485,7 @@ describe('memory_status action=config raw-text passthrough', () => {
 // ── auto_cluster option pass-through (task #925 / #930) ─────────────────────
 
 /**
- * Capture the options object received by a mocked runAutoClusterJob so the
+ * Capture the options object received by a mocked runAutoCluster so the
  * handler's numeric-string coercion path is exercised end-to-end.
  */
 let capturedAutoClusterOptions: Record<string, unknown> | undefined

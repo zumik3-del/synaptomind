@@ -3,7 +3,7 @@ import { config, DEFAULTS } from '../config'
 import { createTestDb } from '../test/helpers'
 import { getDb } from './container'
 import { closeDb } from './init'
-import { getThoughtLimits, getThoughtLimitsDB } from './settings'
+import { getThoughtLimitsDB } from './settings'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
@@ -26,16 +26,16 @@ function configuredLimits(): {
 }
 
 test('getThoughtLimitsDB returns config defaults with derived hard limit', () => {
-  expect(getThoughtLimitsDB(getDb())).toEqual({
+  expect(getThoughtLimitsDB()).toEqual({
     softLimit: 600,
     hardLimit: 720,
     hardLimitBufferPercent: 20
   })
 })
 
-test('getThoughtLimits uses the configured soft limit and buffer', () => {
+test('getThoughtLimitsDB uses the configured soft limit and buffer', () => {
   const { softLimit, hardLimitBufferPercent } = config.thoughts
-  expect(getThoughtLimits(getDb())).toEqual({
+  expect(getThoughtLimitsDB()).toEqual({
     softLimit,
     hardLimit: Math.round(softLimit * (1 + hardLimitBufferPercent / 100)),
     hardLimitBufferPercent
@@ -48,11 +48,11 @@ test('derived hard limit rounds to the nearest integer', () => {
     // 33 * 1.1 = 36.3 -> 36 (round down)
     config.thoughts.softLimit = 33
     config.thoughts.hardLimitBufferPercent = 10
-    expect(getThoughtLimitsDB(getDb()).hardLimit).toBe(36)
+    expect(getThoughtLimitsDB().hardLimit).toBe(36)
     // 10 * 1.05 = 10.5 -> 11 (half rounds up)
     config.thoughts.softLimit = 10
     config.thoughts.hardLimitBufferPercent = 5
-    expect(getThoughtLimitsDB(getDb()).hardLimit).toBe(11)
+    expect(getThoughtLimitsDB().hardLimit).toBe(11)
   } finally {
     config.thoughts.softLimit = originalSoft
     config.thoughts.hardLimitBufferPercent = originalBuffer
@@ -68,7 +68,7 @@ test('stored _meta limit values are ignored — config is the only source', () =
   writeMeta('thought_hard_limit_buffer_percent', '50')
   writeMeta('thought_hard_limit', '5000')
 
-  expect(getThoughtLimitsDB(getDb())).toEqual(configuredLimits())
+  expect(getThoughtLimitsDB()).toEqual(configuredLimits())
 })
 
 test('invalid configured soft limit and buffer fall back to defaults', () => {
@@ -77,7 +77,7 @@ test('invalid configured soft limit and buffer fall back to defaults', () => {
   try {
     config.thoughts.softLimit = 0
     config.thoughts.hardLimitBufferPercent = -5
-    expect(getThoughtLimitsDB(getDb())).toEqual({
+    expect(getThoughtLimitsDB()).toEqual({
       softLimit: DEFAULTS.thoughts.softLimit,
       hardLimit: Math.round(
         DEFAULTS.thoughts.softLimit * (1 + DEFAULTS.thoughts.hardLimitBufferPercent / 100)

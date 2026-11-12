@@ -17,7 +17,7 @@ import { loadFreshConfig } from './test/fresh-config'
  * The last cleanup (#2201) dropped two knobs whose only reader was removed with
  * them: `slots.hardLimit` (the ceiling is derived from
  * `thoughts.hardLimitBufferPercent`) and `autoCluster.dryRun`
- * (`runAutoClusterJob` now takes an explicit `dryRun` per call).
+ * (`runAutoCluster` now takes an explicit `dryRun` per call).
  *
  * The RUNTIME object is a different matter: `deepMerge` copies the operator's
  * file keys verbatim, so on an instance whose config.json still carries a
