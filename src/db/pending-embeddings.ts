@@ -66,10 +66,40 @@ export function requeueEmbeddings(db: Database, ids: string[]): void {
   tx()
 }
 
+/** Retires rows regardless of freshness — the batch path uses `deleteEmbeddedFromQueue`. */
 export function deleteFromQueue(db: Database, ids: string[]) {
   const del = db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?')
   const tx = db.transaction(() => {
     for (const id of ids) del.run(id)
+  })
+  tx()
+}
+
+/** A queue row whose vector was written, with the `content_hash` it was embedded from. */
+export interface EmbeddedRow {
+  id: string
+  contentHash: string
+}
+
+/**
+ * Retire the queue rows of a stored batch, but only while the thought's
+ * `content_hash` still equals the hash its vector was embedded from.
+ *
+ * The delete is the last step of a batch, long after the hash check inside
+ * `insertEmbedding`, so a content update committed by the server in between has
+ * already re-queued the thought under its NEW hash (v035 trigger). Deleting by
+ * id alone drops that fresh row and strands the stale vector with no freshness
+ * signal — permanently (audit F8). The guard is evaluated by the DELETE itself,
+ * so the row stays queued and the next poll re-embeds it.
+ */
+export function deleteEmbeddedFromQueue(db: Database, rows: EmbeddedRow[]): void {
+  const del = db.prepare(`
+    DELETE FROM pending_embeddings
+    WHERE thought_id = ?
+      AND NOT EXISTS (SELECT 1 FROM thoughts WHERE id = ? AND content_hash <> ?)
+  `)
+  const tx = db.transaction(() => {
+    for (const row of rows) del.run(row.id, row.id, row.contentHash)
   })
   tx()
 }

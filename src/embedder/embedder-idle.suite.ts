@@ -71,7 +71,7 @@ mock.module('../db/pending-embeddings', () => ({
   CONTENT_CHANGED_REASON: 'changed',
   findPendingEmbeddings: () => (queued ? [{ id: 'row', content: 'row', contentHash: 'hash' }] : []),
   insertEmbedding: () => true,
-  deleteFromQueue: () => {
+  deleteEmbeddedFromQueue: () => {
     queued = false
   },
   handleFailedItem: () => {},

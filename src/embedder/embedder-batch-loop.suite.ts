@@ -9,7 +9,7 @@ import { afterAll, expect, mock, test } from 'bun:test'
  *
  * `embedder-process.ts` is a side-effect module: importing it runs `initDb()`,
  * validates the model and starts the poll worker. The invariant "only
- * `succeeded` reaches `deleteFromQueue`" (and the skip log / backoff decisions)
+ * `succeeded` reaches the retire path" (and the skip log / backoff decisions)
  * therefore lives behind that import, and `src/embedder/batch.test.ts` can only
  * mirror the composition. This suite drives the shipped loop instead:
  *
@@ -17,8 +17,8 @@ import { afterAll, expect, mock, test } from 'bun:test'
  *  · `./model` + `./model-validator` → no model download, and the embed step is
  *    the deterministic mid-batch edit window,
  *  · `../db/pending-embeddings` → real queue functions with `insertEmbedding`
- *    able to throw (the all-failed leg) and a spy on `deleteFromQueue` that
- *    records the ids the SHIPPED loop passes, then performs the real delete.
+ *    able to throw (the all-failed leg) and a spy on `deleteEmbeddedFromQueue`
+ *    that records the ids the SHIPPED loop passes, then performs the real delete.
  *
  * It runs in a child bun process (see `embedder-batch-loop.test.ts`): bun's
  * `mock.module` leaks through `export *`, and this file mocks four modules.
@@ -118,7 +118,7 @@ mock.module('./model-validator', () => ({
   }
 }))
 
-/** Ids the SHIPPED loop handed to `deleteFromQueue`, per call. */
+/** Ids the SHIPPED loop handed to the retire path, per call. */
 const deleteCalls: string[][] = []
 // The queue module moved to the db layer (task #1581): the mock specifier follows
 // it, and every mock mirrors the db-first signature so the worker's `db` argument
@@ -131,9 +131,9 @@ mock.module('../db/pending-embeddings', () => ({
   },
   findPendingEmbeddings: (db: Database, limit: number) =>
     control.drainQueue ? [] : realQueueFns.findPendingEmbeddings(db, limit),
-  deleteFromQueue: (db: Database, ids: string[]) => {
-    deleteCalls.push([...ids])
-    realQueueFns.deleteFromQueue(db, ids)
+  deleteEmbeddedFromQueue: (db: Database, rows: { id: string; contentHash: string }[]) => {
+    deleteCalls.push(rows.map(r => r.id))
+    realQueueFns.deleteEmbeddedFromQueue(db, rows)
   }
 }))
 
@@ -286,7 +286,7 @@ test('AC6 (real loop): an all-failed batch drives the backoff, and the store fau
   expect(allFailedLog).toBeDefined()
 }, 20_000)
 
-test('AC2/AC5/AC6/AC8 (real loop): a skipped row never reaches deleteFromQueue, is logged, and does not advance the backoff', async () => {
+test('AC2/AC5/AC6/AC8 (real loop): a skipped row never reaches the retire path, is logged, and does not advance the backoff', async () => {
   const backoffBefore = backoffLogs().length
 
   // Phase B fixture:
