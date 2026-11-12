@@ -1,8 +1,5 @@
 import type { Database } from 'bun:sqlite'
 import { afterAll, expect, mock, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { config } from '../config'
 import { getDb } from '../db/container'
 import { closeDb } from '../db/init'
@@ -27,8 +24,6 @@ import { seedThought } from '../test/helpers'
  *
  * Excluded from the default `bun test` glob (`*.suite.ts`).
  */
-
-const scratch = mkdtempSync(join(tmpdir(), 'synaptomind-sweep-'))
 
 // Long enough that neither captured timer can fire on its own during the suite:
 // every tick below is an explicit call, which is what keeps this fast.
@@ -164,7 +159,6 @@ afterAll(() => {
   Date.now = realNow
   globalThis.setInterval = realSetInterval
   closeDb()
-  rmSync(scratch, { recursive: true, force: true })
 })
 
 test('the sweep runs at boot and is re-armed hourly, both read off the timer seam', () => {
