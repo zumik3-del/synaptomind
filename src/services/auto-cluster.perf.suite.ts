@@ -38,7 +38,9 @@ function seedClusterCandidates(count: number, past: string): string[] {
     INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_protected, is_global, created_at, updated_at)
     VALUES (?, ?, 'active', 'test', 'default', 0, 1, 0, ?, ?)
   `)
-  const insertVec = db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`)
+  const insertVec = db.prepare(
+    `INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`
+  )
   db.transaction(() => {
     for (let i = 0; i < count; i++) {
       const id = `11111111-1111-7111-8111-${String(i).padStart(12, '0')}`

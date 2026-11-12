@@ -56,7 +56,10 @@ describe('recall context semantic', () => {
     const id = seedThought({ content: 'semantic context target thought' })
     drainPendingEmbeddings([id])
     const buf = Buffer.from(VECTOR.buffer, VECTOR.byteOffset, VECTOR.byteLength)
-    db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(id, buf)
+    db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+      id,
+      buf
+    )
 
     const r = await client.callTool({
       name: 'memory_recall',

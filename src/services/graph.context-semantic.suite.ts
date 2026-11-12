@@ -38,7 +38,10 @@ function vectorAtCos(cos: number): Float32Array {
 
 function insertVector(db: Database, thoughtId: string, vector: Float32Array): void {
   const buf = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength)
-  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf)
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+    thoughtId,
+    buf
+  )
 }
 
 describe('getContextService uses real embeddings', () => {
@@ -46,7 +49,10 @@ describe('getContextService uses real embeddings', () => {
     const id = seedThought({ content: 'semantic context target thought' })
     drainPendingEmbeddings([id])
     const buf = Buffer.from(VECTOR.buffer, VECTOR.byteOffset, VECTOR.byteLength)
-    db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(id, buf)
+    db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+      id,
+      buf
+    )
 
     const ctx = await getContextService('zzzznomatchtoken', { maxDegree: 3 }, db)
 

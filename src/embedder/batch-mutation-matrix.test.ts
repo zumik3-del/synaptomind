@@ -13,7 +13,9 @@ import {
 beforeEach(() => {
   createTestDb()
   getDb()
-    .prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)')
+    .prepare(
+      'CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB, scope TEXT)'
+    )
     .run()
 })
 

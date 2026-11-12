@@ -389,6 +389,18 @@ operator hook reported.
 database file is `/var/lib/synaptomind/synaptomind.db` — there is no `data/`
 under `/var/lib/synaptomind`.
 
+**v048: project-scoped vector index.** The first boot after updating to a
+release that carries v048 copies the whole vector corpus once. A staging copy of
+the embeddings and the rebuilt `vec_thoughts` table coexist inside one migration
+transaction — ≈1.5 KB per row at 384 dimensions, so ~150 MB at 100k rows and
+~1.5 GB at 1M, transiently doubled in the WAL. The migration refuses to start
+when the data filesystem has less than 2 × that staged size free and fails the
+boot with an actionable message (free space and restart) instead of dying
+mid-transaction, so check `df` on the data filesystem before a large upgrade.
+Its rollback is the generic one above — restore the pre-update backup and the
+previous payload: v048 is forward-only and the schema-version guard refuses a
+v48 database from an older binary.
+
 ### Logging
 
 Application logs now route to stdout/stderr (info/debug to stdout, warning/error

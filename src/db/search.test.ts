@@ -292,13 +292,19 @@ function seedThoughtRow(db: Database, id: string, content: string): void {
 
 function seedVecEmbedding(db: Database, thoughtId: string): void {
   const buf = Buffer.from(new Float32Array(384).buffer)
-  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf)
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+    thoughtId,
+    buf
+  )
 }
 
 /** Seed a specific 384-d vector so cosine similarity is controllable. */
 function seedVecEmbeddingRaw(db: Database, thoughtId: string, vector: Float32Array): void {
   const buf = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength)
-  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(thoughtId, buf)
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+    thoughtId,
+    buf
+  )
 }
 
 function seedFts(db: Database, thoughtId: string, content: string): void {

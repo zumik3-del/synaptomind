@@ -37,7 +37,7 @@ function vec384(angle: number): Float32Array {
 
 function storeVec(id: string, vector: Float32Array): void {
   getDb()
-    .prepare('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)')
+    .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
     .run(id, Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength))
   drainPendingEmbeddings([id])
 }
