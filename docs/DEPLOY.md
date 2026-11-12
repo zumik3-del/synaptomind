@@ -401,6 +401,32 @@ Its rollback is the generic one above — restore the pre-update backup and the
 previous payload: v048 is forward-only and the schema-version guard refuses a
 v48 database from an older binary.
 
+The same migration also makes the server write `vec_thoughts` for the first
+time: moving a thought to another project (or toggling `is_global`) repartitions
+its vector inside the caller's transaction, while the embedder child writes that
+table from its own process. WAL admits one writer, so the two queue instead of
+conflicting, and a move never fails because of the repartition — the trigger's
+statements run under the write lock the caller's `UPDATE thoughts` already
+holds, so they add cost (0.25 ms/row in a bulk move) but no way to lose the lock
+(`src/db/v048-vec-move-contention.test.ts` pins this both with and without the
+trigger). Two windows remain; v048 creates neither, it only widens the second:
+
+- **A write that starts with a read fails fast, not late.** A transaction that
+  reads before it writes — which is what every `updateThought` does — gets
+  `database is locked` *immediately* if the embedder child holds the write lock
+  at that instant, because SQLite does not run the `db.busyTimeout` handler when
+  a read transaction upgrades to a write (measured 0.07 ms with a 40 ms timeout).
+  Nothing is half-applied and a retry succeeds; this predates v048 and applies to
+  every thought update, not only a project move.
+- **A bulk move is the one long write window.** Deleting a project reassigns
+  every one of its thoughts in a single transaction, at ≈0.25 ms/row measured on
+  this host at 384 dimensions: ~6 ms for a single move, ~1.2 s at 5 000 rows, and
+  the default `busy_timeout` of 5 000 ms is reached at ~20 000 rows. The child's
+  own writes wait out that window and are unaffected below it; above it they fail
+  and are retried, and ten consecutive failures dead-letter a row until an opt-in
+  `embedder.resetDeadLetters` reset. Raise `db.busyTimeout`
+  (`SYNAPTOMIND_DB_BUSY_TIMEOUT`) before deleting a project that large.
+
 ### Logging
 
 Application logs now route to stdout/stderr (info/debug to stdout, warning/error
