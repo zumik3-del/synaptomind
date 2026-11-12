@@ -587,12 +587,15 @@ truth; it is still the best available answer. A search reports it for three dist
   `__global__` rows consumed the whole partition walk (`addressedProjectShutOut`,
   `src/db/search-vector.ts:78`; `src/db/search.ts:107-113`).
 
-The third case is why a project-scoped answer that contains no row of the addressed project while
-that project has matching embedded rows comes back `degraded: true`: it is reported as a degraded
-answer, not as a quietly short or empty list that would read as "this project has nothing to say".
-An answer carrying at least one row of the addressed project is not degraded for that reason, and
-a project with no matching embedded row is a genuine short or empty answer — as long as no leg
-failed.
+The third case belongs to the vector leg rather than to the fused answer. It fires when that leg
+delivers no row of the addressed project while the project has embedded rows matching the same
+residual filters: the semantic side is then known to have lost the project, not to have found the
+project empty. Two consequences follow. A hybrid answer can still contain a project row surfaced by
+the BM25 leg while `degraded` is true — the flag reports the lost semantic reach, not the absence of
+every project row. And a project row the vector leg did deliver, dropped afterwards by the relevance
+gate, is reported as `counts.filtered_out` rather than as this flag, so a caller reading only
+`degraded` can still see a project-less answer; read both fields. A project with no matching
+embedded row is a genuine short or empty answer, as long as no leg failed.
 
 ### `action=get`
 
