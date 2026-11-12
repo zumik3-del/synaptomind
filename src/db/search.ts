@@ -5,7 +5,7 @@ import { buildFilterSQL, buildResidualFilterSQL, buildVecScopeSQL } from './sear
 import { FALLBACK_RECENCY_HALF_LIFE_DAYS, fetchThoughtsByIds } from './search-hydrate'
 import { RRF_K, rrfMerge } from './search-rrf'
 import type { SearchOptions, SearchResult } from './search-types'
-import { countFilteredVectors, vecSearchIds } from './search-vector'
+import { addressedProjectShutOut, countFilteredVectors, vecSearchIds } from './search-vector'
 
 export type { SearchResult } from './search-types'
 export { bm25SearchIds } from './search-bm25'
@@ -96,6 +96,17 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     if (filterSql && vecIds.length < topK) {
       try {
         if (countFilteredVectors(db, scope, residual) > vecIds.length) degraded = true
+      } catch {
+        degraded = true
+      }
+    }
+    // That count cannot see the opposite failure: a *full* topK of `__global__`
+    // rows whose pool the project's own rows never entered. The project is then
+    // absent from an answer that claims to be project-scoped, so probe the
+    // project itself (ADR 2026-11-12 §7.4).
+    if (projectFilter) {
+      try {
+        if (addressedProjectShutOut(db, projectFilter, residual, vecIds)) degraded = true
       } catch {
         degraded = true
       }

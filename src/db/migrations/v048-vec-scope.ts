@@ -58,10 +58,7 @@ BEGIN
     SELECT id, embedding FROM vec_thoughts WHERE id = NEW.id;
   DELETE FROM vec_thoughts WHERE id = NEW.id;
   INSERT INTO vec_thoughts (id, embedding, scope)
-    SELECT id, embedding,
-           CASE WHEN NEW.is_global = 1 THEN '__global__'
-                WHEN NEW.project_id IS NULL THEN '__unassigned__'
-                ELSE NEW.project_id END
+    SELECT id, embedding, ${scopeSql('NEW')}
     FROM ${MOVE_TABLE} WHERE id = NEW.id;
   DELETE FROM ${MOVE_TABLE} WHERE id = NEW.id;
 END`

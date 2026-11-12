@@ -88,7 +88,9 @@ export interface SearchResult {
   /**
    * True when the search degraded: the embedding is unavailable, a search leg
    * failed, or the filtered vector leg was cut short by the candidate pool — so
-   * an empty/short result cannot be read as "this project has no match". Mirrors
+   * an empty/short result cannot be read as "this project has no match". A
+   * project-scoped answer whose pool delivered no row of the addressed project
+   * (nearer `__global__` rows can consume the whole walk) degrades too. Mirrors
    * the placement engine's `degraded` flag. This single boolean replaces the
    * former `signals` triple.
    */
