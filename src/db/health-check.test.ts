@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { createTestDb, seedEdge, seedLegacyPairEdge, seedThought } from '../test/helpers'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb } from './init'
 import {
   deleteEdges,

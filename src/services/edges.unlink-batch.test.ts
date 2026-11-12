@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { findEdge } from '../db/edges'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { deleteEdgesBatchService } from './edges.service'

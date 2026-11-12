@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { config, DEFAULTS } from '../config'
 import { createTestDb } from '../test/helpers'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb } from './init'
 import { getThoughtLimitsDB } from './settings'
 

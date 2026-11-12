@@ -13,7 +13,7 @@
  *   bun test ./src/services/auto-cluster.perf.suite.ts
  */
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import { createTestDb, drainPendingEmbeddings, withVecDb } from '../test/helpers'
 import { runAutoCluster } from './auto-cluster.service'

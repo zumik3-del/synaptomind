@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { config } from '../config'
 import { vec0Path } from '../runtime-mode'
 import { drainPendingEmbeddings, seedThought } from '../test/helpers'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb, initDb, readVecIndexState } from './init'
 import { MIGRATIONS } from './migrations'
 

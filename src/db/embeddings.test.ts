@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createTestDb, seedThought, withVecDb } from '../test/helpers'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb } from './init'
 import { getPendingEmbeddingIds, getThoughtEmbeddingsBatch } from './embeddings'
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import { resolveCandidateEmbeddings } from '../services/candidate-embeddings.service'
 import { createTestDb, seedThought } from '../test/helpers'

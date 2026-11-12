@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { config } from '../config'
 import { vec0Path } from '../runtime-mode'
 import { computeContentHash } from '../utils'
-import { getDb } from './container'
+import { getDb } from '../context/container'
 import { closeDb, initDb } from './init'
 import { MIGRATIONS } from './migrations'
 

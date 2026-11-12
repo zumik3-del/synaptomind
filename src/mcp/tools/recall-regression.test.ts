@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
-import { getDb } from '../../db/container'
+import { getDb } from '../../context/container'
 import { createEdge } from '../../db/edges'
 import { closeDb } from '../../db/init'
 import { createTestDb, seedThought, withVecDb } from '../../test/helpers'

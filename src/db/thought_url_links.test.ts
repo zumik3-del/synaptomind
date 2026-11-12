@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import {
   deleteThoughtUrlLinksNotIn,

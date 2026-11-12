@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { config } from '../config'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import { createTestDb } from '../test/helpers'
 import { getAdvertisedSoftLimitService } from './settings.service'

@@ -4,7 +4,7 @@
  * them. Test-only; the shape and DB probes live in `confirm-gate-cases.types.ts`.
  */
 import { expect } from 'bun:test'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { seedEdge, seedThought } from './helpers'
 import {
   edgeExists,

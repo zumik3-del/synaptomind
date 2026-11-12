@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer as SdkMcpServer } from '@modelcontextprotocol/server'
-import { getDb } from '../../db/container'
+import { getDb } from '../../context/container'
 import { closeDb, initDb } from '../../db/init'
 import { drainPendingEmbeddings, isVecExtensionAvailable, seedThought } from '../../test/helpers'
 import { mkdtempSync, rmSync } from 'node:fs'
