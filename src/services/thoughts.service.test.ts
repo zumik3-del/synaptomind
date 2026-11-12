@@ -18,6 +18,7 @@ import { validateContentLength } from '../validation'
 // The thought limits are config-only since task #2201.
 const originalSoftLimit = config.thoughts.softLimit
 const originalHardLimitBufferPercent = config.thoughts.hardLimitBufferPercent
+const originalContentLanguage = config.contentLanguage
 
 beforeEach(createTestDb)
 afterEach(() => {
@@ -25,6 +26,7 @@ afterEach(() => {
   closeDb()
   config.thoughts.softLimit = originalSoftLimit
   config.thoughts.hardLimitBufferPercent = originalHardLimitBufferPercent
+  config.contentLanguage = originalContentLanguage
 })
 
 test('getThoughtByIdService returns thought', () => {
@@ -43,7 +45,7 @@ test('createThoughtWithParentService creates thought without parent', () => {
   expect(t.id).toBeString()
   expect(t.content).toBe('test thought')
   expect(t.tags).toHaveLength(1)
-  expect((t as unknown as Record<string, unknown>).content_language).toBe('en')
+  expect(t.content_language).toBe(config.contentLanguage)
 })
 
 test('createThoughtWithParentService creates thought with parent edge', () => {
@@ -68,12 +70,40 @@ test('createThoughtWithParentService rejects content over hard limit', () => {
   expect(() => createThoughtWithParentService({ content: longContent })).toThrow(ValidationError)
 })
 
+test('createThoughtWithParentService stamps content_language from config', () => {
+  config.contentLanguage = 'ru'
+  const t = createThoughtWithParentService({ content: 'language probe' })
+  expect(Object.hasOwn(t, 'content_language')).toBeTrue()
+  expect(t.content_language).toBe('ru')
+})
+
 test('updateThoughtByIdService updates content', () => {
   const id = seedThought()
   const updated = updateThoughtByIdService(id, { content: 'updated' })
   expect(updated).not.toBeNull()
   expect(updated!.content).toBe('updated')
-  expect((updated! as unknown as Record<string, unknown>).content_language).toBe('en')
+  expect(updated!.content_language).toBe(config.contentLanguage)
+})
+
+test('updateThoughtByIdService stamps content_language from config', () => {
+  const id = seedThought()
+  config.contentLanguage = 'ru'
+  const updated = updateThoughtByIdService(id, { content: 'language probe' })
+  expect(Object.hasOwn(updated!, 'content_language')).toBeTrue()
+  expect(updated!.content_language).toBe('ru')
+})
+
+test('read paths do not own content_language', () => {
+  config.contentLanguage = 'ru'
+  const id = seedThought({ content: 'read probe' })
+
+  const read = getThoughtByIdService(id)
+  expect(Object.hasOwn(read!, 'content_language')).toBeFalse()
+  expect(read!.content_language).toBeUndefined()
+
+  const listed = listThoughtsPageService().thoughts.find(t => t.id === id)
+  expect(listed).toBeDefined()
+  expect(Object.hasOwn(listed!, 'content_language')).toBeFalse()
 })
 
 test('updateThoughtByIdService returns null for unknown id', () => {
