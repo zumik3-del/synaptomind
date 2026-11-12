@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, drainPendingEmbeddings, withVecDb } from '../test/helpers'
 import { closeDb } from '../db/init'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { resolveCandidateEmbeddings } from './candidate-embeddings.service'
 
 beforeEach(createTestDb)

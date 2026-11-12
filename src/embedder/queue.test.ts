@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { closeDb } from '../db/init'
 import { createTestDb, seedThought } from '../test/helpers'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import {
   MAX_ATTEMPTS,
   deleteEmbeddedFromQueue,

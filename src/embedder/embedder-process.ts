@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { closeDb, initDb, openDatabase } from '../db/init'
 import { insertLog } from '../logging'
 import { generateEmbeddings, resetExtractor } from './model'

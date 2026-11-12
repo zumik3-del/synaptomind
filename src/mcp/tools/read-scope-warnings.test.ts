@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
-import { getDb } from '../../db/container'
+import { getDb } from '../../context/container'
 import { closeDb } from '../../db/init'
 import { insertProposal } from '../../db/placement-proposals'
 import { createProjectService, resolveProjectService } from '../../services/projects.service'

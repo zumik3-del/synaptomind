@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { hashUserToken, config } from '../config'
-import { clearRegistry, register } from '../db/container'
+import { clearRegistry, register } from '../context/container'
 import { openDatabase } from '../db/init'
 import { upsertSlot } from '../db/slots'
 

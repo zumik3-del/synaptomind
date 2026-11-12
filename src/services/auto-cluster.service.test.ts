@@ -12,7 +12,7 @@ import {
 } from './auto-cluster.service'
 import type { AutoClusterOptions } from './auto-cluster.service'
 import type { ClusterCandidate } from '../db/thoughts'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 
 beforeEach(createTestDb)
 afterEach(closeDb)

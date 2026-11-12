@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { getPendingEmbeddingIds, getThoughtEmbeddingsBatch } from '../db/embeddings'
 import { closeDb } from '../db/init'
 import { createTestDb, drainPendingEmbeddings, seedThought, withVecDb } from '../test/helpers'

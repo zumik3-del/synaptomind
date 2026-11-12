@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { runHealthCheckService } from '../../services/health-check.service'
 import { createTestDb, seedEdge, seedThought } from '../../test/helpers'
-import { getDb } from '../container'
+import { getDb } from '../../context/container'
 import { closeDb } from '../init'
 import { findBrokenParentChains, findCircularChains, findReplacesChains } from './chains'
 

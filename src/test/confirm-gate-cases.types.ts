@@ -6,7 +6,7 @@
  * the small DB probes they assert with. Test-only.
  */
 import { expect } from 'bun:test'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { getEdgePairBetween } from '../db/edges'
 import { applyProposalService } from '../services/placement-apply.service'
 import { insertPendingEdge } from './proposal-apply-helpers'

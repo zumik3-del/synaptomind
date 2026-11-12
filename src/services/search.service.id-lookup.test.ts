@@ -217,7 +217,7 @@ describe('searchThoughtsOutcome — id lookup', () => {
     const oldId = seedThought({ id: A, content: 'SUPERSEDED_ID marker' })
     const newId = seedThought({ id: B, content: 'SUPERSEDING_ID marker' })
     const { createEdge } = await import('../db/edges')
-    const { getDb } = await import('../db/container')
+    const { getDb } = await import('../context/container')
     createEdge(getDb(), newId, oldId, 'replaces')
 
     const outcome = await searchThoughtsOutcome({ query: A, supersessionMode: 'suppress' })

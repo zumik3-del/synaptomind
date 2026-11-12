@@ -5,7 +5,7 @@
  * DB probes live in `confirm-gate-cases.types.ts`.
  */
 import { expect } from 'bun:test'
-import { getDb } from '../db/container'
+import { getDb } from '../context/container'
 import { promoteThoughtToPrimer } from '../db/primers'
 import { createProjectService, getProjectService } from '../services/projects.service'
 import { seedThought } from './helpers'
