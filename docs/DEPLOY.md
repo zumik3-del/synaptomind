@@ -404,20 +404,33 @@ v48 database from an older binary.
 The same migration also makes the server write `vec_thoughts` for the first
 time: moving a thought to another project (or toggling `is_global`) repartitions
 its vector inside the caller's transaction, while the embedder child writes that
-table from its own process. WAL admits one writer, so the two queue instead of
-conflicting, and a move never fails because of the repartition — the trigger's
-statements run under the write lock the caller's `UPDATE thoughts` already
-holds, so they add cost (0.25 ms/row in a bulk move) but no way to lose the lock
-(`src/db/v048-vec-move-contention.test.ts` pins this both with and without the
-trigger). Two windows remain; v048 creates neither, it only widens the second:
+table from its own process. WAL admits one writer, so the child's writes queue
+behind the server's transaction instead of conflicting: they run in autocommit,
+so a write starts its own transaction and consults `busy_timeout`
+(`src/db/pending-embeddings.ts:160-181`, called from
+`src/embedder/embedder-process.ts:104-112`). The one exception is the server's
+own read→write upgrade, the first window below. A move never fails *because of*
+the repartition — the trigger's statements run under the write lock the caller's
+`UPDATE thoughts` already holds, so they add cost (0.25 ms/row in a bulk move)
+but no way to lose the lock (`src/db/v048-vec-move-contention.test.ts` pins this
+both with and without the trigger). Two windows remain; v048 creates neither, it
+only widens the second:
 
-- **A write that starts with a read fails fast, not late.** A transaction that
-  reads before it writes — which is what every `updateThought` does — gets
-  `database is locked` *immediately* if the embedder child holds the write lock
-  at that instant, because SQLite does not run the `db.busyTimeout` handler when
-  a read transaction upgrades to a write (measured 0.07 ms with a 40 ms timeout).
-  Nothing is half-applied and a retry succeeds; this predates v048 and applies to
-  every thought update, not only a project move.
+- **A write after a read fails fast, not late.** A deferred transaction whose
+  first statement is a read has no `db.busyTimeout` protection left for the
+  statement that writes: SQLite does not run the busy handler when a read
+  transaction upgrades to a write, so it gets `database is locked`
+  *immediately* if the embedder child holds the write lock at that instant
+  (measured 0.07 ms with a 40 ms timeout). That is the shape of a `content`,
+  `status` or `project_id` change — the pre-check `SELECT` at
+  `src/db/thoughts.ts:256-258` runs before the `UPDATE` at `:280`, inside the
+  deferred transaction at `:207` — and of a tag *merge*, which reads the current
+  tags first (`src/db/tags.ts:34`). Nothing is half-applied and a retry
+  succeeds; this predates v048 and applies to those updates, not only to a
+  project move. A tag *replace* starts with its own write (`src/db/tags.ts:40`,
+  reached from `src/db/thoughts.ts:215-221`), as does an attribute-only edit
+  (`is_protected`, `is_global`, `archived_at`, …): those consult `busy_timeout`
+  and wait instead of failing at once.
 - **A bulk move is the one long write window.** Deleting a project reassigns
   every one of its thoughts in a single transaction, at ≈0.25 ms/row measured on
   this host at 384 dimensions: ~6 ms for a single move, ~1.2 s at 5 000 rows, and
