@@ -70,6 +70,12 @@ export function bm25SearchIds(db: Database, query: string, limit: number): strin
  * BM25 leg scoped by the shared filter fragment. Oversamples the FTS matches
  * before joining so post-filter `topK` is still reachable, and degrades to the
  * unfiltered leg when the filtered query fails.
+ *
+ * The outer `ORDER BY fts.score` is load-bearing: the join makes the planner free
+ * to drive from `thoughts` (an indexed `t.status` predicate tempts it), which
+ * drops the subquery's order, so without it the leg's row order — and the rank
+ * RRF consumes — is arbitrary and the cap keeps arbitrary matches instead of the
+ * best ones.
  */
 export function bm25ScoredIdsFiltered(
   db: Database,
@@ -97,6 +103,7 @@ export function bm25ScoredIdsFiltered(
         INNER JOIN thoughts t ON fts.thought_id = t.id
         LEFT JOIN thought_importance ti ON fts.thought_id = ti.thought_id
         WHERE 1=1 ${filterSql}
+        ORDER BY fts.score
         LIMIT ?
       `)
       .all(fts, oversample, ...filterParams, limit) as Array<{ thought_id: string; score: number }>
