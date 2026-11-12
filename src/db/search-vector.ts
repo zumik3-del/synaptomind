@@ -2,6 +2,36 @@ import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import { insertLog } from '../logging'
 
 /**
+ * Number of embedded thoughts the shared filter fragment matches. The vec0 KNN
+ * cuts its pool before the predicate runs, so a short filtered result can mean
+ * "outside the pool" rather than "absent"; comparing this count against the rows
+ * the leg returned is how `db/search.ts` tells the two apart.
+ */
+export function countFilteredVectors(
+  db: Database,
+  filterSql: string,
+  filterParams: SQLQueryBindings[]
+): number {
+  try {
+    const row = db
+      .prepare(`
+        SELECT COUNT(*) AS n
+        FROM vec_thoughts v
+        INNER JOIN thoughts t ON v.id = t.id
+        LEFT JOIN thought_importance ti ON v.id = ti.thought_id
+        WHERE 1=1 ${filterSql}
+      `)
+      .get(...filterParams) as { n: number }
+    return row.n
+  } catch (err) {
+    insertLog('debug', 'search', 'filtered vector count failed', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+    throw err
+  }
+}
+
+/**
  * Vector (vec0) leg scoped by the shared filter fragment. Returns `[]` when the
  * `vec_thoughts` table is unavailable so semantic search degrades gracefully.
  *
