@@ -173,13 +173,23 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
       const queries: QueryRun[] = []
       for (const query of scenario.queries) {
         const k = query.topK ?? topK
-        const { hits: found, filteredOut } = await searcher(query.query, k, query.projectFilter, {
-          recencyWeight: query.recencyWeight,
-          recencyHalfLifeDays: query.recencyHalfLifeDays
-        })
+        // `poolTopK` widens the DB candidate pool without moving the scored k:
+        // the search returns the overfetched list, which is truncated back to k
+        // before scoring (see `EvalQuery.poolTopK`).
+        const searchTopK = query.poolTopK ?? k
+        const { hits: found, filteredOut } = await searcher(
+          query.query,
+          searchTopK,
+          query.projectFilter,
+          {
+            recencyWeight: query.recencyWeight,
+            recencyHalfLifeDays: query.recencyHalfLifeDays,
+            hybrid: query.hybrid
+          }
+        )
         // Capture the #155 confidence signals before the ids are flattened, so
         // `expectNoStrongMatch` can assert on them (see eval/types.ts).
-        const hits: RetrievedHit[] = found.map(result => ({
+        const hits: RetrievedHit[] = found.slice(0, k).map(result => ({
           id: result.thought.id,
           lowConfidence: result.low_confidence,
           similarity: result.similarity ?? 0,
@@ -192,6 +202,8 @@ export async function runEval(options: RunOptions = {}): Promise<RunResult> {
         const checkErrors = evaluateChecks(query, retrieved, ownThoughtIds, hits)
         queries.push({
           query: query.query,
+          label: query.label,
+          poolTopK: query.poolTopK,
           relevant: query.relevant,
           hits,
           metrics: computeQueryMetrics(retrieved, query.relevant, checkErrors)

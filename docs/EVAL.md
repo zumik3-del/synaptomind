@@ -113,6 +113,10 @@ endpoint is authoritative) and contradicted thoughts are never suppressed, so
 retrieval alone cannot pick a winner. If an `xfail` scenario unexpectedly passes
 it is reported as `xpass` and is still not a failure.
 
+Two measure-only probe categories sit outside the #124 set and carry no
+threshold floor: `no-match` (negative probes) and `pool-dilution` (the F2
+candidate-pool probe described below).
+
 ### Negative (no-match) scenarios
 
 The `negative-no-match` probe is `measureOnly: true` (reported and
@@ -156,6 +160,67 @@ standing/suppression path rather than the raw DB search. Deeper relevance
 re-scoring beyond deterministic standing ordering is out of scope and left as
 follow-up.
 
+## Candidate-pool dilution probe (F2)
+
+`multi-project-pool-dilution` (category `pool-dilution`, `measureOnly`) measures
+whether the filtered vec0 leg loses recall on a multi-project database. The DB
+layer derives **one global** candidate pool for both legs (`topK × 10`, capped at
+1000 — `src/db/search.ts:15-16,29`) and applies the project/status/cluster filter
+to that pool inside the same query (`src/db/search-vector.ts:28-39`), so rows of
+the queried project that rank below the cutoff never reach the filter — silently,
+with no `degraded` flag on the outcome.
+
+The scenario seeds three deliberately unequal projects (700 / 200 / 5 rows) in
+which every row of the two larger projects ranks nearer the query than any row of
+the smallest one, and asks the query inside the smallest project. Three of its
+five rows are the labelled answers, two belong to a control topic. The arms differ
+only in the leg and the overfetch width, so the comparison isolates the pool from
+RRF and from the filter:
+
+| arm | legs | `poolTopK` | derived pool | recall@5 | precision@5 |
+|-----|------|-----------|--------------|----------|-------------|
+| `hybrid-k5` | hybrid | – | 200 | 0.000 | 0.000 |
+| `vector-k5` | vector only | – | 200 | 0.000 | 0.000 |
+| `vector-k10` | vector only | – | 400 | 0.000 | 0.000 |
+| `vector-k5-pool520` | vector only | 13 | 520 | 0.000 | 0.000 |
+| `vector-k5-pool1000` | vector only | 50 | 1000 | 1.000 | 0.600 |
+| `hybrid-k5-pool1000` | hybrid | 50 | 1000 | 1.000 | 0.600 |
+| `vector-k5-control` | vector only | – | 200 | 1.000 | 1.000 |
+| `hybrid-k5-control` | hybrid | – | 200 | 1.000 | 1.000 |
+
+Recorded 2026-11-12 with the pre-fix pool (`CANDIDATE_POOL_MULTIPLIER = 10`);
+deterministic and `--real` produce the same table. The derived pool is
+`min(1000, candidateK × 10)` where `candidateK = topK × 4` under
+`supersessionMode: 'suppress'` (`src/services/search-normalize.service.ts:126-129`).
+
+What the numbers say:
+
+- **The loss is real and pool-sized.** The filtered vec0 leg returns nothing until
+  the pool passes the count of rows that rank nearer than the ground truth
+  (900 here): pool 900 → 0 rows, 901 → 1, 1000 → 5
+  (`multiproject-dilution.test.ts`). The loss is silent: an empty result with
+  `degraded === false`, indistinguishable from "no match in this project".
+- **It reaches the user-facing path.** `hybrid-k5` loses recall too, so this is
+  not an RRF artifact; both legs miss. Below the BM25 leg's own overfetch
+  (`limit × 3`, capped at 1000 — `src/db/search-bm25.ts:84-105`) the hybrid path
+  is masked, which is why the default corpus is sized above it.
+- **Widening the pool recovers it, up to the cap.** With 900 nearer rows the
+  vector leg comes back exactly at k=23 (pool 920) and stays empty at k=22 (pool
+  880), so a deeper search is itself a workaround; the 1000 cap bounds it — a
+  corpus with 1 200 nearer rows stays at recall 0 for every k, and only a
+  project-scoped vector leg can fix that.
+- The two control arms keep full recall at the same narrow pool, so the zeros are
+  not the filter, the pool plumbing or the harness.
+
+The probe is a measurement, not a floor: it stays `measureOnly`, contributes no
+queries to the aggregates and has no threshold entry. When F2 is fixed (wider
+pool for filtered searches, or a project-scoped vector leg), the narrow arms
+recover — update the snapshot assertions in `multiproject-dilution.test.ts`
+together with this table.
+
+Cost: 905 seeded rows, ~0.9 s in deterministic mode and ~2.7 s in `--real`
+(single pass; the harness seeds a scenario once per pass).
+
 ## Dataset schema
 
 Datasets are plain TypeScript (`eval/types.ts`):
@@ -179,10 +244,18 @@ interface EvalQuery {
   projectFilter?: string
   forbid?: string[]            // ids that must NOT appear (hard assertion)
   rankBefore?: { before: string; after: string }  // ordering assertion
+  hybrid?: boolean             // false = vector leg only (no BM25, no RRF)
+  poolTopK?: number            // overfetch width; hits are truncated back to topK
+  label?: string               // arm name, shown in the per-arm report table
   noRelevant?: true            // negative query: no own thought may be retrieved
   expectNoStrongMatch?: true   // negative query: no hit may be a strong match
 }
 ```
+
+`hybrid: false` and `poolTopK` exist for arm-style probes that must hold the
+query, the filter and the scored k constant while moving one ranking knob; a
+labelled query also gets a row in the `Probe arms (per-query)` table printed
+below the scenario table.
 
 ### Adding a scenario
 

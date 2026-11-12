@@ -178,6 +178,33 @@ function renderGatedPass(ungated: RunResult, gated: RunResult): string {
   ].join('\n')
 }
 
+/**
+ * Per-arm view of a probe scenario whose queries differ only in one knob
+ * (`EvalQuery.label`, e.g. the F2 pool-dilution probe). A scenario row averages
+ * its arms, which hides exactly the comparison the probe exists for, so labelled
+ * queries are printed one row each. Scenarios without labels add no output.
+ */
+function renderArmTable(result: RunResult): string {
+  const rows: string[][] = []
+  for (const scenario of result.scenarios) {
+    for (const query of scenario.queries) {
+      if (!query.label) continue
+      rows.push([
+        scenario.name,
+        query.label,
+        query.poolTopK === undefined ? '-' : String(query.poolTopK),
+        fmt(query.metrics.recall),
+        fmt(query.metrics.precision),
+        fmt(query.metrics.mrr),
+        String(query.metrics.retrieved.length)
+      ])
+    }
+  }
+  if (rows.length === 0) return ''
+  const header = ['scenario', 'arm', 'poolTopK', 'recall', 'prec', 'mrr', 'retrieved']
+  return ['', 'Probe arms (per-query):', ...renderGrid(header, rows)].join('\n')
+}
+
 function printRegressions(regressions: Regression[]): void {
   console.error('\nGating regressions:')
   for (const regression of regressions) {
@@ -208,6 +235,8 @@ async function main(): Promise<void> {
     : { ungated: await runEval(runOptions), gated: null }
   const result = passes.ungated
   console.log(renderTable(result))
+  const arms = renderArmTable(result)
+  if (arms) console.log(arms)
   if (passes.gated) console.log(renderGatedPass(result, passes.gated))
   else console.log('\nGated pass skipped (--no-gated).')
 

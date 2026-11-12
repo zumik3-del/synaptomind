@@ -7,6 +7,7 @@
 //
 // Distractors keep precision@k meaningful (the corpora are larger than top-k).
 
+import { MULTI_PROJECT_DILUTION_SCENARIO } from './multiproject-dilution'
 import type { EvalScenario, EvalThought } from './types'
 
 const DISTRACTORS: EvalThought[] = [
@@ -285,5 +286,8 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
         expectNoStrongMatch: true
       }
     ]
-  }
+  },
+  // F2 measurement probe (task #2478). Kept last so the eight #124 categories
+  // read first; `measureOnly` keeps its recall out of the aggregates/thresholds.
+  MULTI_PROJECT_DILUTION_SCENARIO
 ]
