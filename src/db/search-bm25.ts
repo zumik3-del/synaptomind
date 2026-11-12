@@ -67,9 +67,13 @@ export function bm25SearchIds(db: Database, query: string, limit: number): strin
 }
 
 /**
- * BM25 leg scoped by the shared filter fragment. Oversamples the FTS matches
- * before joining so post-filter `topK` is still reachable, and degrades to the
- * unfiltered leg when the filtered query fails.
+ * BM25 leg scoped by the shared filter fragment: the best `min(1000, limit * 3)` global FTS
+ * matches, filtered, re-sorted and capped at `limit`. The oversample only buys headroom below
+ * `limit = 334`; at the service's width (`limit = 1000`) it equals `limit`, so there the leg is
+ * "the best 1000 global matches, filtered". Degrades to the unfiltered leg on failure.
+ *
+ * The join lets the planner drive from `thoughts` and drop the subquery order, so the outer
+ * `ORDER BY fts.score, fts.thought_id` must be stated.
  */
 export function bm25ScoredIdsFiltered(
   db: Database,
@@ -97,6 +101,7 @@ export function bm25ScoredIdsFiltered(
         INNER JOIN thoughts t ON fts.thought_id = t.id
         LEFT JOIN thought_importance ti ON fts.thought_id = ti.thought_id
         WHERE 1=1 ${filterSql}
+        ORDER BY fts.score, fts.thought_id
         LIMIT ?
       `)
       .all(fts, oversample, ...filterParams, limit) as Array<{ thought_id: string; score: number }>
