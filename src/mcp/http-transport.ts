@@ -88,14 +88,17 @@ export function startMcpHttpServer(
     })
   )
 
-  // Bun settles an in-flight request only once its body is consumed; an early
+  // Bun settles an in-flight request only once its body reaches the end; an early
   // rejection that leaves the body unread makes server.stop() wait forever. The
   // drain is bounded and discards the rest, so a rejected upload cannot buy
   // unbounded buffering or an arbitrarily late 4xx.
   app.use('/mcp', async (c, next) => {
     await next()
     if (c.req.method !== 'POST' || c.res.status < 400 || c.req.raw.bodyUsed) return
-    await drainRejectedBody(c.req.raw)
+    const outcome = await drainRejectedBody(c.req.raw)
+    // A cancelled body does not settle the request, so the only way to let
+    // server.stop() through is to end the connection with the answer (#2464).
+    if (outcome === 'abandoned') c.header('Connection', 'close')
   })
 
   app.use('/mcp', authMiddleware)
