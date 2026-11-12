@@ -205,9 +205,11 @@ and the scored `k`, so the comparison isolates the pool from RRF and the filter:
 | `vector-k5-control` | vector only | 5 | 1.000 | 0.400 |
 | `hybrid-k5-control` | hybrid | 5 | 1.000 | 0.400 |
 
-Measured 2026-11-12 with the deterministic embedder (the `--real` pass produces
-the same table). 905-row default corpus (700 / 200 / 5, 900 nearer rows) and the
-4 505-row acceptance corpus (3 000 / 1 500 / 5) both score 1.000 on every arm.
+Measured 2026-11-12 with the deterministic embedder; no `--real` result for this
+scenario is recorded (`eval/thresholds.json` carries no `pool-dilution` entry in
+either mode), so the table is deterministic-mode evidence. 905-row default
+corpus (700 / 200 / 5, 900 nearer rows) and the 4 505-row acceptance corpus
+(3 000 / 1 500 / 5) both score 1.000 on every arm.
 
 What the numbers say:
 
@@ -232,6 +234,19 @@ end-to-end (p50 / p95, this host, 384 dimensions):
 | `vector-k10` | 1.10 ms | 1.49 ms | ≤ 5.65 ms |
 | `hybrid-k10` | 7.51 ms | 8.38 ms | ≤ 8.57 ms |
 
+These numbers predate the project shut-out probe (`src/db/search.ts:107-113`,
+`src/db/search-vector.ts:78-102`) and do not price it: a project-scoped search
+now runs one `COUNT` over the ids the leg delivered
+(`src/db/search-vector.ts:84-89`) and, only when none of them belongs to the
+addressed project, one further project-index probe
+(`src/db/search-vector.ts:91-101`). Both arms above are project-filtered, so
+their current cost is the p50/p95 shown plus that count. No re-measurement is
+recorded after the probe landed, the harness scores recall and precision rather
+than wall time, and no test drives the 4 505-row corpus
+(`DILUTION_ACCEPTANCE_CORPUS`, `eval/multiproject-dilution.ts:68-71`, is
+exported but unused), so these are one-off measurements rather than a
+`bun run eval` output.
+
 Mechanism on generated corpora (384 dimensions, 21 partitions, 1 000 rows in the
 queried project, raw SQL against a partitioned `vec_thoughts`):
 
@@ -244,6 +259,11 @@ queried project, raw SQL against a partitioned `vec_thoughts`):
 
 The scoped leg is flat in corpus size, which is the point: cost follows the
 addressed partition. An unscoped search keeps the old global walk and its cost.
+
+The last row prices `countFilteredVectors` (`src/db/search-vector.ts:18-61`),
+the probe a short filtered leg runs; the shut-out probe
+(`src/db/search-vector.ts:78-102`) is a second check on the same path and is not
+timed here.
 
 The probe is a measurement, not a floor: it stays `measureOnly`, contributes no
 queries to the aggregates and has no threshold entry.
