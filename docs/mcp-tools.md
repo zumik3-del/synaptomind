@@ -226,7 +226,7 @@ to.
 
 Except `propose` (below), a read that omits `cwd` succeeds and declares the widened answer in
 `meta`: `scope` is `null` and `warnings` carries `no cwd — the answer spans every project`
-(`resolveEnvelopeScope`, `src/mcp/tools/envelope.ts:167-184`):
+(`resolveEnvelopeScope`, `src/mcp/tools/envelope.ts:167-191`):
 
 ```json
 {
@@ -247,9 +247,9 @@ Except `propose` (below), a read that omits `cwd` succeeds and declares the wide
 a call without `cwd` fails with an `isError` envelope naming the argument
 (`src/mcp/tools/manage.ts:109`).
 
-`memory_status action=slots` adds a second warning without `cwd`, because only the global slot rows
-are read and the project-scoped overrides stay unapplied (`src/mcp/tools/status/slots.ts:11-12`,
-`:34-38`).
+`memory_status action=slots` adds a second warning whenever no project resolved — `cwd` omitted,
+blank or naming no project — because only the global slot rows are read and the project-scoped
+overrides stay unapplied (`src/mcp/tools/status/slots.ts:11-12`, `:35-38`).
 
 `memory_status action=propose` is the one read that never widens: `cwd` scopes its candidate pool to
 one project, and without it — or with a path that resolves to no project — the plan stays pinned to
@@ -276,13 +276,17 @@ So the plan is still pinned, never widened, while `scope` stays the unresolved
 `{ project: null, project_name: null, global: true }`: the warning, not the scope, states the project
 the plan really used.
 
-A write action resolves `cwd` the same way but lands in the project it names, or in the default
-project when `cwd` is absent, and raises no scope warning — nothing widens. `memory_reflect
-action=reflect` is a write in this sense; its own section below spells out where each of its outputs
-lands. A read given a path that is not registered is never an error either: it reports
-`scope.global: true` plus a warning and answers across every project — `propose` excepted: its plan is
-always pinned, so the same path yields the single composed note above, which pairs the unknown-path
-fact with the pinning clause instead of claiming a cross-project answer.
+A write action resolves `cwd` the same way but never widens, so it raises no scope warning in any
+shape. A write that creates a row lands in the project the path names, or in the default project when
+`cwd` is absent, blank or names no project; an id-addressed write (`memory_store update`,
+`memory_supersede`) leaves its row's project untouched. An unregistered path therefore keeps only the
+unresolved `{ project: null, project_name: null, global: true }` scope as the trace that it scoped
+nothing (`writeEnvelopeScope`, `src/mcp/tools/envelope.ts:222-228`). `memory_reflect action=reflect`
+is a write in this sense; its own section below spells out where each of its outputs lands. Likewise,
+a read given a path that is not registered is never an error: it reports `scope.global: true` plus a
+warning and answers across every project — `propose` excepted: its plan is always pinned, so the same
+path yields the single composed note above, which pairs the unknown-path fact with the pinning clause
+instead of claiming a cross-project answer.
 
 There is no HTTP counterpart to that rule: the HTTP listener serves only `/health` and the
 `/api/health-check` pair, so a REST client cannot reach a thought at all
@@ -1051,8 +1055,9 @@ is project-scoped only when a project resolved,
 `src/services/session-reflection.service.ts:106`), while `decisions` and `pending` thoughts are
 created in the default project (`src/services/session-reflection.service.ts:171-186`,
 `:198-207`). The answer reports `meta.scope: null` and raises no warning, like every other write
-(`writeEnvelopeScope`, `src/mcp/tools/envelope.ts:214-220`). With a registered `cwd`, all of them
-land in that project instead.
+(`writeEnvelopeScope`, `src/mcp/tools/envelope.ts:222-228`). With a registered `cwd`, all of them
+land in that project instead; a path no project owns behaves like an absent one (rows for the default
+project, slot edits global) and still raises no warning.
 
 `action=timeline` is the plain paginated thought list (`status`, `cwd`, `limit`, `offset`) as
 `{ items, meta }`; `cwd` scopes it to one project, and omitted, it lists every project with the
@@ -1096,13 +1101,14 @@ the server; if the request is sent, invocation validation returns the migration 
 
 ### `action=slots` (read-only)
 
-`cwd` is optional: with it the project-scoped slot row wins over the global fallback. Without it
-only the **global** rows are read, and `meta.warnings` adds a second note:
+`cwd` is optional: with a resolved project the project-scoped slot row wins over the global fallback.
+Without one only the **global** rows are read, and `meta.warnings` adds a second note:
 
 `no project scope — the project-scoped slot overrides were not applied (pass cwd to read them)`
 
-That warning is cwd-less only — a present path, registered or not, keeps the pre-existing answer
-(`src/mcp/tools/status/slots.ts:11-12`, `:34-38`; the read is
+That warning follows the resolved project, not the argument: it fires without `cwd`, with a blank
+one and with a path no project owns, but never with a registered path
+(`src/mcp/tools/status/slots.ts:11-12`, `:35-38`; the read is
 `src/services/slots.service.ts:94-97`). Answers `{ items, meta }` with one item per slot
 (`{ name, scope, virtual, content, truncated, max_chars, updated_at }`). Slots are **read-only**
 through this tool: it never writes. `pending_items` is derived from thoughts tagged `pending` (the
