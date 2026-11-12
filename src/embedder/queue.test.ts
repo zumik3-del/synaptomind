@@ -7,6 +7,7 @@ import {
   deleteFromQueue,
   findPendingEmbeddings,
   handleFailedItem,
+  hasPendingEmbeddings,
   insertEmbedding,
   sweepOrphanedThoughts
 } from '../db/pending-embeddings'
@@ -75,6 +76,25 @@ test('findPendingEmbeddings skips dead-lettered rows and respects the limit', ()
 
   expect(findPendingEmbeddings(db, 10).map(p => p.id)).toEqual([a, b])
   expect(findPendingEmbeddings(db, 1).map(p => p.id)).toEqual([a])
+})
+
+test('hasPendingEmbeddings is true only while a retryable row is queued (#2468)', () => {
+  const db = getDb()
+  const live = seedThought({ content: 'live' })
+  const dead = seedThought({ content: 'dead letter' })
+  enqueue(live, '2026-01-01T00:00:00.000Z')
+  enqueue(dead, '2026-01-02T00:00:00.000Z')
+  getDb().prepare('UPDATE pending_embeddings SET is_error = 1 WHERE thought_id = ?').run(dead)
+
+  expect(hasPendingEmbeddings(db)).toBe(true)
+
+  // Dead letters leave the poll loop until an opt-in reset, so a poison row must
+  // not keep the orphan sweep disabled — the tick guard is about real work.
+  db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(live)
+  expect(hasPendingEmbeddings(db)).toBe(false)
+
+  db.prepare('DELETE FROM pending_embeddings').run()
+  expect(hasPendingEmbeddings(db)).toBe(false)
 })
 
 test('sweepOrphanedThoughts returns only thoughts with no vec row and no pending row', () => {
