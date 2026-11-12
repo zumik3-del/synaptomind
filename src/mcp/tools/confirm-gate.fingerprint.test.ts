@@ -20,12 +20,20 @@
  * `auto_cluster` embeds its candidate pool; the vectors are content-keyed so a
  * probe can add a candidate that joins no cluster without touching the planned
  * groups.
+ *
+ * The plan itself must come from the real service: a process-global
+ * `mock.module` stub of a shared service, left behind by an earlier file of the
+ * same `bun test` process, freezes `candidates`/`groups`, so every probe's
+ * confirm matches the fingerprint and the whole matrix goes vacuously green.
+ * Under the serial oracle that is exactly what task #2496 found, and the
+ * freshness case below fails with the stubbed plan named.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb } from '../../context/container'
 import { closeDb } from '../../db/init'
+import { runAutoCluster } from '../../services/auto-cluster.service'
 import { GATE_CASES } from '../../test/confirm-gate-cases'
 import { bindProbeKeys, fingerprintDeclaration } from '../../test/confirm-gate-declaration'
 import { FINGERPRINT_CASES } from '../../test/confirm-gate-fingerprints'
@@ -131,6 +139,25 @@ describe('fingerprint declaration coverage', () => {
         kind: declaration.kind
       })
     }
+  })
+})
+
+describe('auto_cluster plan freshness', () => {
+  test('the plan comes from the real planner, not a stub left by another file', async () => {
+    // Same fixture state the auto_cluster probes start from. A leaked
+    // `mock.module('../../services/auto-cluster.service')` answers with
+    // `candidates: 0, groups: []` and would make all three probes vacuous.
+    gateCaseOf('memory_crystallize action=auto_cluster').setup()
+    const planned = await runAutoCluster({
+      dryRun: true,
+      minAgeDays: 0,
+      minSimilarity: 0.5,
+      minMembers: 3
+    })
+    expect({ candidates: planned.candidates, groups: planned.groups.length }).toEqual({
+      candidates: 3,
+      groups: 1
+    })
   })
 })
 
