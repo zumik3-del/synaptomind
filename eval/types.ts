@@ -12,6 +12,11 @@ export type EvalCategory =
   | 'project-scope'
   | 'retrieval-quality'
   | 'no-match'
+  /**
+   * Candidate-pool dilution probe (F2, task #2478): a `measureOnly` diagnostic,
+   * never a retrieval floor, so it carries no threshold entry.
+   */
+  | 'pool-dilution'
 
 /** `xfail` scenarios are reported but never fail the run (known gaps). */
 type ScenarioOutcome = 'pass' | 'xfail'
@@ -75,6 +80,24 @@ export interface EvalQuery {
   projectFilter?: string
   /** Ids that must not be returned (hard assertion). */
   forbid?: string[]
+  /**
+   * Search legs for this query. `false` runs the vector leg only (no BM25 and no
+   * RRF merge), which isolates a vector-side recall loss from the fusion.
+   */
+  hybrid?: boolean
+  /**
+   * Overfetch width. The query is searched with this `topK` so the DB candidate
+   * pool widens (`topK × 10`, capped at 1000 — see `db/search.ts`), then the hits
+   * are truncated back to the scored `topK ?? runnerTopK` before metrics, so it
+   * moves the pool width without touching the scored k.
+   */
+  poolTopK?: number
+  /**
+   * Short arm name for a probe whose queries differ only in one knob
+   * (e.g. `vector-k5-wide1000`). Carried into the report; the run prints a
+   * per-arm table for labelled queries.
+   */
+  label?: string
   /** Ordering assertion, e.g. a current fact above a stale one. */
   rankBefore?: RankExpectation
   /**
@@ -179,6 +202,10 @@ export interface GateStats {
 
 export interface QueryRun {
   query: string
+  /** Arm label, when the query declares one (see `EvalQuery.label`). */
+  label?: string
+  /** Overfetch width used for the search, when it differs from the scored k. */
+  poolTopK?: number
   relevant: string[]
   hits: RetrievedHit[]
   metrics: QueryMetrics

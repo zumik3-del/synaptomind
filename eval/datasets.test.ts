@@ -126,7 +126,7 @@ describe('dataset behaviour (end-to-end)', () => {
     )
     expect(
       res.scenarios.filter(scenario => scenario.measureOnly).map(scenario => scenario.name)
-    ).toEqual(['recency-prefers-fresh', 'negative-no-match'])
+    ).toEqual(['recency-prefers-fresh', 'negative-no-match', 'multi-project-pool-dilution'])
     expect(res.categories['no-match']).toBeUndefined()
 
     const gatedQueries = EVAL_SCENARIOS.filter(
@@ -235,7 +235,7 @@ describe('feature-probe dataset audit (#825)', () => {
         EVAL_SCENARIOS.filter(scenario => scenario.measureOnly).map(scenario => scenario.category)
       )
     ]
-    expect(probeCategories.sort()).toEqual(['no-match', 'temporal'])
+    expect(probeCategories.sort()).toEqual(['no-match', 'pool-dilution', 'temporal'])
 
     for (const entry of Object.values(file!.modes)) {
       expect(
