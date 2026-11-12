@@ -108,18 +108,27 @@ guard decides from the declared length alone — and the body that follows is
 drained up to `DRAIN_BODY_BYTES` (64 KiB, `src/mcp/request-body.ts`) and
 discarded, never parsed or inspected
 (`{"jsonrpc":"2.0","error":{"code":-32000,"message":"Request body too large (max 5MB)"},"id":null}`).
-The drain is deliberate: Bun holds a request in flight until its body is
-consumed, so a body left unread would make a graceful shutdown wait on the
-rejected request. The cap keeps a rejected upload from pinning memory or
-delaying its own error answer: past 64 KiB the stream is cancelled, and a body
-whose declared length is already over the cap is cancelled without reading a
-byte, so the `4xx` does not wait for the rest of the upload. A chunked body
-declares no length, so it is read up to the same limit and then answered `413`.
+The drain is deliberate: Bun settles a request only once its body reaches the
+end, and an unread body makes a graceful shutdown wait on the rejected request.
 The same bounded drain applies to any `POST` the chain answers with an error
-before consuming the body. Before the 2026-07-28 path existed, the 5 MB bound
-was enforced only by the middleware, and the legacy session path inherited the
-transport's own 4 MB default, so a 4–5 MB session request used to be rejected
-and is now served.
+before consuming the body. Past the cap the drain stops reading — a body whose
+declared length is already over it is cancelled without reading a byte, a
+chunked one as soon as the running total passes 64 KiB — so the `4xx` does not
+wait out the rest of the upload and the drain itself buffers nothing. A rejected
+request that has no body, or whose body reaches its end within the cap, is
+`consumed`: the answer carries no `Connection: close`, so the connection stays
+keep-alive for the next request. Cancelling the stream does not settle the
+request, though: Bun writes the `4xx` and keeps the connection in flight with
+the rest of the body unread, so a client that still has bytes to send would
+leave `server.stop()` waiting. The drain therefore reports `consumed` or
+`abandoned` (`DrainOutcome` in `src/mcp/request-body.ts`), and an abandoned body
+makes the answer carry `Connection: close` (`src/mcp/http-transport.ts`): the
+connection ends with the answer, which is what settles the request. A chunked
+body declares no length, so the 5 MB bound is enforced by the read itself: it is
+read up to that bound and then answered `413`. Before the 2026-07-28 path
+existed, the 5 MB bound was enforced only by the middleware, and the legacy
+session path inherited the transport's own 4 MB default, so a 4–5 MB session
+request used to be rejected and is now served.
 
 **Modern streams are not resumable.** The 2026-07-28 handler keeps no event
 store, so `Last-Event-ID` replay does not exist there: a dropped
