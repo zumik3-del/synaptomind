@@ -50,11 +50,19 @@ pass `db` only for specific instances (file-backed DB for vec0). Never mock `Dat
 Two documented deviations resolve the connection lazily inside the body, because the callers run
 before `initDb()` or must observe db unavailability instead of throwing:
 `settings.service.ts getAdvertisedSoftLimitService(d?)` and `health.service.ts getHealthService(d?)`.
+`decay.service.ts runDecayJob(d?)` resolves lazily the same way.
+A third deliberate form passes `d: Database` as a required positional (not trailing) where the call
+must receive the caller's transaction handle or the function is a pure helper: `apply-gates.service.ts`,
+`candidate-embeddings.service.ts`, `health-check-drafts.service.ts`, `health.service.ts`,
+`placement-proposals.mapping.service.ts`, `search-outcome.service.ts`, `search-standing.service.ts`,
+`placement/placement.ts`. Both non-canonical forms are deliberate, not forgotten defaults.
 Test-only fixtures live in `src/test/` — never in `services/`, where a `bun:test` import would pull
 into the production path.
 
 **Layering.** `api/mcp → services → db`; routes stay thin (parse/serialize only, validation +
-orchestration in services). Error classes in `src/errors.ts` (neutral, cycle-free).
+orchestration in services). Error classes live in `src/errors.ts`: it is cycle-free and neutral
+against `services`/`api`/`mcp`, but it re-exports six classes from `db/errors.ts`, so the module
+depends on the db layer by design.
 
 ## 5. Testing setup
 
