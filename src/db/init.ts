@@ -26,6 +26,59 @@ export interface InitOptions {
   runMigrations?: boolean
 }
 
+/** Dimensions the current `vec_thoughts` table was built with. */
+const VEC_DIMENSIONS_KEY = 'vec_dimensions'
+/** ISO timestamp of the last dimension-change rebuild; absent when never rebuilt. */
+const VEC_REBUILD_AT_KEY = 'vec_rebuild_at'
+/** Pre-#2474 name for `vec_dimensions`; read-only from here on. */
+const LEGACY_DIMENSIONS_KEY = 'embedder_dimensions'
+
+export interface VecIndexState {
+  dimensions: number | null
+  rebuiltAt: string | null
+}
+
+function metaValue(db: Database, key: string): string | null {
+  const row = db.prepare(`SELECT value FROM _meta WHERE key = ?`).get(key) as
+    | { value: string }
+    | undefined
+  return row?.value ?? null
+}
+
+/**
+ * Boot state that the migration ledger does not own (audit F5): which dimensions
+ * `vec_thoughts` was built with, and when it was last rebuilt. Reading it makes
+ * "stored dimensions ≠ configured" a `_meta` read instead of an inference; a
+ * `dimensions` of null means the marker is absent (never opened by this binary
+ * and no legacy key), so the table must be assumed to match the configuration.
+ */
+export function readVecIndexState(db: Database): VecIndexState {
+  // An existing database carries the legacy key only: read it as the same fact so
+  // an upgrade never rebuilds, and the next write retires it.
+  const stored = metaValue(db, VEC_DIMENSIONS_KEY) ?? metaValue(db, LEGACY_DIMENSIONS_KEY)
+  const parsed = stored === null ? Number.NaN : parseInt(stored, 10)
+  return {
+    dimensions: Number.isFinite(parsed) ? parsed : null,
+    rebuiltAt: metaValue(db, VEC_REBUILD_AT_KEY)
+  }
+}
+
+/**
+ * Record which dimensions the vector index holds. `rebuiltAt` is set only when the
+ * table was just rebuilt; null leaves the key alone. Called last in the rebuild so
+ * a crash leaves the old dimensions in place and the next boot repeats the work
+ * instead of hiding a half-reset index.
+ */
+function writeVecIndexState(db: Database, dimensions: number, rebuiltAt: string | null): void {
+  const upsert = db.prepare(
+    `INSERT INTO _meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  )
+  upsert.run(VEC_DIMENSIONS_KEY, String(dimensions))
+  if (rebuiltAt !== null) upsert.run(VEC_REBUILD_AT_KEY, rebuiltAt)
+  db.prepare(`DELETE FROM _meta WHERE key = ?`).run(LEGACY_DIMENSIONS_KEY)
+}
+
 export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
   const opts: InitOptions =
     typeof dbPathOrOptions === 'string' ? { dbPath: dbPathOrOptions } : (dbPathOrOptions ?? {})
@@ -180,28 +233,28 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
       current = migration.version
     }
 
-    // v11 (runtime): track embedder dimensions
+    // Three boot-time owners, none of them the ledger: the migrations own
+    // `schema_version`, this branch owns `vec_dimensions`/`vec_rebuild_at` and the
+    // embedding re-queue, `resetDeadLetters` owns `pending_embeddings.is_error`,
+    // and the default-project branch owns `default_project_id` plus its row.
     if (!isMemory) {
-      const storedDims = d
-        .prepare(`SELECT value FROM _meta WHERE key = 'embedder_dimensions'`)
-        .get() as { value: string } | undefined
-      if (!storedDims) {
-        d.prepare(`INSERT INTO _meta (key, value) VALUES ('embedder_dimensions', ?)`).run(
-          String(dimensions)
-        )
-      } else if (parseInt(storedDims.value, 10) !== dimensions) {
+      const vec = readVecIndexState(d)
+      const rebuilt = vec.dimensions !== null && vec.dimensions !== dimensions
+      if (rebuilt) {
         console.error(
-          `[db] dimensions changed ${storedDims.value} → ${dimensions}, rebuilding vec_thoughts (all embeddings will be re-generated)`
+          `[db] dimensions changed ${vec.dimensions} → ${dimensions}, rebuilding vec_thoughts (all embeddings will be re-generated)`
         )
         d.run(`DROP TABLE IF EXISTS vec_thoughts`)
         runVecSchema()
-        d.prepare(`UPDATE _meta SET value = ? WHERE key = 'embedder_dimensions'`).run(
-          String(dimensions)
-        )
         d.run(`
-        INSERT OR IGNORE INTO pending_embeddings (thought_id, created_at)
-        SELECT id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM thoughts WHERE status != 'archived'
-      `)
+          INSERT OR IGNORE INTO pending_embeddings (thought_id, created_at)
+          SELECT id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM thoughts WHERE status != 'archived'
+        `)
+      }
+      // A rebuild, a fresh install and an upgrade from the legacy key all land here;
+      // a steady-state boot (`vec_dimensions` current, legacy key gone) writes nothing.
+      if (rebuilt || vec.dimensions === null || metaValue(d, LEGACY_DIMENSIONS_KEY) !== null) {
+        writeVecIndexState(d, dimensions, rebuilt ? new Date().toISOString() : null)
       }
     }
 
