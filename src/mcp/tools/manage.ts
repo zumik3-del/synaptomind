@@ -14,10 +14,7 @@ import {
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import { projectFields } from './utils'
 import { collectionEnvelope, itemEnvelope } from './envelope'
-import {
-  createPreviewTokenService,
-  consumePreviewTokenService
-} from '../../services/preview-tokens.service'
+import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 
 const handlers = {
   list: {
@@ -61,47 +58,43 @@ const handlers = {
       project_id: requiredString('project_id is required for delete action'),
       preview_token: z.string().optional()
     }),
-    run(args: ActionArgs) {
+    async run(args: ActionArgs) {
       const projectId = args.project_id as string
-      const previewToken = args.preview_token as string | undefined
       const project = getProjectService(projectId)
       if (!project) throw new NotFoundError(`Project not found: ${projectId}`)
       if (isDefaultProjectService(projectId))
         throw new ValidationError(DEFAULT_PROJECT_DELETE_MESSAGE)
 
-      if (!args.confirm) {
-        const token = createPreviewTokenService(
-          'manage_delete',
-          projectId,
-          `${project.id}:${project.name}:${project.thought_count}`
-        )
-        return itemEnvelope('delete', {
-          action: 'preview',
-          project: { id: project.id, name: project.name, description: project.description },
-          thought_count: project.thought_count,
-          consequence:
-            project.thought_count > 0
-              ? `${project.thought_count} thought(s) will be moved to the Default project before deletion.`
-              : 'Project has no thoughts — safe to delete.',
-          instruction:
-            'Call memory_manage again with action=delete, project_id=..., confirm=true to proceed.',
-          preview_token: token
-        })
-      }
-
-      const fp = `${project.id}:${project.name}:${project.thought_count}`
-      if (!previewToken) throw new Error('preview_token is required')
-      const verification = consumePreviewTokenService(previewToken, 'manage_delete', projectId, fp)
-      if (!verification.valid) throw new Error(`preview token ${verification.reason ?? 'invalid'}`)
-
-      const deleted = deleteProjectService(projectId)
-      if (!deleted) throw new NotFoundError(`Project not found: ${projectId}`)
-      return itemEnvelope('delete', {
-        action: 'deleted',
-        project: { id: project.id, name: project.name },
-        thoughts_moved: project.thought_count,
-        moved_to: project.thought_count > 0 ? 'Default project' : undefined
+      const outcome = await runGuarded(args, {
+        kind: 'manage_delete',
+        targetId: projectId,
+        fingerprint: () => fingerprintOf(project.id, project.name, project.thought_count),
+        preview: token =>
+          itemEnvelope('delete', {
+            action: 'preview',
+            project: { id: project.id, name: project.name, description: project.description },
+            thought_count: project.thought_count,
+            consequence:
+              project.thought_count > 0
+                ? `${project.thought_count} thought(s) will be moved to the Default project before deletion.`
+                : 'Project has no thoughts — safe to delete.',
+            instruction:
+              'Call memory_manage again with action=delete, project_id=..., confirm=true to proceed.',
+            preview_token: token
+          }),
+        apply: () => {
+          const deleted = deleteProjectService(projectId)
+          if (!deleted) throw new NotFoundError(`Project not found: ${projectId}`)
+          return {
+            action: 'deleted',
+            project: { id: project.id, name: project.name },
+            thoughts_moved: project.thought_count,
+            moved_to: project.thought_count > 0 ? 'Default project' : undefined
+          }
+        }
       })
+
+      return outcome.value
     }
   },
 
