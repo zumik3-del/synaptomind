@@ -48,7 +48,9 @@ function peerAddress(c: Context): string | undefined {
 
 // Each middleware instance owns an independent counter store. API (:3005) and
 // MCP (:3006) share one process but must not contend for the same quota, so
-// they get one instance each. Limits stay config-driven (see config.rateLimit).
+// each server constructs its own instance. A factory — never a module-level
+// singleton — keeps two in-process apps (as every test run has) from sharing a
+// bucket. Limits stay config-driven (see config.rateLimit).
 export function createRateLimitMiddleware() {
   const store = new Map<string, RateLimitEntry>()
 
@@ -88,8 +90,3 @@ export function createRateLimitMiddleware() {
     return next()
   }
 }
-
-// Protocol-scoped instances: exhausting the API quota leaves MCP untouched and
-// vice versa.
-export const apiRateLimitMiddleware = createRateLimitMiddleware()
-export const mcpRateLimitMiddleware = createRateLimitMiddleware()
