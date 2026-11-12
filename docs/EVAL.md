@@ -164,62 +164,81 @@ follow-up.
 
 `multi-project-pool-dilution` (category `pool-dilution`, `measureOnly`) measures
 whether the filtered vec0 leg loses recall on a multi-project database. The DB
-layer derives **one global** candidate pool for both legs (`topK × 10`, capped at
-1000 — `src/db/search.ts:15-16,29`) and applies the project/status/cluster filter
-to that pool inside the same query (`src/db/search-vector.ts:28-39`), so rows of
-the queried project that rank below the cutoff never reach the filter — silently,
-with no `degraded` flag on the outcome.
+layer used to derive **one global** candidate pool for both legs (`topK × 10`,
+capped at 1000) and apply the project/status/cluster filter to that pool inside
+the same query, so rows of the queried project that ranked below the cutoff never
+reached the filter — silently, with no `degraded` flag on the outcome (#2478).
 
-The scenario seeds three deliberately unequal projects (700 / 200 / 5 rows) in
-which every row of the two larger projects ranks nearer the query than any row of
-the smallest one, and asks the query inside the smallest project. Three of its
-five rows are the labelled answers, two belong to a control topic. The arms differ
-only in the leg and the overfetch width, so the comparison isolates the pool from
-RRF and from the filter:
+The stopgap (#2479) pinned a filtered search to the existing cap, which recovered
+any corpus with fewer than 1000 globally nearer rows and made the remaining loss
+say `degraded: true`. The structural fix (#2494, ADR 2026-11-12) gives
+`vec_thoughts` a `scope TEXT PARTITION KEY` (`project_id`, or `__global__` /
+`__unassigned__`) and filters the vector leg with `v.scope IN (?, '__global__')`.
+The KNN now ranks inside the addressed partition, so `k` is a width *within the
+project* and foreign rows no longer set the reach. Status/cluster/importance stay
+post-KNN filters, and `countFilteredVectors` reports the only starvation left —
+a project whose own rows fill the pool.
 
-| arm | legs | `poolTopK` | derived pool | recall@5 | precision@5 |
-|-----|------|-----------|--------------|----------|-------------|
-| `hybrid-k5` | hybrid | – | 200 | 0.000 | 0.000 |
-| `vector-k5` | vector only | – | 200 | 0.000 | 0.000 |
-| `vector-k10` | vector only | – | 400 | 0.000 | 0.000 |
-| `vector-k5-pool520` | vector only | 13 | 520 | 0.000 | 0.000 |
-| `vector-k5-pool1000` | vector only | 50 | 1000 | 1.000 | 0.600 |
-| `hybrid-k5-pool1000` | hybrid | 50 | 1000 | 1.000 | 0.600 |
-| `vector-k5-control` | vector only | – | 200 | 1.000 | 1.000 |
-| `hybrid-k5-control` | hybrid | – | 200 | 1.000 | 1.000 |
+The scenario seeds three deliberately unequal projects and asks the query inside
+the smallest one. Every row of the two larger projects ranks nearer the query than
+any row of the smallest; three of the smallest project's five rows are the
+labelled answers, two belong to a control topic. The arms differ only in the leg
+and the scored `k`, so the comparison isolates the pool from RRF and the filter:
 
-Recorded 2026-11-12 with the pre-fix pool (`CANDIDATE_POOL_MULTIPLIER = 10`);
-deterministic and `--real` produce the same table. The derived pool is
-`min(1000, candidateK × 10)` where `candidateK = topK × 4` under
-`supersessionMode: 'suppress'` (`src/services/search-normalize.service.ts:126-129`).
+| arm | legs | topK | recall@5 | precision@5 |
+|-----|------|------|----------|-------------|
+| `hybrid-k5` | hybrid | 5 | 1.000 | 0.600 |
+| `vector-k5` | vector only | 5 | 1.000 | 0.600 |
+| `hybrid-k10` | hybrid | 10 | 1.000 | 0.600 |
+| `vector-k10` | vector only | 10 | 1.000 | 0.600 |
+| `vector-k5-control` | vector only | 5 | 1.000 | 0.400 |
+| `hybrid-k5-control` | hybrid | 5 | 1.000 | 0.400 |
+
+Measured 2026-11-12 with the deterministic embedder (the `--real` pass produces
+the same table). 905-row default corpus (700 / 200 / 5, 900 nearer rows) and the
+4 505-row acceptance corpus (3 000 / 1 500 / 5) both score 1.000 on every arm.
 
 What the numbers say:
 
-- **The loss is real and pool-sized.** The filtered vec0 leg returns nothing until
-  the pool passes the count of rows that rank nearer than the ground truth
-  (900 here): pool 900 → 0 rows, 901 → 1, 1000 → 5
-  (`multiproject-dilution.test.ts`). The loss is silent: an empty result with
-  `degraded === false`, indistinguishable from "no match in this project".
-- **It reaches the user-facing path.** `hybrid-k5` loses recall too, so this is
-  not an RRF artifact; both legs miss. Below the BM25 leg's own overfetch
-  (`limit × 3`, capped at 1000 — `src/db/search-bm25.ts:84-105`) the hybrid path
-  is masked, which is why the default corpus is sized above it.
-- **Widening the pool recovers it, up to the cap.** With 900 nearer rows the
-  vector leg comes back exactly at k=23 (pool 920) and stays empty at k=22 (pool
-  880), so a deeper search is itself a workaround; the 1000 cap bounds it — a
-  corpus with 1 200 nearer rows stays at recall 0 for every k, and only a
-  project-scoped vector leg can fix that.
-- The two control arms keep full recall at the same narrow pool, so the zeros are
-  not the filter, the pool plumbing or the harness.
+- **The loss was real and pool-sized.** Pre-#2478 the filtered vec0 leg returned
+  nothing until the pool passed the count of rows that ranked nearer than the
+  ground truth; the post-filter inside the query changed nothing because the KNN
+  cutoff had already removed the project's rows.
+- **Scoping removes the dependency.** The raw leg with the partition fragment
+  returns the project's answers at any pool (`multiproject-dilution.test.ts`),
+  while the same query without it stays pool-bound at 900 nearer rows.
+- **Past the stopgap cap the fix holds.** With 1 200 and 10 000 globally nearer
+  rows the pre-fix leg answered nothing at any `k`; `hybrid-k10` and `vector-k10`
+  now score recall@5 = 1.000 and the response is not `degraded`.
+- **The control arms keep full recall** and lead with their own answers, so the
+  result is not the filter, the pool plumbing or the harness.
+
+**Latency.** On the 4 505-row acceptance corpus, filtered `searchThoughts`
+end-to-end (p50 / p95, this host, 384 dimensions):
+
+| arm | p50 | p95 | budget (ADR §8) |
+|-----|-----|-----|-----------------|
+| `vector-k10` | 1.10 ms | 1.49 ms | ≤ 5.65 ms |
+| `hybrid-k10` | 7.51 ms | 8.38 ms | ≤ 8.57 ms |
+
+Mechanism on generated corpora (384 dimensions, 21 partitions, 1 000 rows in the
+queried project, raw SQL against a partitioned `vec_thoughts`):
+
+| query | 10k rows | 100k rows |
+|-------|----------|-----------|
+| partition-scoped KNN, `k = 50` | 1.01 ms | 1.01 ms |
+| partition-scoped KNN, `k = 1000` (the filtered pool) | 3.70 ms | 4.21 ms |
+| unscoped KNN `k = 1000` + join + post-filter (the pre-fix shape) | 28.3 ms | 260.1 ms |
+| partition count for a five-row project (degraded check) | 0.09 ms | 0.09 ms |
+
+The scoped leg is flat in corpus size, which is the point: cost follows the
+addressed partition. An unscoped search keeps the old global walk and its cost.
 
 The probe is a measurement, not a floor: it stays `measureOnly`, contributes no
-queries to the aggregates and has no threshold entry. When F2 is fixed (wider
-pool for filtered searches, or a project-scoped vector leg), the narrow arms
-recover — update the snapshot assertions in `multiproject-dilution.test.ts`
-together with this table.
+queries to the aggregates and has no threshold entry.
 
-Cost: 905 seeded rows, ~0.9 s in deterministic mode and ~2.7 s in `--real`
-(single pass; the harness seeds a scenario once per pass).
+Cost: 905 seeded rows, ~0.4 s in deterministic mode and ~2.7 s in `--real`; the
+4 505-row and 10 000-row corpora add the seed time, not the measured queries.
 
 ## Dataset schema
 

@@ -38,7 +38,7 @@ const QUERY = vectorAtCos(1)
 
 function seedVector(db: Database, thoughtId: string, cos: number): void {
   const vector = vectorAtCos(cos)
-  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
     thoughtId,
     Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength)
   )
@@ -102,7 +102,7 @@ describe('default relevance gate', () => {
     for (let i = 0; i < target.length; i++) {
       const vector = new Float32Array(DIM)
       vector[i] = 1
-      db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(
+      db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
         target[i],
         Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength)
       )

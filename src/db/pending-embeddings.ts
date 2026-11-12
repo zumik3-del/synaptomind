@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { insertLog } from '../logging'
+import { scopeSql } from './vec-schema'
 
 export const MAX_ATTEMPTS = 10
 
@@ -168,10 +169,19 @@ export function insertEmbedding(
     )
     return false
   }
+  // VEC-DEL by id alone (a partition predicate silently misses after a move),
+  // then VEC-UPSERT: the partition is read in the same statement as the insert,
+  // so a thought whose project moved during the batch lands in its new partition
+  // and never a stale one (ADR 2026-11-12 §5.4).
   db.run('DELETE FROM vec_thoughts WHERE id = ?', [id])
-  db.run('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)', [
-    id,
-    Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength)
-  ])
+  db.run(
+    `INSERT INTO vec_thoughts (id, embedding, scope)
+     SELECT ?, ?, ${scopeSql('t')} FROM thoughts t WHERE t.id = ?`,
+    [
+      id,
+      Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength),
+      id
+    ]
+  )
   return true
 }

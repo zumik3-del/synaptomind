@@ -200,7 +200,7 @@ function seedSupersetCandidates(db: Database, angles: number[]): string[] {
   )
   for (let i = 0; i < ids.length; i++) {
     const v = unitAt(angles[i]!)
-    db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(
+    db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
       ids[i]!,
       Buffer.from(v.buffer as ArrayBuffer, v.byteOffset, v.byteLength)
     )

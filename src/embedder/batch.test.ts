@@ -35,7 +35,9 @@ beforeEach(() => {
   // vec_thoughts is a vec0 virtual table — v002 skips it on `:memory:` databases,
   // so stub it as a plain table (same approach as queue.test.ts).
   getDb()
-    .prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)')
+    .prepare(
+      'CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB, scope TEXT)'
+    )
     .run()
 })
 
@@ -155,7 +157,7 @@ function vec(marker: number): Float32Array {
 
 function storeVec(id: string, vector: Float32Array): void {
   getDb()
-    .prepare('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)')
+    .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
     .run(id, Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength))
 }
 

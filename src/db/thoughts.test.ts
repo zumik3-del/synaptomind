@@ -522,7 +522,9 @@ test('decayImportance skips recent last_decay', () => {
  * precondition assertion below proves the row under test really exists.
  */
 function seedVecTable(db: Database): void {
-  db.prepare(`CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)`).run()
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB, scope TEXT)`
+  ).run()
 }
 
 test('deleteThought removes the thought, its vec row and its orphan tag', () => {
@@ -531,8 +533,14 @@ test('deleteThought removes the thought, its vec row and its orphan tag', () => 
   const doomed = seedThought({ content: 'doomed thought', tags: '["orphan-tag-unique"]' })
   const keeper = seedThought({ content: 'keeper thought', tags: '["shared-tag"]' })
   const alsoKeeper = seedThought({ content: 'another keeper', tags: '["shared-tag"]' })
-  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(doomed, Buffer.alloc(0))
-  db.prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`).run(keeper, Buffer.alloc(0))
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+    doomed,
+    Buffer.alloc(0)
+  )
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+    keeper,
+    Buffer.alloc(0)
+  )
 
   // Precondition: the row this test deletes is really there.
   expect(db.prepare(`SELECT 1 FROM vec_thoughts WHERE id = ?`).get(doomed)).not.toBeNull()

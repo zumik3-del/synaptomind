@@ -6,6 +6,7 @@ import { vec0Path } from '../runtime-mode'
 import { clearDb, getDb, setDb } from '../context/container'
 import { MIGRATIONS } from './migrations'
 import { backupDatabase } from './backup'
+import { vecTableDdl } from './vec-schema'
 
 function loadVecExtension(database: Database, isMemory: boolean): void {
   if (isMemory) return
@@ -199,10 +200,7 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
     const dimensions = config.embedder.dimensions
     const runVecSchema = (): void => {
       try {
-        d.run(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_thoughts USING vec0(
-        id        TEXT PRIMARY KEY,
-        embedding FLOAT[${dimensions}] distance_metric=cosine
-      )`)
+        d.run(vecTableDdl(dimensions))
       } catch (err) {
         if (isMemory) return
         throw err

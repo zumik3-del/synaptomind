@@ -32,7 +32,7 @@ export async function seedScenario(
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const insertVector = db.prepare(
-    'INSERT OR REPLACE INTO vec_thoughts (id, embedding) VALUES (?, ?)'
+    'INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, ?)'
   )
   const setImportance = db.prepare(
     'UPDATE thought_importance SET importance = ? WHERE thought_id = ?'
@@ -63,7 +63,8 @@ export async function seedScenario(
       const vector = vectors[index]
       insertVector.run(
         thought.id,
-        Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength)
+        Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength),
+        projectId
       )
     }
 

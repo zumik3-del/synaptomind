@@ -18,7 +18,9 @@ beforeEach(() => {
   // vec_thoughts is a vec0 virtual table — unavailable in :memory: databases.
   // Stub it as a plain table like the verify/health-check tests do.
   getDb()
-    .prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)')
+    .prepare(
+      'CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB, scope TEXT)'
+    )
     .run()
 })
 
@@ -109,7 +111,7 @@ test('sweepOrphanedThoughts returns only thoughts with no vec row and no pending
     // the insert trigger queued every seeded thought — clear non-orphans
     db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(id)
   }
-  db.prepare('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)').run(
+  db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
     embedded,
     Buffer.alloc(0)
   )

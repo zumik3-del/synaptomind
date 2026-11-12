@@ -26,10 +26,11 @@
 //     answers are the globally nearest rows, so a zero from the diluted arms
 //     cannot be blamed on the filter, on the pool plumbing or on the harness.
 //
-// Residual, measured and not fixed here: past the cap (more than 1000 nearer
-// foreign rows) the loss returns, and that is when the response must carry
-// `degraded = true` instead of an empty list. Scoping the vec0 leg by project
-// (a partition/metadata column) is the structural fix, not part of the stopgap.
+// Residual of the stopgap, measured and not fixed there: past the cap (more than
+// 1000 nearer foreign rows) the loss returned, and that is when the response
+// carried `degraded = true` instead of an empty list. #2494 landed the structural
+// fix (a `scope TEXT PARTITION KEY` on vec_thoughts, ADR 2026-11-12), so the
+// over-cap corpora below now pin recall 1.000 and `degraded = false`.
 
 import type { EvalQuery, EvalScenario, EvalThought } from './types'
 
@@ -59,6 +60,31 @@ export interface DilutionCorpusSizes {
  * cap-wide filtered pool reaches the answers.
  */
 export const DILUTION_CORPUS: Required<DilutionCorpusSizes> = { big: 700, mid: 200 }
+
+/**
+ * The ADR §8 acceptance corpus: 4 500 rows rank nearer than the ground truth, so
+ * the stopgap's cap-wide global pool cannot reach the smallest project.
+ */
+export const DILUTION_ACCEPTANCE_CORPUS: Required<DilutionCorpusSizes> = {
+  big: 3000,
+  mid: 1500
+}
+
+/**
+ * Over-cap corpora (#2494 AC): 1 200 and 10 000 rows rank nearer than the ground
+ * truth. Both are past `CANDIDATE_POOL_MAX`, so the pre-fix leg answers nothing
+ * at any k; a project-scoped leg ranks inside the partition and recovers.
+ */
+export const DILUTION_OVER_CAP_1200: Required<DilutionCorpusSizes> = { big: 900, mid: 300 }
+export const DILUTION_OVER_CAP_10000: Required<DilutionCorpusSizes> = { big: 8000, mid: 2000 }
+
+export const DILUTION_OVER_CAP_CORPORA: Array<{
+  label: string
+  sizes: Required<DilutionCorpusSizes>
+}> = [
+  { label: '1200', sizes: DILUTION_OVER_CAP_1200 },
+  { label: '10000', sizes: DILUTION_OVER_CAP_10000 }
+]
 
 // Short notes that repeat the query's topic terms: they occupy the near end of
 // the ranked neighbourhood under both embedders (measured: real-embedder
@@ -134,7 +160,8 @@ function dilutedQueries(): EvalQuery[] {
     { ...diluted, label: 'hybrid-k5' },
     // Same corpus, vector leg only: no BM25, no RRF.
     { ...diluted, label: 'vector-k5', hybrid: false },
-    // The production default k; its pre-fix pool was 400, now the cap.
+    // The production default k on both paths.
+    { ...diluted, label: 'hybrid-k10', topK: 10 },
     { ...diluted, label: 'vector-k10', hybrid: false, topK: 10 },
     // Control arms: a query whose answers are globally nearest.
     { ...control, label: 'vector-k5-control', hybrid: false },

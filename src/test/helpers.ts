@@ -6,6 +6,7 @@ import { config } from '../config'
 import { getDb, setDb } from '../context/container'
 import { closeDb, initDb } from '../db/init'
 import { vec0Path } from '../runtime-mode'
+import { scopeSql } from '../db/vec-schema'
 
 /**
  * A migrated `:memory:` image, serialized once per test process.
@@ -326,9 +327,13 @@ export function seedEmbedding(thoughtId: string): void {
   const db = getDb()
   const embedding = new Float32Array(384)
   try {
-    db.prepare('INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)').run(
+    db.prepare(
+      `INSERT INTO vec_thoughts (id, embedding, scope)
+       SELECT ?, ?, ${scopeSql('t')} FROM thoughts t WHERE t.id = ?`
+    ).run(
       thoughtId,
-      Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength)
+      Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength),
+      thoughtId
     )
   } catch {
     // vec_thoughts may not exist in :memory: tests without vec0

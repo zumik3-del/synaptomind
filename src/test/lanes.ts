@@ -63,6 +63,7 @@ const INTEGRATION = new Set(INTEGRATION_TESTS)
  */
 const WEIGHTS: Readonly<Record<string, number>> = {
   [REMOVED_SUBSYSTEM_GUARD]: 4,
+  'src/db/v048-vec-scope.test.ts': 3,
   'src/embedder/client.test.ts': 8,
   'src/index.mcp-port.test.ts': 6,
   'src/index.process-handlers.test.ts': 4,

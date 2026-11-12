@@ -24,6 +24,7 @@ import {
   findContradictsToArchived,
   findSupportsSelfConflict,
   findMissingEmbeddings,
+  findScopeMismatches,
   findDeadPrimers,
   findImportanceOutliers,
   getGraphStats,
@@ -250,6 +251,7 @@ const SEMANTIC_CHECKS: CheckDef[] = [
 
 const DRIFT_CHECKS: CheckDef[] = [
   { name: 'missing_embeddings', severity: 'info', finder: findMissingEmbeddings },
+  { name: 'vector_scope_mismatch', severity: 'warning', finder: findScopeMismatches },
   { name: 'dead_primers', severity: 'info', finder: findDeadPrimers },
   { name: 'importance_outliers', severity: 'info', finder: findImportanceOutliers }
 ]

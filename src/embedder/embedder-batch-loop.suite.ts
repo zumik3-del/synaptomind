@@ -168,7 +168,9 @@ globalThis.setInterval = ((handler: () => void, timeout?: number) => {
 bootstrapDb()
 // vec_thoughts is a vec0 virtual table — v002 skips it on `:memory:` databases.
 getDb()
-  .prepare('CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB)')
+  .prepare(
+    'CREATE TABLE IF NOT EXISTS vec_thoughts (id TEXT PRIMARY KEY, embedding BLOB, scope TEXT)'
+  )
   .run()
 
 /**

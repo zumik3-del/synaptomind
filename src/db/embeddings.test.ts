@@ -18,7 +18,7 @@ function vec384(values: number[] = []): Float32Array {
 /** Store one raw vector in vec_thoughts (file-backed DB / vec0 only). */
 function insertVec(id: string, vector: Float32Array): void {
   getDb()
-    .prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`)
+    .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
     .run(id, Buffer.from(vector.buffer as ArrayBuffer, vector.byteOffset, vector.byteLength))
 }
 

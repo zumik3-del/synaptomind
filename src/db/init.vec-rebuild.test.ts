@@ -82,7 +82,7 @@ function pendingIdsOnDisk(dbPath: string): string[] {
 function seedVector(id: string): void {
   const embedding = new Float32Array(CONFIGURED)
   getDb()
-    .prepare(`INSERT INTO vec_thoughts (id, embedding) VALUES (?, ?)`)
+    .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
     .run(
       id,
       Buffer.from(embedding.buffer as ArrayBuffer, embedding.byteOffset, embedding.byteLength)
