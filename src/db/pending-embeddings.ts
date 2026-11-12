@@ -19,6 +19,17 @@ export function findPendingEmbeddings(
     .all(limit) as { id: string; content: string; contentHash: string }[]
 }
 
+/**
+ * Whether the worker has retryable queue work, i.e. the same rows
+ * `findPendingEmbeddings` would hand it.
+ *
+ * Dead letters are excluded on purpose: they leave the poll loop until an opt-in
+ * reset, so counting them would let one poison row disable the orphan sweep.
+ */
+export function hasPendingEmbeddings(db: Database): boolean {
+  return db.prepare('SELECT 1 FROM pending_embeddings WHERE is_error = 0 LIMIT 1').get() !== null
+}
+
 // Archive-status thoughts are excluded from default search — re-embedding them
 // would be wasted compute on rows the search sweep keeps skipping.
 export function sweepOrphanedThoughts(
