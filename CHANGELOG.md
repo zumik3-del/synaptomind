@@ -1,5 +1,52 @@
 # Changelog
 
+## v0.24.0
+
+> November 12, 2026
+
+- [`e7060acd`](https://github.com/zumik3-del/synaptomind/commit/e7060acd0fa6929f7fcc10123cb11f0be0b046da): docs: record the real-mode eval pass for the dilution scenario
+- [`7dfd4993`](https://github.com/zumik3-del/synaptomind/commit/7dfd499375ed0dcc1f4f6f6ff9b3040f1d4b5679): docs: name the failing transaction shape and fix the eval claim
+- [`99a05835`](https://github.com/zumik3-del/synaptomind/commit/99a058354a4e0108d0d7a1878be0972d55f50b05): test(search): pin the leg-level meaning of the scoped starvation flag
+- [`48472112`](https://github.com/zumik3-del/synaptomind/commit/484721126b11dfb1e9a959d4cb2a80eeeb31b7d6): docs: state the scoped starvation flag as a vector-leg property
+- [`f2abef66`](https://github.com/zumik3-del/synaptomind/commit/f2abef66d993fbafec3be1cc9b4f82ee7df83434): docs: describe the three causes of a degraded search
+- [`8bf11bac`](https://github.com/zumik3-del/synaptomind/commit/8bf11bac6356709b71fda5ef9ac2fba79cc829a0): test(db): measure the v048 move against a second writer (F1)
+- [`a1049382`](https://github.com/zumik3-del/synaptomind/commit/a10493821d8cca08e8f4955955980c2c2fa3de3b): fix(search): report a project shut out of its own scoped answer (F4)
+- [`d2012583`](https://github.com/zumik3-del/synaptomind/commit/d20125835ad377ef14ba82fa7c7668fd61647b03): test(db): pin the bulk move, stale-delete no-op and a real scope mismatch
+- [`86203c6e`](https://github.com/zumik3-del/synaptomind/commit/86203c6ed18948ce9bff5661768bfe4e93c63c8f): test(db): pin the v048 vector scope migration and the move trigger
+- [`1cc403ec`](https://github.com/zumik3-del/synaptomind/commit/1cc403ec1eb844e78bfc20c4b0fadad782c79b49): feat(db): partition the vector index by project scope (v048)
+- [`8ad24816`](https://github.com/zumik3-del/synaptomind/commit/8ad24816126fb65e75986cd6fef8dafe94c358e1): fix(test): isolate the auto_cluster option suite to stop the mock.module leak
+- [`c9b0c30f`](https://github.com/zumik3-del/synaptomind/commit/c9b0c30f95e1ae1fef6784eb8ab713f36da7ac4d): fix(test): repoint the fingerprint tests to context/container
+- [`3663038c`](https://github.com/zumik3-del/synaptomind/commit/3663038c002df02ecaf55fb40438d478efbb5843): test: pin every converted action's fingerprint input set
+- [`f59c3126`](https://github.com/zumik3-del/synaptomind/commit/f59c3126be71a796a5d70a7cafa8532d87fc2edb): test: pin the filtered pool width and the degraded signal
+- [`3a5226b0`](https://github.com/zumik3-del/synaptomind/commit/3a5226b005e7e804292fa90231b5bd1cf3ec175e): fix(db): pin the filtered candidate pool to the cap and flag a starved leg
+- [`954c4589`](https://github.com/zumik3-del/synaptomind/commit/954c45891b0ec941edc6ffb9c86df0f5dbda52e3): refactor(db): retire the container shim and narrow the db barrel
+- [`248d25e6`](https://github.com/zumik3-del/synaptomind/commit/248d25e6315d554b1fbf04d8ff04d688164725aa): refactor(middleware): instantiate the rate limiter per app
+- [`80487c97`](https://github.com/zumik3-del/synaptomind/commit/80487c978dad5338c5d7612ef8247e412271542f): docs: describe the bounded drain that closes the connection
+- [`e5a32e12`](https://github.com/zumik3-del/synaptomind/commit/e5a32e1277395a40f43bb1ec69cfa9ad69ab4bdc): refactor(db): move the connection context to src/context and add accessors
+- [`7ff3d6dd`](https://github.com/zumik3-del/synaptomind/commit/7ff3d6dd645f402b44ce8f5a6444e7d5c51bdcc7): test: pin the confirm-gate protocol end to end
+- [`8507f129`](https://github.com/zumik3-del/synaptomind/commit/8507f1295968805964fccb98da1d8e4ef255146d): test: pin the settled and keep-alive drain shapes
+- [`2c87c1de`](https://github.com/zumik3-del/synaptomind/commit/2c87c1ded3418ecd59daae781f2df88b6f1133b4): test: pin the vector/queue race both ways
+- [`2cb9bd5d`](https://github.com/zumik3-del/synaptomind/commit/2cb9bd5de765812062670f2778c28de4c9e2ef5a): test(eval): measure multi-project dilution of the filtered vector leg
+- [`f09f11f0`](https://github.com/zumik3-del/synaptomind/commit/f09f11f0072381268d776707b89f87fd9b979e70): refactor(services): extract the confirm/preview-token gate from the tools
+- [`793d5ba6`](https://github.com/zumik3-del/synaptomind/commit/793d5ba6b73e94b0a17f27bfa2e0c6359a8d0773): fix(embedder): retire the queue row only while its content hash still matches
+- [`ed33741e`](https://github.com/zumik3-del/synaptomind/commit/ed33741e6a0869551fae3c1b493e49c4b6497c89): fix(mcp): close the connection when the drain abandons a rejected body
+- [`1483c0c0`](https://github.com/zumik3-del/synaptomind/commit/1483c0c06fa08cab6747165643b20fc9253fc298): test: pin the content_language write and read contract
+- [`62ecd683`](https://github.com/zumik3-del/synaptomind/commit/62ecd683914c4cadcc1619210b302d65914c8b76): docs: state the modern-era entry forms and the bounded drain
+- [`25b4f04b`](https://github.com/zumik3-del/synaptomind/commit/25b4f04bc79e2d6c06a9882a9eb0c8733c3e487c): test: harden the vec rebuild marker coverage
+- [`d3375222`](https://github.com/zumik3-del/synaptomind/commit/d33752229e40de33a27bd0ed46a7e7dbd346847d): refactor: model content_language on Thought
+- [`ef66e37c`](https://github.com/zumik3-del/synaptomind/commit/ef66e37c8519b8624ce35f8dcd2b929a19c543e2): test: pin the bounded drain and the abort status
+- [`81ffc287`](https://github.com/zumik3-del/synaptomind/commit/81ffc2879441b05bb47993b62dce884924f353cf): fix(mcp): bound the pre-auth body drain and keep rejections fast
+- [`0c7e8697`](https://github.com/zumik3-del/synaptomind/commit/0c7e8697cb64fb0b88822aae058e7c0140d7c2a3): test: drop unused scratch dir from the sweep suite
+- [`8c205cca`](https://github.com/zumik3-del/synaptomind/commit/8c205ccadeabd838c4a287a8d84bccb581cb25bf): test: pin the vec0 rebuild marker and its idempotency
+- [`b70c03f0`](https://github.com/zumik3-del/synaptomind/commit/b70c03f0e91ba47d666a12a12356cf82a5cd4fe9): fix(db): record the vec0 rebuild state in _meta
+- [`43f9e0f2`](https://github.com/zumik3-del/synaptomind/commit/43f9e0f2a2c3371d390b653c23e18fa7cdb9d5cf): test: pin the scope notes for writes, slots and a whitespace cwd
+- [`482b993d`](https://github.com/zumik3-del/synaptomind/commit/482b993df2608712db4da9d46fe43c51f9b95d51): test: pin the sweep cadence and its skip condition
+- [`d97760f3`](https://github.com/zumik3-del/synaptomind/commit/d97760f3fda90cdeefbe61b850603ee502297e7e): perf(embedder): demote the orphan sweep to boot plus hourly
+- [`fc3cb67a`](https://github.com/zumik3-del/synaptomind/commit/fc3cb67adb5aea541885c17b47783ae6ba5c6882): fix(mcp): one accurate scope note on read, write and raw-resolver paths
+- [`65dba720`](https://github.com/zumik3-del/synaptomind/commit/65dba720caa2c73d5baf0f9fe2a84944bdc605d0): refactor: delete the dead exports, the fake db param and the vestigial names
+- [`b9d70087`](https://github.com/zumik3-del/synaptomind/commit/b9d70087ac25b9e94cc2d48614080c9d2857da23): docs(agents): drop the retired settings lazy-DI deviation
+- [`144b82fa`](https://github.com/zumik3-del/synaptomind/commit/144b82fa4bb281d416ea1eb4c393f315d67046f5): docs(agents): record the third DI form and the errors.ts db dependency
+
 ## v0.23.1
 
 > November 11, 2026
