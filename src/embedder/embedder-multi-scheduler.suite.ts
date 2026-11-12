@@ -80,6 +80,7 @@ mock.module('../db/pending-embeddings', () => ({
   },
   deleteFromQueue: () => {},
   handleFailedItem: () => {},
+  hasPendingEmbeddings: () => true,
   requeueEmbeddings: () => {},
   sweepOrphanedThoughts: () => []
 }))

@@ -75,6 +75,7 @@ mock.module('../db/pending-embeddings', () => ({
     queued = false
   },
   handleFailedItem: () => {},
+  hasPendingEmbeddings: () => true,
   requeueEmbeddings: () => {},
   sweepOrphanedThoughts: () => []
 }))
