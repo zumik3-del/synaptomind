@@ -7,11 +7,14 @@ import { config } from '../config'
 import { getDb } from '../context/container'
 import { isVecExtensionAvailable, seedEmbedding, seedThought, withVecDb } from '../test/helpers'
 import { vec0Path } from '../runtime-mode'
+import { runHealthCheckService } from '../services/health-check.service'
 import { findScopeMismatches } from './health-check/embeddings'
 import { closeDb, initDb } from './init'
 import { MIGRATIONS } from './migrations'
 import { insertEmbedding } from './pending-embeddings'
+import { deleteProject } from './projects'
 import { searchThoughts } from './search'
+import { deleteThought } from './thoughts'
 import { scopeSql } from './vec-schema'
 
 // Coverage for v048 (#2494, ADR 2026-11-12): `vec_thoughts` gains a
@@ -431,6 +434,115 @@ describe('the v048 move trigger', () => {
   })
 })
 
+// ── The largest real move: a project delete ───────────────────────────────
+
+/**
+ * `deleteProject` repartitions every thought of a project with one `UPDATE`, so
+ * the trigger fires once per row — the largest real move path (ADR §8).
+ * `projects.test.ts` covers the same call on `:memory:`, where v048 returns
+ * early and no trigger exists, so only a file-backed case can see partitions.
+ */
+describe('the deleteProject bulk move', () => {
+  itVec('repartitions every embedded thought and drains the move table', db => {
+    const defaultId = metaValue(db, 'default_project_id')!
+    insertProjectRow(db, 'proj-doomed')
+    const seeded = new Map<string, Buffer>()
+    const ids = ['bulk-1', 'bulk-2', 'bulk-3', 'bulk-4']
+    for (const [index, id] of ids.entries()) {
+      seedThought({ id, content: `bulk thought ${id}`, project_id: 'proj-doomed' })
+      const blob = vectorBuffer(20 + index)
+      storeVector(db, id, blob)
+      seeded.set(id, blob)
+    }
+    // A thought with no vector: the bulk move must not invent a row for it.
+    const unembedded = seedThought({
+      id: 'bulk-no-vector',
+      content: 'never embedded',
+      project_id: 'proj-doomed'
+    })
+
+    expect(deleteProject(db, 'proj-doomed')).toBeTrue()
+
+    // The project row is gone and every thought it held now belongs to Default.
+    expect(db.prepare(`SELECT 1 FROM projects WHERE id = 'proj-doomed'`).get()).toBeNull()
+    expect(
+      (
+        db.prepare(`SELECT COUNT(*) AS n FROM thoughts WHERE project_id = 'proj-doomed'`).get() as {
+          n: number
+        }
+      ).n
+    ).toBe(0)
+    expect(
+      (
+        db.prepare(`SELECT project_id FROM thoughts WHERE id = ?`).get(unembedded) as {
+          project_id: string
+        }
+      ).project_id
+    ).toBe(defaultId)
+
+    // Every moved vector row sits in the Default partition, blob byte-identical.
+    expect(scopesById(db)).toEqual(Object.fromEntries(ids.map(id => [id, defaultId])))
+    for (const row of vecRows(db)) {
+      expect(row.hex).toBe(blobHex(seeded.get(row.id)!))
+    }
+    // No row was duplicated or left behind by the per-row delete + re-insert.
+    const counts = db
+      .prepare(`SELECT COUNT(*) AS n, COUNT(DISTINCT id) AS ids FROM vec_thoughts`)
+      .get() as { n: number; ids: number }
+    expect(counts.n).toBe(ids.length)
+    expect(counts.ids).toBe(counts.n)
+    expect(vecRows(db).some(row => row.id === unembedded)).toBe(false)
+    // The trigger's stage table is emptied after each row it moves.
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM vec_scope_move`).get() as { n: number }).n).toBe(
+      0
+    )
+  })
+})
+
+// ── The delete path must stay id-only ─────────────────────────────────────
+
+/**
+ * §5.4/§8 rest on VEC-DEL by id alone because the qualified form is a *silent*
+ * no-op once the row has moved (ADR §3.3). The first case pins that no-op so
+ * nobody re-adds `AND scope = ?` "for safety"; `insertEmbedding`
+ * (`pending-embeddings.ts:176`) is the production form whose regression it
+ * guards, and the re-embed-after-move case below goes red when that delete is
+ * qualified. `deleteThought`'s own VEC-DEL (`thoughts.ts:301`) cannot be pinned
+ * this way in a file-backed DB: the id-only v009 delete trigger removes the row
+ * regardless, so the second case asserts the end state, not that statement.
+ */
+describe('VEC-DEL stays id-only after a move', () => {
+  itVec('a delete qualified with the pre-move partition misses the moved row', db => {
+    const id = seedThought({ content: 'moved then qualified-deleted', project_id: 'proj-a' })
+    storeVector(db, id, vectorBuffer(31))
+    db.prepare(`UPDATE thoughts SET project_id = 'proj-b' WHERE id = ?`).run(id)
+    expect(scopesById(db)).toEqual({ [id]: 'proj-b' })
+
+    // The caller still believes the row is in 'proj-a': no error, no rows removed.
+    const qualified = db
+      .prepare(`DELETE FROM vec_thoughts WHERE id = ? AND scope = ?`)
+      .run(id, 'proj-a')
+    expect(qualified.changes).toBe(0)
+    expect(scopesById(db)).toEqual({ [id]: 'proj-b' })
+
+    // The id-only form is unconditional: it removes the row wherever it lives.
+    db.prepare(`DELETE FROM vec_thoughts WHERE id = ?`).run(id)
+    expect(vecRows(db)).toEqual([])
+  })
+
+  itVec('deleteThought removes the vector of a thought that already moved', db => {
+    const id = seedThought({ content: 'deleted after a move', project_id: 'proj-a' })
+    storeVector(db, id, vectorBuffer(33))
+    db.prepare(`UPDATE thoughts SET project_id = 'proj-b' WHERE id = ?`).run(id)
+    expect(scopesById(db)).toEqual({ [id]: 'proj-b' })
+
+    expect(deleteThought(db, id)).toBeTrue()
+
+    expect(vecRows(db)).toEqual([])
+    expect(db.prepare(`SELECT 1 FROM thoughts WHERE id = ?`).get(id)).toBeNull()
+  })
+})
+
 // ── The write path keeps the partition honest too ─────────────────────────
 
 describe('insertEmbedding writes the partition the thought owns', () => {
@@ -483,6 +595,43 @@ describe('insertEmbedding writes the partition the thought owns', () => {
 
     expect(scopesById(db)).toEqual({ [id]: 'proj-b' })
     expect(vecRows(db)).toHaveLength(1)
+  })
+})
+
+// ── The health check has to see a mismatch, not only its absence ──────────
+
+/**
+ * The healthy case above asserts `findScopeMismatches` returns `[]`; that alone
+ * cannot fail for a finder that always returns `[]`. vec0 refuses an `UPDATE`
+ * of a partition column, so the mismatch is inserted directly with a foreign
+ * partition, and both the finder and the `vector_scope_mismatch` warning must
+ * surface it.
+ */
+describe('findScopeMismatches reports a real mismatch', () => {
+  itVec('a vector in the wrong partition is reported by the finder and the health check', db => {
+    const id = seedThought({ content: 'misplaced vector', project_id: 'proj-a' })
+    db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, ?)`).run(
+      id,
+      vectorBuffer(35),
+      'proj-elsewhere'
+    )
+
+    const expected = [
+      {
+        id,
+        content: 'misplaced vector',
+        expected_scope: 'proj-a',
+        actual_scope: 'proj-elsewhere'
+      }
+    ]
+    expect(findScopeMismatches(db)).toEqual(expected)
+
+    const report = runHealthCheckService({}, db)
+    const drift = report.categories.find(category => category.name === 'data_drift')!
+    const check = drift.checks.find(entry => entry.name === 'vector_scope_mismatch')!
+    expect(check.severity).toBe('warning')
+    expect(check.count).toBe(1)
+    expect(check.details).toEqual(expected)
   })
 })
 
