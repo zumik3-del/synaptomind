@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import {
   createTestDb,
@@ -12,6 +12,7 @@ import { closeDb } from './init'
 import { bm25SearchIds, isStrongMatch, rrfMerge, searchThoughts } from './search'
 import { bm25ScoredIds } from './search-bm25'
 import { buildFilterSQL } from './search-filters'
+import * as vectorSearchDb from './search-vector'
 
 const VEC_AVAILABLE = isVecExtensionAvailable()
 
@@ -1138,4 +1139,55 @@ test('searchThoughts reports degraded when the vec leg throws', () => {
     hybrid: true
   })
   expect((results as { degraded?: boolean }).degraded).toBe(true)
+})
+
+// ── candidate pool width (F2 stopgap, task #2480) ───────────────────────────
+
+describe('candidate pool width', () => {
+  /** The `pool` argument of every real vec0 call made while `fn` runs. */
+  async function poolsSeen(fn: () => void): Promise<number[]> {
+    const spy = spyOn(vectorSearchDb, 'vecSearchIds')
+    try {
+      fn()
+      return spy.mock.calls.map(call => call[2])
+    } finally {
+      spy.mockRestore()
+    }
+  }
+
+  itVec(
+    'a filtered search takes the pool cap while an unfiltered one keeps the topK width',
+    async db => {
+      const embedding = new Float32Array(384)
+      const pools = await poolsSeen(() => {
+        searchThoughts(db, { embedding, topK: 5, hybrid: false, projectFilter: 'project-a' })
+        searchThoughts(db, { embedding, topK: 5, hybrid: false })
+      })
+
+      // The vec0 predicate runs after the KNN cutoff, so a filter only gets the
+      // rows inside the pool: #2478 lost the ground truth until the pool passed
+      // the 900 nearer foreign rows, which the topK-derived width cannot reach.
+      expect(pools[0]).toBe(1000)
+      // The unfiltered path keeps the pre-fix expression and its cost.
+      expect(pools[1]).toBe(50)
+    }
+  )
+
+  itVec(
+    'the filtered pool ignores topK, and the unfiltered one grows then stops at the cap',
+    async db => {
+      const embedding = new Float32Array(384)
+      const pools = await poolsSeen(() => {
+        searchThoughts(db, { embedding, topK: 1, hybrid: false, projectFilter: 'project-a' })
+        searchThoughts(db, { embedding, topK: 40, hybrid: false, projectFilter: 'project-a' })
+        searchThoughts(db, { embedding, topK: 40, hybrid: false })
+        searchThoughts(db, { embedding, topK: 200, hybrid: false })
+      })
+
+      // k=40 is what the service derives from the production default k=10
+      // (`candidateK = topK × 4`): its unfiltered pool is 400, the filtered one
+      // is the cap that recovered the ground truth.
+      expect(pools).toEqual([1000, 1000, 400, 1000])
+    }
+  )
 })

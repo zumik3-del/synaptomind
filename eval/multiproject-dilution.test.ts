@@ -1,23 +1,29 @@
-// F2 measurement (task #2478): multi-project dilution of the filtered vector leg.
+// F2 pin (tasks #2478 measurement, #2479 stopgap, #2480 test).
 //
-// `db/search.ts` derives one *global* candidate pool (`topK × 10`, capped at
-// 1000) and the vec0 leg filters that pool afterwards (`db/search-vector.ts`),
-// so a project whose rows rank below the cutoff contributes nothing — silently.
-// These tests pin the instrument and the measurement:
+// The search layer derives one *global* candidate pool for both legs and applies
+// the filter inside the vec0 query, after the KNN cutoff (`db/search-vector.ts`),
+// so a project whose rows rank below the cutoff contributes nothing. #2478
+// measured that loss; #2479 made a filtered search take the existing cap
+// (`CANDIDATE_POOL_MAX`, 1000) while an unfiltered one keeps `topK × 10`. These
+// tests pin the post-fix snapshot and the mechanism behind it:
 //
-//   - the raw vec0 leg returns nothing until the pool passes the number of
-//     globally nearer rows, which is the mechanism in one assertion;
-//   - at the seeded corpus the default pool loses the ground truth on the vector
-//     leg *and* on the user-facing hybrid path, while a wider pool recovers both
-//     with the same query, filter and scored k;
-//   - the control query (answers are the globally nearest rows) keeps recall 1 at
-//     the same narrow pool, so the zeros are not the filter or the harness;
-//   - a corpus smaller than the BM25 leg's overfetch masks the loss on the hybrid
-//     path, which is why the default corpus is sized above it.
+//   - the raw vec0 leg still returns nothing until its pool passes the number of
+//     globally nearer rows — the mechanism itself, which the search-layer fix
+//     does not change;
+//   - at the seeded corpus (900 nearer rows, under the cap) the default arms
+//     recover the ground truth on the vector leg *and* on the user-facing hybrid
+//     path, and the cap-wide leg returns only the queried project's rows;
+//   - the control query keeps recall 1 and leads with its own answers, so the
+//     filter, the pool plumbing and the harness are proven at the same width;
+//   - an exhaustively short filtered result stays `degraded: false` (a small
+//     project is not flagged just for being small);
+//   - past the cap (1500 nearer rows) the loss returns but is announced
+//     (`degraded: true`), so an empty result cannot be read as "this project has
+//     no match".
 //
-// The zero-recall assertions are a snapshot of the pre-fix behaviour: when F2 is
-// fixed the narrow arms recover, so flip them to 1 together with the F2 entry in
-// `multiproject-dilution.ts` and `docs/EVAL.md`.
+// The corpus and the arms come from `multiproject-dilution.ts`, shared with the
+// eval scenario; the overfetch arms are gone because a filtered search no longer
+// narrows its pool.
 
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -39,7 +45,7 @@ import {
 } from './multiproject-dilution'
 import { runEval } from './runner'
 import { seedScenario } from './seed'
-import type { QueryRun, RunResult } from './types'
+import type { EvalScenario, QueryRun, RunResult } from './types'
 
 function arm(result: RunResult, label: string): QueryRun {
   const query = result.scenarios[0]?.queries.find(run => run.label === label)
@@ -47,18 +53,36 @@ function arm(result: RunResult, label: string): QueryRun {
   return query
 }
 
-async function withSeededDb(fn: () => void | Promise<void>): Promise<void> {
+async function withSeededDb(
+  fn: () => void | Promise<void>,
+  scenario: EvalScenario = MULTI_PROJECT_DILUTION_SCENARIO
+): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'eval-pool-dilution-'))
   initDb({ dbPath: join(dir, 'db.sqlite'), runMigrations: true })
   try {
-    await seedScenario(getDb(), MULTI_PROJECT_DILUTION_SCENARIO, text =>
-      deterministicEmbedding(text)
-    )
+    await seedScenario(getDb(), scenario, text => deterministicEmbedding(text))
     await fn()
   } finally {
     closeDb()
     rmSync(dir, { recursive: true, force: true })
   }
+}
+
+/** Service-level search in the shape the probe uses: vector leg, no gate. */
+async function searchWithSignal(
+  topK: number,
+  query = DILUTION_QUERY
+): Promise<SearchResult[] & { degraded?: boolean }> {
+  const { searchThoughts } = await import('../src/services/search.service')
+  return (await searchThoughts({
+    query,
+    topK,
+    projectFilter: DILUTION_PROJECTS.small,
+    hybrid: false,
+    supersessionMode: 'suppress',
+    minRelevance: 0,
+    embedding: deterministicEmbedding(query)
+  })) as SearchResult[] & { degraded?: boolean }
 }
 
 describe('pool-dilution probe corpus', () => {
@@ -94,16 +118,23 @@ describe('pool-dilution probe corpus', () => {
     const scenario = MULTI_PROJECT_DILUTION_SCENARIO
     const diluted = scenario.queries.filter(query => query.query === DILUTION_QUERY)
 
-    expect(diluted.length).toBe(6)
+    // Three arms: the harness k on hybrid and on the raw vector leg, plus the
+    // production default k. A pool knob cannot narrow a filtered search any
+    // more, so no arm carries one.
+    expect(diluted.map(query => query.label)).toEqual(['hybrid-k5', 'vector-k5', 'vector-k10'])
     for (const query of diluted) {
       expect(query.projectFilter).toBe(DILUTION_PROJECTS.small)
       expect(query.relevant).toEqual(DILUTION_RELEVANT)
       expect(query.topK ?? 5).toBe(query.label === 'vector-k10' ? 10 : 5)
+      expect(query.poolTopK).toBeUndefined()
     }
 
     const control = scenario.queries.filter(query => query.query !== DILUTION_QUERY)
     expect(control.length).toBe(2)
-    for (const query of control) expect(query.relevant).toEqual(DILUTION_CONTROL_RELEVANT)
+    for (const query of control) {
+      expect(query.relevant).toEqual(DILUTION_CONTROL_RELEVANT)
+      expect(query.poolTopK).toBeUndefined()
+    }
   })
 })
 
@@ -120,36 +151,30 @@ describe('pool-dilution arms (deterministic embedder)', () => {
     expect(result.categories['pool-dilution']).toBeUndefined()
   })
 
-  test('the default pool loses the ground truth on the vector leg and on hybrid', () => {
-    // Both legs lose: the loss is not an RRF artifact, and it reaches the
-    // user-facing hybrid path, not just the vector-only call.
-    expect(arm(result, 'hybrid-k5').metrics.recall).toBe(0)
-    expect(arm(result, 'vector-k5').metrics.recall).toBe(0)
-    expect(arm(result, 'vector-k5').metrics.retrieved).toEqual([])
-    // k=10 widens the derived pool too (400) and still misses.
-    expect(arm(result, 'vector-k10').metrics.recall).toBe(0)
-    // Pool 520 is still narrower than the number of globally nearer rows.
-    expect(arm(result, 'vector-k5-pool520').metrics.recall).toBe(0)
+  test('the default arms recover the ground truth on the vector leg and on hybrid', () => {
+    // 900 rows rank nearer than the ground truth and the corpus is under the
+    // 1000-row cap, so the cap-wide filtered pool reaches the answers: #2478
+    // measured 0.000 here pre-fix, 1.000 after the stopgap.
+    for (const label of ['hybrid-k5', 'vector-k5', 'vector-k10']) {
+      expect(arm(result, label).metrics.recall, label).toBe(1)
+    }
+    expect(arm(result, 'vector-k5').metrics.retrieved).toEqual(
+      expect.arrayContaining(DILUTION_RELEVANT)
+    )
+    // k=10 is the production default: its pre-fix pool was 400, now the cap.
+    expect(arm(result, 'vector-k10').metrics.retrieved.length).toBeLessThanOrEqual(10)
   })
 
-  test('a wider pool recovers both paths with the filter and the scored k unchanged', () => {
-    for (const label of ['vector-k5-pool1000', 'hybrid-k5-pool1000']) {
+  test('the control query keeps full recall and leads with its own answers', () => {
+    // The answers are the globally nearest rows, so the filter, the pool
+    // plumbing and the harness are all proven at the same cap-wide pool.
+    for (const label of ['vector-k5-control', 'hybrid-k5-control']) {
       const query = arm(result, label)
       expect(query.metrics.recall, label).toBe(1)
-      // The overfetch is truncated back to the scored k before metrics.
-      expect(query.metrics.retrieved.length, label).toBeLessThanOrEqual(5)
-      expect(query.poolTopK, label).toBe(50)
+      expect(query.metrics.retrieved.slice(0, DILUTION_CONTROL_RELEVANT.length), label).toEqual(
+        [...DILUTION_CONTROL_RELEVANT].reverse()
+      )
     }
-  })
-
-  test('the control query keeps full recall at the same narrow pool', () => {
-    // The answers are the globally nearest rows, so the filter, the pool
-    // plumbing and the harness are all proven for this project and this k.
-    expect(arm(result, 'vector-k5-control').metrics.recall).toBe(1)
-    expect(arm(result, 'hybrid-k5-control').metrics.recall).toBe(1)
-    expect(arm(result, 'vector-k5-control').metrics.retrieved).toEqual(
-      [...DILUTION_CONTROL_RELEVANT].reverse()
-    )
   })
 })
 
@@ -170,47 +195,49 @@ describe('pool-dilution mechanism (raw vec0 leg)', () => {
       // point where it reaches the queried project's rows.
       expect(rows(nearer)).toHaveLength(0)
       expect(rows(nearer + 1).map(row => row.id)).toEqual(['lh-target-2'])
-      expect(rows(1000)).toHaveLength(5)
-    })
-  })
-
-  test('the loss is silent: no degraded flag and an empty result, not an error', async () => {
-    await withSeededDb(async () => {
-      const { searchThoughts } = await import('../src/services/search.service')
-      const items = await searchThoughts({
-        query: DILUTION_QUERY,
-        topK: 5,
-        projectFilter: DILUTION_PROJECTS.small,
-        hybrid: false,
-        supersessionMode: 'suppress',
-        minRelevance: 0,
-        embedding: deterministicEmbedding(DILUTION_QUERY)
-      })
-
-      // The service attaches the collection-level flag to the result array; an
-      // empty filtered leg is indistinguishable from "this project has no
-      // match", which is why the loss needs a probe like this one to be seen.
-      expect(items).toEqual([])
-      expect((items as SearchResult[] & { degraded?: boolean }).degraded).toBe(false)
+      // At the cap the filter sees its whole project, and nothing else: the
+      // KNN pool is filled with foreign rows, so a leak would show up here.
+      const reached = rows(1000)
+      expect(reached).toHaveLength(5)
+      const ids = reached.map(row => row.id)
+      const projectOf = getDb().prepare('SELECT project_id FROM thoughts WHERE id = ?')
+      for (const id of ids) {
+        expect((projectOf.get(id) as { project_id: string }).project_id).toBe(
+          DILUTION_PROJECTS.small
+        )
+      }
     })
   })
 })
 
-describe('pool-dilution masking at a smaller corpus', () => {
-  test('inside the BM25 overfetch the hybrid path is masked while the vector leg still loses', async () => {
-    const small = buildMultiProjectDilutionScenario({
-      name: 'multi-project-pool-dilution-small',
-      big: 300,
-      mid: 100
+describe('pool-dilution signal (filtered search)', () => {
+  test('an exhaustively short filtered result is not degraded', async () => {
+    await withSeededDb(async () => {
+      // All five rows of the smallest project fit inside the cap-wide pool, so a
+      // short list (5 < k 10) is the whole truth, not a truncated one.
+      const items = await searchWithSignal(10)
+      expect(items.map(result => result.thought.id).sort()).toEqual(
+        [...DILUTION_RELEVANT, ...DILUTION_CONTROL_RELEVANT].sort()
+      )
+      expect(items.degraded).toBe(false)
     })
-    const result = await runEval({ scenarios: [small] })
+  })
 
-    // 400 rows rank nearer than the ground truth: the default vector pool (200)
-    // still misses, while a pool above 400 recovers. The hybrid path is masked
-    // because the BM25 leg overfetches 600 rows, which covers this corpus — the
-    // default corpus in `multiproject-dilution.ts` is sized above it.
-    expect(arm(result, 'vector-k5').metrics.recall).toBe(0)
-    expect(arm(result, 'hybrid-k5').metrics.recall).toBe(1)
-    expect(arm(result, 'vector-k5-pool520').metrics.recall).toBe(1)
+  test('past the cap the loss returns, but it is announced', async () => {
+    // Beyond the cap the answers can no longer be reached (the structural fix is
+    // a schema decision, not part of the stopgap), so the only contract left is
+    // that a starved leg says so instead of reading as an empty project.
+    const beyondCap = buildMultiProjectDilutionScenario({
+      name: 'multi-project-pool-dilution-beyond-cap',
+      big: 1000,
+      mid: 500
+    })
+    await withSeededDb(async () => {
+      for (const topK of [5, 10]) {
+        const items = await searchWithSignal(topK)
+        expect(items, `topK=${topK}`).toHaveLength(0)
+        expect(items.degraded, `topK=${topK}`).toBe(true)
+      }
+    }, beyondCap)
   })
 })
