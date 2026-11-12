@@ -1,6 +1,7 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import { insertLog } from '../logging'
 import type { SqlFragment } from './search-filters'
+import { sqlIn } from './utils'
 
 /**
  * Number of embedded thoughts the shared filters match. The vec0 KNN cuts its
@@ -57,6 +58,47 @@ export function countFilteredVectors(
     })
     throw err
   }
+}
+
+/**
+ * True when a project-scoped leg shut the addressed project out of its answer:
+ * none of the rows the leg delivered belongs to that project, yet project
+ * thoughts matching the same residual filters are embedded.
+ *
+ * A full `topK` of nearer `__global__` rows hides the project entirely — the
+ * partition walk's `k` cap is consumed by globals, the project's own rows never
+ * reach the residual filter, and the short-leg count above never runs (the leg
+ * is not short). Probing the project is what tells "the pool cut it" from "the
+ * project has nothing to say". The rule is "no row of the project delivered"
+ * rather than "fewer rows than it holds": a project larger than `topK` always
+ * returns fewer rows than it holds, so a count comparison would flag every
+ * large project. Both probes are driven from `thoughts` (primary-key lookups,
+ * then one project-index probe), never from a `vec_thoughts` scan.
+ */
+export function addressedProjectShutOut(
+  db: Database,
+  project: string,
+  residual: SqlFragment,
+  delivered: ReadonlyArray<{ id: string }>
+): boolean {
+  if (delivered.length > 0) {
+    const ids = delivered.map(row => row.id)
+    const own = db
+      .prepare(`SELECT COUNT(*) AS n FROM thoughts WHERE project_id = ? AND id IN (${sqlIn(ids)})`)
+      .get(project, ...ids) as { n: number }
+    if (own.n > 0) return false
+  }
+  const row = db
+    .prepare(`
+      SELECT 1 AS found
+      FROM thoughts t
+      LEFT JOIN thought_importance ti ON ti.thought_id = t.id
+      WHERE t.project_id = ? ${residual.sql}
+        AND EXISTS (SELECT 1 FROM vec_thoughts v WHERE v.id = t.id)
+      LIMIT 1
+    `)
+    .get(project, ...residual.params) as { found: number } | null
+  return row !== null
 }
 
 /**

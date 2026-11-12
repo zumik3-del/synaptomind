@@ -135,6 +135,10 @@ test('a mid-life dimension change is readable from _meta alone and re-queues eve
       ).sql
   )
   expect(ddl).toContain(`FLOAT[${REBUILT}]`)
+  // The rebuild renders its DDL from `vec-schema.ts`; it must keep the partition
+  // column too, or every project-scoped query fails against the reshaped table
+  // (the seed above runs before the rebuild, so width alone cannot catch it).
+  expect(ddl).toContain('PARTITION KEY')
   // The indexed vector did not survive the reshape; it is re-queued exactly once.
   expect(vecRowCount(dbPath)).toBe(0)
   expect(pendingIds()).toEqual([id])
