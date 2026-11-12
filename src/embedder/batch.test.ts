@@ -235,7 +235,52 @@ function midBatchFixture(): { id: string; oldHash: string; newHash: string; rows
  * itself is driven for real in `embedder-batch-loop.suite.ts`; this mirror pins
  * the composition's DB effects without spawning the embedder child.
  */
-function runBatchComposition(rows: EmbeddingRow[], embeddings: Float32Array[]): BatchOutcome {
+function runBatchComposition(
+  rows: EmbeddingRow[],
+  embeddings: Float32Array[],
+  /**
+   * Runs after EVERY store (hash check + vector write) and before the retire
+   * step — the #2471 window, where a server-side content update can land.
+   */
+  afterStore?: () => void
+): BatchOutcome {
+  return runComposition(
+    rows,
+    embeddings,
+    (batchRows, succeeded) => {
+      if (succeeded.length === 0) return
+      const stored = new Set(succeeded)
+      deleteEmbeddedFromQueue(
+        getDb(),
+        batchRows.filter(r => stored.has(r.id))
+      )
+    },
+    afterStore
+  )
+}
+
+/** The same composition as it shipped BEFORE #2471: retire every `succeeded` id. */
+function runPreGuardComposition(
+  rows: EmbeddingRow[],
+  embeddings: Float32Array[],
+  afterStore?: () => void
+): BatchOutcome {
+  return runComposition(
+    rows,
+    embeddings,
+    (_batchRows, succeeded) => {
+      if (succeeded.length > 0) deleteFromQueue(getDb(), succeeded)
+    },
+    afterStore
+  )
+}
+
+function runComposition(
+  rows: EmbeddingRow[],
+  embeddings: Float32Array[],
+  retire: (batchRows: EmbeddingRow[], succeeded: string[]) => void,
+  afterStore?: () => void
+): BatchOutcome {
   const db = getDb()
   const { succeeded, failed, contentChanged } = classifyBatch(rows, (r, i) =>
     storeRowMirror(
@@ -246,13 +291,8 @@ function runBatchComposition(rows: EmbeddingRow[], embeddings: Float32Array[]): 
 
   for (const f of failed) handleFailedItem(db, f.id, f.error)
   for (const id of contentChanged) handleFailedItem(db, id, CONTENT_CHANGED_REASON)
-  if (succeeded.length > 0) {
-    const stored = new Set(succeeded)
-    deleteEmbeddedFromQueue(
-      db,
-      rows.filter(r => stored.has(r.id))
-    )
-  }
+  afterStore?.()
+  retire(rows, succeeded)
 
   return { succeeded, failed, contentChanged }
 }
@@ -415,5 +455,143 @@ describe('delete-only-succeeded invariant (#1572)', () => {
     expect(nextFailures(allSkipped, 2, 4)).toBe(0)
     expect(nextFailures(allFailed, 2, 4)).toBe(5)
     expect(nextFailures(partial, 2, 4)).toBe(0)
+  })
+})
+
+// ── the retire window: an edit BETWEEN the hash check and the delete (#2471) ──
+//
+// #1572 fixed the case where the content changes BEFORE `insertEmbedding` runs
+// (the store is skipped and the id never reaches the retire step). The window
+// #2471 closes is later: the store matched the hash and wrote the vector, and
+// the edit lands before the batch retires the queue row. The v035 trigger has
+// already replaced that row under the NEW hash, so an unconditional delete by id
+// drops the only freshness signal and the just-written vector goes stale with
+// nothing left to repair it (audit F8).
+
+/**
+ * The #2471 fixture: a queued thought with a matching old hash and a stale
+ * `vec_thoughts` row from a previous pass. `edit` is the server-side content
+ * update; the caller decides WHERE in the batch it lands.
+ */
+function retireWindowFixture(): {
+  id: string
+  oldHash: string
+  newHash: string
+  rows: EmbeddingRow[]
+  edit: () => void
+} {
+  const db = getDb()
+  const id = seedThought({ content: 'OLD content' })
+  // Per-thought hashes: the v046 content-dedupe index forbids two live thoughts
+  // sharing one (content_hash, project) pair.
+  const oldHash = `hash-old-${id}`
+  const newHash = `hash-new-${id}`
+  db.prepare(`UPDATE thoughts SET content = 'OLD content', content_hash = ? WHERE id = ?`).run(
+    oldHash,
+    id
+  )
+  storeVec(id, vec(1))
+
+  const rows = findPendingEmbeddings(db, 10).filter(r => r.id === id)
+  expect(rows.map(r => r.id)).toEqual([id])
+  expect(rows[0]).toMatchObject({ content: 'OLD content', contentHash: oldHash })
+
+  const edit = (): void => {
+    db.prepare(`UPDATE thoughts SET content = 'NEW content', content_hash = ? WHERE id = ?`).run(
+      newHash,
+      id
+    )
+  }
+  return { id, oldHash, newHash, rows, edit }
+}
+
+describe('the retire window between the hash check and the delete (#2471)', () => {
+  test('AC1: an edit between the store and the retire keeps the thought queued, and the next poll re-embeds it', () => {
+    const f = retireWindowFixture()
+    let hookRan = 0
+
+    const outcome = runBatchComposition(f.rows, [vec(2)], () => {
+      hookRan++
+      f.edit()
+    })
+
+    // Non-vacuous interleaving: the hook really ran in the window, and the store
+    // itself had already matched the OLD hash (so the id IS licensed to retire).
+    expect(hookRan).toBe(1)
+    expect(outcome.succeeded).toEqual([f.id])
+    expect(outcome.contentChanged).toEqual([])
+
+    // The vector written from OLD content is on disk…
+    expect(vecMarker(f.id)).toBe(2)
+    // …and the queue row SURVIVED, carrying the hash of the NEW content: the
+    // guarded delete saw the mismatch and dropped nothing.
+    expect(pendingRowOrNull(f.id)).toMatchObject({ is_error: 0, content_hash: f.newHash })
+
+    // Next poll: the row is handed out again with the current content/hash, so
+    // the stale vector cannot outlive this batch…
+    const next = findPendingEmbeddings(getDb(), 10).filter(r => r.id === f.id)
+    expect(next).toMatchObject([{ content: 'NEW content', contentHash: f.newHash }])
+
+    // …and the re-embed retires it.
+    const second = runBatchComposition(next, [vec(3)])
+    expect(second.succeeded).toEqual([f.id])
+    expect(pendingRowOrNull(f.id)).toBeNull()
+    expect(vecMarker(f.id)).toBe(3)
+  })
+
+  test('AC1 non-vacuity: the pre-#2471 retire drops that row and leaves the stale vector unmarked', () => {
+    const f = retireWindowFixture()
+
+    const outcome = runPreGuardComposition(f.rows, [vec(2)], f.edit)
+
+    expect(outcome.succeeded).toEqual([f.id])
+    // the just-requeued row is gone, so nothing will ever replace the vector…
+    expect(pendingRowOrNull(f.id)).toBeNull()
+    expect(findPendingEmbeddings(getDb(), 10).map(r => r.id)).not.toContain(f.id)
+    // …while the vector on disk says nothing about the content it was built from.
+    expect(vecMarker(f.id)).toBe(2)
+  })
+
+  test('AC2: the ordinary path retires the queue row in one pass and leaves no re-embedding work', () => {
+    const db = getDb()
+    const id = seedThought({ content: 'STABLE content' })
+    const hash = `hash-stable-${id}`
+    db.prepare('UPDATE thoughts SET content_hash = ? WHERE id = ?').run(hash, id)
+
+    const rows = findPendingEmbeddings(db, 10).filter(r => r.id === id)
+    expect(rows).toMatchObject([{ content: 'STABLE content', contentHash: hash }])
+
+    const outcome = runBatchComposition(rows, [vec(4)])
+
+    expect(outcome).toEqual({ succeeded: [id], failed: [], contentChanged: [] })
+    // ONE pass: the row is gone, the vector is the one just written…
+    expect(pendingRowOrNull(id)).toBeNull()
+    expect(vecMarker(id)).toBe(4)
+    // …and the next poll has nothing to do for this thought — an unchanged
+    // thought is never re-embedded by the guard's second chance.
+    expect(findPendingEmbeddings(db, 10)).toEqual([])
+  })
+
+  test('AC3: the hash-guarded delete does not strand a row whose content already changed', () => {
+    // The #1572 fixture: the edit lands BEFORE the batch, so the store skips and
+    // the row is classified `contentChanged` — it never even reaches `succeeded`.
+    const f = midBatchFixture()
+    const outcome = runBatchComposition(f.rows, [vec(2)])
+    expect(outcome.contentChanged).toEqual([f.id])
+    expect(outcome.succeeded).toEqual([])
+
+    // Belt and braces: hand the same stale row to the retire path directly. The
+    // guard must delete NOTHING, because the batch hash no longer matches.
+    deleteEmbeddedFromQueue(getDb(), f.rows)
+
+    expect(pendingRowOrNull(f.id)).toMatchObject({ is_error: 0, content_hash: f.newHash })
+    // Not stranded: the row is still the freshness signal the next poll acts on.
+    const next = findPendingEmbeddings(getDb(), 10).filter(r => r.id === f.id)
+    expect(next).toMatchObject([{ content: 'NEW content', contentHash: f.newHash }])
+
+    const second = runBatchComposition(next, [vec(5)])
+    expect(second.succeeded).toEqual([f.id])
+    expect(pendingRowOrNull(f.id)).toBeNull()
+    expect(vecMarker(f.id)).toBe(5)
   })
 })
