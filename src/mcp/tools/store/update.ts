@@ -3,7 +3,7 @@ import { NotFoundError } from '../../../errors'
 import { updateThoughtByIdService } from '../../../services/thoughts.service'
 import type { ThoughtStatus } from '../../../types/thought'
 import { itemEnvelope, writeEnvelopeScope } from '../envelope'
-import { resolveProjectId, shapeThought } from '../utils'
+import { shapeThought } from '../utils'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
 const ARCHIVED_NEEDS_SUPERSEDE =
@@ -24,12 +24,12 @@ export const updateHandler: ActionHandler = {
     surface_after: z.iso.datetime().nullable().optional()
   }),
   run(args: ActionArgs) {
+    // Id-addressed write: cwd scopes the answer, it never relocates the row (docs/mcp-tools.md).
     const updated = updateThoughtByIdService(args.thought_id as string, {
       content: args.content as string | undefined,
       tags: args.tags as string[] | undefined,
       tags_mode: args.tags_mode as 'replace' | 'merge' | undefined,
       status: args.status as ThoughtStatus | undefined,
-      project_id: resolveProjectId(args.cwd as string),
       is_protected: args.is_protected as boolean | undefined,
       is_global: args.is_global as boolean | undefined,
       surface_after:
