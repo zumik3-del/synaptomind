@@ -1,6 +1,6 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import { parseTags } from '../utils'
-import { foldTagName, matchTagIdsByFoldedName } from './tags'
+import { buildFoldedTagFilterSql } from './tags'
 import { VEC_SCOPE_GLOBAL } from './vec-schema'
 
 export interface SqlFragment {
@@ -21,27 +21,13 @@ function getClusterFilterSQL(filter: 'only' | 'exclude'): SqlFragment {
   return { sql: 'AND (t.is_cluster IS NULL OR t.is_cluster = 0) ', params: [] }
 }
 
-// SQLite's `NOCASE` folds ASCII only, so the comparison happens on names folded in JS
-// (`db/tags.ts`): the requested names are folded here, the stored ones are read back and folded
-// there. Matched ids are bound as a (requested-name key, tag id) mapping, so the AND count is over
-// requested names and two stored spellings of one name (`Тег`, `тег`) count once.
+// `db/tags.ts` owns the folded-name predicate; this wrapper only adds the leading `AND` and the
+// trailing space the search query expects between concatenated fragments.
 function buildTagFilterSQL(db: Database, tagFilter: string): SqlFragment {
   const tagNames = parseTags(tagFilter)
   if (!tagNames || tagNames.length === 0) return { sql: '', params: [] }
-  const keys = [...new Set(tagNames.map(foldTagName))]
-  const matches = matchTagIdsByFoldedName(db, keys)
-  if (matches.length === 0) return { sql: 'AND 1 = 0 ', params: [] }
-  const mapping = matches.map(() => 'SELECT ? AS name_key, ? AS tag_id').join(' UNION ALL ')
-  return {
-    sql: `AND t.id IN (
-        SELECT tt.thought_id
-        FROM thought_tags tt
-        INNER JOIN (${mapping}) m ON m.tag_id = tt.tag_id
-        GROUP BY tt.thought_id
-        HAVING COUNT(DISTINCT m.name_key) = ?
-      ) `,
-    params: [...matches.flatMap(m => [m.key, m.id]), keys.length]
-  }
+  const fragment = buildFoldedTagFilterSql(db, tagNames)
+  return { sql: `AND ${fragment.sql} `, params: fragment.params }
 }
 
 function filterFragments(

@@ -5,6 +5,7 @@ import { assertNoLiveContentConflict, isContentDedupeViolation } from './content
 import { ThoughtContentConflictError } from './errors'
 import { resolveDefaultProjectId } from './projects'
 import {
+  buildFoldedTagFilterSql,
   getThoughtTags,
   getThoughtTagsBatch,
   mergeThoughtTags,
@@ -296,7 +297,10 @@ export function deleteThought(db: Database, id: string): boolean {
 }
 
 // `countThoughts` must apply this same fragment, or a page and its total disagree.
-function buildThoughtsWhere(options: ThoughtListFilters): {
+function buildThoughtsWhere(
+  db: Database,
+  options: ThoughtListFilters
+): {
   sql: string
   values: SQLQueryBindings[]
 } {
@@ -316,14 +320,9 @@ function buildThoughtsWhere(options: ThoughtListFilters): {
   if (tag) {
     const tagNames = parseTags(tag)
     if (tagNames && tagNames.length > 0) {
-      where.push(`t.id IN (
-        SELECT tt.thought_id FROM thought_tags tt
-        INNER JOIN tags tg ON tg.id = tt.tag_id
-        WHERE tg.name IN (${sqlIn(tagNames)}) COLLATE NOCASE
-        GROUP BY tt.thought_id
-        HAVING COUNT(DISTINCT tg.name) = ?
-      )`)
-      values.push(...tagNames, tagNames.length)
+      const tagFilter = buildFoldedTagFilterSql(db, tagNames)
+      where.push(tagFilter.sql)
+      values.push(...tagFilter.params)
     }
   }
   if (is_cluster === true) {
@@ -337,7 +336,7 @@ function buildThoughtsWhere(options: ThoughtListFilters): {
 
 export function listThoughts(db: Database, options: ListThoughtsOptions = {}): Thought[] {
   const { limit = THOUGHTS_PAGE_LIMIT_DEFAULT, offset = 0, ...filters } = options
-  const { sql: whereSql, values } = buildThoughtsWhere(filters)
+  const { sql: whereSql, values } = buildThoughtsWhere(db, filters)
 
   const baseSql = `${THOUGHT_BASE_SELECT}${whereSql} ORDER BY t.created_at DESC`
   let sql: string
@@ -359,7 +358,7 @@ export function listThoughts(db: Database, options: ListThoughtsOptions = {}): T
 }
 
 export function countThoughts(db: Database, options: ThoughtListFilters = {}): number {
-  const { sql: whereSql, values } = buildThoughtsWhere(options)
+  const { sql: whereSql, values } = buildThoughtsWhere(db, options)
   const row = db.prepare(`SELECT COUNT(*) AS total FROM thoughts t${whereSql}`).get(...values) as
     | { total: number }
     | undefined
