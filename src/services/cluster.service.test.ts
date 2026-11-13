@@ -67,7 +67,5 @@ test('createClusterService handles duplicate member edges gracefully', () => {
 test('createClusterService creates unprotected clusters (ADR §4)', () => {
   const a = seedThought()
   const result = createClusterService({ thoughtIds: [a] })
-  // Clusters are synthetic containers, not content — protection is
-  // exceptional (ADR §4).
   expect(result.cluster.is_protected).toBe(0)
 })

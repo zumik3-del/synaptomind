@@ -73,7 +73,6 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 100; i++) await Promise.resolve()
 }
 
-/** Record `run`/`close` calls on the legacy singleton, in call order. */
 function probe(db: Database): string[] {
   const events: string[] = []
   const realRun = db.run.bind(db)

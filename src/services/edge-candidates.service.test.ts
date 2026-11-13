@@ -42,9 +42,9 @@ test('skips self hits, non-candidate neighbours, and sub-threshold similarity', 
     0.7,
     stubSearch({
       a: [
-        { id: 'a', similarity: 1 }, // self
-        { id: 'outsider', similarity: 1 }, // not a candidate
-        { id: 'b', similarity: 0.69 } // below threshold
+        { id: 'a', similarity: 1 },
+        { id: 'outsider', similarity: 1 },
+        { id: 'b', similarity: 0.69 }
       ],
       b: [{ id: 'outsider', similarity: 1 }]
     })
@@ -68,7 +68,6 @@ test('skips candidates without a corresponding embedding', () => {
     candidates,
     [undefined as unknown as Float32Array, EMB],
     0.5,
-    // `a` has a high-similarity hit but no embedding → its lookup never runs
     stubSearch({ a: [{ id: 'b', similarity: 0.9 }] })
   )
   expect(pairs).toEqual([])
@@ -90,9 +89,6 @@ test('respects topK passed through to the neighbour lookup', () => {
   expect(seenK).toEqual([7, 7])
 })
 
-// ── In-memory neighbour lookup (task #1566) ───────────────────────────────────
-
-/** Assert `actual` and `expected` hold the same scored neighbours in the same order. */
 function expectSameNeighbors(
   actual: EmbeddingNeighbor[],
   expected: Array<{ id: string; similarity: number }>
@@ -103,7 +99,6 @@ function expectSameNeighbors(
   })
 }
 
-/** Unit vector in the `[cos, sin]` plane, so pairwise cosines are exact. */
 function unitAt(angle: number): Float32Array {
   const v = new Float32Array(384)
   v[0] = Math.cos(angle)
@@ -118,7 +113,6 @@ test("similarity lookup reproduces the vec0 lookup's neighbour sets for known co
     { id: 'C', content: 'C' },
     { id: 'D', content: 'D' }
   ]
-  // cosines A-B 0.95 / A-C 0.59 / A-D 0.1 — the same matrix a vec0 lookup returns.
   const embeddings = [
     unitAt(0),
     unitAt(Math.acos(0.95)),
@@ -137,7 +131,6 @@ test("similarity lookup reproduces the vec0 lookup's neighbour sets for known co
     { id: 'C', similarity: Math.cos(Math.acos(0.95) - Math.acos(0.59)) },
     { id: 'D', similarity: Math.cos(Math.acos(0.95) - Math.acos(0.1)) }
   ])
-  // topK caps the returned neighbours; the searchThoughts path clamped the pool the same way.
   expect(lookup('A', embeddings[0]!, 2).map(n => n.id)).toEqual(['B', 'C'])
 })
 
@@ -150,8 +143,6 @@ test('distance lookup reports `1 - similarity` for the auto-cluster convention',
   const embeddings = [unitAt(0), unitAt(Math.acos(0.75)), unitAt(Math.acos(0.25))]
   const lookup = buildInMemoryDistanceLookup(candidates, embeddings)
 
-  // `topK` caps the returned neighbours, exactly as the injected
-  // `searchNeighbors` it defaults for.
   const neighbors = lookup('A', 2)
   expect(neighbors.map(n => n.id)).toEqual(['B', 'C'])
   expect(neighbors[0]!.distance).toBeCloseTo(0.25, 5)
@@ -165,8 +156,6 @@ test('lookups guard zero-norm vectors and rank the unknown id as no neighbours',
     { id: 'zero', content: 'zero' },
     { id: 'unit', content: 'unit' }
   ]
-  // A zero-norm row cannot produce a cosine: it is reported as similarity 0
-  // (distance 1) instead of NaN, which would poison every comparison downstream.
   expect(buildInMemoryNeighborLookup(candidates, [zero, unit])('zero', zero, 5)).toEqual([
     { id: 'unit', similarity: 0 }
   ])
@@ -186,7 +175,5 @@ test('lookup uses the caller-supplied `thoughtId` rather than the passed embeddi
   ]
   const embeddings = [unitAt(0), unitAt(Math.acos(0.9))]
   const lookup = buildInMemoryNeighborLookup(candidates, embeddings)
-  // A mismatched embedding argument must not change the answer: the lookup
-  // identifies the query row by id, exactly like the index it replaces.
   expectSameNeighbors(lookup('A', new Float32Array(384), 5), [{ id: 'B', similarity: 0.9 }])
 })

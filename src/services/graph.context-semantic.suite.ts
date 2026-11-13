@@ -12,10 +12,6 @@ import { searchThoughts } from './search.service'
 const VECTOR = new Float32Array(384)
 for (let i = 0; i < VECTOR.length; i++) VECTOR[i] = 0.25
 
-/**
- * The mocked query embedding. Tests that need a controlled cosine similarity
- * swap this (and restore {@link VECTOR}) instead of reaching a real embedder.
- */
 let queryVector: Float32Array = VECTOR
 
 mock.module('../embedder/client', () => ({
@@ -28,7 +24,6 @@ function itVec(name: string, fn: (db: Database) => void | Promise<void>): void {
   test.skipIf(!isVecExtensionAvailable())(name, () => withVecDb(fn))
 }
 
-/** A 384-d unit vector whose cosine similarity to `e0` is exactly `cos`. */
 function vectorAtCos(cos: number): Float32Array {
   const v = new Float32Array(384)
   v[0] = cos
@@ -62,15 +57,6 @@ describe('getContextService uses real embeddings', () => {
   })
 })
 
-/**
- * Task #2187: the relevance gate is opt-out on the context path.
- *
- * `context` asks for the single best match, so the default gate of the search
- * surface (cosine-only rows must reach 0.4 calibrated) would turn a weak but
- * real neighbourhood into "no match". The query below is `e0` rotated so its
- * cosine similarity to the seeded thought is 0.83 — calibrated relevance 0.3,
- * i.e. below the default 0.4 gate and therefore dropped by a plain search.
- */
 describe('getContextService keeps the pre-gate best match (task #2187)', () => {
   const QUERY = 'zzzzweakgatenolexicalmatch'
 
@@ -85,8 +71,6 @@ describe('getContextService keeps the pre-gate best match (task #2187)', () => {
     const id = await seedWeakPair(db)
     queryVector = vectorAtCos(0.83)
     try {
-      // Positive contrast: the same pair really is below the search gate, so
-      // this test cannot pass by accident when the gate starts applying.
       const gated = await searchThoughts({ query: QUERY, topK: 5, statusFilter: 'active' }, db)
       expect(gated).toEqual([])
 
@@ -104,14 +88,12 @@ describe('getContextService keeps the pre-gate best match (task #2187)', () => {
     const id = await seedWeakPair(db)
     queryVector = vectorAtCos(0.83)
     try {
-      // A caller gating its own search as hard as possible...
       const gated = await searchThoughts(
         { query: QUERY, topK: 5, statusFilter: 'active', minRelevance: 1 },
         db
       )
       expect(gated).toEqual([])
 
-      // ...must not affect the context lookup, which resolves its own gate.
       const ctx = await getContextService(QUERY, { maxDegree: 3 })
 
       expect(ctx).not.toBeNull()

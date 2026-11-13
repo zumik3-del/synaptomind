@@ -1,10 +1,3 @@
-/**
- * Interval-job lifecycle guards (`src/services/jobs.ts`).
- *
- * The jobs are module-level singletons started from `index.ts`; a `start()`
- * that overwrites its own handle orphans the previous timer, which then can
- * never be cleared by `stop()`.
- */
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createIntervalJob } from './jobs.service'
 
@@ -47,7 +40,6 @@ describe('createIntervalJob', () => {
     const afterStart = ticks
     expect(afterStart).toBeGreaterThan(0)
 
-    // One clear, no orphaned interval: the counter must freeze.
     job.stop()
     await Bun.sleep(40)
     expect(ticks).toBe(afterStart)
@@ -64,7 +56,6 @@ describe('createIntervalJob', () => {
 
     job.start()
     expect(ticks).toBe(0)
-    // The guard refused, so no timer exists and nothing was overwritten.
     allowed = true
     job.start()
     expect(ticks).toBe(0)

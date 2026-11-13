@@ -1,8 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { afterAll, expect, mock, test } from 'bun:test'
 
-// Drive the actual side-effect worker in an isolated module registry with a
-// deterministic clock. Database identities remain distinct at every queue call.
 const dbs = Object.fromEntries(
   ['bad', 'healthy', 'opening'].map(id => [id, { id } as unknown as Database])
 )
@@ -18,8 +16,6 @@ const originalInterval = globalThis.setInterval
 Date.now = () => now
 globalThis.setInterval = ((fn: () => void, ms?: number) => {
   if (ms === 10) {
-    // Focused repro of the old shared-backoff defect: suppress every other
-    // entire poll after the fifth failure, instead of delaying just one DB.
     poll =
       process.env.TEST_SHARED_BACKOFF_REPRO === '1'
         ? () => {

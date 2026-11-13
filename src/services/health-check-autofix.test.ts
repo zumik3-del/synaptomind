@@ -1,13 +1,3 @@
-/**
- * Regression tests for audit-fix task #849 (health-check auto-fix OCP).
- *
- * #849 — CheckDef now carries an optional `autofix` hook; presence marks the
- * check as auto-fixable. runAutoFix calls the hook instead of switching on
- * check.name. Verifies:
- *   1. Checks with an autofix hook report auto_fixable=true.
- *   2. Checks without an autofix hook report auto_fixable=undefined.
- *   3. broken_parent_chains autofix only deletes edges to archived targets.
- */
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../db'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
@@ -21,7 +11,6 @@ afterEach(() => {
 })
 
 test('checks with autofix hook report auto_fixable=true', () => {
-  // Seed an orphan edge so the orphan_edges check fires.
   const a = seedThought({ content: 'A' })
   const b = seedThought({ content: 'B' })
   const db = getDb()
@@ -40,7 +29,6 @@ test('checks with autofix hook report auto_fixable=true', () => {
 })
 
 test('checks without autofix hook report auto_fixable undefined', () => {
-  // duplicate_edges has no autofix hook.
   const report = runHealthCheckService()
   const structural = report.categories.find(c => c.name === 'structural_integrity')!
   const dupCheck = structural.checks.find(c => c.name === 'duplicate_edges')!
@@ -54,7 +42,6 @@ test('broken_parent_chains autofix only deletes edges to archived targets', () =
   seedEdge(parent, archivedChild, 'parent')
   seedEdge(parent, draftChild, 'parent')
 
-  // Verify both edges exist before fix.
   const before = getDb()
     .prepare("SELECT target_id FROM edges WHERE type = 'parent'")
     .all() as Array<{ target_id: string }>
@@ -66,7 +53,6 @@ test('broken_parent_chains autofix only deletes edges to archived targets', () =
   const remaining = getDb()
     .prepare("SELECT target_id FROM edges WHERE type = 'parent'")
     .all() as Array<{ target_id: string }>
-  // Only the draft-target edge survives; archived-target edge is removed.
   expect(remaining.map(r => r.target_id)).toEqual([draftChild])
 })
 

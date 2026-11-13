@@ -28,7 +28,6 @@ describe('embedder child shutdown invokes closeDb (no WAL residue)', () => {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     })
 
-    // Wait for the ready IPC (deterministic) instead of a fixed sleep.
     await new Promise<void>((resolvePromise, reject) => {
       const timer = setTimeout(() => reject(new Error('ready timeout')), 30_000)
       child.on('message', (msg: unknown) => {
@@ -47,7 +46,6 @@ describe('embedder child shutdown invokes closeDb (no WAL residue)', () => {
       })
     })
 
-    // The WAL sidecar must have existed before shutdown (not a vacuous pass).
     expect(existsSync(`${dbPath}-wal`) || existsSync(`${dbPath}-shm`)).toBe(true)
 
     child.send?.({ type: 'shutdown' })

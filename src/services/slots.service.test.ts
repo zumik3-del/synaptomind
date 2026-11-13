@@ -7,8 +7,6 @@ import { getSlots, SLOT_NAMES } from './slots.service'
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-// ── getSlots ─────────────────────────────────────────────────────────────────
-
 test('getSlots returns all 4 slot views', () => {
   const slots = getSlots()
   expect(slots).toHaveLength(4)
@@ -76,10 +74,6 @@ test('getSlots architecture_decisions renders only the topN primers', () => {
   }
 })
 
-// A negative topN reaches SQLite as `LIMIT -1`, which means "no limit": the
-// slot would render EVERY primer instead of the top N. The configured topN is
-// clamped at the slot, so a negative one renders a single primer.
-//
 // The whole `config.primer` section is swapped (not `config.primer.topN`
 // patched in place): with an empty config.json the merged config shares the
 // DEFAULTS object, so an in-place patch would poison the defaults the slot
@@ -135,9 +129,6 @@ test('getSlots architecture_decisions renders ONE bullet when the configured top
   }
 })
 
-// A non-numeric topN falls back to the built-in default (3) at the slot: the
-// db layer's own fallback is its page size (500), so without the slot's clamp
-// the whole primer set would be rendered.
 test('getSlots architecture_decisions renders the default 3 bullets when the configured topN is not a number', () => {
   const original = config.primer
   config.primer = { ...original, topN: Number.NaN }
