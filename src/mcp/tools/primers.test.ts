@@ -6,16 +6,7 @@ import { closeDb } from '../../db/init'
 import { promoteThoughtToPrimer } from '../../db/primers'
 import { createTestDb, seedThought } from '../../test/helpers'
 
-// Coverage for the telemetry cut (ADR 2026-10-21): the primer list/delete
-// capability moved out of the removed `memory_telemetry` tool into the dedicated
-// `memory_primers` tool. The delete follows the project-wide destructive-action
-// convention (ADR 2026-09-28 p8-review-queue-apply §"a dedicated write tool is
-// the honest surface"): without `confirm=true` it only previews, with
-// `confirm=true` it deletes, and an unknown id is `not_found` (idempotent).
-
 async function setupClient(): Promise<Client> {
-  // The tool module is imported lazily so a missing tool fails the individual
-  // test instead of the whole file.
   const { registerMemoryPrimers } = await import('./primers')
   const server = new McpServer({ name: 'test', version: '0.0.0' })
   registerMemoryPrimers(server)
@@ -36,7 +27,6 @@ function parseResult(result: unknown): { data: any; isError: boolean } {
   }
 }
 
-/** Seed one primer over a fresh thought and return both ids. */
 function seedPrimer(hitCount = 12): { thoughtId: string; primerId: string } {
   const thoughtId = seedThought({ content: 'primer candidate' })
   const primer = promoteThoughtToPrimer(getDb(), thoughtId, hitCount)
@@ -44,7 +34,6 @@ function seedPrimer(hitCount = 12): { thoughtId: string; primerId: string } {
   return { thoughtId, primerId: primer.id }
 }
 
-/** Whether a primer row is still in the main db (raw SQL, no cut-only symbol). */
 function primerExists(id: string): boolean {
   const row = getDb().prepare(`SELECT COUNT(*) AS c FROM primers WHERE id = ?`).get(id) as {
     c: number
@@ -95,7 +84,6 @@ describe('memory_primers delete', () => {
     expect(data.item.primer_id).toBe(primerId)
     expect(data.item.primer.thought_id).toBe(thoughtId)
     expect(data.item.instruction).toContain('confirm=true')
-    // The refusal is the point: nothing was deleted.
     expect(primerExists(primerId)).toBe(true)
   })
 

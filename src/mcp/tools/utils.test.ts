@@ -3,9 +3,6 @@ import { toBit } from '../../db/utils'
 import { parseTags } from '../../utils'
 import { jsonResult, shapeThought } from './utils'
 
-// Runtime assertion for #2135 AC-3: no tool result may be a bare string.
-// `jsonResult` wraps a bare string payload as `{ text }` so the shared
-// `{ result }` envelope never carries a string in `result`.
 describe('jsonResult envelope', () => {
   test("wraps a bare string payload as { text: 'x' }", () => {
     const result = jsonResult('x')

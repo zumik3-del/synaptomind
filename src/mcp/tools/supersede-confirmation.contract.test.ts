@@ -91,9 +91,6 @@ describe('memory_supersede confirmation contract', () => {
   })
 
   test('a legacy-flagged row previews as would_archive and archives on confirmation', async () => {
-    // v047 clears the values but keeps the column, so a pre-v047 database still
-    // has rows reading `is_profile = 1`; the archive surface must treat them like
-    // any other row instead of answering `protected`.
     const flagged = seedThought({ content: 'legacy persona', status: 'active' })
     getDb().prepare('UPDATE thoughts SET is_profile = 1 WHERE id = ?').run(flagged)
 
@@ -164,8 +161,6 @@ describe('memory_supersede confirmation contract', () => {
       { thought_id: flagged, outcome: 'would_archive' },
       { thought_id: active, outcome: 'would_archive' },
       { thought_id: archived, outcome: 'already_archived' },
-      // The repeat of a row the same batch would archive is a duplicate, not a
-      // second pending write.
       { thought_id: flagged, outcome: 'already_archived' }
     ])
 
@@ -189,8 +184,6 @@ describe('memory_supersede confirmation contract', () => {
     const ids = [active, 'missing-id', archived, active, other]
     const preview = await call({ action: 'archive_batch', thought_ids: ids })
     expect(preview.isError).toBe(false)
-    // The collection envelope reports the request size in meta.counts and the
-    // pending write in meta.preview (task #2181).
     expect(preview.data.meta.action).toBe('archive_batch')
     expect(preview.data.meta.counts.total).toBe(ids.length)
     expect(typeof preview.data.meta.preview?.token).toBe('string')
@@ -221,7 +214,6 @@ describe('memory_supersede confirmation contract', () => {
     expect(result.isError).toBe(false)
     expect(result.data.meta.action).toBe('archive_batch')
     expect(result.data.meta.counts).toMatchObject({ archived: 3, failed: 1, total: ids.length })
-    // One row per requested occurrence, in request order, failures labelled.
     expect(result.data.items).toEqual([
       { thought_id: active, status: 'archived' },
       { thought_id: 'missing-id', status: 'failed', error: "Thought 'missing-id' not found" },

@@ -6,10 +6,6 @@ import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 import { jsonResult } from './utils'
 
-// Regression coverage for the MCP stdio/dispatch batch (tasks #127-#134):
-// cleanup dry-run default, numeric schema bounds, context project scoping and
-// structured output mirroring. Mirrors the setup style of tools.test.ts.
-
 mock.module('../../embedder/client', () => ({
   generateEmbedding: () => new Float32Array(384),
   generateEmbeddings: () => [new Float32Array(384)],
@@ -19,11 +15,8 @@ mock.module('../../embedder/client', () => ({
 
 let client: Client
 
-// A fresh test DB registers no project for this path, so read-side calls keep
-// the global scope while satisfying the hard-cwd contract of task #2179.
 const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
-/** Actions that require `cwd`; `callTool` injects the default for them. */
 const CWD_ACTIONS: Record<string, string[]> = {
   memory_recall: ['search', 'clusters', 'list', 'context'],
   memory_status: ['slots', 'frontier', 'propose'],
@@ -32,7 +25,6 @@ const CWD_ACTIONS: Record<string, string[]> = {
   memory_manage: ['list', 'create', 'update', 'delete', 'resolve']
 }
 
-/** `client.callTool` with the hard-cwd default injected for the scoped actions. */
 function callTool(request: { name: string; arguments?: Record<string, unknown> }) {
   const args = request.arguments ?? {}
   const scoped = CWD_ACTIONS[request.name]
@@ -78,7 +70,6 @@ function assertStructuredMatchesText(result: unknown): void {
   try {
     expected = JSON.parse(text)
   } catch {
-    // Non-JSON (raw text) payloads are wrapped as { text } by #2126.
     expected = { text }
   }
   expect(r.structuredContent?.result).toEqual(expected)
@@ -90,8 +81,6 @@ afterEach(closeDb)
 beforeAll(async () => {
   client = await setupClient()
 })
-
-// ── Numeric schema validation ───────────────────────────────────────────────
 
 const invalidNumericCases: Array<{
   label: string
@@ -180,14 +169,6 @@ describe('numeric parameter schema validation', () => {
   })
 })
 
-// ── Shared request contract parity (task #1758, audit M8) ───────────────────
-//
-// `src/validation.ts` declares the status enum and limit ranges once; the MCP
-// tool input schemas import them, so the surface cannot drift from the shared
-// contract. Red-proof: on the pre-#1758 code `memory_crystallize`
-// advertised `status` as an open string (accepting `bogus`) and the limits were
-// inlined literals.
-
 describe('shared request contract parity (audit M8)', () => {
   async function inputSchemaOf(name: string): Promise<Record<string, any>> {
     const { tools } = await client.listTools()
@@ -247,9 +228,6 @@ describe('shared request contract parity (audit M8)', () => {
   })
 
   test('memory_crystallize graph rejects an out-of-range offset', async () => {
-    // The offset bound (0..1_000_000) used to be pinned by the deleted
-    // `GET /api/graph` contract test (ADR 2026-10-26); it now lives here, at the
-    // MCP action that shares `graphOffsetSchema`.
     for (const offset of [-1, 1_000_001]) {
       const { data, isError } = parseResult(
         await callTool({ name: 'memory_crystallize', arguments: { action: 'graph', offset } })
@@ -279,8 +257,6 @@ describe('shared request contract parity (audit M8)', () => {
   })
 
   test('memory_reflect timeline coerces a numeric-string limit (shared coerce schema)', async () => {
-    // The old inline schema was a bare `z.number()`; the shared
-    // `timelineLimitSchema` coerces, matching the HTTP query-string path.
     const result = await callTool({
       name: 'memory_reflect',
       arguments: { action: 'timeline', limit: '50' }
@@ -289,13 +265,10 @@ describe('shared request contract parity (audit M8)', () => {
   })
 })
 
-// ── memory_recall context project scoping ───────────────────────────────────
-
 describe('memory_recall context honors project_id', () => {
   const MARKER = 'CONTEXT_SCOPE_MARKER'
 
   test('returns a degraded result when the matching thought is outside the requested project', async () => {
-    // Marker exists only in the default project.
     await callTool({
       name: 'memory_store',
       arguments: {
@@ -326,9 +299,6 @@ describe('memory_recall context honors project_id', () => {
     })
     const { data, isError } = parseResult(result)
 
-    // Scoped search found nothing in that project — it must not fall back to
-    // the matching thought in the default project. The new contract surfaces
-    // degradation instead of throwing NotFoundError.
     expect(isError).toBe(false)
     expect(data.item).toBeNull()
     expect(data.meta.degraded).toBe(true)
@@ -342,7 +312,6 @@ describe('memory_recall context honors project_id', () => {
     })
     const { data: project } = parseResult(proj)
 
-    // Same marker in both projects: the scoped call must select the in-project one.
     await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: `${MARKER} global decoy`, status: 'active' }
@@ -368,8 +337,6 @@ describe('memory_recall context honors project_id', () => {
   })
 })
 
-// ── Structured outputs mirror the text payload ──────────────────────────────
-
 describe('structuredContent mirrors the text payload', () => {
   test('memory_recall search', async () => {
     await callTool({
@@ -393,8 +360,6 @@ describe('structuredContent mirrors the text payload', () => {
       name: 'memory_status',
       arguments: { action: 'config' }
     })) as ToolResult
-    // The content channel stays raw text; the structured channel carries the
-    // shared envelope with the same text in `item.text`.
     expect(result.isError).not.toBe(true)
     const envelope = result.structuredContent?.result as {
       item: { text: string }
@@ -428,12 +393,8 @@ describe('structuredContent mirrors the text payload', () => {
   })
 })
 
-// ── No bare-string tool results (#2135 AC-3) ───────────────────────────────
-
 describe('no bare-string tool results (#2135)', () => {
   test('jsonResult wraps a bare string to { text }', () => {
-    // Re-asserted here (also in utils.test.ts) so the runtime invariant is
-    // visible alongside the per-tool loop below.
     const result = jsonResult('x')
     expect(result.structuredContent.result).toEqual({ text: 'x' })
     expect(typeof result.structuredContent.result).not.toBe('string')

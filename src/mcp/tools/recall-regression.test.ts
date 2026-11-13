@@ -7,14 +7,6 @@ import { closeDb } from '../../db/init'
 import { createTestDb, seedThought, withVecDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
-// Regression coverage for #926:
-// - z.coerce.number() on six numeric params accepts JSON-string numerics and
-//   still enforces their min/max bounds.
-// - Per-axis `off` on supersession_mode / contradiction_mode: standing is still
-//   emitted when exactly one axis is off; omitted only when both are off.
-// - The advertised JSON Schema preserves numeric bounds (type/minimum/maximum)
-//   despite the coerce transform.
-
 mock.module('../../embedder/client', () => ({
   generateEmbedding: () => new Float32Array(384),
   generateEmbeddings: () => [new Float32Array(384)],
@@ -24,11 +16,8 @@ mock.module('../../embedder/client', () => ({
 
 let client: Client
 
-// A fresh test DB registers no project for this path, so read-side calls keep
-// the global scope while satisfying the hard-cwd contract of task #2179.
 const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
-/** Actions that require `cwd`; `callTool` injects the default for them. */
 const CWD_ACTIONS: Record<string, string[]> = {
   memory_recall: ['search', 'clusters', 'list', 'context'],
   memory_status: ['slots', 'frontier', 'propose'],
@@ -37,7 +26,6 @@ const CWD_ACTIONS: Record<string, string[]> = {
   memory_manage: ['list', 'create', 'update', 'delete', 'resolve']
 }
 
-/** `client.callTool` with the hard-cwd default injected for the scoped actions. */
 function callTool(request: { name: string; arguments?: Record<string, unknown> }) {
   const args = request.arguments ?? {}
   const scoped = CWD_ACTIONS[request.name]
@@ -142,7 +130,6 @@ describe('retired memory_recall input migration hints', () => {
     )?.properties
     expect(props).toHaveProperty('limit')
     expect(props).toHaveProperty('is_cluster')
-    // Retired keys remain advertised as never-valued migration errors.
     for (const [key, description] of [
       ['top_k', 'Removed; use limit.'],
       ['cluster', 'Removed; use is_cluster.']
@@ -154,11 +141,7 @@ describe('retired memory_recall input migration hints', () => {
   })
 })
 
-// ── String-numeric coercion (task #926) ───────────────────────────────────────
-
 describe('memory_recall string-numeric coercion', () => {
-  // Each case: param name, a valid string value, an out-of-range string value,
-  // and the corresponding numeric-value out-of-range for cross-check.
   const numericParams = [
     { name: 'limit', validStr: '5', invalidHigh: '501', invalidLow: '0', intOnly: true },
     {
@@ -234,8 +217,6 @@ describe('memory_recall string-numeric coercion', () => {
         name: 'memory_store',
         arguments: { action: 'create', content: `COERCE_TYPE_${p.name} marker`, status: 'active' }
       })
-      // The coerced value must behave identically to a native number — no error,
-      // and the gate actually filters when min_relevance is involved.
       const result = await callTool({
         name: 'memory_recall',
         arguments: { action: 'search', query: `COERCE_TYPE_${p.name} marker`, [p.name]: p.validStr }
@@ -245,7 +226,6 @@ describe('memory_recall string-numeric coercion', () => {
   }
 
   test('min_relevance string "0.5" gates low-similarity results', async () => {
-    // Seed two thoughts with distinct content so BM25 can differentiate them.
     await callTool({
       name: 'memory_store',
       arguments: {
@@ -263,7 +243,6 @@ describe('memory_recall string-numeric coercion', () => {
       }
     })
 
-    // With min_relevance=0 (default) both should appear.
     const defaultResult = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'GATE_MIN_REL', limit: 10 }
@@ -273,20 +252,16 @@ describe('memory_recall string-numeric coercion', () => {
     }>
     expect(defaultData.length).toBeGreaterThanOrEqual(1)
 
-    // With min_relevance="0.9" (string) only the BM25-exact hit should remain.
     const gatedResult = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'GATE_MIN_REL', limit: 10, min_relevance: '0.9' }
     })
     const gatedData = parseResult(gatedResult).data.items as Array<{ thought: { content: string } }>
-    // At least the exact-marker hit survives; the vague one may be dropped by the gate.
     expect(gatedData.length).toBeGreaterThanOrEqual(1)
     const hasExact = gatedData.some(r => r.thought.content.includes('high relevance'))
     expect(hasExact).toBe(true)
   })
 })
-
-// ── Per-axis standing semantics (task #926) ───────────────────────────────────
 
 describe('memory_recall standing per-axis off semantics', () => {
   const QUERY = 'standing_axis_test'
@@ -305,8 +280,6 @@ describe('memory_recall standing per-axis off semantics', () => {
     return { old: oldId, new: newId }
   }
 
-  // `compact: false` is what puts `standing` beside each thought in the shared
-  // envelope (task #2179): the default minimal hit carries the thought alone.
   async function recall(extra: Record<string, unknown> = {}) {
     const result = await callTool({
       name: 'memory_recall',
@@ -320,9 +293,7 @@ describe('memory_recall standing per-axis off semantics', () => {
     const { data, isError } = await recall()
     expect(isError).toBe(false)
     const results = data.items as Array<{ thought: { id: string }; standing?: string }>
-    // Default suppress: superseded row is removed from the result set.
     expect(results.find(r => r.thought.id === oldId)).toBeUndefined()
-    // The replacement thought is present with current standing.
     expect(results.find(r => r.thought.id === newId)?.standing).toBe('current')
   })
 
@@ -368,21 +339,17 @@ describe('memory_recall standing per-axis off semantics', () => {
       superseded_by?: string[]
       contradicted_by?: string[]
     }>
-    // Every result must lack the standing field when both axes are off.
     for (const r of results) {
       expect(r.standing).toBeUndefined()
       expect(r.superseded_by).toBeUndefined()
       expect(r.contradicted_by).toBeUndefined()
     }
-    // All seeded thoughts must be present (off = no annotation, not suppression).
     expect(results.find(r => r.thought.id === a)).toBeDefined()
     expect(results.find(r => r.thought.id === b)).toBeDefined()
     expect(results.find(r => r.thought.id === oldId)).toBeDefined()
     expect(results.find(r => r.thought.id === newId)).toBeDefined()
   })
 })
-
-// ── Advertised JSON Schema preserves numeric bounds despite z.coerce ─────────
 
 describe('memory_recall advertised schema retains numeric bounds with z.coerce', () => {
   test('limit schema carries type:integer, minimum and maximum', async () => {
@@ -424,7 +391,6 @@ describe('memory_recall advertised schema retains numeric bounds with z.coerce',
     const props = (recallTool?.inputSchema as { properties?: Record<string, unknown> })?.properties
     const m = props?.recency_half_life_days as Record<string, unknown> | undefined
     expect(m?.type).toBe('number')
-    // .positive() → exclusiveMinimum: 0 in JSON Schema
     expect(m?.exclusiveMinimum).toBe(0)
     expect(m?.maximum).toBe(3650)
   })
@@ -450,9 +416,6 @@ describe('memory_recall advertised schema retains numeric bounds with z.coerce',
   })
 
   test('string-typed numerics are accepted even though schema advertises type:number/integer', async () => {
-    // This is the core regression: z.coerce lets string numerics through, but
-    // the JSON Schema must still advertise type:number so clients know the
-    // canonical shape while the runtime accepts the coerce path.
     await callTool({
       name: 'memory_store',
       arguments: {
@@ -475,8 +438,6 @@ describe('memory_recall advertised schema retains numeric bounds with z.coerce',
   })
 })
 
-// ── is_global project scoping through memory_recall (epic #1489) ─────────────
-
 describe('memory_recall — is_global is always included in a project-scoped search', () => {
   const P1 = 'recall-global-p1'
   const P2 = 'recall-global-p2'
@@ -497,7 +458,6 @@ describe('memory_recall — is_global is always included in a project-scoped sea
   function seedWorld() {
     const local = seedThought({ content: `${QUERY} local`, project_id: P1, status: 'active' })
     const foreign = seedThought({ content: `${QUERY} foreign`, project_id: P2, status: 'active' })
-    // Global thought owned by P2 — must surface in a P1-scoped recall.
     const global = seedThought({
       content: `${QUERY} global`,
       project_id: P2,

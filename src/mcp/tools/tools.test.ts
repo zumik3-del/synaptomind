@@ -17,11 +17,8 @@ mock.module('../../embedder/client', () => ({
 
 let client: Client
 
-// A fresh test DB registers no project for this path, so read-side calls keep
-// the global scope while satisfying the hard-cwd contract of task #2179.
 const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
-/** Actions that require `cwd`; `callTool` injects the default for them. */
 const CWD_ACTIONS: Record<string, string[]> = {
   memory_recall: ['search', 'clusters', 'list', 'context'],
   memory_status: ['slots', 'frontier', 'propose'],
@@ -30,7 +27,6 @@ const CWD_ACTIONS: Record<string, string[]> = {
   memory_manage: ['list', 'create', 'update', 'delete', 'resolve']
 }
 
-/** `client.callTool` with the hard-cwd default injected for the scoped actions. */
 function callTool(request: { name: string; arguments?: Record<string, unknown> }) {
   const args = request.arguments ?? {}
   const scoped = CWD_ACTIONS[request.name]
@@ -67,8 +63,6 @@ afterEach(closeDb)
 beforeAll(async () => {
   client = await setupClient()
 })
-
-// ── Tool registration ────────────────────────────────────────────────────────
 
 describe('tool registration', () => {
   test('registers all 11 tools', async () => {
@@ -202,7 +196,6 @@ describe('retention_review MCP', () => {
     )
     expect(compacted.isError).toBe(false)
     expect(compacted.data.item.summary.project_id).toBe('default')
-    // Read-surface hygiene: tags are plain strings, never { id, name } objects.
     expect(compacted.data.item.summary.tags).toContain('mcp-tag')
     const invalid = parseResult(
       await callTool({
@@ -270,8 +263,6 @@ describe('retention_review MCP', () => {
   })
 })
 
-// ── memory_store ─────────────────────────────────────────────────────────────
-
 describe('memory_store', () => {
   test('create action creates a thought', async () => {
     const result = await callTool({
@@ -292,7 +283,6 @@ describe('memory_store', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    // Read-surface hygiene: tags are plain strings on the write surface too.
     expect(data.item.tags.sort()).toEqual(['alpha', 'beta'])
   })
 
@@ -359,8 +349,6 @@ describe('memory_store', () => {
     expect(isError).toBe(true)
   })
 
-  // ── the action surface after #2201: bulk_create is the only bulk spelling ──
-
   test('advertises only the canonical action set', async () => {
     const { tools } = await client.listTools()
     const tool = tools.find(t => t.name === 'memory_store')
@@ -378,7 +366,6 @@ describe('memory_store', () => {
       'retype',
       'bulk_create'
     ])
-    // The `thoughts` field is documented for the surviving action only.
     expect(schema?.properties?.thoughts?.description).toContain('"bulk_create"')
     expect(schema?.properties?.thoughts?.description).not.toContain('create_bulk')
     expect(schema?.properties?.thoughts?.description).not.toContain('create_batch')
@@ -392,8 +379,6 @@ describe('memory_store', () => {
       })
       expect({ alias, isError: parseResult(result).isError }).toEqual({ alias, isError: true })
     }
-    // The rejected spellings wrote nothing: the alias is a schema error, not a
-    // silently accepted second door into the bulk insert.
     expect(
       getDb()
         .prepare(`SELECT COUNT(*) AS cnt FROM thoughts WHERE content LIKE '% alias write %'`)
@@ -419,8 +404,6 @@ describe('memory_store', () => {
     ).toEqual({ cnt: 2 })
   })
 })
-
-// ── memory_recall ────────────────────────────────────────────────────────────
 
 describe('memory_recall', () => {
   test('search returns matching thoughts', async () => {
@@ -494,7 +477,6 @@ describe('memory_recall', () => {
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
     expect(Array.isArray(data.items)).toBe(true)
-    // Read-surface hygiene: the 0/1 storage flag is a boolean on the wire.
     expect(data.items.every((r: any) => r.thought?.is_cluster === true)).toBe(true)
   })
 
@@ -528,8 +510,6 @@ describe('memory_recall', () => {
     expect(data).toContain('query is required for clusters action')
   })
 })
-
-// ── memory_supersede (regression focus) ──────────────────────────────────────
 
 describe('memory_supersede', () => {
   test('archive sets status to archived', async () => {
@@ -655,8 +635,6 @@ describe('memory_supersede', () => {
   })
 })
 
-// ── memory_manage ────────────────────────────────────────────────────────────
-
 describe('memory_manage', () => {
   test('list returns projects array', async () => {
     const result = await callTool({
@@ -697,8 +675,6 @@ describe('memory_manage', () => {
     expect(Object.keys(props)).not.toContain('compact')
     expect(JSON.stringify(manage?.inputSchema)).not.toContain('compact')
     expect(manage?.description ?? '').not.toContain('compact')
-    // Positive control: the surviving field selector is still advertised, and
-    // the option stays live where a projection actually reads it.
     expect(props.fields).toBeDefined()
     const recall = tools.find(t => t.name === 'memory_recall')
     const recallProps =
@@ -723,8 +699,6 @@ describe('memory_manage', () => {
     expect(Object.keys(full.data.items[0]).length).toBeGreaterThan(1)
   })
 })
-
-// ── memory_reflect ───────────────────────────────────────────────────────────
 
 describe('memory_reflect', () => {
   test('reflect with summary succeeds', async () => {
@@ -756,8 +730,6 @@ describe('memory_reflect', () => {
     expect(data.items.length).toBeGreaterThanOrEqual(2)
   })
 })
-
-// ── memory_status ────────────────────────────────────────────────────────────
 
 describe('memory_status', () => {
   test('slots returns slot data', async () => {
@@ -791,8 +763,6 @@ describe('memory_status', () => {
   })
 })
 
-// ── memory_crystallize ───────────────────────────────────────────────────────
-
 describe('memory_crystallize', () => {
   test('advertises only the three surviving graph and cluster actions', async () => {
     const { tools } = await client.listTools()
@@ -823,7 +793,6 @@ describe('memory_crystallize', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    // The one documented envelope exception: nodes are `items`, edges sit beside them.
     expect(Array.isArray(data.items)).toBe(true)
     expect(Array.isArray(data.edges)).toBe(true)
     expect(data.meta.action).toBe('graph')
@@ -909,8 +878,6 @@ describe('memory_crystallize', () => {
   })
 })
 
-// ── memory_primers ───────────────────────────────────────────────────────────
-
 describe('memory_primers', () => {
   test('list returns array', async () => {
     const result = await callTool({
@@ -922,8 +889,6 @@ describe('memory_primers', () => {
     expect(Array.isArray(data.items)).toBe(true)
   })
 })
-
-// ── memory_guide ─────────────────────────────────────────────────────────────
 
 describe('memory_guide', () => {
   test('returns guide text', async () => {
@@ -950,8 +915,6 @@ describe('memory_guide', () => {
     }
   })
 })
-
-// ── Schema validation ────────────────────────────────────────────────────────
 
 describe('schema validation', () => {
   test('unknown action on memory_store returns error', async () => {
@@ -982,8 +945,6 @@ describe('schema validation', () => {
   })
 })
 
-// ── Regression: dedup after update ───────────────────────────────────────────
-
 describe('dedup after update (regression #76)', () => {
   test('create after update creates new thought, not stale one', async () => {
     const c1 = await callTool({
@@ -1007,8 +968,6 @@ describe('dedup after update (regression #76)', () => {
     expect(t2.content).toBe('original content')
   })
 })
-
-// ── Edge cases ───────────────────────────────────────────────────────────────
 
 describe('merge edge cases', () => {
   test('merge with project_id argument succeeds', async () => {
@@ -1101,8 +1060,6 @@ describe('merge edge cases', () => {
     expect(isError).toBe(true)
   })
 })
-
-// ── link edge types (epic #141: contradicts / supports) ──────────────────────
 
 describe('memory_store link edge types', () => {
   async function createPair(): Promise<{ a: string; b: string }> {
@@ -1214,8 +1171,6 @@ describe('search with project scope', () => {
   })
 })
 
-// ── Ranking signal fields (issue #143, task #816) ────────────────────────────
-
 describe('memory_recall ranking signals', () => {
   async function searchWithSignals(query: string, extra?: Record<string, unknown>) {
     const result = await callTool({
@@ -1239,9 +1194,7 @@ describe('memory_recall ranking signals', () => {
     expect(isError).toBe(false)
     expect(Array.isArray(data.items)).toBe(true)
     expect(data.items.length).toBeGreaterThanOrEqual(1)
-    // Every result must carry match_source (always present per SearchResult contract)
     expect(data.items.every((r: any) => Array.isArray(r.match_source))).toBe(true)
-    // compact=false moves scoring metadata into its own block, never the thought
     expect(
       data.items.every(
         (r: any) => r.thought.similarity === undefined && r.thought.bm25_score === undefined
@@ -1291,15 +1244,11 @@ describe('memory_recall ranking signals', () => {
     const { data, isError } = await searchWithSignals('SIGNALS_RRF hybrid fusion marker')
     expect(isError).toBe(false)
     const results = data.items as Array<{ match_source: string[]; scores?: { rrf_score?: number } }>
-    // On the hybrid path, every returned result that matched any leg should have rrf_score
     const withRrf = results.filter(r => r.match_source.length > 0)
     expect(withRrf.length).toBeGreaterThanOrEqual(1)
-    // rrf_score is present when fusion ran (hybrid=true is the default)
     expect(withRrf.every(r => r.scores?.rrf_score !== undefined)).toBe(true)
   })
 })
-
-// ── Recency boost (issue #145, task #821) ─────────────────────────────────────
 
 describe('memory_recall recency boost', () => {
   async function searchWithRecency(query: string, extra?: Record<string, unknown>) {
@@ -1322,7 +1271,6 @@ describe('memory_recall recency boost', () => {
     expect(isError).toBe(false)
     expect(Array.isArray(data.items)).toBe(true)
     expect(data.items.length).toBeGreaterThanOrEqual(1)
-    // Every result should carry recency fields when weight > 0.
     const results = data.items as Array<{
       scores?: { recency_score?: number; final_score?: number }
     }>
@@ -1346,20 +1294,17 @@ describe('memory_recall recency boost', () => {
     const results = data.items as Array<{
       scores?: { recency_score?: number; final_score?: number }
     }>
-    // Default weight=0 → fields must be absent (backward compat).
     expect(results.every(r => r.scores?.recency_score === undefined)).toBe(true)
     expect(results.every(r => r.scores?.final_score === undefined)).toBe(true)
   })
 
   test('schema rejects out-of-range recency_weight', async () => {
-    // Negative weight.
     const neg = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'test', recency_weight: -0.1 }
     })
     expect(parseResult(neg).isError).toBe(true)
 
-    // Weight above 1.
     const over = await callTool({
       name: 'memory_recall',
       arguments: { action: 'search', query: 'test', recency_weight: 1.1 }
@@ -1367,8 +1312,6 @@ describe('memory_recall recency boost', () => {
     expect(parseResult(over).isError).toBe(true)
   })
 })
-
-// ── Relevance-confidence signal (issue #155, task #884/885) ──────────────────
 
 describe('memory_recall low_confidence + min_relevance', () => {
   test('search response includes low_confidence on every result', async () => {
@@ -1464,14 +1407,6 @@ describe('memory_recall low_confidence + min_relevance', () => {
     expect(zeroIds).toEqual(defaultIds)
   })
 })
-
-// ── Retired surface (pruning batch) ──────────────────────────────────────────
-//
-// The pruning batch removed `is_profile`, the `profile` status action and the
-// `cluster_remove`/`cluster_dissolve` crystallize actions. The retired keys and
-// action names stay in the input schemas so the refusal is a readable message
-// rather than a silently ignored argument: the contract is "refused loudly",
-// not "accepted and dropped".
 
 describe('retired surface', () => {
   test('memory_store create refuses is_profile and writes nothing', async () => {

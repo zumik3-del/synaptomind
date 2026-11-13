@@ -5,10 +5,6 @@ import { resolveDefaultProjectId } from '../../db/projects'
 import { createTestDb } from '../../test/helpers'
 import { registerMemoryReflect } from './reflect'
 
-// Regression coverage for task #169 (audit F9): the reflect action must resolve
-// the project *inside* the dispatch try/catch, so a projects.service resolution
-// failure becomes an isError envelope instead of escaping the tool call.
-//
 // This suite mocks.module('../../services/projects.service') globally — a
 // singleton every MCP tool shares — and bun cannot unmock a module, so it must
 // run in a child bun process with a clean module registry (task #1932: the leak
@@ -74,7 +70,6 @@ describe('memory_reflect project resolution failure', () => {
       summary: 'boom'
     })) as ToolResult
 
-    // If resolution ran outside the dispatch try this would reject instead.
     expect(result.isError).toBe(true)
     expect(result.content).toHaveLength(1)
     expect(result.content[0].type).toBe('text')
@@ -102,9 +97,6 @@ describe('memory_reflect project resolution failure', () => {
       summary: 'control run without project scope'
     })) as ToolResult
 
-    // cwd is optional since #2445: an absent one is a write to the resolved
-    // default project, so the (mocked, throwing) path resolver is never reached
-    // and no rejection is raised.
     expect(result.isError).toBeFalsy()
     expect(result.content[0].text).not.toContain(RESOLUTION_FAILURE)
     const payload = result.structuredContent?.result as {

@@ -6,10 +6,6 @@ import { mcpErrorHandler, startMcpHttpServer, type McpHttpHandle } from './http-
 import { DRAIN_BODY_BYTES } from './request-body'
 import type { Context } from 'hono'
 
-// Dual-era routing (ADR 2026-11-11, task #2434): the modern 2026-07-28 leg is
-// entered by the SDK's own predicate, the legacy sessionful leg is unchanged,
-// and the negative ladder belongs to the modern path. Every case below drives a
-// real listener on an ephemeral port.
 const SECRET = 'mcp-modern-test-secret'
 const MODERN = '2026-07-28'
 const LEGACY = '2025-06-18'
@@ -111,8 +107,6 @@ async function initializeLegacy(
   return id
 }
 
-// The data frames of an SSE response, parsed. A priming frame carries an empty
-// payload and is dropped.
 function ssePayloads(text: string): any[] {
   return text
     .split('\n')
@@ -122,8 +116,6 @@ function ssePayloads(text: string): any[] {
     .map(data => JSON.parse(data))
 }
 
-// A chunked body (no Content-Length) so the route's bounded read is the only
-// thing that can stop it.
 function streamBody(totalBytes: number): ReadableStream<Uint8Array> {
   const chunk = new Uint8Array(64 * 1024).fill(0x78)
   let sent = 0
@@ -140,16 +132,8 @@ function streamBody(totalBytes: number): ReadableStream<Uint8Array> {
   })
 }
 
-// Locked by #2442: an early rejection that leaves the request body unread keeps
-// that request in flight, so Bun's server.stop() waits forever and the suite
-// died as a bare 5 s bun-test timeout. Bound the stop, so a comeback names the
-// cause instead of hiding inside the runner's timeout.
 const STOP_TIMEOUT_MS = 2_000
 
-// A body that reports what the socket actually moved, so the drain's bound is
-// observable from the client side: `sent()` is what left the process,
-// `cancelObserved()` fires when Bun cancels the source (the server stopped
-// reading), and `saturated()` fires once the whole body was handed over.
 interface RecordingUpload {
   body: ReadableStream<Uint8Array>
   sent(): number
@@ -203,9 +187,6 @@ function recordingUpload(
   }
 }
 
-// Same shape as expectStopResolves, for the client-side observation a drain
-// bound or an abort has to produce: a comeback names the missing signal instead
-// of hanging until the runner's timeout.
 async function expectWithinDeadline(work: Promise<void>, label: string): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -266,7 +247,6 @@ describe('modern era (2026-07-28)', () => {
       expect(body.error).toBeUndefined()
       expect(body.result.supportedVersions).toContain(MODERN)
 
-      // The modern leg keeps no session state: no header, no map entry.
       expect(res.headers.get('mcp-session-id')).toBeNull()
       expect(server.getSessions().size).toBe(0)
     } finally {
@@ -367,9 +347,6 @@ describe('legacy era regression', () => {
           })
         )
 
-      // 4–5 MiB: refused by the transport's old 4 MiB default, served now that
-      // the bound is unified with the route's read. (The over-5 MiB half is
-      // covered by the 413 cases above and in http-transport.test.ts.)
       const inside = await ping(4.4)
       expect(inside.status).toBe(200)
       await inside.body?.cancel()
@@ -460,8 +437,6 @@ describe('negative ladder (modern path)', () => {
       )
       expect(modernShaped.status).toBe(415)
 
-      // Chunked (no Content-Length) and oversized: 415 wins, so the body was
-      // never read to its bound.
       const chunkedPlain = await fetch(`${base}/mcp`, {
         method: 'POST',
         headers: modernHeaders('server/discover', { 'content-type': 'text/plain' }),
@@ -535,10 +510,6 @@ describe('negative ladder (modern path)', () => {
   })
 })
 
-// #2442: the 401 and the 415 below also answer before the body is consumed
-// (auth runs first, the media-type gate runs before any read), and the 413 in
-// the ladder above is the third shape. Together they cover every early rejection
-// that used to keep a request in flight and stall the graceful shutdown.
 describe('shutdown after a rejection that leaves the body unread (#2442)', () => {
   const OVERSIZED = 5 * 1024 * 1024 + 10
 
@@ -558,7 +529,6 @@ describe('shutdown after a rejection that leaves the body unread (#2442)', () =>
   test('a 415 on an oversized text/plain POST still lets server.stop() resolve', async () => {
     const { base, server } = await startServer()
     try {
-      // Chunked, so the declared-length 413 guard cannot pre-empt the 415.
       const res = await fetch(`${base}/mcp`, {
         method: 'POST',
         headers: authHeaders({
@@ -583,14 +553,7 @@ describe('shutdown after a rejection that leaves the body unread (#2442)', () =>
   })
 })
 
-// Review #2438 F1: the SDK predicate classifies a body that parses as JSON but
-// is not a JSON-RPC message as modern, so era classification — and with it the
-// 415 media-type gate — now runs before the legacy session lookup. These cases
-// lock that ordering; the raw strings are the wire bodies themselves, so `"x"`
-// is the JSON string, not an unparseable `x`.
 const NOT_A_MESSAGE = 'Bad Request: the request body is not a valid JSON-RPC message'
-// An array is classified element-wise, so a bad element answers through the
-// batch rule — still -32600, with its own wording.
 const BAD_BATCH_ELEMENT = 'Bad Request: JSON-RPC batch contains an invalid message'
 
 const NON_JSON_RPC_BODIES: ReadonlyArray<[string, string, string]> = [
@@ -621,7 +584,6 @@ describe('era classification precedes the legacy session ladder (#2438 F1)', () 
           error: { code: -32600, message },
           id: null
         })
-        // The legacy session was neither consulted nor disturbed.
         expect(server.getSessions().has(sessionId)).toBe(true)
       } finally {
         await server.stop()
@@ -672,8 +634,6 @@ describe('era classification precedes the legacy session ladder (#2438 F1)', () 
         id: null
       })
 
-      // The contrast: the same unknown id over a well-formed JSON-RPC body
-      // still reaches the session ladder and keeps its 404 answer.
       const wellFormed = await post(base, LIST_MESSAGE, authHeaders(unknown))
       expect(wellFormed.status).toBe(404)
       const body = (await wellFormed.json()) as any
@@ -698,9 +658,6 @@ describe('era classification precedes the legacy session ladder (#2438 F1)', () 
           'mcp-session-id': sessionId
         })
       )
-      // An all-legacy array stays legacy traffic: the sessionful transport
-      // answers it as an SSE stream under the caller's session, where the
-      // modern path would have refused the batch with -32600.
       expect(res.status).toBe(200)
       expect(res.headers.get('content-type')).toContain('text/event-stream')
       expect(res.headers.get('mcp-session-id')).toBe(sessionId)
@@ -747,17 +704,7 @@ describe('CORS (T-neg-8)', () => {
   })
 })
 
-// #2463: the drain that settles a rejected POST is bounded to DRAIN_BODY_BYTES,
-// and a client that closes the socket mid-body is answered, not blamed. Both
-// cases drive the real listener. The drain lives in the `/mcp` middleware that
-// wraps the whole chain, so it runs BEFORE era classification and applies to
-// both eras alike: the 401 below is refused by the auth middleware (no era yet),
-// the 415 by the route's media-type gate — neither reaches the legacy session
-// ladder or the modern entry, which is exactly why they are the drain's shapes.
 const DRAIN_UPLOAD_BYTES = 8 * 1024 * 1024
-// The server stops reading at the cap; when the cancel lands the client may be
-// one socket-buffer window ahead of it, so that window is allowed on top. The
-// unbounded shape this replaces moved the whole 8 MiB.
 const SOCKET_WINDOW_BYTES = 128 * 1024
 
 describe('bounded drain of a rejected body (#2463)', () => {
@@ -773,12 +720,8 @@ describe('bounded drain of a rejected body (#2463)', () => {
       expect(res.status).toBe(401)
       expect(await res.json()).toEqual({ error: 'Unauthorized' })
 
-      // An abandoned body cannot be settled by the cancel, so the answer has to
-      // end the connection; that is also what a fetch client sees here (#2488).
       expect(res.headers.get('connection')).toBe('close')
 
-      // The rejection is already answered; the drain then cancels instead of
-      // reading 8 MiB, which is the only way the bound is visible from here.
       await expectWithinDeadline(
         upload.cancelObserved(),
         'the rejected upload was never cancelled, so the drain read past the cap'
@@ -793,8 +736,6 @@ describe('bounded drain of a rejected body (#2463)', () => {
 
   test('T-drain-2: a 415 on the modern path drains a sub-cap body to the end instead of cancelling it', async () => {
     const { base, server } = await startServer()
-    // Under the cap on purpose: the bound must not truncate a body the drain can
-    // still settle completely, which is what keeps the request from stalling.
     const upload = recordingUpload(40 * 1024)
     try {
       const res = await fetch(`${base}/mcp`, {
@@ -817,10 +758,7 @@ describe('bounded drain of a rejected body (#2463)', () => {
       )
       expect(upload.sent()).toBe(40 * 1024)
       expect(upload.sentAtCancel()).toBeUndefined()
-      // A body drained to its end is consumed, not abandoned: the connection has
-      // nothing outstanding and must stay reusable.
       expect(res.headers.get('connection')).not.toBe('close')
-      // The modern-shaped rejection never touched the sessionful leg.
       expect(server.getSessions().size).toBe(0)
     } finally {
       await expectStopResolves(server, '415 with a sub-cap body')
@@ -828,10 +766,6 @@ describe('bounded drain of a rejected body (#2463)', () => {
   })
 })
 
-// #2464: the header is only the announcement — an abandoned body settles the
-// request when the connection actually ends, and a consumed one must leave the
-// connection reusable. fetch hides both, so these cases speak HTTP/1.1 on a raw
-// socket and read the exchange frame by frame.
 interface WireResponse {
   status: number
   headers: Map<string, string>
@@ -866,7 +800,6 @@ class WireConnection {
     this.socket.write(data)
   }
 
-  /** One Content-Length delimited response; the server answers JSON here. */
   async readResponse(label: string): Promise<WireResponse> {
     for (;;) {
       const headEnd = this.buffer.indexOf('\r\n\r\n')
@@ -947,16 +880,10 @@ function rawPostHead({
 }
 
 describe('connection handling of a rejected body (#2464)', () => {
-  // The drain middleware wraps the whole `/mcp` chain, so it runs before era
-  // classification and both eras are drained by the same code. The 401 here is
-  // answered before an era exists at all (auth gate), which is the abandoned
-  // shape: over the cap, so the drain cancels instead of reading it.
   test('T-drain-3: an abandoned over-cap body is answered 401 with Connection: close and ends the connection', async () => {
     const { port, server } = await startServer()
     const connection = await WireConnection.open(port)
     try {
-      // Declared 8 MiB, 4 KiB on the wire: the client still has bytes to send,
-      // which is exactly the shape a bare cancel left in flight (#2463 → #2488).
       connection.send(
         rawPostHead({ authorization: 'not-the-secret', contentLength: DRAIN_UPLOAD_BYTES })
       )
@@ -965,8 +892,6 @@ describe('connection handling of a rejected body (#2464)', () => {
       expect(res.status).toBe(401)
       expect(JSON.parse(res.body)).toEqual({ error: 'Unauthorized' })
       expect(res.headers.get('connection')).toBe('close')
-      // The close itself is what settles the request; without it server.stop()
-      // waits forever, which the bound on stop() in the finally block reports.
       await connection.waitForClose(
         'the abandoned request was never closed, so server.stop() would wait for it'
       )
@@ -976,12 +901,6 @@ describe('connection handling of a rejected body (#2464)', () => {
     }
   })
 
-  // The rejected request below carries no modern version claim, so it is the
-  // legacy shape (the same shape T-neg-6 names) — but the 415 gate answers
-  // before era classification, just as it does for the modern-shaped upload in
-  // T-drain-2, and the drain middleware wraps both eras alike. The follow-up on
-  // the same socket proves the drained connection survived, which is exactly
-  // what the abandoned path gives up.
   test('T-drain-4: a sub-cap rejection keeps the connection alive for the next request', async () => {
     const { port, server } = await startServer()
     const connection = await WireConnection.open(port)
@@ -1031,15 +950,10 @@ describe('connection handling of a rejected body (#2464)', () => {
   })
 })
 
-// #2463: Bun rejects the body read with a DOMException named AbortError when the
-// client closes the socket mid-upload. That is the caller going away, not a
-// server fault: it must answer 4xx and must not log at error level.
 function clientAbortError(): Error {
   return new DOMException('The connection was closed.', 'AbortError')
 }
 
-// The minimal Context an error handler uses: only the non-abort branch touches
-// it, and this stub is Hono's own `c.json` shape.
 function stubContext(): Context {
   return {
     json: (body: unknown, status = 200) => Response.json(body, { status })

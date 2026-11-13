@@ -8,10 +8,6 @@ import { config } from '../../config'
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
-// Thin-tools regression coverage for task #165 (findings F2/F11/F13):
-//  - the tool layer must not import the db/logging layer directly (F2/F11),
-//  - the soft limit must resolve through one path at registration and call time
-//    (F13).
 mock.module('../../embedder/client', () => ({
   generateEmbedding: () => new Float32Array(384),
   generateEmbeddings: () => [new Float32Array(384)],
@@ -32,13 +28,8 @@ async function setupClient(): Promise<Client> {
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-// ── Static layering guard ────────────────────────────────────────────────────
-
 describe('tool-layer layering guard', () => {
   const TOOLS_DIR = import.meta.dir
-  // `../../db/...` and `../../logging` are the only escape hatches into the
-  // persistence/logging layers; bun:sqlite is the raw driver. Services are the
-  // only sanctioned dependency of the MCP tool layer.
   const FORBIDDEN_SPECIFIER = /^(?:\.\.\/)+(?:db|logging)(?:\/|$)|^bun:sqlite$/
 
   function productionToolFiles(): string[] {
@@ -72,7 +63,6 @@ describe('tool-layer layering guard', () => {
     expect(files).toContain('status.ts')
   })
 })
-// ── soft limit single source (F13) ───────────────────────────────────────────
 
 describe('soft-limit single resolution path', () => {
   test('registration description and guide call resolve the same configured value', async () => {

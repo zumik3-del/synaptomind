@@ -8,16 +8,6 @@ import { clearRegistry, register } from '../context/container'
 import { openDatabase } from '../db/init'
 import { upsertSlot } from '../db/slots'
 
-// Task #2299: the hijack suite proves the session↔user matrix against
-// per-user `:memory:` instances. This suite repeats the end-to-end shape on the
-// production layout instead — two REAL migrated database FILES, two real MCP
-// HTTP clients with distinct bearer tokens, interleaved requests — and then
-// reads the files back to show the routing wrote and read the right one.
-//
-// MCP is stateless per request in this transport; the bearer token, not the
-// session id, decides the database, and a foreign token can neither attach to
-// nor delete another user's session.
-
 const ALICE_TOKEN = 'file-db-alice-token'
 const BOB_TOKEN = 'file-db-bob-token'
 const PROTOCOL_VERSION = '2025-06-18'
@@ -157,8 +147,6 @@ function fileSlotContent(path: string): string {
 }
 
 beforeAll(async () => {
-  // One session per user is enough here, and a cap of 1 makes the per-user
-  // limit testable without opening a hundred sessions.
   config.mcp.maxSessions = 1
   startMcpHttpServer = (await import('./http-transport')).startMcpHttpServer
 
@@ -210,8 +198,6 @@ describe('multi-user isolation over real database files', () => {
       const bobSession = await initialize(base, BOB_TOKEN)
       expect(aliceSession).not.toBe(bobSession)
 
-      // A/B/A interleaving: every request re-resolves identity through the
-      // bearer token, so no response may carry the other file's marker.
       const a1 = await readSlot(base, ALICE_TOKEN, aliceSession)
       expect(a1.content).toContain('ALICE-FILE-MARKER')
       expect(a1.content).not.toContain('BOB-FILE-MARKER')
@@ -223,8 +209,6 @@ describe('multi-user isolation over real database files', () => {
       const a2 = await readSlot(base, ALICE_TOKEN, aliceSession)
       expect(a2.content).toContain('ALICE-FILE-MARKER')
 
-      // Replay/terminate with the wrong token: POST is rejected and DELETE
-      // cannot kill the victim's session.
       const replay = await fetch(`${base}/mcp`, {
         method: 'POST',
         headers: authHeaders(BOB_TOKEN, {
@@ -284,18 +268,15 @@ describe('multi-user isolation over real database files', () => {
       const thoughtId = envelope?.item?.id ?? envelope?.result?.item?.id
       expect(thoughtId).toBeTruthy()
 
-      // The write is on disk under alice only.
       expect(thoughtContent(alicePath, 'ALICE-WRITE-MARKER')).toBe(1)
       expect(thoughtContent(bobPath, 'ALICE-WRITE-MARKER')).toBe(0)
 
-      // Bob cannot read alice's thought even with the exact id...
       const stolen = await callTool(base, BOB_TOKEN, bobSession, 'memory_recall', {
         action: 'get',
         thought_id: thoughtId
       })
       expect(JSON.stringify(stolen.rpc)).not.toContain('ALICE-WRITE-MARKER')
 
-      // ...while alice can.
       const own = await callTool(base, ALICE_TOKEN, aliceSession, 'memory_recall', {
         action: 'get',
         thought_id: thoughtId
@@ -314,7 +295,6 @@ describe('multi-user isolation over real database files', () => {
     const server = startMcpHttpServer('127.0.0.1', port)
     const base = `http://127.0.0.1:${port}`
     try {
-      // maxSessions is 1 for this suite (see beforeAll).
       await initialize(base, ALICE_TOKEN)
 
       const overflow = await fetch(`${base}/mcp`, {
@@ -328,7 +308,6 @@ describe('multi-user isolation over real database files', () => {
       expect(overflow.status).toBe(429)
       await overflow.body?.cancel()
 
-      // A global cap would refuse bob here; a per-user cap must not.
       const bobSession = await initialize(base, BOB_TOKEN)
       expect(bobSession).toBeTruthy()
       expect(server.getSessions().size).toBe(2)
