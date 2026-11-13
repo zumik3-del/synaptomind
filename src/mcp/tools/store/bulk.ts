@@ -15,12 +15,14 @@ export const bulkCreateItemSchema = z.strictObject({
     .string()
     .optional()
     .describe(
-      'OPTIONAL per item: pin this item to its own project id. Unlike the top-level project_id (removed — use cwd), a bulk item may override the project the call resolves from cwd; omit it to take the cwd-resolved project.'
+      'OPTIONAL per item: pin this item to its own project id. Unlike the top-level project_id (removed — use cwd), a bulk item may override the project the call resolves from cwd; omit it to take the cwd-resolved project, or the default project when the cwd matches none.'
     ),
   source: z
     .string()
     .optional()
-    .describe('OPTIONAL per item: the source label of this thought (the API default is "mcp").'),
+    .describe(
+      'OPTIONAL per item: the source label, stored exactly as given and never defaulted — an omitted source is written as NULL, not "mcp". That is the difference from action=create, which always stamps source "mcp": the graph maps source "mcp" to the agent category, so a bulk item with no source is categorised by its tags instead.'
+    ),
   relation: z
     .string()
     .optional()
