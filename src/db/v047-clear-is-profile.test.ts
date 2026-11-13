@@ -163,7 +163,7 @@ test('v047 clears the flag on seeded legacy rows and drops the profile index', (
   closeDb()
 
   openRaw(path, db => {
-    expect(schemaVersion(db)).toBe('48')
+    expect(schemaVersion(db)).toBe('49')
     expect(flaggedIds(db)).toEqual([])
 
     expect(
@@ -206,7 +206,7 @@ test('v047 clears the flag on seeded legacy rows and drops the profile index', (
 test('a fresh v47 database never carries the profile index', () => {
   initDb({ dbPath: ':memory:', runMigrations: true })
   const db = getDb()
-  expect(schemaVersion(db)).toBe('48')
+  expect(schemaVersion(db)).toBe('49')
   expect(indexNames(db)).not.toContain('idx_thoughts_profile')
   expect(columnNames(db)).toContain('is_profile')
 })
@@ -232,7 +232,7 @@ test('replaying v047 on an already-upgraded database changes nothing', () => {
     }))
 
   const upgraded = snapshot()
-  expect((upgraded as { version: string }).version).toBe('48')
+  expect((upgraded as { version: string }).version).toBe('49')
 
   initDb({ dbPath: path, runMigrations: true })
   closeDb()

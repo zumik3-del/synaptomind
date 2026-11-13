@@ -29,11 +29,11 @@ test('v042: is_global is INTEGER NOT NULL DEFAULT 0', () => {
   expect(col!.dflt_value).toBe('0')
 })
 
-test('v042: schema_version is 42 after fresh init', () => {
+test('v042: schema_version is 49 after fresh init', () => {
   const row = getDb().prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
     | { value: string }
     | undefined
-  expect(row?.value).toBe('48')
+  expect(row?.value).toBe('49')
 })
 
 test('v042: a row inserted without is_global defaults to 0', () => {
@@ -76,7 +76,7 @@ test('v042: apply() is idempotent — a second run neither throws nor duplicates
   }
 })
 
-test('v042: re-running init on the same DB keeps is_global and schema_version 42', () => {
+test('v042: re-running init on the same DB keeps is_global and schema_version 49', () => {
   initDb({ dbPath: ':memory:', runMigrations: true })
   const db2 = getDb()
   const cols = db2.prepare(`PRAGMA table_info(thoughts)`).all() as { name: string }[]
@@ -84,5 +84,5 @@ test('v042: re-running init on the same DB keeps is_global and schema_version 42
   const row = db2.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
     | { value: string }
     | undefined
-  expect(row?.value).toBe('48')
+  expect(row?.value).toBe('49')
 })
