@@ -22,6 +22,8 @@ export function countFilteredVectors(
         .get(...residual.params) as { n: number }
       return row.n
     }
+    // Reached only when `filterSql && vecIds.length < topK`; the probe is bounded by in-scope rows
+    // (~4 us/row, 21 ms at 5k rows with 4 embedded), not that leg; MATERIALIZED pays ~2 us/vector.
     const row = db
       .prepare(`
         SELECT (
