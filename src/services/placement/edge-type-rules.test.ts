@@ -90,7 +90,6 @@ describe('classifyEdgeType', () => {
     test('does not fire when similarity is below threshold', () => {
       const sig = makeSignals({ negationDelta: 1, embeddingSimilarity: 0.5, lexicalOverlap: 0.8 })
       const proposal = classifyEdgeType(sig)
-      // Fallback fires at > 0, so just assert it is not the conflict rule
       expect(proposal).not.toBeNull()
       expect(proposal!.type).not.toBe('contradicts')
     })
@@ -115,7 +114,6 @@ describe('classifyEdgeType', () => {
     test('does not fire when similarity is below threshold', () => {
       const sig = makeSignals({ evidentialCue: true, embeddingSimilarity: 0.5 })
       const proposal = classifyEdgeType(sig)
-      // Fallback still fires at > 0, so just assert it is not the evidence rule
       expect(proposal).not.toBeNull()
       expect(proposal!.type).not.toBe('supports')
     })
@@ -180,7 +178,6 @@ describe('classifyEdgeType', () => {
 
   describe('first-match-wins ordering', () => {
     test('supersede wins over conflict when both predicates are true', () => {
-      // High overlap, newer, evolution cue (triggers supersede), AND one-sided negation + high similarity (triggers conflict)
       const sig = makeSignals({
         temporalOrder: 'newer',
         lexicalOverlap: 0.8,
@@ -216,7 +213,6 @@ describe('classifyEdgeType', () => {
       expect(proposal!.type).toBe('related')
       expect(proposal!.rationale).toBe('embedding_similarity_only')
       expect(proposal!.review_required).toBeTrue()
-      // None of the typed rules should have fired
       expect(proposal!.rule_id).toBe('fallback.embedding_related')
     })
   })
@@ -266,9 +262,6 @@ describe('classifyEdgeType', () => {
 
   describe('requires-enforcement (#955 AC2)', () => {
     test('a typed rule is skipped when a required signal key is null (runtime guard)', () => {
-      // dependency.blocked_by requires ['dependencyCue', 'temporalOrder'].
-      // When temporalOrder is null the requirementsMet check short-circuits
-      // the rule even though dependencyCue is true — the fallback must fire.
       const sig = {
         ...makeSignals({ dependencyCue: true, embeddingSimilarity: 0.85 }),
         temporalOrder: null as unknown as NonNullable<PairSignals['temporalOrder']>
@@ -277,12 +270,10 @@ describe('classifyEdgeType', () => {
       expect(proposal).not.toBeNull()
       expect(proposal!.rule_id).toBe('fallback.embedding_related')
       expect(proposal!.type).toBe('related')
-      // Proves the typed rule was NOT selected despite dependencyCue=true.
       expect(proposal!.rule_id).not.toBe('dependency.blocked_by')
     })
 
     test('a typed rule fires when all required keys are present (positive control)', () => {
-      // Same scenario with temporalOrder set → dependency.blocked_by fires.
       const sig = makeSignals({ dependencyCue: true, temporalOrder: 'older' })
       const proposal = classifyEdgeType(sig)
       expect(proposal).not.toBeNull()

@@ -1,12 +1,3 @@
-/**
- * P8 queue-service tests (task #973, epic #964; service authored in #971).
- *
- * Verifies `src/services/placement-proposals.service.ts`: plan → row mapping
- * (edge rows; the removed `placement`/`lifecycle` kinds are reported as
- * skipped — task #1942), dedup refresh, fingerprint / staleness,
- * maxPendingProposals cap, list defaults, reject, draft guard, determinism, and
- * the regression that proposePlacementPlan leaves placement_proposals empty.
- */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
@@ -42,8 +33,6 @@ const NOW = '2026-01-01T00:00:00.000Z'
 const NOW_LATER = '2026-02-01T00:00:00.000Z'
 const T_SRC = NOW
 const T_TGT = '2025-01-01T00:00:00.000Z'
-
-// ── helpers ───────────────────────────────────────────────────────────────────
 
 function baseSignals(sourceId: string, targetId: string): PairSignals {
   return {
@@ -129,7 +118,6 @@ function edgePlan(
   }
 }
 
-/** Save/restore `config.placement` across a callback. */
 function withPlacementConfig(overrides: Partial<typeof config.placement>, fn: () => void): void {
   const saved = config.placement
   config.placement = { ...saved, ...overrides }
@@ -144,11 +132,6 @@ function queueRowCount(db: Database): number {
   return (db.prepare('SELECT COUNT(*) AS n FROM placement_proposals').get() as { n: number }).n
 }
 
-/**
- * Enqueue and return just the queued rows. Since task #1942 a plan's
- * `placement`/`lifecycle` items are skipped, so the rows are the `edge` items;
- * the skip counters are asserted through `enqueuePlanService` directly.
- */
 function enqueueProposals(
   plan: PlacementPlan,
   options: Parameters<typeof enqueuePlanService>[1],
@@ -160,8 +143,6 @@ function enqueueProposals(
 function okEmbed(_texts: string[]): Promise<Float32Array[]> {
   return Promise.resolve(_texts.map(() => new Float32Array(384)))
 }
-
-// ── computeFingerprint ───────────────────────────────────────────────────────
 
 describe('computeFingerprint', () => {
   const base = {
@@ -193,8 +174,6 @@ describe('computeFingerprint', () => {
     expect(b).not.toBe(c)
   })
 })
-
-// ── Mapping: each plan shape → expected rows ──────────────────────────────────
 
 describe('enqueuePlanService: plan → row mapping', () => {
   test('edge-only plan maps to a single edge row', () => {
@@ -422,8 +401,6 @@ describe('enqueuePlanService: plan → row mapping', () => {
   })
 })
 
-// ── dedup refresh ─────────────────────────────────────────────────────────────
-
 describe('enqueuePlanService: dedup refresh', () => {
   test('re-enqueueing the same item refreshes the live row instead of duplicating', () => {
     const db = getDb()
@@ -453,9 +430,6 @@ describe('enqueuePlanService: dedup refresh', () => {
     const tgt = seedThought({ id: 'rf-tgt', content: 'refresh-stale target', created_at: T_TGT })
     const plan = edgePlan(src, tgt)
     const first = enqueueProposals(plan, { now: NOW }, db)[0]
-    // Mutate the source in place without changing its status: the fingerprint
-    // covers `updated_at`, so this drifts the snapshot while keeping the source
-    // `active` (an archived/other-status source is refused at the enqueue seam).
     const mutatedAt = '2026-01-15T00:00:00.000Z'
     db.prepare('UPDATE thoughts SET updated_at = ? WHERE id = ?').run(mutatedAt, src)
     const refreshed = enqueueProposals(plan, { now: NOW_LATER }, db)
@@ -507,8 +481,6 @@ describe('enqueuePlanService: dedup refresh', () => {
     expect(list({ limit: 10_000, now: NOW }, db)).toHaveLength(5)
   })
 })
-
-// ── fingerprint / staleness ───────────────────────────────────────────────────
 
 describe('isProposalStale', () => {
   interface Fixture {
@@ -589,8 +561,6 @@ describe('isProposalStale', () => {
   })
 })
 
-// ── maxPendingProposals cap ───────────────────────────────────────────────────
-
 describe('enqueuePlanService: maxPendingProposals cap', () => {
   test('maxProposals limits a multi-edge plan to one enqueued row', () => {
     const db = getDb()
@@ -647,7 +617,7 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       expect(() => enqueueProposals(plan, { now: NOW }, db)).toThrow(
         /maximum 2 pending placement proposals reached/
       )
-      expect(queueRowCount(db)).toBe(0) // transaction rolled back
+      expect(queueRowCount(db)).toBe(0)
     })
   })
 
@@ -669,7 +639,6 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       const first = enqueueProposals(plan, { now: NOW }, db)
       const second = enqueueProposals(structuredClone(plan), { now: NOW_LATER }, db)
       expect(second.map(r => r.id)).toEqual(first.map(r => r.id))
-      // genuinely new third item still blocks
       const fresh = edgePlan(src, t3, { type: 'develops' })
       expect(() => enqueueProposals(fresh, { now: NOW_LATER }, db)).toThrow(/maximum 2 pending/)
       expect(queueRowCount(db)).toBe(2)
@@ -695,7 +664,7 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       reject(rows[0].id, { decidedBy: 'tester', now: NOW }, db)
       const third = enqueueProposals(edgePlan(src, t3, { type: 'develops' }), { now: NOW }, db)
       expect(third).toHaveLength(1)
-      expect(list({ now: NOW }, db)).toHaveLength(2) // t2 + t3 live
+      expect(list({ now: NOW }, db)).toHaveLength(2)
     })
   })
 
@@ -705,15 +674,13 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
     const t1 = seedThought({ id: 'exp-t1', content: 'expiry-cap t1', created_at: T_TGT })
     const t2 = seedThought({ id: 'exp-t2', content: 'expiry-cap t2', created_at: T_TGT })
     withPlacementConfig({ maxPendingProposals: 1 }, () => {
-      enqueueProposals(edgePlan(src, t1), { now: '2026-01-01T00:00:00.000Z' }, db) // expires 2026-01-31 (TTL 30)
+      enqueueProposals(edgePlan(src, t1), { now: '2026-01-01T00:00:00.000Z' }, db)
       const second = enqueueProposals(edgePlan(src, t2), { now: '2026-02-01T00:00:00.000Z' }, db)
-      expect(second).toHaveLength(1) // first row is expired → not counted against the cap
+      expect(second).toHaveLength(1)
       expect(list({ now: '2026-02-01T00:00:00.000Z' }, db)).toHaveLength(1)
     })
   })
 })
-
-// ── reject ────────────────────────────────────────────────────────────────────
 
 describe('reject', () => {
   test('pending → rejected with audit metadata', () => {
@@ -754,11 +721,9 @@ describe('reject', () => {
     expect(second).toHaveLength(1)
     expect(second[0].id).not.toBe(first.id)
     expect(second[0].state).toBe('pending')
-    expect(queueRowCount(db)).toBe(2) // rejected + fresh pending
+    expect(queueRowCount(db)).toBe(2)
   })
 })
-
-// ── list ──────────────────────────────────────────────────────────────────────
 
 describe('list', () => {
   test('defaults to live pending rows, newest first; terminal and expired rows are hidden', () => {
@@ -790,7 +755,6 @@ describe('list', () => {
       fingerprint: 'fp-old',
       expires_at: '2000-01-01T00:00:00.000Z'
     })
-    // Force deterministic ordering by rewriting created_at for a3 / a4.
     db.prepare('UPDATE placement_proposals SET created_at = ? WHERE id = ?').run(
       '2026-01-06T00:00:00.000Z',
       a4.id
@@ -824,7 +788,6 @@ describe('list', () => {
     enqueueProposals(edgePlan(pb, tb), { now: NOW }, db)
     expect(list({ projectId: 'proj-a', now: NOW }, db).map(r => r.id)).toEqual([rowA.id])
     expect(list({ projectId: 'proj-b', now: NOW }, db)).toHaveLength(1)
-    // limit
     for (let i = 0; i < 2; i++) {
       const s = seedThought({
         id: `lp-x${i}`,
@@ -856,8 +819,6 @@ describe('list', () => {
   })
 })
 
-// ── draft guard ───────────────────────────────────────────────────────────────
-
 describe('enqueuePlanService: draft guard', () => {
   test('the draft sentinel id cannot be enqueued', () => {
     expect(() =>
@@ -874,8 +835,6 @@ describe('enqueuePlanService: draft guard', () => {
     ).toThrow(ValidationError)
   })
 })
-
-// ── determinism ───────────────────────────────────────────────────────────────
 
 describe('determinism', () => {
   test('re-enqueueing the same plan refreshes identical rows (same ids, no duplicates)', () => {
@@ -944,8 +903,6 @@ describe('determinism', () => {
   })
 })
 
-// ── regression: proposePlacementPlan leaves the queue untouched ──────────────
-
 describe('regression: proposePlacementPlan does not write to placement_proposals', () => {
   test('existing-thought propose writes no row; enqueuing the same plan does', async () => {
     const db = getDb()
@@ -963,7 +920,6 @@ describe('regression: proposePlacementPlan does not write to placement_proposals
     )
     expect(plan.edges.length).toBeGreaterThanOrEqual(1)
     expect(queueRowCount(db)).toBe(0)
-    // Only explicit enqueuePlanService writes the queue.
     const rows = enqueueProposals(plan, { now: NOW }, db)
     expect(rows.length).toBeGreaterThanOrEqual(1)
   })

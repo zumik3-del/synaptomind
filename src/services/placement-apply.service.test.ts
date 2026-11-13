@@ -1,11 +1,3 @@
-/**
- * P8 apply-orchestrator tests (task #975, epic #964; service authored in #974).
- *
- * Verifies `src/services/placement-apply.service.ts`: conflict matrix,
- * idempotency, dry-run non-mutation, atomicity on writer failure, batch
- * partial-failure independence, re-checked gates (maxClusterSize / project),
- * and a static assertion that the service imports no new graph writer.
- */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { readFileSync } from 'node:fs'
@@ -31,9 +23,6 @@ afterEach(closeDb)
 const NOW = '2026-01-01T00:00:00.000Z'
 const NOW_LATER = '2026-02-01T00:00:00.000Z'
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-/** Save/restore `config.placement` across a callback. */
 function withPlacementConfig(overrides: Partial<typeof config.placement>, fn: () => void): void {
   const saved = config.placement
   config.placement = { ...saved, ...overrides }
@@ -81,12 +70,6 @@ function pendingEdgeRow(
   })
 }
 
-/**
- * Insert a pending row of a kind the queue removed (task #1942). Such rows can
- * only come from an install upgraded from an older version — the queue no
- * longer creates them — so they are inserted directly rather than through
- * `insertProposal`, whose input type stays limited to the live kinds.
- */
 function pendingLegacyRow(
   db: Database,
   itemKind: 'placement' | 'lifecycle' | 'triage_activate' | 'triage_archive',
@@ -151,12 +134,10 @@ function storedRunId(db: Database, id: string): string | null {
   return row.run_id
 }
 
-/** Number of graph edges currently stored — proves a refusal wrote nothing. */
 function edgeCount(db: Database): number {
   return (db.prepare('SELECT COUNT(*) AS n FROM edges').get() as { n: number }).n
 }
 
-/** `count` pending edge rows, each on its own fresh active pair. */
 function pendingEdgeRows(db: Database, count: number, prefix: string): PlacementProposalRow[] {
   const rows: PlacementProposalRow[] = []
   for (let i = 0; i < count; i++) {
@@ -174,8 +155,6 @@ function pendingEdgeRows(db: Database, count: number, prefix: string): Placement
   }
   return rows
 }
-
-// ── conflict matrix (§2.6) ─────────────────────────────────────────────────────
 
 describe('conflict matrix', () => {
   test('symmetric edge duplicate (already exists in same direction) → idempotent success', () => {
@@ -198,7 +177,6 @@ describe('conflict matrix', () => {
     const s = seedThought({ id: 'cm-sym-r-s', content: 'sym rev src', created_at: NOW })
     const t = seedThought({ id: 'cm-sym-r-t', content: 'sym rev tgt', created_at: NOW_LATER })
     seedEdge(s, t, 'related')
-    // Queue a reverse-direction related edge.
     const row = pendingEdgeRow(db, t, s, 'related')
     const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<
       ApplyResult,
@@ -229,7 +207,6 @@ describe('conflict matrix', () => {
     const s = seedThought({ id: 'cm-rev-s', content: 'rev src', created_at: NOW })
     const t = seedThought({ id: 'cm-rev-t', content: 'rev tgt', created_at: NOW_LATER })
     seedEdge(s, t, 'supports')
-    // Attempt the reverse direction.
     const row = pendingEdgeRow(db, t, s, 'supports')
     const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('stale')
@@ -277,7 +254,6 @@ describe('conflict matrix', () => {
     const refusal = (out as { refusal: { code: string; reason: string } }).refusal
     expect(refusal.code).toBe('unsupported_item_kind')
     expect(refusal.reason).toContain('placement')
-    // A refused row was never decided: it stays pending and untouched.
     assertStillPending(db, row.id)
     expect(getEdgePairBetween(db, s, t)).toBeNull()
   })
@@ -316,7 +292,6 @@ describe('conflict matrix', () => {
     const refusal = (out as { refusal: { code: string; reason: string } }).refusal
     expect(refusal.code).toBe('unsupported_item_kind')
     expect(refusal.reason).toContain('triage_activate')
-    // A refused row was never decided: it stays pending and nothing was written.
     assertStillPending(db, row.id)
     expect(edgeCount(db)).toBe(0)
   })
@@ -364,7 +339,6 @@ describe('conflict matrix', () => {
       is_cluster: 1
     })
     const m = seedThought({ id: 'cm-clap-m', content: 'new member', created_at: NOW_LATER })
-    // Fill the cluster to the cap.
     withPlacementConfig({ maxClusterSize: 2 }, () => {
       seedEdge(cl, seedThought({ content: 'm1', created_at: NOW_LATER }), 'cluster')
       seedEdge(cl, seedThought({ content: 'm2', created_at: NOW_LATER }), 'cluster')
@@ -382,18 +356,14 @@ describe('conflict matrix', () => {
   })
 })
 
-// ── idempotency ────────────────────────────────────────────────────────────────
-
 describe('idempotency', () => {
   test('re-applying an already-accepted row returns accepted/idempotent without calling a writer', () => {
     const db = getDb()
     const s = seedThought({ id: 'id-s', content: 'idem src', created_at: NOW })
     const t = seedThought({ id: 'id-t', content: 'idem tgt', created_at: NOW_LATER })
     const row = pendingEdgeRow(db, s, t, 'related')
-    // Accept once.
     applyProposalService(row.id, { confirm: true, now: NOW }, db)
     assertAccepted(db, row.id)
-    // Re-apply.
     const out = applyProposalService(row.id, { confirm: true, now: NOW_LATER }, db) as Extract<
       ApplyResult,
       { status: 'accepted' }
@@ -401,7 +371,6 @@ describe('idempotency', () => {
     expect(out.status).toBe('accepted')
     expect(out.idempotent).toBe(true)
     expect(out.calls).toEqual([])
-    // Row remains accepted; no second log-worthy mutation.
     assertAccepted(db, row.id)
   })
 
@@ -409,7 +378,6 @@ describe('idempotency', () => {
     const db = getDb()
     const s = seedThought({ id: 'id-ext-s', content: 'ext src', created_at: NOW })
     const t = seedThought({ id: 'id-ext-t', content: 'ext tgt', created_at: NOW_LATER })
-    // Edge already exists in the graph.
     seedEdge(s, t, 'supports')
     const row = pendingEdgeRow(db, s, t, 'supports')
     const out = applyProposalService(row.id, { confirm: true, now: NOW }, db) as Extract<
@@ -422,8 +390,6 @@ describe('idempotency', () => {
   })
 })
 
-// ── dry-run ────────────────────────────────────────────────────────────────────
-
 describe('dry-run (confirm:false / absent)', () => {
   test('dry-run returns calls without mutating the queue or the graph', () => {
     const db = getDb()
@@ -433,9 +399,7 @@ describe('dry-run (confirm:false / absent)', () => {
     const out = applyProposalService(row.id, { now: NOW }, db)
     expect(out.status).toBe('dry_run')
     expect((out as Extract<ApplyResult, { status: 'dry_run' }>).calls).toHaveLength(1)
-    // Queue remains pending.
     assertStillPending(db, row.id)
-    // No edge was created.
     const edge = db
       .prepare('SELECT id FROM edges WHERE source_id = ? AND target_id = ? AND type = ?')
       .get(s, t, 'develops')
@@ -468,15 +432,10 @@ describe('dry-run (confirm:false / absent)', () => {
   })
 })
 
-// ── atomicity ──────────────────────────────────────────────────────────────────
-
 describe('atomicity: writer throws', () => {
   test('a writer throw rolls back the graph and lands the row as failed (not accepted)', () => {
     const db = getDb()
     const s = seedThought({ id: 'at-s', content: 'atomic src', created_at: NOW })
-    // A non-cluster source with a `references` edge to a cluster passes the
-    // apply gates but trips the writer's own cluster constraint, so the writer
-    // runs and throws.
     const cl = seedThought({
       id: 'at-cl',
       content: 'atomic cluster',
@@ -487,15 +446,11 @@ describe('atomicity: writer throws', () => {
     const beforeEdges = db.prepare('SELECT COUNT(*) AS n FROM edges').get() as { n: number }
     const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('failed')
-    // Transaction rolled back: no edges were added.
     const afterEdges = db.prepare('SELECT COUNT(*) AS n FROM edges').get() as { n: number }
     expect(afterEdges.n).toBe(beforeEdges.n)
-    // Row stays pending (failed outcome).
     assertStillPending(db, row.id)
   })
 })
-
-// ── batch partial failure ───────────────────────────────────────────────────────
 
 describe('applyBatchService: partial failure independence', () => {
   test('commits siblings while collecting errors for broken ids', () => {
@@ -523,14 +478,8 @@ describe('applyBatchService: partial failure independence', () => {
     const statuses = out.results.map(r => r.status)
     expect(statuses).toContain('accepted')
     expect(statuses).toContain('stale')
-    // Committed sibling remains accepted even though another item errored.
     assertAccepted(db, okRow.id)
 
-    // AC-F28-8: this batch supplied no `run_id`, so the service synthesizes one
-    // for the run. The committed sibling must report it — a committed graph
-    // mutation with no envelope is unreachable by `rollback(run_id)`, which is
-    // the exact hole F-28 closed. The errored and stale items join no run, so
-    // the manifest is the one accepted row, not a prefix of the input.
     const shared = out.run_id ?? null
     expect(typeof shared).toBe('string')
     expect(shared!.startsWith('auto-')).toBe(true)
@@ -541,7 +490,6 @@ describe('applyBatchService: partial failure independence', () => {
     expect(accepted.status).toBe('accepted')
     expect(accepted.run_id).toBe(shared)
     expect(storedRunId(db, okRow.id)).toBe(shared)
-    // The stale sibling was never enveloped, so it must not claim a run.
     const stale = out.results.find(r => r.proposal_id === failRow.id)!
     expect(stale.status).toBe('stale')
     expect('run_id' in stale).toBe(false)
@@ -554,8 +502,6 @@ describe('applyBatchService: partial failure independence', () => {
     expect(out.errors).toEqual([])
   })
 })
-
-// ── per-call limit and per-run edge cap ────────────────────────────────────────
 
 describe('applyBatchService: per-call limit (task #1962)', () => {
   test('a batch over the caller limit is refused whole and applies nothing', () => {
@@ -570,7 +516,6 @@ describe('applyBatchService: per-call limit (task #1962)', () => {
 
     expect(out.refused?.code).toBe('limit_exceeded')
     expect(out.refused?.reason).toContain('limit is 1')
-    // Refused whole, not a prefix: no item ran and no edge was written.
     expect(out.results).toEqual([])
     expect(out.errors).toEqual([])
     for (const row of rows) assertStillPending(db, row.id)
@@ -646,7 +591,6 @@ describe('applyBatchService: per-run edge cap (task #1962)', () => {
   test('rows that write no edge do not count toward the cap', () => {
     const db = getDb()
     const rows = pendingEdgeRows(db, MAX_EDGE_ITEMS_PER_RUN, 'cap-free')
-    // An already-accepted row from an earlier run: it re-reads idempotently.
     const extra = pendingEdgeRows(db, 1, 'cap-free-extra')[0]
     expect(applyProposalService(extra.id, { confirm: true, now: NOW }, db).status).toBe('accepted')
 
@@ -668,8 +612,6 @@ describe('applyBatchService: per-run edge cap (task #1962)', () => {
   })
 })
 
-// ── gates re-checked at apply ───────────────────────────────────────────────────
-
 describe('gates re-checked at apply', () => {
   test('maxClusterSize gate uses the live config value at apply time', () => {
     const db = getDb()
@@ -681,7 +623,6 @@ describe('gates re-checked at apply', () => {
     })
     const m = seedThought({ id: 'gate-cl-m', content: 'gate member', created_at: NOW_LATER })
     withPlacementConfig({ maxClusterSize: 1 }, () => {
-      // Cluster already at cap.
       seedEdge(cl, seedThought({ content: 'gate m1', created_at: NOW_LATER }), 'cluster')
       const row = pendingEdgeRow(db, cl, m, 'cluster')
       const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
@@ -714,14 +655,12 @@ describe('gates re-checked at apply', () => {
     const db = getDb()
     const s = seedThought({ id: 'gate-inv-s', content: 'inv src', created_at: NOW })
     const t = seedThought({ id: 'gate-inv-t', content: 'inv tgt', created_at: NOW_LATER })
-    const row = pendingEdgeRow(db, s, t, 'child') // deprecated / invalid
+    const row = pendingEdgeRow(db, s, t, 'child')
     const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
     expect(out.status).toBe('failed')
     assertStillPending(db, row.id)
   })
 })
-
-// ── no-new-writer static assertion ─────────────────────────────────────────────
 
 describe('no-new-writer static assertion', () => {
   const SERVICE_PATH = join(import.meta.dir, 'placement-apply.service.ts')
@@ -730,20 +669,11 @@ describe('no-new-writer static assertion', () => {
   test('imports only the allowed existing writers, no lower-level graph modules', () => {
     const importRegex = /import\s+(?:[\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g
     const imports = [...SOURCE.matchAll(importRegex)].map(m => m[1])
-    // Explicit writers the orchestrator may call. Since task #1946 `edge` is the
-    // only applicable kind, so `createEdgeService` is the only writer left.
     expect(imports).toContain('./edges.service')
-    // Read-only db helper the orchestrator still needs (queue row lookup). The
-    // fingerprint snapshot reads (source/target row + pair edge) now live in
-    // `placement-proposals.mapping.service.ts` (`pairFingerprint`), so `../db/edges` and
-    // `../db/thoughts` are no longer imported here.
     expect(imports).toContain('../db/placement-proposals')
-    // Disallowed: no lower-level writer functions (createEdge, mergeThoughts, archiveThought)
-    // and no placement/* modules other than placement-proposals.service.
     expect(imports.every(i => !/createEdge\b/.test(i))).toBe(true)
     expect(imports.every(i => !/mergeThoughts\b/.test(i))).toBe(true)
     expect(imports.every(i => !/archiveThought\b/.test(i))).toBe(true)
-    // No other placement/ submodule.
     const placementImports = imports.filter(i => i.startsWith('./placement-')).sort()
     expect(placementImports).toEqual(['./placement-apply.types', './placement-proposals.service'])
   })

@@ -41,7 +41,6 @@ function mergeBlockers(source: Thought): string[] {
   return blocked
 }
 
-// `replaces+archive` archives the older target, so the blocker is its status, not the source's.
 export function decideLifecycle(
   source: Thought,
   replaceEdge: EdgeProposal | undefined,

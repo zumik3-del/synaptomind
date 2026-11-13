@@ -1,17 +1,3 @@
-/**
- * Tests for the read-only placement proposer (`placement.ts`, task #945).
- *
- * Per the #945 handoff notes:
- *  - `deps.embed` + `deps.searchNeighbors` are stubbed, so no real vector
- *    index is required (the vec0 / `:memory:` caveat, AGENTS.md §8, is
- *    sidestepped: `createTestDb` is sufficient).
- *  - Stubbed neighbours must reference seeded *active, same-project,
- *    non-cluster* thoughts: pool membership enforces project scope, so any
- *    id not in the pool is structurally dropped by `findEmbeddingNeighborPairs`.
- *  - `proposePlacement` returns a `{ proposal, reason }` decision wrapper; on
- *    a hit `reason` equals the proposal's `rationale`.
- */
-
 import { beforeEach, afterEach, describe, expect, test } from 'bun:test'
 import { closeDb, getDb } from '../../db'
 import { getThoughtRow } from '../../db/thoughts'
@@ -21,23 +7,14 @@ import { proposePlacement, type PlacementDecision } from './placement'
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-// ── helpers ─────────────────────────────────────────────────────────────────
-
-/** Deterministic embed stub: one zero vector per candidate text. */
 function stubEmbed(): (texts: string[]) => Promise<Float32Array[]> {
   return async texts => texts.map(() => new Float32Array(384))
 }
 
-/**
- * `searchNeighbors` stub keyed by query thought id; unknown ids get no
- * neighbours. Seeded neighbours must exist in the pool (active, same-project,
- * non-cluster) or they are dropped by `findEmbeddingNeighborPairs`.
- */
 function stubSearch(map: Record<string, Array<{ id: string; similarity: number }>>) {
   return (_id: string, _embedding: Float32Array) => map[_id] ?? []
 }
 
-/** AC: every proposal carries a non-empty rationale, confidence ∈ [0,1], review_required. */
 function assertProposalFields(p: NonNullable<PlacementDecision['proposal']>) {
   expect(typeof p.rationale).toBe('string')
   expect(p.rationale.length).toBeGreaterThan(0)
@@ -46,7 +23,6 @@ function assertProposalFields(p: NonNullable<PlacementDecision['proposal']>) {
   expect(p.review_required).toBeTrue()
 }
 
-/** Seed a strict-majority fixture: two neighbours in one cluster + a source. */
 function seedMajorityFixture(): [string, string, string, string] {
   const clusterId = seedThought({
     id: 'c-major',
@@ -61,8 +37,6 @@ function seedMajorityFixture(): [string, string, string, string] {
   seedEdge(clusterId, n2, 'cluster')
   return [clusterId, n1, n2, sourceId]
 }
-
-// ── branch selection with stub neighbours ─────────────────────────────────
 
 describe('proposePlacement', () => {
   describe('stub neighbours: branch selection', () => {
@@ -87,7 +61,6 @@ describe('proposePlacement', () => {
       expect(result.proposal).not.toBeNull()
       expect(result.proposal!.kind).toBe('cluster')
       expect(result.proposal!.target_id).toBe(clusterId)
-      // share = 2/2 = 1, avgSim = (0.9 + 0.8) / 2 = 0.85 → 0.5·1 + 0.5·0.85
       expect(result.proposal!.confidence).toBeCloseTo(0.925)
       expect(result.proposal!.rationale).toContain('cluster majority: 2/2')
       expect(result.proposal!.rationale).toContain(clusterId)
@@ -139,7 +112,7 @@ describe('proposePlacement', () => {
       const root = seedThought({ content: 'chain root' })
       const n2 = seedThought({ content: 'neighbour in chain' })
       const sourceId = seedThought({ content: 'source' })
-      seedEdge(n1, sourceId, 'related') // non-hierarchy edge: must not qualify
+      seedEdge(n1, sourceId, 'related')
       seedEdge(root, n2, 'parent')
       const source = getThoughtRow(db, sourceId)!
       const result = await proposePlacement(
@@ -158,7 +131,7 @@ describe('proposePlacement', () => {
       )
       expect(result.proposal).not.toBeNull()
       expect(result.proposal!.kind).toBe('parent')
-      expect(result.proposal!.target_id).toBe(n2) // nearest qualifying neighbour, not the closest overall
+      expect(result.proposal!.target_id).toBe(n2)
       expect(result.proposal!.confidence).toBeCloseTo(0.8)
       expect(result.proposal!.rationale).toContain('parent/develops chain')
       assertProposalFields(result.proposal!)
@@ -247,7 +220,7 @@ describe('proposePlacement', () => {
         db
       )
       expect(result).toEqual({ proposal: null, reason: 'source is a cluster thought' })
-      expect(embedCalls).toBe(0) // short-circuits before embedding
+      expect(embedCalls).toBe(0)
     })
 
     test('returns null when the embedder is unavailable (throws)', async () => {
@@ -271,12 +244,12 @@ describe('proposePlacement', () => {
     test('returns null when the embedder returns a mismatched vector count', async () => {
       const db = getDb()
       const sourceId = seedThought({ content: 'source' })
-      seedThought({ content: 'second active thought' }) // pool = 2 candidates
+      seedThought({ content: 'second active thought' })
       const source = getThoughtRow(db, sourceId)!
       const result = await proposePlacement(
         source,
         {},
-        { embed: async () => [new Float32Array(384)], searchNeighbors: stubSearch({}) }, // 1 vector for 2 candidates
+        { embed: async () => [new Float32Array(384)], searchNeighbors: stubSearch({}) },
         db
       )
       expect(result).toEqual({
