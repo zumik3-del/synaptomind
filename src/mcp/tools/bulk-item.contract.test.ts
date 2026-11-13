@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb } from '../../context/container'
 import { closeDb } from '../../db/init'
+import { BULK_ITEMS_MAX } from '../../services/bulk.service'
 import { createProjectService } from '../../services/projects.service'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
@@ -104,6 +105,21 @@ function edgesInto(id: string): Array<{ source_id: string; type: string }> {
 
 function count(sql: string): number {
   return (getDb().prepare(sql).get() as { n: number }).n
+}
+
+async function advertisedThoughts(): Promise<Record<string, any>> {
+  const { tools } = await client.listTools()
+  const store = tools.find(t => t.name === 'memory_store')
+  if (!store) throw new Error('memory_store is not advertised')
+  const properties = (store.inputSchema as { properties?: Record<string, any> }).properties
+  if (!properties) throw new Error('memory_store advertises no properties')
+  return properties.thoughts as Record<string, any>
+}
+
+async function advertisedItem(): Promise<Record<string, any>> {
+  const item = (await advertisedThoughts()).items as Record<string, any> | undefined
+  if (!item) throw new Error('memory_store advertises no thoughts item')
+  return item
 }
 
 beforeEach(createTestDb)
@@ -339,15 +355,6 @@ describe('bulk_create batch semantics', () => {
 })
 
 describe('the advertised bulk item schema', () => {
-  async function advertisedThoughts(): Promise<Record<string, any>> {
-    const { tools } = await client.listTools()
-    const store = tools.find(t => t.name === 'memory_store')
-    if (!store) throw new Error('memory_store is not advertised')
-    const properties = (store.inputSchema as { properties?: Record<string, any> }).properties
-    if (!properties) throw new Error('memory_store advertises no properties')
-    return properties.thoughts as Record<string, any>
-  }
-
   test('is a closed object declaring exactly the fields bulk writes', async () => {
     const thoughts = await advertisedThoughts()
     const item = thoughts.items as Record<string, any>
@@ -377,5 +384,81 @@ describe('the advertised bulk item schema', () => {
     expect(description).toContain('url_links')
     expect(description).toContain('is_global')
     expect(description).toContain('unknown key')
+  })
+})
+
+describe('the advertised bulk_create item-count bounds', () => {
+  test('thoughts advertises minItems 1 and maxItems at the handler ceiling', async () => {
+    const thoughts = await advertisedThoughts()
+
+    expect(thoughts.minItems).toBe(1)
+    expect(thoughts.maxItems).toBe(10_000)
+    expect(thoughts.maxItems).toBe(BULK_ITEMS_MAX)
+  })
+})
+
+describe('the advertised bulk item descriptions', () => {
+  test.each(['project_id', 'source', 'relation'])(
+    '%s carries a non-empty description',
+    async field => {
+      const properties = (await advertisedItem()).properties as Record<string, any>
+      const description = properties[field]?.description
+
+      expect(description).toBeString()
+      expect(description.trim().length).toBeGreaterThan(0)
+    }
+  )
+})
+
+describe('the advertised thoughts field is validated for every action', () => {
+  test('create with an empty thoughts array is refused before the action runs', async () => {
+    const answer = await call('memory_store', {
+      action: 'create',
+      content: 'create with empty thoughts',
+      thoughts: []
+    })
+
+    expect(answer.isError).toBe(true)
+    expect(answer.text).toContain('thoughts is required for bulk_create action')
+    expect(count('SELECT COUNT(*) AS n FROM thoughts')).toBe(0)
+  })
+
+  test('bulk_create with an empty thoughts array is refused with the same message', async () => {
+    const answer = await bulk([])
+
+    expect(answer.isError).toBe(true)
+    expect(answer.text).toContain('thoughts is required for bulk_create action')
+    expect(count('SELECT COUNT(*) AS n FROM thoughts')).toBe(0)
+  })
+
+  test('create with a non-empty thoughts array is accepted and its value ignored', async () => {
+    const answer = await call('memory_store', {
+      action: 'create',
+      content: 'top-level content wins',
+      thoughts: [{ content: 'item content must never be written', tags: ['item-tag'] }]
+    })
+
+    expect(answer.isError).toBe(false)
+    expect(answer.envelope.item?.content).toBe('top-level content wins')
+    expect(answer.envelope.item?.tags).toEqual([])
+    expect(count('SELECT COUNT(*) AS n FROM thoughts')).toBe(1)
+    expect(
+      count(
+        "SELECT COUNT(*) AS n FROM thoughts WHERE content = 'item content must never be written'"
+      )
+    ).toBe(0)
+  })
+})
+
+describe('the thoughts description states the every-action validation, not an unconditional ignore', () => {
+  test('claims validation for every action and never an ignore for all other actions', async () => {
+    const description = (await advertisedThoughts()).description as string
+
+    expect(description).toContain('VALIDATED for EVERY action')
+    expect(description).toContain(
+      'the advertised schema checks the whole call before the action runs'
+    )
+    expect(description).toContain('an empty array is refused')
+    expect(description).not.toContain('IGNORED for all other actions')
   })
 })
