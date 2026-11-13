@@ -9,6 +9,7 @@ export interface SearchOptions {
   projectFilter?: string
   clusterFilter?: 'only' | 'exclude'
   minImportance?: number
+  tagFilter?: string
   hybrid?: boolean
   recencyWeight?: number
   recencyHalfLifeDays?: number

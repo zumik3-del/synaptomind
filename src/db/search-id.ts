@@ -13,6 +13,8 @@ export interface IdLookupFilters {
   statusFilter?: string
   projectFilter?: string
   clusterFilter?: 'only' | 'exclude'
+  minImportance?: number
+  tagFilter?: string
 }
 
 const ID_HEX_LENGTH = 32
@@ -68,12 +70,16 @@ export function findThoughtsByIdQuery(
   const idQuery = parseThoughtIdQuery(query)
   if (!idQuery) return null
   const cap = clampPrefixLimit(limit)
+  // A full id is an explicit reference and takes only the cluster shape; a prefix is a scope query
+  // and carries every filter the search call itself accepts (status, project, tag, importance).
   const scope = idQuery.exact
     ? buildFilterSQL({ clusterFilter: filters.clusterFilter })
     : buildFilterSQL({
         statusFilter: filters.statusFilter,
         projectFilter: filters.projectFilter,
-        clusterFilter: filters.clusterFilter
+        clusterFilter: filters.clusterFilter,
+        minImportance: filters.minImportance,
+        tagFilter: filters.tagFilter
       })
 
   const rows = (
@@ -92,6 +98,7 @@ export function findThoughtsByIdQuery(
             SELECT t.*, p.name AS project_name
             FROM thoughts t
             LEFT JOIN projects p ON t.project_id = p.id
+            LEFT JOIN thought_importance ti ON ti.thought_id = t.id
             WHERE t.id GLOB ? ${scope.sql}
             ORDER BY t.id ASC
             LIMIT ${cap}
