@@ -2,6 +2,11 @@ import type { Database } from 'bun:sqlite'
 import { getDb } from '../db'
 import { createEdge, deleteEdge, getEdgesForThought, type Edge } from '../db/edges'
 import { getThoughtRow, type Thought } from '../db/thoughts'
+import {
+  deleteThoughtUrlLinksNotIn,
+  getThoughtUrlLinksForThoughts,
+  upsertThoughtUrlLink
+} from '../db/thought_url_links'
 import { insertLog } from '../logging/log'
 import { EdgeAlreadyExistsError, ValidationError } from '../errors'
 
@@ -95,4 +100,44 @@ export function transferEdgesFromSource(
   }
 
   return transferredEdges
+}
+
+export function transferUrlLinksFromSource(
+  sourceId: string,
+  targetId: string,
+  d: Database = getDb()
+): number {
+  const sourceLinks = getThoughtUrlLinksForThoughts(d, [sourceId])
+  if (sourceLinks.length === 0) return 0
+
+  const targetLinks = getThoughtUrlLinksForThoughts(d, [targetId])
+  const targetUrlByKey = new Map(targetLinks.map(link => [link.key, link.url]))
+  let nextSortOrder = targetLinks.reduce((max, link) => Math.max(max, link.sort_order), -1) + 1
+  let transferred = 0
+
+  for (const link of sourceLinks) {
+    const targetUrl = targetUrlByKey.get(link.key)
+    if (targetUrl !== undefined) {
+      insertLog(
+        'warning',
+        'thought',
+        `Merge: url link '${link.key}' already on target ${targetId} (${targetUrl}) — source url ${link.url} dropped`,
+        {
+          target_id: targetId,
+          source_id: sourceId,
+          link_key: link.key,
+          kept_url: targetUrl,
+          dropped_url: link.url
+        }
+      )
+      continue
+    }
+    upsertThoughtUrlLink(d, targetId, link.key, link.url, link.label, nextSortOrder)
+    nextSortOrder++
+    transferred++
+  }
+
+  deleteThoughtUrlLinksNotIn(d, sourceId, [])
+
+  return transferred
 }

@@ -106,7 +106,9 @@ export function registerMemoryStore(server: McpServer) {
       url_links: z
         .array(z.object({ text: z.string(), url: z.string() }))
         .optional()
-        .describe('URL links. OPTIONAL for "create". IGNORED for all other actions.'),
+        .describe(
+          'URL links. OPTIONAL for "create" and "update": create sets the initial list, update replaces the whole set in array order (an omitted field leaves the set untouched, [] clears it). The array order is the link order. IGNORED for all other actions.'
+        ),
       thoughts: z
         .array(z.unknown())
         .optional()

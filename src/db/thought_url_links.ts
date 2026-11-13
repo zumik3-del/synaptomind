@@ -52,10 +52,6 @@ export function getThoughtUrlLinksForThoughts(
     .all(...thoughtIds) as ThoughtUrlLink[]
 }
 
-export function pruneThoughtUrlLinks(db: Database, thoughtId: string, content: string): number {
-  return deleteThoughtUrlLinksNotIn(db, thoughtId, extractLinkKeys(content))
-}
-
 export function deleteThoughtUrlLinksNotIn(
   db: Database,
   thoughtId: string,
@@ -68,14 +64,4 @@ export function deleteThoughtUrlLinksNotIn(
   return db
     .prepare(`DELETE FROM thought_url_links WHERE thought_id = ? AND key NOT IN (${ph})`)
     .run(thoughtId, ...keys).changes
-}
-
-export function extractLinkKeys(content: string): string[] {
-  const re = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
-  const keys: string[] = []
-  for (const m of content.matchAll(re)) {
-    const k = m[1].trim()
-    if (k) keys.push(k)
-  }
-  return keys
 }

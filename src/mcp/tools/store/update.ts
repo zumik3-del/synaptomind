@@ -1,5 +1,6 @@
 import { z } from 'zod/v4'
 import { NotFoundError } from '../../../errors'
+import type { UrlLink } from '../../../services/url_links.service'
 import { updateThoughtByIdService } from '../../../services/thoughts.service'
 import type { ThoughtStatus } from '../../../types/thought'
 import { itemEnvelope, writeEnvelopeScope } from '../envelope'
@@ -25,16 +26,20 @@ export const updateHandler: ActionHandler = {
   }),
   run(args: ActionArgs) {
     // Id-addressed write: cwd scopes the answer, it never relocates the row (docs/mcp-tools.md).
-    const updated = updateThoughtByIdService(args.thought_id as string, {
-      content: args.content as string | undefined,
-      tags: args.tags as string[] | undefined,
-      tags_mode: args.tags_mode as 'replace' | 'merge' | undefined,
-      status: args.status as ThoughtStatus | undefined,
-      is_protected: args.is_protected as boolean | undefined,
-      is_global: args.is_global as boolean | undefined,
-      surface_after:
-        args.surface_after === undefined ? undefined : (args.surface_after as string | null)
-    })
+    const updated = updateThoughtByIdService(
+      args.thought_id as string,
+      {
+        content: args.content as string | undefined,
+        tags: args.tags as string[] | undefined,
+        tags_mode: args.tags_mode as 'replace' | 'merge' | undefined,
+        status: args.status as ThoughtStatus | undefined,
+        is_protected: args.is_protected as boolean | undefined,
+        is_global: args.is_global as boolean | undefined,
+        surface_after:
+          args.surface_after === undefined ? undefined : (args.surface_after as string | null)
+      },
+      { urlLinks: args.url_links as UrlLink[] | undefined }
+    )
     if (!updated) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
     return itemEnvelope('update', shapeThought(updated), writeEnvelopeScope(args.cwd))
   }
