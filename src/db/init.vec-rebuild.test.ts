@@ -317,7 +317,7 @@ test('a dimension change snapshots the vectors before dropping vec_thoughts', ()
   initDb({ dbPath, runMigrations: true })
 
   const snapshots = backupsOf(dbPath)
-  expect(snapshots).toEqual([expect.stringContaining(`.pre-v${NEWEST}.`)])
+  expect(snapshots).toEqual([expect.stringContaining(`.pre-v${NEWEST}.rebuild.`)])
   const snapshotPath = join(dirname(dbPath), snapshots[0])
   expect(vecDdl(snapshotPath)).toContain(`FLOAT[${CONFIGURED}]`)
   expect(openRaw(snapshotPath, db => db.prepare(`SELECT id FROM vec_thoughts`).all())).toEqual([
@@ -326,6 +326,35 @@ test('a dimension change snapshots the vectors before dropping vec_thoughts', ()
 
   expect(vecDdl(dbPath)).toContain(`FLOAT[${REBUILT}]`)
   expect(vecRowCount(dbPath)).toBe(0)
+  expect(pendingIds()).toEqual([id])
+})
+
+test('a boot that already took a migration snapshot takes no second rebuild snapshot', () => {
+  const dbPath = freshDbPath()
+  initDb({ dbPath, runMigrations: true })
+  const id = seedThought({ content: 'replay then flip' })
+  closeDb()
+  for (const stale of backupsOf(dbPath)) {
+    rmSync(join(dirname(dbPath), stale))
+  }
+  expect(backupsOf(dbPath)).toEqual([])
+
+  // A replayed v048 copies whatever vectors it finds into the reshaped table, so no vector is
+  // seeded: the width flip below is then the only state the rebuild has to carry across.
+  openRaw(dbPath, db =>
+    db.prepare(`UPDATE _meta SET value = ? WHERE key = 'schema_version'`).run(String(NEWEST - 1))
+  )
+  config.embedder.dimensions = REBUILT
+  initDb({ dbPath, runMigrations: true })
+
+  // The pre-migration snapshot already predates the DROP, so the rebuild takes none of its own.
+  const snapshots = backupsOf(dbPath)
+  expect(snapshots).toHaveLength(1)
+  expect(snapshots[0]).toContain(`.pre-v${NEWEST}.`)
+  expect(snapshots[0]).not.toContain('.rebuild.')
+
+  expect(readVecIndexState(getDb()).rebuiltAt).not.toBeNull()
+  expect(vecDdl(dbPath)).toContain(`FLOAT[${REBUILT}]`)
   expect(pendingIds()).toEqual([id])
 })
 
@@ -355,7 +384,9 @@ test('a failed snapshot aborts the rebuild with the vectors still in place', () 
   keeper.prepare(`SELECT COUNT(*) AS cnt FROM thoughts`).get()
   chmodSync(dir, 0o555)
   try {
-    expect(() => initDb({ dbPath, runMigrations: true })).toThrow('Database backup failed')
+    expect(() => initDb({ dbPath, runMigrations: true })).toThrow(
+      'Database backup failed before rebuilding the vector index'
+    )
   } finally {
     chmodSync(dir, 0o755)
     keeper.close(true)

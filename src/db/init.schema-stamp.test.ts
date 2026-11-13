@@ -139,6 +139,28 @@ test('a migrated database whose schema stamp is gone is refused with its schema 
   expect(backupsOf(dbPath)).toEqual(backupsBefore)
 })
 
+test('the refusal says where the recovery number really comes from', () => {
+  const dbPath = freshDbPath()
+  seedMigratedDb(dbPath)
+  dropStamp(dbPath)
+
+  const message = refusalMessage(() => initDb({ dbPath, runMigrations: true }))
+
+  // The number lives in the restored file's own stamp row...
+  expect(message).toContain('read the number from its own _meta.schema_version row')
+  // ...never in the backup filename, whose <N> means the version the boot was moving to.
+  expect(message).toContain('Never copy the <N> out of a backup filename')
+  expect(message).toContain('it names the version the upgrading boot was moving to')
+  // The rebuild label is explained, so the operator does not restore a vector snapshot.
+  expect(message).toContain('<db>.pre-v<N>.rebuild.<timestamp>.bak is a vector-index snapshot')
+  // The fallback with no backup at all still points at the migration sources.
+  expect(message).toContain('take the number from the migration sources (src/db/migrations)')
+  // The phrase the removed-stamp test pins, kept verbatim.
+  expect(message).toContain('restore the pre-upgrade backup')
+  // The old advice to hand-write the newest applied migration number is gone.
+  expect(message).not.toContain('write the newest applied migration number')
+})
+
 test('a stamp that is not a migration number is refused instead of read as version 0', () => {
   const template = freshDbPath()
   seedMigratedDb(template)
