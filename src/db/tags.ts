@@ -1,4 +1,4 @@
-import type { Database } from 'bun:sqlite'
+import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import { sqlIn } from './utils'
 
 export interface Tag {
@@ -28,6 +28,53 @@ export function createTag(db: Database, name: string): Tag {
     new Date().toISOString()
   )
   return { id, name: canonical }
+}
+
+export interface TagNameMatch {
+  key: string
+  id: string
+}
+
+// SQLite folds case with NOCASE, which is ASCII-only, and Bun exposes no registered SQL function,
+// so tag matching folds both sides in JS: a stored `Тег` answers a request for `тег`.
+export function foldTagName(name: string): string {
+  return name.toLowerCase()
+}
+
+export function matchTagIdsByFoldedName(db: Database, names: string[]): TagNameMatch[] {
+  if (names.length === 0) return []
+  const wanted = new Set(names.map(foldTagName))
+  const rows = db.prepare('SELECT id, name FROM tags').all() as Tag[]
+  const matches: TagNameMatch[] = []
+  for (const row of rows) {
+    const key = foldTagName(row.name)
+    if (wanted.has(key)) matches.push({ key, id: row.id })
+  }
+  return matches
+}
+
+export interface TagFilterFragment {
+  sql: string
+  params: SQLQueryBindings[]
+}
+
+// Requires the outer table aliased `t`; the fragment carries no leading `AND`.
+// The AND count runs over requested names, not stored spellings (`Тег`/`тег` count once).
+export function buildFoldedTagFilterSql(db: Database, names: string[]): TagFilterFragment {
+  const keys = [...new Set(names.map(foldTagName))]
+  const matches = matchTagIdsByFoldedName(db, keys)
+  if (matches.length === 0) return { sql: '1 = 0', params: [] }
+  const mapping = matches.map(() => 'SELECT ? AS name_key, ? AS tag_id').join(' UNION ALL ')
+  return {
+    sql: `t.id IN (
+        SELECT tt.thought_id
+        FROM thought_tags tt
+        INNER JOIN (${mapping}) m ON m.tag_id = tt.tag_id
+        GROUP BY tt.thought_id
+        HAVING COUNT(DISTINCT m.name_key) = ?
+      )`,
+    params: [...matches.flatMap(m => [m.key, m.id]), keys.length]
+  }
 }
 
 export function mergeThoughtTags(db: Database, thoughtId: string, tagNames: string[]): Tag[] {

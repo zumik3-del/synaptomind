@@ -24,7 +24,8 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     statusFilter,
     projectFilter,
     clusterFilter,
-    minImportance
+    minImportance,
+    tagFilter
   } = options
 
   const recencyWeight =
@@ -47,14 +48,20 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
       ? options.confidenceFloor
       : DEFAULTS.search.confidence.vectorFloor
 
-  const filter = buildFilterSQL({
+  const filter = buildFilterSQL(db, {
     statusFilter,
     projectFilter,
     clusterFilter,
-    minImportance
+    minImportance,
+    tagFilter
   })
   const scope = buildVecScopeSQL({ projectFilter })
-  const residual = buildResidualFilterSQL({ statusFilter, clusterFilter, minImportance })
+  const residual = buildResidualFilterSQL(db, {
+    statusFilter,
+    clusterFilter,
+    minImportance,
+    tagFilter
+  })
   const filterSql = filter.sql
 
   const unfilteredPool = Math.min(

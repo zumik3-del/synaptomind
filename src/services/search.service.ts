@@ -2,11 +2,9 @@ import { getClusterForThoughtBatch } from '../db/cluster-edges'
 import { getDb } from '../db'
 import { type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
 export type { SearchResult } from '../db/search'
-import { getThoughtTagsBatch } from '../db/tags'
 import type { Thought } from '../db/thoughts'
 import type { Database } from 'bun:sqlite'
 import { generateEmbedding } from '../embedder/client'
-import { parseTags } from '../utils'
 import {
   type IdLookup,
   idNotFoundWarning,
@@ -81,7 +79,9 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
   const idLookup = runIdLookup(options.query, d, normalized.topK, {
     statusFilter: options.statusFilter,
     projectFilter: options.projectFilter,
-    clusterFilter: options.clusterFilter
+    clusterFilter: options.clusterFilter,
+    minImportance: normalized.minImportance,
+    tagFilter: options.tagFilter
   })
   if (idLookup && idLookup.items.length > 0) {
     return resolveIdLookup(idLookup, options, normalized, d)
@@ -111,6 +111,7 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
     projectFilter: options.projectFilter,
     clusterFilter: options.clusterFilter,
     minImportance,
+    tagFilter: options.tagFilter,
     hybrid: options.hybrid,
     recencyWeight,
     recencyHalfLifeDays,
@@ -124,8 +125,7 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
     }
   }
 
-  const filtered = options.tagFilter ? filterByTags(dbResults, options.tagFilter, d) : dbResults
-  const standing = applyGraphStanding(filtered, options, d)
+  const standing = applyGraphStanding(dbResults, options, d)
   const gated = standing.filter(r => keepsUnderRelevanceGate(r, minRelevance))
   const finalResults = gated.length > topK ? gated.slice(0, topK) : gated
   const degraded = embeddingDegraded || dbDegraded
@@ -185,20 +185,6 @@ export async function searchThoughtsOutcome(
   const { items, degraded, ...outcome } = await runSearch(options, d)
   Object.assign(items, { degraded })
   return { ...outcome, items }
-}
-
-function filterByTags(results: SearchResult[], tagFilter: string, d: Database): SearchResult[] {
-  const tagNames = parseTags(tagFilter)
-  if (!tagNames || tagNames.length === 0) return results
-  const tagMap = getThoughtTagsBatch(
-    d,
-    results.map(r => r.thought.id)
-  )
-  return results.filter(r => {
-    const tags = tagMap.get(r.thought.id) ?? []
-    const thoughtTagNames = new Set(tags.map(t => t.name.toLowerCase()))
-    return tagNames.every(n => thoughtTagNames.has(n.toLowerCase()))
-  })
 }
 
 export function groupResultsByCluster(
