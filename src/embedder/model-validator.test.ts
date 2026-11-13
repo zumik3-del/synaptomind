@@ -254,44 +254,15 @@ describe('ensureModelFiles — a q8 fetch never asks for onnx/model.onnx', () =>
   })
 })
 
-// A dtype switch leaves the OTHER dtype's ONNX file in the cache. transformers.js
-// resolves the file from the dtype string alone and never scans `onnx/`, so the
-// sibling is inert — but it can be hundreds of MB on the disk-tight hosts the
-// deploy guide names, so `ensureModelFiles` reports it. Four properties of that
-// report are silent by nature and therefore easy to break without noticing:
-// it goes to stderr (`console.warn`; `embedder-client` records a child's stderr
-// at level `warning` while stdout only reaches `info`), it is emitted
-// exactly once per call, it comes BEFORE any download (on an offline host the
-// fetch is what fails, and this line is the operator's only hint), and it never
-// touches the file.
-//
-// The sibling fixtures are synthetic (>= 1 MB) rather than the real 448.5 MB fp32
-// file; the expected size text is derived from the fixture through the repo's
-// existing MiB + toFixed(1) convention, with two literal cases pinning that
-// convention (2 MiB → "2.0 MB", 1.25 MiB → "1.3 MB") instead of a real-file size.
+// The warning must go to stderr: `embedder-client` records a child's stderr as `warning`, stdout only as `info`.
 
 const MIB = 1024 * 1024
-
-// Pinning policy: these tests assert the facts the operator needs plus the one
-// piece of advice the line must never give — not the sentence that carries them.
-// A verbatim golden line reddens five tests on any copy edit while proving
-// nothing extra: task 1592 reworded the warning exactly because "and can be
-// deleted" told the operator to reclaim the space for free, and the guards below
-// catch that regression by intent, not by quoting. So `staleSiblingCore` pins the
-// stable half (tag, path, MiB size) plus the dtype the file is unused by, and
-// `expectStaleSiblingWarning` adds the advice guards.
 
 /** The stable half of the line: the `[embedder]` tag, the sibling's path, its size. */
 function staleSiblingCore(path: string, bytes: number): string {
   return `[embedder] ${path} (${(bytes / MIB).toFixed(1)} MB)`
 }
 
-/**
- * Deletion advice that presents the sibling as free — the shapes task 1592
- * removed. Deliberately a heuristic over the advice, not a parser: it flags
- * permissive phrasing ("can be deleted", "safe to remove"), never a plain
- * statement of the fact ("is not used by dtype=q8").
- */
 const UNCONDITIONAL_DELETE_RE =
   /\b(can|may|could|might)\s+be\s+delet|\byou\s+(can|may|should)\s+delete\b|\bis\s+deletable\b|\b(safe|free)\s+to\s+(delete|remove)\b/i
 
@@ -365,7 +336,6 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
     const lines = warnings()
     expect(lines).toHaveLength(1)
     expectStaleSiblingWarning(lines[0], 'onnx/model.onnx', staleBytes, 'q8')
-    // The size is one-decimal MiB, the unit the download line already uses.
     expect(lines[0]).toContain('(2.0 MB)')
     expect(fetches()).toEqual([])
 
@@ -399,8 +369,6 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
 
     await ensureModelFiles(cacheDir, MODEL, 'q8')
 
-    // The repair happened, so validateModelFiles ran on both sides of the
-    // download; the warning sits outside that path and must not be repeated.
     expect(fetches()).toHaveLength(1)
     const lines = warnings()
     expect(lines).toHaveLength(1)
@@ -444,8 +412,6 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
     const staleBytes = 2 * MIB
     await writeModelFile('onnx/model.onnx', staleBytes, 0x42)
 
-    // `spyOn` above only proves console.warn was called; this case proves which
-    // stream the line lands on, which is what makes the warning durable.
     const monitor = resolve(import.meta.dir, 'model-validator.ts')
     const script =
       `const m = await import(${JSON.stringify(monitor)});` +
@@ -463,7 +429,6 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
     const warned = stderr.split('\n').filter(l => l.startsWith('[embedder]'))
     expect(warned).toHaveLength(1)
     expectStaleSiblingWarning(warned[0], 'onnx/model.onnx', staleBytes, 'q8')
-    // stdout is recorded at level `info`, so the warning must not travel there.
     expect(stdout).not.toContain(staleSiblingCore('onnx/model.onnx', staleBytes))
   })
 })
