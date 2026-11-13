@@ -60,8 +60,12 @@ function writeSnapshot(
       unlinkSync(backupPath)
     } catch {}
     const step = kind === 'rebuild' ? 'rebuilding the vector index' : 'applying migrations'
+    const versionLabel =
+      kind === 'rebuild'
+        ? `the schema is at v${version}`
+        : `this boot was moving the schema to v${version}`
     throw new Error(
-      `Database backup failed before ${step} (schema v${version}): ${
+      `Database backup failed before ${step} (${versionLabel}): ${
         err instanceof Error ? err.message : String(err)
       }`
     )
