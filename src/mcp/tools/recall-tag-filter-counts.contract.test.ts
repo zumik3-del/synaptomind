@@ -79,3 +79,32 @@ describe('memory_recall search — a tag-filtered search keeps meta.counts hones
     )
   })
 })
+
+// Recorded pre-fix symptom (e8be9d38): this same call answered `meta.reason: "no_match"` with an
+// empty item list, because the SQL predicate compared with ASCII-only NOCASE.
+describe('memory_recall search — a non-ASCII tag answers its other case (task #2551)', () => {
+  const TOKEN = 'TAGUNIWIRE'
+
+  itVec('a `тег` request answers the stored `Тег` row instead of no_match', async () => {
+    const stored = seedThought({ content: `${TOKEN} stored`, tags: '["Тег"]' })
+
+    const { data, isError } = parseResult(
+      await client.callTool({
+        name: 'memory_recall',
+        arguments: {
+          action: 'search',
+          query: TOKEN,
+          cwd: UNSCOPED_CWD,
+          tag: 'тег',
+          limit: 10
+        }
+      })
+    )
+
+    expect(isError).toBe(false)
+    expect(data.meta.reason).toBeUndefined()
+    expect(data.meta.degraded).toBe(false)
+    expect(data.meta.counts).toMatchObject({ total: 1, returned: 1 })
+    expect(data.items.map((item: { thought: { id: string } }) => item.thought.id)).toEqual([stored])
+  })
+})

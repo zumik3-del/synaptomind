@@ -616,3 +616,17 @@ describe('memory_recall is_cluster filtering', () => {
     expect(deeper.downstream).toHaveLength(2)
   })
 })
+
+// An id prefix is a timestamp window, so it carries every filter the call itself accepts; the
+// advertised text used to claim the status/cwd scope only.
+describe('memory_recall describe text — the id-prefix scope', () => {
+  test('a prefix is described as taking the status/cwd/tag/min_importance scope', async () => {
+    const { tools } = await client.listTools()
+    const description = tools.find(t => t.name === 'memory_recall')?.description ?? ''
+
+    expect(description).toContain(
+      'it takes the status/cwd/tag/min_importance scope of the call like any other query'
+    )
+    expect(description).not.toContain('takes the status/cwd scope of the call')
+  })
+})

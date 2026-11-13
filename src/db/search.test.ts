@@ -14,6 +14,7 @@ import { bm25ScoredIds } from './search-bm25'
 import * as searchBm25Db from './search-bm25'
 import { buildFilterSQL } from './search-filters'
 import * as vectorSearchDb from './search-vector'
+import { createTag } from './tags'
 
 const VEC_AVAILABLE = isVecExtensionAvailable()
 
@@ -1217,16 +1218,28 @@ describe('project-scoped starvation', () => {
 describe('buildFilterSQL tag scope', () => {
   const P = 'project-a'
 
+  const MAPPING =
+    'INNER JOIN (SELECT ? AS name_key, ? AS tag_id UNION ALL SELECT ? AS name_key, ? AS tag_id) m ON m.tag_id = tt.tag_id'
+
   test('a tag filter emits the indexed AND subquery with lowercased, de-duplicated names', () => {
+    const alpha = createTag(getDb(), 'Alpha')
+    const beta = createTag(getDb(), 'beta')
+
     const { sql, params } = buildFilterSQL(getDb(), { tagFilter: 'Alpha, beta,alpha' })
 
-    expect(params).toEqual(['alpha', 'beta', 2])
+    // Every requested name is folded and bound once as a (requested-name key, tag id) pair, and the
+    // trailing parameter is the number of requested names the AND clause requires (`Alpha`/`alpha`
+    // fold to one key, so two names require two).
+    expect(params).toEqual(['alpha', alpha.id, 'beta', beta.id, 2])
     expect(sql).toContain('AND t.id IN (')
-    expect(sql).toContain('WHERE tg.name COLLATE NOCASE IN (?,?)')
-    expect(sql).toContain('HAVING COUNT(DISTINCT tg.name) = ?')
+    expect(sql).toContain(MAPPING)
+    expect(sql).toContain('HAVING COUNT(DISTINCT m.name_key) = ?')
+    // SQLite's NOCASE is ASCII-only, so the predicate must not compare stored names in SQL at all.
+    expect(sql).not.toContain('NOCASE')
   })
 
   test('the tag clause is appended last, so every other parameter keeps its position', () => {
+    const beta = createTag(getDb(), 'beta')
     const { sql, params } = buildFilterSQL(getDb(), {
       statusFilter: 'active',
       projectFilter: P,
@@ -1234,10 +1247,19 @@ describe('buildFilterSQL tag scope', () => {
       tagFilter: 'beta'
     })
 
-    expect(params).toEqual(['active', P, 0.5, 'beta', 1])
+    expect(params).toEqual(['active', P, 0.5, 'beta', beta.id, 1])
     expect(sql.indexOf('t.status = ?')).toBeLessThan(sql.indexOf('ti.importance >= ?'))
     expect(sql.indexOf('ti.importance >= ?')).toBeLessThan(sql.indexOf('t.id IN ('))
     expect(sql.trimEnd().endsWith(')')).toBe(true)
+  })
+
+  // An unresolvable name stays a failing clause instead of no clause: the caller keeps the widened
+  // candidate pool and answers `no_match`, rather than searching unfiltered.
+  test('a tag name that resolves to no stored tag keeps an empty-matching clause', () => {
+    const { sql, params } = buildFilterSQL(getDb(), { tagFilter: 'no-such-tag' })
+
+    expect(sql).toBe('AND 1 = 0 ')
+    expect(params).toEqual([])
   })
 
   test('a blank tag adds no clause at all', () => {
@@ -1320,14 +1342,20 @@ describe('the tag clause reaches both retrieval legs (task #2532)', () => {
       })
 
       const [, embeddingArg, pool, scope, filter] = vecSpy.mock.calls[0]
+      const needleId = (
+        db.prepare('SELECT id FROM tags WHERE name = ?').get('needle') as { id: string }
+      ).id
       expect(embeddingArg).toBeInstanceOf(Float32Array)
       expect(pool).toBe(1000)
       expect(scope).toEqual({ sql: '', params: [] })
-      expect(filter.sql).toContain('t.id IN (')
-      expect(filter.params).toEqual(['needle', 1])
+      expect(filter.sql).toContain(
+        'INNER JOIN (SELECT ? AS name_key, ? AS tag_id) m ON m.tag_id = tt.tag_id'
+      )
+      expect(filter.sql).toContain('HAVING COUNT(DISTINCT m.name_key) = ?')
+      expect(filter.params).toEqual(['needle', needleId, 1])
 
       expect(filteredBm25Spy.mock.calls[0][3]).toBe(filter.sql)
-      expect(filteredBm25Spy.mock.calls[0][4]).toEqual(['needle', 1])
+      expect(filteredBm25Spy.mock.calls[0][4]).toEqual(['needle', needleId, 1])
       expect(plainBm25Spy.mock.calls).toHaveLength(0)
 
       expect(results.map(r => r.thought.id)).toEqual([tagged])

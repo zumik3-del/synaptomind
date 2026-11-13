@@ -3,7 +3,15 @@ import type { Database } from 'bun:sqlite'
 import { createTestDb } from '../test/helpers'
 import { getDb } from '../context/container'
 import { closeDb } from './init'
-import { createTag, findTagByName, getThoughtTags, pruneOrphanTags, setThoughtTags } from './tags'
+import {
+  createTag,
+  findTagByName,
+  foldTagName,
+  getThoughtTags,
+  matchTagIdsByFoldedName,
+  pruneOrphanTags,
+  setThoughtTags
+} from './tags'
 import { createThought, deleteThought } from './thoughts'
 
 function storedTagNames(db: Database): string[] {
@@ -42,6 +50,23 @@ test('findTagByName finds tag case-insensitively', () => {
 
 test('findTagByName returns undefined for missing', () => {
   expect(findTagByName(getDb(), 'nonexistent')).toBeUndefined()
+})
+
+// The tag filter compares names folded in JS because SQLite's NOCASE is ASCII-only; the write path
+// still stores `Тег` and `тег` as two rows, so one folded key must map to both ids.
+test('matchTagIdsByFoldedName folds non-ASCII case and keeps every stored spelling', () => {
+  const db = getDb()
+  const upper = createTag(db, 'Тег')
+  const lower = createTag(db, 'тег')
+
+  expect(upper.id).not.toBe(lower.id)
+  expect(storedTagNames(db)).toEqual(['Тег', 'тег'])
+  expect(foldTagName('ТЕГ')).toBe('тег')
+  expect(foldTagName('Ärger')).toBe('ärger')
+  expect(matchTagIdsByFoldedName(db, ['тег'])).toEqual([
+    { key: 'тег', id: upper.id },
+    { key: 'тег', id: lower.id }
+  ])
 })
 
 test('setThoughtTags replaces tags on a thought', () => {

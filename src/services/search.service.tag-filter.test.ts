@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
+import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
+import { getThoughtTags, setThoughtTags } from '../db/tags'
+import { createThought } from '../db/thoughts'
 import { createTestDb, isVecExtensionAvailable, seedThought, withVecDb } from '../test/helpers'
 import { searchThoughtsOutcome } from './search.service'
 
@@ -227,5 +230,195 @@ describe('counts keep a tag-removed row out of the arithmetic', () => {
     expect([first, second]).toContain(outcome.items[0].thought.id)
     expect(outcome.matched).toBe(2)
     expect(outcome.filtered_out).toBe(0)
+  })
+})
+
+// SQLite's `NOCASE` folds ASCII only, so the tag filter folds requested and stored names in JS. A
+// stored `Тег` therefore answers a request for `тег` (and the reverse); the ASCII-only predicate
+// byte-compared the two and answered `no_match`.
+describe('non-ASCII tag matching', () => {
+  const TOKEN = 'TAGUNI'
+
+  test('a stored `Тег` is found by `тег` and by `ТЕГ`', async () => {
+    const stored = seedThought({ content: `${TOKEN} stored`, tags: '["Тег"]' })
+    const other = seedThought({ content: `${TOKEN} other`, tags: '["другой"]' })
+
+    for (const request of ['тег', 'ТЕГ']) {
+      const outcome = await searchThoughtsOutcome({
+        query: TOKEN,
+        embedding: BM25_ONLY,
+        topK: 10,
+        tagFilter: request
+      })
+
+      expect(outcome.items.map(r => r.thought.id)).toEqual([stored])
+      expect(outcome.items.map(r => r.thought.id)).not.toContain(other)
+      expect(outcome.matched).toBe(1)
+    }
+  })
+
+  test('the reverse holds: a stored `тег` is found by `Тег`', async () => {
+    const stored = seedThought({ content: `${TOKEN} stored`, tags: '["тег"]' })
+    seedThought({ content: `${TOKEN} other`, tags: '["другой"]' })
+
+    const outcome = await searchThoughtsOutcome({
+      query: TOKEN,
+      embedding: BM25_ONLY,
+      topK: 10,
+      tagFilter: 'Тег'
+    })
+
+    expect(outcome.items.map(r => r.thought.id)).toEqual([stored])
+    expect(outcome.matched).toBe(1)
+  })
+
+  test('the fold reaches characters outside the Cyrillic range too', async () => {
+    const stored = seedThought({ content: `${TOKEN} umlaut`, tags: '["Ärger"]' })
+
+    const outcome = await searchThoughtsOutcome({
+      query: TOKEN,
+      embedding: BM25_ONLY,
+      topK: 10,
+      tagFilter: 'ärger'
+    })
+
+    expect(outcome.items.map(r => r.thought.id)).toEqual([stored])
+  })
+
+  test('a mixed ASCII/non-ASCII request keeps AND semantics', async () => {
+    const both = seedThought({ content: `${TOKEN} both`, tags: '["alpha","Тег"]' })
+    seedThought({ content: `${TOKEN} ascii`, tags: '["alpha"]' })
+    seedThought({ content: `${TOKEN} uni`, tags: '["Тег"]' })
+
+    for (const request of ['alpha,Тег', 'ALPHA,тег']) {
+      const outcome = await searchThoughtsOutcome({
+        query: TOKEN,
+        embedding: BM25_ONLY,
+        topK: 10,
+        tagFilter: request
+      })
+
+      expect(outcome.items.map(r => r.thought.id)).toEqual([both])
+      expect(outcome.matched).toBe(1)
+    }
+  })
+})
+
+// The write path is unchanged and still folds ASCII only (`createTag`/`findTagByName` with
+// `idx_tags_name`), so `['Тег','тег']` really creates two tag rows — the state the AND clause must
+// survive. The clause counts distinct *requested* names, so two stored spellings satisfy a one-name
+// request exactly once.
+describe('a thought holding two spellings of one tag', () => {
+  const TOKEN = 'TAGSPELL'
+
+  test('the write path stores two rows and a one-name request matches each thought once', async () => {
+    const db = getDb()
+    const created = createThought(db, {
+      content: `${TOKEN} created`,
+      status: 'active',
+      tags: ['Тег', 'тег']
+    }).id
+    const replaced = createThought(db, { content: `${TOKEN} replaced`, status: 'active' }).id
+    setThoughtTags(db, replaced, ['тег', 'Тег'])
+
+    const tagRows = db.prepare('SELECT name FROM tags ORDER BY name').all() as Array<{
+      name: string
+    }>
+    expect(tagRows.map(r => r.name)).toEqual(['Тег', 'тег'])
+    const spellings = ['Тег', 'тег'].sort()
+    for (const id of [created, replaced]) {
+      expect(
+        getThoughtTags(db, id)
+          .map(t => t.name)
+          .sort()
+      ).toEqual(spellings)
+    }
+
+    const outcome = await searchThoughtsOutcome({
+      query: TOKEN,
+      embedding: BM25_ONLY,
+      topK: 10,
+      tagFilter: 'тег'
+    })
+
+    const ids = outcome.items.map(r => r.thought.id)
+    expect(ids.sort()).toEqual([created, replaced].sort())
+    expect(new Set(ids).size).toBe(2)
+    expect(outcome.matched).toBe(2)
+  })
+})
+
+// The folded clause is resolved once per call and handed to both retrieval legs unchanged: the same
+// (requested-name key, tag id) mapping reaches the vec0 leg and the BM25 leg.
+describe('the folded tag clause reaches both retrieval legs', () => {
+  const TOKEN = 'TAGUNILEG'
+  const FILLER = Array.from({ length: 60 }, (_, i) => `unifiller${i}`).join(' ')
+
+  function seedVector(db: Database, id: string, cos: number): void {
+    const vector = vectorAtCos(cos)
+    db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+      id,
+      Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength)
+    )
+  }
+
+  function seedWorld(db: Database, withVectors = true): string {
+    for (let i = 0; i < 3; i++) {
+      const near = seedThought({ content: `${TOKEN} near ${i}` })
+      if (withVectors) seedVector(db, near, 1)
+    }
+    const tagged = seedThought({ content: `${TOKEN} ${FILLER}`, tags: '["Тег"]' })
+    if (withVectors) seedVector(db, tagged, 0.95)
+    return tagged
+  }
+
+  itVec('the vector leg answers a `тег` request', async db => {
+    const tagged = seedWorld(db)
+
+    const outcome = await searchThoughtsOutcome(
+      {
+        query: 'a query with no lexical overlap',
+        embedding: vectorAtCos(1),
+        hybrid: false,
+        topK: 1,
+        tagFilter: 'тег'
+      },
+      db
+    )
+
+    expect(outcome.items.map(r => r.thought.id)).toEqual([tagged])
+    expect(outcome.items[0].match_source).toEqual(['embedding'])
+  })
+
+  test('the BM25 leg answers the same `тег` request', async () => {
+    const tagged = seedWorld(getDb(), false)
+
+    const outcome = await searchThoughtsOutcome({
+      query: TOKEN,
+      embedding: BM25_ONLY,
+      topK: 1,
+      tagFilter: 'тег'
+    })
+
+    expect(outcome.items.map(r => r.thought.id)).toEqual([tagged])
+    expect(outcome.items[0].match_source).toContain('bm25')
+  })
+
+  itVec('an unresolvable tag answers nothing and is not reported degraded', async db => {
+    seedWorld(db)
+
+    const outcome = await searchThoughtsOutcome(
+      {
+        query: TOKEN,
+        embedding: vectorAtCos(1),
+        topK: 5,
+        tagFilter: 'нет-такого'
+      },
+      db
+    )
+
+    expect(outcome.items).toEqual([])
+    expect(outcome.matched).toBe(0)
+    expect((outcome.items as { degraded?: boolean }).degraded).toBe(false)
   })
 })
