@@ -5,11 +5,6 @@ import { closeDb } from '../db/init'
 import { createTestDb } from '../test/helpers'
 import { getAdvertisedSoftLimitService } from './settings.service'
 
-// Regression coverage for task #165 (F2/F13) and task #2201 (F7). The advertised
-// soft limit has one service resolution path and re-reads the configuration on
-// every call. F7 removed the connection argument, so the computation touches no
-// database at all: the value must be identical in every DB state, and what the
-// old suite called a "pre-init fallback" is now the only path there is.
 const originalSoftLimit = config.thoughts.softLimit
 
 afterEach(() => {

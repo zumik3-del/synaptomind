@@ -4,12 +4,6 @@ import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.servic
 import { collectionEnvelope } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
-/**
- * Normalize an optional numeric argument that may arrive as a number or as a
- * numeric string (MCP clients differ in how they serialize numbers). Returns
- * `undefined` for absent/blank/non-finite values so the service falls back to
- * `config.autoCluster.*` defaults.
- */
 function optionalNumber(value: unknown): number | undefined {
   if (value === undefined || value === null || value === '') return undefined
   const n = typeof value === 'number' ? value : Number(value)
@@ -18,7 +12,6 @@ function optionalNumber(value: unknown): number | undefined {
 
 export const autoClusterHandler: ActionHandler = {
   input: z.object({ preview_token: z.string().optional() }),
-  // auto_cluster is a global operation and must not resolve or warn about a project.
   async run(args: ActionArgs) {
     const opts = {
       minAgeDays: optionalNumber(args.min_age_days),

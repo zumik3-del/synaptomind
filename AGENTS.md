@@ -14,6 +14,10 @@ Bun + Hono + SQLite (vec0 + FTS5); local embeddings via `@huggingface/transforme
 - Lint/format: Biome (`bunx biome check src/ eval/`, `bun run format`) — lint advisory, formatting
   blocking; hooks: Husky + commitlint
 - `bun`/`bunx` in `~/.bun/bin`, symlinked to `/usr/local/bin` (already on PATH)
+- Code tiers: every module in `src/` is **Core**, **Pillar** or **Scaffolding** — the criteria, the
+  14-row map and the per-tier gates live in the code-tiers ADR (`authelia/artifacts`,
+  `synaptomind/adr/2026-11-12-code-tiers-core-pillars-scaffolding.md`); a file matching no row is
+  unclassified and is placed in the PR, never assumed Scaffolding
 
 ## 3. Verification
 

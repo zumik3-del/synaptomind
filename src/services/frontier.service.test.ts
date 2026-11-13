@@ -123,7 +123,6 @@ test('getFrontierService uses depends_on for blocking', () => {
   tagThought(a, 'directive')
   tagThought(b, 'directive')
   const db = getDb()
-  // A depends_on B → A is blocked by B (B must be done first)
   db.prepare(
     "INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'depends_on', ?)"
   ).run('e1', a, b, new Date().toISOString())
@@ -162,7 +161,6 @@ test('getFrontierService keeps contradicted thoughts (only replaces removes)', (
     "INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, 'contradicts', ?)"
   ).run('e1', a, b, new Date().toISOString())
   const result = getFrontierService()
-  // contradiction is symmetric and neither side is authoritative — both stay
   expect(result.items.find(i => i.thought_id === a)).toBeDefined()
   expect(result.items.find(i => i.thought_id === b)).toBeDefined()
 })

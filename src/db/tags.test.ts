@@ -6,10 +6,6 @@ import { closeDb } from './init'
 import { createTag, findTagByName, getThoughtTags, pruneOrphanTags, setThoughtTags } from './tags'
 import { createThought, deleteThought } from './thoughts'
 
-// The tag *inventory* helpers (list/rename/delete) are gone with the HTTP tag
-// routes (ADR 2026-10-26): tags are only ever set through a thought write and
-// pruned when they lose their last thought. The orphan checks below therefore
-// read the table directly instead of going through a removed export.
 function storedTagNames(db: Database): string[] {
   return (db.prepare('SELECT name FROM tags ORDER BY name').all() as Array<{ name: string }>).map(
     t => t.name

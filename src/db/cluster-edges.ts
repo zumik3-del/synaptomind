@@ -24,7 +24,6 @@ export function getClusterForThoughtBatch(
   return result
 }
 
-/** Cluster thought row by id; undefined when the id is not a cluster. */
 export function getClusterThought(
   db: Database,
   id: string

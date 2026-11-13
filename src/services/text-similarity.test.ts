@@ -43,18 +43,15 @@ describe('jaccard', () => {
   })
 
   test('partial overlap is proportional to union', () => {
-    // {a,b,c} ∩ {b,c,d} = {b,c}, union = {a,b,c,d} → 2/4 = 0.5
     expect(jaccard('a b c', 'b c d')).toBeCloseTo(0.5, 5)
   })
 
   test('case-sensitive; callers normalise first', () => {
-    // jaccard operates on raw input; normalise() handles lowercasing.
     expect(jaccard('Hello hello', 'hello HELLO')).toBeCloseTo(1 / 3, 5)
     expect(jaccard('a b c', 'a b c')).toBe(1)
   })
 
   test('duplicates within a string are deduplicated via Set', () => {
-    // {a,a,b} vs {a,b,b} → overlap {a,b}, union {a,b} → 1
     expect(jaccard('a a b', 'a b b')).toBe(1)
   })
 
@@ -63,13 +60,6 @@ describe('jaccard', () => {
   })
 })
 
-// ── calibrateRelevance (task #2178) ──────────────────────────────────────────
-//
-// The raw e5-small cosine scale is compressed (unrelated pairs sit around 0.76),
-// so a raw similarity cannot be thresholded. `calibrateRelevance` maps the
-// measured band [unrelatedFloor, confidenceFloor] onto [0, 1]. These cases pin
-// the exact fixture values the default gate is set from; the repo defaults are
-// read from `DEFAULTS` so the fixture cannot silently drift from config.
 describe('calibrateRelevance', () => {
   const FLOOR = 0.8
   const CEIL = 0.9
@@ -106,8 +96,6 @@ describe('calibrateRelevance', () => {
   })
 
   test('a degenerate band steps at the confidence floor instead of dividing by zero', () => {
-    // `span <= 0` (misconfigured override): everything at/above the floor is a
-    // strong match (1), everything below it is unrelated (0). No NaN escapes.
     expect(calibrateRelevance(0.9, 0.9, 0.9)).toBe(1)
     expect(calibrateRelevance(0.95, 0.9, 0.9)).toBe(1)
     expect(calibrateRelevance(0.85, 0.9, 0.9)).toBe(0)
@@ -115,9 +103,6 @@ describe('calibrateRelevance', () => {
   })
 
   test('a non-finite similarity is 0, never NaN', () => {
-    // `clamp01` maps every non-finite input to 0 (NaN and ±Infinity alike), so
-    // no NaN can leak into a score or into the gate comparison. A stored cosine
-    // similarity is always finite in practice; this only guards the arithmetic.
     expect(calibrateRelevance(Number.NaN, FLOOR, CEIL)).toBe(0)
     expect(calibrateRelevance(Number.POSITIVE_INFINITY, FLOOR, CEIL)).toBe(0)
   })

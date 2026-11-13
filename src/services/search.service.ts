@@ -57,41 +57,12 @@ export interface SearchServiceOptions {
   clusterFilter?: 'only' | 'exclude'
   minImportance?: number
   hybrid?: boolean
-  /** Superseded thoughts: `off` (no annotation), `flag` (default), `suppress`. */
   supersessionMode?: SupersessionMode
-  /** Contradicted thoughts: `off` or `flag` (default). Never suppressed. */
   contradictionMode?: ContradictionMode
-  /**
-   * Precomputed query embedding. When set the embedder is not called — the eval
-   * harness and tests inject a deterministic vector here. Production callers
-   * leave it unset.
-   */
   embedding?: Float32Array
-  /**
-   * Opt-in recency boost weight, clamped to `[0, 1]` (non-finite/undefined →
-   * `0`). `0` (default) preserves relevance-only ranking byte-identically.
-   */
   recencyWeight?: number
-  /**
-   * Decay half-life in days, clamped to `[1, 3650]` (non-finite/undefined or
-   * `<= 0` → `30`). Only meaningful when `recencyWeight > 0`.
-   */
   recencyHalfLifeDays?: number
-  /**
-   * Relevance gate on the calibrated `relevance` scale, clamped to `[0, 1]`.
-   * Omitted → the measured default (`DEFAULT_MIN_RELEVANCE` in
-   * `search-normalize.service.ts`): a row without a lexical (BM25) anchor is kept only
-   * when its calibrated `relevance` clears the threshold. An explicit `0`
-   * disables the gate and keeps the pre-#2178 result set byte-identically (same
-   * rows, same order). The candidate pool is widened when the gate can drop rows
-   * so `topK` survivors are still reachable.
-   */
   minRelevance?: number
-  /**
-   * Override for the `low_confidence` cosine floor, clamped to `[0, 1]`. When
-   * omitted the configured `search.confidence.vectorFloor` is used. Intended for
-   * tests and config overrides; production callers leave it unset.
-   */
   confidenceFloor?: number
 }
 
@@ -101,21 +72,12 @@ export interface GroupedResult {
   items?: SearchResult[]
 }
 
-/**
- * Internal search run: the outcome plus the collection-level degradation flag.
- */
 interface SearchRun extends SearchOutcome {
   degraded: boolean
 }
 
 async function runSearch(options: SearchServiceOptions, d: Database): Promise<SearchRun> {
   const normalized = normalizeSearchOptions(options)
-  // An id-shaped query is an explicit reference: resolve it directly, before the
-  // embedding/BM25 legs and the scope filters. A *miss* is not an answer though —
-  // an id-shaped word must never zero out a legitimate search — so it falls
-  // through to the normal search and only leaves a warning behind. A prefix is
-  // not a reference: it is a timestamp window, so it inherits the caller's
-  // status/project scope (a full UUID does not).
   const idLookup = runIdLookup(options.query, d, normalized.topK, {
     statusFilter: options.statusFilter,
     projectFilter: options.projectFilter,
@@ -156,9 +118,6 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
   })
   const dbDegraded = (dbResults as { degraded?: boolean }).degraded === true
 
-  // Calibrate the cosine leg onto the measured unrelated→strong-match band. Only
-  // embedding-leg hits carry a cosine scale; a BM25-only hit keeps `relevance`
-  // undefined so a keyword match is never read as a weak semantic one.
   for (const result of dbResults) {
     if (result.similarity !== undefined) {
       result.relevance = calibrateRelevance(result.similarity, unrelatedFloor, confidenceFloor)
@@ -167,14 +126,9 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
 
   const filtered = options.tagFilter ? filterByTags(dbResults, options.tagFilter, d) : dbResults
   const standing = applyGraphStanding(filtered, options, d)
-  // Gate after standing annotation (a suppressed row is already gone) and
-  // before the final `topK` slice; the DB-slice overfetch above backfills it.
   const gated = standing.filter(r => keepsUnderRelevanceGate(r, minRelevance))
   const finalResults = gated.length > topK ? gated.slice(0, topK) : gated
   const degraded = embeddingDegraded || dbDegraded
-  // Single annotation layer (service): fold the embedding leg's state into the
-  // DB leg's degraded flag on each result. The former `signals` triple is
-  // collapsed into this one boolean, mirroring the placement engine.
   for (const r of finalResults) {
     r.degraded = degraded
   }
@@ -186,27 +140,11 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
   }
   if (idWarnings.length > 0) {
     outcome.warnings = idWarnings
-    // With nothing to fall back to, "id_not_found" is the more precise answer
-    // than a bare "no_match"; rows the fallback did return keep `no_match`
-    // semantics and carry only the warning.
     if (standing.length === 0) outcome.reason = 'id_not_found'
   }
   return outcome
 }
 
-/**
- * Answer an id-shaped query that addressed at least one thought.
- *
- * Standing is annotated exactly as for any other hit, but never suppressed: a
- * caller who named an id must get that thought back even when it is superseded
- * (the agent-facing default is `suppress`), so a suppressed request degrades to
- * `flag` here. A contested row is not re-flagged `low_confidence` though: that
- * field means "weak retrieval" (no BM25 anchor, cosine below the vector floor),
- * and an id hit has no cosine at all — `standing`/`superseded_by`/
- * `contradicted_by` already carry the contested state, and a client that drops
- * low-confidence rows would otherwise discard the exact row it asked for. The
- * relevance gate never sees these rows (an id is not a similarity match).
- */
 function resolveIdLookup(
   lookup: IdLookup,
   options: SearchServiceOptions,
@@ -236,19 +174,10 @@ export async function searchThoughts(
   d: Database = getDb()
 ): Promise<SearchResult[]> {
   const { items, degraded } = await runSearch(options, d)
-  // Preserve a top-level degraded flag for empty result sets (consumed by
-  // getContextService and other in-process callers; not an array own-property
-  // on the wire).
   Object.assign(items, { degraded })
   return items
 }
 
-/**
- * Source-compatible sibling of {@link searchThoughts}: same rows and order,
- * plus the machine-readable match bookkeeping (`matched`, `filtered_out`,
- * `reason`, `ambiguous`, `warnings`). The MCP envelope consumes this; the
- * array-returning service stays the surface for context and the id lookup.
- */
 export async function searchThoughtsOutcome(
   options: SearchServiceOptions,
   d: Database = getDb()
@@ -284,8 +213,6 @@ export function groupResultsByCluster(
     results.map(r => r.thought.id)
   )
 
-  // `getClusterForThoughtBatch` already returns the cluster Thought objects, so
-  // build a lookup by cluster id and avoid a second SELECT per cluster below.
   const clusterThoughtById = new Map<string, Thought>()
   for (const cluster of clusterByThought.values()) {
     if (!clusterThoughtById.has(cluster.id)) clusterThoughtById.set(cluster.id, cluster)

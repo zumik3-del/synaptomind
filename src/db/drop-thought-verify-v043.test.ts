@@ -7,9 +7,6 @@ import type { Migration } from './migrations'
 import { MIGRATIONS } from './migrations'
 import v043 from './migrations/v043-drop-thought-verify'
 
-// Migration coverage for v043: the thought-verifier subsystem is retired, so
-// its table (created by v019 and kept as history there) leaves the live schema.
-
 const MEM_OPTS = { isMemory: true, dimensions: 384 }
 
 beforeEach(createTestDb)
@@ -31,7 +28,6 @@ function indexNames(db: Database): string[] {
   ).map(row => row.name)
 }
 
-/** The bootstrap tables `initDb` creates before the migration list runs (`init.ts`). */
 function bootstrap(db: Database): void {
   db.exec(`CREATE TABLE IF NOT EXISTS thoughts (
     id TEXT PRIMARY KEY, content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', source TEXT,
@@ -49,7 +45,6 @@ function bootstrap(db: Database): void {
   db.exec(`CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)`)
 }
 
-/** Build a full schema in a throwaway `:memory:` DB from a migration subset. */
 function buildSchema(migrations: Migration[]): Database {
   const db = new Database(':memory:')
   bootstrap(db)
@@ -67,7 +62,6 @@ test('v043: a fresh DB has neither the thought_verify table nor its indexes', ()
 test('v043: apply() drops the table and both indexes, and a second run is a no-op', () => {
   const db = buildSchema(MIGRATIONS.filter(migration => migration.version <= 42))
   try {
-    // Precondition: the v042 shape every existing install has.
     expect(tableNames(db)).toContain('thought_verify')
     expect(indexNames(db)).toContain('idx_thought_verify_flagged')
 
@@ -86,7 +80,6 @@ test('v043: a fresh DB and a v042 -> v043 migrated DB produce the same table set
   const fresh = buildSchema(MIGRATIONS.filter(migration => migration.version <= 43))
   const migrated = buildSchema(MIGRATIONS.filter(migration => migration.version <= 42))
   try {
-    // The legacy install still carries the retired table before the upgrade.
     expect(tableNames(migrated)).toContain('thought_verify')
 
     v043.apply(migrated)

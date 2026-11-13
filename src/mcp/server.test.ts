@@ -4,10 +4,6 @@ import { InMemoryTransport } from '@modelcontextprotocol/server'
 import { createTestDb } from '../test/helpers'
 import { createMcpServer } from './server'
 
-// Coverage for task #170 finding F12: the MCP surface is intentionally
-// tools-only. This locks the decision down so a future change that registers
-// resources/prompts — and therefore a new capability on the wire — fails here.
-
 const EXPECTED_TOOLS = [
   'memory_recall',
   'memory_store',
@@ -48,7 +44,6 @@ describe('MCP surface is tools-only (F12)', () => {
   })
 
   test('prompts/list returns an empty list because no prompts capability is advertised', async () => {
-    // In SDK v2 the client short-circuits to an empty list when the capability is absent.
     const { prompts } = await client.listPrompts()
     expect(prompts).toEqual([])
   })

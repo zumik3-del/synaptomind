@@ -17,20 +17,10 @@ function validate<T>(parsed: unknown, schema: z.ZodType<T>): T {
   return result.data
 }
 
-/** Read the request body as text; an absent/empty payload reads as `''`. */
 async function readBody(c: Context): Promise<string> {
   return (await c.req.text()).trim()
 }
 
-/**
- * Read an optional JSON request body.
- *
- * The default is applied to an *absent* body and to a JSON `null` literal (both
- * mean "no payload"): a malformed payload and a schema mismatch both map to
- * `ValidationError` (HTTP 400) instead of being silently replaced by defaults
- * (audit M8). Pass `schema` to validate the parsed body through the shared
- * request contract (`src/validation.ts`).
- */
 export async function jsonBodyOrDefault<T>(
   c: Context,
   defaultValue: T,
@@ -39,8 +29,6 @@ export async function jsonBodyOrDefault<T>(
   const raw = await readBody(c)
   if (raw === '') return defaultValue
   const parsed = parseJson(raw)
-  // A JSON `null` literal means "no payload" too: without this guard the bare
-  // `null` reaches the call site and dereferences into a 500 (audit M8).
   if (parsed === null) return defaultValue
   return schema ? validate(parsed, schema) : (parsed as T)
 }

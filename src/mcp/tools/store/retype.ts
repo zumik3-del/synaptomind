@@ -18,8 +18,6 @@ export const retypeHandler: ActionHandler = {
     const edgeId = args.edge_id as string
     const newType = args.new_type as string
 
-    // Dry-run and confirm run the SAME validation (ADR §2): the preview
-    // must never promise a confirm would reject.
     const edge = validateRetypeService(edgeId, newType)
     const oldType = edge.type
 
@@ -41,9 +39,6 @@ export const retypeHandler: ActionHandler = {
       }),
       apply: () => {
         const retyped = retypeEdgeService(edgeId, newType)
-        // retypeEdge does delete+insert, so the id changes — return the fresh
-        // id so a chained unlink/retype resolves. Keep `edge_id` (new id) for
-        // backward compatibility and expose both ids for traceability.
         return {
           status: 'retyped',
           edge_id: retyped.id,

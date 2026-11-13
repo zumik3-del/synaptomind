@@ -10,108 +10,28 @@ export interface SearchOptions {
   clusterFilter?: 'only' | 'exclude'
   minImportance?: number
   hybrid?: boolean
-  /**
-   * Opt-in recency boost weight in `[0, 1]`. `<= 0` or non-finite disables the
-   * boost entirely: no re-sort and no `recency_score`/`final_score` fields.
-   * Default `0` preserves the current relevance-only ranking byte-identically.
-   */
   recencyWeight?: number
-  /** Decay half-life in days (strictly positive); non-finite or `<= 0` → 30. */
   recencyHalfLifeDays?: number
-  /** Clock override for deterministic tests; defaults to `Date.now()`. */
   nowMs?: number
-  /**
-   * Cosine-similarity floor used to compute `low_confidence` (config
-   * `search.confidence.vectorFloor`, threaded as a plain number so the DB layer
-   * stays config-free). Non-finite/undefined falls back to the config default
-   * (`0.9`). The service always passes the resolved, clamped value.
-   */
   confidenceFloor?: number
 }
 
-/**
- * Search legs that can contribute a hit, in the fixed `match_source` order.
- * `id` is never combined with the others: an id lookup short-circuits the
- * embedding/BM25 legs and returns the addressed thought directly.
- */
 export type SearchMatchSource = 'embedding' | 'bm25' | 'id'
 
 export interface SearchResult {
   thought: Thought
-  /**
-   * Cosine distance (1 - similarity) for the vector/embedding leg. Present only
-   * when the embedding leg matched (`match_source` contains `embedding`); omitted
-   * for BM25-only matches so a keyword hit is not misread as zero relevance.
-   */
   distance?: number
-  /**
-   * Cosine similarity for the embedding leg. Present only when the embedding leg
-   * matched (`match_source` contains `embedding`); omitted for BM25-only matches.
-   */
   similarity?: number
-  /**
-   * Reciprocal Rank Fusion score from the hybrid merge (higher = more
-   * relevant). Present only when fusion ran — i.e. the hybrid path with a
-   * query and a non-empty merge; absent on the vector-only path.
-   */
   rrf_score?: number
-  /**
-   * FTS5 BM25 relevance score, present only for hits matched by the keyword
-   * leg. Sign convention: higher = more relevant (the raw FTS5 `bm25()` value
-   * is negative, so it is exposed negated).
-   */
+  /** FTS5 raw `bm25()` is negative, so it is exposed negated: higher = more relevant. */
   bm25_score?: number
-  /**
-   * Calibrated relevance in `[0, 1]` for an embedding-leg hit: the cosine
-   * similarity rescaled onto the measured unrelated→strong-match band
-   * (`(similarity - unrelatedFloor) / (confidenceFloor - unrelatedFloor)`,
-   * clamped). `0` means "indistinguishable from an unrelated thought", `1` means
-   * "at or above the strong-match floor". Present only when the embedding leg
-   * matched: a BM25-only hit carries no calibrated cosine scale and leaves it
-   * undefined, and an id lookup has no cosine signal at all.
-   */
   relevance?: number
-  /**
-   * Search legs that matched this thought, always present, in the fixed order
-   * `embedding`, `bm25`. The embedding-only path returns `['embedding']`; an id
-   * lookup returns `['id']`.
-   */
   match_source: SearchMatchSource[]
-  /**
-   * Relevance-confidence verdict, always present. `true` = no strong evidence
-   * this result is relevant: neither a lexical (BM25) anchor nor a vector hit at
-   * or above the configured similarity floor. Computed from the combined signal
-   * `!hasLexical && (!hasVector || sim < floor)`; it never alters ranking and is
-   * independent of recency/standing.
-   */
   low_confidence: boolean
-  /**
-   * True when the search degraded: the embedding is unavailable, a search leg
-   * failed, or the filtered vector leg was cut short by the candidate pool — so
-   * an empty/short result cannot be read as "this project has no match". A
-   * project-scoped answer whose pool delivered no row of the addressed project
-   * (nearer `__global__` rows can consume the whole walk) degrades too. Mirrors
-   * the placement engine's `degraded` flag. This single boolean replaces the
-   * former `signals` triple.
-   */
   degraded?: boolean
-  /**
-   * Pure exponential recency decay `0.5^(ageDays / halfLifeDays)` in `[0, 1]`,
-   * independent of relevance. Present only when the recency boost is enabled
-   * (`recencyWeight > 0`); `1` = created at `nowMs`.
-   */
   recency_score?: number
-  /**
-   * Combined ordering key `relevant + recencyWeight * recency_score`, in
-   * `[0, 1+w]`, where `relevant = rrf_score / rrfMax` on the fused path and
-   * `similarity` on the vector-only path. Present only when the recency boost
-   * is enabled. `rrf_score` stays raw/un-boosted.
-   */
   final_score?: number
-  /** Graph standing; present only when the caller enables graph annotation. */
   standing?: GraphStanding
-  /** Sources of incoming `replaces` edges (this thought is superseded). */
   superseded_by?: string[]
-  /** `contradicts` partners (either direction, symmetric edge type). */
   contradicted_by?: string[]
 }

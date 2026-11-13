@@ -6,13 +6,6 @@ import { join } from 'node:path'
 import { openDatabase } from '../db/init'
 import { Database } from 'bun:sqlite'
 
-// Regression coverage for the MCP stdio runtime (tasks #127-#134).
-//
-// In stdio mode stdout is the JSON-RPC wire, so any stray log line corrupts the
-// protocol. This suite boots the real entrypoint as a child process and asserts
-// stdout stays pure JSON-RPC, both in the default mode (background jobs are
-// delegated to the shared server) and in standalone mode (jobs owned locally).
-
 const repoRoot = join(import.meta.dir, '..', '..')
 const INIT = {
   jsonrpc: '2.0',
@@ -77,8 +70,6 @@ function runStdio(extraArgs: string[] = []): Promise<StdioRun> {
 
     child.stdout.on('data', chunk => {
       stdout += chunk.toString()
-      // Once the tools/list response is in, close stdin so the SDK shutdown
-      // path fires and the process exits on its own.
       if (!done && stdout.includes('"id":2')) child.stdin.end()
     })
     child.stderr.on('data', chunk => {
@@ -112,7 +103,6 @@ function assertPureJsonRpcLines(stdout: string): void {
     }
     expect(parsed.jsonrpc).toBe('2.0')
   }
-  // Named log prefixes must never appear on the wire.
   for (const marker of ['[synaptomind]', '[embedder]', '[search]', '[logs]']) {
     expect(stdout).not.toContain(marker)
   }
@@ -141,7 +131,6 @@ describe('MCP stdio runtime', () => {
     expect(exitCode).toBe(0)
     assertPureJsonRpcLines(stdout)
     expect(toolsFrom(stdout).length).toBe(11)
-    // Default stdio does NOT own the embedder or schedulers.
     expect(stderr).toContain('background jobs delegated to the shared server')
   }, 30_000)
 
@@ -151,13 +140,10 @@ describe('MCP stdio runtime', () => {
     expect(exitCode).toBe(0)
     assertPureJsonRpcLines(stdout)
     expect(toolsFrom(stdout).length).toBe(11)
-    // Standalone opts into local job ownership — no delegation message.
     expect(stderr).not.toContain('background jobs delegated to the shared server')
   }, 30_000)
 })
 
-// Exercise an actual tool call, not just tools/list: only the former accesses
-// the database and checks async context propagation through the stdio SDK.
 describe('stdio database boundary', () => {
   const id = '01900000-0000-7000-8000-000000000001'
 
@@ -265,7 +251,6 @@ describe('stdio database boundary', () => {
 
   test('an unavailable first user never becomes a fallback to another user', async () => {
     const f = fixture()
-    // A directory cannot be opened as a SQLite database but has a resolvable identity.
     const unavailable = join(f.root, 'unavailable.db')
     mkdirSync(unavailable)
     const result = await runBoundary(f.root, [

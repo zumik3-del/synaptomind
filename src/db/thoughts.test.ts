@@ -122,13 +122,6 @@ test('updateThought returns null for missing id', () => {
   expect(updated).toBeUndefined()
 })
 
-// ── content-dedupe guard on edit (v046, #2174 review finding) ────────────────
-//
-// One live (draft/active) thought per (content_hash, project_id) is a database
-// invariant, but an edit has no `ON CONFLICT DO NOTHING` escape hatch like
-// `createThought` does. An edit that would collide must read as a domain
-// conflict (409), not as a raw constraint fault (500).
-
 describe('updateThought content-dedupe guard', () => {
   test('refuses content a live thought in the same project already holds', () => {
     const db = getDb()
@@ -138,7 +131,6 @@ describe('updateThought content-dedupe guard', () => {
     expect(() => updateThought(db, other.id, { content: 'already stored' })).toThrow(
       ThoughtContentConflictError
     )
-    // The refusal is inert: neither row was written.
     expect(getThought(db, other.id)?.content).toBe('something else')
     expect(getThought(db, holder.id)?.content).toBe('already stored')
   })
@@ -179,8 +171,6 @@ describe('updateThought content-dedupe guard', () => {
     const db = getDb()
     const archived = createThought(db, { content: 'revived content' })
     archiveThought(db, archived.id)
-    // Creating the same content again is allowed: archived rows do not hold
-    // the dedupe slot (that is exactly how the slot gets freed).
     const live = createThought(db, { content: 'revived content' })
     expect(live.id).not.toBe(archived.id)
 
@@ -277,8 +267,6 @@ test('listThoughts returns empty when no thoughts match filter', () => {
   expect(result).toHaveLength(0)
 })
 
-// Content-hash deduplication tests (issue #58)
-
 test('createThought dedup: same content returns existing thought', () => {
   const db = getDb()
   const first = createThought(db, { content: 'duplicate me' })
@@ -354,7 +342,6 @@ test('listThoughts filters by tag', () => {
   expect(nlp).toHaveLength(2)
 })
 
-// Project tests
 test('listProjects returns default project', () => {
   const projects = listProjects(getDb())
   expect(projects.length).toBeGreaterThanOrEqual(1)
@@ -446,8 +433,6 @@ test('listProjects counts thoughts per project', () => {
   expect(found?.thought_count).toBe(2)
 })
 
-// thought_importance tests
-
 test('creating a thought seeds a thought_importance row with importance 1.0', () => {
   const db = getDb()
   const t = createThought(db, { content: 'new thought' })
@@ -513,8 +498,6 @@ test('decayImportance skips recent last_decay', () => {
   expect(after).toBe(before)
 })
 
-// ── deleteThought: the only production removal path (#2201) ──────────────────
-
 /**
  * `:memory:` test DBs cannot host `vec_thoughts` — vec0 is unavailable without a
  * file-backed DB (AGENTS.md §8) — so a plain table with the same shape stands
@@ -542,20 +525,15 @@ test('deleteThought removes the thought, its vec row and its orphan tag', () => 
     Buffer.alloc(0)
   )
 
-  // Precondition: the row this test deletes is really there.
   expect(db.prepare(`SELECT 1 FROM vec_thoughts WHERE id = ?`).get(doomed)).not.toBeNull()
   expect(db.prepare(`SELECT 1 FROM tags WHERE name = ?`).get('orphan-tag-unique')).not.toBeNull()
 
   expect(deleteThought(db, doomed)).toBe(true)
 
   expect(db.prepare(`SELECT 1 FROM thoughts WHERE id = ?`).get(doomed)).toBeNull()
-  // The vector row goes with it inside the same deletion path: a leftover
-  // embedding would be a dead vector the sweep never re-embeds.
   expect(db.prepare(`SELECT 1 FROM vec_thoughts WHERE id = ?`).get(doomed)).toBeNull()
-  // The doomed thought's tag had no other user → pruned; the shared tag stays.
   expect(db.prepare(`SELECT 1 FROM tags WHERE name = ?`).get('orphan-tag-unique')).toBeNull()
   expect(db.prepare(`SELECT 1 FROM tags WHERE name = ?`).get('shared-tag')).not.toBeNull()
-  // Untouched neighbours keep their thoughts and their vectors.
   for (const id of [keeper, alsoKeeper]) {
     expect(db.prepare(`SELECT 1 FROM thoughts WHERE id = ?`).get(id)).not.toBeNull()
   }

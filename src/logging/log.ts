@@ -94,9 +94,7 @@ export class StreamSink implements LogSink {
       this.opts.stdio || isWarnOrError(entry.level) ? this.opts.stderr : this.opts.stdout
     try {
       stream.write(formatEntry(entry, this.opts.format) + '\n')
-    } catch {
-      /* ignore */
-    }
+    } catch {}
   }
   close(): void {}
 }
@@ -116,25 +114,19 @@ export class FileSink implements LogSink {
       const dir = join(this.path, '..')
       try {
         mkdirSync(dir, { recursive: true })
-      } catch {
-        /* ignore */
-      }
+      } catch {}
       if (existsSync(this.path)) {
         try {
           const st = statSync(this.path)
           if (st.size + Buffer.byteLength(line) > this.maxBytes) this.rotate()
-        } catch {
-          /* ignore */
-        }
+        } catch {}
       }
       appendFileSync(this.path, line)
     } catch (e) {
       this.disabled = true
       try {
         process.stderr.write(`[logs] file sink disabled: ${e}\n`)
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     }
   }
   private rotate(): void {
@@ -143,32 +135,24 @@ export class FileSink implements LogSink {
       if (existsSync(oldest))
         try {
           unlinkSync(oldest)
-        } catch {
-          /* ignore */
-        }
+        } catch {}
       for (let i = this.maxFiles - 1; i >= 1; i--) {
         const from = `${this.path}.${i}`
         const to = `${this.path}.${i + 1}`
         if (existsSync(from))
           try {
             renameSync(from, to)
-          } catch {
-            /* ignore */
-          }
+          } catch {}
       }
       if (existsSync(this.path))
         try {
           renameSync(this.path, `${this.path}.1`)
-        } catch {
-          /* ignore */
-        }
+        } catch {}
     } catch (e) {
       this.disabled = true
       try {
         process.stderr.write(`[logs] rotation failed: ${e}\n`)
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     }
   }
   close(): void {}
@@ -180,17 +164,13 @@ export class CompositeSink implements LogSink {
     for (const s of this.sinks)
       try {
         s.write(entry)
-      } catch {
-        /* ignore */
-      }
+      } catch {}
   }
   close(): void {
     for (const s of this.sinks)
       try {
         s.close()
-      } catch {
-        /* ignore */
-      }
+      } catch {}
   }
 }
 
@@ -299,18 +279,14 @@ export class Logger {
     for (const s of this.sinks)
       try {
         s.write(entry)
-      } catch {
-        /* ignore */
-      }
+      } catch {}
   }
 
   closeLogging(): void {
     for (const s of this.sinks)
       try {
         s.close()
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     this.showDebugCache = null
     this.debugCacheTime = 0
   }

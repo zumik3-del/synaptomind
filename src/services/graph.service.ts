@@ -135,27 +135,12 @@ interface ContextResult {
   degraded?: boolean
 }
 
-/** Options of {@link getContextService}. */
 export interface ContextServiceOptions {
-  /** Max edges returned for the neighbourhood chain (default `config.graph.maxDegree`). */
   maxDegree?: number
-  /** Project scope of the lookup (`undefined` = every project). */
   projectFilter?: string
-  /**
-   * Relevance gate on the calibrated scale. `0` (default) keeps the context path
-   * ungated; only an explicit positive value re-enables the gate.
-   */
   minRelevance?: number
 }
 
-/**
- * Best match for a context lookup plus its neighbourhood.
- *
- * The context path is deliberately ungated (task #2187): it asks for the single
- * best cosine match, so the default relevance gate the search surface applies
- * would turn a weak-but-real neighbourhood into "no match". `minRelevance`
- * therefore defaults to `0` here and only an explicit value re-enables the gate.
- */
 export async function getContextService(
   query: string,
   options: ContextServiceOptions = {},
@@ -174,8 +159,6 @@ export async function getContextService(
     d
   )
   if (!results || results.length === 0) {
-    // Surface degradation instead of throwing: when the search degraded, return
-    // a degraded-only result so callers can observe it rather than NotFoundError.
     const degraded = (results as { degraded?: boolean }).degraded === true
     if (degraded) {
       return { degraded }

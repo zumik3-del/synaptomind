@@ -22,8 +22,6 @@ export interface EmbedderClientDeps {
 }
 
 export const DEFAULT_DEPS: EmbedderClientDeps = {
-  // Config/env only: the `_meta` runtime overrides this used to read had no
-  // production writer and were removed in task #2201.
   getEmbedderIdleTimeoutMs: () => config.embedder.idleTimeoutMs,
   getEmbedderPrecache: () => config.embedder.precache,
   insertLog: defaultInsertLog,
@@ -35,10 +33,7 @@ export type EmbedderState = 'ok' | 'starting' | 'failed' | 'stopped'
 // biome-ignore lint/style/useConst: mutable for test injection of the deadline
 export let EMBEDDER_START_TIMEOUT_MS = 300_000
 
-/** Ceiling of the exponential start-failure backoff (see `backoffBaseMs`). */
 const MAX_BACKOFF_MS = 30_000
-
-/** Production first backoff window; overridable via `EMBEDDER_BACKOFF_BASE_MS`. */
 const BACKOFF_BASE_MS = 1_000
 
 export function sleepUnref(ms: number): Promise<void> {
@@ -78,10 +73,6 @@ export class EmbedderSupervisor {
   }
 
   getEmbedderState(): EmbedderState {
-    // A first load that makes progress but exceeds EMBEDDER_START_TIMEOUT_MS is
-    // latched as 'failed' (see runEnsureReady final cleanup) rather than
-    // 'stopped', so /health surfaces the stall instead of a perpetual
-    // 'starting'. A slow-but-successful load within the deadline returns 'ok'.
     if (this.ready) return 'ok'
     if (this.startFailed) return 'failed'
     return this.proc && !this.dead ? 'starting' : 'stopped'
@@ -222,14 +213,6 @@ export class EmbedderSupervisor {
     return EMBEDDER_START_TIMEOUT_MS
   }
 
-  /**
-   * First backoff window after a failed start, doubled per attempt and capped at
-   * MAX_BACKOFF_MS. `EMBEDDER_BACKOFF_BASE_MS` overrides the production second:
-   * the lifecycle suite shrinks it (with the full second its three
-   * crash/cooldown cases spend ~5 s each asleep, which dominated the whole test
-   * run), and an operator can tune a pathological restart loop without a
-   * rebuild.
-   */
   protected backoffBaseMs(): number {
     const env = process.env.EMBEDDER_BACKOFF_BASE_MS
     if (env) {

@@ -22,10 +22,6 @@ function shortContent(content: string, limit = 120): string {
   return flat.length > limit ? `${flat.slice(0, limit)}…` : flat
 }
 
-/**
- * Pending candidates — due `pending`-tagged thoughts, minus `replaces` targets.
- * Shared with the `pending_items` slot so both surfaces agree on what is due.
- */
 export function listPendingCandidates(
   projectId?: string,
   d: Database = getDb()
@@ -34,15 +30,6 @@ export function listPendingCandidates(
   return findFrontierCandidates(d, projectId).filter(c => c.is_pending === 1 && !replaced.has(c.id))
 }
 
-/**
- * Frontier (issue #219) — a deterministic "what to do next" ranking over the
- * thought graph. Candidates are directive/todo/pending-tagged thoughts whose
- * optional `surface_after` delay has elapsed. Replaced thoughts (incoming
- * `replaces` edge) are dropped; upstream candidates block their dependents via
- * `depends_on` edges.
- *
- * priority ∈ [0,1] = 0.5·importance + 0.15·unblocked + age bonus.
- */
 export function getFrontierService(
   input: FrontierInput = {},
   d: Database = getDb()
@@ -51,13 +38,10 @@ export function getFrontierService(
 
   const candidates = new Map<string, FrontierCandidateRow>()
 
-  // 1) directive/todo/pending-tagged active+draft thoughts that are due
   for (const row of findFrontierCandidates(d, input.project_id)) candidates.set(row.id, row)
 
-  // 2) replaced thoughts are outdated — out of the plan
   for (const id of getReplacedTargetIds(d)) candidates.delete(id)
 
-  // 3) upstream blocking inside the candidate set (depends_on)
   const upstreamOf = new Map<string, string[]>()
   for (const edge of getAllActiveEdges(d)) {
     if (!candidates.has(edge.source_id) || !candidates.has(edge.target_id)) continue

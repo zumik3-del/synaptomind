@@ -10,17 +10,6 @@ import {
   weightOf
 } from './lanes'
 
-/**
- * Guard for the parallel runner's manifest (`src/test/lanes.ts`).
- *
- * The manifest decides which files run in the fast lane and how the shards are
- * balanced. Nothing else checks it, so a renamed file or a new entrypoint test
- * could quietly weaken the split: a stale entry makes `--lane integration` run
- * fewer files than intended, and an unlisted entrypoint test drags a 1.4 s boot
- * into the edit/run loop.
- */
-
-/** A test file that spawns the app entry point or binds a real listener. */
 const SPAWNS_PROCESS = /Bun\.spawn\(|spawnSync\(|spawn\(|execFileSync\(/
 const ENTRYPOINT = /index\.ts/
 const BINDS_LISTENER = /Bun\.serve\(|createServer\(|\.listen\(/
@@ -38,10 +27,6 @@ describe('test lanes', () => {
   })
 
   test('a test file that boots the entry point or binds a listener is in the slow lane', async () => {
-    // One-directional on purpose: the manifest may also hold files that are
-    // merely expensive (the embedder lifecycle suite, the source-tree guard).
-    // Files already in the slow lane need no reading, and the rest are read
-    // concurrently — a serial pass costs ~1 s on a slow mount.
     const candidates = allTestFiles().filter(file => laneOf(file) !== 'integration')
     const sources = await Promise.all(
       candidates.map(async file => ({ file, source: await Bun.file(join(REPO_ROOT, file)).text() }))
@@ -87,7 +72,6 @@ describe('test lanes', () => {
     const placement = heaviest.map(file => shards.findIndex(shard => shard.includes(file)))
 
     expect(placement.every(index => index >= 0)).toBe(true)
-    // The two most expensive files must not share a shard.
     expect(placement[0]).not.toBe(placement[1])
   })
 })

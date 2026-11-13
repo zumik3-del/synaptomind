@@ -24,8 +24,6 @@ test('upsertThoughtUrlLink creates then updates in place', () => {
   expect(second.id).toBe(first.id)
   expect(second.url).toBe('https://b.com')
 
-  // The single-thought read path goes through the batch reader (task #2207
-  // deleted the separate `getThoughtUrlLinks` export).
   expect(getThoughtUrlLinksForThoughts(db, [id])).toHaveLength(1)
 })
 

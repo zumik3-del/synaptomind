@@ -1,25 +1,3 @@
-/**
- * Explicit per-item `apply` for queued placement proposals (ADR 2026-09-28 P8,
- * §2.5–2.8 / R4).
- *
- * Thin orchestrator: it never writes the graph itself — every mutation
- * delegates to an existing writer (`createEdgeService`) inside the same
- * transaction as the queue-state update, so the graph and the queue cannot
- * diverge (ADR §2.7). `confirm: false` (the default) is a non-mutating dry-run;
- * nothing ambient/scheduled calls `apply`.
- *
- * Conflict matrix (ADR §2.6): exact/symmetric duplicate → idempotent success;
- * reverse/different-type conflict, archived target, stale fingerprint, cluster
- * over `maxClusterSize` → `stale`; invalid type, cluster constraint
- * violation → typed `failed`.
- *
- * Every row this service accepts carries a run envelope (ADR 2026-09-29 §2.7,
- * §2.8): the caller's `run_id` verbatim, or — for an item the caller left
- * un-enveloped — one synthesized by `apply-run-envelope.service.ts` and handed back, so
- * no committed mutation is unreachable by `rollback(run_id)`.
- * `applyBatchService` shares one envelope across the whole batch.
- */
-
 import type { Database } from 'bun:sqlite'
 import { getDb } from '../db'
 import {
@@ -62,23 +40,12 @@ export type {
   RunRefusal
 } from './placement-apply.types'
 
-/**
- * Per-run cap on the edge items one apply run may write (task #1961).
- *
- * The deleted `apply-run-guards.ts` bounded the same `edge` items with
- * `triage.maxLinksPerRun`; that config key left with the triage subsystem
- * (task #1951), but `edge` is now the only kind the queue creates, so the
- * surviving apply path keeps the bound. Deliberately a constant: no config key
- * and no env var — the guard is a safety ceiling, not a tuning knob.
- */
 export const MAX_EDGE_ITEMS_PER_RUN = 20
 
-/** The apply direction never plans the rollback-only `deleteEdgeService`. */
 function isApplyWriterCall(call: WriterCall): call is ApplyWriterCall {
   return call.writer !== 'deleteEdgeService'
 }
 
-/** The existing-writer call(s) `confirm:true` would execute (never mutates). */
 function plannedCalls(row: PlacementProposalRow): ApplyWriterCall[] {
   return (planWriterCalls(row, 'apply', plannedEdge(row)) ?? []).filter(isApplyWriterCall)
 }
@@ -88,11 +55,6 @@ interface WriterRun {
   result: Record<string, unknown>
 }
 
-/**
- * Plan and execute the existing-writer call(s) for a validated `ok` row
- * (ADR §2.5): one dispatch produces both the plan reported back to the caller
- * and the execution result stored on the row.
- */
 function executeWriter(row: PlacementProposalRow, d: Database): WriterRun {
   const calls = plannedCalls(row)
   if (calls.length === 0) throw new ValidationError('proposal has no supported apply action')
@@ -112,15 +74,13 @@ function executeWriter(row: PlacementProposalRow, d: Database): WriterRun {
 
 type WriterErrorOutcome = { kind: 'stale' | 'failed' | 'already_applied'; reason: string }
 
-/** Map a writer exception to the conflict matrix (ADR §2.6). */
 function mapWriterError(err: unknown): WriterErrorOutcome {
   if (err instanceof EdgeAlreadyExistsError) {
-    // Exact directed duplicate: the requested state already holds.
     return { kind: 'already_applied', reason: err.message }
   }
   if (err instanceof EdgeConflictError) return { kind: 'stale', reason: err.message }
   if (err instanceof ValidationError) {
-    // `merge.ts` throws "Source thought is already archived" — the graph moved.
+    // No typed error for this one: the message text is the only signal.
     const stale = err.message.toLowerCase().includes('already archived')
     return { kind: stale ? 'stale' : 'failed', reason: err.message }
   }
@@ -135,11 +95,6 @@ function mapWriterError(err: unknown): WriterErrorOutcome {
   return { kind: 'failed', reason: err instanceof Error ? err.message : String(err) }
 }
 
-/**
- * Mark an already-satisfied item accepted without calling a writer (ADR §2.7).
- * It mutates nothing, but it is still an accepted row and still joins a run —
- * `rollback` reads `result.idempotent` to report it as `skipped`, not reverted.
- */
 function acceptIdempotent(
   row: PlacementProposalRow,
   now: string,
@@ -173,11 +128,6 @@ function acceptIdempotent(
   }
 }
 
-/**
- * Record a terminal `stale` (re-propose required) or a retryable `failed`
- * outcome. A failed row stays `pending` so the caller can fix the precondition
- * and retry (ADR §2.2, §2.6).
- */
 function persistOutcome(
   row: PlacementProposalRow,
   status: 'stale' | 'failed',
@@ -205,12 +155,6 @@ function persistOutcome(
   })
 }
 
-/**
- * Apply exactly one queued proposal (ADR §2.5–2.8).
- *
- * Returns a typed result — a `stale` refusal is a return value, not a throw.
- * Only an unknown proposal id throws `NotFoundError`.
- */
 export function applyProposalService(
   proposalId: string,
   options: ApplyOptions = {},
@@ -221,9 +165,6 @@ export function applyProposalService(
 
   const base = { proposal_id: proposalId, item_kind: row.item_kind }
 
-  // A row of a removed kind (tasks #1942, #1946) stays readable but can never
-  // be applied: the queue no longer knows how to write it. Refuse it with a
-  // typed refusal instead of letting it reach a writer.
   if (isLegacyItemKind(row.item_kind)) {
     return {
       ...base,
@@ -235,9 +176,6 @@ export function applyProposalService(
     }
   }
 
-  // Re-applying an accepted row is idempotent: the queue row is the guard and
-  // no writer is called (ADR §2.7). The run it was accepted under is echoed
-  // back, so this stays a faithful report of the row.
   if (row.state === 'accepted') {
     return {
       ...base,
@@ -255,8 +193,6 @@ export function applyProposalService(
 
   const gate = evaluateGates(row, options, d)
 
-  // Dry-run: validate and report the planned call without touching the graph
-  // or the queue (ADR §2.10.3). A refusal is surfaced with the same shape.
   if (options.confirm !== true) {
     if (gate.kind === 'stale') return { ...base, status: 'stale', reason: gate.reason }
     if (gate.kind === 'failed') return { ...base, status: 'failed', reason: gate.reason }
@@ -275,21 +211,14 @@ export function applyProposalService(
     return { ...base, status: 'failed', reason: gate.reason }
   }
 
-  // The envelope every accepted row carries (ADR 2026-09-29 §2.7, §2.8), and
-  // it MUST be resolved here — past the dry-run branch — so nothing is
-  // synthesized for a preview.
   const runId = resolveApplyRunId(options)
 
   if (gate.kind === 'already_applied') return acceptIdempotent(row, now, decidedBy, runId, d)
 
   try {
-    // One item = one transaction: the existing writer and the queue-state
-    // update commit together (ADR §2.7). Nested writer transactions are
-    // savepoints, so a writer failure rolls both back.
+    // Nested writer transactions are savepoints, so a writer failure rolls back both.
     const run = d.transaction(() => {
       const executed = executeWriter(row, d)
-      // The column is the rollback key; the id is echoed into the stored JSON
-      // and the log purely for audit (`result` stays opaque JSON elsewhere).
       const result = JSON.stringify({ ...executed.result, run_id: runId })
       const updated = updateProposalState(d, proposalId, {
         state: 'accepted',
@@ -298,8 +227,6 @@ export function applyProposalService(
         applied_at: now,
         result,
         run_id: runId,
-        // Post-writer snapshot, stored so `rollback` can distinguish
-        // "unchanged since apply" from "drifted" (ADR 2026-09-29 §2.8).
         fingerprint: pairFingerprint(d, row.source_thought_id, row.target_id)
       })
       return { executed, updated }
@@ -332,15 +259,10 @@ export function applyProposalService(
       persistOutcome(row, 'failed', mapped.reason, now, decidedBy, d)
       return { ...base, status: 'failed', reason: mapped.reason }
     }
-    // already_applied: the writer signalled the requested state already held.
     return acceptIdempotent(row, now, decidedBy, runId, d)
   }
 }
 
-/**
- * Apply a list of proposals, each independently (ADR §2.7). Never wraps the
- * items in one cross-item transaction: a partial batch is a valid outcome.
- */
 export function applyBatchService(
   proposalIds: string[],
   options: ApplyOptions = {},
@@ -348,9 +270,6 @@ export function applyBatchService(
 ): ApplyBatchOutcome {
   if (!Array.isArray(proposalIds)) throw new ValidationError('proposal_ids must be an array')
 
-  // The caller's per-call cap is evaluated once, before any item runs: an
-  // over-long batch is refused whole instead of applying a prefix
-  // (ADR 2026-09-29 §2.7).
   if (options.limit !== undefined && proposalIds.length > options.limit) {
     return {
       results: [],
@@ -364,13 +283,6 @@ export function applyBatchService(
 
   const rows = proposalIds.map(id => getProposal(d, id))
 
-  // The batch *is* the run (ADR 2026-09-29 §2.7, §2.8), so the per-run edge cap
-  // is evaluated here over the rows this call would write — the same point as
-  // the caller's `limit`: an over-long run is refused whole instead of applying
-  // a prefix, and the reason names the cap so a caller can split the run (task
-  // #1961). Rows that write no edge (already accepted → idempotent re-read,
-  // stale, failed, a retired kind) do not count. A dry-run is refused too, so a
-  // preview and the confirm that follows report the same verdict.
   const pendingEdges = rows.filter(
     row => row !== undefined && row.item_kind === 'edge' && row.state === 'pending'
   ).length
@@ -385,8 +297,6 @@ export function applyBatchService(
     }
   }
 
-  // One envelope for the whole batch, not one per item: the batch *is* the run
-  // (ADR 2026-09-29 §2.7, §2.8).
   const batchRunId = resolveBatchRunId(rows, options)
 
   const results: ApplyResult[] = []
@@ -401,9 +311,6 @@ export function applyBatchService(
       })
     }
   }
-  // Hand the envelope back only when a row actually joined it: a batch that
-  // accepted nothing (e.g. every item went `stale`) has no manifest to roll
-  // back, so reporting an id there would send the caller after an empty run.
   const joinedRun =
     batchRunId !== undefined &&
     results.some(r => r.status === 'accepted' && r.run_id === batchRunId)

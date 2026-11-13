@@ -105,7 +105,6 @@ export function registerMemoryCrystallize(server: McpServer) {
         .describe(
           'Fields to include in output; intersected with available columns. OPTIONAL for "graph". IGNORED for "cluster" and "auto_cluster".'
         ),
-      // Tombstone for the retired preview flag: only confirm is advertised.
       dry_run: z
         .never({ error: 'dry_run was removed; use confirm' })
         .optional()

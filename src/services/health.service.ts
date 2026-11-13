@@ -10,7 +10,6 @@ import { config } from '../config'
 import { getEmbedderState, type EmbedderState } from '../embedder/client-core'
 import { VERSION } from '../version'
 
-// Per-DB probe results are cached for this long (task #2286).
 export const HEALTH_PROBE_TTL_MS = 30_000
 
 interface HealthCheckResult {
@@ -19,7 +18,6 @@ interface HealthCheckResult {
   checks: Record<string, string>
 }
 
-// 'ok' and 'not ready' are the pre-existing values; 'failed' is the added one.
 const EMBEDDER_CHECK: Record<EmbedderState, string> = {
   ok: 'ok',
   starting: 'not ready',
@@ -35,7 +33,6 @@ interface CachedProbe {
 
 const probeCache = new Map<Database, CachedProbe>()
 
-// Track the registry shape so a change (add/remove user) invalidates stale probes.
 let lastRegistryFingerprint = ''
 
 function registryFingerprint(): string {
@@ -63,9 +60,6 @@ export function probeDatabase(db: Database, now: number = Date.now()): DbProbeRe
   let ok = true
   let error: string | undefined
   try {
-    // The probe's job is to observe db unavailability, so the handle is
-    // resolved lazily here instead of as a trailing-`d` default (DI rule
-    // deviation is deliberate — see AGENTS.md "Database DI").
     db.prepare('SELECT 1').get()
   } catch (e) {
     ok = false
@@ -108,18 +102,8 @@ export function getHealthService(d?: Database): HealthCheckResult {
     checks.database = allOk ? 'ok' : 'degraded'
   }
 
-  // Imported from client-core rather than the '../embedder/client' barrel on
-  // purpose: test files mock.module that specifier globally and bun cannot
-  // unmock it, so the barrel here would hand out a partial mock (see
-  // client.suite.ts:12). Only the lifecycle view is needed, not a request.
   checks.embedder = EMBEDDER_CHECK[getEmbedderState()]
 
-  // Degradation stays DB-only by design: the embedder needs a long first-load
-  // (model download), and the Docker healthcheck start_period (10s) is shorter,
-  // so counting it would mark healthy containers unhealthy during startup. A
-  // FAILED embedder is reported in checks.embedder instead, never in `status`:
-  // the deploy gate inspects this field separately (deploy/lib/common.sh
-  // wait_health).
   const ok = checks.database === 'ok'
   return { status: ok ? 'ok' : 'degraded', version: VERSION, checks }
 }

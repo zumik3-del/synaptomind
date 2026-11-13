@@ -59,8 +59,6 @@ export function createClusterService(
       source,
       project_id: resolvedProjectId,
       is_cluster: true,
-      // Clusters are synthetic containers, not content — protection is
-      // exceptional (ADR §4).
       is_protected: false
     })
 

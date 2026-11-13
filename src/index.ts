@@ -6,33 +6,18 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
   process.exit(0)
 }
 
-// CLI subcommands: `synaptomind ops health-check ...`
 if (process.argv.slice(2)[0] === 'ops') {
   const { runCli } = await import('./cli')
   await runCli(process.argv)
   process.exit(process.exitCode ?? 0)
 }
 
-// Embedder self-mode (ADR 0001 §2.4): a compiled binary spawns itself with this
-// flag, so one artifact serves both roles. Checked after --version and before
-// any server bootstrap — embedder-process.ts is a side-effect module (initDb,
-// model validation, worker, IPC) that owns the event loop once imported, so no
-// port may be opened and no scheduler started before this branch.
+// Must stay before any server bootstrap: `embedder-process` is a side-effect module that owns the
+// event loop once imported.
 if (process.argv.includes('--embedder')) {
   await import('./embedder/embedder-process')
-  // The import RESOLVES: a module's top-level evaluation ends at
-  // process.send?.({ type: 'ready' }) (src/embedder/embedder-process.ts:200), so
-  // control comes back here even though the module just installed the poll,
-  // sweep and idle timers that keep this process alive. The ADR's trailing
-  // process.exit(0) therefore killed the very timers that owned the event loop
-  // — the child exited immediately with code 0, the parent never saw `ready`,
-  // and /health stayed "embedder":"not ready" forever. (Source mode never
-  // showed this: there the file is the entry point, so it never returns.)
-  //
-  // Park on a promise that never settles instead of exiting. The branch can no
-  // longer fall through into the server bootstrap, and only the module's own
-  // idle timeout or a parent `shutdown` message ends the process — both call
-  // process.exit themselves.
+  // The import resolves while the child's own timers keep the process alive, so `process.exit(0)`
+  // here would kill them and the parent would never see `ready`. Park on a promise that never settles.
   await new Promise<never>(() => {})
 }
 
@@ -55,17 +40,11 @@ const { startPlacementRetentionJob, stopPlacementRetentionJob } = await import(
 )
 
 const isStdio = process.argv.includes('--stdio')
-// Single-owner default: a stdio MCP client must not spawn its own embedder and
-// background schedulers against the shared DB — those belong to the standalone
-// HTTP server. Opt into local ownership explicitly via flag or env when running
-// stdio without a shared server.
 const stdioStandalone = process.argv.includes('--stdio-standalone') || config.mcp.stdioStandalone
 const ownsBackgroundJobs = !isStdio || stdioStandalone
 const noEmbedder = process.argv.includes('--no-embedder') || !config.embedder.enabled
 
-// In stdio mode stdout is the JSON-RPC channel. Route the console's stdout
-// writers (log/info/debug) to stderr so no background code can corrupt the
-// protocol stream. console.warn/error already target stderr.
+// In stdio mode stdout is the JSON-RPC channel: any console.log would corrupt the protocol stream.
 if (isStdio) {
   console.log = console.error
   console.info = console.error
@@ -83,8 +62,6 @@ let bootResult:
   | undefined
 try {
   if (isStdio && config.users.length > 0) {
-    // Multi-user background workers operate on user databases, not the legacy
-    // stdio database. Do not start them under this unauthenticated transport.
     if (stdioStandalone)
       throw new Error('stdio standalone is unavailable with multi-user configuration')
     if (config.db.path !== ':memory:') {
@@ -178,8 +155,6 @@ if (isStdio) {
   const mcpServer = createMcpServer()
   const transport = new StdioServerTransport()
 
-  // A stdio MCP client disconnects by closing our stdin; the SDK transport
-  // does not surface that, so trigger the shared shutdown ourselves.
   const onDisconnect = (): void => {
     shutdown().catch(failShutdown)
   }
@@ -207,11 +182,6 @@ if (isStdio) {
       corsOrigins: config.mcp.corsOrigins
     })
   } catch (err) {
-    // serve() throws EADDRINUSE on a taken port. Unnamed, that surfaces as a
-    // bare Bun stack trace and the deploy gate reports a failed health check on
-    // the API port — sending the operator to the listener that is actually fine
-    // (task #1077). Name the key and the port instead; anything else is rethrown
-    // untouched so a real bug is not relabelled.
     if ((err as NodeJS.ErrnoException | null)?.code === 'EADDRINUSE') {
       throw new McpHttpPortInUseError(mcpPort, err)
     }
@@ -219,9 +189,6 @@ if (isStdio) {
   }
 
   registerShutdownSignals(async () => {
-    // stop() closes every per-session server/transport before clearing the
-    // session Map, then stops the HTTP listener. Await it so shutdown is
-    // graceful rather than best-effort.
     await mcpHandle.stop()
     server.stop()
   })

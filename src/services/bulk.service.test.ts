@@ -6,11 +6,6 @@ import { ValidationError } from '../errors'
 import { getThoughtByIdService } from './thoughts.service'
 import { bulkCreateThoughtsService } from './bulk.service'
 
-// Bulk-create coverage moved off the deleted `POST /api/thoughts/bulk` route
-// (ADR 2026-10-26): the MCP `memory_store action=bulk_create` is the only
-// caller left, so the guards and the per-item error contract are pinned here at
-// the service the tool actually invokes.
-
 beforeEach(createTestDb)
 afterEach(closeDb)
 
@@ -26,7 +21,6 @@ test('bulkCreateThoughtsService rejects more than 10000 thoughts before writing 
   const items = Array.from({ length: 10_001 }, (_, i) => ({ content: `bulk ${i}` }))
   expect(() => bulkCreateThoughtsService(items)).toThrow(ValidationError)
   const count = getDb().prepare('SELECT COUNT(*) AS n FROM thoughts').get() as { n: number }
-  // Only the table's seed rows can be there; the oversized batch wrote nothing.
   expect(count.n).toBe(0)
 })
 

@@ -27,13 +27,9 @@ const handlers = {
       })
       const compact = args.compact === true
       const fields = args.fields
-      // Always shape: the default path applies the read-surface hygiene too
-      // (tag names as strings, is_protected as a boolean) — task #2181.
       result.candidates = result.candidates.map(c =>
         shapeThought(c, compact, fields)
       ) as RetentionReviewResult['candidates']
-      // `total` is the candidate count for the filters, ignoring the page: the
-      // page size and offset the caller supplied live in `meta.counts`.
       return collectionEnvelope('list', result.candidates, {
         total: result.total,
         counts: { limit: result.limit, offset: result.offset }
@@ -100,8 +96,6 @@ const handlers = {
         ...result,
         ...(result.summary === undefined ? {} : { summary: shapeThought(result.summary) })
       }
-      // Compaction confirms on `confirm: true` alone (no token), so the gate
-      // carries the instruction and a null token (task #2181).
       return result.preview
         ? itemEnvelope('compact', item, {
             counts: { sources: result.source_ids.length },

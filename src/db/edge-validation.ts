@@ -1,28 +1,8 @@
-/**
- * Edge-type vocabulary and validation rules, split out of `edges.ts` so that
- * module keeps its persistence/queries focus and stays under the project's
- * 350-line file convention (AGENTS.md §4).
- *
- * Everything here is a pure rule over the `edges`/`thoughts` rows — no insert,
- * no delete. `edges.ts` re-exports every symbol below, so services, the MCP zod
- * enums and the docs keep importing them from `../db/edges` unchanged.
- *
- * `Edge` is imported type-only, so there is no runtime edge back to `edges.ts`
- * (erased under `isolatedModules`); persistence (insert/replace/delete) stays
- * there, which is why `retypeEdge` remains in `edges.ts` — it needs `findEdge`
- * and `replaceEdge`.
- */
-
 import type { Database } from 'bun:sqlite'
 import { ValidationError } from '../errors'
 import { ClusterEdgeValidationError, InvalidEdgeTypeError } from './errors'
 import type { Edge } from './edges'
 
-/**
- * Canonical list of edge types — the single source of truth. The validity Set
- * below, the MCP zod enums (re-exported via services/edges.service.ts) and the
- * docs all derive from it, so the list can never drift again.
- */
 export const EDGE_TYPES = [
   'related',
   'parent',
@@ -39,23 +19,12 @@ export type EdgeType = (typeof EDGE_TYPES)[number]
 
 const VALID_EDGE_TYPES = new Set<string>(EDGE_TYPES)
 
-/**
- * Symmetric types carry no direction: `A contradicts B` <=> `B contradicts A`.
- * They are stored as a single row per unordered pair and creation is idempotent
- * in both directions. Directed types (`supports`, `parent`, ...) follow the
- * strict one-edge-per-pair rule and reject a reverse duplicate with a conflict.
- */
 export const SYMMETRIC_EDGE_TYPES = new Set(['related', 'contradicts'])
 
 export function isValidEdgeType(type: string): boolean {
   return VALID_EDGE_TYPES.has(type)
 }
 
-/**
- * Shared retype validation: valid type, not same-type, cluster constraints.
- * Called by retypeEdge (confirm) and the MCP dry-run so both paths reject
- * identically (ADR §2) — a preview must never promise a confirm would reject.
- */
 export function validateRetype(db: Database, edge: Edge, newType: string): void {
   if (!isValidEdgeType(newType)) {
     throw new InvalidEdgeTypeError(newType, [...EDGE_TYPES])

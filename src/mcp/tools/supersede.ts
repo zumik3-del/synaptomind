@@ -27,8 +27,6 @@ const ACTION_FIELDS: Record<string, string[]> = {
 const ACTION_FIELDS_ALL = allActionFields(ACTION_FIELDS)
 
 function validateActionFields(action: string, args: ActionArgs): void {
-  // `confirm` is consumed by every action but declared by none of them, so it
-  // keeps its own type check ahead of the cross-action field check.
   if (args.confirm !== undefined && typeof args.confirm !== 'boolean') {
     throw new Error('confirm must be a boolean (true to execute; false or omitted to preview)')
   }
@@ -125,8 +123,6 @@ const handlers = {
                 : 'would_archive'
             return { thought_id, outcome }
           })
-          // One counter per previewed outcome, so a caller sees the aggregate
-          // without scanning the rows (task #2181).
           const counts: Record<string, number> = {}
           for (const item of items) counts[item.outcome] = (counts[item.outcome] ?? 0) + 1
           return collectionEnvelope('archive_batch', items, {
@@ -137,8 +133,6 @@ const handlers = {
         },
         apply: () => {
           const result = archiveThoughtsBatchService(ids)
-          // The service reports failures by thought id, in request order: rebuild one
-          // row per requested occurrence so duplicates stay distinct.
           const failures = new Map<string, string[]>()
           for (const error of result.errors) {
             const list = failures.get(error.thought_id) ?? []

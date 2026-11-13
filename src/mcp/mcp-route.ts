@@ -22,15 +22,14 @@ export interface Session {
   server: McpServer
   transport: WebStandardStreamableHTTPServerTransport
   lastAccess: number
-  // Immutable identity of the user who created this session. Compared against
-  // the re-resolved caller on every follow-up request (security: no hijack).
+  // Immutable owner of the session; re-checked on every follow-up request so a session id alone
+  // never grants access.
   userId: string
 }
 
 export interface McpRouteDeps {
   sessions: Map<string, Session>
   modern: McpHttpHandler
-  /** Per-user cap on legacy sessions. */
   maxSessions: number
   keepAliveMs: number
   maxRequestBodyBytes: number
@@ -42,12 +41,8 @@ function countUserSessions(sessions: Map<string, Session>, userId: string): numb
   return count
 }
 
-/**
- * Keep a session's `lastAccess` fresh while an SSE body is flowing. The SDK's
- * keep-alive frames (every {@link McpRouteDeps.keepAliveMs}) flow through the
- * body, so a long-lived GET stream stays active and the TTL sweeper cannot
- * close it (F4).
- */
+// SSE bodies carry the SDK's keep-alive frames, so touching `lastAccess` per chunk is what keeps a
+// long-lived GET stream from being reclaimed by the TTL sweeper.
 function trackStreamActivity(response: Response, session: Session): Response {
   const contentType = response.headers.get('content-type') ?? ''
   if (!response.body || !contentType.includes('text/event-stream')) return response
@@ -78,9 +73,6 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
   }
 
   async function createSession(c: Context, ref: UserRef, parsed: unknown): Promise<Response> {
-    // Only an initialize request may create a session. Rejecting anything else
-    // here avoids building (then immediately disposing) a full McpServer +
-    // transport on every stray request (F21).
     if (!containsInitialize(parsed)) {
       return c.json(
         {
@@ -96,8 +88,6 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
       return c.json({ error: 'Too many sessions' }, 429)
     }
 
-    // ALS { userId, db } is bound for the whole /mcp chain by the transport
-    // middleware, so registration-time DB reads resolve per user.
     const mcpServer = createMcpServer()
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
@@ -121,7 +111,6 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
       await mcpServer.connect(transport)
       const response = await transport.handleRequest(c.req.raw, { parsedBody: parsed })
       const session = transport.sessionId ? sessions.get(transport.sessionId) : undefined
-      // A request that failed to register a session must not leak its pair.
       if (!session) {
         await disposePair(mcpServer, transport)
         return response
@@ -144,10 +133,8 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
           404
         )
       }
-      // Re-resolve identity on every request: a session id alone never grants
-      // access. Check before touching lastAccess so a mismatched caller cannot
-      // keep the victim's session alive (and never delete the session on
-      // mismatch — that would be a cross-user DoS).
+      // Checked before `lastAccess`: a mismatched caller must not keep the victim's session alive,
+      // and the session is NOT deleted on mismatch (that would be a cross-user DoS).
       if (session.userId !== ref.userId) {
         return c.json(
           {
@@ -165,9 +152,6 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
   }
 
   return async (c: Context): Promise<Response> => {
-    // Tripwire only: the /mcp middleware chain already resolves the bearer,
-    // binds { userId, db } to ALS and answers 401/503. Keep the route
-    // fail-closed should the mount order ever change.
     const ref: UserRef | undefined = c.get('mcpUser')
     if (!ref) return c.json({ error: 'Unauthorized' }, 401)
 
@@ -182,8 +166,6 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
     if (isPost && !isJsonContentType(c.req.header('content-type')))
       return unsupportedMediaTypeResponse()
 
-    // One bounded read + one parse serve the predicate and whichever leg runs;
-    // cloning a request body that was already read would throw.
     let parsed: unknown
     if (isPost) {
       const read = await readJsonBody(c.req.raw, maxRequestBodyBytes)

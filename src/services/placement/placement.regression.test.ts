@@ -1,19 +1,3 @@
-/**
- * Regression tests for the tightened placement policy (task #985).
- *
- * Pins the two noise classes that surfaced as prod false-positives on 2026-09-29:
- *  1. Low-overlap negation pairs (lexicalOverlap < 0.5) must NOT classify as
- *     `contradicts` — they degrade to `related` via the fallback rule.
- *  2. The positive control confirms that same-claim conflicts DO fire
- *     `conflict.explicit_negation` when overlap crosses the threshold.
- *
- * Also regresses `dependencyCue` signal extraction (task #985 AC3):
- *   - "Task #…" prefixes are NOT a dependency cue (only the `task` tag counts).
- *   - `TODO:`/`pending`/`blocked` text prefixes ARE dependency cues.
- *
- * Boundary test: lexicalOverlap = 0.5 is the sharp cutoff for `contradicts`.
- */
-
 import { beforeEach, afterEach, expect, test, describe } from 'bun:test'
 import { createTestDb } from '../../test/helpers'
 import { closeDb } from '../../db'
@@ -26,8 +10,6 @@ import type { Tag } from '../../db/tags'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
-
-// ── helpers ───────────────────────────────────────────────────────────────────
 
 function makeSignals(overrides?: Partial<PairSignals>): PairSignals {
   return {
@@ -71,9 +53,6 @@ function makeThought(overrides?: Partial<Thought>): Thought {
   } as Thought
 }
 
-// ── prod FP regression: low-overlap negation → related (never contradicts) ────
-// See task #985 / prod incident 2026-09-29.
-
 describe('prod FP regression: low-overlap negation degrades to related', () => {
   test.each([
     [0.85, 0.01],
@@ -103,8 +82,6 @@ describe('prod FP regression: low-overlap negation degrades to related', () => {
   )
 })
 
-// ── positive control: high-overlap negation → contradicts ─────────────────────
-
 describe('positive control: high-overlap negation fires conflict.explicit_negation', () => {
   test.each([
     [0.75, 0.5],
@@ -124,8 +101,6 @@ describe('positive control: high-overlap negation fires conflict.explicit_negati
     expect(proposal!.review_required).toBeTrue()
   })
 })
-
-// ── boundary: lexicalOverlap = 0.5 is the sharp cutoff ────────────────────────
 
 describe('boundary: lexicalOverlap = 0.5 is the contradicts threshold', () => {
   test('at 0.5: contradicts fires', () => {
@@ -149,7 +124,6 @@ describe('boundary: lexicalOverlap = 0.5 is the contradicts threshold', () => {
     const proposal = classifyEdgeType(sig)
     expect(proposal).not.toBeNull()
     expect(proposal!.type).not.toBe('contradicts')
-    // Must land on the fallback related rule.
     expect(proposal!.rule_id).toBe('fallback.embedding_related')
     expect(proposal!.rationale).toBe('embedding_similarity_only')
   })
@@ -166,8 +140,6 @@ describe('boundary: lexicalOverlap = 0.5 is the contradicts threshold', () => {
     expect(proposal!.rule_id).toBe('fallback.embedding_related')
   })
 })
-
-// ── dependencyCue regression ──────────────────────────────────────────────────
 
 describe('dependencyCue regression (task #985 AC3)', () => {
   test('"Task #956 (tester) in review: ..." prefix yields dependencyCue=false', () => {
@@ -225,7 +197,6 @@ describe('dependencyCue regression (task #985 AC3)', () => {
     seedThought({ id: src.id, content: src.content })
     seedThought({ id: tgt.id, content: tgt.content })
     const sig = extractPairSignals(src, tgt)
-    // The target has no `task` tag and no TODO/pending/blocked prefix.
     expect(sig.dependencyCue).toBeFalse()
   })
 

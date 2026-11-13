@@ -2,15 +2,12 @@ import { runHealthCheckService } from '../../../services/health-check.service'
 import { itemEnvelope } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
-/** Maximum characters retained for any `*content*` field in MCP health details. */
 const CONTENT_LIMIT = 80
 
-/** Trim a content string to ~80 chars (no ellipsis, matching the retention-review convention). */
 function shortContent(value: string): string {
   return value.length > CONTENT_LIMIT ? value.slice(0, CONTENT_LIMIT) : value
 }
 
-/** Recursively shorten string fields whose key contains "content" in a detail object. */
 function slimDetail(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(slimDetail)
   if (value === null || typeof value !== 'object') return value
@@ -27,16 +24,10 @@ function slimDetail(value: unknown): unknown {
   return out
 }
 
-/** MCP-only projection: drop duplicate score keys, slim detail content. Service output untouched.
- *
- * Details arrays are opt-in: by default they are omitted (summary + counts stay),
- * and only included (slimmed) when `includeDetails` is true.
- */
 function projectHealthReport(report: unknown, includeDetails: boolean = false): unknown {
   const r = (report ?? {}) as Record<string, unknown>
   const { summary, categories, ...rest } = r
   const s = (summary ?? {}) as Record<string, unknown>
-  // Keep a single score (health_score) + one score_breakdown; drop duplicate aliases.
   const {
     score_composition: _score_composition,
     score_explanation: _score_explanation,

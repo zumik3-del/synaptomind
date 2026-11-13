@@ -12,14 +12,6 @@ interface ThoughtUrlLinksBatch {
   [thoughtId: string]: ThoughtUrlLink[]
 }
 
-/**
- * Url links of many thoughts in one query, keyed by thought id.
- *
- * Page-level helper for the MCP read surface (`include_url_links`, ADR §4 of the
- * 0.20 HTTP shrink): a caller passes every thought id a response emits, so the
- * cost stays one query per response instead of one per thought. A thought
- * without links has no entry.
- */
 export function getThoughtUrlLinksBatchService(
   thoughtIds: readonly string[],
   d: Database = getDb()

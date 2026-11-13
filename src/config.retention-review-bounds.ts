@@ -1,4 +1,3 @@
-/** Bounds for retention-review configuration, sanitized after all overrides. */
 export interface RetentionReviewBounds {
   minAgeDays: number
   importanceFloor: number

@@ -3,7 +3,6 @@ import { proposePlacementPlan } from '../../../services/placement/engine'
 import { type EnvelopeScope, itemEnvelope, readEnvelopeScope } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
-/** Why `propose` never widens, named for the input the plan pins its project from. */
 function pinningNote(args: ActionArgs): string {
   if (args.thought_id !== undefined) {
     return 'propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to'
@@ -11,16 +10,6 @@ function pinningNote(args: ActionArgs): string {
   return 'propose is not cross-project: the plan is restricted to the default project (draft content)'
 }
 
-/**
- * Notes for `propose`, keyed on whether a project actually resolved (tasks #2453/#2456).
- *
- * The planner pins its project whenever no project filter reaches it, so the
- * pinning note belongs to `projectId === undefined` rather than to a missing
- * scope. Both cases restate the cause locally, because the generic
- * "the answer spans every project" note is false for this action: no `cwd` reads
- * `no cwd — ...`, and a present-but-unregistered `cwd` keeps only the
- * unknown-path fact (with its resolve hint) followed by the pinning clause.
- */
 function proposeWarnings(
   args: ActionArgs,
   scope: EnvelopeScope | null,
@@ -35,7 +24,6 @@ function proposeWarnings(
   ]
 }
 
-/** `memory_status` action=propose: `{ item: <plan>, meta }`; `cwd` is optional. */
 export const proposeHandler: ActionHandler = {
   input: z
     .object({
@@ -51,8 +39,6 @@ export const proposeHandler: ActionHandler = {
     }),
   async run(args: ActionArgs) {
     const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
-    // Slim is now the default (top-3 edges, no signals). Full output is
-    // restored by include_signals=true or compact=false.
     const full = args.compact === false || args.include_signals === true
     const compact = !full
     const maxEdges = typeof args.max_edges === 'number' ? args.max_edges : compact ? 3 : undefined
@@ -76,8 +62,6 @@ export const proposeHandler: ActionHandler = {
         ({ signals: _signals, ...rest }) => rest as (typeof plan.edges)[number]
       )
     }
-    // Slim is a shorthand for top-3; enforce the cap when no explicit
-    // max_edges was provided.
     if (compact && typeof args.max_edges !== 'number' && plan.edges.length > 3) {
       plan.edges = plan.edges.slice(0, 3)
     }

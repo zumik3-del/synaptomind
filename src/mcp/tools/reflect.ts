@@ -10,10 +10,6 @@ import { registerActionTool, type ActionArgs } from './action-tool'
 const handlers = {
   reflect: {
     run(args: ActionArgs) {
-      // Resolved inside the dispatch try so resolution failures return the
-      // isError envelope like every other action (audit F9). Write semantics:
-      // an absent cwd writes to the resolved default project (like
-      // memory_store create/update) and reports no scope rather than a warning.
       const projectId = resolveProjectId(args.cwd as string | undefined)
       const result = reflectSessionService({
         summary: args.summary as string | undefined,
@@ -37,10 +33,6 @@ const handlers = {
         limit: args.limit as number | undefined,
         offset: args.offset as number | undefined
       })
-      // Same read-surface hygiene as every other thought listing: tag names as
-      // plain strings, flag columns as booleans. Paging metadata belongs to
-      // meta.counts, never to a row. `include_url_links` is attached after the
-      // shaping so the page cannot silently hide it (ADR §4).
       const urlLinks = args.include_url_links === true ? loadUrlLinks(page.thoughts) : undefined
       const items = page.thoughts.map((t: Thought) =>
         shapeThought(t, undefined, undefined, urlLinks)
@@ -134,8 +126,6 @@ export function registerMemoryReflect(server: McpServer) {
         .describe(
           'timeline only: when true, every row carries url_links — [{text, url, label}] ordered by sort_order then creation, all rows read in one query. Default false, where the key is absent; true with no links returns []. Never hidden by the row shaping. IGNORED for "reflect".'
         ),
-      // Tombstone for the retired goals argument: only goals_add /
-      // goals_remove are advertised.
       goals_delta: z
         .never({ error: 'goals_delta was removed; use goals_add / goals_remove' })
         .optional()

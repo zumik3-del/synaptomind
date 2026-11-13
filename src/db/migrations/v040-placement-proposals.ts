@@ -3,10 +3,6 @@ import type { Database } from 'bun:sqlite'
 export default {
   version: 40,
   apply(db: Database): void {
-    // Persisted, advisory review queue for placement proposals (ADR §2.1).
-    // Not the graph and not authoritative: a durable worklist whose rows are
-    // re-validated (fingerprint) before any apply. `ON DELETE CASCADE` mirrors
-    // `edges` so deletion of a thought cannot orphan proposals.
     db.run(`
       CREATE TABLE IF NOT EXISTS placement_proposals (
         id                TEXT PRIMARY KEY,
@@ -37,8 +33,6 @@ export default {
     db.run(
       `CREATE INDEX IF NOT EXISTS idx_pp_source ON placement_proposals(source_thought_id, state)`
     )
-    // One live proposal per item: the partial unique index makes enqueue
-    // idempotent at the DB level (ADR §2.3).
     db.run(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_pp_dedup
         ON placement_proposals(source_thought_id, item_kind, COALESCE(target_id,''), COALESCE(edge_type,''), COALESCE(lifecycle_action,''))

@@ -40,11 +40,6 @@ export class EdgeConflictError extends Error {
   }
 }
 
-/**
- * A live (draft/active) thought already carries this content inside the project
- * — the `idx_thoughts_content_dedupe` invariant introduced by v046. Raised
- * instead of letting the raw `UNIQUE constraint failed` escape as a 500.
- */
 export class ThoughtContentConflictError extends Error {
   readonly statusCode = 409
   constructor(existingId?: string) {

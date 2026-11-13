@@ -1,13 +1,3 @@
-/**
- * `duplicate_drafts` finding and its `isScheduledReminder` classifier
- * (task #1946; coverage restored by task #1962).
- *
- * The finder is read-only and model-free: it reuses the engine's own lexical
- * near-duplicate rule (`findMergeTarget`, Jaccard >= 0.6) over the draft's
- * project-scoped active pool. These tests pin the finding itself (shape, one
- * finding per draft), every exclusion the retired triage used to guard, and the
- * clock the reminder branch compares against.
- */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { getDb } from '../db'
 import { closeDb } from '../db/init'
@@ -23,7 +13,6 @@ const NOW = '2026-06-01T00:00:00.000Z'
 const PAST = '2026-01-01T00:00:00.000Z'
 const FUTURE = '2026-12-01T00:00:00.000Z'
 
-/** A standalone `Thought` for the pure classifier — no DB row needed. */
 function thought(overrides: Partial<Thought> = {}): Thought {
   return {
     id: 'thought-1',
@@ -46,8 +35,6 @@ function thought(overrides: Partial<Thought> = {}): Thought {
 function tag(name: string): Tag {
   return { id: `tag-${name}`, name }
 }
-
-// ── isScheduledReminder ───────────────────────────────────────────────────────
 
 describe('isScheduledReminder', () => {
   test('a pending-tagged thought is a scheduled reminder', () => {
@@ -79,8 +66,6 @@ describe('isScheduledReminder', () => {
   })
 })
 
-// ── findDuplicateDrafts: the finding ──────────────────────────────────────────
-
 describe('findDuplicateDrafts: detecting a duplicate', () => {
   test('an active thought plus a near-duplicate draft yields exactly one finding', () => {
     const db = getDb()
@@ -92,7 +77,6 @@ describe('findDuplicateDrafts: detecting a duplicate', () => {
     expect(findings).toHaveLength(1)
     expect(findings[0].draft_id).toBe(draft)
     expect(findings[0].duplicate_of).toBe(active)
-    // 4 shared words over a 5-word union.
     expect(findings[0].overlap).toBeCloseTo(0.8, 10)
   })
 
@@ -109,8 +93,8 @@ describe('findDuplicateDrafts: detecting a duplicate', () => {
 
   test('a draft is flagged once even when several active thoughts are near-duplicates', () => {
     const db = getDb()
-    const weaker = seedThought({ content: 'alpha beta gamma omega', status: 'active' }) // 3/6
-    const closest = seedThought({ content: 'alpha beta gamma delta epsilon', status: 'active' }) // 5/5 exact
+    const weaker = seedThought({ content: 'alpha beta gamma omega', status: 'active' })
+    const closest = seedThought({ content: 'alpha beta gamma delta epsilon', status: 'active' })
     const draft = seedThought({ content: 'alpha beta gamma delta epsilon', status: 'draft' })
 
     const findings = findDuplicateDrafts(db, NOW)
@@ -139,8 +123,6 @@ describe('findDuplicateDrafts: detecting a duplicate', () => {
     expect(findings.map(f => f.draft_id).sort()).toEqual([catDraft, dogDraft].sort())
   })
 })
-
-// ── findDuplicateDrafts: no finding ───────────────────────────────────────────
 
 describe('findDuplicateDrafts: no finding', () => {
   test('an empty DB yields no findings', () => {
@@ -183,8 +165,6 @@ describe('findDuplicateDrafts: no finding', () => {
     expect(findDuplicateDrafts(db, NOW)).toEqual([])
   })
 })
-
-// ── findDuplicateDrafts: exclusions ───────────────────────────────────────────
 
 describe('findDuplicateDrafts: exclusions', () => {
   test('a pending-tagged draft is a scheduled reminder and is never flagged', () => {

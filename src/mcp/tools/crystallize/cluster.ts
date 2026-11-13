@@ -18,8 +18,6 @@ export const clusterHandler: ActionHandler = {
       tags: args.tags as string[] | undefined,
       projectId
     })
-    // The new cluster, its member edges and its members are one object: `item`
-    // carries them together with the read-surface hygiene applied (task #2181).
     return itemEnvelope(
       'cluster',
       {

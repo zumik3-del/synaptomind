@@ -16,11 +16,6 @@ import { registerMemoryCrystallize } from './crystallize'
 import { registerMemoryReflect } from './reflect'
 import { registerMemoryPrimers } from './primers'
 
-// Coverage for the unified MCP action dispatch (task #169, audit findings
-// F8/F9/F18). The dispatcher is shared by all eight action tools, so it is
-// exercised both in isolation (synthetic config) and through every real tool
-// registration, plus end-to-end over an in-memory MCP client.
-
 mock.module('../../embedder/client', () => ({
   generateEmbedding: () => new Float32Array(384),
   generateEmbeddings: () => [new Float32Array(384)],
@@ -46,7 +41,6 @@ function parseResult(result: unknown): { text: string; isError: boolean } {
   return { text: r.content?.[0]?.text ?? '', isError: r.isError === true }
 }
 
-/** Wrap a register function in a fake server and return the registered callback. */
 function captureTool(
   register: (server: McpServer) => void
 ): (args: Record<string, unknown>) => Promise<unknown> {
@@ -65,8 +59,6 @@ function captureTool(
   if (!handler) throw new Error('register function did not register a tool')
   return handler
 }
-
-// ── Dispatcher mechanics (synthetic config) ──────────────────────────────────
 
 const demoConfig: ActionToolConfig = {
   name: 'memory_demo',
@@ -164,7 +156,6 @@ describe('registerActionTool dispatch mechanics', () => {
     const handler = captureTool(server => registerActionTool(server, demoConfig))
     const result = (await handler({ action: 'passthrough' })) as ToolResult
 
-    // isToolResult short-circuit: no re-wrapping into a second envelope.
     expect(result.isError).toBeUndefined()
     expect(result.content).toEqual([{ type: 'text', text: 'raw text' }])
     expect(result.structuredContent?.result).toBe('raw text')
@@ -186,8 +177,6 @@ describe('registerActionTool dispatch mechanics', () => {
     expect(result.content[0].text).toBe('memory_demo failed')
   })
 })
-
-// ── Unknown-action handling across every real action tool ────────────────────
 
 const ACTION_REGISTRARS: Array<{ name: string; register: (server: McpServer) => void }> = [
   { name: 'memory_recall', register: registerMemoryRecall },
@@ -211,8 +200,6 @@ describe('unknown action is rejected by every registered action tool', () => {
     })
   }
 })
-
-// ── End-to-end dispatch over an in-memory MCP client ─────────────────────────
 
 let client: Client
 
@@ -296,8 +283,6 @@ describe('unknown action returns a structured error on every action tool', () =>
     })
   }
 })
-
-// ── Action-conditional required fields through the public surface ────────────
 
 const REQUIRED_FIELD_CASES: Array<{
   label: string
@@ -415,13 +400,6 @@ describe('per-action schemas enforce action-conditional required fields', () => 
   }
 })
 
-// ── store update status enum: one message per invalid value (#2211) ──────────
-//
-// The action-conditional schema is the layer that owns the split, so these
-// probes go through the dispatcher callback directly: the advertised
-// `status` superset already rejects an unknown value, which would mask the
-// per-value message this schema is responsible for.
-
 describe('store update status enum keeps one message per invalid value', () => {
   const storeDispatch = () => captureTool(registerMemoryStore)
 
@@ -435,8 +413,6 @@ describe('store update status enum keeps one message per invalid value', () => {
 
     expect(isError).toBe(true)
     expect(text).toContain('Invalid option: expected one of "draft"|"active"')
-    // Before the split this text was the archived-value guidance, which sent a
-    // caller holding a typo down the preview-token supersede flow.
     expect(text).not.toContain('memory_supersede')
   })
 
@@ -450,12 +426,9 @@ describe('store update status enum keeps one message per invalid value', () => {
 
     expect(isError).toBe(true)
     expect(text).toContain('memory_supersede action=archive')
-    // The actionable half stays attached to the value it describes.
     expect(text).not.toContain('Invalid option')
   })
 })
-
-// ── memory_status action=config: raw-text envelope passthrough ───────────────
 
 describe('memory_status action=config raw-text passthrough', () => {
   test('returns the raw config text as both content and structuredContent.result', async () => {
@@ -467,11 +440,7 @@ describe('memory_status action=config raw-text passthrough', () => {
     expect(result.isError).not.toBe(true)
     expect(result.content).toHaveLength(1)
     expect(result.content[0].type).toBe('text')
-    // The handler returns a ready-made tool result, so the dispatcher must not
-    // JSON-wrap the text (isToolResult path) and structuredContent must mirror it.
     expect(result.content[0].text).toContain('SynaptoMind Configuration')
-    // The content channel stays raw; the structured channel carries the shared
-    // envelope with the same text in `item.text` (task #2179).
     const envelope = result.structuredContent?.result as {
       item: { text: string }
       meta: { action: string }
@@ -480,8 +449,6 @@ describe('memory_status action=config raw-text passthrough', () => {
     expect(envelope.meta.action).toBe('config')
   })
 })
-
-// ── advertised schema: string-typed numerics accepted, invalid rejected ──────
 
 describe('auto_cluster advertised schema accepts string numerics and rejects invalid', () => {
   test('accepts string min_similarity within [0,1]', async () => {

@@ -30,7 +30,6 @@ export const linkHandler: ActionHandler = {
       args.target_id as string,
       args.edge_type as string | undefined
     )
-    // Every id on the wire is a string, so a caller never has to cast.
     return itemEnvelope('link', {
       id: String(edge.id),
       source_id: String(edge.source_id),

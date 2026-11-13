@@ -67,13 +67,11 @@ test('detects orphan edges', () => {
   const a = seedThought({ content: 'thought A' })
   const b = seedThought({ content: 'thought B' })
 
-  // Insert edge directly to avoid FK, then delete thought
   const db = getDb()
   const edgeId = crypto.randomUUID()
   db.prepare(
     'INSERT INTO edges (id, source_id, target_id, type, created_at) VALUES (?, ?, ?, ?, ?)'
   ).run(edgeId, a, b, 'related', new Date().toISOString())
-  // Disable FK temporarily to allow orphan
   db.run('PRAGMA foreign_keys = OFF')
   db.prepare('DELETE FROM thoughts WHERE id = ?').run(a)
   db.run('PRAGMA foreign_keys = ON')
@@ -247,7 +245,6 @@ test('detects stale drafts', () => {
   expect(stale!.count).toBe(1)
 })
 
-/** The registered `duplicate_drafts` check from a health report. */
 function duplicateDraftCheck(report: ReturnType<typeof runHealthCheckService>) {
   const contentCat = report.categories.find(c => c.name === 'content_quality')!
   return contentCat.checks.find(c => c.name === 'duplicate_drafts')!
@@ -264,7 +261,6 @@ test('registers duplicate_drafts as a warning finding with the draft pair in det
   expect(check.details).toEqual([
     expect.objectContaining({ draft_id: draft, duplicate_of: active })
   ])
-  // Read-only by design: the finding declares no repair hook.
   expect(check.auto_fixable).toBeUndefined()
 })
 
@@ -292,8 +288,6 @@ test('fix mode does not repair duplicate_drafts', () => {
   const _repairPreview = runHealthRepairService()
   runHealthRepairService({ confirm: true, preview_token: _repairPreview.preview_token })
 
-  // The count is unchanged and neither side was merged, archived or deleted:
-  // a duplicate draft needs a human decision.
   expect(duplicateDraftCheck(runHealthCheckService()).count).toBe(1)
   const rows = db.prepare('SELECT id, status FROM thoughts ORDER BY id').all() as Array<{
     id: string
@@ -334,17 +328,15 @@ test('detects broken parent chains', () => {
 })
 
 test('filters by severity', () => {
-  seedThought({ content: 'hi' }) // triggers info (too_short)
-  seedThought({ content: 'island' }) // triggers info (island — downgraded from warning)
+  seedThought({ content: 'hi' })
+  seedThought({ content: 'island' })
 
   const reportCritical = runHealthCheckService({ severity: 'critical' })
-  // Only structural checks with count > 0 should appear
   const critChecks = reportCritical.categories.flatMap(c => c.checks)
   expect(critChecks.every(c => c.count === 0 || c.severity === 'critical')).toBe(true)
 
   const reportWarning = runHealthCheckService({ severity: 'warning' })
   const warningChecks = reportWarning.categories.flatMap(c => c.checks)
-  // island_thoughts is now info, so it should NOT appear in warning filter
   expect(warningChecks.some(c => c.name === 'island_thoughts')).toBe(false)
   expect(warningChecks.some(c => c.name === 'too_short_content')).toBe(false)
 })
@@ -353,7 +345,6 @@ test('health score decreases with issues', () => {
   const clean = runHealthCheckService()
   expect(clean.summary.health_score).toBe(100)
 
-  // Add orphan edge (insert directly, then orphan it)
   const a = seedThought({ content: 'A' })
   const b = seedThought({ content: 'B' })
   const db = getDb()
@@ -433,7 +424,6 @@ test('empty-cluster repair clears both empty and singleton counts', () => {
   const emptyBefore = clusterCatBefore.checks.find(c => c.name === 'empty_clusters')!
   const singletonBefore = clusterCatBefore.checks.find(c => c.name === 'singleton_clusters')!
   expect(emptyBefore.count).toBe(1)
-  // An empty cluster (0 members) also qualifies as a singleton (<=1 member).
   expect(singletonBefore.count).toBeGreaterThanOrEqual(1)
 
   const preview = runHealthRepairService()
@@ -449,7 +439,7 @@ test('empty-cluster repair clears both empty and singleton counts', () => {
 
 test('repair throws ValidationError on missing preview token', () => {
   seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
-  runHealthRepairService() // create a preview (unused)
+  runHealthRepairService()
   expect(() => runHealthRepairService({ confirm: true })).toThrow(ValidationError)
 })
 
@@ -464,7 +454,6 @@ test('repair throws ValidationError on stale preview token', () => {
   seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
   const preview = runHealthRepairService()
 
-  // Change state so the fingerprint no longer matches.
   seedThought({ content: 'another empty cluster', is_cluster: 1, is_protected: 0 })
 
   expect(() =>
@@ -477,14 +466,11 @@ test('repair throws ValidationError on replayed preview token', () => {
   const preview = runHealthRepairService()
   runHealthRepairService({ confirm: true, preview_token: preview.preview_token })
 
-  // Re-seed so a second repair attempt has something to fix, but token is consumed.
   seedThought({ content: 'empty cluster 2', is_cluster: 1, is_protected: 0 })
   const preview2 = runHealthRepairService()
-  // Use the already-consumed first token against the new fingerprint context: still invalid.
   expect(() =>
     runHealthRepairService({ confirm: true, preview_token: preview.preview_token })
   ).toThrow(ValidationError)
-  // sanity: a fresh token works
   runHealthRepairService({ confirm: true, preview_token: preview2.preview_token })
 })
 
@@ -504,7 +490,6 @@ test('repaired count reflects actually repaired targets (protected skipped)', ()
   const emptyBefore = before.categories
     .find(c => c.name === 'cluster_health')!
     .checks.find(c => c.name === 'empty_clusters')!
-  // Both are counted as repairable before (including protected).
   expect(emptyBefore.count).toBe(2)
 
   const preview = runHealthRepairService()
@@ -512,7 +497,6 @@ test('repaired count reflects actually repaired targets (protected skipped)', ()
 
   expect(result.status).toBe('executed')
   const emptyRepaired = result.repaired?.find(r => r.name === 'empty_clusters')
-  // Only the unprotected one was actually archived.
   expect(emptyRepaired?.count).toBe(1)
 
   const db = getDb()

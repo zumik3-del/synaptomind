@@ -5,42 +5,19 @@ import { closeDb } from '../db/init'
 import { createTestDb, drainPendingEmbeddings, seedThought, withVecDb } from '../test/helpers'
 import { resolveCandidateEmbeddings } from './candidate-embeddings.service'
 
-/**
- * Task #1570 — R1 freshness pins (independent red-first verification of #1569).
- *
- * R1: a candidate must never be SCORED from a `vec_thoughts` vector that no
- * longer matches its content. `pending_embeddings` is the freshness signal (the
- * v035 trigger queues a row on INSERT and on UPDATE OF content), so any
- * candidate with a pending row is resolved by a LIVE embed of its current
- * content, even when a stored vector exists.
- *
- * The invariants here are pinned at the resolver boundary, where the returned
- * vector identity is observable (slot 0 carries an identity marker) and the
- * embedder call count is explicit. On the pre-#1569 logic
- * (`missing = candidates.filter(c => !stored.has(c.id))`) the OLD marker comes
- * back with zero embedder calls — the exact stale-scoring defect.
- */
-
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-/** `vec_thoughts` is `FLOAT[384]`; slot 0 is the identity marker of the vector. */
 function vec(marker: number): Float32Array {
   const v = new Float32Array(384)
   v[0] = marker
   return v
 }
 
-/** Identity markers of the returned vectors, in candidate order. */
 function markers(vectors: Float32Array[]): number[] {
   return vectors.map(v => v[0])
 }
 
-/**
- * Insert a stored vector for `id` the way the embedder worker leaves it
- * (DELETE + INSERT, `embedder/queue.ts`) and drain the queued re-embed: this is
- * the production steady state "the stored vector matches the content".
- */
 function storeVec(id: string, vector: Float32Array): void {
   getDb()
     .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
@@ -48,7 +25,6 @@ function storeVec(id: string, vector: Float32Array): void {
   drainPendingEmbeddings([id])
 }
 
-/** Simulate a content edit: rewrite `content` so the v035 trigger re-queues the row. */
 function editContent(id: string, content: string): void {
   getDb().prepare(`UPDATE thoughts SET content = ? WHERE id = ?`).run(content, id)
 }
@@ -57,12 +33,9 @@ describe('R1 freshness — a pending candidate is embedded live, never scored fr
   test('AC1 edit window: a candidate pending after OLD→NEW resolves to the NEW vector with a live embed', async () => {
     await withVecDb(async db => {
       const id = seedThought({ content: 'OLD content' })
-      // The vector that matches OLD content, with its queue row already drained.
       storeVec(id, vec(1))
       expect(getPendingEmbeddingIds(db, [id]).has(id)).toBe(false)
 
-      // Edit window: the worker has NOT refreshed vec_thoughts yet, so the stored
-      // vector (marker 1) is now stale while pending_embeddings holds the row.
       editContent(id, 'NEW content')
       expect(getPendingEmbeddingIds(db, [id]).has(id)).toBe(true)
       expect(getThoughtEmbeddingsBatch(db, [id]).get(id)![0]).toBe(1)
@@ -77,9 +50,6 @@ describe('R1 freshness — a pending candidate is embedded live, never scored fr
         db
       )
 
-      // The resolver must hand back the NEW-content vector (marker 2), not the
-      // stored OLD one (marker 1), and it must have asked the embedder for the
-      // candidate's CURRENT content exactly once.
       expect(markers(result)).toEqual([2])
       expect(embeddedTexts).toEqual([['NEW content']])
     })
@@ -91,10 +61,6 @@ describe('R1 freshness — a pending candidate is embedded live, never scored fr
       storeVec(id, vec(1))
       editContent(id, 'NEW content')
 
-      // This is the pre-#1569 filter (`!stored.has(c.id)`) applied to the SAME
-      // fixture, kept read-only: the stored stale row wins and the embedder is
-      // never consulted. It documents the defect the production resolver no
-      // longer has (asserted in the previous test) instead of merely claiming it.
       const staleIgnoringPending = async (): Promise<{ marker: number; embedCalls: number }> => {
         const stored = getThoughtEmbeddingsBatch(db, [id])
         let embedCalls = 0
@@ -111,7 +77,6 @@ describe('R1 freshness — a pending candidate is embedded live, never scored fr
       }
 
       expect(await staleIgnoringPending()).toEqual({ marker: 1, embedCalls: 0 })
-      // Same fixture through the production resolver: marker 2 (fresh).
       const live = await resolveCandidateEmbeddings(
         [{ id, content: 'NEW content' }],
         async texts => texts.map(() => vec(2)),
@@ -126,9 +91,6 @@ describe('R1 freshness — a pending candidate is embedded live, never scored fr
       const id = seedThought({ content: 'OLD content' })
       storeVec(id, vec(1))
       editContent(id, 'NEW content')
-      // Dead-letter the queue row exactly as `handleFailedItem` does at
-      // MAX_ATTEMPTS (`embedder/queue.ts:51-59`): the worker will never retry it,
-      // so the stale vector would otherwise persist forever.
       db.prepare(
         `UPDATE pending_embeddings SET attempts = 10, last_error = 'boom', is_error = 1, error = 'boom' WHERE thought_id = ?`
       ).run(id)
@@ -163,7 +125,6 @@ describe('R1 freshness — a pending candidate is embedded live, never scored fr
       storeVec('a', vec(11))
       storeVec('b', vec(22))
       storeVec('c', vec(33))
-      // Steady state precondition: no pending signal for any candidate.
       expect(
         getPendingEmbeddingIds(
           db,
@@ -189,10 +150,6 @@ describe('R1 freshness — a pending candidate is embedded live, never scored fr
   test('AC4 conservative direction: fresh stored vector AND a pending row → embedded live (waste is intended)', async () => {
     await withVecDb(async db => {
       const id = seedThought({ content: 'current content' })
-      // The stored vector already matches the content (fresh) AND a queue row is
-      // still present — the state a worker refresh between the two reads leaves
-      // behind. Re-embedding here is deliberate, harmless waste: it is the price
-      // of the no-stale-use guarantee (pending-first read ordering, #1569).
       storeVec(id, vec(1))
       db.prepare(
         `INSERT OR REPLACE INTO pending_embeddings (thought_id, created_at) VALUES (?, ?)`
@@ -225,11 +182,9 @@ describe('AC5 getPendingEmbeddingIds degradation (fail-closed AND available)', (
     await withVecDb(async db => {
       const id = seedThought({ content: 'NEW content' })
       storeVec(id, vec(1))
-      // A pending row is present, so production would embed this candidate live.
       db.prepare(
         `INSERT OR REPLACE INTO pending_embeddings (thought_id, created_at) VALUES (?, ?)`
       ).run(id, new Date().toISOString())
-      // Break the freshness read only.
       db.exec('ALTER TABLE pending_embeddings RENAME TO pending_embeddings_hidden')
 
       let embedCalls = 0
@@ -242,12 +197,6 @@ describe('AC5 getPendingEmbeddingIds degradation (fail-closed AND available)', (
         db
       )
 
-      // Fail CLOSED but AVAILABLE (task #1572 AC4): a read error must not
-      // degrade to "nothing pending" — that would silently score the candidate
-      // from its stored stale vector (marker 1), the exact R1 defect — and it
-      // must not abort the job either. Every candidate is reported pending, so
-      // the resolver embeds it live (marker 2) and the run survives. The
-      // failure is logged inside `getPendingEmbeddingIds`.
       expect(markers(result)).toEqual([2])
       expect(embedCalls).toBe(1)
 
@@ -262,8 +211,6 @@ describe('AC5 getPendingEmbeddingIds degradation (fail-closed AND available)', (
         .all() as { name: string }[]
       const present = names.map(n => n.name)
       expect(present).toContain('pending_embeddings')
-      // The read the resolver makes, on a fresh migrated DB: no read error, so the
-      // "all pending" fallback is not silently masking a missing signal.
       expect(getPendingEmbeddingIds(db, ['missing-id'])).toEqual(new Set())
       expect(getPendingEmbeddingIds(db, [])).toEqual(new Set())
     })

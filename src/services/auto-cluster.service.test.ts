@@ -17,8 +17,6 @@ import { getDb } from '../context/container'
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-// ── generateClusterTitle ──────────────────────────────────────────────────────
-
 test('generateClusterTitle returns first 3 words of newest thought', () => {
   const title = generateClusterTitle([
     { content: '  lots of words here  ', created_at: '2025-01-01' },
@@ -31,8 +29,6 @@ test('generateClusterTitle handles single-word content', () => {
   const title = generateClusterTitle([{ content: 'single', created_at: '2025-01-01' }])
   expect(title).toBe('single')
 })
-
-// ── findComponents ───────────────────────────────────────────────────────────
 
 test('findComponents groups connected nodes', () => {
   const components = findComponents(
@@ -66,8 +62,6 @@ test('findComponents handles all connected', () => {
   expect(components).toHaveLength(1)
   expect(components[0].sort()).toEqual(['a', 'b', 'c', 'd'])
 })
-
-// ── groupCandidates ──────────────────────────────────────────────────────────
 
 test('groupCandidates groups by neighbor function', () => {
   const candidates: ClusterCandidate[] = [
@@ -135,8 +129,6 @@ test('groupCandidates filters groups smaller than minMembers', () => {
   expect(groups).toHaveLength(0)
 })
 
-// ── runAutoCluster ────────────────────────────────────────────────────────
-
 test('runAutoCluster returns empty when no candidates', async () => {
   const result = await runAutoCluster({ minAgeDays: 999, dryRun: true })
   expect(result.candidates).toBe(0)
@@ -149,21 +141,12 @@ test('runAutoCluster dry run does not create clusters', async () => {
   expect(result.clusters_created).toBe(0)
 })
 
-// ── runAutoCluster: the option is explicit (#2201) ────────────────────────
-
 test('runAutoCluster requires an explicit dryRun', () => {
-  // `undefined extends …` is false only while the member is required, so this
-  // line stops compiling the moment `dryRun?:` comes back — `bun run tsc
-  // --noEmit` is the gate for the type half. A run may never inherit its mode
-  // from config: the removed `autoCluster.dryRun` knob did exactly that.
   const DRY_RUN_IS_REQUIRED: undefined extends AutoClusterOptions['dryRun'] ? false : true = true
 
   expect(DRY_RUN_IS_REQUIRED).toBe(true)
 })
 
-// ── runAutoCluster: no write-only _meta job replay (#2201) ────────────────
-
-/** `_meta` keys shaped like the removed job replay (`<job>_run` / `<job>_result`). */
 function jobReplayKeys(): string[] {
   const rows = getDb().prepare(`SELECT key FROM _meta`).all() as { key: string }[]
   return rows
@@ -175,8 +158,6 @@ function jobReplayKeys(): string[] {
 test('runAutoCluster writes no _meta job-run/result keys', async () => {
   const db = getDb()
 
-  // Positive control on the detector: the exact keys the deleted `recordJobRun`
-  // wrote are recognised, so an empty answer below is evidence, not a dead query.
   for (const key of ['last_auto_cluster_run', 'last_auto_cluster_result']) {
     db.prepare(`INSERT INTO _meta (key, value) VALUES (?, ?)`).run(
       key,
@@ -187,12 +168,10 @@ test('runAutoCluster writes no _meta job-run/result keys', async () => {
   db.prepare(`DELETE FROM _meta WHERE key LIKE 'last_auto_cluster%'`).run()
   expect(jobReplayKeys()).toEqual([])
 
-  // Former recordRun() call site 1: the empty-candidate early return.
   const empty = await runAutoCluster({ minAgeDays: 999, dryRun: true })
   expect(empty.candidates).toBe(0)
   expect(jobReplayKeys()).toEqual([])
 
-  // Former recordRun() call site 2: a run that actually creates a cluster.
   const ids = seedFourThoughts()
   const deps = {
     embed: async (texts: string[]) => texts.map(() => new Float32Array(384)),
@@ -215,12 +194,6 @@ test('runAutoCluster writes no _meta job-run/result keys', async () => {
   expect(jobReplayKeys()).toEqual([])
 })
 
-// ── runAutoCluster with injected embed + searchNeighbors ───────────────────
-
-/**
- * Build four past-dated thoughts and return their IDs in order [A, B, C, D].
- * minAgeDays=0 ensures they are all eligible candidates.
- */
 function seedFourThoughts(): string[] {
   const past = new Date(Date.now() - 10 * 86400000).toISOString()
   return ['A', 'B', 'C', 'D'].map(tag =>
@@ -291,7 +264,6 @@ test('runAutoCluster: omitted minSimilarity falls back to config default (recali
     searchNeighbors: (id: string) =>
       ids.filter(x => x !== id).map(x => ({ id: x, distance: dist[`${id}|${x}`] ?? 0.9 }))
   }
-  // minSimilarity omitted — should use config.autoCluster.minSimilarity (= DEFAULTS.autoCluster.minSimilarity after recalibration)
   const result = await runAutoCluster({ minAgeDays: 0, minMembers: 2, dryRun: true }, deps)
   expect(result.groups).toHaveLength(1)
   expect(result.groups[0].members.length).toBe(2)
@@ -299,9 +271,6 @@ test('runAutoCluster: omitted minSimilarity falls back to config default (recali
 })
 
 test('runAutoCluster: explicit minSimilarity overrides config default after recalibration', async () => {
-  // Same distance layout as the 0.3 test: A-B=0.25, B-C=0.5, C-D=0.6.
-  // Passing minSimilarity=0.3 explicitly should group only A-B (2 members),
-  // proving the explicit option still wins over the recalibrated default.
   const ids = seedFourThoughts()
   const dist: Record<string, number> = {
     [`${ids[0]}|${ids[1]}`]: 0.25,
@@ -323,19 +292,10 @@ test('runAutoCluster: explicit minSimilarity overrides config default after reca
   expect(result.groups).toHaveLength(1)
   expect(result.groups[0].members.length).toBe(2)
   expect(result.groups[0].members).toEqual(expect.arrayContaining([ids[0], ids[1]]))
-  // Sanity: the default from config/DEFAULTS is the recalibrated value, not the old 0.3.
   expect(config.autoCluster.minSimilarity).toBe(DEFAULTS.autoCluster.minSimilarity)
   expect(DEFAULTS.autoCluster.minSimilarity).toBe(0.09)
 })
 
-// ── Stored-vector path: no re-embedding, in-memory neighbours (task #1566) ────
-
-/**
- * Store one vector for `id` and drain its queued re-embed — the state a
- * candidate reaches after the embedder worker refreshed its `vec_thoughts` row.
- * A candidate left in `pending_embeddings` is embedded live from its content
- * instead of scored from the stale vector (task #1569, R1).
- */
 function storeVec(id: string, vector: Float32Array): void {
   getDb()
     .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
@@ -343,14 +303,6 @@ function storeVec(id: string, vector: Float32Array): void {
   drainPendingEmbeddings([id])
 }
 
-/**
- * Bulk-seed `count` eligible candidates with stored 384-dim vectors.
- *
- * `seedThought()` per row is far too slow for a bulk seed — the 200-candidate
- * gate check and the 3000-candidate perf run in `auto-cluster.perf.suite.ts` —
- * so the insert is one transaction; every seeded vector is `[1, 0, 0, ...]`, so
- * every pair is at distance 0 and a single run groups all of them together.
- */
 function seedClusterCandidates(count: number, past: string): string[] {
   const db = getDb()
   const ids: string[] = []
@@ -412,7 +364,6 @@ test('runAutoCluster: embeds only the candidates missing a stored vector, in can
     )
     const stored = new Float32Array(384)
     stored[0] = 1
-    // The newest candidate (listClusterCandidates orders created_at DESC) is the gap.
     storeVec(ids[2], stored)
 
     const seen: string[][] = []
@@ -440,17 +391,11 @@ test('runAutoCluster: group composition is unchanged with stored vectors (in-mem
     const ids = ['A', 'B', 'C', 'D'].map(tag =>
       seedThought({ content: `thought ${tag}`, created_at: past })
     )
-    // Pairwise distances A-B 0.05 / B-C 0.25 / C-D 0.5, plus the 0.6 pair, the
-    // distances the injected-lookup fixtures calibrate against. Each candidate
-    // sits at a cumulative angle delta where `cos(delta) = 1 - distance`, so the
-    // stored cosines are exact in float64 and both thresholds stay unambiguous:
-    // 0.09 admits only A-B, 0.3 admits the A-B-C chain.
     const angles = [0, angleForDistance(0.05)]
     for (const distance of [0.25, 0.5])
       angles.push(angles[angles.length - 1]! + angleForDistance(distance))
     for (let i = 0; i < ids.length; i++) storeVec(ids[i]!, clusterVec(angles[i]!))
 
-    // 0.3 (explicit): the 0.05 and 0.25 links connect → the A-B-C chain.
     const strict = await runAutoCluster({
       minAgeDays: 0,
       minMembers: 2,
@@ -461,8 +406,6 @@ test('runAutoCluster: group composition is unchanged with stored vectors (in-mem
     expect(strict.groups[0].members.length).toBe(3)
     expect(strict.groups[0].members).toEqual(expect.arrayContaining([ids[0], ids[1], ids[2]]))
 
-    // 0.09 (calibrated config default): only the 0.05 link clears it → A-B.
-    // `minMembers` stays explicit so this compares thresholds, not defaults.
     const relaxed = await runAutoCluster({
       minAgeDays: 0,
       minMembers: 2,
@@ -502,11 +445,6 @@ test('runAutoCluster: the default path issues no per-candidate vec0 search', asy
 test('runAutoCluster: 200 stored-vector candidates need 0 embedder calls and reach one group', async () => {
   await withVecDb(async () => {
     const past = new Date(Date.now() - 10 * 86400000).toISOString()
-    // Small N on purpose: the 3000-candidate timing run is an O(N^2) job that
-    // would carry a multi-second load into the default gate on a host that also
-    // runs prod (AGENTS.md §8), so it lives in `auto-cluster.perf.suite.ts`
-    // (task #1569, O4). This keeps the same stored-vector path — bulk seeding,
-    // zero embedder calls, in-memory neighbours — pinned for correctness.
     const ids = seedClusterCandidates(200, past)
     let embedCalls = 0
 
@@ -522,15 +460,11 @@ test('runAutoCluster: 200 stored-vector candidates need 0 embedder calls and rea
 
     expect(embedCalls).toBe(0)
     expect(result.candidates).toBe(200)
-    // Every stored vector is [1, 0, ...]: all pairs at distance 0, so one group.
     expect(result.groups).toHaveLength(1)
     expect(result.groups[0].members.length).toBe(ids.length)
   })
 })
 
-// ── Threshold convention, pre-change equivalence, DI seam (task #1567) ───────
-
-/** Unit vector at `angle`: `cos(A, B) = cos(angleA - angleB)`, so distances are exact. */
 function clusterVec(angle: number): Float32Array {
   const v = new Float32Array(384)
   v[0] = Math.cos(angle)
@@ -538,26 +472,21 @@ function clusterVec(angle: number): Float32Array {
   return v
 }
 
-/** Angle whose cosine with angle 0 is `1 - distance`. */
 const angleForDistance = (distance: number): number => Math.acos(1 - distance)
 
 function storeClusterVec(id: string, angle: number): void {
   storeVec(id, clusterVec(angle))
 }
 
-/** Eligible cluster candidate: active, past-dated, no cluster edges. */
 function seedOldThought(content: string): string {
   return seedThought({ content, created_at: new Date(Date.now() - 10 * 86400000).toISOString() })
 }
 
-/** Groups as order-insensitive sets, for comparing group composition. */
 function groupSets(groups: Array<{ members: string[] }>): string[][] {
   return groups.map(g => [...g.members].sort()).sort((a, b) => a[0]!.localeCompare(b[0]!))
 }
 
 test('runAutoCluster: stored-vector groups match the injected pre-change lookup (0.05/0.25/0.5/0.6)', async () => {
-  // Chain fixture from the contract: consecutive distances 0.05 / 0.25 / 0.5 /
-  // 0.6, so 0.09 admits only A-B and 0.3 admits the A-B-C chain.
   const links = [0.05, 0.25, 0.5, 0.6]
   const angles = [0]
   for (const distance of links) angles.push(angles[angles.length - 1]! + angleForDistance(distance))
@@ -569,8 +498,6 @@ test('runAutoCluster: stored-vector groups match the injected pre-change lookup 
         storeClusterVec(id, angles[i]!)
       })
 
-      // The pre-change shape: a neighbour lookup returning every other candidate
-      // with its cosine distance, filtered by `neighborFn` exactly as before.
       const indexOf = (id: string): number => ids.indexOf(id)
       const injected = (id: string, _embedding: Float32Array, topK: number) =>
         ids
@@ -604,9 +531,6 @@ test('runAutoCluster: stored-vector groups match the injected pre-change lookup 
 test('runAutoCluster: minSimilarity is a DISTANCE threshold, not a similarity one', async () => {
   await withVecDb(async () => {
     const ids = ['X', 'Y', 'Z'].map(tag => seedOldThought(`thought ${tag}`))
-    // cos(X,Y) = 0.10 (distance 0.90) and cos(X,Z) = 0.92 (distance 0.08): the
-    // pair straddles the 0.09 threshold symmetrically, so reading a distance as
-    // a similarity flips it from excluded to included.
     storeClusterVec(ids[0]!, 0)
     storeClusterVec(ids[1]!, Math.acos(0.1))
     storeClusterVec(ids[2]!, -Math.acos(0.92))
@@ -618,7 +542,6 @@ test('runAutoCluster: minSimilarity is a DISTANCE threshold, not a similarity on
       dryRun: true
     })
 
-    // Only the 0.08-distance pair is a link; 0.90 (similarity 0.10 >= 0.09) is not.
     expect(groupSets(result.groups)).toEqual([[ids[0]!, ids[2]!].sort()])
   })
 })
@@ -626,9 +549,6 @@ test('runAutoCluster: minSimilarity is a DISTANCE threshold, not a similarity on
 test('runAutoCluster: an injected searchNeighbors overrides the in-memory default', async () => {
   await withVecDb(async () => {
     const ids = ['A', 'B', 'C'].map(tag => seedOldThought(`thought ${tag}`))
-    // Identical stored vectors: the in-memory path would see distance 0 for all
-    // pairs and group all three. The injected lookup reports 0.9 instead, so a
-    // surviving group would prove the injected function was ignored.
     for (const id of ids) storeClusterVec(id, 0)
     let injectedCalls = 0
     const injected = (id: string, _embedding: Float32Array, _topK: number) => {
@@ -658,7 +578,6 @@ test('runAutoCluster: a mixed run (stored + embedded) reaches every candidate', 
       {
         embed: async texts => {
           seen.push(texts)
-          // C is embedded at B's angle: distance 0 to B, 0.08 to A.
           return texts.map(() => clusterVec(Math.acos(0.92)))
         }
       }
@@ -679,8 +598,6 @@ test('runAutoCluster: the freshly embedded vector is used for the missing candid
     const result = await runAutoCluster(
       { minAgeDays: 0, minMembers: 2, minSimilarity: 0.09, dryRun: true },
       {
-        // Orthogonal to both stored vectors. A misaligned matrix (C receiving
-        // A's or B's vector) would merge C into the group instead.
         embed: async texts => texts.map(() => clusterVec(Math.PI / 2))
       }
     )
@@ -706,8 +623,6 @@ test('runAutoCluster: the default path runs no vec0 neighbour query (spy + posit
       afterRun = vectorSpy.mock.calls.length
       expect(result.groups).toHaveLength(1)
 
-      // Positive control: the spy does observe this query path, so a count of 0
-      // in the service run is evidence rather than a dead spy.
       searchDb.searchThoughts(getDb(), { embedding: clusterVec(0), topK: 1 })
       expect(vectorSpy.mock.calls.length).toBeGreaterThan(afterRun)
     } finally {

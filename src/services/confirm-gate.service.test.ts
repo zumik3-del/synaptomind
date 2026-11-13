@@ -1,12 +1,3 @@
-/**
- * Unit cases for the one destructive-confirm protocol (audit F1, task #2466).
- *
- * The tool layer never re-implements preview-vs-confirm, so these cases pin the
- * gate itself: what a preview mints, that a confirm claims the token before it
- * mutates, and every refusal reason the claim can produce. The end-to-end
- * matrix over the converted tools lives in
- * `src/mcp/tools/confirm-gate.contract.test.ts`.
- */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { getDb } from '../db'
 import { closeDb } from '../db/init'
@@ -17,7 +8,6 @@ import { fingerprintOf, type GuardedRun, runGuarded } from './confirm-gate.servi
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-/** One guarded run over a fixed fingerprint, with call counters the cases assert on. */
 function guarded(overrides: Partial<GuardedRun<string, string>> = {}) {
   const calls = { preview: 0, apply: 0 }
   const run: GuardedRun<string, string> = {
@@ -37,7 +27,6 @@ function guarded(overrides: Partial<GuardedRun<string, string>> = {}) {
   return { run, calls }
 }
 
-/** The one token row a preview left behind, for the scope/fingerprint assertions. */
 function tokenRow(token: string) {
   const row = getDb()
     .prepare('SELECT kind, target_id, fingerprint FROM preview_tokens WHERE token = ?')
@@ -165,8 +154,6 @@ describe('runGuarded confirm half', () => {
 
     expect(executed).toEqual({ status: 'executed', value: 'applied' })
     expect(calls.apply).toBe(1)
-    // Nothing was compared, so nothing was claimed: the preview token stays
-    // valid for its 5-minute TTL and is swept later.
     expect(tokenRow(preview.token as string)).toBeDefined()
   })
 })
@@ -185,8 +172,6 @@ describe('runGuarded token refusals', () => {
     expect(stale).toBeInstanceOf(ValidationError)
     expect((stale as Error).message).toBe('preview token stale')
     expect(calls.apply).toBe(0)
-    // Fail closed: the rejected claim consumed the row, so the token cannot be
-    // replayed against the original state either.
     const replay = await failureOf(runGuarded({ confirm: true, preview_token: preview.token }, run))
     expect((replay as Error).message).toBe('preview token not_found')
     expect(calls.apply).toBe(0)
@@ -221,7 +206,6 @@ describe('runGuarded token refusals', () => {
     expect((wrongKind as Error).message).toBe('preview token kind_mismatch')
     expect(kindRun.calls.apply).toBe(0)
 
-    // The refused claim burned that token, so mint a fresh one for the target case.
     const targetRun = guarded()
     const targetPreview = await runGuarded({}, targetRun.run)
     if (targetPreview.status !== 'preview') throw new Error('expected a preview')

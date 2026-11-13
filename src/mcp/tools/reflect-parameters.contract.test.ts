@@ -28,8 +28,6 @@ function parseResult(result: unknown): { data: any; isError: boolean } {
   }
 }
 
-// A fresh test DB registers no project for this path: the answer keeps the
-// global scope while satisfying the hard-cwd contract.
 const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 beforeEach(async () => {

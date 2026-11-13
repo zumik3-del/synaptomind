@@ -1,7 +1,3 @@
-// Minimal stand-in for embedder-process.ts used by
-// embedder-shutdown-closeDb.test.ts. Speaks the same Bun IPC protocol and
-// exercises closeDb() on shutdown, but imports no model / network code, so the
-// test never downloads into the source tree or hits the network.
 import { closeDb, initDb } from '../../db/init'
 
 initDb()
@@ -16,5 +12,4 @@ process.on('message', (raw: unknown) => {
   }
 })
 
-// Keep the event loop alive until a shutdown message arrives.
 setInterval(() => {}, 60_000)

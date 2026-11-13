@@ -160,7 +160,6 @@ describe('extractPairSignals', () => {
     const src = makeThought({ id: 'src', content: 'a b c' })
     const tgt = makeThought({ id: 'tgt', content: 'b c d' })
     const signals = extractPairSignals(src, tgt)
-    // {a,b,c} ∩ {b,c,d} = {b,c}, union = 4 → 0.5
     expect(signals.lexicalOverlap).toBeCloseTo(0.5, 5)
   })
 
@@ -185,7 +184,6 @@ describe('extractPairSignals', () => {
     const a = makeThought({ id: 'a', tags: ['x', 'y'] })
     const b = makeThought({ id: 'b', tags: ['y', 'z'] })
     const sig = extractPairSignals(a, b)
-    // {x,y} ∩ {y,z} = {y}, union = 3 → 1/3
     expect(sig.tagOverlap).toBeCloseTo(1 / 3, 5)
   })
 

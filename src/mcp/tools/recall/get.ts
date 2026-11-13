@@ -7,18 +7,6 @@ import { itemEnvelope } from '../envelope'
 import type { Thought } from '../../../db/thoughts'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
-/**
- * `memory_recall` action=get.
- *
- * Returns one thought as `{ item, meta }`. When `include_edges` is true,
- * incident edges are returned inline inside the item (upstream/downstream, each
- * with edge type + created_at) so a caller can skip a separate `chain` call.
- * Edges are not thought columns, so `compact`/`fields` never trim them away:
- * they shape only the thought objects inside the edge entries.
- *
- * `include_url_links` (default false) adds `url_links` to the thought itself and
- * to every neighbour the edges carry — all from one batch read (ADR §4).
- */
 export const getHandler: ActionHandler = {
   input: z.object({
     thought_id: requiredString('thought_id is required for get action'),
@@ -35,7 +23,6 @@ export const getHandler: ActionHandler = {
       ? getChainService(id, 'both', args.max_degree as number | undefined)
       : null
     if (args.include_edges && !chain) throw new NotFoundError(`Thought '${id}' not found`)
-    // One batch read for the thought and every neighbour the answer will emit.
     const urlLinks =
       args.include_url_links === true
         ? loadUrlLinks([

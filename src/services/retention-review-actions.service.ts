@@ -1,4 +1,3 @@
-/** Retention-review destructive and protective actions. */
 import type { Database } from 'bun:sqlite'
 import {
   countIncomingActiveRetentionReviewEdges,
@@ -19,10 +18,6 @@ import { computeContentHash, asNumber, MS_PER_DAY } from '../utils'
 import { BATCH_ITEMS_MAX } from '../validation'
 import { insertLog } from '../logging/log'
 import type { RetentionReviewQueryOptions } from './retention-review.service'
-
-// ---------------------------------------------------------------------------
-// Retention-review actions: hard delete (cascade, preview-first) and protect.
-// ---------------------------------------------------------------------------
 
 export interface RetentionReviewDeleteOptions extends RetentionReviewQueryOptions {
   confirm?: boolean
@@ -217,7 +212,6 @@ export interface RetentionReviewCompactOptions extends RetentionReviewDeleteOpti
   force?: boolean
 }
 
-/** Preview or atomically consolidate selected retention candidates into a protected summary. */
 export function compactRetentionReviewCandidatesService(
   options: RetentionReviewCompactOptions,
   d: Database = getDb()
@@ -286,7 +280,6 @@ export function compactRetentionReviewCandidatesService(
     }
 
   const run = d.transaction(() => {
-    // Revalidate in the write transaction so previewed candidates cannot become stale.
     const latest = sources.map(({ id }) => {
       const eligibility = evaluateEligibility(id, d, options, now)
       if (eligibility.thought.is_protected || (!force && !eligibility.eligible)) {

@@ -116,7 +116,6 @@ test('maxSessions caps concurrent sessions with 429 and keepAlive is forwarded',
     expect(await overflow.json()).toEqual({ error: 'Too many sessions' })
     expect(server.getSessions().size).toBe(2)
 
-    // KEEPALIVE_MS flows into the SDK transport (private field of the pinned SDK).
     const transport = server.getSessions().get(firstId)!.transport as unknown as {
       _keepAliveMs?: number
     }

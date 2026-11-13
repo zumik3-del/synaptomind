@@ -4,11 +4,6 @@ import { join } from 'node:path'
 import { Hono } from 'hono'
 import { authMiddleware } from './auth'
 
-// Coverage for task #170 finding F19: the API and the MCP HTTP transport must
-// share one bearer-auth middleware, so the wire contract cannot drift between
-// protocols. The guard is partly architectural: the old API-local copy must
-// stay deleted, and both entrypoints must import the shared module.
-
 const ROOT = join(import.meta.dir, '..', '..')
 
 function readSource(relative: string): string {

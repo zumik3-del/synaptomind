@@ -9,23 +9,6 @@ import { closeDb } from '../../db/init'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
-/**
- * `include_url_links` contract (ADR 2026-10-26 §4, task #2202).
- *
- * The removed `GET /api/thoughts/:id/links` and `/links/batch` read surfaces
- * moved into the MCP thought output behind one boolean argument. This file pins
- * the four rules that make the move safe:
- *
- *   1. absence is the default — the key is absent, not `[]`, unless asked;
- *   2. `true` with no links answers `[]` ("asked, there are none");
- *   3. each link is `{text, url, label}` in db order, internal columns dropped;
- *   4. `compact` and `fields` cannot hide it — and the whole answer costs one
- *      batch query, never one per thought.
- *
- * Every action that emits thought objects is covered: search/clusters/list/get/
- * context/chain on `memory_recall` and `timeline` on `memory_reflect`.
- */
-
 mock.module('../../embedder/client', () => ({
   generateEmbedding: () => new Float32Array(384),
   generateEmbeddings: () => [new Float32Array(384)],
@@ -33,7 +16,6 @@ mock.module('../../embedder/client', () => ({
   isEmbedderReady: () => true
 }))
 
-/** No project is registered for this path, so the answer keeps the global scope. */
 const UNSCOPED_CWD = '/tmp/url-links-contract'
 const QUERY = 'url_links_contract_marker'
 
@@ -73,7 +55,6 @@ function timeline(args: Record<string, unknown> = {}): Promise<Envelope> {
   return callTool('memory_reflect', { action: 'timeline', cwd: UNSCOPED_CWD, ...args })
 }
 
-/** One url link on a thought, with an explicit db order. */
 function addLink(
   thoughtId: string,
   key: string,
@@ -84,14 +65,12 @@ function addLink(
   upsertThoughtUrlLink(getDb(), thoughtId, key, url, label, sortOrder)
 }
 
-/** A thought carrying one link, plus the id. */
 function seedLinked(content: string): string {
   const id = seedThought({ content })
   addLink(id, 'docs', 'https://example.com/docs', 'Docs', 0)
   return id
 }
 
-/** Whether any thought object anywhere in the answer carries the opt-in key. */
 function carriesUrlLinks(envelope: Envelope): boolean {
   return JSON.stringify(envelope).includes('"url_links"')
 }
@@ -102,8 +81,6 @@ afterEach(closeDb)
 beforeEach(async () => {
   client = await setupClient()
 })
-
-// ── absence is the default ──────────────────────────────────────────────────
 
 describe('include_url_links is absent unless asked', () => {
   test('every recall action and reflect timeline omit the key by default', async () => {
@@ -138,8 +115,6 @@ describe('include_url_links is absent unless asked', () => {
   })
 })
 
-// ── asked, and there are none ───────────────────────────────────────────────
-
 describe('include_url_links: true with no links answers []', () => {
   test('search and get attach an empty array, not a missing key', async () => {
     const id = seedThought({ content: `${QUERY} unlinked` })
@@ -163,12 +138,9 @@ describe('include_url_links: true with no links answers []', () => {
   })
 })
 
-// ── shape and order ─────────────────────────────────────────────────────────
-
 describe('the link shape is {text, url, label} in db order', () => {
   test('sort_order decides the order and no internal column is emitted', async () => {
     const id = seedThought({ content: `${QUERY} ordered links` })
-    // Inserted out of order on purpose: the db order is sort_order, not insertion.
     addLink(id, 'third', 'https://example.com/3', 'Third', 30)
     addLink(id, 'first', 'https://example.com/1', 'First', 10)
     addLink(id, 'second', 'https://example.com/2', 'Second', 20)
@@ -185,7 +157,6 @@ describe('the link shape is {text, url, label} in db order', () => {
       'https://example.com/3'
     ])
     expect(links.map(l => l.label)).toEqual(['First', 'Second', 'Third'])
-    // Internal columns (id, thought_id, created_at) never reach the wire.
     for (const link of links) {
       expect(Object.keys(link).sort()).toEqual(['label', 'text', 'url'])
     }
@@ -210,8 +181,6 @@ describe('the link shape is {text, url, label} in db order', () => {
     expect(thoughts.find(t => t.id === two)?.url_links).toEqual([])
   })
 })
-
-// ── compact / fields cannot hide it ─────────────────────────────────────────
 
 describe('compact and fields never trim url_links', () => {
   test('compact: true keeps url_links beside the minimal field set', async () => {
@@ -264,8 +233,6 @@ describe('compact and fields never trim url_links', () => {
     expect((rows[0].url_links as unknown[]).length).toBe(1)
   })
 })
-
-// ── every emitted thought object, not just the head ────────────────────────
 
 describe('every thought the answer emits carries its links', () => {
   test('get attaches links to upstream and downstream neighbours', async () => {
@@ -341,14 +308,7 @@ describe('every thought the answer emits carries its links', () => {
   })
 })
 
-// ── one batch query per response ───────────────────────────────────────────
-
 describe('one batch query per response', () => {
-  /**
-   * Count the db reads the batch helper makes while `fn` runs. The spy
-   * delegates to the real implementation and restores itself, so only the call
-   * count is observed — the answer is still produced by real code.
-   */
   async function countingBatchReads(
     fn: () => Promise<unknown>
   ): Promise<{ calls: number; idArgs: string[][] }> {
@@ -414,8 +374,6 @@ describe('one batch query per response', () => {
     expect(calls).toBe(0)
   })
 })
-
-// ── the argument itself ────────────────────────────────────────────────────
 
 describe('the argument surface', () => {
   test('both tools advertise include_url_links as a boolean', async () => {

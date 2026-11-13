@@ -23,17 +23,6 @@ const QUERY = 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda m
 const TARGET = 'bm25-order-target'
 const WEAK_PREFIX = 'bm25-order-weak-'
 
-/**
- * One project where the query is a thought's own content, inserted after 30
- * weaker matches. The planner drives the filtered leg from `thoughts` (the
- * indexed `t.status` predicate invites it), so insertion order used to decide
- * both the row order and which rows survived the cap.
- *
- * Each weak row matches only `alpha` and carries one filler token more than the
- * row before it, so its BM25 score is strictly lower than its predecessor's: the
- * 30 weak rows are distinct candidates, never one tie group, so "any 9 of them"
- * cannot stand in for the true top under the cap.
- */
 function seedRankedProject(): string {
   for (let i = 0; i < 30; i++) {
     seedThought({
@@ -49,7 +38,6 @@ function weakId(i: number): string {
   return `${WEAK_PREFIX}${String(i).padStart(2, '0')}`
 }
 
-/** Target first, then the weak rows in their strictly decreasing relevance order. */
 function expectedTopIds(count: number): string[] {
   return [TARGET, ...Array.from({ length: count - 1 }, (_, i) => weakId(i))]
 }
@@ -77,9 +65,7 @@ test('the cap keeps the best-scoring matches, not an arbitrary subset', () => {
   seedRankedProject()
   const filter = serviceFilter()
 
-  // The unfiltered leg is the score-ordered oracle: this fixture is one project.
   const best = bm25ScoredIdsFiltered(db, QUERY, 1000, '', []).slice(0, 10)
-  // No tie group can hide a wrong selection: all 30 weak scores are distinct.
   expect(new Set(best.map(r => r.score)).size).toBe(best.length)
 
   const capped = bm25ScoredIdsFiltered(db, QUERY, 10, filter.sql, filter.params)
@@ -90,8 +76,6 @@ test('the cap keeps the best-scoring matches, not an arbitrary subset', () => {
 
 test('equal scores break on thought_id, so a tie straddling the cap is stable', () => {
   const db = getDb()
-  // Identical content means identical bm25(); inserted in reverse id order so the
-  // planner's row order cannot masquerade as the tie order.
   const later = seedThought({ id: 'bm25-tie-z', project_id: PROJECT, content: 'tie probe' })
   const earlier = seedThought({ id: 'bm25-tie-a', project_id: PROJECT, content: 'tie probe' })
   const filter = serviceFilter()
@@ -102,7 +86,6 @@ test('equal scores break on thought_id, so a tie straddling the cap is stable', 
   for (let run = 0; run < 5; run++) {
     const both = bm25ScoredIdsFiltered(db, 'tie probe', 2, filter.sql, filter.params)
     expect(both.map(r => r.id)).toEqual([earlier, later])
-    // The tie straddles the outer cut: the survivor is the id-ordered one, not the planner's.
     const single = bm25ScoredIdsFiltered(db, 'tie probe', 1, filter.sql, filter.params)
     expect(single.map(r => r.id)).toEqual([earlier])
   }
@@ -157,15 +140,12 @@ function seedVec(db: Database, id: string, vector: Float32Array): void {
   )
 }
 
-/** The target matches the query exactly; the weaker matches trail it by a hair. */
 function seedEmbeddedRankedProject(db: Database): void {
   const relevant = new Float32Array(DIMENSIONS)
   relevant[0] = 1
 
   seedRankedProject()
   for (let i = 0; i < 30; i++) {
-    // A strictly decreasing resemblance keeps the vector leg in insertion order,
-    // so both legs agree on the weaker rows and only their shared top can win.
     const weaker = new Float32Array(DIMENSIONS)
     weaker[0] = (30 - i) / 1000
     weaker[1] = 1

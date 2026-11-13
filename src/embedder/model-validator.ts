@@ -7,9 +7,9 @@ interface FileSpec {
   minSizeBytes: number
 }
 
-// transformers.js resolves the ONNX filename by appending a per-dtype suffix
-// (DEFAULT_DTYPE_SUFFIX_MAPPING: fp32 -> '', q8 -> '_quantized') to `onnx/model`.
-// Keep this in sync with `config.embedder.dtype` — the loader passes the same dtype.
+// transformers.js resolves the ONNX filename from the dtype string alone
+// (DEFAULT_DTYPE_SUFFIX_MAPPING: fp32 -> '', q8 -> '_quantized'); keep in sync with
+// `config.embedder.dtype`, which the loader passes.
 const ONNX_FILE_BY_DTYPE: Record<EmbedderDtype, string> = {
   fp32: 'onnx/model.onnx',
   q8: 'onnx/model_quantized.onnx'
@@ -24,7 +24,6 @@ function expectedFiles(dtype: EmbedderDtype): FileSpec[] {
   ]
 }
 
-/** The other dtypes' ONNX files — on disk only after a dtype switch. */
 function siblingOnnxFiles(dtype: EmbedderDtype): string[] {
   return Object.entries(ONNX_FILE_BY_DTYPE)
     .filter(([other]) => other !== dtype)
@@ -117,18 +116,6 @@ async function downloadFile(
   console.log(`[embedder] downloaded ${relativePath} (${formatMB(buffer.byteLength)})`)
 }
 
-/**
- * A dtype switch (e.g. the `q8` default flip) leaves the previous dtype's ONNX
- * file beside the new one: transformers.js resolves the file from the dtype
- * string alone and never scans `onnx/`, so the sibling is inert — but it can be
- * hundreds of MB on hosts the deploy guide calls disk-tight, so say so once.
- * The warning names the price of reclaiming that space too: the sibling is the
- * offline way back to its dtype, so an operator who deletes it needs the network
- * to switch again. Log-only by design: the file is never deleted here (a switch
- * back reuses it, and it is not ours to remove). Written to stderr, which
- * `embedder-client` records at level 'warning' instead of the 'info' it gives
- * the child's stdout.
- */
 async function warnStaleSiblingOnnx(baseDir: string, dtype: EmbedderDtype): Promise<void> {
   for (const path of siblingOnnxFiles(dtype)) {
     const f = Bun.file(`${baseDir}/${path}`)
@@ -149,9 +136,6 @@ export async function ensureModelFiles(
   const result = await validateModelFiles(cacheDir, modelName, dtype)
 
   const baseDir = modelDir(cacheDir, modelName)
-  // Before any download: on an offline host the fetch below is exactly what
-  // fails, and this line is the operator's hint that the file at hand (or
-  // `SYNAPTOMIND_EMBEDDER_DTYPE=fp32`) is the way out.
   await warnStaleSiblingOnnx(baseDir, dtype)
 
   for (const path of result.corrupt) {

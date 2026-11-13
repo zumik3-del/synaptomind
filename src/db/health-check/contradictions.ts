@@ -7,14 +7,6 @@ import type {
   SupportsSelfConflict
 } from './types'
 
-/**
- * A `contradicts` pair whose endpoints are also connected by a directed
- * `parent`/`develops` hierarchy path (ancestor or descendant). Hierarchy and
- * conflict disagree, so at least one of the two relations is wrong.
- *
- * `contradicts` is symmetric, so a cycle of contradictions is not a meaningful
- * signal; the hierarchy interaction is the actionable check instead.
- */
 export function findContradictsWithHierarchy(db: Database): ContradictsWithHierarchy[] {
   return db
     .prepare(`
@@ -35,11 +27,6 @@ export function findContradictsWithHierarchy(db: Database): ContradictsWithHiera
     .all() as ContradictsWithHierarchy[]
 }
 
-/**
- * A `contradicts` edge on the same unordered pair as a `replaces` edge: the
- * supersession already resolved the conflict, so the stance edge is redundant
- * (normally impossible through `createEdge`, catches migration/junk rows).
- */
 export function findContradictsRedundantWithReplaces(
   db: Database
 ): ContradictsRedundantWithReplaces[] {
@@ -60,16 +47,6 @@ export function findContradictsRedundantWithReplaces(
     .all() as ContradictsRedundantWithReplaces[]
 }
 
-/**
- * Two members of the same cluster contradict each other: the consolidated
- * claim is ambiguous until the conflict is resolved.
- *
- * Archived members are excluded: `contradicts` means two live, mutually
- * exclusive claims, archiving is a plain status flip that keeps the edges, and
- * the documented `replaces`-then-archive flow does not transfer them, so a
- * live<->archived pair would warn forever after a correct procedure. Both
- * archived pairs stay reported by `findContradictsToArchived`.
- */
 export function findContradictionInCluster(db: Database): ContradictionInCluster[] {
   return db
     .prepare(`
@@ -96,7 +73,6 @@ export function findContradictionInCluster(db: Database): ContradictionInCluster
     .all() as ContradictionInCluster[]
 }
 
-/** Both endpoints of a `contradicts` edge are archived: stale conflict, a cleanup candidate. */
 export function findContradictsToArchived(db: Database): ContradictsToArchived[] {
   return db
     .prepare(`
@@ -109,11 +85,6 @@ export function findContradictsToArchived(db: Database): ContradictsToArchived[]
     .all() as ContradictsToArchived[]
 }
 
-/**
- * The same unordered pair carries both `supports` and `contradicts`. Under the
- * one-edge-per-pair rule this cannot happen via `createEdge`; it flags junk or
- * externally-inserted rows that break the invariant.
- */
 export function findSupportsSelfConflict(db: Database): SupportsSelfConflict[] {
   return db
     .prepare(`

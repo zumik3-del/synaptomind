@@ -4,11 +4,6 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { mainCheckoutRoot, resolveVec0, VEC0_FILENAME } from './vec0-fallback'
 
-/**
- * The fallback that makes `bun run test:all` work in a fresh worktree
- * (task #1935). These pin the resolution order and, above all, the limit: a
- * local extension always wins, so a broken local copy is never masked.
- */
 describe('vec0 fallback resolution', () => {
   let root: string
 
@@ -26,7 +21,6 @@ describe('vec0 fallback resolution', () => {
     return path
   }
 
-  /** A main checkout at `<root>/main` plus a linked worktree at `<root>/tree`. */
   function worktreePair(): { main: string; tree: string } {
     const main = join(root, 'main')
     const tree = join(root, 'tree')

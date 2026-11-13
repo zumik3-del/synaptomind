@@ -22,8 +22,6 @@ export function isClientAbort(err: unknown): boolean {
   return err instanceof Error && err.name === 'AbortError'
 }
 
-// Mirrors the MCP entry's own parse rule: empty or invalid JSON is `undefined`,
-// which the entry classifies as legacy; a literal `null` is a parsed body.
 function parseJsonOrUndefined(text: string): unknown {
   try {
     return JSON.parse(text)
@@ -38,17 +36,9 @@ export async function readJsonBody(request: Request, maxBytes: number): Promise<
   return { tooLarge: false, body: parseJsonOrUndefined(read.text) }
 }
 
-// A rejected POST still has to be drained: Bun settles a request only once its
-// body reaches the end, and an unread body keeps server.stop() waiting. Nothing
-// in a rejected body is parsed, so the drain discards it: 64 KiB bounds both the
-// memory a pending rejection can pin and how long a 4xx waits for an upload.
-//
-// Past the cap the stream is cancelled, which does NOT settle the request even
-// though the cancel itself resolves: Bun writes the 4xx and keeps the connection
-// in flight with the rest of the body unread, so a client that still has bytes to
-// send (the ordinary oversized-upload shape) leaves server.stop() waiting
-// forever. 'abandoned' reports exactly that, and the caller has to close the
-// connection instead (#2464).
+// Bun settles a request only once its body reaches the end, so a rejected POST must be drained or
+// `server.stop()` waits forever. Past the cap the stream is cancelled, which does NOT settle the
+// request: 'abandoned' tells the caller to close the connection instead.
 export const DRAIN_BODY_BYTES = 65_536
 
 export type DrainOutcome = 'consumed' | 'abandoned'
@@ -56,8 +46,6 @@ export type DrainOutcome = 'consumed' | 'abandoned'
 export async function drainRejectedBody(request: Request): Promise<DrainOutcome> {
   const body = request.body
   if (!body) return 'consumed'
-  // A declared length over the cap stops before reading a byte: the bodies that
-  // reach here are never parsed, so there is nothing to wait for.
   if (Number(request.headers.get('content-length') ?? '0') > DRAIN_BODY_BYTES) {
     await body.cancel().catch(() => {})
     return 'abandoned'
@@ -75,7 +63,6 @@ export async function drainRejectedBody(request: Request): Promise<DrainOutcome>
       }
     }
   } catch {
-    // A client abort closes the stream, and the request is settled with it.
     return 'consumed'
   } finally {
     reader.releaseLock()

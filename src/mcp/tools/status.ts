@@ -110,8 +110,6 @@ export function registerMemoryStatus(server: McpServer) {
         .describe(
           'Fields to include in output; intersected with available columns. OPTIONAL for all actions. IGNORED for actions without thought output.'
         ),
-      // Tombstones for retired parameters: supplying one fails input validation
-      // with the canonical replacement instead of a silent strip.
       k: z.never({ error: 'k was removed; use limit' }).optional().describe('Removed; use limit.'),
       fix: z
         .never({ error: 'fix was removed; use /health-check/repair' })

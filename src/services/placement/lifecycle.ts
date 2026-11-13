@@ -1,20 +1,9 @@
-/**
- * Merge/lifecycle decision for the propose-only placement engine
- * (ADR 2026-09-28, §2.6).
- *
- * Pure and side-effect free: it detects the best lexical near-duplicate in the
- * candidate pool and applies the lifecycle precedence
- * `replaces+archive` > `merge` > `link` > `keep`. It never writes the graph —
- * the returned {@link LifecycleProposal} is advisory only, confirmation always
- * happens through the existing write tools.
- */
-
 import type { Thought } from '../../db/thoughts'
 import { clamp01 } from '../../utils'
 import { jaccard, normalise } from '../text-similarity.service'
 import type { EdgeProposal, LifecycleProposal } from './types'
 
-/** Near-duplicate threshold; mirrors `session-reflection.service.ts` (Jaccard 0.6). */
+// Mirrors `session-reflection.service.ts`: both must agree on the near-duplicate threshold.
 const MERGE_OVERLAP_MIN = 0.6
 
 interface MergeTarget {
@@ -26,11 +15,6 @@ export function keepLifecycle(rationale: string): LifecycleProposal {
   return { action: 'keep', confidence: 0, rationale, review_required: true, blocked_by: [] }
 }
 
-/**
- * Best lexical near-duplicate in the pool: exact normalised match or
- * Jaccard >= 0.6 (mirrors `session-reflection.service.ts`), highest overlap
- * first with a `target_id` asc tiebreak. Pure and deterministic.
- */
 export function findMergeTarget(pool: Thought[], source: Thought): MergeTarget | undefined {
   const sourceNorm = normalise(source.content)
   let best: MergeTarget | undefined
@@ -51,32 +35,12 @@ export function findMergeTarget(pool: Thought[], source: Thought): MergeTarget |
   return best
 }
 
-/**
- * Non-throwing equivalent of the merge preconditions (`merge.ts`): the reasons
- * a proposed merge cannot be confirmed, surfaced as `blocked_by[]`.
- */
 function mergeBlockers(source: Thought): string[] {
   const blocked: string[] = []
   if (source.status === 'archived') blocked.push('source is archived')
   return blocked
 }
 
-/**
- * Lifecycle precedence (ADR §2.6): `replaces+archive` > `merge` > `link` >
- * `keep`. Deterministic and side-effect free.
- *
- * `replaces+archive` archives the **older** `replaceEdge.target_id` (the
- * superseded endpoint, Finding F1 option (b)); the newer source is kept and
- * the emitted `replaces` edge already points source(newer) → target(older),
- * matching `mergeThoughtsService` and `getReplacedTargetIds`. The blocker is
- * therefore the target's status, not the source's.
- *
- * `replaceEdge` is probed on the *uncapped* proposal list (see
- * {@link proposePlacementPlan}) so a supersede candidate that sorts past
- * `maxProposals` still wins precedence. `emittedEdges` is the post-cap list
- * actually returned in the plan, so the `link` rationale reports the final
- * count.
- */
 export function decideLifecycle(
   source: Thought,
   replaceEdge: EdgeProposal | undefined,

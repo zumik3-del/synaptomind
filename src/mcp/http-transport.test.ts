@@ -30,8 +30,6 @@ let mainServer: McpHttpHandle
 let mainBase: string
 let mainPort: number
 
-// A second server with a non-empty CORS allow-list, so allow/deny behaviour can
-// be asserted against both configurations.
 let corsServer: McpHttpHandle
 let corsBase: string
 
@@ -201,7 +199,6 @@ describe('HTTP session lifecycle', () => {
 
   test('a session dropped from the store (expired) returns 404', async () => {
     const sessionId = await initialize(mainBase)
-    // What the TTL sweeper does once SESSION_TTL_MS has elapsed.
     mainServer.getSessions().delete(sessionId)
 
     const res = await rpc(mainBase, LIST_MESSAGE, sessionId)
@@ -279,7 +276,6 @@ describe('InMemoryEventStore replay', () => {
       await store.storeEvent('stream-a', { n: i })
     }
 
-    // The oldest event was evicted, so resume from it is a no-op.
     const sent: string[] = []
     const streamId = await store.replayEventsAfter(first, {
       send: async id => {
@@ -290,8 +286,6 @@ describe('InMemoryEventStore replay', () => {
     expect(sent).toEqual([])
   })
 
-  // F10: losing the replay anchor must be observable, while an id that was
-  // never stored (client bug) must stay silent.
   test('a known-but-evicted replay anchor signals onReplayAnchorEvicted; an unknown id does not', async () => {
     const signalled: string[] = []
     const store = new InMemoryEventStore({ onReplayAnchorEvicted: id => signalled.push(id) })
@@ -304,7 +298,6 @@ describe('InMemoryEventStore replay', () => {
     expect(anchorStream).toBe('')
     expect(signalled).toEqual([first])
 
-    // An id that was never stored is not a resumability loss.
     const unknownStream = await store.replayEventsAfter('never-stored-id', { send: async () => {} })
     expect(unknownStream).toBe('')
     expect(signalled).toEqual([first])
@@ -327,16 +320,11 @@ describe('HTTP rate limiting', () => {
   })
 })
 
-// Coverage for task #167 (F5/F6/F7): the MCP HTTP endpoint must reject oversized
-// bodies, answer with a JSON-RPC error envelope on unhandled failures, and never
-// combine a wildcard CORS origin with bearer auth.
 describe('HTTP body cap', () => {
   test('rejects an oversized /mcp body with a JSON-RPC 413 and creates no session', async () => {
     const before = mainServer.getSessions().size
     const oversized = JSON.stringify({
       ...INIT_MESSAGE,
-      // Push the Content-Length one byte past the cap; the guard must fire
-      // before the initialize body is ever parsed.
       pad: 'x'.repeat(MAX_REQUEST_BODY_BYTES + 1)
     })
 
@@ -357,7 +345,6 @@ describe('HTTP body cap', () => {
       error: { code: -32000, message: 'Request body too large (max 5MB)' },
       id: null
     })
-    // No partial processing: the capped request must not register a session.
     expect(mainServer.getSessions().size).toBe(before)
   })
 })
@@ -382,10 +369,6 @@ describe('HTTP error envelope', () => {
   })
 
   test('the running server routes an unhandled middleware throw to the JSON-RPC envelope', async () => {
-    // A throwing CORS origin resolver is a probe for the onError wiring: the
-    // real Hono app must catch the throw and answer with the registered handler
-    // rather than Hono's plain-text default. Start on an ephemeral port because
-    // the handler is only reachable through a served request.
     const port = await freePort()
     const failingServer = startMcpHttpServer('127.0.0.1', port, {
       corsOrigins: (() => {

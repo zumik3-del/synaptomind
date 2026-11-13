@@ -50,15 +50,6 @@ export function findOrphanedClusterMembers(db: Database): OrphanedClusterMember[
     .all() as OrphanedClusterMember[]
 }
 
-/**
- * Dense regular thoughts that no cluster has picked up yet.
- *
- * `minAgeDays` mirrors `autoCluster.minAgeDays` by default: auto-cluster only
- * considers candidates older than that window, so flagging younger thoughts
- * would be a structural false positive they cannot yet be repaired from.
- * Keep the two aligned (see the registration comment in
- * `src/services/health-check.service.ts`).
- */
 export function findClusterlessDense(
   db: Database,
   minEdges: number = 5,

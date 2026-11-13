@@ -1,18 +1,3 @@
-/**
- * Run-scoped rollback for the explicit placement apply orchestrator
- * (ADR 2026-09-29 §2.8).
- *
- * The accepted rows of one `run_id` are the rollback manifest: `rollbackService`
- * iterates them in reverse application order and inverts each reversible
- * mutation through **existing** writers only (`deleteEdgeService`). Nothing is
- * hard-deleted: a row decided outside the rollback window is refused, a row of a
- * kind the queue no longer supports (`placement`/`lifecycle` from #1942, the
- * triage verdicts from #1946) is refused because it has no inverse writer left,
- * and a row whose stored fingerprint no longer matches the graph is skipped with
- * a warning. `confirm: false` (default) is a
- * non-mutating dry-run report. No ambient/scheduled caller invokes this.
- */
-
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { getDb } from '../db'
@@ -32,15 +17,7 @@ import { MS_PER_DAY } from '../utils'
 
 type Decision = { action: 'revert' } | { action: 'skipped' | 'refused'; reason: string }
 
-/**
- * Refuse a row decided outside the rollback window (ADR 2026-09-29 §2.8, OQ-3:
- * "While the run's rows are retained (proposal TTL) …; older → refuse + warn").
- * The window IS the retention window — `placement.proposalTtlDays` — so this is
- * the read-time backstop for a not-yet-run/slow retention job. A negative TTL
- * disables retention and therefore the guard. Fails closed: a row that cannot
- * be measured (missing/unparseable `decided_at` or clock) is refused, never
- * reverted. Returns `null` when the row is in-window.
- */
+// The rollback window is the retention window; a row that cannot be measured is refused, never reverted.
 function windowRefusal(row: PlacementProposalRow, now: string): Decision | null {
   const ttlDays = config.placement.proposalTtlDays
   if (ttlDays < 0) return null
@@ -67,13 +44,6 @@ function windowRefusal(row: PlacementProposalRow, now: string): Decision | null 
   return null
 }
 
-/**
- * Read-only verdict for one accepted row (ADR §2.8): the rollback window is
- * checked first (a refusal is terminal and outranks the rest), a row of a
- * removed kind (tasks #1942, #1946) has no inverse writer left and is refused, an
- * idempotent accept mutated nothing, and a fingerprint drift means the graph
- * moved since apply — all non-revertible; everything else is revertible.
- */
 function decideRollback(row: PlacementProposalRow, now: string, d: Database): Decision {
   const outsideWindow = windowRefusal(row, now)
   if (outsideWindow) return outsideWindow
@@ -92,7 +62,6 @@ function decideRollback(row: PlacementProposalRow, now: string, d: Database): De
   return { action: 'revert' }
 }
 
-/** Apply the inverse of one accepted row through existing writers only. */
 function applyInverse(row: PlacementProposalRow, d: Database): void {
   const calls = planWriterCalls(row, 'rollback')
   if (!calls) throw new ValidationError(`proposal '${row.id}' has no reversible apply action`)
@@ -114,12 +83,6 @@ function summarize(items: RollbackItemReport[]): RollbackReport['summary'] {
   }
 }
 
-/**
- * Roll back every accepted row of `runId` in reverse application order
- * (ADR §2.8). Default `confirm:false` is a read-only preview; `confirm:true`
- * performs each inverse in its own transaction and marks the row `rolled_back`
- * with `decided_at` (so retention can prune it). Returns the per-row report.
- */
 export function rollbackService(
   runId: string,
   options: RollbackOptions = {},
@@ -130,8 +93,6 @@ export function rollbackService(
   const confirm = options.confirm === true
   const now = options.now ?? new Date().toISOString()
   const decidedBy = options.decidedBy ?? null
-  // Reverse application order is `applied_at` descending — the order the run
-  // confirmed its items in, not the order they were enqueued (ADR 2026-09-29 §2.8).
   const accepted = listAcceptedProposalsByRun(d, runId)
 
   const items: RollbackItemReport[] = []

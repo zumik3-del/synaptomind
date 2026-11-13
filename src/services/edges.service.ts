@@ -11,9 +11,6 @@ import { NotFoundError, ValidationError } from '../errors'
 import { BATCH_ITEMS_MAX } from '../validation'
 import type { Database } from 'bun:sqlite'
 
-// Re-export the canonical edge-type list so the MCP layer (store.ts) derives its
-// zod enums from the db-layer source of truth without importing db directly
-// (AGENTS.md §4 layering: api/mcp -> services -> db).
 export { EDGE_TYPES, type EdgeType, type EdgeView } from '../db/edges'
 
 export function createEdgeService(
@@ -28,15 +25,12 @@ export function createEdgeService(
   return createEdge(d, sourceId, targetId, type)
 }
 
-/** One `link_batch` item: the edge to create (task #1964). */
 export interface LinkBatchItem {
   source: string
   target: string
-  /** Edge type; defaults to `related` like the single `link` action. */
   type?: string
 }
 
-/** One `link_batch` item that could not be linked, with its position and reason. */
 interface LinkBatchError {
   index: number
   source?: string
@@ -44,25 +38,12 @@ interface LinkBatchError {
   error: string
 }
 
-/** Outcome of `createEdgesBatchService` (task #1964): counts plus per-item failures. */
 export interface LinkBatchResult {
-  /** Edges the writer accepted — an idempotent replay of a symmetric edge counts too. */
   linked: number
-  /** Always `errors.length`, so a caller sees the failure count without scanning. */
   failed: number
   errors: LinkBatchError[]
 }
 
-/**
- * Create several edges in one call (task #1964).
- *
- * Reuses `createEdgeService`, so every single-link rule (type vocabulary, no self
- * loops, one type per pair, cluster strictness, the `related` upgrade) applies
- * item by item. The batch runs in ONE transaction and reports per-item failures
- * instead of aborting the rest — the contract `bulkCreateThoughtsService` already
- * uses: a failure is collected, the items that succeeded still commit, and
- * nothing is swallowed silently.
- */
 export function createEdgesBatchService(
   links: LinkBatchItem[],
   d: Database = getDb()
@@ -105,56 +86,35 @@ export function deleteEdgeService(edgeId: string, d: Database = getDb()): boolea
   return deleteEdge(d, edgeId)
 }
 
-/** One `unlink_batch` item result (task #1972). */
 interface UnlinkBatchItemResult {
   edge_id: string
   status: 'deleted' | 'preview' | 'failed'
-  /** Present on `preview` results (mirrors single `unlink`). */
   edge?: { id: string; source_id: string; target_id: string; type: string; created_at: string }
   consequence?: string
   error?: string
 }
 
-/** One `unlink_batch` failure entry (task #1972). */
 interface UnlinkBatchError {
   index: number
   edge_id?: string
   error: string
 }
 
-/** Outcome of `deleteEdgesBatchService` (task #1972): counts plus per-edge status. */
 export interface UnlinkBatchResult {
-  /** Edges actually deleted (confirm mode, all ids valid). */
   deleted: number
-  /** Edges shown as a non-mutating preview (preview mode). */
   preview: number
-  /** Edges that could not be processed. */
   failed: number
-  /** Alias for `deleted`. */
   unlinked: number
-  /** Alias for `preview`. */
   previews: number
-  /** Alias for `failed`. */
   failures: number
   total: number
-  /** Per-edge status (primary). */
   results: UnlinkBatchItemResult[]
-  /** Alias for `results`. */
   items: UnlinkBatchItemResult[]
-  /** Alias for `results`. */
   edges: UnlinkBatchItemResult[]
   errors: UnlinkBatchError[]
   instruction?: string
 }
 
-/**
- * Delete (or preview) several edges in one call (task #1972).
- *
- * Runs in ONE transaction. In confirm mode every `edge_id` is validated to exist
- * and checked for duplicates BEFORE any deletion happens, so an invalid batch aborts instead
- * of leaving a partial prune behind. Preview mode (confirm=false) never mutates
- * and reports per-edge preview details.
- */
 export function deleteEdgesBatchService(
   edgeIds: string[],
   confirm: boolean = false,
@@ -175,9 +135,6 @@ export function deleteEdgesBatchService(
   const results: UnlinkBatchItemResult[] = []
   const errors: UnlinkBatchError[] = []
 
-  // Every failure path records the same pair — a `results` row and an `errors`
-  // entry carrying the same reason and position — so the two payloads cannot
-  // drift apart.
   const recordFailure = (index: number, id: string, error: string) => {
     failed++
     results.push({ edge_id: id, status: 'failed', error })
@@ -185,8 +142,6 @@ export function deleteEdgesBatchService(
   }
 
   const run = d.transaction(() => {
-    // Transactional validation (confirm mode only): every id must resolve before
-    // we touch a single row.
     if (confirm) {
       const anyMissing = edgeIds.some(id => !findEdge(d, id))
       if (anyMissing) {
@@ -273,12 +228,6 @@ export function retypeEdgeService(edgeId: string, newType: string, d: Database =
   return retypeEdge(d, edgeId, newType)
 }
 
-/**
- * Dry-run counterpart of retypeEdgeService: resolves the edge and runs the
- * SAME validation as the confirm path (isValidEdgeType, same-type,
- * validateClusterConstraint) without mutating. Returns the edge so the
- * caller can build the preview.
- */
 export function validateRetypeService(
   edgeId: string,
   newType: string,

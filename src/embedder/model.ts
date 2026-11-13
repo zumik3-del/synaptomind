@@ -2,8 +2,6 @@ import { env, pipeline } from '@huggingface/transformers'
 import { config } from '../config'
 import { insertLog } from '../logging'
 
-// Idle/unload is owned by the embedder process (resetIdleTimer exits the
-// process on idle) — model.ts deliberately has no timer of its own.
 let extractor: Awaited<ReturnType<typeof loadExtractor>> | null = null
 let loading: Promise<void> | null = null
 

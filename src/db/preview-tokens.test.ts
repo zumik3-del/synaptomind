@@ -22,7 +22,6 @@ import {
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-/** The stored row, read directly (the db-layer accessor was removed in #2201). */
 function storedToken(token: string): unknown {
   return getDb().prepare('SELECT * FROM preview_tokens WHERE token = ?').get(token)
 }
@@ -49,13 +48,6 @@ test('isPreviewTokenExpired reflects expires_at', () => {
   const past = new Date(Date.now() - 1000).toISOString()
   expect(isPreviewTokenExpired(past)).toBeTrue()
 })
-
-// ── claim-and-validate is one step (#2174 review finding) ────────────────────
-//
-// The confirm path used to verify a token (read) and consume it (delete) in two
-// statements, so two confirms could both pass verification and both apply their
-// mutation. `consumePreviewTokenService` now claims first — a single
-// `DELETE ... RETURNING` — and validates the row it received.
 
 test('two confirms of one token: exactly one is valid, the other reads not_found', () => {
   const db = getDb()
@@ -101,7 +93,6 @@ test('a rejected claim still burns the token: a stale or misdirected confirm can
     },
     {
       label: 'token already expired',
-      // db-layer helper: the service pins its own TTL, this one takes the expiry.
       token: createPreviewToken(db, 'kind', 'target', 'fp', -1),
       args: ['kind', 'target', 'fp'],
       reason: 'expired'
@@ -116,8 +107,6 @@ test('a rejected claim still burns the token: a stale or misdirected confirm can
       label: item.label,
       result: { valid: false, reason: item.reason }
     })
-    // Fail closed: the refused confirm consumed the row, so the same token
-    // cannot be replayed even with the correct arguments.
     expect(consumePreviewTokenService(item.token, 'kind', 'target', 'fp', db)).toEqual({
       valid: false,
       reason: 'not_found'
@@ -141,14 +130,9 @@ test('a claim in flight cannot be granted twice across connections', () => {
     racer.loadExtension(vec0Path())
     racer.run('PRAGMA busy_timeout = 0')
     try {
-      // First confirm claims the row and holds the write lock — the window a
-      // second confirm arrives in.
       owner.run('BEGIN IMMEDIATE')
       expect(consumePreviewToken(owner, token)?.token).toBe(token)
 
-      // The second confirm cannot read the claimed row: SQLite refuses the
-      // write (busy) rather than handing the row out again. Either way, it
-      // never becomes a second valid claim.
       expect(() => consumePreviewToken(racer, token)).toThrow(/SQLITE_BUSY|database is locked/)
 
       owner.run('COMMIT')

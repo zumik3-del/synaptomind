@@ -15,7 +15,6 @@ import { createThoughtWithUrlLinksService } from './url_links.service'
 import { mergeThoughtsService } from './merge.service'
 import { validateContentLength } from '../validation'
 
-// The thought limits are config-only since task #2201.
 const originalSoftLimit = config.thoughts.softLimit
 const originalHardLimitBufferPercent = config.thoughts.hardLimitBufferPercent
 const originalContentLanguage = config.contentLanguage
@@ -182,11 +181,8 @@ test('mergeThoughtsService merges content and transfers edges', () => {
   })
   expect(result.target.content).toBe('merged content')
   expect(result.transferredEdges).toBe(1)
-  // Source should be archived
   const srcAfter = getThoughtByIdService(source)
   expect(srcAfter!.status).toBe('archived')
-  // Archived source must not retain any output edges — they were cleaned up
-  // during edge transfer (issue #98).
   const db = getDb()
   const leftoverEdges = db.prepare('SELECT 1 FROM edges WHERE source_id = ?').all(source)
   expect(leftoverEdges).toHaveLength(0)
@@ -195,7 +191,6 @@ test('mergeThoughtsService merges content and transfers edges', () => {
 test('mergeThoughtsService handles preview mode (no content/tags)', () => {
   const source = seedThought({ content: 'source' })
   const target = seedThought({ content: 'target' })
-  // When no mergedContent and no mergedTags, it should do an update with empty object
   const result = mergeThoughtsService({ targetId: target, sourceId: source })
   expect(result.target.id).toBe(target)
   expect(result.transferredEdges).toBe(0)
@@ -216,10 +211,8 @@ test('validateContentLength does not throw under soft limit', () => {
   expect(() => validateContentLength('short', getThoughtLimitsDB())).not.toThrow()
 })
 
-// ── Padded hard-limit boundary (issue #123) ─────────────────────────────────
-
 test('createThoughtWithParentService accepts content exactly at the derived hard limit', () => {
-  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.softLimit = 10
   config.thoughts.hardLimitBufferPercent = 50
   const { hardLimit } = getThoughtLimitsDB()
   expect(hardLimit).toBe(15)
@@ -229,7 +222,7 @@ test('createThoughtWithParentService accepts content exactly at the derived hard
 })
 
 test('createThoughtWithParentService rejects content one char over the derived hard limit', () => {
-  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.softLimit = 10
   config.thoughts.hardLimitBufferPercent = 50
   const { hardLimit } = getThoughtLimitsDB()
 
@@ -239,7 +232,7 @@ test('createThoughtWithParentService rejects content one char over the derived h
 })
 
 test('content between soft and hard limit is accepted (soft limit is advisory)', () => {
-  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.softLimit = 10
   config.thoughts.hardLimitBufferPercent = 50
   const { softLimit, hardLimit } = getThoughtLimitsDB()
   const middle = softLimit + 1
@@ -251,7 +244,7 @@ test('content between soft and hard limit is accepted (soft limit is advisory)',
 
 test('updateThoughtByIdService enforces the derived hard limit and accepts the exact ceiling', () => {
   const id = seedThought({ content: 'short' })
-  config.thoughts.softLimit = 10 // soft 10 -> hard 15
+  config.thoughts.softLimit = 10
   config.thoughts.hardLimitBufferPercent = 50
   const { hardLimit } = getThoughtLimitsDB()
 
@@ -262,13 +255,6 @@ test('updateThoughtByIdService enforces the derived hard limit and accepts the e
     hardLimit
   )
 })
-
-// ── v046 content dedupe on update (moved off the deleted PUT route) ──────────
-//
-// Editing a live thought onto content another live thought in the same project
-// already holds is a ThoughtContentConflictError (409 at the wire), not a raw
-// `UNIQUE constraint failed` — and it is refused identically on a retry, so a
-// caller cannot talk its way in.
 
 test('updating onto live content throws the 409-class conflict and writes nothing', () => {
   const holder = createThoughtWithUrlLinksService({ content: 'content already in use' })

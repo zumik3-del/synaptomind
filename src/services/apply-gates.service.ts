@@ -1,11 +1,3 @@
-/**
- * Read-only staleness + state gates for the explicit apply orchestrator
- * (ADR 2026-09-28 §2.3/§2.6/§2.10.5).
- *
- * Pure reads only — none of these functions touches the graph, so they also
- * serve the non-mutating dry-run.
- */
-
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { SYMMETRIC_EDGE_TYPES, getEdgePairBetween, isValidEdgeType } from '../db/edges'
@@ -15,7 +7,6 @@ import { getThoughtRow } from '../db/thoughts'
 import type { ApplyOptions } from './placement-apply.types'
 import { isProposalStale } from './placement-proposals.service'
 
-/** The (source, target, type) an edge-creating item would write, if any. */
 export interface PlannedEdge {
   sourceId: string
   targetId: string
@@ -28,7 +19,6 @@ export type Gate =
   | { kind: 'stale'; reason: string }
   | { kind: 'failed'; reason: string }
 
-/** Resolve the edge a proposal would create (ADR §2.5 / §2.6). */
 export function plannedEdge(row: PlacementProposalRow): PlannedEdge | undefined {
   const targetId = row.target_id
   if (!targetId) return undefined
@@ -38,16 +28,9 @@ export function plannedEdge(row: PlacementProposalRow): PlannedEdge | undefined 
   return undefined
 }
 
-/**
- * Staleness + state-dependent gates (ADR §2.3, §2.6, §2.10.5). Read-only, so it
- * can run for a dry-run too.
- */
 export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, d: Database): Gate {
-  // TTL is authoritative and checked before anything else: an overdue row is
-  // no longer a live decision, so it must not be confirmed — nor recorded as an
-  // idempotent accept, which would inject a phantom entry into a run manifest
-  // (ADR 2026-09-28 §2.4). Retention only *hides* overdue rows; it never made
-  // them safe to apply.
+  // TTL is authoritative and checked first: an overdue row must not be confirmed nor
+  // recorded as an idempotent accept, which would inject a phantom run-manifest entry.
   const now = options.now ?? new Date().toISOString()
   if (row.expires_at !== null && row.expires_at < now) {
     return { kind: 'stale', reason: `proposal expired at ${row.expires_at}; re-enqueue it` }
@@ -62,7 +45,6 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
   if (edge && !isValidEdgeType(edge.type))
     return { kind: 'failed', reason: `invalid edge type '${edge.type}'` }
 
-  // Already-applied / conflict detection for edge-creating items (ADR §2.6).
   if (edge && target) {
     const existing = getEdgePairBetween(d, edge.sourceId, edge.targetId)
     if (existing && existing.type === edge.type) {
@@ -75,27 +57,20 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
         reason: `a reverse '${edge.type}' edge already exists between the pair`
       }
     }
-    // A `related` placeholder is upgraded transactionally by `createEdge`.
     if (existing && existing.type !== 'related') {
       return { kind: 'stale', reason: `the pair already holds a '${existing.type}' edge` }
     }
   }
 
-  // Only active thoughts participate in a confirmed move (ADR §2.3).
   if (source.status !== 'active')
     return { kind: 'stale', reason: `source is '${source.status}', not active` }
   if (target && target.status !== 'active')
     return { kind: 'stale', reason: `target is '${target.status}', not active` }
 
-  // Project isolation is state-dependent and re-checked at apply time.
   if (target && source.project_id && target.project_id && source.project_id !== target.project_id) {
     return { kind: 'stale', reason: 'source and target belong to different projects' }
   }
 
-  // Cluster membership: re-check the live cap (#934/#928) and the cluster
-  // shape. A `cluster` edge item adds a member to the cluster it originates
-  // from, so the source must be that cluster (task #1942: the `placement` kind
-  // is gone, the gate now guards the `edge` items that carry a cluster edge).
   if (row.item_kind === 'edge' && row.edge_type === 'cluster' && row.target_id) {
     if (!getClusterThought(d, row.source_thought_id)) {
       return {
@@ -112,7 +87,6 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
     }
   }
 
-  // Fingerprint: the snapshot changed in a way nothing above handled (ADR §2.3).
   if (isProposalStale(row, d)) {
     return { kind: 'stale', reason: 'the graph changed since the proposal was enqueued' }
   }

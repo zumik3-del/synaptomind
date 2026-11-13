@@ -1,12 +1,3 @@
-/**
- * Retention-review candidate query (ADR 2026-10-23 "Retention Review").
- *
- * Surfaces individual archived/draft thoughts that carry all of the "probably
- * trash" signals so a human can decide per candidate among delete / protect /
- * keep / compact. Read-only: this module selects and counts only; mutating
- * actions live in the follow-up tasks (#2067, #2068).
- */
-
 import type { Database } from 'bun:sqlite'
 import {
   countRetentionReviewCandidates,
@@ -21,14 +12,12 @@ import { ValidationError } from '../errors'
 
 interface RetentionReviewCandidate {
   id: string
-  /** Content truncated to 200 characters. */
   content: string
   status: string
   project_id: string
   project_name: string | null
   created_at: string
   archived_at: string | null
-  /** Whole days between the age anchor and `now`. */
   age_days: number
   importance: number
   hit_count: number
@@ -41,7 +30,6 @@ export interface RetentionReviewQueryOptions {
   limit?: number
   offset?: number
   pageSize?: number
-  /** Clock override (ISO-8601) for deterministic tests. */
   now?: string
 }
 
@@ -58,22 +46,6 @@ function truncate(content: string): string {
   return content.length > CONTENT_TRUNCATE ? content.slice(0, CONTENT_TRUNCATE) : content
 }
 
-/**
- * Paginated retention-review candidate query.
- *
- * A thought is a candidate iff all of the following hold:
- *   - status is `archived` or `draft`
- *   - age anchor `COALESCE(archived_at, created_at)` is older than `minAgeDays`
- *   - importance (missing row => 1.0) < `importanceFloor`
- *   - hit_count (missing row => 0) == 0
- *   - no incoming edge whose source thought is `active`
- *   - is_protected = 0
- *   - surface_after is NULL or not in the future
- *   - is_global = 0
- *
- * Ordering: age anchor ascending, then id ascending. Response carries `total`
- * (same filters, ignoring paging), `limit`, `offset` and `candidates`.
- */
 export function listRetentionReviewCandidatesService(
   options: RetentionReviewQueryOptions = {},
   d: Database = getDb()

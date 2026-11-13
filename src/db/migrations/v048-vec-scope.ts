@@ -2,20 +2,6 @@ import type { Database } from 'bun:sqlite'
 import { statfsSync } from 'node:fs'
 import { scopeSql, vecTableDdl } from '../vec-schema'
 
-/**
- * v048 — repartition `vec_thoughts` by project (F2 structural, ADR 2026-11-12).
- *
- * vec0 0.1.9 cannot alter a partition column, so the table is rebuilt: copy the
- * blobs into a plain staging table, drop the virtual table, recreate it with
- * `scope TEXT PARTITION KEY`, copy back in one statement. No re-embedding — the
- * staged `embedding` is the stored blob.
- *
- * Crash safety comes from the migration transaction (vec0 DDL and DML are
- * transactional on this build); `_meta.vec_scope_v048` records `stage` after the
- * copy out and `done` after the verify, so a future non-transactional build still
- * says which table was authoritative. Every step tolerates a resumed run.
- */
-
 const STAGE_TABLE = 'vec_thoughts_scope_stage'
 const STAGE_INDEX = 'idx_vec_thoughts_scope_stage_scope'
 const MOVE_TABLE = 'vec_scope_move'
@@ -29,12 +15,6 @@ function writeMarker(db: Database, value: 'stage' | 'done'): void {
   ).run(MARKER_KEY, value)
 }
 
-/**
- * Refuse to start the rebuild when the filesystem cannot hold the stage plus the
- * WAL copy of the old pages — a `disk_full` inside the migration is a failed boot
- * (ADR §6). The transient peak is the old table, the stage and the rebuilt table,
- * so `2 ×` the staged size is the documented floor.
- */
 function requireFreeSpace(db: Database, vectorBytes: number, rows: number): void {
   const stagedBytes = vectorBytes + rows * 128
   const filename = db.filename
@@ -67,12 +47,8 @@ END`
 export default {
   version: 48,
   apply(db: Database, opts: { isMemory: boolean; dimensions: number }): void {
-    // `:memory:` cannot load vec0, so there is no vec table to repartition and no
-    // move trigger to install (v002 skips the same way).
     if (opts.isMemory) return
 
-    // Idempotency for an aborted earlier attempt (a resumed run finds the trigger
-    // already there and step 8's CREATE would otherwise fail).
     db.exec(`DROP TRIGGER IF EXISTS ${MOVE_TRIGGER}`)
     db.exec(`DROP TABLE IF EXISTS ${STAGE_TABLE}`)
 
@@ -88,9 +64,6 @@ export default {
       : { bytes: 0, rows: 0 }
     requireFreeSpace(db, stats.bytes, stats.rows)
 
-    // Order matters: a partition-ordered copy keeps the chunk churn sequential,
-    // and the copy-out reads the still-intact table, so a crash before the drop
-    // leaves the old table authoritative.
     db.exec(
       `CREATE TABLE ${STAGE_TABLE} (id TEXT PRIMARY KEY, embedding BLOB NOT NULL, scope TEXT NOT NULL)`
     )
@@ -118,16 +91,10 @@ export default {
       `CREATE TABLE IF NOT EXISTS ${MOVE_TABLE} (id TEXT PRIMARY KEY, embedding BLOB NOT NULL)`
     )
     db.exec(moveTriggerSql())
-    // The partition-bounded `degraded` count reads globals with `is_global = 1`;
-    // without this partial index that branch scans the whole `thoughts` table and
-    // puts the corpus back into a short search's cost (ADR §5.5 keeps the count
-    // inside the partition).
     db.exec(
       `CREATE INDEX IF NOT EXISTS idx_thoughts_is_global ON thoughts (is_global) WHERE is_global = 1`
     )
 
-    // Verify, v046 style: a failed check throws, which rolls the whole migration
-    // (table swap included) back instead of leaving a half-repartitioned index.
     const copied = db.prepare(`SELECT COUNT(*) AS n FROM vec_thoughts`).get() as { n: number }
     if (copied.n !== staged.n) {
       throw new Error(

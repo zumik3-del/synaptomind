@@ -5,22 +5,11 @@ export interface FrontierCandidateRow {
   id: string
   content: string
   created_at: string
-  /** SQLite 0/1: the thought carries the `pending` tag. */
   is_pending: number
 }
 
-/**
- * Sources that never enter the frontier (legacy profile summaries).
- * Exported so any other candidate query applies the same exclusion.
- */
 export const FRONTIER_EXCLUDED_SOURCES = ['profile-summary']
 
-/**
- * Frontier candidates tagged `directive`, `todo` or `pending` that are still
- * actionable: active or draft, not a cluster, not a derived profile summary,
- * and whose pending delay (if any) is already due. Optionally scoped to one
- * project (pushed into SQL to avoid an N+1 filter in the service).
- */
 export function findFrontierCandidates(db: Database, projectId?: string): FrontierCandidateRow[] {
   const excludedPlaceholders = sqlIn(FRONTIER_EXCLUDED_SOURCES)
   let sql = `

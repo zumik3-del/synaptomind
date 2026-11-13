@@ -1,12 +1,3 @@
-/**
- * Source guard for the extracted confirm gate (audit F1, task #2466).
- *
- * The gate is only worth extracting if the adapter cannot quietly re-grow a
- * hand-rolled preview/confirm handshake. No module under `src/mcp/tools/` may
- * reach the preview-token store directly, every converted module must import
- * the gate, and the number of `runGuarded(` call sites must equal the matrix
- * inventory (`GATE_CASES`) so a new preview site cannot land uncovered.
- */
 import { describe, expect, test } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'

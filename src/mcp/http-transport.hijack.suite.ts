@@ -109,7 +109,6 @@ beforeAll(async () => {
   const mod = await import('./http-transport')
   startMcpHttpServer = mod.startMcpHttpServer
 
-  // Multi-user config: three users, charlie has no registered DB (503 case).
   config.users = [
     { id: 'alice', dbPath: '/tmp/alice-hijack.db', tokenSha256: hashUserToken(ALICE_TOKEN) },
     { id: 'bob', dbPath: '/tmp/bob-hijack.db', tokenSha256: hashUserToken(BOB_TOKEN) },
@@ -118,14 +117,10 @@ beforeAll(async () => {
 
   clearRegistry()
   dbA = openDatabase({ dbPath: ':memory:', runMigrations: true })
-  // openDatabase set global db to dbA; create second without clobbering? We'll just register both.
   register('alice', dbA)
-  // Need a separate migrated DB for bob: reopen via openDatabase.
   dbB = openDatabase({ dbPath: ':memory:', runMigrations: true })
   register('bob', dbB)
-  // restore global not strictly needed for multi-user path
 
-  // Seed distinct slot content for isolation proof.
   upsertSlot(dbA, {
     name: 'project_context',
     scope: 'global',
@@ -142,9 +137,7 @@ beforeAll(async () => {
   })
 })
 
-afterAll(() => {
-  // best-effort cleanup
-})
+afterAll(() => {})
 
 describe('hijack matrix (multi-user)', () => {
   test('POST/GET/DELETE with a different token returns 403 and leaves the session intact', async () => {
@@ -155,7 +148,6 @@ describe('hijack matrix (multi-user)', () => {
       const aliceSession = await initialize(base, ALICE_TOKEN)
       const beforeSize = server.getSessions().size
 
-      // POST
       const postRes = await fetch(`${base}/mcp`, {
         method: 'POST',
         headers: authHeaders(BOB_TOKEN, {
@@ -170,7 +162,6 @@ describe('hijack matrix (multi-user)', () => {
       expect(postBody.error.code).toBe(-32002)
       expect(server.getSessions().has(aliceSession)).toBe(true)
 
-      // GET (SSE attach)
       const getRes = await fetch(`${base}/mcp`, {
         method: 'GET',
         headers: authHeaders(BOB_TOKEN, {
@@ -182,7 +173,6 @@ describe('hijack matrix (multi-user)', () => {
       await getRes.body?.cancel()
       expect(server.getSessions().has(aliceSession)).toBe(true)
 
-      // DELETE
       const delRes = await fetch(`${base}/mcp`, {
         method: 'DELETE',
         headers: authHeaders(BOB_TOKEN, { 'mcp-session-id': aliceSession })
@@ -297,14 +287,11 @@ describe('hijack matrix (multi-user)', () => {
 
 describe('legacy single-user regression', () => {
   test('legacy mode: initialize + tool call still work', async () => {
-    // Switch to legacy mode.
     config.users = []
     clearRegistry()
-    // set a global db
     const { createTestDb } = await import('../test/helpers')
     createTestDb()
 
-    // set secret
     process.env.SYNAPTOMIND_SECRET = LEGACY_SECRET
 
     const port = await freePort()
@@ -340,14 +327,12 @@ describe('legacy single-user regression', () => {
 })
 
 function extractSlot(rpc: any, name: string): any {
-  // rpc is JSON-RPC response; tool result content[0].text holds envelope JSON
   let envelope: any = null
   try {
     const text = rpc?.result?.content?.[0]?.text
     if (typeof text === 'string') envelope = JSON.parse(text)
   } catch {}
   if (!envelope) {
-    // maybe structuredContent
     try {
       envelope = rpc?.result?.structuredContent?.result
     } catch {}

@@ -2,10 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { config, DEFAULTS } from '../config'
 import { buildConfigDisplay } from './config-display.service'
 
-// Regression coverage for task #165 (F11): config rendering moved into the
-// service layer and must keep filesystem paths out of MCP output.
-//
-// Note: without a config.json the nested config sections are the same object
+// Without a config.json the nested config sections are the same object
 // references as DEFAULTS (shallow merge), so a test that wants config to differ
 // from its default must replace the section object rather than mutate a key.
 const DEFAULT_SOFT_LIMIT = DEFAULTS.thoughts.softLimit
@@ -41,7 +38,6 @@ describe('buildConfigDisplay redaction', () => {
     expect(out).toContain('db.path = [redacted]')
     expect(out).toContain('embedder.cacheDir = [redacted]')
     expect(out).toContain('mcp.instructionsFile = [redacted]')
-    // Exactly the three sensitive keys, nothing else.
     expect(out.split('[redacted]').length - 1).toBe(3)
   })
 
@@ -81,8 +77,6 @@ describe('buildConfigDisplay redaction', () => {
   })
 })
 
-// ── the reduced config surface (task #1951) ──────────────────────────────────
-
 describe('buildConfigDisplay removed sections', () => {
   test('renders no Auto Link or Triage section', () => {
     const out = buildConfigDisplay()
@@ -100,14 +94,10 @@ describe('buildConfigDisplay removed sections', () => {
     expect(out).not.toContain('decay.archiveMinAgeDays')
     expect(out).not.toContain('placement.maxProposals ')
     expect(out).not.toContain('placement.maxItemsPerEnqueue')
-    // The surviving knobs of both sections are still advertised.
     expect(out).toContain('decay.rate')
     expect(out).toContain('placement.maxProposalsPerEnqueue')
   })
   test('an inert section copied from a legacy config.json is not advertised', () => {
-    // `deepMerge` copies an operator's file keys verbatim, so a config.json
-    // that still carries a removed block leaves it on the runtime object. No
-    // consumer reads it, and the rendered view must not advertise it either.
     const mutable = config as unknown as Record<string, unknown>
     mutable.autoLink = { minSimilarity: 0.5, maxEdgesPerRun: 7, dryRun: true }
     mutable.triage = { enabled: false }
@@ -122,8 +112,6 @@ describe('buildConfigDisplay removed sections', () => {
     }
   })
 })
-
-// ── Search confidence config (issue #155, task #884/885) ─────────────────────
 
 describe('buildConfigDisplay Search section', () => {
   test('renders the Search section when env mapping exists for search.confidence.vectorFloor', () => {
@@ -141,8 +129,6 @@ describe('buildConfigDisplay Search section', () => {
 
   test('Search section annotates when env override changes the value', () => {
     ;(process.env as NodeJS.ProcessEnv).SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR = '0.85'
-    // Re-import to pick up the env change — but config is already loaded.
-    // Instead, we verify the existing config reflects the env if set.
     const { config: loadedConfig } = require('../config')
     if (loadedConfig.search.confidence.vectorFloor === 0.85) {
       const out = buildConfigDisplay()

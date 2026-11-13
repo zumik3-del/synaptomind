@@ -22,19 +22,6 @@ export interface VerifyPreviewTokenResult {
   reason?: 'not_found' | 'kind_mismatch' | 'target_mismatch' | 'expired' | 'stale'
 }
 
-/**
- * Claim AND validate a confirm token in one step.
- *
- * The token row is deleted first (`DELETE ... RETURNING`), then the claimed
- * row is checked against the action it is being used for. Two concurrent
- * confirms therefore cannot both pass: only one of them receives a row, the
- * other reads as `not_found` and is refused. Verification can no longer be
- * separated from the claim — a read-only check followed by a later consume
- * lets a second caller win the same mutation.
- *
- * A rejected claim burns the token (fail closed, so a stale or misdirected
- * token cannot be replayed); the caller must re-preview to get a fresh one.
- */
 export function consumePreviewTokenService(
   token: string,
   kind: string,

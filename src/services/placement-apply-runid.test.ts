@@ -1,24 +1,3 @@
-/**
- * F-28 run-envelope synthesis on `apply` / `apply_batch` (task #1050, spec
- * `2026-09-29-review-queue-adr-deviations.md` §4.5).
- *
- * Before F-28 a confirming apply that the caller left un-enveloped committed a
- * graph mutation with `row.run_id = NULL`,
- * so no `rollbackService(run_id)` could ever reach it. The service now synthesizes one
- * `auto-` envelope per accepted row (single) or per batch, and the accepted row
- * is the rollback manifest.
- *
- * This suite pins the three DB/envelope record sites: the proposal row, the
- * stored `result` JSON and the returned envelope. The fourth site — the
- * `insertLog` context — needs a `mock.module` spy and therefore lives in
- * `placement-apply-runid-logging.suite.ts`.
- *
- * Clocks: every rollback round-trip pins `now` INSIDE the F-14 window
- * (`placement.proposalTtlDays`, default 30 d). `NOW` → `NOW_LATER` is 19 days,
- * so `windowRefusal` returns `null` and the row reaches the revert/skip
- * branches; an out-of-window clock reports `refused` and would look like a
- * synthesis failure when it is not (`proposal-apply-helpers.ts:11-19`).
- */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { closeDb, getDb } from '../db'
@@ -38,10 +17,7 @@ import { rollbackService } from './placement-rollback.service'
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-/** D2: synthesized ids are `auto-` + a UUIDv7. The prefix is advisory only. */
 const AUTO_ID = /^auto-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-
-// ── record-site readers ────────────────────────────────────────────────────────
 
 interface StoredProposal {
   state: string
@@ -74,11 +50,6 @@ function storedResult(db: Database, id: string): Record<string, unknown> {
   return JSON.parse(raw) as Record<string, unknown>
 }
 
-/**
- * Assert an id is a synthesized envelope: non-null and `auto-` prefixed. The
- * literal value is never asserted — only its shape and its equality across the
- * record sites, so a UUIDv7 refactor cannot break this suite.
- */
 function expectSynthesizedRunId(value: string | null | undefined): string {
   expect(typeof value).toBe('string')
   expect(value).not.toBeNull()
@@ -86,7 +57,6 @@ function expectSynthesizedRunId(value: string | null | undefined): string {
   return value as string
 }
 
-/** Apply and return the accepted envelope, asserting it really was accepted. */
 function applyAccepted(id: string, db: Database, runId?: string): AcceptedApplyResult {
   const out = applyProposalService(
     id,
@@ -97,7 +67,6 @@ function applyAccepted(id: string, db: Database, runId?: string): AcceptedApplyR
   return out as AcceptedApplyResult
 }
 
-/** An active source/target pair, unique per test. */
 function activePair(_db: Database, prefix: string): { source: string; target: string } {
   return {
     source: seedThought({ id: `${prefix}-s`, content: `${prefix} source`, created_at: NOW }),
@@ -113,8 +82,6 @@ function edgeBetween(db: Database, source: string, target: string, type: string)
   )
 }
 
-// ── AC-F28-1: a single un-enveloped apply synthesizes one envelope ──────────────
-
 describe('AC-F28-1: single apply without a caller run_id', () => {
   test('row, stored result and returned envelope all carry the same synthesized id', () => {
     const db = getDb()
@@ -124,14 +91,10 @@ describe('AC-F28-1: single apply without a caller run_id', () => {
     const out = applyAccepted(row.id, db)
 
     const id = expectSynthesizedRunId(out.run_id)
-    // site 1: the proposal row — the rollback manifest key
     expect(stored(db, row.id).run_id).toBe(id)
-    // site 2: the stored result JSON (audit echo, D6)
     expect(resultRunId(db, row.id)).toBe(id)
-    // site 3: the returned envelope, so the caller needs no second query
     expect(out.result).not.toBeNull()
     expect((JSON.parse(out.result!) as Record<string, unknown>).run_id).toBe(id)
-    // the row really was accepted and really did write the graph
     assertAccepted(db, row.id)
     expect(edgeBetween(db, source, target, 'develops')).toBe(true)
   })
@@ -143,8 +106,6 @@ describe('AC-F28-1: single apply without a caller run_id', () => {
 
     const out = applyAccepted(row.id, db)
 
-    // One dedicated test owns the literal FORMAT so a deliberate format change
-    // fails here and not in every cross-site equality assertion above.
     expect(out.run_id).toMatch(AUTO_ID)
   })
 
@@ -158,7 +119,6 @@ describe('AC-F28-1: single apply without a caller run_id', () => {
     const a = expectSynthesizedRunId(applyAccepted(rowA.id, db).run_id)
     const b = expectSynthesizedRunId(applyAccepted(rowB.id, db).run_id)
 
-    // A shared id would merge two independent applies into one manifest.
     expect(a).not.toBe(b)
   })
 
@@ -181,8 +141,6 @@ describe('AC-F28-1: single apply without a caller run_id', () => {
   })
 })
 
-// ── AC-F28-2: the synthesized envelope is rollback-addressable ──────────────────
-
 describe('AC-F28-2: rollback of the synthesized envelope reverts the row', () => {
   test('apply un-enveloped, then rollback that id, actually reverts the graph', () => {
     const db = getDb()
@@ -192,14 +150,11 @@ describe('AC-F28-2: rollback of the synthesized envelope reverts the row', () =>
     const runId = expectSynthesizedRunId(applyAccepted(row.id, db).run_id)
     expect(edgeBetween(db, source, target, 'develops')).toBe(true)
 
-    // In-window clock: NOW → NOW_LATER is 19 d < proposalTtlDays 30, so the
-    // F-14 window check passes and the revert branch is reached.
     const report = rollbackService(runId, { confirm: true, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 0 })
     expect(report.items).toHaveLength(1)
     expect(report.items[0]).toMatchObject({ proposal_id: row.id, action: 'reverted' })
-    // the graph really was inverted, not just the queue row relabelled
     expect(edgeBetween(db, source, target, 'develops')).toBe(false)
     assertRolledBack(db, row.id)
   })
@@ -210,8 +165,6 @@ describe('AC-F28-2: rollback of the synthesized envelope reverts the row', () =>
     const row = insertPendingEdge(db, source, target, 'develops')
     const runId = expectSynthesizedRunId(applyAccepted(row.id, db).run_id)
 
-    // Addressability itself: a preview resolves the same manifest the confirm
-    // does, and previews nothing.
     const preview = rollbackService(runId, { now: NOW_LATER }, db)
 
     expect(preview.confirm).toBe(false)
@@ -220,8 +173,6 @@ describe('AC-F28-2: rollback of the synthesized envelope reverts the row', () =>
     assertAccepted(db, row.id)
   })
 })
-
-// ── AC-F28-3: one shared envelope per batch ─────────────────────────────────────
 
 describe('AC-F28-3: apply_batch shares exactly one envelope', () => {
   test('every accepted row and outcome.run_id carry the same synthesized id', () => {
@@ -238,13 +189,10 @@ describe('AC-F28-3: apply_batch shares exactly one envelope', () => {
     expect(out.results).toHaveLength(2)
 
     const shared = expectSynthesizedRunId(out.run_id)
-    // every accepted row joins the SAME envelope (D5) ...
     expect(stored(db, rowA.id).run_id).toBe(shared)
     expect(stored(db, rowB.id).run_id).toBe(shared)
-    // ... and so does every stored result ...
     expect(resultRunId(db, rowA.id)).toBe(shared)
     expect(resultRunId(db, rowB.id)).toBe(shared)
-    // ... and every per-item returned envelope, not just the batch outcome.
     for (const result of out.results as AcceptedApplyResult[]) {
       expect(result.status).toBe('accepted')
       expect(result.run_id).toBe(shared)
@@ -263,7 +211,6 @@ describe('AC-F28-3: apply_batch shares exactly one envelope', () => {
 
     const report = rollbackService(shared, { confirm: true, now: NOW_LATER }, db)
 
-    // The batch IS the run: one call must invert everything it committed.
     expect(report.summary).toEqual({ reverted: 2, skipped: 0, refused: 0 })
     expect(edgeBetween(db, first.source, first.target, 'develops')).toBe(false)
     expect(edgeBetween(db, second.source, second.target, 'develops')).toBe(false)
@@ -271,8 +218,6 @@ describe('AC-F28-3: apply_batch shares exactly one envelope', () => {
     assertRolledBack(db, rowB.id)
   })
 })
-
-// ── AC-F28-5: a caller-supplied id is never overridden ─────────────────────────
 
 describe('AC-F28-5: a caller-supplied run_id is used verbatim', () => {
   test('row, stored result and returned envelope all carry the caller id', () => {
@@ -295,11 +240,9 @@ describe('AC-F28-5: a caller-supplied run_id is used verbatim', () => {
 
     const out = applyAccepted(row.id, db, callerId)
 
-    // Provenance is advisory: a caller may legitimately choose the same prefix.
     expect(out.run_id).toBe(callerId)
     expect(stored(db, row.id).run_id).toBe(callerId)
     expect(resultRunId(db, row.id)).toBe(callerId)
-    // and it is a plain passthrough, not a re-mint
     expect(out.run_id).not.toMatch(AUTO_ID)
   })
 
@@ -321,8 +264,6 @@ describe('AC-F28-5: a caller-supplied run_id is used verbatim', () => {
     expect(stored(db, rowB.id).run_id).toBe('run-batch-caller')
   })
 })
-
-// ── AC-F28-6: a preview never mints an envelope ────────────────────────────────
 
 describe('AC-F28-6: confirm:false writes no run_id and leaves the row pending', () => {
   test('a single dry-run returns no run_id and does not touch the row', () => {
@@ -373,10 +314,7 @@ describe('AC-F28-6: confirm:false writes no run_id and leaves the row pending', 
   })
 })
 
-// ── AC-F28-7: an idempotent accept still joins the manifest ────────────────────
-
 describe('AC-F28-7: an idempotent accept is recorded, and rolls back as skipped', () => {
-  /** An `edge` row whose requested graph state already holds. */
   function alreadyAppliedEdgeRow(
     db: Database,
     prefix: string
@@ -395,7 +333,6 @@ describe('AC-F28-7: an idempotent accept is recorded, and rolls back as skipped'
     expect(out.idempotent).toBe(true)
     const id = expectSynthesizedRunId(out.run_id)
     expect(stored(db, row.id).run_id).toBe(id)
-    // The `idempotent: true` marker is what makes rollback skip instead of revert.
     const result = storedResult(db, row.id)
     expect(result.idempotent).toBe(true)
     expect(result.run_id).toBe(id)
@@ -408,19 +345,14 @@ describe('AC-F28-7: an idempotent accept is recorded, and rolls back as skipped'
 
     const runId = expectSynthesizedRunId(applyAccepted(row.id, db).run_id)
 
-    // In-window clock, otherwise the F-14 window guard refuses first and the
-    // `skipped` branch is never reached (windowRefusal runs before idempotency).
     const report = rollbackService(runId, { confirm: true, now: NOW_LATER }, db)
 
     expect(report.summary).toEqual({ reverted: 0, skipped: 1, refused: 0 })
     expect(report.items[0]).toMatchObject({ proposal_id: row.id, action: 'skipped' })
-    // nothing was inverted: the edge the row "re-applied" is untouched
     expect(edgeBetween(db, row.source, row.target, 'develops')).toBe(true)
     assertAccepted(db, row.id)
   })
 })
-
-// ── AC-F28-8: regression — enveloped applies are unchanged ─────────────────────
 
 describe('AC-F28-8: applies that already supply a run_id are unchanged', () => {
   test('a caller-enveloped edge apply keeps its result payload and gains only run_id', () => {
@@ -430,8 +362,6 @@ describe('AC-F28-8: applies that already supply a run_id are unchanged', () => {
 
     applyAccepted(row.id, db, 'run-legacy-7')
 
-    // The pre-existing payload is untouched; the envelope is purely additive
-    // (D6: the column is the rollback key, `result.run_id` is audit only).
     const result = storedResult(db, row.id)
     expect(typeof result.edge_id).toBe('string')
     expect(result.run_id).toBe('run-legacy-7')
@@ -452,17 +382,13 @@ describe('AC-F28-8: applies that already supply a run_id are unchanged', () => {
     const result = storedResult(db, row.id)
     expect(result.idempotent).toBe(true)
     expect(result.run_id).toBe('run-legacy-8')
-    // The idempotent branch never wrote an edge_id, and still does not.
     expect(Object.keys(result).sort()).toEqual(['idempotent', 'run_id'])
   })
 })
 
-// ── batch envelope edge cases (spec §4.6) ──────────────────────────────────────
-
 describe('apply_batch: envelope edge cases', () => {
   test('a batch that accepted nothing reports no run_id (no empty manifest handed back)', () => {
     const db = getDb()
-    // Archived target → the gate reports stale, so no row joins the envelope.
     const first = activePair(db, 'edge-a')
     const second = activePair(db, 'edge-b')
     for (const target of [first.target, second.target]) {
@@ -474,8 +400,6 @@ describe('apply_batch: envelope edge cases', () => {
     const out = applyBatchService([rowA.id, rowB.id], { confirm: true, now: NOW }, db)
 
     expect(out.results.map(r => r.status)).toEqual(['stale', 'stale'])
-    // An id with an empty manifest would send the caller after a run that
-    // committed nothing, so it is not reported.
     expect('run_id' in out).toBe(false)
     expect(stored(db, rowA.id).run_id).toBeNull()
     expect(stored(db, rowB.id).run_id).toBeNull()
@@ -489,15 +413,11 @@ describe('apply_batch: envelope edge cases', () => {
 
     const out = applyBatchService([row.id], { confirm: true, now: NOW_LATER }, db)
 
-    // Nothing new was decided, so no envelope is minted; the echo still reports
-    // the run the row was originally accepted under.
     expect('run_id' in out).toBe(false)
     expect((out.results[0] as AcceptedApplyResult).run_id).toBe(first)
     expect(stored(db, row.id).run_id).toBe(first)
   })
 })
-
-// ── compile-time contract ──────────────────────────────────────────────────────
 
 describe('response typing', () => {
   test('an accepted result always declares run_id; a dry-run never does', () => {
@@ -506,8 +426,6 @@ describe('response typing', () => {
     const row = insertPendingEdge(db, source, target, 'develops')
 
     const out: ApplyResult = applyProposalService(row.id, { now: NOW }, db)
-    // A dry-run result type carries no `run_id` key at all, so reading it is a
-    // type error — the guarantee is structural, not just a missing value.
     expect(out.status === 'dry_run' && 'run_id' in out).toBe(false)
 
     const batch: ApplyBatchOutcome = applyBatchService([], { now: NOW }, db)

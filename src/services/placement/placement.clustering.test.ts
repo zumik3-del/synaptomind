@@ -1,17 +1,3 @@
-/**
- * Tests for the read-only placement proposer (`placement.ts`, task #945).
- *
- * Per the #945 handoff notes:
- *  - `deps.embed` + `deps.searchNeighbors` are stubbed, so no real vector
- *    index is required (the vec0 / `:memory:` caveat, AGENTS.md §8, is
- *    sidestepped: `createTestDb` is sufficient).
- *  - Stubbed neighbours must reference seeded *active, same-project,
- *    non-cluster* thoughts: pool membership enforces project scope, so any
- *    id not in the pool is structurally dropped by `findEmbeddingNeighborPairs`.
- *  - `proposePlacement` returns a `{ proposal, reason }` decision wrapper; on
- *    a hit `reason` equals the proposal's `rationale`.
- */
-
 import { beforeEach, afterEach, describe, expect, test } from 'bun:test'
 import { closeDb, getDb } from '../../db'
 import { config } from '../../config'
@@ -22,23 +8,13 @@ import { proposePlacement } from './placement'
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-// ── helpers ─────────────────────────────────────────────────────────────────
-
-/** Deterministic embed stub: one zero vector per candidate text. */
 function stubEmbed(): (texts: string[]) => Promise<Float32Array[]> {
   return async texts => texts.map(() => new Float32Array(384))
 }
 
-/**
- * `searchNeighbors` stub keyed by query thought id; unknown ids get no
- * neighbours. Seeded neighbours must exist in the pool (active, same-project,
- * non-cluster) or they are dropped by `findEmbeddingNeighborPairs`.
- */
 function stubSearch(map: Record<string, Array<{ id: string; similarity: number }>>) {
   return (_id: string, _embedding: Float32Array) => map[_id] ?? []
 }
-
-// ── proposal fields ──────────────────────────────────────────────────────────
 
 describe('proposePlacement', () => {
   describe('proposal fields', () => {
@@ -59,7 +35,7 @@ describe('proposePlacement', () => {
         },
         db
       )
-      expect(over.proposal?.confidence).toBe(1) // 1.4 clamped down
+      expect(over.proposal?.confidence).toBe(1)
 
       const zero = await proposePlacement(
         source,
@@ -131,7 +107,7 @@ describe('proposePlacement', () => {
 
     test('the default cap is config.placement.maxClusterSize (50)', async () => {
       const db = getDb()
-      expect(config.placement.maxClusterSize).toBe(50) // pin the reused default
+      expect(config.placement.maxClusterSize).toBe(50)
       const clusterId = seedThought({
         id: 'c-50',
         content: '50-member cluster',
@@ -187,7 +163,7 @@ describe('proposePlacement', () => {
         project_id: 'other'
       })
       const sourceId = seedThought({ content: 'source in default' })
-      seedEdge(otherCluster, n1, 'cluster') // edge crosses projects; lookup must not
+      seedEdge(otherCluster, n1, 'cluster')
       const source = getThoughtRow(db, sourceId)!
       const result = await proposePlacement(
         source,
@@ -219,12 +195,10 @@ describe('proposePlacement', () => {
         searchNeighbors: stubSearch({ [sourceId]: [{ id: n1, similarity: 0.9 }] })
       }
 
-      // default scope = the source's own project: the p2 neighbour is not in the pool
       const defaultScope = await proposePlacement(source, {}, deps, db)
       expect(defaultScope.proposal).toBeNull()
       expect(defaultScope.reason).toBe('no embedding neighbours above the similarity threshold')
 
-      // explicit re-scope: the p2 pool includes the neighbour → the cluster applies
       const p2Scope = await proposePlacement(source, { projectId: 'p2' }, deps, db)
       expect(p2Scope.proposal?.kind).toBe('cluster')
       expect(p2Scope.proposal?.target_id).toBe(p2Cluster)

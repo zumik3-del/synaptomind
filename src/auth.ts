@@ -5,8 +5,6 @@ let warnedMissingTokens = false
 let warnedInertSecret = false
 let warnedInsecureWithUsers = false
 
-// Explicit local-development opt-out. Without a configured token and without
-// this flag the server fails closed: every authenticated request is rejected.
 function isInsecureMode(): boolean {
   return process.env.SYNAPTOMIND_ALLOW_INSECURE === 'true'
 }
@@ -18,15 +16,6 @@ export interface UserRef {
   kind: UserKind
 }
 
-/**
- * The configured bearer tokens. Resolved on every call (task #2201): the list
- * used to be cached at module level with a test-only hook to refresh it, which
- * left production correct only as long as the env never changed.
- *
- * Legacy tokens are inert once `users` is configured (grilling decision 1):
- * `SYNAPTOMIND_SECRET` resolves only in single-user mode. `SYNAPTOMIND_SERVICE_TOKEN`
- * is dropped entirely.
- */
 export function getValidTokens(): string[] {
   const users = Array.isArray(config.users) ? config.users : []
 
@@ -64,7 +53,6 @@ export function getValidTokens(): string[] {
 export function resolveUser(auth: string | undefined): UserRef | null {
   const users = Array.isArray(config.users) ? config.users : []
 
-  // Insecure mode is only a single-user legacy bypass.
   if (users.length === 0 && isInsecureMode()) {
     return { userId: 'legacy', kind: 'legacy' }
   }
@@ -74,10 +62,6 @@ export function resolveUser(auth: string | undefined): UserRef | null {
   const token = auth.slice('Bearer '.length)
   const presented = token
 
-  // Configured users: match by token hash (evaluate every entry, no short-circuit).
-  // Hash the stored digest and the presented token's hash through safeTokenEqual so
-  // a malformed (non-hex / wrong-length) digest compares as a normal mismatch and
-  // yields 401 instead of throwing (timingSafeEqual throws on length mismatch).
   let matchedUserId: string | null = null
   for (const entry of users) {
     if (safeTokenEqual(String(entry?.tokenSha256 ?? ''), hashUserToken(presented))) {
@@ -88,7 +72,6 @@ export function resolveUser(auth: string | undefined): UserRef | null {
     return { userId: matchedUserId, kind: 'user' }
   }
 
-  // Legacy single-user mode: compare against legacy tokens (no short-circuit).
   if (users.length === 0) {
     const tokens = getValidTokens()
     let ok = false
@@ -105,8 +88,8 @@ export function checkBearerAuth(auth: string | undefined): boolean {
   return resolveUser(auth) !== null
 }
 
-// Constant-time comparison: hash both sides so the operands always have the
-// same length (timingSafeEqual throws on length mismatch), then compare digests.
+// Both sides are hashed first: `timingSafeEqual` throws on a length mismatch, which would turn a
+// malformed stored digest into a 500 instead of a 401.
 function safeTokenEqual(a: string, b: string): boolean {
   const da = createHash('sha256').update(a).digest()
   const db = createHash('sha256').update(b).digest()

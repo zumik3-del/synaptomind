@@ -6,7 +6,6 @@ export interface DecisionCandidate {
   content: string
 }
 
-/** Non-archived thoughts tagged `decision` — the dedup pool for reflections. */
 export function findActiveDecisionThoughts(db: Database, projectId?: string): DecisionCandidate[] {
   return db
     .prepare(`
@@ -18,7 +17,6 @@ export function findActiveDecisionThoughts(db: Database, projectId?: string): De
     .all(projectId ?? null, projectId ?? null) as DecisionCandidate[]
 }
 
-/** Match the live content-hash conflict rule used by createThought. */
 export function hasLiveReflectionContent(
   db: Database,
   content: string,

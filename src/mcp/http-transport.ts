@@ -27,25 +27,17 @@ export interface McpHttpHandle {
 }
 
 interface McpHttpOptions {
-  /** Browser origins allowed by CORS; empty (default) denies all cross-origin requests. */
   corsOrigins?: string[]
 }
 
-// Transport limits are config-driven (F16); see config.mcp.
-// MAX_SESSIONS is a per-user cap on legacy sessions: one authenticated user
-// cannot exhaust the budget and get 429 for everyone else. The modern era keeps
-// no session, so MAX_SUBSCRIPTIONS bounds its listen streams instead.
 const MAX_SESSIONS = config.mcp.maxSessions
 const SESSION_TTL_MS = config.mcp.sessionTtlMs
 const KEEPALIVE_MS = config.mcp.keepAliveMs
 const MAX_SUBSCRIPTIONS = config.mcp.maxSubscriptions
-// Mirrors the API guard in src/api/router.ts (5 MB).
 export const MAX_REQUEST_BODY_BYTES = 5_242_880
 
-// Unknown errors must never surface as Hono's default non-JSON 500: MCP clients
-// parse JSON-RPC, so respond with a JSON-RPC internal-error envelope. A client
-// that aborts mid-body is not a server fault (the body read rejects while the
-// socket is already gone), so answer the SDK's own parse error and log nothing.
+// Unknown errors must never surface as Hono's non-JSON 500: MCP clients parse JSON-RPC. A client
+// that aborts mid-body is not a server fault, so it gets the SDK's own parse error.
 export function mcpErrorHandler(err: Error, c: Context): Response {
   if (isClientAbort(err)) return clientAbortResponse()
   console.error('[synaptomind] MCP HTTP unhandled error:', err)
@@ -62,17 +54,14 @@ export function startMcpHttpServer(
 ): McpHttpHandle {
   const app = new Hono()
   const sessions = new Map<string, Session>()
-  // Per-server limiter: a second MCP server in the same process (each test file
-  // starts its own) keeps its own quota.
   const rateLimit = createRateLimitMiddleware()
 
   getValidTokens()
 
   app.onError(mcpErrorHandler)
 
-  // Never combine `origin: '*'` with an Authorization header: that lets any web
-  // origin drive memory when bearer auth is disabled. Default = deny all
-  // cross-origin access; deployments opt in via mcp.corsOrigins.
+  // Never combine `origin: '*'` with an Authorization header: that lets any web origin drive memory.
+  // Deny all cross-origin access by default; deployments opt in via mcp.corsOrigins.
   app.use(
     '*',
     cors({
@@ -91,24 +80,17 @@ export function startMcpHttpServer(
     })
   )
 
-  // Bun settles an in-flight request only once its body reaches the end; an early
-  // rejection that leaves the body unread makes server.stop() wait forever. The
-  // drain is bounded and discards the rest, so a rejected upload cannot buy
-  // unbounded buffering or an arbitrarily late 4xx.
+  // Bun settles a request only when its body reaches the end, so an early rejection that leaves the
+  // body unread makes server.stop() wait forever; the drain is bounded and discards the rest.
   app.use('/mcp', async (c, next) => {
     await next()
     if (c.req.method !== 'POST' || c.res.status < 400 || c.req.raw.bodyUsed) return
     const outcome = await drainRejectedBody(c.req.raw)
-    // A cancelled body does not settle the request, so the only way to let
-    // server.stop() through is to end the connection with the answer (#2464).
     if (outcome === 'abandoned') c.header('Connection', 'close')
   })
 
   app.use('/mcp', authMiddleware)
 
-  // Resolve the DB handle for a resolved user ref (legacy singleton or per-user
-  // DB). Returns undefined when the per-user DB is unavailable. Shared by both
-  // middleware paths below (DRY).
   const resolveRequestDb = (ref: UserRef): Database | undefined => {
     try {
       return ref.kind === 'legacy' ? getDb() : getUserDb(ref.userId)
@@ -117,11 +99,6 @@ export function startMcpHttpServer(
     }
   }
 
-  // Per-request user binding (task #2285): re-resolve the bearer token on every
-  // request and bind { userId, db } to ALS for the whole /mcp handler chain,
-  // including server construction on the session-creation path. Fail-closed:
-  // unknown token -> 401 (already enforced above, repeated here defensively),
-  // resolved-but-unregistered user DB -> 503.
   app.use('/mcp', async (c, next) => {
     const ref = resolveUser(c.req.header('Authorization'))
     if (!ref) return c.json({ error: 'Unauthorized' }, 401)
@@ -154,13 +131,10 @@ export function startMcpHttpServer(
       }
     }
   }, 60_000)
-  // Never hold the process open: shutdown owns the lifecycle via stop().
   sessionCleanup.unref()
 
-  // One process-wide 2026-07-28 entry. `legacy: 'reject'` keeps a routing
-  // disagreement a protocol error instead of a second serving path; the legacy
-  // era is served below by the sessionful transport. The factory stays
-  // unmemoized: a factory instance may not be reused by a second request.
+  // `legacy: 'reject'` keeps a routing disagreement a protocol error, and the factory must stay
+  // unmemoized: an SDK factory instance cannot serve a second request.
   const modern = createMcpHandler(() => createMcpServer(), {
     legacy: 'reject',
     keepAliveMs: KEEPALIVE_MS,
@@ -178,7 +152,6 @@ export function startMcpHttpServer(
 
   app.all('/mcp', route)
 
-  // Liveness only: no version or build/transport details for unauthenticated callers.
   app.get('/health', c => c.json({ status: 'ok' }))
 
   const server = serve({
@@ -191,8 +164,6 @@ export function startMcpHttpServer(
   return {
     async stop() {
       clearInterval(sessionCleanup)
-      // Close every session and the modern entry before dropping the map so SSE
-      // streams and their keep-alive timers are torn down deterministically.
       await Promise.allSettled([
         ...[...sessions.values()].map(session => disposePair(session.server, session.transport)),
         modern.close()

@@ -90,20 +90,10 @@ const ACTION_FIELDS: Record<string, string[]> = {
 }
 const ACTION_FIELDS_ALL = allActionFields(ACTION_FIELDS)
 
-/**
- * The array-returning search service hangs the collection-level `degraded`
- * flag on the returned array (so an empty result set still reports a downed
- * semantic leg); read it back off the outcome's items.
- */
 function degradedOf(items: SearchResult[]): boolean {
   return (items as SearchResult[] & { degraded?: boolean }).degraded === true
 }
 
-/**
- * Why a search answered with nothing (or with several id matches). `no_match`
- * is only reported when nothing was even considered — a gated result set keeps
- * no reason and shows up as `counts.filtered_out > 0` instead.
- */
 function searchReason(outcome: SearchOutcome): EnvelopeReason | undefined {
   if (outcome.reason !== undefined) return outcome.reason
   if (outcome.ambiguous === true) return 'ambiguous_id'
@@ -111,11 +101,6 @@ function searchReason(outcome: SearchOutcome): EnvelopeReason | undefined {
   return undefined
 }
 
-/**
- * Url links of one search/clusters answer (`include_url_links`, ADR §4 of the
- * 0.20 HTTP shrink): the whole answer is read in one batch query, and a grouped
- * hit contributes its members' thoughts.
- */
 function searchUrlLinks(
   items: Array<SearchResult | GroupedResult>,
   requested: unknown
@@ -127,11 +112,6 @@ function searchUrlLinks(
   return loadUrlLinks(thoughts)
 }
 
-/**
- * Shared post-processing for the `search` and `clusters` actions: degrade flag,
- * optional cluster grouping, post-processing, shaping and the collection
- * envelope. Keeps the two actions in sync (DRY).
- */
 function finalizeSearchAction(
   action: 'search' | 'clusters',
   outcome: SearchOutcome,
@@ -186,7 +166,6 @@ const handlers = {
           args.is_cluster === undefined ? undefined : args.is_cluster ? 'only' : 'exclude',
         minImportance: args.min_importance as number | undefined,
         hybrid: args.hybrid as boolean | undefined,
-        // Agent-facing defaults: drop superseded rows, flag contradicted ones.
         supersessionMode: parseSupersessionMode(args.supersession_mode as string | undefined),
         contradictionMode: parseContradictionMode(args.contradiction_mode as string | undefined),
         recencyWeight: args.recency_weight as number | undefined,
@@ -218,8 +197,6 @@ const handlers = {
       if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
       const compact = args.compact !== false
       const fields = args.fields
-      // Every thought the answer emits (head plus both neighbourhoods) gets its
-      // links from the same single batch read.
       const urlLinks =
         args.include_url_links === true
           ? loadUrlLinks([
@@ -239,8 +216,6 @@ const handlers = {
     }),
     async run(args: ActionArgs) {
       const { limit, scope, warnings, projectId } = queryActionPreamble(args)
-      // This action lists cluster thoughts by definition, so an explicit
-      // `is_cluster=false` contradicts it.
       if (args.is_cluster === false) {
         throw new ValidationError(
           'the clusters action lists cluster thoughts; is_cluster=false conflicts'
@@ -266,7 +241,6 @@ const handlers = {
   },
 
   list: {
-    // No required argument: an unfiltered inventory is a valid request.
     input: z.object({
       status: z.enum(['draft', 'active', 'archived', 'all']).default('all')
     }),
@@ -289,9 +263,6 @@ const handlers = {
         warnings,
         total: page.total,
         filtered_out: Math.max(0, page.total - items.length),
-        // The page service resolves the defaults (THOUGHTS_PAGE_LIMIT_DEFAULT and
-        // offset 0), so the paging metadata reports the values actually applied —
-        // same shape as memory_reflect action=timeline (reflect.ts:44).
         counts: { limit: page.limit ?? 0, offset: page.offset }
       })
     }
@@ -420,8 +391,6 @@ export function registerMemoryRecall(server: McpServer) {
         .describe(
           'Max edges to return for chain/context/get (default 50, 1-200). IGNORED for search/clusters/list.'
         ),
-      // The list page shares the timeline's page size (src/validation.ts) so the
-      // two paginated thought surfaces cannot drift apart.
       limit: timelineLimitSchema
         .optional()
         .describe(
@@ -446,9 +415,6 @@ export function registerMemoryRecall(server: McpServer) {
         .describe(
           "Thought columns to include in each output thought. Selects on the shaped thought only, so the ranking metadata (scores, match_source — which also drops the ['id'] label of an id-addressed hit) is dropped from search hits when set; safety annotations (standing, superseded_by, contradicted_by, low_confidence) and get's include_edges output are not thought columns and remain. OPTIONAL for all actions."
         ),
-      // Tombstones for retired parameters: a supplied value fails the advertised
-      // input validation with the canonical replacement (the same pattern as
-      // the retired is_profile input) instead of being silently stripped.
       top_k: z
         .never({ error: 'top_k was removed; use limit' })
         .optional()

@@ -5,12 +5,6 @@ import { closeDb } from '../../db/init'
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
-// Coverage for the telemetry cut (ADR 2026-10-21, Q6): `memory_telemetry` is
-// removed outright — no deprecation shim — so an agent that calls it gets the
-// MCP SDK's unknown-tool error. The replacement (`memory_primers`) must be
-// discoverable in the same place the removed tool used to be: the advertised
-// tool list and the in-band guide.
-
 let client: Client
 
 async function setupClient(): Promise<Client> {
@@ -41,8 +35,6 @@ describe('the removed memory_telemetry tool', () => {
   })
 
   test('calling memory_telemetry answers with the SDK unknown-tool error', async () => {
-    // In SDK v2 an unregistered tool rejects with a -32602 ProtocolError
-    // instead of returning an isError result.
     await expect(
       client.callTool({ name: 'memory_telemetry', arguments: { action: 'query' } })
     ).rejects.toThrow(/memory_telemetry/i)

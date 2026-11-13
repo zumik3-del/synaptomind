@@ -105,10 +105,8 @@ test('sweepOrphanedThoughts returns only thoughts with no vec row and no pending
   const orphan = seedThought({ content: 'orphan' })
   const archived = seedThought({ content: 'archived', status: 'archived' })
   const embedded = seedThought({ content: 'already embedded' })
-  // keeps the pending row its insert trigger created → excluded from the sweep
   seedThought({ content: 'already queued' })
   for (const id of [orphan, archived, embedded]) {
-    // the insert trigger queued every seeded thought — clear non-orphans
     db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(id)
   }
   db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
@@ -171,7 +169,6 @@ test(`handleFailedItem dead-letters on attempt ${MAX_ATTEMPTS}`, () => {
   expect(row.error).toBe('boom')
   expect(row.last_error).toBe('boom')
 
-  // dead-lettered rows leave the work queue
   expect(findPendingEmbeddings(db, 10).map(p => p.id)).not.toContain(id)
 })
 
@@ -244,14 +241,6 @@ test('deleteFromQueue tolerates an empty id list', () => {
   expect(() => deleteFromQueue(getDb(), [])).not.toThrow()
 })
 
-// ── the hash-guarded retire step (#2471, audit F8) ───────────────────────────
-//
-// A batch retires its rows at the very END — long after `insertEmbedding`
-// checked the hash — so by then the v035 trigger may have replaced the queue
-// row under a NEW hash. `deleteEmbeddedFromQueue` therefore drops a row only
-// while `thoughts.content_hash` still equals the hash the vector was built from.
-// These are the DB-seam pins of that guard: no `Database` mock anywhere.
-
 function setContent(id: string, content: string, contentHash: string): void {
   getDb()
     .prepare('UPDATE thoughts SET content = ?, content_hash = ? WHERE id = ?')
@@ -282,7 +271,6 @@ test('deleteEmbeddedFromQueue keeps a row whose content already changed, so the 
   deleteEmbeddedFromQueue(db, [{ id, contentHash: 'hash-old' }])
 
   expect(queued(id)).toBeTrue()
-  // NOT stranded: the surviving row is what hands the update to the next poll.
   expect(findPendingEmbeddings(db, 10)).toContainEqual({
     id,
     content: 'new',

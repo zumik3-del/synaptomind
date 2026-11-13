@@ -3,18 +3,6 @@ import { insertLog } from '../logging'
 import type { SqlFragment } from './search-filters'
 import { sqlIn } from './utils'
 
-/**
- * Number of embedded thoughts the shared filters match. The vec0 KNN cuts its
- * pool before the residual predicate runs, so a short filtered result can mean
- * "outside the pool" rather than "absent"; comparing this count against the rows
- * the leg returned is how `db/search.ts` tells the two apart.
- *
- * A project-scoped count is driven from `thoughts` (project equality is an index
- * lookup, then a primary-key probe per row), so its cost follows the addressed
- * partition instead of the corpus: counting `FROM vec_thoughts` applies the
- * partition predicate as a plain scan of every vector row (measured 436 ms at
- * 100k rows vs ~0.1 ms for a five-row project).
- */
 export function countFilteredVectors(
   db: Database,
   scope: SqlFragment,
@@ -60,21 +48,6 @@ export function countFilteredVectors(
   }
 }
 
-/**
- * True when a project-scoped leg shut the addressed project out of its answer:
- * none of the rows the leg delivered belongs to that project, yet project
- * thoughts matching the same residual filters are embedded.
- *
- * A full `topK` of nearer `__global__` rows hides the project entirely — the
- * partition walk's `k` cap is consumed by globals, the project's own rows never
- * reach the residual filter, and the short-leg count above never runs (the leg
- * is not short). Probing the project is what tells "the pool cut it" from "the
- * project has nothing to say". The rule is "no row of the project delivered"
- * rather than "fewer rows than it holds": a project larger than `topK` always
- * returns fewer rows than it holds, so a count comparison would flag every
- * large project. Both probes are driven from `thoughts` (primary-key lookups,
- * then one project-index probe), never from a `vec_thoughts` scan.
- */
 export function addressedProjectShutOut(
   db: Database,
   project: string,
@@ -101,15 +74,6 @@ export function addressedProjectShutOut(
   return row !== null
 }
 
-/**
- * Vector (vec0) leg scoped by the partition fragment and the shared residual
- * filter fragment. Returns `[]` when the `vec_thoughts` table is unavailable so
- * semantic search degrades gracefully.
- *
- * `throwOnError` (default false) preserves the historical graceful-degradation
- * contract for direct callers; the DB search layer opts in so it can observe
- * the failure and surface a `degraded` signal.
- */
 export function vecSearchIds(
   db: Database,
   embedding: Float32Array,

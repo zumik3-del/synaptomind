@@ -1,12 +1,3 @@
-/**
- * Contract tests for the new MCP edge and cluster management actions (task #1460).
- *
- * Covers:
- * - `memory_store action=unlink` — dry-run preview, confirm delete, idempotent not_found
- * - `memory_store action=retype` — dry-run preview, confirm retype
- *
- * Follows the pattern from edge-review.contract.test.ts.
- */
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
@@ -40,9 +31,7 @@ function parseResult(result: unknown): { data: any; isError: boolean; text: stri
   let parsed: unknown = text
   try {
     parsed = JSON.parse(text)
-  } catch {
-    /* keep text */
-  }
+  } catch {}
   return { data: parsed, isError: r.isError === true, text }
 }
 
@@ -54,8 +43,6 @@ afterEach(() => {
 beforeAll(async () => {
   client = await setupClient()
 })
-
-// ── memory_store action=unlink ─────────────────────────────────────────────────
 
 describe('memory_store unlink', () => {
   test('dry-run (no confirm) → returns preview with edge details, no mutation', async () => {
@@ -77,10 +64,8 @@ describe('memory_store unlink', () => {
     expect(data.item.edge.type).toBe('contradicts')
     expect(data.item.consequence).toContain('contradicts')
     expect(data.item.instruction).toContain('confirm=true')
-    // The confirm gate mirrors the token in one place (task #2181).
     expect(data.meta.preview).toMatchObject({ token: data.item.preview_token, destructive: true })
 
-    // Verify no mutation
     const edge = getEdgePairBetween(db, src, tgt)
     expect(edge).toBeDefined()
     expect(edge!.id).toBe(edgeId)
@@ -106,7 +91,6 @@ describe('memory_store unlink', () => {
     expect(data.item.status).toBe('deleted')
     expect(data.item.edge_id).toBe(edgeId)
 
-    // Verify edge is gone
     const edge = getEdgePairBetween(db, src, tgt)
     expect(edge).toBeFalsy()
   })
@@ -148,7 +132,6 @@ describe('memory_store unlink', () => {
     const tgt = seedThought({ content: 'unlink-double target' })
     const edgeId = seedEdge(src, tgt, 'related')
 
-    // First delete
     const firstPreview = await client.callTool({
       name: 'memory_store',
       arguments: { action: 'unlink', edge_id: edgeId }
@@ -163,7 +146,6 @@ describe('memory_store unlink', () => {
       }
     })
 
-    // Second delete — idempotent
     const preview = await client.callTool({
       name: 'memory_store',
       arguments: { action: 'unlink', edge_id: edgeId }
@@ -178,8 +160,6 @@ describe('memory_store unlink', () => {
     expect(data.item.status).toBe('not_found')
   })
 })
-
-// ── memory_store action=retype ─────────────────────────────────────────────────
 
 describe('memory_store retype', () => {
   test('dry-run (no confirm) → returns preview with old/new type, no mutation', async () => {
@@ -204,7 +184,6 @@ describe('memory_store retype', () => {
     expect(data.item.consequence).toContain('supports')
     expect(data.meta.preview).toMatchObject({ token: data.item.preview_token, destructive: true })
 
-    // Verify no mutation
     const edge = getEdgePairBetween(db, src, tgt)
     expect(edge).toBeDefined()
     expect(edge!.type).toBe('contradicts')
@@ -234,20 +213,16 @@ describe('memory_store retype', () => {
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
     expect(data.item.status).toBe('retyped')
-    // retypeEdge does delete+insert, so the id changes — the tool must return
-    // the fresh id so a chained unlink/retype resolves.
     expect(data.item.edge_id).toBeDefined()
     expect(data.item.edge_id).not.toBe(edgeId)
     expect(data.item.old_type).toBe('contradicts')
     expect(data.item.new_type).toBe('supports')
 
-    // Verify edge type changed and the stored edge now carries the fresh id
     const edge = getEdgePairBetween(db, src, tgt)
     expect(edge).toBeDefined()
     expect(edge!.type).toBe('supports')
     expect(edge!.id).toBe(data.item.edge_id)
 
-    // Chained follow-up: the returned fresh id resolves — unlink it
     const unlinkPreview = await client.callTool({
       name: 'memory_store',
       arguments: { action: 'unlink', edge_id: data.item.edge_id }
@@ -277,7 +252,6 @@ describe('memory_store retype', () => {
       name: 'memory_store',
       arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports' }
     })
-    // The preview already refuses a same-type retype, so it issues no token.
     const retypeToken = parseResult(retypePreview).data?.item?.preview_token
     const result = await client.callTool({
       name: 'memory_store',
@@ -327,8 +301,6 @@ describe('memory_store retype', () => {
     expect(isError).toBe(true)
   })
 
-  // ── dry-run parity (ADR §2): the preview must never promise a confirm would reject ──
-
   test('dry-run rejects same-type retype, matching confirm', async () => {
     const src = seedThought({ content: 'retype-dry-same source' })
     const tgt = seedThought({ content: 'retype-dry-same target' })
@@ -342,7 +314,6 @@ describe('memory_store retype', () => {
     expect(isError).toBe(true)
     expect(text).toContain('already')
 
-    // No mutation
     const edge = getEdgePairBetween(getDb(), src, tgt)
     expect(edge).toBeDefined()
     expect(edge!.id).toBe(edgeId)
@@ -363,7 +334,6 @@ describe('memory_store retype', () => {
     expect(isError).toBe(true)
     expect(text).toContain("Cluster thoughts cannot have 'related' edges")
 
-    // No mutation — the cluster edge is untouched
     const edge = db.prepare('SELECT * FROM edges WHERE id = ?').get(edgeId) as
       | { type: string }
       | undefined

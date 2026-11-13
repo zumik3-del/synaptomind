@@ -33,7 +33,6 @@ export async function runOpsHealthCheck(
   const results: OpsHealthCheckUserResult[] = selected.map(({ userId, path }) => {
     let db: Database | undefined
     try {
-      // Read-only opening refuses missing files and never bootstraps or migrates.
       db = new Database(path, { readonly: true })
       db.loadExtension(vec0Path())
       const report = runHealthCheckService({}, db)

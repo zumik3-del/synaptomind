@@ -1,10 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { BrokenParentChain, CircularChain, ReplacesChain } from './types'
 
-/**
- * Source → targets adjacency map of `source_id`/`target_id` edge rows, keeping
- * the row order a query returned.
- */
 function buildAdjacency(
   edges: Array<{ source_id: string; target_id: string }>
 ): Map<string, string[]> {
@@ -79,8 +75,6 @@ export function findReplacesChains(db: Database): ReplacesChain[] {
   function dfs(node: string, path: string[]) {
     const neighbors = adj.get(node) || []
     if (neighbors.length === 0) {
-      // A chain needs >= 2 replaces edges, i.e. >= 3 nodes. A single edge
-      // (path length 2) is a plain replacement, not a chain.
       if (path.length > 2) chains.push([...path])
       return
     }

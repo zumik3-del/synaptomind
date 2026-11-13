@@ -1,19 +1,3 @@
-/**
- * Stored-vector pins for the placement path (task #1571).
- *
- * The placement engine used to embed the whole candidate pool and then issue one
- * vec0 query per candidate. It now reads the stored `vec_thoughts` vectors
- * (`resolveCandidateEmbeddings`, #1569) and ranks neighbours in memory
- * (`buildInMemoryNeighborLookup`, #1566) — the shape `edge-detect` got in #1567.
- * These tests pin both costs (0 embedder calls, 0 vec0 queries), the
- * injected-dependency seam, freshness (`pending_embeddings` ⇒ live embed) and
- * the equivalence/superset relationship with the index-backed lookup it
- * replaced.
- *
- * The vec0 leg needs a file-backed DB (`withVecDb`, AGENTS.md §8); the
- * `:memory:` suites cannot host `vec_thoughts`.
- */
-
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { closeDb, getDb } from '../../db'
@@ -36,9 +20,6 @@ afterEach(closeDb)
 
 const NOW = '2026-01-01T00:00:00.000Z'
 
-// ── helpers ─────────────────────────────────────────────────────────────────
-
-/** Unit vector in the (x, y) plane; the angle sets the cosine similarity. */
 function vec384(angle: number): Float32Array {
   const v = new Float32Array(384)
   v[0] = Math.cos(angle)
@@ -46,10 +27,6 @@ function vec384(angle: number): Float32Array {
   return v
 }
 
-/**
- * Store a vector by hand and drain the `pending_embeddings` row the v035
- * trigger queued, i.e. model "already embedded with this content" (helpers.ts).
- */
 function storeVec(id: string, vector: Float32Array): void {
   getDb()
     .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
@@ -57,10 +34,6 @@ function storeVec(id: string, vector: Float32Array): void {
   drainPendingEmbeddings([id])
 }
 
-/**
- * The pre-change default neighbour lookup: one vec0 index query per candidate
- * (`searchThoughts`, active + same project). Reference for the equivalence pin.
- */
 function indexLookup(d: Database, projectId: string): SearchNeighborsFn {
   return (_id, embedding, k) =>
     searchThoughts(d, {
@@ -72,7 +45,6 @@ function indexLookup(d: Database, projectId: string): SearchNeighborsFn {
     }).map(r => ({ id: r.thought.id, similarity: r.similarity ?? 0 }))
 }
 
-/** Structural projection: everything a change of neighbour source could move. */
 function summarize(plan: PlacementPlan) {
   return {
     placement: plan.placement
@@ -89,8 +61,6 @@ function summarize(plan: PlacementPlan) {
   }
 }
 
-// ── cost: no embedder round-trip, no per-candidate vec0 query ────────────────
-
 describe('stored-vector pins (task #1571)', () => {
   test('a fully embedded pool costs 0 embedder calls and 0 vec0 queries (default path)', async () => {
     await withVecDb(async () => {
@@ -99,23 +69,16 @@ describe('stored-vector pins (task #1571)', () => {
       storeVec(a, vec384(0))
       storeVec(b, vec384(Math.acos(0.9)))
 
-      // No injected deps: the real defaults (`generateEmbeddings`,
-      // `buildInMemoryNeighborLookup`) are the code under test.
       const embedSpy = spyOn(embedderClient, 'generateEmbeddings')
       const vectorSpy = spyOn(vectorSearchDb, 'vecSearchIds')
       try {
         const plan = await proposePlacementPlan({ thoughtId: a }, { now: NOW, minSimilarity: 0.5 })
 
-        // Both stored vectors were reused, so the run produced the pair the
-        // threshold admits — a 0 count is not an empty/degraded run.
         expect(plan.degraded).toBe(false)
         expect(plan.edges.map(e => e.target_id)).toEqual([b])
         expect(embedSpy.mock.calls.length).toBe(0)
         const afterRun = vectorSpy.mock.calls.length
 
-        // Positive control: the spy does observe this query path, so 0 calls
-        // during the run is evidence rather than a dead spy. The embedder
-        // control is the `pending_embeddings` pin below.
         searchThoughts(getDb(), { embedding: vec384(0), topK: 1 })
         expect(vectorSpy.mock.calls.length).toBeGreaterThan(afterRun)
         expect(afterRun).toBe(0)
@@ -130,8 +93,6 @@ describe('stored-vector pins (task #1571)', () => {
     await withVecDb(async () => {
       const a = seedThought({ content: 'alpha' })
       const b = seedThought({ content: 'beta' })
-      // Orthogonal vectors: the in-memory lookup reports ~0 similarity, so a
-      // proposal can only come from the injected lookup.
       storeVec(a, vec384(0))
       storeVec(b, vec384(Math.PI / 2))
 
@@ -159,8 +120,6 @@ describe('stored-vector pins (task #1571)', () => {
     await withVecDb(async () => {
       const a = seedThought({ content: 'alpha' })
       const b = seedThought({ content: 'beta' })
-      // `a`'s stored vector is stale (orthogonal to `b`); its content then
-      // changed, which queues it in `pending_embeddings` again.
       storeVec(a, vec384(Math.PI / 2))
       storeVec(b, vec384(Math.acos(0.9)))
       getDb().prepare('UPDATE thoughts SET content = ? WHERE id = ?').run('alpha revised', a)
@@ -181,17 +140,11 @@ describe('stored-vector pins (task #1571)', () => {
         }
       )
 
-      // Exactly the pending candidate reaches the embedder, with its CURRENT
-      // content; `b` is served from its stored vector.
       expect(seen).toEqual([['alpha revised']])
       expect(plan.degraded).toBe(false)
-      // The pair is only reachable through the live vector: the stale one is
-      // orthogonal to `b` and below the threshold.
       expect(plan.edges.map(e => e.target_id)).toEqual([b])
     })
   })
-
-  // ── output equivalence / intended superset ─────────────────────────────────
 
   test('the default plan equals the index-backed lookup on the existing fixture shape', async () => {
     await withVecDb(async () => {
@@ -202,8 +155,6 @@ describe('stored-vector pins (task #1571)', () => {
       const src = seedThought({ id: 'eq-src', content: 'eq source' })
       seedEdge(cluster, member, 'cluster')
       seedEdge(root, member, 'parent')
-      // Pool = the four non-cluster thoughts; the cluster row is in the vec
-      // index but never a candidate (same as before the change).
       storeVec(src, vec384(0))
       storeVec(member, vec384(Math.acos(0.9)))
       storeVec(other, vec384(Math.acos(0.8)))
@@ -217,13 +168,10 @@ describe('stored-vector pins (task #1571)', () => {
       })
 
       expect(summarize(viaDefault)).toEqual(summarize(viaIndex))
-      // Same fixture, both branches reached: cluster placement + 3 related edges.
       expect(viaDefault.placement?.kind).toBe('cluster')
       expect(viaDefault.placement?.target_id).toBe(cluster)
       expect(viaDefault.edges.map(e => e.target_id).sort()).toEqual([member, other, root].sort())
       expect(viaDefault.lifecycle.action).toBe('link')
-      // Scores come from `1 - distance` (index) vs the exact dot product
-      // (in-memory): identical to float32 precision, not bit-identical.
       for (let i = 0; i < viaDefault.edges.length; i++) {
         expect(viaDefault.edges[i]!.confidence).toBeCloseTo(viaIndex.edges[i]!.confidence, 5)
       }
@@ -234,8 +182,6 @@ describe('stored-vector pins (task #1571)', () => {
     await withVecDb(async () => {
       const src = seedThought({ id: 'ss-src', content: 'superset source' })
       storeVec(src, vec384(0))
-      // A cluster thought is active and in the vec index but is NOT a pool
-      // candidate, so it still consumes one of the index's `LIMIT topK` slots.
       const cluster = seedThought({ id: 'ss-cluster', content: 'superset cluster', is_cluster: 1 })
       storeVec(cluster, vec384(0))
       for (let i = 0; i < 10; i++) {
@@ -251,14 +197,10 @@ describe('stored-vector pins (task #1571)', () => {
 
       const defaultTargets = viaDefault.edges.map(e => e.target_id)
       const indexTargets = viaIndex.edges.map(e => e.target_id)
-      // `src` itself and the cluster occupy index slots, so the two farthest
-      // candidates fall outside the index window; the in-memory lookup ranks
-      // the candidates only and keeps all ten.
       expect(defaultTargets).toHaveLength(10)
       expect(indexTargets.length).toBeLessThan(defaultTargets.length)
       expect(indexTargets).not.toContain('ss-c9')
       expect(defaultTargets).toContain('ss-c9')
-      // The difference is one-way: nothing the index kept is dropped.
       expect(indexTargets.every(id => defaultTargets.includes(id))).toBe(true)
     })
   })

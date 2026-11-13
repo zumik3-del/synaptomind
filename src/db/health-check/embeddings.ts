@@ -18,12 +18,7 @@ export function findMissingEmbeddings(db: Database): MissingEmbedding[] {
   }
 }
 
-/**
- * The v048 invariant: one denormalised `scope` column, so exactly one row can
- * disagree. A non-zero count means the vector index points at a partition its
- * thought no longer lives in; the repair is VEC-MOVE (delete + re-insert of the
- * stored blob), never an UPDATE, which vec0 refuses on a partition column.
- */
+// vec0 refuses an UPDATE of a partition column, so a repair must delete and re-insert the blob.
 export function findScopeMismatches(db: Database): ScopeMismatch[] {
   try {
     return db

@@ -81,8 +81,6 @@ itVec('searchThoughts with minImportance=0 returns all', db => {
   expect(results.map(r => r.thought.id)).toContain(t)
 })
 
-// FTS5 / BM25 + RRF (no vector needed)
-
 test('bm25SearchIds finds thoughts by exact keyword', () => {
   const db = getDb()
   seedThought({
@@ -238,10 +236,8 @@ itVec('searchThoughts with clusterFilter=exclude hides clusters', db => {
 })
 
 test('toFtsQuery escapes special characters', () => {
-  // This tests the internal toFtsQuery indirectly through bm25SearchIds
   const db = getDb()
   seedThought({ id: 'fts-safe', content: 'normal thought without special chars' })
-  // Should not throw even with special chars
   const ids = bm25SearchIds(db, 'test "quotes" AND OR NOT', 10)
   expect(Array.isArray(ids)).toBeTrue()
 })
@@ -276,8 +272,6 @@ itVec('searchThoughts project-filtered BM25 returns topK when local thought exis
   expect(results[0].thought.id).toBe(local)
 })
 
-// ── Ranking signal field regression (issue #143, task #816) ─────────────────
-
 function seedThoughtRow(db: Database, id: string, content: string): void {
   const now = new Date().toISOString()
   db.prepare(
@@ -298,7 +292,6 @@ function seedVecEmbedding(db: Database, thoughtId: string): void {
   )
 }
 
-/** Seed a specific 384-d vector so cosine similarity is controllable. */
 function seedVecEmbeddingRaw(db: Database, thoughtId: string, vector: Float32Array): void {
   const buf = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength)
   db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
@@ -330,12 +323,11 @@ test("BM25-only hit carries match_source=['bm25'] and a positive bm25_score", ()
   expect(hit).toBeDefined()
   expect(hit!.match_source).toEqual(['bm25'])
   expect(hit!.bm25_score).toBeGreaterThan(0)
-  expect(hit!.rrf_score).toBeDefined() // fusion ran on hybrid path
+  expect(hit!.rrf_score).toBeDefined()
 })
 
 test('higher BM25 relevance produces a higher bm25_score', () => {
   const db = getDb()
-  // The repeated keyword makes this more relevant in BM25.
   seedThoughtRow(db, 'sig-bm25-high', 'KEYWORD marker KEYWORD marker KEYWORD')
   seedThoughtRow(db, 'sig-bm25-low', 'KEYWORD marker')
   seedFts(db, 'sig-bm25-high', 'KEYWORD marker KEYWORD marker KEYWORD')
@@ -367,7 +359,6 @@ test('non-matching thought has no bm25_score and no match_source entry for bm25'
     hybrid: true
   })
 
-  // No results at all for a non-matching query.
   const hit = results.find(r => r.thought.id === 'sig-no-bm25')
   expect(hit).toBeUndefined()
 })
@@ -431,9 +422,7 @@ test('bm25SearchIds returns string[] (public contract preserved)', () => {
   expect(ids.every(id => typeof id === 'string')).toBe(true)
 })
 
-// ── Recency boost DB-layer matrix (issue #145, task #823) ─────────────────────
-
-const RECENCY_NOW_MS = 1_700_000_000_000 // fixed clock for deterministic decay
+const RECENCY_NOW_MS = 1_700_000_000_000
 const RECENCY_HALF_LIFE_DAYS = 30
 const DAY_MS = 86_400_000
 
@@ -441,7 +430,6 @@ function recencyCreatedAt(offsetDays: number): string {
   return new Date(RECENCY_NOW_MS - offsetDays * DAY_MS).toISOString()
 }
 
-// Row 1: w unset/0 → identical id order AND no recency_score/final_score; rrf_score unchanged.
 itVec('recency w=0: no recency fields, order preserved, rrf_score unchanged', db => {
   seedThought({ id: 'rec-w0-a', content: 'REC_W0 same marker' })
   seedThought({ id: 'rec-w0-b', content: 'REC_W0 same marker' })
@@ -462,12 +450,10 @@ itVec('recency w=0: no recency fields, order preserved, rrf_score unchanged', db
     expect(r.final_score).toBeUndefined()
     expect(r.rrf_score).toBeDefined()
   }
-  // Order is insertion order (stable, no re-sort).
   const ids = results.map(r => r.thought.id)
   expect(ids.indexOf('rec-w0-a')).toBeLessThan(ids.indexOf('rec-w0-b'))
 })
 
-// Row 2: w>0 → recency_score present on every result, in [0,1]; =1 at age 0, =0.5 at one half-life.
 itVec('recency w>0: recency_score present, =1 at age 0, =0.5 at one half-life', db => {
   seedThought({ id: 'rec-age0', content: 'REC_AGE marker', created_at: recencyCreatedAt(0) })
   seedThought({ id: 'rec-age30', content: 'REC_AGE marker', created_at: recencyCreatedAt(30) })
@@ -497,7 +483,6 @@ itVec('recency w>0: recency_score present, =1 at age 0, =0.5 at one half-life', 
   expect(halfR!.recency_score!).toBeLessThanOrEqual(1)
 })
 
-// Row 3: equal relevance, different age → newer ranks first.
 itVec('recency equal relevance: newer ranks above older', db => {
   seedThought({
     id: 'rec-eq-old',
@@ -527,15 +512,12 @@ itVec('recency equal relevance: newer ranks above older', db => {
   expect(ids.indexOf('rec-eq-new')).toBeLessThan(ids.indexOf('rec-eq-old'))
 })
 
-// Row 4: bounded influence — higher-relevance old thought beats low-relevance fresh at small w.
 itVec('recency bounded influence: high-relevance old beats low-relevance fresh at small w', db => {
-  // High-BM25: repeated keyword → higher score. Old.
   seedThought({
     id: 'rec-bounds-old',
     content: 'REC_BOUND KEYWORD marker KEYWORD marker KEYWORD',
     created_at: recencyCreatedAt(100)
   })
-  // Low-BM25: single occurrence. Fresh.
   seedThought({
     id: 'rec-bounds-new',
     content: 'REC_BOUND KEYWORD marker',
@@ -556,11 +538,9 @@ itVec('recency bounded influence: high-relevance old beats low-relevance fresh a
 
   expect(results.length).toBeGreaterThanOrEqual(2)
   const ids = results.map(r => r.thought.id)
-  // Old high-relevance must still rank above fresh low-relevance.
   expect(ids.indexOf('rec-bounds-old')).toBeLessThan(ids.indexOf('rec-bounds-new'))
 })
 
-// Row 5: vector-only path (hybrid=false, !query) applies recency via similarity.
 itVec('recency vector-only path: recency applies via similarity, fields present', db => {
   seedThought({
     id: 'rec-vec-old',
@@ -592,15 +572,12 @@ itVec('recency vector-only path: recency applies via similarity, fields present'
   expect(olderR!.recency_score).toBeDefined()
   expect(newerR!.final_score).toBeDefined()
   expect(newerR!.match_source).toEqual(['embedding'])
-  // Newer ranks first (same similarity, recency breaks tie).
   const ids = results.map(r => r.thought.id)
   expect(ids.indexOf('rec-vec-new')).toBeLessThan(ids.indexOf('rec-vec-old'))
 })
 
-// Row 6: empty query + empty embedding → [], no crash.
 test('recency empty query + empty embedding returns [] without crash', () => {
   const db = getDb()
-  // No thoughts seeded — just verify the call doesn't throw.
   const results = searchThoughts(db, {
     embedding: new Float32Array(0),
     topK: 10,
@@ -611,9 +588,7 @@ test('recency empty query + empty embedding returns [] without crash', () => {
   expect(results).toEqual([])
 })
 
-// Row 7: equal final_score tie → stable incoming order preserved.
 itVec('recency tie: equal final_score preserves incoming order', db => {
-  // Same content, same created_at → same relevance and same recency → same final_score.
   seedThought({ id: 'rec-tie-a', content: 'REC_TIE same today', created_at: recencyCreatedAt(10) })
   seedThought({ id: 'rec-tie-b', content: 'REC_TIE same today', created_at: recencyCreatedAt(10) })
   seedFts(db, 'rec-tie-a', 'REC_TIE same today')
@@ -631,11 +606,9 @@ itVec('recency tie: equal final_score preserves incoming order', db => {
 
   expect(results.length).toBeGreaterThanOrEqual(2)
   const ids = results.map(r => r.thought.id)
-  // Stable sort: a was inserted before b, so a must come first.
   expect(ids.indexOf('rec-tie-a')).toBeLessThan(ids.indexOf('rec-tie-b'))
 })
 
-// Row 8: rrf_score stays raw/un-boosted.
 itVec('recency rrf_score stays raw/un-boosted', db => {
   seedThought({ id: 'rec-rrf-a', content: 'REC_RRF keyword match' })
   seedThought({ id: 'rec-rrf-b', content: 'REC_RRF keyword match' })
@@ -667,19 +640,15 @@ itVec('recency rrf_score stays raw/un-boosted', db => {
   }
 })
 
-// ── BM25 Stopword Filtering Regression (issue #154, task #880) ────────────────
-
 import { bm25ScoredIdsFiltered } from './search-bm25'
 
 test('stopword-only English query yields empty BM25 results', () => {
   const db = getDb()
-  // Seed thoughts whose content contains English stopwords
   seedThought({ id: 'sw-en-a', content: 'the of and to a is are was were' })
   seedFts(db, 'sw-en-a', 'the of and to a is are was were')
   seedThought({ id: 'sw-en-b', content: 'completely unrelated content here' })
   seedFts(db, 'sw-en-b', 'completely unrelated content here')
 
-  // Stopword-only query should return []
   const ids = bm25SearchIds(db, 'the of and to a is', 10)
   expect(ids).toEqual([])
 
@@ -689,13 +658,11 @@ test('stopword-only English query yields empty BM25 results', () => {
 
 test('stopword-only Russian query yields empty BM25 results', () => {
   const db = getDb()
-  // Seed thoughts whose content contains Russian stopwords
   seedThought({ id: 'sw-ru-a', content: 'что такое для как он на я с со' })
   seedFts(db, 'sw-ru-a', 'что такое для как он на я с со')
   seedThought({ id: 'sw-ru-b', content: 'другое содержание без стоп-слов' })
   seedFts(db, 'sw-ru-b', 'другое содержание без стоп-слов')
 
-  // Stopword-only query should return []
   const ids = bm25SearchIds(db, 'что такое для как', 10)
   expect(ids).toEqual([])
 
@@ -705,13 +672,11 @@ test('stopword-only Russian query yields empty BM25 results', () => {
 
 test('mixed query filters stopwords but matches content words', () => {
   const db = getDb()
-  // Seed thought with content words
   seedThought({ id: 'mix-content', content: 'как обновить production deployment MCP' })
   seedFts(db, 'mix-content', 'как обновить production deployment MCP')
   seedThought({ id: 'mix-unrelated', content: 'nothing relevant here' })
   seedFts(db, 'mix-unrelated', 'nothing relevant here')
 
-  // Mixed query: Russian stopword + content words
   const ids = bm25SearchIds(db, 'как обновить production deployment', 10)
   expect(ids).toContain('mix-content')
   expect(ids).not.toContain('mix-unrelated')
@@ -724,7 +689,6 @@ test('mixed English query filters stopwords but matches content words', () => {
   seedThought({ id: 'mix-en-unrelated', content: 'unrelated generic text' })
   seedFts(db, 'mix-en-unrelated', 'unrelated generic text')
 
-  // Query: English stopword + content words
   const ids = bm25SearchIds(db, 'the MCP rrf_score', 10)
   expect(ids).toContain('mix-en-content')
   expect(ids).not.toContain('mix-en-unrelated')
@@ -732,7 +696,6 @@ test('mixed English query filters stopwords but matches content words', () => {
 
 test('meaningful short tokens are NOT dropped (Caddy, MCP, ai, rrf)', () => {
   const db = getDb()
-  // Seed thoughts with meaningful short tokens
   seedThought({ id: 'short-caddy', content: 'Caddy proxy configuration' })
   seedFts(db, 'short-caddy', 'Caddy proxy configuration')
   seedThought({ id: 'short-mcp', content: 'MCP protocol specification' })
@@ -742,7 +705,6 @@ test('meaningful short tokens are NOT dropped (Caddy, MCP, ai, rrf)', () => {
   seedThought({ id: 'short-rrf', content: 'RRF fusion algorithm tuning' })
   seedFts(db, 'short-rrf', 'RRF fusion algorithm tuning')
 
-  // Each meaningful short token should match its respective thought
   expect(bm25SearchIds(db, 'Caddy', 10)).toContain('short-caddy')
   expect(bm25SearchIds(db, 'MCP', 10)).toContain('short-mcp')
   expect(bm25SearchIds(db, 'ai', 10)).toContain('short-ai')
@@ -751,24 +713,20 @@ test('meaningful short tokens are NOT dropped (Caddy, MCP, ai, rrf)', () => {
 
 test("case-insensitive stopword matching (ЧТО → that's a stopword)", () => {
   const db = getDb()
-  // Uppercase Russian stopwords should still be filtered
   seedThought({ id: 'case-sw', content: 'что такое для как он' })
   seedFts(db, 'case-sw', 'что такое для как он')
 
-  // Uppercase query should also return []
   const ids = bm25SearchIds(db, 'ЧТО ТАКОЕ ДЛЯ КАК', 10)
   expect(ids).toEqual([])
 })
 
 test('ё→е folding: ё-containing token matches е-variant', () => {
   const db = getDb()
-  // Seed thought with ё in content
   seedThought({ id: 'yo-en-content', content: 'ёлка зелёная деревья растут' })
   seedFts(db, 'yo-en-content', 'ёлка зелёная деревья растут')
   seedThought({ id: 'yo-en-unrelated', content: 'unrelated content here' })
   seedFts(db, 'yo-en-unrelated', 'unrelated content here')
 
-  // Query with е (no dot) should still match ё-containing content
   const ids = bm25SearchIds(db, 'елка зелёная', 10)
   expect(ids).toContain('yo-en-content')
   expect(ids).not.toContain('yo-en-unrelated')
@@ -776,10 +734,6 @@ test('ё→е folding: ё-containing token matches е-variant', () => {
 
 test('stopword filtering prevents FTS blanket match (regression guard)', () => {
   const db = getDb()
-  // This test would FAIL against pre-#880 behavior where stopwords were not filtered.
-  // Before #880: query "the of and" would produce FTS query "the OR of OR and"
-  // which matches EVERY document (blanket match).
-  // After #880: query produces '' (empty) and returns [] (no match).
   seedThought({ id: 'reg-a', content: 'document with common words' })
   seedFts(db, 'reg-a', 'document with common words')
   seedThought({ id: 'reg-b', content: 'another document with different words' })
@@ -787,11 +741,9 @@ test('stopword filtering prevents FTS blanket match (regression guard)', () => {
   seedThought({ id: 'reg-c', content: 'yet another document here' })
   seedFts(db, 'reg-c', 'yet another document here')
 
-  // Stopword-only query must return [], not all documents
   const ids = bm25SearchIds(db, 'the of and to a is', 10)
   expect(ids).toEqual([])
 
-  // Verify that meaningful query still works
   const meaningful = bm25SearchIds(db, 'document', 10)
   expect(meaningful.length).toBeGreaterThan(0)
 })
@@ -814,11 +766,9 @@ test('bm25ScoredIdsFiltered respects stopword filter with project filter', () =>
   seedThought({ id: 'filt-p2', content: 'caddy proxy configuration', project_id: p2 })
   seedFts(db, 'filt-p2', 'caddy proxy configuration')
 
-  // Empty query with filter should return []
   const filtered = bm25ScoredIdsFiltered(db, 'the of and', 10, 'AND t.project_id = ?', [p1])
   expect(filtered).toEqual([])
 
-  // Meaningful query with filter should return results
   const meaningfulFiltered = bm25ScoredIdsFiltered(
     db,
     'production deployment',
@@ -854,13 +804,10 @@ test('mixed Russian-English query filters both language stopwords', () => {
   seedThought({ id: 'mixed-unrelated', content: 'something completely different' })
   seedFts(db, 'mixed-unrelated', 'something completely different')
 
-  // Mixed language query: English stopword + Russian stopword + content words
   const ids = bm25SearchIds(db, 'the что production', 10)
   expect(ids).toContain('mixed-lang')
   expect(ids).not.toContain('mixed-unrelated')
 })
-
-// ── Relevance-confidence signal (issue #155, task #884/885) ─────────────────
 
 test('isStrongMatch: bm25 hit always passes regardless of similarity', () => {
   expect(isStrongMatch({ match_source: ['bm25'], similarity: 0 }, 0.9)).toBe(true)
@@ -886,9 +833,6 @@ test('isStrongMatch: no legs → false', () => {
   expect(isStrongMatch({ match_source: [], similarity: 0 }, 0.9)).toBe(false)
 })
 
-// ── low_confidence DB-layer matrix (vec-gated, issue #155) ───────────────────
-
-// Vector-only path, sim below floor → low_confidence=true.
 itVec('low_confidence: vector-only sim < floor ⇒ true', db => {
   seedThoughtRow(db, 'lc-vec-low', 'semantic low-similarity content here')
   // Stored e0 vs query e1 → orthogonal, cosine similarity 0 < floor. A
@@ -910,10 +854,8 @@ itVec('low_confidence: vector-only sim < floor ⇒ true', db => {
   expect(hit!.match_source).toEqual(['embedding'])
 })
 
-// Vector-only path, sim exactly at the floor → low_confidence=false (confident).
 itVec('low_confidence: sim == floor exactly ⇒ false; just above ⇒ true', db => {
   seedThoughtRow(db, 'lc-vec-boundary', 'semantic boundary content')
-  // Stored unit vector e0; query = 0.9·e0 + sqrt(0.19)·e1 has cosine ≈ 0.9.
   const stored = new Float32Array(384)
   stored[0] = 1
   seedVecEmbeddingRaw(db, 'lc-vec-boundary', stored)
@@ -958,7 +900,6 @@ itVec('low_confidence: sim == floor exactly ⇒ false; just above ⇒ true', db 
   expect(aboveFloorHit!.low_confidence).toBe(true)
 })
 
-// BM25 hit → low_confidence=false even with zero vector similarity.
 test('low_confidence: BM25 hit ⇒ false (lexical anchor)', () => {
   const db = getDb()
   seedThoughtRow(db, 'lc-bm25-hit', 'EXACT_LC_BM25 keyword anchor')
@@ -978,10 +919,7 @@ test('low_confidence: BM25 hit ⇒ false (lexical anchor)', () => {
   expect(hit!.match_source).toContain('bm25')
 })
 
-// Hybrid nonsense (BM25 empty) → all results low_confidence=true.
 itVec('low_confidence: hybrid nonsense (BM25 empty) ⇒ all true', db => {
-  // Content shares no token with the query below, so the FTS auto-sync trigger
-  // (v028) leaves the BM25 leg genuinely empty.
   seedThoughtRow(db, 'lc-nonsense-a', 'alpha beta gamma delta')
   seedThoughtRow(db, 'lc-nonsense-b', 'epsilon zeta eta theta')
   // Stored e0 vs query e1 → cosine similarity 0 < floor (a zero-vector seed
@@ -1001,14 +939,12 @@ itVec('low_confidence: hybrid nonsense (BM25 empty) ⇒ all true', db => {
     confidenceFloor: 0.9
   })
 
-  // All vector-only results should be flagged low_confidence.
   expect(results.length).toBeGreaterThanOrEqual(1)
   for (const r of results) {
     expect(r.low_confidence).toBe(true)
   }
 })
 
-// Embedding-empty (BM25-only degradation) → low_confidence=false.
 test('low_confidence: embedding-empty BM25-only ⇒ false', () => {
   const db = getDb()
   seedThoughtRow(db, 'lc-bm25-only', 'production deployment MCP server')
@@ -1028,7 +964,6 @@ test('low_confidence: embedding-empty BM25-only ⇒ false', () => {
   expect(hit!.match_source).toContain('bm25')
 })
 
-// Every result carries low_confidence (even when undefined pre-#884).
 itVec('low_confidence: always present on every result', db => {
   seedThoughtRow(db, 'lc-always-a', 'semantic content one')
   seedThoughtRow(db, 'lc-always-b', 'semantic content two')
@@ -1048,7 +983,6 @@ itVec('low_confidence: always present on every result', db => {
   }
 })
 
-// Confidence floor override: a very high floor makes even vector hits low_confidence.
 itVec('low_confidence: high confidenceFloor flags vector hits as low', db => {
   seedThoughtRow(db, 'lc-high-floor', 'semantic content')
   // Stored e0 vs query e1 → cosine similarity 0 < 1.0 (a zero-vector seed
@@ -1071,7 +1005,6 @@ itVec('low_confidence: high confidenceFloor flags vector hits as low', db => {
   expect(hit!.low_confidence).toBe(true)
 })
 
-// Confidence floor override: a floor of 0 makes all vector hits confident.
 itVec('low_confidence: floor=0 makes all vector hits confident', db => {
   seedThoughtRow(db, 'lc-zero-floor', 'semantic content')
   seedVecEmbedding(db, 'lc-zero-floor')
@@ -1087,8 +1020,6 @@ itVec('low_confidence: floor=0 makes all vector hits confident', db => {
   expect(hit).toBeDefined()
   expect(hit!.low_confidence).toBe(false)
 })
-
-// ── is_global filter SQL (epic #1489) ────────────────────────────────────────
 
 describe('buildFilterSQL project scope (is_global always included)', () => {
   const P = 'project-a'
@@ -1147,10 +1078,7 @@ test('searchThoughts reports degraded when the vec leg throws', () => {
   expect((results as { degraded?: boolean }).degraded).toBe(true)
 })
 
-// ── candidate pool width (F2 stopgap, task #2480) ───────────────────────────
-
 describe('candidate pool width', () => {
-  /** The `pool` argument of every real vec0 call made while `fn` runs. */
   async function poolsSeen(fn: () => void): Promise<number[]> {
     const spy = spyOn(vectorSearchDb, 'vecSearchIds')
     try {
@@ -1170,11 +1098,7 @@ describe('candidate pool width', () => {
         searchThoughts(db, { embedding, topK: 5, hybrid: false })
       })
 
-      // The vec0 predicate runs after the KNN cutoff, so a filter only gets the
-      // rows inside the pool: #2478 lost the ground truth until the pool passed
-      // the 900 nearer foreign rows, which the topK-derived width cannot reach.
       expect(pools[0]).toBe(1000)
-      // The unfiltered path keeps the pre-fix expression and its cost.
       expect(pools[1]).toBe(50)
     }
   )
@@ -1190,20 +1114,14 @@ describe('candidate pool width', () => {
         searchThoughts(db, { embedding, topK: 200, hybrid: false })
       })
 
-      // k=40 is what the service derives from the production default k=10
-      // (`candidateK = topK × 4`): its unfiltered pool is 400, the filtered one
-      // is the cap that recovered the ground truth.
       expect(pools).toEqual([1000, 1000, 400, 1000])
     }
   )
 })
 
-// ── project starvation behind the global partition (F4, task #2500) ─────────
-
 describe('project-scoped starvation', () => {
   const PROJECT = 'proj-addressed'
   const FOREIGN = 'proj-foreign'
-  /** `CANDIDATE_POOL_MAX` in `db/search.ts`: the `k` a filtered leg walks. */
   const POOL_MAX = 1000
   const STAMP = '2020-01-01T00:00:00.000Z'
 
@@ -1219,11 +1137,6 @@ describe('project-scoped starvation', () => {
     )
   }
 
-  /**
-   * `count` global thoughts whose vectors sit in the `__global__` partition,
-   * every one of them nearer to `query` than any project row can be: the crowd a
-   * project-scoped leg walks into.
-   */
   function seedNearerGlobals(db: Database, query: Float32Array, count: number): void {
     insertProject(db, FOREIGN)
     const insertThought = db.prepare(`
@@ -1247,7 +1160,6 @@ describe('project-scoped starvation', () => {
     insertProject(db, PROJECT)
     const query = new Float32Array(384)
     query[0] = 1
-    // Similarity 0 to the query, so every global filler outranks it.
     const far = new Float32Array(384)
     far[1] = 1
     const own = seedThought({ content: 'addressed project row', project_id: PROJECT })
@@ -1265,13 +1177,8 @@ describe('project-scoped starvation', () => {
       projectFilter: PROJECT
     })
 
-    // The pool is consumed by nearer globals, so the answer is a full topK of
-    // them and the project's own row never reaches the residual filter…
     expect(results).toHaveLength(5)
     expect(results.map(r => r.thought.id)).not.toContain(own)
-    // …which is exactly the case the signal must not call healthy: the project
-    // has an embedded row these filters match, so `degraded: false` would read as
-    // "this project has nothing to say".
     expect((results as { degraded?: boolean }).degraded).toBe(true)
   })
 
@@ -1301,8 +1208,6 @@ describe('project-scoped starvation', () => {
       projectFilter: PROJECT
     })
 
-    // The project's own row is in the answer, so nothing was shut out and the
-    // short result is complete truth rather than starvation.
     expect(results.map(r => r.thought.id).sort()).toEqual([global, own].sort())
     expect((results as { degraded?: boolean }).degraded).toBe(false)
   })

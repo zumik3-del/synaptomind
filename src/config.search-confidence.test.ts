@@ -5,17 +5,6 @@ import { join } from 'node:path'
 import { DEFAULTS, ENV_MAPPINGS } from './config'
 import { loadFreshConfig } from './test/fresh-config'
 
-/**
- * Task #2178: `search.confidence.unrelatedFloor` — the zero point of the
- * calibrated relevance scale, and the env override
- * `SYNAPTOMIND_SEARCH_CONFIDENCE_UNRELATED_FLOOR`.
- *
- * The key is resolved on the FINAL merged config (config.json, then env), so the
- * load-time cases evaluate the real module with a scratch `config.json` and a
- * scratch environment (`loadFreshConfig`) — the same pattern as
- * `src/config.primer-bounds.test.ts`. No model, no DB.
- */
-
 const FLOOR_ENV = 'SYNAPTOMIND_SEARCH_CONFIDENCE_UNRELATED_FLOOR'
 const VECTOR_ENV = 'SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR'
 
@@ -31,7 +20,6 @@ function scratchDir(): string {
   return SCRATCH
 }
 
-/** Ambient env minus the two search-confidence overrides. */
 function baseEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
@@ -44,9 +32,7 @@ function baseEnv(): Record<string, string> {
 
 interface LoadResult {
   code: number
-  /** stdout: the probe lines (the resolved knob values). */
   out: string
-  /** stderr: the config layer's report ("invalid value for ..."). */
   err: string
 }
 
@@ -85,9 +71,6 @@ async function loadWithFile(
 
 describe('search.confidence.unrelatedFloor — the built-in default', () => {
   test('the default floor is the measured unrelated similarity (0.8)', () => {
-    // The calibrated relevance is `(similarity - unrelatedFloor) /
-    // (vectorFloor - unrelatedFloor)`; the pair 0.8/0.9 is the measured e5-small
-    // band from task #2178.
     expect(DEFAULTS.search.confidence.unrelatedFloor).toBe(0.8)
     expect(DEFAULTS.search.confidence.vectorFloor).toBe(0.9)
   })

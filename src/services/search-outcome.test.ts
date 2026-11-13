@@ -2,14 +2,6 @@ import { describe, expect, test } from 'bun:test'
 import type { SearchResult } from '../db/search'
 import { keepsUnderRelevanceGate } from './search-outcome.service'
 
-/**
- * Task #2178: the relevance-gate predicate, in isolation.
- *
- * The service-level behaviour (which rows the gate actually drops) lives in
- * `search.service.gate.test.ts`; here the boundary arithmetic is exact, because
- * the fixtures are hand-built instead of coming back through float32 vec0.
- */
-
 function result(overrides: Partial<SearchResult>): SearchResult {
   return {
     thought: { id: 'x', content: '', status: 'active' } as SearchResult['thought'],

@@ -1,19 +1,3 @@
-/**
- * End-to-end matrix for the one destructive-confirm protocol (audit F1,
- * task #2466).
- *
- * Every converted action is driven through its real MCP tool surface over an
- * in-memory client, one row per preview/confirm site: a preview mints a token
- * and mutates nothing, a confirm with that token mutates once, replaying it
- * cannot mutate twice, and a token minted before the guarded state drifted is
- * refused with the one typed gate error and mutates nothing. The fixtures live
- * in `src/test/confirm-gate-cases.ts`; nothing here imports the gate, so the
- * assertions stay on the wire.
- *
- * The embedder is mocked (same recipe as the sibling contract suites) because
- * `auto_cluster` embeds its candidate pool; without it the case would spawn the
- * real child process.
- */
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
@@ -48,13 +32,10 @@ async function call(tool: string, args: Record<string, unknown>) {
   let data: unknown = text
   try {
     data = JSON.parse(text)
-  } catch {
-    /* keep text */
-  }
+  } catch {}
   return { data: data as any, isError: response.isError === true, text }
 }
 
-/** The token a preview issued, from the envelope mirror or the item itself. */
 function previewToken(data: any): string {
   const token = data?.meta?.preview?.token ?? data?.item?.preview_token
   expect(typeof token).toBe('string')
@@ -76,9 +57,6 @@ describe('confirm-gate matrix over the converted actions', () => {
 
         expect(preview.isError).toBe(false)
         const token = previewToken(preview.data)
-        // The envelope mirror is the client-facing gate (task #2181); the one
-        // action that does not set it (memory_manage delete) exposes the token
-        // on the item, which previewToken already read.
         if (preview.data.meta?.preview !== undefined) {
           expect(preview.data.meta.preview.destructive).toBe(true)
         }
@@ -88,10 +66,6 @@ describe('confirm-gate matrix over the converted actions', () => {
         expect(confirmed.isError).toBe(false)
         gate.assertMutated()
 
-        // A confirm claims (deletes) its token, so the same token cannot win a
-        // second mutation: either the gate refuses it as not_found, or the
-        // action's own not-found answer stands because the target is gone
-        // (unlink/primer/retention/manage-delete/retype).
         const replay = await call(gate.tool, { ...args, confirm: true, preview_token: token })
         if (gate.replay === 'token') {
           expect(replay.isError).toBe(true)

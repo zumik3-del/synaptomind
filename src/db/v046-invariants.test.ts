@@ -10,14 +10,6 @@ import { getDb } from '../context/container'
 import { closeDb, initDb } from './init'
 import { MIGRATIONS } from './migrations'
 
-// Coverage for the v046 repairs (#2174 review follow-ups): one edge per
-// unordered pair and one live (draft/active) thought per (content_hash,
-// project_id). The repair exists for databases written by an older binary, so
-// the fixture is a real v45 database — the production bootstrap plus migrations
-// v002..v045, nothing hand-written and no index removed — into which the legacy
-// rows are written. Booting `initDb` afterwards is therefore the real v45 -> v46
-// upgrade path, not a re-implementation of it.
-
 const tmpRoot = mkdtempSync(join(tmpdir(), 'synaptomind-v046-'))
 
 afterEach(() => {
@@ -33,12 +25,6 @@ let fixtureCount = 0
 
 const V45 = 45
 
-/**
- * A real v45 database: the production bootstrap DDL plus every migration below
- * v046, each stamped as `initDb` stamps it. v046's own indexes therefore never
- * exist here — the legacy rows are written into the shape an older binary left
- * behind, not into a live schema with an index dropped out of the way.
- */
 function buildV45(path: string): void {
   initDb({ dbPath: path, runMigrations: false })
   const db = getDb()
@@ -126,15 +112,10 @@ test('v046 drops self-loops and keeps one edge per pair, a specific relation bea
   openRaw(path, db => {
     for (const id of ['th-a', 'th-b', 'th-c'])
       insertThought(db, { id, content: `content ${id}`, project_id: null })
-    // Same pair, both directions. `related` has the lower id, but a specific
-    // relation is the one worth keeping — the keeper rule is not "lowest id".
     insertEdge(db, 'edge-1-related', 'th-a', 'th-b', 'related')
     insertEdge(db, 'edge-2-develops', 'th-b', 'th-a', 'develops')
-    // Second pair, same type both directions: here the lowest id wins, which is
-    // the row inserted last.
     insertEdge(db, 'edge-z9', 'th-b', 'th-c', 'related')
     insertEdge(db, 'edge-a1', 'th-c', 'th-b', 'related')
-    // A self-loop cannot satisfy "one edge between two distinct thoughts".
     insertEdge(db, 'edge-self', 'th-c', 'th-c', 'related')
   })
 
@@ -147,7 +128,6 @@ test('v046 drops self-loops and keeps one edge per pair, a specific relation bea
       db.prepare(`SELECT id FROM edges ORDER BY id`).all() as { id: string }[]
     ).map(r => r.id)
     expect(remaining).toEqual(['edge-2-develops', 'edge-a1'])
-    // The repair left the invariant enforceable, not just satisfied once.
     expect(() => insertEdge(db, 'edge-late', 'th-a', 'th-b', 'supports')).toThrow(
       'UNIQUE constraint failed'
     )
@@ -159,8 +139,6 @@ test('v046 backfills content_hash through computeContentHash and keeps the oldes
   buildV45(path)
   openRaw(path, db => {
     insertProject(db, 'proj-1', 'Project One')
-    // Three live duplicates, written oldest-last so "keep the first row" would
-    // be wrong: the keeper is the oldest by (created_at, id).
     insertThought(db, {
       id: 'th-old',
       content: 'duplicated content',
@@ -183,7 +161,6 @@ test('v046 backfills content_hash through computeContentHash and keeps the oldes
       status: 'draft',
       created_at: '2020-03-01T00:00:00.000Z'
     })
-    // No project row at all: hashed as the empty project, exactly like the write path.
     insertThought(db, {
       id: 'th-global',
       content: 'global content',
@@ -215,8 +192,6 @@ test('v046 backfills content_hash through computeContentHash and keeps the oldes
     }
     expect(byId.get('th-global')?.content_hash).toBe(computeContentHash('global content', ''))
 
-    // Keeper = oldest (created_at, id); the younger ones are archived and
-    // un-protected so only the survivor stays live.
     expect(byId.get('th-old')).toMatchObject({
       status: 'active',
       archived_at: null,
@@ -227,8 +202,6 @@ test('v046 backfills content_hash through computeContentHash and keeps the oldes
     expect(byId.get('th-mid')?.archived_at).toBeString()
     expect(byId.get('th-new')?.archived_at).toBeString()
 
-    // Exactly one live holder of the slot is what makes the partial unique
-    // index (created by the same migration) legal on legacy data.
     const live = db
       .prepare(
         `SELECT COUNT(*) AS c FROM thoughts WHERE content_hash = ? AND project_id = 'proj-1' AND status IN ('draft','active')`
@@ -267,8 +240,6 @@ test('replaying v046 on an already-repaired database changes nothing', () => {
 
   const repaired = snapshot()
 
-  // A second v45 -> v46 pass: the DELETE/UPDATE repairs find nothing to do, the
-  // indexes already exist, and no row is archived a second time.
   openRaw(path, db => {
     db.prepare(
       `INSERT INTO _meta (key, value) VALUES ('schema_version', '45')

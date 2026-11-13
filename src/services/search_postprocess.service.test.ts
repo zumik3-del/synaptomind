@@ -54,8 +54,6 @@ function makeGroupedResult(clusterId: string, itemIds: string[]): GroupedResult 
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-// ── extractResultIds ─────────────────────────────────────────────────────────
-
 test('extractResultIds extracts ids from flat results', () => {
   const results = [makeSearchResult('a'), makeSearchResult('b')]
   expect(extractResultIds(results)).toEqual(['a', 'b'])
@@ -75,8 +73,6 @@ test('extractResultIds returns empty for empty input', () => {
   expect(extractResultIds([])).toEqual([])
 })
 
-// ── prependPrimerResults ─────────────────────────────────────────────────────
-
 test('prependPrimerResults hoists primers to front', () => {
   const results = [makeSearchResult('a'), makeSearchResult('b'), makeSearchResult('c')]
   const reordered = prependPrimerResults(results, ['b'])
@@ -93,7 +89,6 @@ test('prependPrimerResults does nothing when no primers in results', () => {
 test('prependPrimerResults preserves group structure when primer is in group', () => {
   const results = [makeGroupedResult('c1', ['a', 'b'])]
   const reordered = prependPrimerResults(results, ['a'])
-  // Primer 'a' is extracted from group, group still has 'b'
   expect(reordered).toHaveLength(2)
   expect((reordered[0] as SearchResult).thought.id).toBe('a')
 })
@@ -110,13 +105,10 @@ test('prependPrimerResults preserves low_confidence on a hoisted primer', () => 
     similarity: 0
   })
   const reordered = prependPrimerResults([strong, weakPrimer], ['weak-primer']) as SearchResult[]
-  // Hoisting must not recompute or drop the confidence verdict.
   expect(reordered[0].thought.id).toBe('weak-primer')
   expect(reordered[0].low_confidence).toBe(true)
   expect(reordered).toHaveLength(2)
 })
-
-// ── updatePrimerHits ─────────────────────────────────────────────────────────
 
 test('updatePrimerHits increments hit counts', () => {
   const id = seedThought()
@@ -133,9 +125,6 @@ test('updatePrimerHits handles empty results', () => {
   expect(() => updatePrimerHits([])).not.toThrow()
 })
 
-// ── the retired @profile hoist ───────────────────────────────────────────────
-
-/** Leave the retired column set, as a pre-v047 database has it. */
 function leaveLegacyProfileFlag(result: SearchResult): SearchResult {
   ;(result.thought as unknown as Record<string, unknown>).is_profile = 1
   return result
@@ -147,8 +136,6 @@ test('the retired profile flag does not reorder results', () => {
 
   const processed = postProcessSearchResults([plain, legacyProfile], { showPrimers: false })
 
-  // FI-08 hoisted persona rows to the top of an explicit @profile query; that
-  // surface is retired, so the incoming order must survive untouched.
   expect(processed.map(r => (r as SearchResult).thought.id)).toEqual(['plain', 'legacy-profile'])
 })
 
@@ -159,26 +146,18 @@ test('the retired profile flag leaves primer hoisting as the only reorder', () =
     .prepare('INSERT INTO primers (id, thought_id, hit_count, created_at) VALUES (?, ?, 5, ?)')
     .run(crypto.randomUUID(), primer, new Date().toISOString())
 
-  // The flagged row leads the incoming order, so only the profile pass could
-  // keep it there once the primer is hoisted in front of it.
   const processed = postProcessSearchResults([flagged, makeSearchResult(primer)], {
     showPrimers: true
   })
 
-  // Primers still lead; the flagged row stays behind them instead of being
-  // hoisted back in front of the primer (which the removed profile pass did).
   expect(processed.map(r => (r as SearchResult).thought.id)).toEqual([primer, flagged.thought.id])
 })
 
-// ── primer promotion threshold (config.primer.promoteThreshold) ─────────────
-
-/** Run the post-processing pipeline `times` times for one thought. */
 function hitThought(thoughtId: string, times: number): void {
   const results = [makeSearchResult(thoughtId)]
   for (let i = 0; i < times; i++) updatePrimerHits(results)
 }
 
-/** The primer row of a thought, or null when it was never promoted. */
 function primerRow(thoughtId: string): { hit_count: number } | null {
   return getDb().prepare('SELECT hit_count FROM primers WHERE thought_id = ?').get(thoughtId) as {
     hit_count: number
@@ -191,7 +170,6 @@ test('updatePrimerHits does not promote a thought below the configured threshold
   try {
     const id = seedThought({ content: 'below the promotion threshold' })
     hitThought(id, 7)
-    // 7 hits < 15 → no primer row at all.
     expect(primerRow(id)).toBeNull()
   } finally {
     config.primer.promoteThreshold = original
@@ -204,7 +182,6 @@ test('updatePrimerHits promotes a thought once it reaches the configured thresho
   try {
     const id = seedThought({ content: 'reaching the promotion threshold' })
     hitThought(id, 15)
-    // 15 hits >= 15 → promoted, carrying the accumulated hit count.
     expect(primerRow(id)?.hit_count).toBe(15)
   } finally {
     config.primer.promoteThreshold = original
@@ -214,8 +191,6 @@ test('updatePrimerHits promotes a thought once it reaches the configured thresho
 test('updatePrimerHits reads the threshold from the config, not from a literal', () => {
   const original = config.primer.promoteThreshold
   try {
-    // A high threshold must NOT promote, a low one MUST — the two cases only
-    // differ in the configured value, so a hard-coded threshold fails one.
     config.primer.promoteThreshold = 99
     const quiet = seedThought({ content: 'quiet thought' })
     hitThought(quiet, 5)

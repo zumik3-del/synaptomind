@@ -1,98 +1,47 @@
 import { resolveProjectService } from '../../services/projects.service'
 
-/**
- * One answer shape for every MCP action (tasks #2179 read side, #2181 write side).
- *
- * A collection action answers `{ items, meta }`, a single-object action answers
- * `{ item, meta }` (`item: null` when the action legitimately finds nothing),
- * and `meta` always carries the same keys. `memory_crystallize action=graph` is
- * the one documented exception: its nodes are `items` and its edges ride beside
- * them as `edges`. The envelope lives inside the shared `{ result }` wire
- * envelope (`structuredContent.result`), so the tool output schema stays one
- * stable `{ result }` shape across all actions.
- */
 export interface EnvelopeScope {
-  /** Resolved project id, or `null` when `cwd` matches no known project. */
   project: string | null
-  /** Human-readable project name; `null` when unresolved. */
   project_name: string | null
-  /** True when the answer was not restricted to one project. */
   global: boolean
 }
 
-/**
- * Why an action returned nothing, when "nothing" is not the ordinary case:
- * `no_match` (nothing scored/filtered in), `id_not_found` (an id-shaped query
- * addressed no thought) and `ambiguous_id` (an id prefix addressed several).
- */
 export type EnvelopeReason = 'no_match' | 'id_not_found' | 'ambiguous_id'
 
-/** Row accounting for one answer; zeros where the action has no such notion. */
 export interface EnvelopeCounts {
-  /** Rows the action considered (search: post-filter candidates; list: page total). */
   total: number
-  /** Rows in `items` (or `item` when present). */
   returned: number
-  /** Rows deliberately dropped from `total` (relevance gate, paging). */
   filtered_out: number
-  /**
-   * Action-specific counters beside the three shared ones — a batch reports its
-   * outcome here (`linked`/`failed`, `archived`/`failed`, `deleted`/`failed`,
-   * `created`/`failed`, `reverted`/`skipped`/`refused`, ...), so a caller never
-   * has to count the items itself.
-   */
   [count: string]: number
 }
 
-/**
- * `meta.preview` — the one place a client gates a confirm on (task #2181).
- *
- * Present only on a non-mutating preview answer. Confirming such an answer
- * mutates data, so `destructive` is always `true`; `token` is the value the
- * confirm call must send, and `null` for the tokenless previews (`unlink_batch`,
- * the retention compact step). `consequence`/`instruction` hold the batch-level
- * description of the pending write: a collection envelope has no single `item`
- * to carry them, and the per-item rows already carry their own status.
- */
 export interface EnvelopePreview {
-  /** Token a confirm call must send back; `null` when the preview issues none. */
   token: string | null
-  /** Confirming this preview writes to the graph. */
   destructive: true
-  /** What confirming would do, in one sentence. */
   consequence?: string
-  /** The exact call that confirms this preview. */
   instruction?: string
 }
 
 export interface EnvelopeMeta {
-  /** Action that produced the answer (`search`, `slots`, ...). */
   action: string
-  /** Project scope, or `null` for actions that are not project-scoped. */
   scope: EnvelopeScope | null
   counts: EnvelopeCounts
-  /** True when the answer is degraded (semantic leg down, missing best match). */
   degraded: boolean
-  /** Non-fatal notes (unknown cwd widened the scope, ...). */
   warnings: string[]
   reason?: EnvelopeReason
-  /** Preview gate: set only when the answer previews a destructive write. */
   preview?: EnvelopePreview
 }
 
-/** Envelope of a collection action: `{ items, meta }`. */
 export interface CollectionEnvelope<T> {
   items: T[]
   meta: EnvelopeMeta
 }
 
-/** Envelope of a single-object action: `{ item, meta }`. */
 export interface ItemEnvelope<T> {
   item: T | null
   meta: EnvelopeMeta
 }
 
-/** Per-action refinements of the envelope defaults. */
 export interface EnvelopeOptions {
   scope?: EnvelopeScope | null
   total?: number
@@ -100,12 +49,7 @@ export interface EnvelopeOptions {
   degraded?: boolean
   warnings?: string[]
   reason?: EnvelopeReason
-  /** Action-specific counters merged into `meta.counts` (never overriding the shared three). */
   counts?: Record<string, number>
-  /**
-   * Marks the answer as a preview: mirrors the token and the confirming step
-   * into `meta.preview`. Omit for an executed answer.
-   */
   preview?: { token?: string | null; consequence?: string; instruction?: string }
 }
 
@@ -134,7 +78,6 @@ function buildMeta(action: string, returned: number, opts: EnvelopeOptions): Env
   return meta
 }
 
-/** Build the `{ items, meta }` envelope of a collection action. */
 export function collectionEnvelope<T>(
   action: string,
   items: T[],
@@ -143,7 +86,6 @@ export function collectionEnvelope<T>(
   return { items, meta: buildMeta(action, items.length, opts) }
 }
 
-/** Build the `{ item, meta }` envelope of a single-object action. */
 export function itemEnvelope<T>(
   action: string,
   item: T | null,
@@ -152,25 +94,16 @@ export function itemEnvelope<T>(
   return { item, meta: buildMeta(action, item === null ? 0 : 1, opts) }
 }
 
-/** Project filter a resolved scope implies (`undefined` = every project). */
 export function scopeProjectId(scope: EnvelopeScope | null): string | undefined {
   return scope && !scope.global ? (scope.project ?? undefined) : undefined
 }
 
-/** The project scope a present `cwd` names, or the unresolved `{ global: true }` one. */
 function scopeForCwd(cwd: string): EnvelopeScope {
   const project = resolveProjectService(cwd)
   if (!project) return { project: null, project_name: null, global: true }
   return { project: project.id, project_name: project.name, global: false }
 }
 
-/**
- * Resolve the project scope of a read answer from `cwd`.
- *
- * `cwd` absent → no scope and a warning that the answer spans every project.
- * `cwd` unknown to the project table → a global scope with a warning; the call
- * still answers, it just is not restricted to one project.
- */
 export function resolveEnvelopeScope(cwd: string | undefined): {
   scope: EnvelopeScope | null
   warnings: string[]
@@ -190,14 +123,6 @@ export function resolveEnvelopeScope(cwd: string | undefined): {
   return { scope, warnings: [] }
 }
 
-/**
- * Resolve the scope and project filter of a read answer (task #2445).
- *
- * `cwd` is optional on the read side: a missing or empty one is not an error,
- * the answer spans every project and says so through the warning
- * {@link resolveEnvelopeScope} raises. `scopeProjectId(null)` is `undefined`,
- * so the read services receive no project filter and cover every project.
- */
 export function readEnvelopeScope(cwd: unknown): {
   scope: EnvelopeScope | null
   warnings: string[]
@@ -209,16 +134,6 @@ export function readEnvelopeScope(cwd: unknown): {
   return { scope, warnings, projectId: scopeProjectId(scope) }
 }
 
-/**
- * Resolve the scope of a write answer (task #2181, #2461).
- *
- * A write never widens, so it never earns a widening note: it lands in the
- * project its `cwd` names, or — when the path is absent, blank or registered to
- * no project — wherever the action's own target dictates (a created row falls
- * back to the default project, an id-addressed update keeps its row's project).
- * Only the first case is knowable here, so an unregistered path raises no note
- * either: `scope.global: true` is the trace that the path scoped nothing.
- */
 export function writeEnvelopeScope(cwd: unknown): {
   scope: EnvelopeScope | null
   warnings: string[]

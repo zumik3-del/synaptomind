@@ -1,4 +1,3 @@
-/** Curated English + Russian function-word stopwords for query-side FTS filtering. */
 const EN_STOPWORDS =
   `a an the and or not but if then else of to in on at by for with as is are was were be been being do does did doing have has had having i you he she it we they me him her us them my your his its our their this that these those what which who whom whose when where why how all any both each few more most other some such no nor only own same so than too very can will just should now from into over about up down out off again further once here there`.split(
     ' '
@@ -11,7 +10,6 @@ const RU_STOPWORDS =
 
 const STOPWORDS: ReadonlySet<string> = new Set([...EN_STOPWORDS, ...RU_STOPWORDS])
 
-/** Unicode-aware normalisation: lower-case, fold `ё`→`е` so variants match. */
 function normalizeToken(token: string): string {
   return token.toLowerCase().replace(/ё/g, 'е')
 }

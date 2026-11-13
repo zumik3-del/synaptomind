@@ -1,11 +1,9 @@
 import { config } from '../config'
 import type { EnqueuePlanOptions, EnqueueThoughtOptions } from './placement-proposals.types'
 
-/** Default and hard ceiling of the `list` page size (matches the MCP schema). */
 export const DEFAULT_LIST_LIMIT = 100
 export const MAX_LIST_LIMIT = 1000
 
-/** Resolve the per-enqueue proposal cap from options/config (first defined wins). */
 export function resolveMaxProposalsPerEnqueue(
   options: EnqueuePlanOptions | EnqueueThoughtOptions = {}
 ): number {
@@ -42,11 +40,7 @@ export function resolveMaxProposalsPerEnqueue(
   return 5
 }
 
-/**
- * Clamp a caller-supplied page size into `1..1000`. Without this an unbounded or
- * negative value reaches SQLite, where `LIMIT -1` means *no limit* and `LIMIT 0`
- * returns nothing — so one request could read the whole queue.
- */
+// SQLite treats `LIMIT -1` as "no limit", so an unclamped page size would read the whole queue.
 export function clampListLimit(limit: number | undefined): number {
   if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIST_LIMIT
   return Math.min(MAX_LIST_LIMIT, Math.max(1, Math.floor(limit)))

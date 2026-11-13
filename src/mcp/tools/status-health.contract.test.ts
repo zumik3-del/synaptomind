@@ -1,11 +1,3 @@
-/**
- * Contract test for `memory_status action=health` (task #1962).
- *
- * The `duplicate_drafts` finding is registered on the service side; this pins
- * the surface an operator actually sees: the finding reaches the MCP report with
- * severity `warning`, and `fix=true` must not repair it (a duplicate draft needs
- * a human merge/archive decision — it is the one content check with no autofix).
- */
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
@@ -37,7 +29,6 @@ async function setupClient(): Promise<Client> {
   return c
 }
 
-/** The report lives in the shared envelope's `item` (task #2179). */
 function parseHealth(result: unknown): {
   report: HealthReportShape
   meta: { action: string }
@@ -51,7 +42,6 @@ function parseHealth(result: unknown): {
   return { report: parsed.item, meta: parsed.meta, isError: r.isError === true }
 }
 
-/** The `duplicate_drafts` check from a health report. */
 function duplicateDraftCheck(report: HealthReportShape): CheckEntry {
   const contentCat = report.categories.find(c => c.name === 'content_quality')!
   return contentCat.checks.find(c => c.name === 'duplicate_drafts')!
@@ -109,7 +99,6 @@ test('fix=true does not repair duplicate_drafts — the count stays the same', a
     await client.callTool({ name: 'memory_status', arguments: { action: 'health' } })
   )
   expect(duplicateDraftCheck(after.report).count).toBe(1)
-  // Neither side was merged, archived or deleted.
   expect(db.prepare('SELECT COUNT(*) AS n FROM thoughts').get() as { n: number }).toEqual({ n: 2 })
   const rows = db.prepare('SELECT id, status FROM thoughts ORDER BY id').all() as Array<{
     id: string
@@ -142,8 +131,6 @@ test('memory_status action=health rejects a legacy fix flag', async () => {
     .checks.find(c => c.name === 'empty_clusters')!
   expect(emptyBefore.count).toBe(1)
 
-  // A legacy `fix` flag is a retired parameter and must fail input validation
-  // instead of being silently stripped.
   const rejected = await client.callTool({
     name: 'memory_status',
     arguments: { action: 'health', fix: true }

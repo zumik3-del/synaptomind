@@ -1,8 +1,3 @@
-/**
- * Determinism, degradation and input-resolution tests for the placement engine
- * (`engine.ts`, ADR 2026-09-28 / task #950/#951).
- */
-
 import { beforeEach, afterEach, describe, expect, test } from 'bun:test'
 import { closeDb, getDb } from '../../db'
 import { NotFoundError, ValidationError } from '../../errors'
@@ -13,17 +8,12 @@ import type { PlacementPlan } from './types'
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-// ── time constants ────────────────────────────────────────────────────────────
-
 const NOW = '2026-01-01T00:00:00.000Z'
 const T0 = '2025-01-01T00:00:00.000Z'
 const T1 = '2025-02-01T00:00:00.000Z'
 const T2 = '2025-03-01T00:00:00.000Z'
 const T3 = '2025-04-01T00:00:00.000Z'
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-/** Deterministic embed stub: one zero vector per candidate text. */
 function okEmbed(record?: number[]): (texts: string[]) => Promise<Float32Array[]> {
   return async texts => {
     record?.push(texts.length)
@@ -31,7 +21,6 @@ function okEmbed(record?: number[]): (texts: string[]) => Promise<Float32Array[]
   }
 }
 
-/** Embed stub that always returns a single vector regardless of input length. */
 function mismatchEmbed(record?: number[]): (texts: string[]) => Promise<Float32Array[]> {
   return async texts => {
     record?.push(texts.length)
@@ -45,14 +34,10 @@ function failEmbed(): (texts: string[]) => Promise<Float32Array[]> {
   }
 }
 
-/**
- * `searchNeighbors` stub keyed by thought id. Unknown ids get no neighbours.
- */
 function stubSearch(map: Record<string, Array<{ id: string; similarity: number }>>) {
   return (_id: string, _emb: Float32Array, _topK: number) => map[_id] ?? []
 }
 
-/** Fixture for determinism / ordering tests: four neutral thoughts. */
 function seedOrderingFixture() {
   seedThought({ id: 'd-src', content: 'neutral topic alpha', created_at: T0 })
   seedThought({ id: 'd-a', content: 'neutral topic beta', created_at: T1 })
@@ -69,8 +54,6 @@ function seedOrderingFixture() {
     }
   }
 }
-
-// ── determinism & ordering ───────────────────────────────────────────────────
 
 describe('proposePlacementPlan', () => {
   describe('determinism & ordering', () => {
@@ -98,7 +81,6 @@ describe('proposePlacementPlan', () => {
       expect(p.edges.map(e => e.target_id)).toEqual(['d-c', 'd-a', 'd-b'])
       expect(p.edges.map(e => e.confidence)).toEqual([0.95, 0.9, 0.9])
       expect(p.edges.every(e => e.type === 'related')).toBe(true)
-      // d-a and d-b tie on confidence → alphabetical (a < b) wins.
       expect(p.edges.findIndex(e => e.target_id === 'd-a')!).toBeLessThan(
         p.edges.findIndex(e => e.target_id === 'd-b')
       )
@@ -131,8 +113,6 @@ describe('proposePlacementPlan', () => {
     })
   })
 
-  // ── cost: the shared embedding pass is not repeated ────────────────────────
-
   describe('single embedding pass', () => {
     test('one plan embeds and searches each candidate exactly once', async () => {
       const db = getDb()
@@ -157,22 +137,17 @@ describe('proposePlacementPlan', () => {
         db
       )
 
-      const poolSize = 3 // source + two candidates
-      // The proposer reuses the engine's pairs instead of rebuilding the pool
-      // and repeating the vector search (ADR §2.2 "must not duplicate").
+      const poolSize = 3
       expect(embedSizes).toEqual([poolSize])
       expect(searchCalls).toBe(poolSize)
       expect(p.degraded).toBe(false)
     })
   })
 
-  // ── degraded path ────────────────────────────────────────────────────────
-
   describe('degraded path: embedder failure or mismatch', () => {
     test('throwing embedder sets degraded:true, keeps plan, never throws', async () => {
       const db = getDb()
       const src = seedThought({ id: 'dg-src', content: 'standalone thing', created_at: T0 })
-      // Wrap in try/catch: the engine must resolve (not reject) even on embedder failure.
       let caught = false
       let p: PlacementPlan | undefined
       try {
@@ -186,8 +161,6 @@ describe('proposePlacementPlan', () => {
         caught = true
       }
       expect(caught).toBe(false)
-      // TS cannot narrow the assignment inside the try block, but we asserted
-      // caught is false so the plan is guaranteed present.
       expect(p!.degraded).toBe(true)
       expect(p!.edges).toEqual([])
       expect(p!.placement).toBeNull()
@@ -198,8 +171,6 @@ describe('proposePlacementPlan', () => {
     test('degraded: lexical merge still fires when embedder throws', async () => {
       const db = getDb()
       const src = seedThought({ id: 'dm-src', content: 'the quick brown fox', created_at: T0 })
-      // Merge target seeded but never referenced directly — findMergeTarget discovers
-      // it purely by lexical content against all active pool members.
       seedThought({ id: 'dm-tgt', content: 'the quick brown fox jumped', created_at: T1 })
       const p = await proposePlacementPlan(
         { thoughtId: src },
@@ -208,7 +179,7 @@ describe('proposePlacementPlan', () => {
         db
       )
       expect(p.degraded).toBe(true)
-      expect(p.edges).toEqual([]) // no embedding-based pairs emitted
+      expect(p.edges).toEqual([])
       expect(p.lifecycle.action).toBe('merge')
       expect(p.lifecycle.confidence).toBeCloseTo(0.8)
     })
@@ -224,13 +195,11 @@ describe('proposePlacementPlan', () => {
         { embed: mismatchEmbed(lengths), searchNeighbors: stubSearch({}) },
         db
       )
-      expect(lengths).toEqual([2]) // engine embedded the full pool of 2 candidates
+      expect(lengths).toEqual([2])
       expect(p.degraded).toBe(true)
       expect(p.edges).toEqual([])
     })
   })
-
-  // ── input resolution & edge cases ────────────────────────────────────────
 
   describe('input resolution & edge cases', () => {
     test('draft content: thought_id is the sentinel; edge source_id carries the sentinel', async () => {
@@ -254,7 +223,6 @@ describe('proposePlacementPlan', () => {
       expect(p.edges).toHaveLength(1)
       expect(p.edges[0].source_id).toBe(DRAFT_THOUGHT_ID)
       expect(p.edges[0].target_id).toBe(tgt)
-      // Lexical near-dup (overlap 0.8) triggers merge, which beats the related edge.
       expect(p.lifecycle.action).toBe('merge')
     })
 
