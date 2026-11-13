@@ -1026,19 +1026,19 @@ describe('buildFilterSQL project scope (is_global always included)', () => {
   const P = 'project-a'
 
   test('projectFilter emits the project-OR-global clause', () => {
-    const { sql, params } = buildFilterSQL({ projectFilter: P })
+    const { sql, params } = buildFilterSQL(getDb(), { projectFilter: P })
     expect(sql).toBe('AND (t.project_id = ? OR t.is_global = 1) ')
     expect(params).toEqual([P])
   })
 
   test('without projectFilter there is no project/global clause', () => {
-    const { sql, params } = buildFilterSQL({})
+    const { sql, params } = buildFilterSQL(getDb(), {})
     expect(sql).toBe('')
     expect(params).toEqual([])
   })
 
   test('composes with statusFilter and keeps parameter order', () => {
-    const { sql, params } = buildFilterSQL({
+    const { sql, params } = buildFilterSQL(getDb(), {
       statusFilter: 'active',
       projectFilter: P
     })
@@ -1047,7 +1047,7 @@ describe('buildFilterSQL project scope (is_global always included)', () => {
   })
 
   test('composes with clusterFilter=exclude', () => {
-    const { sql, params } = buildFilterSQL({
+    const { sql, params } = buildFilterSQL(getDb(), {
       projectFilter: P,
       clusterFilter: 'exclude'
     })
@@ -1058,7 +1058,7 @@ describe('buildFilterSQL project scope (is_global always included)', () => {
   })
 
   test('composes with minImportance', () => {
-    const { sql, params } = buildFilterSQL({
+    const { sql, params } = buildFilterSQL(getDb(), {
       projectFilter: P,
       minImportance: 0.5
     })
@@ -1218,7 +1218,7 @@ describe('buildFilterSQL tag scope', () => {
   const P = 'project-a'
 
   test('a tag filter emits the indexed AND subquery with lowercased, de-duplicated names', () => {
-    const { sql, params } = buildFilterSQL({ tagFilter: 'Alpha, beta,alpha' })
+    const { sql, params } = buildFilterSQL(getDb(), { tagFilter: 'Alpha, beta,alpha' })
 
     expect(params).toEqual(['alpha', 'beta', 2])
     expect(sql).toContain('AND t.id IN (')
@@ -1227,7 +1227,7 @@ describe('buildFilterSQL tag scope', () => {
   })
 
   test('the tag clause is appended last, so every other parameter keeps its position', () => {
-    const { sql, params } = buildFilterSQL({
+    const { sql, params } = buildFilterSQL(getDb(), {
       statusFilter: 'active',
       projectFilter: P,
       minImportance: 0.5,
@@ -1241,7 +1241,7 @@ describe('buildFilterSQL tag scope', () => {
   })
 
   test('a blank tag adds no clause at all', () => {
-    const { sql, params } = buildFilterSQL({ tagFilter: '  ,  ' })
+    const { sql, params } = buildFilterSQL(getDb(), { tagFilter: '  ,  ' })
 
     expect(sql).toBe('')
     expect(params).toEqual([])
@@ -1283,7 +1283,7 @@ describe('the tag clause reaches both retrieval legs (task #2532)', () => {
   // pool: a narrow window cannot be rescued by the tag clause.
   itVec('the vector leg narrows the tag matches once the k window covers them', db => {
     const tagged = seedLegWorld(db)
-    const filter = buildFilterSQL({ tagFilter: 'needle' })
+    const filter = buildFilterSQL(db, { tagFilter: 'needle' })
 
     const narrow = vectorSearchDb.vecSearchIds(
       db,
@@ -1341,7 +1341,7 @@ describe('the tag clause reaches both retrieval legs (task #2532)', () => {
   test('the BM25 leg returns only the tagged row through the same fragment', () => {
     const db = getDb()
     const tagged = seedLegWorld(db, false)
-    const filter = buildFilterSQL({ tagFilter: 'needle' })
+    const filter = buildFilterSQL(db, { tagFilter: 'needle' })
 
     const unfiltered = bm25ScoredIds(db, TOKEN, 2)
     expect(unfiltered.map(r => r.id)).not.toContain(tagged)

@@ -1,6 +1,6 @@
-import type { SQLQueryBindings } from 'bun:sqlite'
+import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import { parseTags } from '../utils'
-import { sqlIn } from './utils'
+import { foldTagName, matchTagIdsByFoldedName } from './tags'
 import { VEC_SCOPE_GLOBAL } from './vec-schema'
 
 export interface SqlFragment {
@@ -21,27 +21,34 @@ function getClusterFilterSQL(filter: 'only' | 'exclude'): SqlFragment {
   return { sql: 'AND (t.is_cluster IS NULL OR t.is_cluster = 0) ', params: [] }
 }
 
-// `NOCASE` sits on the compared column: written after `IN (...)` it belongs to the IN expression
-// and leaves `tg.name` on the BINARY collation (the trap in `db/thoughts.ts:322`), so `"Foo"`
-// would stop matching a requested `foo`.
-function buildTagFilterSQL(tagFilter: string): SqlFragment {
+// SQLite's `NOCASE` folds ASCII only, so the comparison happens on names folded in JS
+// (`db/tags.ts`): the requested names are folded here, the stored ones are read back and folded
+// there. Matched ids are bound as a (requested-name key, tag id) mapping, so the AND count is over
+// requested names and two stored spellings of one name (`Тег`, `тег`) count once.
+function buildTagFilterSQL(db: Database, tagFilter: string): SqlFragment {
   const tagNames = parseTags(tagFilter)
   if (!tagNames || tagNames.length === 0) return { sql: '', params: [] }
-  const distinct = [...new Set(tagNames.map(n => n.toLowerCase()))]
+  const keys = [...new Set(tagNames.map(foldTagName))]
+  const matches = matchTagIdsByFoldedName(db, keys)
+  if (matches.length === 0) return { sql: 'AND 1 = 0 ', params: [] }
+  const mapping = matches.map(() => 'SELECT ? AS name_key, ? AS tag_id').join(' UNION ALL ')
   return {
     sql: `AND t.id IN (
         SELECT tt.thought_id
         FROM thought_tags tt
-        INNER JOIN tags tg ON tg.id = tt.tag_id
-        WHERE tg.name COLLATE NOCASE IN (${sqlIn(distinct)})
+        INNER JOIN (${mapping}) m ON m.tag_id = tt.tag_id
         GROUP BY tt.thought_id
-        HAVING COUNT(DISTINCT tg.name) = ?
+        HAVING COUNT(DISTINCT m.name_key) = ?
       ) `,
-    params: [...distinct, distinct.length]
+    params: [...matches.flatMap(m => [m.key, m.id]), keys.length]
   }
 }
 
-function filterFragments(options: FilterOptions, includeProject: boolean): SqlFragment[] {
+function filterFragments(
+  db: Database,
+  options: FilterOptions,
+  includeProject: boolean
+): SqlFragment[] {
   const fragments: SqlFragment[] = []
   if (options.statusFilter) {
     fragments.push({ sql: 'AND t.status = ? ', params: [options.statusFilter] })
@@ -59,7 +66,7 @@ function filterFragments(options: FilterOptions, includeProject: boolean): SqlFr
     fragments.push({ sql: 'AND ti.importance >= ? ', params: [options.minImportance] })
   }
   if (options.tagFilter) {
-    const tag = buildTagFilterSQL(options.tagFilter)
+    const tag = buildTagFilterSQL(db, options.tagFilter)
     if (tag.sql) fragments.push(tag)
   }
   return fragments
@@ -77,10 +84,10 @@ export function buildVecScopeSQL(options: FilterOptions): SqlFragment {
   return { sql: `AND v.scope IN (?, '${VEC_SCOPE_GLOBAL}') `, params: [options.projectFilter] }
 }
 
-export function buildFilterSQL(options: FilterOptions): SqlFragment {
-  return concat(filterFragments(options, true))
+export function buildFilterSQL(db: Database, options: FilterOptions): SqlFragment {
+  return concat(filterFragments(db, options, true))
 }
 
-export function buildResidualFilterSQL(options: FilterOptions): SqlFragment {
-  return concat(filterFragments(options, false))
+export function buildResidualFilterSQL(db: Database, options: FilterOptions): SqlFragment {
+  return concat(filterFragments(db, options, false))
 }

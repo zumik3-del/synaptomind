@@ -30,6 +30,29 @@ export function createTag(db: Database, name: string): Tag {
   return { id, name: canonical }
 }
 
+export interface TagNameMatch {
+  key: string
+  id: string
+}
+
+// SQLite folds case with NOCASE, which is ASCII-only, and Bun exposes no registered SQL function,
+// so tag matching folds both sides in JS: a stored `Тег` answers a request for `тег`.
+export function foldTagName(name: string): string {
+  return name.toLowerCase()
+}
+
+export function matchTagIdsByFoldedName(db: Database, names: string[]): TagNameMatch[] {
+  if (names.length === 0) return []
+  const wanted = new Set(names.map(foldTagName))
+  const rows = db.prepare('SELECT id, name FROM tags').all() as Tag[]
+  const matches: TagNameMatch[] = []
+  for (const row of rows) {
+    const key = foldTagName(row.name)
+    if (wanted.has(key)) matches.push({ key, id: row.id })
+  }
+  return matches
+}
+
 export function mergeThoughtTags(db: Database, thoughtId: string, tagNames: string[]): Tag[] {
   const existing = getThoughtTags(db, thoughtId).map(t => t.name)
   return setThoughtTags(db, thoughtId, [...existing, ...tagNames])

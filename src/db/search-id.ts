@@ -73,8 +73,8 @@ export function findThoughtsByIdQuery(
   // A full id is an explicit reference and takes only the cluster shape; a prefix is a scope query
   // and carries every filter the search call itself accepts (status, project, tag, importance).
   const scope = idQuery.exact
-    ? buildFilterSQL({ clusterFilter: filters.clusterFilter })
-    : buildFilterSQL({
+    ? buildFilterSQL(db, { clusterFilter: filters.clusterFilter })
+    : buildFilterSQL(db, {
         statusFilter: filters.statusFilter,
         projectFilter: filters.projectFilter,
         clusterFilter: filters.clusterFilter,
