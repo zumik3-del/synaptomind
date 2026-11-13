@@ -70,12 +70,10 @@ test('deletePrimer returns false for missing id', () => {
   expect(deletePrimer(getDb(), 'nonexistent')).toBeFalse()
 })
 
-// ── the LIMIT clamp ───────────────────────────────────────────────────────────
 // A negative LIMIT means "no limit" in SQLite and a fractional LIMIT bind is a
 // datatype mismatch, so getPrimers clamps its limit to an integer >= 1: no call
 // site can ask for an unbounded result set.
 
-/** Three primers with descending hit counts. */
 function seedThreePrimers(): { top: string; middle: string; low: string } {
   const db = getDb()
   const now = new Date().toISOString()

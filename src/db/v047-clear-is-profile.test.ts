@@ -9,18 +9,6 @@ import { getDb } from '../context/container'
 import { closeDb, initDb } from './init'
 import { MIGRATIONS } from './migrations'
 
-// Coverage for v047 (task #2200): the profile flag is retired, so the migration
-// clears every legacy value and drops the partial index that made the flag a
-// query dimension. The column itself is deliberately kept — `thoughts` is the
-// foreign-key parent of six tables and DROP COLUMN rewrites it — so the upgrade
-// must clear values without rebuilding the table or touching a single content
-// row.
-//
-// The fixture is a real v46 database (production bootstrap plus migrations
-// v002..v046, each stamped as `initDb` stamps it), seeded with flagged rows.
-// Booting `initDb` afterwards is therefore the real v46 -> v47 upgrade path, and
-// the index really exists before the drop instead of being assumed.
-
 const tmpRoot = mkdtempSync(join(tmpdir(), 'synaptomind-v047-'))
 
 afterEach(() => {
@@ -36,7 +24,6 @@ let fixtureCount = 0
 
 const V46 = 46
 
-/** A real v46 database: the production bootstrap DDL plus every migration below v047. */
 function buildV46(path: string): void {
   initDb({ dbPath: path, runMigrations: false })
   const db = getDb()
@@ -112,7 +99,6 @@ function insertThought(
     content: string
     project_id: string | null
     status?: string
-    /** NULL models a row written before the column existed. */
     is_profile?: number | null
     updated_at?: string
   }
@@ -136,8 +122,6 @@ test('v047 clears the flag on seeded legacy rows and drops the profile index', (
     expect(indexNames(db)).toContain('idx_thoughts_profile')
     insertProject(db, 'proj-a', 'Project A')
     insertProject(db, 'proj-b', 'Project B')
-    // Three legacy persona rows across statuses and projects: the flag is not a
-    // property of one status, so a single-status fixture would under-test it.
     insertThought(db, {
       id: 'th-active',
       content: 'persona fact',
@@ -159,7 +143,6 @@ test('v047 clears the flag on seeded legacy rows and drops the profile index', (
       status: 'archived',
       is_profile: 1
     })
-    // An unflagged row and a row with a NULL flag: neither may be rewritten.
     insertThought(db, {
       id: 'th-plain',
       content: 'ordinary thought',
@@ -183,9 +166,6 @@ test('v047 clears the flag on seeded legacy rows and drops the profile index', (
     expect(schemaVersion(db)).toBe('48')
     expect(flaggedIds(db)).toEqual([])
 
-    // Content and status survive untouched: the 7 production rows kept their text.
-    // A NULL flag stays NULL — the UPDATE only rewrites truthy values, so the
-    // migration is a value fix, not a table rewrite.
     expect(
       db
         .prepare(`SELECT id, content, status, is_profile, is_protected FROM thoughts ORDER BY id`)
@@ -224,8 +204,6 @@ test('v047 clears the flag on seeded legacy rows and drops the profile index', (
 })
 
 test('a fresh v47 database never carries the profile index', () => {
-  // v021 still creates the index on the migration path, so a fresh install only
-  // avoids it because v047 drops it in the same boot.
   initDb({ dbPath: ':memory:', runMigrations: true })
   const db = getDb()
   expect(schemaVersion(db)).toBe('48')
@@ -254,17 +232,12 @@ test('replaying v047 on an already-upgraded database changes nothing', () => {
     }))
 
   const upgraded = snapshot()
-  // Without the upgrade there is nothing to replay, so the pin is that the
-  // database really reached v47 before the rewind below.
   expect((upgraded as { version: string }).version).toBe('48')
 
-  // A plain second boot: v47 is current, so no migration runs at all.
   initDb({ dbPath: path, runMigrations: true })
   closeDb()
   expect(snapshot()).toEqual(upgraded)
 
-  // Rewind the version stamp only, so the next boot re-applies v047 to data it
-  // has already cleared — the second boot has to be a no-op, not a re-write.
   openRaw(path, db => {
     db.prepare(`UPDATE _meta SET value = '46' WHERE key = 'schema_version'`).run()
   })

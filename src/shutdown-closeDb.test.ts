@@ -29,7 +29,6 @@ describe('parent shutdown invokes closeDb (no WAL residue)', () => {
       stdio: ['pipe', 'pipe', 'pipe']
     })
 
-    // Wait for the stdio server to be ready.
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('startup timeout')), 30_000)
       const onData = (chunk: Buffer) => {

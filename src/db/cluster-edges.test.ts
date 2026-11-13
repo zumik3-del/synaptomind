@@ -26,8 +26,6 @@ test('getClusterThought returns null for missing id', () => {
   expect(getClusterThought(getDb(), 'nonexistent')).toBeNull()
 })
 
-// ── getClusterMembers ────────────────────────────────────────────────────────
-
 test('getClusterMembers excludes archived members', () => {
   const db = getDb()
   const cluster = seedThought({ is_cluster: 1 })

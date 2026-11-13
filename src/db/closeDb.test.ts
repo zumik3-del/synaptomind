@@ -17,7 +17,6 @@ describe('closeDb', () => {
       db.run('INSERT INTO t VALUES (1)')
       closeDb()
 
-      // Durability: the row must survive a reopen from disk, not just via unlink.
       const reopened = new Database(dbPath)
       const row = reopened.prepare('SELECT x FROM t').get() as { x: number }
       expect(row.x).toBe(1)
@@ -43,30 +42,22 @@ describe('closeDb', () => {
       db.run('CREATE TABLE IF NOT EXISTS t(x)')
       db.run('INSERT INTO t VALUES (1)')
 
-      // A second live connection holds the WAL sidecars.
       second = new Database(dbPath)
       second.run('PRAGMA busy_timeout = 5000')
 
-      // closeDb() must not unlink sidecars out from under the holder.
       expect(() => closeDb()).not.toThrow()
 
-      // The holder must remain usable (no "disk I/O error").
       expect(() => second!.prepare('SELECT 1').get()).not.toThrow()
 
-      // A fresh connection opened afterwards must also work (durability).
       third = new Database(dbPath)
       expect(() => third!.prepare('SELECT 1').get()).not.toThrow()
     } finally {
       try {
         third?.close()
-      } catch {
-        /* ignore */
-      }
+      } catch {}
       try {
         second?.close()
-      } catch {
-        /* ignore */
-      }
+      } catch {}
       rmSync(dir, { recursive: true, force: true })
     }
   })

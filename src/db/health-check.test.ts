@@ -74,8 +74,6 @@ function dropThought(db: Database, id: string): void {
   db.run('PRAGMA foreign_keys = ON')
 }
 
-// ── Structural integrity ─────────────────────────────────────────────────────
-
 test('findOrphanEdges reports which side is missing', () => {
   const db = getDb()
   const a = seedThought({ content: 'kept thought' })
@@ -84,7 +82,6 @@ test('findOrphanEdges reports which side is missing', () => {
   // v046 allows one edge per pair (either direction): the second edge of this
   // pair has to be seeded in the legacy shape the finder exists to detect.
   const e2 = seedLegacyPairEdge(b, a)
-  // an edge whose both endpoints never existed — FK must be bypassed to seed it
   db.run('PRAGMA foreign_keys = OFF')
   const e3 = insertRawEdge(db, crypto.randomUUID(), crypto.randomUUID())
   db.run('PRAGMA foreign_keys = ON')
@@ -92,9 +89,8 @@ test('findOrphanEdges reports which side is missing', () => {
 
   const orphans = findOrphanEdges(db)
   const byId = new Map(orphans.map(o => [o.id, o]))
-  // missing_side names the side whose thought row is gone
-  expect(byId.get(e1)?.missing_side).toBe('target') // a→b, b deleted
-  expect(byId.get(e2)?.missing_side).toBe('source') // b→a, b deleted
+  expect(byId.get(e1)?.missing_side).toBe('target')
+  expect(byId.get(e2)?.missing_side).toBe('source')
   expect(byId.get(e3)?.missing_side).toBe('both')
 })
 
@@ -189,8 +185,6 @@ test('findReplacesChains walks replaces edges to their end', () => {
   expect(chains[0]?.chain).toEqual([a, b, c])
 })
 
-// ── Cluster health ───────────────────────────────────────────────────────────
-
 test('findEmptyClusters finds clusters without member edges', () => {
   const db = getDb()
   const empty = seedThought({ content: 'empty cluster', is_cluster: 1 })
@@ -243,7 +237,6 @@ test('findClusterlessDense finds well-connected thoughts outside any cluster', (
   }
   seedEdge(cluster, clustered, 'cluster')
 
-  // Default minAgeDays mirrors autoCluster.minAgeDays (3); 10 days old clears it.
   const denseOnes = findClusterlessDense(db, 2)
   expect(denseOnes).toHaveLength(1)
   expect(denseOnes[0]?.id).toBe(dense)
@@ -262,12 +255,9 @@ test('findClusterlessDense age-gates young thoughts out of the warning', () => {
   }
 
   const flagged = findClusterlessDense(db, 2, 3).map(c => c.id)
-  // young+dense+clusterless -> not flagged; old+dense+clusterless -> flagged
   expect(flagged).toEqual([oldDense])
   expect(flagged).not.toContain(youngDense)
 })
-
-// ── Connectivity ─────────────────────────────────────────────────────────────
 
 test('findIslandThoughts finds active unconnected regular thoughts only', () => {
   const db = getDb()
@@ -277,7 +267,6 @@ test('findIslandThoughts finds active unconnected regular thoughts only', () => 
   seedEdge(connected, seedThought({ content: 'peer' }), 'related')
 
   const islandIds = findIslandThoughts(db).map(i => i.id)
-  // clusters are exempt; connected thoughts are not islands
   expect(islandIds).toEqual([island])
   expect(islandIds).not.toContain(cluster)
   expect(islandIds).not.toContain(connected)
@@ -294,8 +283,6 @@ test('findOverlinkedThoughts respects the maxEdges threshold', () => {
   expect(findOverlinkedThoughts(db, 3)).toEqual([]) // > maxEdges, not >=
 })
 
-// ── Content quality ──────────────────────────────────────────────────────────
-
 test('findDuplicateContent pairs identical long contents', () => {
   const db = getDb()
   const a = seedThought({ content: 'identical long content here' })
@@ -310,16 +297,13 @@ test('findDuplicateContent pairs identical long contents', () => {
 
 test('findDuplicateContent ignores pairs with an archived side', () => {
   const db = getDb()
-  // Both sides active → still reported.
   const activeA = seedThought({ content: 'duplicate active pair content' })
   const activeB = seedThought({ content: 'duplicate active pair content' })
-  // One side archived → the active survivor is not a duplicate.
   const activeTwin = seedThought({ content: 'archived side pair content' })
   const archivedTwin = seedThought({
     content: 'archived side pair content',
     status: 'archived'
   })
-  // Both sides archived → legacy garbage, not actionable.
   seedThought({ content: 'both archived pair content', status: 'archived' })
   seedThought({ content: 'both archived pair content', status: 'archived' })
 
@@ -334,8 +318,8 @@ test('findDuplicateContent ignores pairs with an archived side', () => {
 test('findTooShort uses a 10-char default and skips clusters', () => {
   const db = getDb()
   const short = seedThought({ content: 'hi' })
-  seedThought({ content: 'exactly ten' }) // length 11 → fine
-  seedThought({ content: 'tiny', is_cluster: 1 }) // clusters exempt
+  seedThought({ content: 'exactly ten' })
+  seedThought({ content: 'tiny', is_cluster: 1 })
 
   const shorts = findTooShort(db)
   expect(shorts).toHaveLength(1)
@@ -351,8 +335,6 @@ test('findTooShort skips archived thoughts', () => {
 
   const shorts = findTooShort(db)
   const ids = shorts.map(s => s.id)
-  // Archived rows are frozen and un-actionable — flagging them produced a
-  // permanent, unfixable finding.
   expect(ids).toContain(draft)
   expect(ids).toContain(active)
   expect(ids).not.toContain(archived)
@@ -364,7 +346,6 @@ test('findTestRemnants flags test-looking content', () => {
   const remnant = seedThought({ content: 'Test thought A' })
   const likePrefix = seedThought({ content: 'test another remnant' })
   seedThought({ content: 'a perfectly normal thought' })
-  // Archived test remnants should NOT be reported.
   const archivedRemnant = seedThought({ content: 'Test thought B', status: 'archived' })
 
   const remnants = findTestRemnants(db)
@@ -377,17 +358,14 @@ test('findTestRemnants flags test-looking content', () => {
 
 test('findTestRemnants ignores long notes that only look like test content', () => {
   const db = getDb()
-  // Starts with "Test " but is a long, durable ops note (>120 chars).
   const longTestPrefix =
     'Test DBs must live on /tmp for acceptable fsync speed; production data on a slow mount makes every write block and the whole suite flaky.'
-  // Contains "test ... thought" in prose but is a long, real note (>120 chars).
   const longProse =
     'When writing an integration test for the graph engine, a thought that mentions a test in prose is still a real note, not a leftover fixture, as long as it carries durable knowledge.'
   expect(longTestPrefix.length).toBeGreaterThan(120)
   expect(longProse.length).toBeGreaterThan(120)
   const longPrefix = seedThought({ content: longTestPrefix })
   const longProseNote = seedThought({ content: longProse })
-  // The short fixtures from the previous test are still flagged.
   const shortRemnant = seedThought({ content: 'Test thought A' })
 
   const ids = findTestRemnants(db).map(r => r.id)
@@ -402,9 +380,7 @@ test('findBrokenParentChains does not flag edges from an archived source', () =>
   const archivedParent = seedThought({ content: 'archived parent', status: 'archived' })
   const draftChild = seedThought({ content: 'draft child', status: 'draft' })
   const activeParent = seedThought({ content: 'active parent' })
-  // Edge from archived parent → draft child should be ignored.
   seedEdge(archivedParent, draftChild, 'parent')
-  // Edge from active parent → draft child should still be flagged.
   seedEdge(activeParent, draftChild, 'parent')
 
   const broken = findBrokenParentChains(db)
@@ -481,8 +457,6 @@ test('findMissingEmbeddings compares thoughts against the vec table', () => {
   expect(missingList.map(m => m.id)).not.toContain(draft)
 })
 
-// ── Mutators ─────────────────────────────────────────────────────────────────
-
 test('getGraphStats counts thoughts, edges and clusters', () => {
   const db = getDb()
   seedThought({ content: 'active one' })
@@ -506,7 +480,6 @@ test('deleteEdges deletes by id and returns the count', () => {
   const a = seedThought({ content: 'a' })
   const b = seedThought({ content: 'b' })
   const keep = seedEdge(a, b, 'related')
-  // Two more edges on the same pair — legacy state (v046 keeps one per pair).
   const drop1 = seedLegacyPairEdge(a, b, 'develops')
   const drop2 = seedLegacyPairEdge(b, a, 'related')
 

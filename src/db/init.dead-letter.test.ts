@@ -13,14 +13,12 @@ const tmpRoot = mkdtempSync(join(tmpdir(), 'synaptomind-dead-letter-'))
 const dbPath = join(tmpRoot, 'test.db')
 
 afterAll(() => {
-  // restore the default so later test files are unaffected
   config.embedder.resetDeadLetters = false
   closeDb()
   rmSync(tmpRoot, { recursive: true, force: true })
 })
 
 function seedDeadLetter(): string {
-  // the insert trigger queues the thought; turn it into a dead letter
   const id = seedThought({ content: 'poison' })
   getDb()
     .prepare(
@@ -44,7 +42,6 @@ test('dead letters are NOT reset on boot by default (#113)', () => {
   closeDb()
   initDb({ dbPath, runMigrations: true })
 
-  // a poisonous thought must not get MAX_ATTEMPTS fresh tries on every restart
   const row = deadLetterRow(id)
   expect(row.is_error).toBe(1)
   expect(row.error).toBe('boom')

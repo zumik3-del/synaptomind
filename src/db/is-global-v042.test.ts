@@ -5,15 +5,10 @@ import { getDb } from '../context/container'
 import { closeDb, initDb } from './init'
 import v042 from './migrations/v042-is-global'
 
-// Migration coverage for the is_global flag (epic #1489). Mirrors the v041
-// migration test conventions (src/db/placement-proposals-v041.test.ts).
-
 const MEM_OPTS = { isMemory: true, dimensions: 384 }
 
 beforeEach(createTestDb)
 afterEach(closeDb)
-
-// ── v042 migration: fresh DB ─────────────────────────────────────────────────
 
 test('v042: is_global column present on thoughts after fresh migration', () => {
   const cols = getDb().prepare(`PRAGMA table_info(thoughts)`).all() as { name: string }[]
@@ -44,7 +39,6 @@ test('v042: schema_version is 42 after fresh init', () => {
 test('v042: a row inserted without is_global defaults to 0', () => {
   const db = getDb()
   const now = new Date().toISOString()
-  // Omit is_global entirely so the column DEFAULT is the only source of truth.
   db.prepare(`INSERT INTO thoughts (id, content, created_at, updated_at) VALUES (?, ?, ?, ?)`).run(
     'v042-default-row',
     'default row',
@@ -57,12 +51,9 @@ test('v042: a row inserted without is_global defaults to 0', () => {
   expect(row.is_global).toBe(0)
 })
 
-// ── v042 migration: apply() probe path (legacy DB lacking the column) ────────
-
 test('v042: apply() adds is_global to a legacy thoughts table lacking it', () => {
   const db = new Database(':memory:')
   try {
-    // Minimal legacy table without is_global — the ADD COLUMN branch.
     db.exec(`CREATE TABLE thoughts (id TEXT PRIMARY KEY)`)
     v042.apply(db, MEM_OPTS)
     const cols = db.prepare(`PRAGMA table_info(thoughts)`).all() as { name: string }[]
@@ -77,15 +68,13 @@ test('v042: apply() is idempotent — a second run neither throws nor duplicates
   try {
     db.exec(`CREATE TABLE thoughts (id TEXT PRIMARY KEY)`)
     v042.apply(db, MEM_OPTS)
-    v042.apply(db, MEM_OPTS) // column probe must skip the ALTER
+    v042.apply(db, MEM_OPTS)
     const cols = db.prepare(`PRAGMA table_info(thoughts)`).all() as { name: string }[]
     expect(cols.filter(c => c.name === 'is_global')).toHaveLength(1)
   } finally {
     db.close()
   }
 })
-
-// ── v042 migration: re-init idempotency ──────────────────────────────────────
 
 test('v042: re-running init on the same DB keeps is_global and schema_version 42', () => {
   initDb({ dbPath: ':memory:', runMigrations: true })

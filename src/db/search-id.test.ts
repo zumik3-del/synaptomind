@@ -4,25 +4,8 @@ import { getDb } from '../context/container'
 import { closeDb } from './init'
 import { findThoughtsByIdQuery, parseThoughtIdQuery } from './search-id'
 
-/**
- * Task #2178: an id-shaped search query resolves to exactly the addressed
- * thought(s), in any status, without touching the embedding/BM25 legs.
- *
- * Here the DB layer is pinned directly: the recognition rules
- * (`parseThoughtIdQuery`) and the GLOB/`=` lookup (`findThoughtsByIdQuery`).
- * The service-level behaviour (scope of a full id vs a prefix, standing, no
- * embedder call) lives in `src/services/search.service.id-lookup.test.ts`; the
- * MCP wire surface in `src/mcp/tools/recall-id-lookup.test.ts`.
- *
- * All ids are fixed so ordering and prefix ambiguity are deterministic; the
- * `:memory:` DB is enough — the vector leg is never reached on this path.
- */
-
-/** Shares the 13-hex prefix `018f0a00-0000-7` with {@link B} — an ambiguous prefix. */
 const A = '018f0a00-0000-7000-8000-00000000000a'
-/** Shares the 13-hex prefix `018f0a00-0000-7` with {@link A}. */
 const B = '018f0a00-0000-7000-8000-00000000000b'
-/** A prefix of its own (`018f0b00-0000-7`). */
 const C = '018f0b00-0000-7000-8000-00000000000c'
 
 beforeEach(createTestDb)
@@ -61,7 +44,6 @@ describe('parseThoughtIdQuery — what counts as an id', () => {
   })
 
   test('hyphen placement is normalised, so a dashed prefix addresses the same row', () => {
-    // `018f0a00-0000-7` → hex `018f0a0000007` → canonical `018f0a00-0000-7` + GLOB star.
     expect(parseThoughtIdQuery('018f0a00-0000-7')).toEqual({
       pattern: '018f0a00-0000-7*',
       exact: false
@@ -84,10 +66,6 @@ describe('parseThoughtIdQuery — what counts as an id', () => {
   })
 
   test('a hex-looking word below the 13-character floor is a word (task #2186)', () => {
-    // The rule is positional: `deadbeef` (8 hex) is below the floor, so it keeps
-    // flowing through the normal search instead of becoming an id miss. A longer
-    // hex word (>= 13) is still positional and falls back at the service layer
-    // when the id lookup misses.
     expect(parseThoughtIdQuery('deadbeef')).toBeNull()
     expect(parseThoughtIdQuery('20251025')).toBeNull()
     expect(parseThoughtIdQuery('deadbeefdeadbeef')).toEqual({
@@ -116,7 +94,6 @@ describe('findThoughtsByIdQuery — resolving the id against the stored rows', (
     expect(hit.thought.content).toBe('alpha')
     expect(hit.match_source).toEqual(['id'])
     expect(hit.low_confidence).toBe(false)
-    // No cosine signal: an id is not a similarity hit.
     expect(hit.similarity).toBeUndefined()
     expect(hit.distance).toBeUndefined()
     expect(hit.relevance).toBeUndefined()
@@ -256,7 +233,6 @@ describe('findThoughtsByIdQuery — the scope of an id (task #2190)', () => {
   })
 })
 
-/** The active test DB (`:memory:` from `beforeEach(createTestDb)`). */
 function getDbOrThrow() {
   return getDb()
 }

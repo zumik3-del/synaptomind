@@ -3,12 +3,6 @@ import { closeDb } from '../db/init'
 import { createTestDb } from '../test/helpers'
 import { createApp } from './router'
 
-// The public liveness probe (ADR 2026-10-26): `/health` is the one route the
-// deploy updater, the Docker healthcheck and CI poll. It must stay public
-// (no bearer token), report the version, and answer 503 when the database check
-// fails. Moved here from the deleted `routes.test.ts` when the HTTP surface
-// shrank to the ops endpoints.
-
 process.env.SYNAPTOMIND_SECRET = 'test-token'
 const app = createApp()
 
@@ -31,7 +25,6 @@ test('GET /health returns ok with a healthy database', async () => {
 })
 
 test('GET /health returns 503 degraded when the database check fails (issue #107)', async () => {
-  // Fresh DB per test, so closing it here is the only state change needed.
   closeDb()
 
   const res = await app.request('/health')
