@@ -146,6 +146,7 @@ function archiveContentCollisions(db: Database, toId: string, moved: LiveThought
   }
 
   const now = new Date().toISOString()
+  // is_protected stays set on purpose: retention review purges archived rows only when it is 0.
   const archive = db.prepare(
     `UPDATE thoughts SET status = 'archived', archived_at = ?, updated_at = ? WHERE id = ?`
   )
