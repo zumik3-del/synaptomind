@@ -376,7 +376,7 @@ export function registerMemoryRecall(server: McpServer) {
         .boolean()
         .optional()
         .describe(
-          "When true, every thought the answer emits carries url_links: [{text, url, label}] ordered by sort_order then creation (text mirrors the memory_store create-time url_links input, label defaults to text). One batch query per response. Default false, where the key is absent; true with no links returns []. Never trimmed by fields and never hidden by compact. Applies to all six actions, including get's upstream/downstream neighbours and chain/context neighbourhoods."
+          "When true, every thought the answer emits carries url_links: [{text, url, label}] ordered by sort_order then creation (text is the stored link key that memory_store create and update set — update replaces the whole set, merge moves the source's links to the target — and label defaults to text). One batch query per response. Default false, where the key is absent; true with no links returns []. Never trimmed by fields and never hidden by compact. Applies to all six actions, including get's upstream/downstream neighbours and chain/context neighbourhoods."
         ),
       direction: z
         .enum(['upstream', 'downstream', 'both'])

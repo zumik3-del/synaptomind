@@ -1,16 +1,33 @@
 import { z } from 'zod/v4'
 import { createThoughtWithUrlLinksService } from '../../../services/url_links.service'
 import type { ThoughtStatus } from '../../../types/thought'
+import { thoughtStatusSchema } from '../../../validation'
 import { itemEnvelope, writeEnvelopeScope } from '../envelope'
 import { resolveProjectId, shapeThought } from '../utils'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
+export const urlLinkItem = z.object({ text: z.string(), url: z.string() })
+
+export const isProfileRefusal = z
+  .never({ error: 'is_profile is retired; remove this field. There is no replacement.' })
+  .optional()
+
+export function createItemShape(contentMessage: string) {
+  return {
+    content: requiredString(contentMessage),
+    tags: z.array(z.string()).optional(),
+    status: thoughtStatusSchema.optional(),
+    parent_id: z.string().optional(),
+    is_protected: z.boolean().optional(),
+    is_global: z.boolean().optional(),
+    url_links: z.array(urlLinkItem).optional()
+  }
+}
+
 export const createHandler: ActionHandler = {
   input: z.object({
-    content: requiredString('content is required for create action'),
-    is_profile: z
-      .never({ error: 'is_profile is retired; remove this field. There is no replacement.' })
-      .optional()
+    ...createItemShape('content is required for create action'),
+    is_profile: isProfileRefusal
   }),
   run(args: ActionArgs) {
     const thought = createThoughtWithUrlLinksService(
