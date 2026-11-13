@@ -12,6 +12,7 @@ import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb } from '../../context/container'
 import { closeDb } from '../../db/init'
 import { runAutoCluster } from '../../services/auto-cluster.service'
+import { createProjectService } from '../../services/projects.service'
 import { GATE_CASES } from '../../test/confirm-gate-cases'
 import { bindProbeKeys, fingerprintDeclaration } from '../../test/confirm-gate-declaration'
 import { FINGERPRINT_CASES } from '../../test/confirm-gate-fingerprints'
@@ -157,4 +158,50 @@ describe('per-input fingerprint matrix over the converted actions', () => {
       }
     })
   }
+})
+
+describe('an id-addressed merge token folds no project', () => {
+  const FOREIGN_CWD = '/tmp/gate-fingerprint-foreign'
+
+  function registerForeignProject(): string {
+    createProjectService({ name: 'Gate fingerprint foreign', local_path: FOREIGN_CWD })
+    return FOREIGN_CWD
+  }
+
+  test('a token minted without cwd still confirms under a registered foreign cwd', async () => {
+    const gate = gateCaseOf('memory_supersede action=merge')
+    const cwd = registerForeignProject()
+    const args = gate.setup()
+    const preview = await call(gate.tool, args)
+    expect(preview.isError).toBe(false)
+
+    const confirmed = await call(gate.tool, {
+      ...args,
+      cwd,
+      confirm: true,
+      preview_token: previewToken(preview.data)
+    })
+
+    expect(confirmed.isError).toBe(false)
+    expect(confirmed.data.item).toMatchObject({ status: 'executed', action: 'merge' })
+  })
+
+  test('a real input change still refuses as stale under that same cwd', async () => {
+    const gate = gateCaseOf('memory_supersede action=merge')
+    const cwd = registerForeignProject()
+    const args = gate.setup()
+    const preview = await call(gate.tool, args)
+    expect(preview.isError).toBe(false)
+
+    const drifted = await call(gate.tool, {
+      ...args,
+      merged_content: 'gate fingerprint drifted content',
+      cwd,
+      confirm: true,
+      preview_token: previewToken(preview.data)
+    })
+
+    expect(drifted.isError).toBe(true)
+    expect(drifted.text).toContain('preview token stale')
+  })
 })

@@ -6,9 +6,7 @@
  */
 import {
   age,
-  db,
   anotherArchivedThought,
-  anotherProject,
   type FingerprintCase,
   type FingerprintProbe,
   freshThought,
@@ -100,6 +98,7 @@ const ARCHIVE_BATCH_PROBES: Record<string, readonly FingerprintProbe[]> = {
   ]
 }
 
+/** A merge is id-addressed: no probe folds the project, and the gate proves that absence. */
 const MERGE_PROBES: Record<string, readonly FingerprintProbe[]> = {
   'source.id, source.status': [
     {
@@ -165,19 +164,6 @@ const MERGE_PROBES: Record<string, readonly FingerprintProbe[]> = {
       change: 'the merged tags (none -> one)',
       refusal: 'stale',
       run: args => ({ ...args, merged_tags: ['gate-fingerprint'] })
-    }
-  ],
-  projectFilter: [
-    {
-      change: 'the resolved project (no cwd -> another project)',
-      refusal: 'stale',
-      run: args => {
-        const project = anotherProject()
-        const path = db().prepare('SELECT local_path FROM projects WHERE id = ?').get(project) as {
-          local_path: string
-        }
-        return { ...args, cwd: path.local_path }
-      }
     }
   ]
 }
