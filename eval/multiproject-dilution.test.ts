@@ -194,7 +194,7 @@ describe('pool-dilution mechanism (raw vec0 leg)', () => {
   test('the partition-scoped leg ranks inside the project at any pool', async () => {
     await withSeededDb(() => {
       const embedding = deterministicEmbedding(DILUTION_QUERY)
-      const filter = buildFilterSQL({ projectFilter: DILUTION_PROJECTS.small })
+      const filter = buildFilterSQL(getDb(), { projectFilter: DILUTION_PROJECTS.small })
       const scope = buildVecScopeSQL({ projectFilter: DILUTION_PROJECTS.small })
       const scoped = (pool: number) =>
         vecSearchIds(getDb(), embedding, pool, scope, filter, 200, true)

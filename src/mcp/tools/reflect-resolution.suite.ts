@@ -27,7 +27,7 @@ mock.module('../../services/projects.service', () => ({
     throw new Error('not used')
   },
   updateProjectService: () => {},
-  deleteProjectService: () => false,
+  deleteProjectService: () => ({ deleted: false, moved: 0, archivedIds: [] }),
   resolveProjectService: () => {
     throw new Error(RESOLUTION_FAILURE)
   }

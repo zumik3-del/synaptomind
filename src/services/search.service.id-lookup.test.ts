@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { ID_PREFIX_MATCH_HARD_CAP } from '../db/search-id'
+import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import { createTestDb, seedThought } from '../test/helpers'
 import { searchThoughts, searchThoughtsOutcome } from './search.service'
@@ -182,6 +183,100 @@ describe('searchThoughtsOutcome — id lookup', () => {
     const outcome = await searchThoughtsOutcome({ query: '018f0a0000007', statusFilter: 'active' })
 
     expect(outcome.items.map(r => r.thought.id)).toEqual([A])
+  })
+
+  describe('a prefix is a scope query, a full UUID an explicit reference (task #2532)', () => {
+    const PREFIX = '018f0a0000007'
+    const OWN = '018f0a00-0000-7000-8000-0000000000a1'
+    const OWN_FAINT = '018f0a00-0000-7000-8000-0000000000a2'
+    const FOREIGN = '018f0a00-0000-7000-8000-0000000000b1'
+    const ARCHIVED = '018f0a00-0000-7000-8000-0000000000c1'
+
+    // `seedThought({ importance })` is swallowed by `trg_thought_importance_insert`, so importance
+    // is written after the row exists.
+    function seedScopeWorld(): void {
+      const db = getDb()
+      const setImportance = (id: string, importance: number) =>
+        db
+          .prepare(`UPDATE thought_importance SET importance = ? WHERE thought_id = ?`)
+          .run(importance, id)
+      seedThought({
+        id: OWN,
+        content: 'SCOPE_TAGGED_OWN',
+        project_id: 'proj-a',
+        status: 'active',
+        tags: '["beta"]'
+      })
+      seedThought({
+        id: OWN_FAINT,
+        content: 'SCOPE_TAGGED_FAINT',
+        project_id: 'proj-a',
+        status: 'active',
+        tags: '["beta"]'
+      })
+      seedThought({
+        id: FOREIGN,
+        content: 'SCOPE_TAGGED_FOREIGN',
+        project_id: 'proj-b',
+        status: 'active',
+        tags: '["beta"]'
+      })
+      seedThought({
+        id: ARCHIVED,
+        content: 'SCOPE_OTHER_TAG_ARCHIVED',
+        project_id: 'proj-a',
+        status: 'archived',
+        tags: '["gamma"]'
+      })
+      setImportance(OWN, 0.9)
+      setImportance(FOREIGN, 0.9)
+      setImportance(ARCHIVED, 0.9)
+      setImportance(OWN_FAINT, 0.1)
+    }
+
+    test('a prefix honours tag', async () => {
+      seedScopeWorld()
+
+      const outcome = await searchThoughtsOutcome({ query: PREFIX, tagFilter: 'beta' })
+
+      expect(outcome.items.map(r => r.thought.id)).toEqual([OWN, OWN_FAINT, FOREIGN])
+    })
+
+    test('a prefix honours min_importance', async () => {
+      seedScopeWorld()
+
+      const outcome = await searchThoughtsOutcome({ query: PREFIX, minImportance: 0.5 })
+
+      expect(outcome.items.map(r => r.thought.id)).toEqual([OWN, FOREIGN, ARCHIVED])
+    })
+
+    test('a prefix takes status, project, tag and min_importance together', async () => {
+      seedScopeWorld()
+
+      const outcome = await searchThoughtsOutcome({
+        query: PREFIX,
+        tagFilter: 'beta',
+        projectFilter: 'proj-a',
+        statusFilter: 'active',
+        minImportance: 0.5
+      })
+
+      expect(outcome.items.map(r => r.thought.id)).toEqual([OWN])
+    })
+
+    test('a full UUID still ignores all four: the explicit reference answers', async () => {
+      seedScopeWorld()
+
+      const outcome = await searchThoughtsOutcome({
+        query: ARCHIVED,
+        tagFilter: 'beta',
+        projectFilter: 'proj-b',
+        statusFilter: 'active',
+        minImportance: 1
+      })
+
+      expect(outcome.items.map(r => r.thought.id)).toEqual([ARCHIVED])
+    })
   })
 
   test('a superseded thought is still answered by its id, flagged not suppressed (task #2186)', async () => {

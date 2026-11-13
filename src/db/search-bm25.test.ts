@@ -43,7 +43,7 @@ function expectedTopIds(count: number): string[] {
 }
 
 function serviceFilter() {
-  return buildFilterSQL({ statusFilter: 'active', projectFilter: PROJECT })
+  return buildFilterSQL(getDb(), { statusFilter: 'active', projectFilter: PROJECT })
 }
 
 test('project-filtered BM25 leg returns ids in non-increasing relevance', () => {

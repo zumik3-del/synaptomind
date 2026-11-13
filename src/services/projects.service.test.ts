@@ -48,12 +48,12 @@ test('updateProjectService updates name', () => {
 
 test('deleteProjectService removes project', () => {
   const p = createProjectService({ name: 'test' })
-  expect(deleteProjectService(p.id)).toBeTrue()
+  expect(deleteProjectService(p.id).deleted).toBeTrue()
   expect(getProjectService(p.id)).toBeNull()
 })
 
 test('deleteProjectService returns false for missing', () => {
-  expect(deleteProjectService('nonexistent')).toBeFalse()
+  expect(deleteProjectService('nonexistent').deleted).toBeFalse()
 })
 
 test('deleteProjectService throws when deleting Default', () => {
@@ -73,7 +73,7 @@ test('deleteProjectService moves thoughts to Default', () => {
   const p = createProjectService({ name: 'Disposable' })
   const thought = createThoughtWithUrlLinksService({ content: 'test thought', project_id: p.id })
 
-  expect(deleteProjectService(p.id)).toBeTrue()
+  expect(deleteProjectService(p.id).deleted).toBeTrue()
   expect(getProjectService(p.id)).toBeNull()
 
   const updatedThought = require('./thoughts.service').getThoughtByIdService(thought.id)

@@ -76,20 +76,22 @@ const handlers = {
             thought_count: project.thought_count,
             consequence:
               project.thought_count > 0
-                ? `${project.thought_count} thought(s) will be moved to the Default project before deletion.`
+                ? `${project.thought_count} thought(s) will be moved to the Default project before deletion; any whose content is already live there will be archived, not kept live.`
                 : 'Project has no thoughts — safe to delete.',
             instruction:
               'Call memory_manage again with action=delete, project_id=..., confirm=true to proceed.',
             preview_token: token
           }),
         apply: () => {
-          const deleted = deleteProjectService(projectId)
-          if (!deleted) throw new NotFoundError(`Project not found: ${projectId}`)
+          const deletion = deleteProjectService(projectId)
+          if (!deletion.deleted) throw new NotFoundError(`Project not found: ${projectId}`)
           return {
             action: 'deleted',
             project: { id: project.id, name: project.name },
-            thoughts_moved: project.thought_count,
-            moved_to: project.thought_count > 0 ? 'Default project' : undefined
+            thoughts_moved: deletion.moved,
+            moved_to: deletion.moved > 0 ? 'Default project' : undefined,
+            thoughts_archived: deletion.archivedIds.length,
+            archived_thought_ids: deletion.archivedIds
           }
         }
       })

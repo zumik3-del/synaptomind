@@ -84,9 +84,34 @@ The envelope is the payload of the wire envelope described in
 
 | Key | Description |
 |---|---|
-| `total` | Rows the action considered (search: post-filter candidates; list: the un-paged count) |
+| `total` | Rows the action considered: the candidate pool of a query (`search`, `clusters`, an id lookup), the un-paged count of a paged inventory, or the requested item count of a batch |
 | `returned` | Rows in `items`, or `1`/`0` for a single `item` |
-| `filtered_out` | Rows deliberately dropped from `total` (relevance gate, paging, retired proposal kinds) |
+| `filtered_out` | Rows the action accounts for as dropped — not necessarily every row it dropped |
+
+What the three keys count is per action:
+
+| Action | `total` | `filtered_out` |
+|---|---|---|
+| `memory_recall` `search`, `clusters` | candidates surviving the scope (status, project), tag and standing filters | the rows the relevance gate dropped |
+| `memory_recall` id lookup | the rows the id resolved, after the `limit` cap | `0` |
+| `memory_recall` `list`, `memory_reflect` `timeline`, `memory_crystallize` `graph` | the un-paged count matching the filters | the rows the page left out (`offset`/`limit`) |
+| `retention_review` `list` | the candidate count matching the filters, un-paged | `0` — the page remainder is unaccounted |
+| `edge_review` `list` | the rows matching the filters, ignoring the page (internally capped at 1000) | the retired kinds hidden unless `include_retired` — not the page remainder |
+| `memory_crystallize` `auto_cluster` | the candidate count | `0` |
+| the batch writers (`link_batch`, `unlink_batch`, `bulk_create`, `archive_batch`, `apply_batch`) and the un-paged collections (`slots`, `frontier`, `memory_manage` `list`, `memory_primers` `list`, `rollback`) | the requested item count, or the rows in `items` | `0` |
+| a single-object action | `1` when an `item` came back, `0` when it did not — except `propose`, where it is the planned edge count | `0` |
+
+So `total = returned + filtered_out` holds where the action accounts for every row it dropped —
+the un-paged collections (vacuously: nothing is dropped), `memory_recall` `list`, `memory_reflect`
+`timeline` and `memory_crystallize` `graph` — and it fails for the rest: `search`/`clusters` leave
+the `limit` slice unaccounted, `retention_review` `list` reports `filtered_out: 0` while the page is
+bounded, `edge_review` `list` counts the retired kinds instead of the page remainder, and
+`auto_cluster` counts candidates against grouped items. **Known gap on the default search path**
+(audit #2521, Medium 1, not fixed here): the rows the `limit` slice cut are in neither `returned`
+nor `filtered_out`, so a truncated answer reports `total > returned + filtered_out`. Read `returned`
+for the page and `total` for the pool instead of reconstructing one from the other; a tag-filtered
+search adds nothing to either key for a thought that matched the query but not the tag, because such
+a row is never a candidate.
 
 Action-specific counters sit beside them (`link_batch` → `linked`/`failed`; `archive_batch` →
 `archived`/`failed`; `retention_review` list, `memory_recall` list and `memory_reflect` timeline →
@@ -131,9 +156,9 @@ A graph is two collections, not one, so this is the single documented exception 
 
 `counts` keeps the shared three keys for the **nodes**: `total` is the node count matching the
 filters, `returned` the nodes of this page and `filtered_out` the nodes the page left out
-(`offset`/`limit`), so `total = returned + filtered_out` holds here like in every other
-collection. `edges` holds the active edges whose two endpoints are both in `items`, and
-`counts.edges` is how many of them there are — not a total.
+(`offset`/`limit`), so `total = returned + filtered_out` holds here — one of the few actions where
+it does (the `counts` section above lists the others). `edges` holds the active edges whose two
+endpoints are both in `items`, and `counts.edges` is how many of them there are — not a total.
 
 ### Preview metadata
 
@@ -220,9 +245,11 @@ project of the thought it addresses (see below).
 
 The actions outside the table either address their rows by id (`get`, `chain`, `unlink`, `archive`,
 ...) or are global by design (`health`, `config`, `primers`, `crystallize auto_cluster`), so they
-take no `cwd`. Writes that name a target project (`memory_store` `create`/`update`, `bulk_create`,
-`memory_supersede merge`, `edge_review enqueue`) accept it too, and land in the project it resolves
-to.
+take no `cwd`. A write that creates a row takes it too and lands in the project the path names
+(`memory_store` `create`, `bulk_create` — per item when the item carries its own `project_id` —
+and `edge_review enqueue`). The id-addressed writes `memory_store action=update` and
+`memory_supersede action=merge` accept it as well, but only as the scope the answer reports: they
+never move the row they address.
 
 Except `propose` (below), a read that omits `cwd` succeeds and declares the widened answer in
 `meta`: `scope` is `null` and `warnings` carries `no cwd — the answer spans every project`
@@ -334,9 +361,10 @@ A thought's url links ride on the thought output behind one boolean argument,
 `clusters`, `list`, `get`, `context` and `chain`, and by `memory_reflect action=timeline`.
 
 - **Shape.** `url_links: [{ text, url, label }]`, ordered by `sort_order` then creation
-  time. `text` mirrors the create-time `url_links` input, so an item read from memory can be
-  fed back into `memory_store action=create` unchanged; `label` defaults to `text`. Internal
-  columns (`id`, `thought_id`, `created_at`) are never emitted.
+  time. `text` is the link's key — the `text` it was written with — so an item read from memory
+  can be fed back into `memory_store` (`create`, or `update` with the whole set) unchanged;
+  `label` defaults to `text`. Internal columns (`id`, `thought_id`, `created_at`) are never
+  emitted.
 - **Every thought in the response.** Not just the primary one: `get` attaches it to the
   thought *and* to its `upstream`/`downstream` neighbours, `chain`/`context` to the head and
   both neighbourhoods, and a `group_by_cluster` answer to the cluster members. "Primary only"
@@ -376,10 +404,20 @@ A thought's url links ride on the thought output behind one boolean argument,
 }
 ```
 
-Url links are **written at create time only** (`memory_store action=create`, `url_links` as
-`[{ text, url }]`). There is no MCP action that adds a link to an existing thought or deletes
-one — the former `POST`/`DELETE /api/thoughts/:id/links` routes went with the rest of the
-HTTP API in 0.20 ([API.md](API.md#dropped-capabilities)).
+Url links are **thought-owned** (`memory_store action=create`, `url_links` as
+`[{ text, url }]`). Two actions write them, and neither is a separate link editor:
+
+- `memory_store action=create` sets the initial list, in array order.
+- `memory_store action=update` replaces the whole set, in array order: an omitted `url_links`
+  leaves the set untouched and `[]` clears it, so a link is added or removed by sending the set
+  you want. A content write never adds, rewrites or deletes a link.
+- `memory_supersede action=merge` transfers the source's links to the target, appended after the
+  target's own; a source link whose `text` the target already carries is dropped (the target's url
+  wins) and the collision is logged.
+
+The former `POST`/`DELETE /api/thoughts/:id/links` routes went with the rest of the HTTP API in
+0.20; both are now expressed through `update`'s replace-set write
+([API.md](API.md#removed-routes-020)).
 
 ## Dry-run / confirm pattern
 
@@ -461,17 +499,20 @@ BM25 legs (`src/db/search-id.ts`, `src/services/search-outcome.service.ts`):
   spends its first 12 hex digits on the millisecond timestamp: below that, a hex-looking *word*
   (`20251025`, `deadbeef`) is indistinguishable from a prefix, so it stays an ordinary query.
   `01a172b4-ebd5-7` and `01A172B4EBD57` address the same prefix.
-- **Scope.** The two id forms do not share a scope (`src/db/search-id.ts:19-38`, `:152-158`). A
-  **full UUID** is an explicit reference: the lookup ignores `status`, `cwd` (project), `tag`
-  and `min_importance`, never widens to other rows, and is never touched by the relevance gate.
-  A **prefix** is a timestamp window, not a reference — its first 12 hex digits are the UUIDv7
-  millisecond — so it honours the call's `status` and `cwd` (project) scope like any other
-  query; a prefix that addresses nothing *inside* that scope is an id miss and falls back to the
-  ordinary search (see **None**). `meta.scope` reports what `cwd` resolved to either way.
+- **Scope.** The two id forms do not share a scope (`findThoughtsByIdQuery`,
+  `src/db/search-id.ts`; the filters the search path hands it are
+  `src/services/search.service.ts:79-87`). A **full UUID** is an explicit reference: the lookup
+  applies only the cluster-shape constraint, so it ignores `status`, `cwd` (project), `tag` and
+  `min_importance`, never widens to other rows, and is never touched by the relevance gate. A
+  **prefix** is a timestamp window, not a reference — its first 12 hex digits are the UUIDv7
+  millisecond — so it takes every scoping filter the call carries: `status`, `cwd` (project),
+  `tag`, `min_importance`, plus the cluster shape. A prefix that addresses nothing *inside* that
+  scope is an id miss and falls back to the ordinary search (see **None**). `meta.scope` reports
+  what `cwd` resolved to either way.
 - **Cluster shape.** `is_cluster` is a shape constraint of the requested collection, not a
-  scope, so it applies to both forms (`src/db/search-id.ts:29-32`): `clusters` never answers a
-  non-cluster row, and `search` with `is_cluster: true` / `false` filters an id hit the same way
-  even for a full UUID.
+  scope, so it applies to both forms (`findThoughtsByIdQuery`, `src/db/search-id.ts`): `clusters`
+  never answers a non-cluster row, and `search` with `is_cluster: true` / `false` filters an id hit
+  the same way even for a full UUID.
 - **Hits.** Each hit carries `match_source: ["id"]` and no `relevance`, because an id has no
   cosine scale. Standing is annotated exactly as on any other hit — `standing`,
   `superseded_by`, `contradicted_by` — but an id is never suppressed: a requested
@@ -623,10 +664,10 @@ optional like `search` (omitted, it searches every project and says so in `meta.
 an explicit `is_cluster: false` is rejected, because it contradicts what the action is. An
 id-shaped query goes through the same id lookup as `search`
 ([Id lookup](#id-lookup)), with the cluster constraint applied to both forms — a prefix is
-scoped by `status`/`cwd` and the cluster shape, while a full UUID ignores the status and project
-scope but still only answers a cluster thought: a non-cluster id answers nothing (the ordinary
-search fallback runs, and `meta.reason` explains the empty answer) instead of leaking a row the
-action exists to exclude (`src/mcp/tools/recall-id-lookup.test.ts:140-172`).
+scoped by `status`/`cwd`/`tag`/`min_importance` and the cluster shape, while a full UUID ignores
+those filters but still only answers a cluster thought: a non-cluster id answers nothing (the
+ordinary search fallback runs, and `meta.reason` explains the empty answer) instead of leaking a
+row the action exists to exclude (`src/mcp/tools/recall-id-lookup.test.ts:140-172`).
 
 ### `action=list`
 
@@ -668,9 +709,10 @@ the rows the page did not include, so a caller pages with `offset += limit` unti
 
 `create` takes `content` (required), `tags`, `status`, `cwd`, `is_protected`, `is_global`,
 `parent_id`, `url_links`; `update` takes `thought_id` (required) plus the fields to change
-(`content`, `tags`, `tags_mode`, `status`, `cwd`, `is_protected`, `is_global`, `surface_after`).
-Both answer `{ item: <shaped thought>, meta }`; `update` on a missing id fails with a `404` error
-envelope.
+(`content`, `tags`, `tags_mode`, `status`, `url_links`, `is_protected`, `is_global`,
+`surface_after`) — `cwd` is not one of them: it scopes the answer's `meta.scope` and never moves
+the thought to another project. Both answer `{ item: <shaped thought>, meta }`; `update` on a
+missing id fails with a `404` error envelope.
 
 `update` is **not** an archive path: `status: "archived"` is rejected with an error envelope naming
 `memory_supersede action=archive` (preview it, then `confirm: true` with the returned
@@ -848,6 +890,18 @@ Create several thoughts in one call (`thoughts[]`, 1–10000 items, in one trans
 optional). Result: `{ items, meta }`, one row per requested thought in input order
 (`{ index, status: "created", thought }` or `{ index, status: "failed", error }`), with
 `meta.counts.created` / `meta.counts.failed`.
+
+Each item is a strict object: `content` (required), `tags`, `status`, `parent_id`, `is_protected`,
+`is_global` and `url_links` — the create item shape — plus `project_id`, `source` and `relation`
+(the edge type of the `parent_id` link, default `parent`, ignored without `parent_id`).
+`project_id` is **per item** here: it pins that item to its own project and overrides the
+`cwd`-resolved one; the top-level `project_id` stays a tombstone that rejects the whole call.
+
+Failure splits two ways. A **schema-level** refusal — an unknown item key, a wrong type, the
+retired `is_profile` — is rejected before the action runs, and writes nothing at all. A
+**per-item** failure at execution (for example a `parent_id` that does not exist) yields that
+item's `status: "failed"` row at its index while the rest of the batch commits, because each item
+runs in its own nested transaction inside the batch's.
 
 ## `memory_supersede` — archiving and merging
 
@@ -1193,10 +1247,13 @@ CRUD over projects plus resolution from a path.
 - `list` → `{ items: <projects>, meta }` (`fields` narrows each project row).
 - `create` → `{ item: <project>, meta }`.
 - `update` requires `project_id` → `{ item: { success: true, project_id }, meta }`.
-- `delete` requires `project_id` and is preview-first: the preview `item` carries `action: "preview"`, `project`,
-  `thought_count`, `consequence`, `instruction` and `preview_token` (`meta.preview` mirrors the
-  token); the executed `item` carries `action: "deleted"`, `project`, `thoughts_moved` and
-  `moved_to`.
+- `delete` requires `project_id` and is preview-first: the preview `item` carries
+  `action: "preview"`, `project`, `thought_count`, `consequence`, `instruction` and `preview_token`
+  (`meta.preview` mirrors the token), and its `consequence` states that a moved thought colliding
+  on content with a live row in the destination may be archived instead of kept live — the oldest
+  live row per content survives, whichever side it came from; the executed `item` carries
+  `action: "deleted"`, `project`, `thoughts_moved`, `moved_to`, `thoughts_archived` and
+  `archived_thought_ids`.
 - `resolve` → `{ item: { id, name, local_path }, meta }`.
 
 ## Health-check remediation: `contradiction_in_cluster`

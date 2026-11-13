@@ -4,7 +4,8 @@ import { config } from '../config'
 import { createEdge } from '../db/edges'
 import { getDb } from '../db'
 import { getThoughtLimitsDB } from '../db/settings'
-import { pruneThoughtUrlLinks } from '../db/thought_url_links'
+import { deleteThoughtUrlLinksNotIn, upsertThoughtUrlLink } from '../db/thought_url_links'
+import type { UrlLink } from './url_links.service'
 import {
   type CreateThoughtInput,
   archiveThought as dbArchiveThought,
@@ -64,9 +65,26 @@ export function createThoughtWithParentService(
   return { ...thought, content_language: config.contentLanguage }
 }
 
+export interface UpdateThoughtOptions {
+  urlLinks?: UrlLink[]
+}
+
+function writeUrlLinks(id: string, urlLinks: UrlLink[], d: Database): void {
+  urlLinks.forEach((link, index) => {
+    upsertThoughtUrlLink(d, id, link.text, link.url, link.text, index)
+  })
+  deleteThoughtUrlLinksNotIn(
+    d,
+    id,
+    urlLinks.map(link => link.text)
+  )
+}
+
+// Options ride before `d`: url links are not a column, and `UpdateThoughtInput` whitelists columns.
 export function updateThoughtByIdService(
   id: string,
   data: UpdateThoughtInput,
+  options: UpdateThoughtOptions = {},
   d: Database = getDb()
 ): Thought | null {
   validateStatus(data.status)
@@ -85,11 +103,7 @@ export function updateThoughtByIdService(
   }
   const run = d.transaction(() => {
     const updated = dbUpdateThought(d, id, data)
-    // Must stay in this transaction: updated content can drop url-link markers, and the merge path
-    // prunes the same way.
-    if (updated && data.content !== undefined) {
-      pruneThoughtUrlLinks(d, id, data.content)
-    }
+    if (updated && options.urlLinks !== undefined) writeUrlLinks(id, options.urlLinks, d)
     return updated
   })
   const updated = run()

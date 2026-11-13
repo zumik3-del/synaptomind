@@ -77,7 +77,7 @@ export function fetchThoughtsByIds(
 ): SearchResult[] {
   if (orderedIds.length === 0) return []
   const ph = sqlIn(orderedIds)
-  const { sql: filterSql, params } = buildFilterSQL(options)
+  const { sql: filterSql, params } = buildFilterSQL(db, options)
 
   const rows = db
     .prepare(`
