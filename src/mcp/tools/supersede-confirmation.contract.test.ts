@@ -261,12 +261,20 @@ describe('memory_supersede confirmation contract', () => {
       outcome: 'would_merge',
       proposed: {
         merged_content: 'proposed replacement',
-        merged_tags: ['proposed'],
-        project_id: 'project-x'
+        merged_tags: ['proposed']
       },
       effects: { source_archived: true, target_updated: true, replaces_edge_created: true },
       source: { id: source, status: 'active', source_edge_count: 160, truncated: true },
       target: { id: target, status: 'active' }
+    })
+    expect(Object.keys(preview.data.item.proposed).sort()).toEqual([
+      'merged_content',
+      'merged_tags'
+    ])
+    expect(preview.data.meta.scope).toEqual({
+      project: 'project-x',
+      project_name: 'Project X',
+      global: false
     })
     expect(preview.data.item.source.edges).toHaveLength(50)
     expect(preview.data.item.source.edges.map((edge: { id: string }) => edge.id)).toEqual(
