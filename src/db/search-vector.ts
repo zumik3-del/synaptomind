@@ -22,20 +22,23 @@ export function countFilteredVectors(
         .get(...residual.params) as { n: number }
       return row.n
     }
+    // `MATERIALIZED` is load-bearing: it makes the planner read `vec_thoughts` once and probe the
+    // ids from a bloom filter, instead of a per-row virtual-table scan (task #2533).
     const row = db
       .prepare(`
+        WITH vids AS MATERIALIZED (SELECT id FROM vec_thoughts)
         SELECT (
           SELECT COUNT(*) AS n
           FROM thoughts t
           LEFT JOIN thought_importance ti ON ti.thought_id = t.id
           WHERE t.project_id = ? ${residual.sql}
-            AND EXISTS (SELECT 1 FROM vec_thoughts v WHERE v.id = t.id)
+            AND t.id IN (SELECT id FROM vids)
         ) + (
           SELECT COUNT(*) AS n
           FROM thoughts t
           LEFT JOIN thought_importance ti ON ti.thought_id = t.id
           WHERE t.is_global = 1 AND (t.project_id IS NULL OR t.project_id <> ?) ${residual.sql}
-            AND EXISTS (SELECT 1 FROM vec_thoughts v WHERE v.id = t.id)
+            AND t.id IN (SELECT id FROM vids)
         ) AS n
       `)
       .get(project, ...residual.params, project, ...residual.params) as { n: number }
