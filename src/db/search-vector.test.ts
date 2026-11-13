@@ -63,32 +63,32 @@ function seedMatrix(db: Database): void {
   }
 }
 
-const noResidual = () => buildResidualFilterSQL({})
-const activeOnly = () => buildResidualFilterSQL({ statusFilter: 'active' })
+const noResidual = (db: Database) => buildResidualFilterSQL(db, {})
+const activeOnly = (db: Database) => buildResidualFilterSQL(db, { statusFilter: 'active' })
 
 describe('countFilteredVectors is exact across the 24-row matrix', () => {
   itVec('addressed project: 8 vector rows, of which 4 are active', db => {
     seedMatrix(db)
     const scope = buildVecScopeSQL({ projectFilter: PROJECT })
 
-    expect(countFilteredVectors(db, scope, noResidual())).toBe(8)
-    expect(countFilteredVectors(db, scope, activeOnly())).toBe(4)
+    expect(countFilteredVectors(db, scope, noResidual(db))).toBe(8)
+    expect(countFilteredVectors(db, scope, activeOnly(db))).toBe(4)
   })
 
   itVec('a project with no rows of its own counts the 6 global vector rows', db => {
     seedMatrix(db)
     const scope = buildVecScopeSQL({ projectFilter: ABSENT })
 
-    expect(countFilteredVectors(db, scope, noResidual())).toBe(6)
-    expect(countFilteredVectors(db, scope, activeOnly())).toBe(3)
+    expect(countFilteredVectors(db, scope, noResidual(db))).toBe(6)
+    expect(countFilteredVectors(db, scope, activeOnly(db))).toBe(3)
   })
 
   itVec('unscoped: all 12 vector rows count, of which 6 are active', db => {
     seedMatrix(db)
     const scope = buildVecScopeSQL({})
 
-    expect(countFilteredVectors(db, scope, noResidual())).toBe(12)
-    expect(countFilteredVectors(db, scope, activeOnly())).toBe(6)
+    expect(countFilteredVectors(db, scope, noResidual(db))).toBe(12)
+    expect(countFilteredVectors(db, scope, activeOnly(db))).toBe(6)
   })
 })
 
@@ -98,15 +98,15 @@ describe('countFilteredVectors skips rows without a stored vector', () => {
     seedThought({ content: 'unembedded global row', project_id: OTHER, is_global: 1 })
 
     const scope = buildVecScopeSQL({ projectFilter: PROJECT })
-    expect(countFilteredVectors(db, scope, noResidual())).toBe(0)
-    expect(countFilteredVectors(db, buildVecScopeSQL({}), noResidual())).toBe(0)
+    expect(countFilteredVectors(db, scope, noResidual(db))).toBe(0)
+    expect(countFilteredVectors(db, buildVecScopeSQL({}), noResidual(db))).toBe(0)
   })
 
   itVec('an empty vector table yields 0 in every scope', db => {
     expect(
-      countFilteredVectors(db, buildVecScopeSQL({ projectFilter: PROJECT }), noResidual())
+      countFilteredVectors(db, buildVecScopeSQL({ projectFilter: PROJECT }), noResidual(db))
     ).toBe(0)
-    expect(countFilteredVectors(db, buildVecScopeSQL({}), noResidual())).toBe(0)
+    expect(countFilteredVectors(db, buildVecScopeSQL({}), noResidual(db))).toBe(0)
   })
 })
 
@@ -124,8 +124,10 @@ describe('countFilteredVectors applies the residual to both branches', () => {
     for (const id of [kept, lowOwn, lowGlobal]) seedEmbedding(id)
 
     const scope = buildVecScopeSQL({ projectFilter: PROJECT })
-    expect(countFilteredVectors(db, scope, noResidual())).toBe(3)
-    expect(countFilteredVectors(db, scope, buildResidualFilterSQL({ minImportance: 0.5 }))).toBe(1)
+    expect(countFilteredVectors(db, scope, noResidual(db))).toBe(3)
+    expect(
+      countFilteredVectors(db, scope, buildResidualFilterSQL(db, { minImportance: 0.5 }))
+    ).toBe(1)
   })
 })
 
@@ -134,18 +136,18 @@ describe('addressedProjectShutOut keeps its delivered-ids short-circuit', () => 
     const own = seedThought({ content: 'delivered own row', project_id: PROJECT })
     seedEmbedding(own)
 
-    expect(addressedProjectShutOut(db, PROJECT, noResidual(), [{ id: own }])).toBe(false)
+    expect(addressedProjectShutOut(db, PROJECT, noResidual(db), [{ id: own }])).toBe(false)
   })
 
   itVec('a delivered foreign id falls through to the project probe', db => {
     const foreign = seedThought({ content: 'delivered foreign row', project_id: OTHER })
     seedEmbedding(foreign)
 
-    expect(addressedProjectShutOut(db, PROJECT, noResidual(), [{ id: foreign }])).toBe(false)
+    expect(addressedProjectShutOut(db, PROJECT, noResidual(db), [{ id: foreign }])).toBe(false)
 
     const own = seedThought({ content: 'own row with a vector', project_id: PROJECT })
     seedEmbedding(own)
-    expect(addressedProjectShutOut(db, PROJECT, noResidual(), [{ id: foreign }])).toBe(true)
+    expect(addressedProjectShutOut(db, PROJECT, noResidual(db), [{ id: foreign }])).toBe(true)
   })
 
   itVec('an empty delivered list probes the project through the residual', db => {
@@ -156,7 +158,7 @@ describe('addressedProjectShutOut keeps its delivered-ids short-circuit', () => 
     })
     seedEmbedding(archived)
 
-    expect(addressedProjectShutOut(db, PROJECT, activeOnly(), [])).toBe(false)
-    expect(addressedProjectShutOut(db, PROJECT, noResidual(), [])).toBe(true)
+    expect(addressedProjectShutOut(db, PROJECT, activeOnly(db), [])).toBe(false)
+    expect(addressedProjectShutOut(db, PROJECT, noResidual(db), [])).toBe(true)
   })
 })
