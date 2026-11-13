@@ -1,5 +1,6 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import { ValidationError } from '../errors'
+import { computeContentHash } from '../utils'
 
 export interface Project {
   id: string
@@ -55,16 +56,86 @@ export function deleteProject(db: Database, id: string): boolean {
   }
 
   const run = db.transaction(() => {
-    if (defaultProjectId) {
-      db.prepare(`UPDATE thoughts SET project_id = ? WHERE project_id = ?`).run(
-        defaultProjectId,
-        id
-      )
-    }
+    if (defaultProjectId) moveThoughtsToProject(db, id, defaultProjectId)
     const result = db.prepare(`DELETE FROM projects WHERE id = ?`).run(id)
     return result.changes > 0
   })
   return run()
+}
+
+interface MovingThought {
+  id: string
+  content: string
+  status: string
+  created_at: string
+}
+
+interface HashedThought {
+  id: string
+  created_at: string
+  hash: string
+}
+
+function moveThoughtsToProject(db: Database, fromId: string, toId: string): void {
+  const moved = (
+    db
+      .prepare(`SELECT id, content, status, created_at FROM thoughts WHERE project_id = ?`)
+      .all(fromId) as MovingThought[]
+  ).map(row => ({
+    id: row.id,
+    status: row.status,
+    created_at: row.created_at,
+    hash: computeContentHash(row.content, toId)
+  }))
+
+  if (moved.length === 0) return
+  archiveContentCollisions(
+    db,
+    toId,
+    moved.filter(thought => thought.status === 'draft' || thought.status === 'active')
+  )
+
+  const move = db.prepare(`UPDATE thoughts SET project_id = ?, content_hash = ? WHERE id = ?`)
+  for (const thought of moved) move.run(toId, thought.hash, thought.id)
+}
+
+// v046's rule for the merge: the oldest live row per content survives, later ones are archived.
+// The pass runs before the hashes are written, because they collide only once recomputed.
+function archiveContentCollisions(db: Database, toId: string, moved: HashedThought[]): void {
+  const groups = new Map<string, HashedThought[]>()
+  const settled = (
+    db
+      .prepare(
+        `SELECT id, content, created_at FROM thoughts
+         WHERE project_id = ? AND status IN ('draft', 'active')`
+      )
+      .all(toId) as Array<{ id: string; content: string; created_at: string }>
+  ).map(row => ({
+    id: row.id,
+    created_at: row.created_at,
+    hash: computeContentHash(row.content, toId)
+  }))
+
+  for (const thought of [...settled, ...moved]) {
+    const group = groups.get(thought.hash)
+    if (group) group.push(thought)
+    else groups.set(thought.hash, [thought])
+  }
+
+  const now = new Date().toISOString()
+  const archive = db.prepare(
+    `UPDATE thoughts SET status = 'archived', archived_at = ?, updated_at = ?, is_protected = 0 WHERE id = ?`
+  )
+  for (const group of groups.values()) {
+    if (group.length < 2) continue
+    for (const duplicate of group.sort(oldestFirst).slice(1)) archive.run(now, now, duplicate.id)
+  }
+}
+
+function oldestFirst(a: HashedThought, b: HashedThought): number {
+  if (a.created_at !== b.created_at) return a.created_at < b.created_at ? -1 : 1
+  if (a.id === b.id) return 0
+  return a.id < b.id ? -1 : 1
 }
 
 export function isDefaultProject(db: Database, id: string): boolean {
