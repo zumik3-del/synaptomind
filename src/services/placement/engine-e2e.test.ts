@@ -1,22 +1,3 @@
-/**
- * Core behavioral tests for the deterministic propose-only placement engine
- * (`engine.ts`, ADR 2026-09-28 / task #950/#951).
- *
- * Per the ADR 2026-09-28 handoff:
- *  - All tests run on a fresh `:memory:` DB (`createTestDb`) with stubbed
- *    `embed` / `searchNeighbors` deps, so the vec0 extension is **not** required
- *    and no real huggingface process is spawned. This mirrors the convention in
- *    `placement.test.ts` (task #947). A real-vec0 / `withVecDb` integration
- *    test is deliberately deferred because the contract is already covered by
- *    the stubbed path; the vector leg is exercised implicitly by the embedder
- *    and search unit suites.
- *  - `proposePlacementPlan(input, options, deps, d)` assembles a read-only
- *    {@link PlacementPlan}. Lifecycle precedence: replaces+archive > merge >
- *    link > keep. Degraded on embedder failure (never throws). Existing-edge
- *    pairs excluded. Edges stable-sorted (confidence desc, target_id asc).
- *    Merge target tiebreak: overlap desc then id asc.
- */
-
 import { beforeEach, afterEach, describe, expect, test } from 'bun:test'
 import { closeDb, getDb } from '../../db'
 import { createTestDb, seedEdge, seedThought } from '../../test/helpers'
@@ -25,16 +6,11 @@ import { proposePlacementPlan } from './engine'
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-// ── time constants ────────────────────────────────────────────────────────────
-
 const NOW = '2026-01-01T00:00:00.000Z'
 const T0 = '2025-01-01T00:00:00.000Z'
 const T1 = '2025-02-01T00:00:00.000Z'
 const T2 = '2025-03-01T00:00:00.000Z'
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-/** Deterministic embed stub: one zero vector per candidate text. */
 function okEmbed(record?: number[]): (texts: string[]) => Promise<Float32Array[]> {
   return async texts => {
     record?.push(texts.length)
@@ -42,16 +18,9 @@ function okEmbed(record?: number[]): (texts: string[]) => Promise<Float32Array[]
   }
 }
 
-/**
- * `searchNeighbors` stub keyed by thought id. Unknown ids get no neighbours.
- * Seeded neighbours must exist in the pool (active, same-project, non-cluster)
- * or they are dropped by `findEmbeddingNeighborPairs`.
- */
 function stubSearch(map: Record<string, Array<{ id: string; similarity: number }>>) {
   return (_id: string, _emb: Float32Array, _topK: number) => map[_id] ?? []
 }
-
-// ── end-to-end branches ───────────────────────────────────────────────────────
 
 describe('proposePlacementPlan', () => {
   describe('end-to-end branches on createTestDb()', () => {
@@ -116,7 +85,7 @@ describe('proposePlacementPlan', () => {
       expect(p.edges).toEqual([])
       expect(p.placement).toBeNull()
       expect(p.lifecycle.action).toBe('merge')
-      expect(p.lifecycle.confidence).toBeCloseTo(0.8) // jaccard(4/5)
+      expect(p.lifecycle.confidence).toBeCloseTo(0.8)
       expect(p.lifecycle.blocked_by).toEqual([])
       expect(p.lifecycle.rationale).toContain('near-duplicate')
     })
@@ -151,8 +120,6 @@ describe('proposePlacementPlan', () => {
       expect(p.edges[0].signals.targetStatus).toBe('active')
       expect(p.edges[0].signals.lexicalOverlap).toBeCloseTo(5 / 6, 2)
       expect(p.lifecycle.rationale).toContain('archive the older target')
-      // The lexical overlap (5/6 ≈ 0.83) also qualifies a merge target, but
-      // replaces+archive takes precedence over merge (lifecycle ordering).
       expect(p.lifecycle.action).not.toBe('merge')
     })
 
@@ -187,8 +154,6 @@ describe('proposePlacementPlan', () => {
     })
   })
 
-  // ── lifecycle precedence ─────────────────────────────────────────────────
-
   describe('lifecycle precedence (replaces+archive > merge > link > keep)', () => {
     test('merge takes precedence over link when a near-dup and a related edge coexist', async () => {
       const db = getDb()
@@ -207,15 +172,12 @@ describe('proposePlacementPlan', () => {
         },
         db
       )
-      // Related edge exists (sim 0.95 ≥ minSimilarity), but merge fires first.
       expect(p.edges).toHaveLength(1)
       expect(p.edges[0].type).toBe('related')
       expect(p.lifecycle.action).toBe('merge')
       expect(p.lifecycle.rationale).toContain('near-duplicate')
     })
   })
-
-  // ── blocked_by ───────────────────────────────────────────────────────────
 
   describe('blocked_by for non-confirmable moves', () => {
     test('merge blocks when source is archived', async () => {
@@ -226,7 +188,6 @@ describe('proposePlacementPlan', () => {
         created_at: T0,
         status: 'archived'
       })
-      // Merge target seeded by content only; its id is not needed by the test.
       seedThought({ id: 'mb-tgt', content: 'alpha beta gamma delta epsilon', created_at: T1 })
       const p = await proposePlacementPlan(
         { thoughtId: src },
@@ -256,30 +217,20 @@ describe('proposePlacementPlan', () => {
         },
         db
       )
-      // Option (b): the newer source survives, so its own status is not a
-      // blocker; the archive candidate is the active older target.
       expect(p.lifecycle.action).toBe('replaces+archive')
       expect(p.lifecycle.blocked_by).toEqual([])
     })
   })
 
-  // ── regression: lifecycle under maxProposals cap (#952, verified #955) ───
-
   describe('regression: lifecycle under maxProposals cap (#952, fix #955)', () => {
     test('replaces+archive is preserved when the supersede edge sorts past the cap', async () => {
       const db = getDb()
-      // Source is newer (T1) with an evolution cue ("now") and high Jaccard
-      // overlap (5/6 ≈ 0.83) with the old target → supersede rule fires.
-      // Embedding sim for the supersede pair is 0.80, giving confidence
-      // ≈ (0.83 + 0.80) / 2 ≈ 0.82.
       seedThought({
         id: 'rc-src',
         content: 'now postgres for storage persists data',
         created_at: T1
       })
       seedThought({ id: 'rc-old', content: 'postgres for storage persists data', created_at: T0 })
-      // Three related neighbours with neutral content (no typed cues) and
-      // embedding similarities that rank above the supersede edge.
       seedThought({ id: 'rc-a', content: 'unrelated topic alpha', created_at: T0 })
       seedThought({ id: 'rc-b', content: 'unrelated topic beta', created_at: T0 })
       seedThought({ id: 'rc-c', content: 'unrelated topic gamma', created_at: T0 })
@@ -301,18 +252,11 @@ describe('proposePlacementPlan', () => {
         db
       )
 
-      // Only the two highest-confidence related edges survive the cap.
       expect(p.edges).toHaveLength(2)
       expect(p.edges.map(e => e.target_id)).toEqual(['rc-a', 'rc-b'])
-      // The supersede edge (conf ≈ 0.82) sorted past the cap and is absent
-      // from the emitted list.
       expect(p.edges.every(e => e.rule_id !== 'supersede.newer_replaces_older')).toBe(true)
-      // But the lifecycle still correctly reflects replaces+archive because
-      // the replace-edge probe runs on the uncapped list (fix #955).
       expect(p.lifecycle.action).toBe('replaces+archive')
       expect(p.lifecycle.blocked_by).toEqual([])
-      // Without the #955 fix the lifecycle would have been 'link' (derived
-      // from the capped edges) — assert it is NOT.
       expect(p.lifecycle.action).not.toBe('link')
     })
   })

@@ -5,11 +5,6 @@ import { assertNoLiveContentConflict, isContentDedupeViolation } from './content
 import { ThoughtContentConflictError } from './errors'
 import { closeDb } from './init'
 
-// The two halves of the content-dedupe write guard (#2174 review finding). The
-// invariant itself is enforced by the partial unique index
-// `idx_thoughts_content_dedupe`; these helpers make an edit that would break it
-// read as a domain conflict instead of a raw `UNIQUE constraint failed` 500.
-
 beforeEach(createTestDb)
 afterEach(closeDb)
 
@@ -70,7 +65,6 @@ describe('assertNoLiveContentConflict', () => {
     const db = getDb()
     seedWithHash('shared', 'p1', 'active')
     const target = seedWithHash('mine', 'p1', 'draft')
-    // Archiving releases the slot, so the guard must not fire for it.
     expect(() =>
       assertNoLiveContentConflict(db, target, hash('shared', 'p1'), 'p1', 'archived')
     ).not.toThrow()
@@ -92,7 +86,6 @@ describe('isContentDedupeViolation', () => {
 
     let thrown: unknown
     try {
-      // One statement, two rows, one hash: the SQLite half of the invariant.
       db.prepare(`UPDATE thoughts SET content_hash = ? WHERE id IN (?, ?)`).run(
         hash('collision', 'p1'),
         first,

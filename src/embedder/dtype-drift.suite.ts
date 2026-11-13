@@ -1,47 +1,8 @@
-/**
- * REAL-MODEL drift measurement harness for `embedder.dtype` (fp32 vs q8).
- *
- * Question it answers: if the dtype changes, do the stored embeddings still
- * match freshly computed ones — i.e. is a corpus re-embed mandatory?
- *
- * It is NOT part of `bun test` and deliberately has NO wrapper `.test.ts`:
- * it needs ~590 MB of model files and (for the q8 side) network access, while
- * the default suite must stay offline. The `*.suite.ts` name keeps it out of
- * the project glob; run it by hand, one dtype at a time so only one model is
- * ever resident:
- *
- *   SCR=<scratch dir>            # never ./data/huggingface, never /var/lib/synaptomind
- *   M=Xenova/multilingual-e5-small
- *   # 1. small files are seeded by the operator; ensureModelFiles fetches the
- *   #    dtype's ONNX file (q8 -> onnx/model_quantized.onnx, fp32 -> onnx/model.onnx)
- *   DRIFT_MODE=embed SYNAPTOMIND_EMBEDDER_DTYPE=fp32 \
- *     SYNAPTOMIND_EMBEDDER_CACHE_DIR=$SCR/hf-fp32 DRIFT_OUT=$SCR/out-fp32.json \
- *     bun test ./src/embedder/dtype-drift.suite.ts
- *   DRIFT_MODE=embed SYNAPTOMIND_EMBEDDER_DTYPE=q8 \
- *     SYNAPTOMIND_EMBEDDER_CACHE_DIR=$SCR/hf-q8 DRIFT_OUT=$SCR/out-q8.json \
- *     bun test ./src/embedder/dtype-drift.suite.ts
- *   # 2. pure arithmetic on the two dumps — no model is loaded here
- *   DRIFT_MODE=compare DRIFT_FP32=$SCR/out-fp32.json DRIFT_Q8=$SCR/out-q8.json \
- *     bun test ./src/embedder/dtype-drift.suite.ts
- *
- * Both embedding paths are measured because they answer different questions:
- * `generateEmbedding` (the `query: ` prefix) is what search embeds at query
- * time, and `generateEmbeddings` (the `passage: ` prefix) is what
- * the corpus was embedded with a passage prefix, so this path measures whether
- * a dtype switch changes stored-vector compatibility. Both paths are
- * driven through `./model`, i.e. the same `pipeline()` options (mean pooling,
- * normalize) the embedder child process uses; only the process is separate.
- */
 import { expect, test } from 'bun:test'
 import { readFile, writeFile } from 'node:fs/promises'
 import { config } from '../config'
 import { ensureModelFiles } from './model-validator'
 
-/**
- * 16 thought-like texts: Russian and English, single words to full paragraphs,
- * with punctuation, digits and an emoji. Deliberately mixed — the drift number
- * of interest is the worst case across realistic corpus content, not the best.
- */
 const SAMPLES: string[] = [
   'Decided to keep exactly one model copy resident: a single embedding model costs 300-400 MB of RSS.',
   'The q8 quantized ONNX file is roughly a quarter of the fp32 size, which matters on a 1 GB host.',
@@ -80,15 +41,10 @@ type Path = 'query' | 'passage'
 
 const PATHS: Path[] = ['query', 'passage']
 
-/**
- * One mode per process: `embed` (loads a model) and `compare` (pure arithmetic)
- * are kept apart so the harness never holds two precisions at once.
- */
 const MODE = process.env.DRIFT_MODE ?? 'embed'
 
 const round7 = (v: Float32Array): number[] => Array.from(v, x => Math.round(x * 1e7) / 1e7)
 
-/** 1 - cosine similarity; both inputs are L2-normalized but the norms are used anyway. */
 function cosineDistance(a: number[], b: number[]): number {
   let dot = 0
   let na = 0
@@ -141,14 +97,11 @@ test.skipIf(MODE !== 'embed')(
     const onnxFile = dtype === 'q8' ? 'onnx/model_quantized.onnx' : 'onnx/model.onnx'
     console.log(`[drift] embed dtype=${dtype} model=${model} cacheDir=${cacheDir}`)
 
-    // The real startup path: validate, repair, fetch the dtype's ONNX file.
     await ensureModelFiles(cacheDir, model, dtype)
 
     const onnxPath = `${cacheDir}/${model}/${onnxFile}`
     expect(await Bun.file(onnxPath).exists()).toBe(true)
 
-    // The dtype switch only pays off if the OTHER precision is never materialised:
-    // a q8 run that leaves an fp32 file behind downloaded 449 MB it must not have.
     if (dtype === 'q8') {
       expect(await Bun.file(`${cacheDir}/${model}/onnx/model.onnx`).exists()).toBe(false)
     }
@@ -190,7 +143,6 @@ test.skipIf(MODE !== 'compare')(
     for (let i = 0; i < SAMPLES.length; i++) {
       const a = fp32.samples[i]
       const b = q8.samples[i]
-      // Positional pairing is only meaningful for the same text.
       expect(a.text).toBe(b.text)
 
       const perText: string[] = []
@@ -202,7 +154,6 @@ test.skipIf(MODE !== 'compare')(
       console.log(`[drift] ${String(i).padStart(2)} ${perText.join(' ')}  ${a.text.slice(0, 40)}`)
     }
 
-    // Test-only provisional bound; not recalibrated after verifier retirement.
     const dtypeDistanceBound = 0.25
     const vectorFloor = config.search.confidence.vectorFloor
     console.log(`[drift] fp32 onnx=${fp32.onnxFile} q8 onnx=${q8.onnxFile} dims=${fp32.dimensions}`)
@@ -230,8 +181,6 @@ test.skipIf(MODE !== 'compare')(
       expect(worstSimilarity).toBeGreaterThan(vectorFloor)
     }
 
-    // Reference scale: how far apart two DIFFERENT thoughts sit in one and the
-    // same dtype. Quantization noise only matters if it is comparable to this.
     const crossText: number[] = []
     for (let i = 0; i < fp32.samples.length; i++) {
       for (let j = i + 1; j < fp32.samples.length; j++) {

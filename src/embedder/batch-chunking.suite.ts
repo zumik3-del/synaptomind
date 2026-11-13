@@ -1,16 +1,3 @@
-/**
- * IPC-boundary chunking suite for `EmbedderClient.generateEmbeddings`
- * (task #1567, AC9).
- *
- * The spy sits exactly on the IPC boundary: `ensureReady` (embedder lifecycle)
- * and `sendRequest` (the `embed_batch` JSON-RPC frame) are replaced on the
- * instance, so the assertions observe what would have crossed the pipe to the
- * child process — no real embedder, no subprocess, no model download.
- *
- * Runs in a child process (wrapper: `batch-chunking.test.ts`): other test files
- * mock.module('../embedder/client') globally and bun cannot unmock modules, so
- * this suite must not share a module registry with them.
- */
 import { afterEach, expect, test } from 'bun:test'
 import { EMBEDDER_BATCH_CHUNK, EmbedderClient } from './embedder-client'
 
@@ -23,17 +10,11 @@ const spiedClients: EmbedderClient[] = []
 
 afterEach(() => {
   for (const client of spiedClients.splice(0)) {
-    // Own-property shadows installed below; deleting them restores the prototype.
     delete (client as unknown as Record<string, unknown>).ensureReady
     delete (client as unknown as Record<string, unknown>).sendRequest
   }
 })
 
-/**
- * Fresh client whose two internals around the IPC boundary are stubbed.
- * `calls` records every `embed_batch` frame; the stub echoes each text as
- * `Float32Array([Number(text)])` so a vector identifies its own input text.
- */
 function clientWithIpcSpy(): {
   client: EmbedderClient
   calls: IpcCall[]
@@ -68,23 +49,18 @@ test('splits a batch larger than the chunk into ceil(N/chunk) IPC requests', asy
 
   const embeddings = await client.generateEmbeddings(texts)
 
-  // The regression pin: pre-change the whole list travelled in ONE request.
   expect(calls).toHaveLength(3)
   const sizes = calls.map(c => c.texts.length)
   const chunk = Math.max(...sizes)
   expect(chunk).toBeLessThanOrEqual(EMBEDDER_BATCH_CHUNK)
   expect(calls).toHaveLength(Math.ceil(texts.length / chunk))
-  // No single request may carry more than one chunk.
   expect(sizes.every(size => size <= chunk)).toBe(true)
-  // Only the tail may be short.
   expect(sizes.slice(0, -1).every(size => size === chunk)).toBe(true)
   expect(calls.every(c => c.method === 'embed_batch')).toBe(true)
 
-  // Every input text crossed the boundary exactly once, in input order.
   const sent = calls.flatMap(c => c.texts)
   expect(sent).toEqual(texts)
 
-  // One vector per text, positionally aligned with the input.
   expect(embeddings).toHaveLength(texts.length)
   embeddings.forEach((vector, i) => {
     expect(vector).toBeInstanceOf(Float32Array)

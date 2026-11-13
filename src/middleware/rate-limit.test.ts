@@ -3,8 +3,6 @@ import { Hono } from 'hono'
 import { config } from '../config'
 import { createRateLimitMiddleware } from './rate-limit'
 
-// rate-limit.ts captures the max in a module constant at import time — read it
-// from the same config object here instead of hard-coding 200.
 const MAX = config.rateLimit.max
 
 // Mirrors the private MAX_TRACKED_KEYS constant in rate-limit.ts; the store is
@@ -34,8 +32,6 @@ function envFor(ip: string): {
 }
 
 describe('rateLimitMiddleware', () => {
-  // Every test builds its own middleware instance, so no counter can leak
-  // between tests and none depends on another test running first.
   test(`allows ${MAX} requests per window from one IP, then 429s`, async () => {
     const app = appWithMiddleware()
     const ip = '1.2.3.4'
@@ -75,7 +71,6 @@ describe('rateLimitMiddleware', () => {
     }
     expect((await app.request('/x', undefined, exhaustedEnv)).status).toBe(429)
 
-    // A spoofed header must not borrow the exhausted client's bucket.
     const res = await app.request(
       '/x',
       { headers: { 'x-forwarded-for': exhausted } },
@@ -92,7 +87,6 @@ describe('createRateLimitMiddleware — per-instance isolation', () => {
     const appB = appFor(createRateLimitMiddleware())
     const env = envFor('198.18.0.1')
 
-    // Exhaust instance A's quota for this peer.
     for (let i = 0; i < MAX; i++) {
       const res = await appA.request('/x', undefined, env)
       if (res.status !== 200) {
@@ -101,7 +95,6 @@ describe('createRateLimitMiddleware — per-instance isolation', () => {
     }
     expect((await appA.request('/x', undefined, env)).status).toBe(429)
 
-    // Instance B must still have its full quota for the same peer IP.
     const allowed = await appB.request('/x', undefined, env)
     expect(allowed.status).toBe(200)
     expect(await allowed.text()).toBe('ok')
@@ -114,7 +107,6 @@ describe('createRateLimitMiddleware — bounded store', () => {
     const oldest = '203.0.113.1'
     const oldestEnv = envFor(oldest)
 
-    // Exhaust the first key; the store now holds exactly one entry.
     for (let i = 0; i < MAX; i++) {
       const res = await app.request('/x', undefined, oldestEnv)
       if (res.status !== 200) {
@@ -123,7 +115,6 @@ describe('createRateLimitMiddleware — bounded store', () => {
     }
     expect((await app.request('/x', undefined, oldestEnv)).status).toBe(429)
 
-    // Fill the store to the cap with distinct peers (unique 198.51.x.y addresses).
     const filler = (i: number) => `198.51.${Math.floor(i / 250)}.${i % 250}`
     for (let i = 0; i < CAP - 1; i++) {
       const res = await app.request('/x', undefined, envFor(filler(i)))
@@ -132,7 +123,6 @@ describe('createRateLimitMiddleware — bounded store', () => {
       }
     }
 
-    // Exhaust the most recently inserted key too, so eviction order is observable.
     const newest = filler(CAP - 2)
     const newestEnv = envFor(newest)
     for (let i = 1; i < MAX; i++) {
@@ -143,12 +133,9 @@ describe('createRateLimitMiddleware — bounded store', () => {
     }
     expect((await app.request('/x', undefined, newestEnv)).status).toBe(429)
 
-    // One more distinct peer exceeds the cap and evicts the oldest entry.
     expect((await app.request('/x', undefined, envFor('203.0.113.2'))).status).toBe(200)
 
-    // The oldest key was dropped and starts with a fresh quota ...
     expect((await app.request('/x', undefined, oldestEnv)).status).toBe(200)
-    // ... while the newest, still-tracked key remains exhausted (FIFO, not LIFO).
     expect((await app.request('/x', undefined, newestEnv)).status).toBe(429)
   })
 })
@@ -158,7 +145,6 @@ describe('createRateLimitMiddleware — sweeper', () => {
     jest.useFakeTimers()
     const originalDelete = Map.prototype.delete
     const swept: string[] = []
-    // White-box probe: the store is private, so observe its deletions directly.
     Map.prototype.delete = function (key: unknown): boolean {
       if (typeof key === 'string' && key.startsWith('sweep-')) swept.push(key)
       return originalDelete.call(this, key)
@@ -169,7 +155,6 @@ describe('createRateLimitMiddleware — sweeper', () => {
       await app.request('/x', undefined, envFor('sweep-b'))
       expect(swept).toEqual([])
 
-      // Ticks land at +60s (== resetAt, strict `>` means no delete) and +120s.
       jest.advanceTimersByTime(120_000)
       expect(swept.sort()).toEqual(['sweep-a', 'sweep-b'])
     } finally {

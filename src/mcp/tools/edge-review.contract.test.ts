@@ -1,13 +1,3 @@
-/**
- * Contract tests for the R5 MCP surface (task #978, epic #964).
- *
- * Covers `edge_review` actions (`enqueue`/`list`/`apply`/`apply_batch`/`reject`):
- * valid, missing param, unknown id, error envelopes, draft guard, read-only
- * list, and a static assertion that
- * no read handler in review.ts reaches `applyProposalService` / `applyBatchService`.
- *
- * The embedder is mocked so `enqueue`'s happy path runs end-to-end.
- */
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { Client } from '@modelcontextprotocol/client'
@@ -47,13 +37,10 @@ function parseResult(result: unknown): { data: any; isError: boolean; text: stri
   let parsed: unknown = text
   try {
     parsed = JSON.parse(text)
-  } catch {
-    /* keep text */
-  }
+  } catch {}
   return { data: parsed, isError: r.isError === true, text }
 }
 
-/** Insert a pending edge proposal with a real fingerprint (from current graph snapshot). */
 function insertPendingEdge(src: string, tgt: string): PlacementProposalRow {
   const db = getDb()
   const source = getThoughtRow(db, src)
@@ -82,11 +69,6 @@ function insertPendingEdge(src: string, tgt: string): PlacementProposalRow {
   })
 }
 
-/**
- * Insert a stored row of a kind the queue no longer creates (task #1946), as an
- * install upgraded from an older version still holds it: `pending`, no target
- * resolution path — the queue only has to keep it readable.
- */
 function insertRetiredRow(
   id: string,
   itemKind: 'triage_activate' | 'triage_archive',
@@ -118,8 +100,6 @@ beforeAll(async () => {
   client = await setupClient()
 })
 
-// ── enqueue ────────────────────────────────────────────────────────────────────
-
 describe('edge_review enqueue', () => {
   test('valid thought_id → success, returns the enqueue outcome (possibly empty if engine degrades)', async () => {
     const src = seedThought({ content: 'enqueue valid subject marker' })
@@ -131,8 +111,6 @@ describe('edge_review enqueue', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    // Task #1942: the response reports the queued rows plus the skipped count;
-    // task #2181 wraps it in the shared envelope and mirrors the counts in meta.
     expect(data.meta.action).toBe('enqueue')
     const outcome = data.item as {
       proposals: unknown[]
@@ -199,8 +177,6 @@ describe('edge_review enqueue', () => {
   })
 })
 
-// ── list ───────────────────────────────────────────────────────────────────────
-
 describe('edge_review list', () => {
   test('returns an object; seeded pending rows appear', async () => {
     const src = seedThought({ content: 'list-read-only source' })
@@ -240,9 +216,6 @@ describe('edge_review list', () => {
   })
 
   test('list clamps nothing: a limit outside 1..1000 is rejected', async () => {
-    // `proposalsLimitSchema` (src/validation.ts) is the shared page bound; the
-    // HTTP `GET /api/proposals` contract test that pinned it died with the route
-    // (ADR 2026-10-26), so the bound is pinned at the MCP action that uses it.
     for (const limit of [0, 1001]) {
       const { data, isError } = parseResult(
         await client.callTool({ name: 'edge_review', arguments: { action: 'list', limit } })
@@ -263,7 +236,6 @@ describe('edge_review list', () => {
     const tgt = seedThought({ content: 'list-filter target' })
     const row = insertPendingEdge(src, tgt)
 
-    // Reject one so it becomes terminal.
     await client.callTool({
       name: 'edge_review',
       arguments: { action: 'reject', proposal_id: row.id }
@@ -281,8 +253,6 @@ describe('edge_review list', () => {
   })
 })
 
-// ── apply ──────────────────────────────────────────────────────────────────────
-
 describe('edge_review apply', () => {
   test('dry-run (no confirm) → returns dry_run status, no mutation', async () => {
     const db = getDb()
@@ -298,7 +268,6 @@ describe('edge_review apply', () => {
     expect(isError).toBe(false)
     expect(data.item.status).toBe('dry_run')
     expect(Array.isArray(data.item.calls)).toBe(true)
-    // The preview gate mirrors the token (task #2181).
     expect(data.meta.preview).toMatchObject({ token: data.item.preview_token, destructive: true })
     expect(propState(db, row.id)).toBe('pending')
   })
@@ -346,8 +315,6 @@ describe('edge_review apply', () => {
   })
 })
 
-// ── apply_batch ────────────────────────────────────────────────────────────────
-
 describe('edge_review apply_batch', () => {
   test('applies multiple proposals independently, returns results and errors', async () => {
     const s1 = seedThought({ content: 'batch-1 source' })
@@ -366,7 +333,6 @@ describe('edge_review apply_batch', () => {
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
-    // One row per proposal, with per-proposal errors folded in as failed rows.
     expect(Array.isArray(data.items)).toBe(true)
     const missing = data.items.filter(
       (row: { proposal_id: string; status: string }) => row.proposal_id === 'missing-id'
@@ -396,8 +362,6 @@ describe('edge_review apply_batch', () => {
     expect(isError).toBe(true)
   })
 })
-
-// ── reject ─────────────────────────────────────────────────────────────────────
 
 describe('edge_review reject', () => {
   test('pending → rejected; returns state and decided_by', async () => {
@@ -457,8 +421,6 @@ describe('edge_review reject', () => {
   })
 })
 
-// ── stored triage_* rows (task #1962) ─────────────────────────────────────────
-
 describe('edge_review: stored triage_* rows from an older install', () => {
   test('a stored triage_activate row stays listable', async () => {
     const src = seedThought({ content: 'retired triage list source' })
@@ -502,12 +464,9 @@ describe('edge_review: stored triage_* rows from an older install', () => {
     expect(data.item.status).toBe('refused')
     expect(data.item.refusal.code).toBe('unsupported_item_kind')
     expect(data.item.refusal.reason).toContain('triage_archive')
-    // A refused row was never decided.
     expect(propState(getDb(), 'retired-apply-archive')).toBe('pending')
   })
 })
-
-// ── static assertion: no read handler reaches apply ───────────────────────────
 
 describe('static: no read handler in the review modules calls apply* functions', () => {
   const REVIEW_PATH = join(import.meta.dir, 'review.ts')
@@ -516,7 +475,6 @@ describe('static: no read handler in the review modules calls apply* functions',
   const APPLY_SOURCE = readFileSync(APPLY_PATH, 'utf8')
 
   test('list handler does not reference applyProposalService or applyBatchService', () => {
-    // Extract the list handler block.
     const listMatch = SOURCE.match(/list:\s*\{[\s\S]*?\n\s*\}/)
     expect(listMatch).not.toBeNull()
     const listBlock = listMatch![0]

@@ -1,14 +1,3 @@
-// Minimal stand-in for embedder-process.ts, used by client.test.ts via the
-// SYNAPTOMIND_EMBEDDER_SCRIPT override. Speaks the same Bun IPC protocol
-// (process.send / process.on('message')) as the real subprocess but imports
-// nothing from the app — no db, no config, no model.
-//
-// Reply contract:
-//   request embed, text '__fail__'      → { type: 'error', error: 'stub failure' }
-//   request embed, text T               → { type: 'result', embedding: [T.length, 1, 2] }
-//   request embed_batch, texts [T...]   → { type: 'result', embedding: [[...]...] }
-//   request <unknown method>            → { type: 'error', error: 'stub: unknown method …' }
-//   shutdown                            → exit 0
 process.send?.({ type: 'ready' })
 
 process.on('message', (raw: unknown) => {

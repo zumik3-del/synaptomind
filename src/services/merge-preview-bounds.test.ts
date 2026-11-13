@@ -23,6 +23,5 @@ test('bounded merge preview retrieves an ordered SQL-limited edge page and full 
   expect(preview.source.edges).toHaveLength(limit)
   expect(preview.sourceEdgeCount).toBe(160)
 
-  // The HTTP caller intentionally retains its existing unbounded preview contract.
   expect(getMergePreviewService(source, target, getDb())?.source.edges).toHaveLength(160)
 })

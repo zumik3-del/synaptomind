@@ -6,17 +6,6 @@ import { join } from 'node:path'
 import { vec0Path } from '../runtime-mode'
 import { closeDb, initDb } from './init'
 
-// Regression coverage for audit H1 / #1751: a crash between migration.apply and
-// the schema_version stamp must roll the whole migration back. Without the
-// transaction, v036's non-idempotent `ALTER TABLE thoughts ADD COLUMN archived_at`
-// commits first, the stamp fails, and the next boot dies with
-// "duplicate column name: archived_at".
-//
-// The crash is injected where a process death would land: the body of the
-// migration has run, the stamp has not. A `_meta` trigger makes the
-// `schema_version = 36` write fail, so apply() runs for real and only the stamp
-// is lost — the exact H1 state.
-
 const tmpRoot = mkdtempSync(join(tmpdir(), 'synaptomind-migration-atomicity-'))
 const dbPath = join(tmpRoot, 'test.db')
 
@@ -55,7 +44,6 @@ function thoughtColumns(): string[] {
   )
 }
 
-// Fails any `schema_version = 36` stamp (the H1 write) while leaving 35 and 37+ alone.
 function installStampFailureTrigger(): void {
   openRaw(db => {
     db.exec(
@@ -78,11 +66,6 @@ function dropStampFailureTrigger(): void {
   })
 }
 
-/**
- * Rewind a fully migrated DB to the v035 shape by dropping everything v036..v042
- * introduced, so replaying those migrations is the real v35 -> v42 upgrade path.
- * `schema_version` stays 35 — exactly what a crash at v036 must recover from.
- */
 function rewindToV35(): void {
   openRaw(db => {
     // v048's move trigger names `NEW.is_global`, so it has to go before the
@@ -108,7 +91,6 @@ function rewindToV35(): void {
 }
 
 test('a crash after v036 apply but before its stamp rolls back; the next boot replays cleanly (#1751)', () => {
-  // Build a real schema, then rewind it to v035.
   initDb({ dbPath, runMigrations: true })
   expect(schemaVersion()).toBe('48')
   closeDb()
@@ -117,15 +99,11 @@ test('a crash after v036 apply but before its stamp rolls back; the next boot re
   expect(schemaVersion()).toBe('35')
   expect(thoughtColumns()).not.toContain('archived_at')
 
-  // v036's non-idempotent ALTER runs; the stamp then fails mid-migration.
   expect(() => initDb({ dbPath, runMigrations: true })).toThrow('simulated stamp failure')
 
-  // Rolled back: the half-applied ALTER did not survive and the version stayed 35.
   expect(schemaVersion()).toBe('35')
   expect(thoughtColumns()).not.toContain('archived_at')
 
-  // The next boot replays v035 -> v042: without the rollback this is where
-  // v036 would throw "duplicate column name: archived_at" and block startup.
   dropStampFailureTrigger()
   initDb({ dbPath, runMigrations: true })
   expect(schemaVersion()).toBe('48')

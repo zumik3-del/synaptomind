@@ -57,7 +57,6 @@ describe('annotateGraphStanding', () => {
     const a = seedThought({ content: 'old and contested' })
     const b = seedThought({ content: 'replacement' })
     const c = seedThought({ content: 'rival claim' })
-    // b replaces a; a contradicts c (different pairs, so both edges coexist)
     createEdge(getDb(), b, a, 'replaces')
     createEdge(getDb(), a, c, 'contradicts')
 
@@ -69,7 +68,7 @@ describe('annotateGraphStanding', () => {
 
   test('ignores a corrupt contradicts self-loop row', () => {
     const a = seedThought({ content: 'self conflict' })
-    seedEdge(a, a, 'contradicts') // raw insert bypasses createEdge's self-loop ban
+    seedEdge(a, a, 'contradicts')
     const info = annotateGraphStanding(getDb(), [a]).get(a)!
     expect(info.standing).toBe('current')
     expect(info.contradicted_by).toEqual([])
@@ -95,7 +94,6 @@ describe('annotateGraphStanding', () => {
 
     const map = annotateGraphStanding(counting, ids)
     expect(map.size).toBe(ids.length)
-    // one query for incoming `replaces`, one for `contradicts` (either direction)
     expect(prepareCalls).toBe(2)
   })
 })

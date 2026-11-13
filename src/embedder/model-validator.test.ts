@@ -98,7 +98,6 @@ test('an all-zero ONNX header is corrupt even at sufficient size', async () => {
 
 test('mixed: one missing, one corrupt, two ok', async () => {
   await writeModelFile('config.json', 10) // corrupt
-  // tokenizer.json not written → missing
   await writeModelFile('tokenizer_config.json', CONFIG_BYTES)
   await writeModelFile('onnx/model.onnx', ONNX_BYTES)
 
@@ -109,28 +108,20 @@ test('mixed: one missing, one corrupt, two ok', async () => {
   expect(result.ok).toEqual(['tokenizer_config.json', 'onnx/model.onnx'])
 })
 
-// ── dtype awareness ──────────────────────────────────────────────────────────
 // transformers.js resolves the ONNX file by dtype suffix (fp32 -> '', q8 ->
 // '_quantized'), so the validator must require the file the LOADER will open.
-// The cases below add only what the fp32 table above cannot say: which ONNX
-// path is required, and that the sibling dtype's file is inert — present or
-// not, it never satisfies the requirement and is never reported as broken.
-// A q8 run must never touch `onnx/model.onnx`: that is the 449 MB download the
-// dtype switch exists to avoid.
 
 const DTYPE_ONNX: Array<{ dtype: EmbedderDtype; onnx: string; sibling: string }> = [
   { dtype: 'fp32', onnx: 'onnx/model.onnx', sibling: 'onnx/model_quantized.onnx' },
   { dtype: 'q8', onnx: 'onnx/model_quantized.onnx', sibling: 'onnx/model.onnx' }
 ]
 
-/** The three small files every dtype shares, so only the ONNX path varies. */
 async function writeTokenizerFiles(): Promise<void> {
   await writeModelFile('config.json', CONFIG_BYTES)
   await writeModelFile('tokenizer.json', TOKENIZER_BYTES)
   await writeModelFile('tokenizer_config.json', CONFIG_BYTES)
 }
 
-/** Every path the validator reported, whatever its verdict. */
 const reportedPaths = (result: Awaited<ReturnType<typeof validateModelFiles>>, path: string) =>
   [...result.ok, ...result.missing, ...result.corrupt].includes(path)
 
@@ -153,8 +144,6 @@ describe('validateModelFiles — dtype selects the ONNX file', () => {
 
       const result = await validateModelFiles(cacheDir, MODEL, dtype)
 
-      // The sibling is a real, well-formed file — it just is not the one this
-      // dtype loads, so it neither satisfies the check nor gets blamed.
       expect(result.missing).toEqual([onnx])
       expect(result.corrupt).toEqual([])
       expect(reportedPaths(result, sibling)).toBe(false)
@@ -188,11 +177,6 @@ describe('ensureModelFiles — a q8 fetch never asks for onnx/model.onnx', () =>
   const requestedUrls: string[] = []
   let restoreFetch: (() => void) | null = null
 
-  /**
-   * Replace global fetch for the duration of one test: records every URL and
-   * answers with a plausible non-zero ONNX body, so the repair path completes
-   * without a network call and the requested path is observable.
-   */
   function stubFetch(): void {
     const original = globalThis.fetch
     globalThis.fetch = (async (input: string | URL | Request) => {
@@ -217,8 +201,6 @@ describe('ensureModelFiles — a q8 fetch never asks for onnx/model.onnx', () =>
 
   test('q8 download targets onnx/model_quantized.onnx and leaves a stale fp32 file untouched', async () => {
     await writeTokenizerFiles()
-    // A leftover fp32 file from before the switch: large, valid, and NOT what
-    // q8 loads. It must not be requested, counted, or deleted.
     await writeModelFile('onnx/model.onnx', ONNX_BYTES, 0x42)
     const staleBefore = await readFile(join(cacheDir, MODEL, 'onnx/model.onnx'))
 
@@ -266,14 +248,12 @@ describe('ensureModelFiles — a q8 fetch never asks for onnx/model.onnx', () =>
     ])
     const quantized = Bun.file(join(cacheDir, MODEL, 'onnx/model_quantized.onnx'))
     expect(quantized.size).toBe(ONNX_BYTES)
-    // Replaced by the download, so the zero header is gone.
     expect(
       (await readFile(join(cacheDir, MODEL, 'onnx/model_quantized.onnx'))).subarray(0, 4)
     ).toEqual(Buffer.from([0x61, 0x61, 0x61, 0x61]))
   })
 })
 
-// ── the stale sibling ONNX warning ───────────────────────────────────────────
 // A dtype switch leaves the OTHER dtype's ONNX file in the cache. transformers.js
 // resolves the file from the dtype string alone and never scans `onnx/`, so the
 // sibling is inert — but it can be hundreds of MB on the disk-tight hosts the
@@ -334,9 +314,6 @@ function expectStaleSiblingWarning(
 }
 
 describe('ensureModelFiles — stale sibling ONNX warning', () => {
-  // Both channels are recorded in one log so a test can assert their ORDER. The
-  // warning is swallowed here; the real stderr stream is asserted in the
-  // child-process case at the end of this block.
   let events: string[] = []
   let serveDownloads = false
   let restoreWarn: () => void = () => {}
@@ -483,7 +460,6 @@ describe('ensureModelFiles — stale sibling ONNX warning', () => {
 
     expect(code).toBe(0)
     expect(stdout).toContain('DONE')
-    // The warning line reached stderr, once, with its stable core intact.
     const warned = stderr.split('\n').filter(l => l.startsWith('[embedder]'))
     expect(warned).toHaveLength(1)
     expectStaleSiblingWarning(warned[0], 'onnx/model.onnx', staleBytes, 'q8')

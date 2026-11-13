@@ -3,10 +3,6 @@ import type { Subprocess } from 'bun'
 import { EmbedderSendError, EmbedderTimeoutError } from '../errors'
 import { type IpcClientDeps, IpcClient } from './ipc-client'
 
-// Regression coverage for #1756 (audit M6): the two transient IPC failures the
-// embedder child can produce must reject with typed, retryable errors instead of
-// plain `Error`s, so the MCP layer can classify them (see error-envelope.test.ts).
-
 // The per-request timeout is a module constant (60 s); fake timers let the test
 // reach it without waiting in real time.
 const REQUEST_TIMEOUT_MS = 60_000

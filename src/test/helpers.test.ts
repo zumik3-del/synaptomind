@@ -3,11 +3,6 @@ import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import { createTestDb, seedEdge, seedLegacyPairEdge, seedThought } from './helpers'
 
-// `seedLegacyPairEdge` exists so a suite that models pre-v046 data (the
-// health-check finders detect exactly that state) does not have to weaken the
-// live schema: fixtures keep every production index except the pair invariant
-// under test, instead of reaching for `DROP INDEX` on the shared database.
-
 beforeEach(createTestDb)
 afterEach(closeDb)
 
@@ -41,13 +36,8 @@ test('seedLegacyPairEdge models the pre-v046 shape without dropping any other in
   const second = seedLegacyPairEdge(b, a, 'related')
 
   expect(second).not.toBe(first)
-  // The state v046's repair exists for: two edges on one unordered pair.
   expect(edgeCountBetween(a, b)).toBe(2)
 
-  // Only the invariant under test is gone; the fixture is otherwise the live
-  // schema, so an assertion in the consuming suite cannot pass by accident.
-  // `sqlite_autoindex_*` rows belong to the rebuilt table's own constraint, so
-  // only the named indexes are comparable.
   const named = (names: string[]): string[] =>
     names.filter(name => !name.startsWith('sqlite_autoindex_')).sort()
   const after = indexNames('edges')
@@ -73,7 +63,5 @@ test('seedEdge still enforces one edge per pair on the live schema', () => {
   const b = seedThought({ content: 'live b' })
   seedEdge(a, b, 'related')
 
-  // Negative control for the helper above: on an untouched database the second
-  // edge of a pair is refused by idx_edges_pair.
   expect(() => seedEdge(b, a, 'develops')).toThrow('UNIQUE constraint failed')
 })

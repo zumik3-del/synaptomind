@@ -5,42 +5,14 @@ import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import { seedThought } from '../test/helpers'
 
-/**
- * Task #2469 — pins the demoted orphan sweep of #2468.
- *
- * The sweep lives inside `embedder-process.ts`, a side-effect module: importing
- * it opens a database, validates the model and starts the poll worker. Two
- * things are therefore NOT observable from a normal unit test —
- *   1. the cadence (module-private `SWEEP_INTERVAL_MS`, armed once at boot), and
- *   2. the skip condition (`hasPendingEmbeddings` before the sweep query) —
- * so this suite drives the SHIPPED worker and reads the cadence off the timer
- * seam it arms: `globalThis.setInterval` is intercepted, so both handlers are
- * called on demand and nothing waits on a real interval (the hourly one would
- * otherwise take an hour).
- *
- * It runs in a child bun process (see `embedder-sweep.test.ts`): `mock.module`
- * leaks through `export *`, and this file mocks `../db/init`, `./model`,
- * `./model-validator` and wraps `../db/pending-embeddings`.
- *
- * Excluded from the default `bun test` glob (`*.suite.ts`).
- */
-
-// Long enough that neither captured timer can fire on its own during the suite:
-// every tick below is an explicit call, which is what keeps this fast.
 config.embedder.pollIntervalMs = 600_000
 config.embedder.batchSize = 8
 config.embedder.precache = true
 config.embedder.idleTimeoutMs = 0
 
-// ── real modules, snapshotted before the mocks replace them ──────────────────
 const realInitFns = { ...(await import('../db/init')) }
 const realQueueFns = { ...(await import('../db/pending-embeddings')) }
 
-/**
- * Ordered boot/tick log: one `arm:<ms>` per armed interval and one
- * `sweep-query` per executed `sweepOrphanedThoughts` call. The order is the
- * only way to tell "swept at boot" from "swept by the hourly timer".
- */
 const events: string[] = []
 const intervals: { handler: () => void; ms: number | undefined }[] = []
 const realSetInterval = globalThis.setInterval
@@ -56,9 +28,7 @@ let clock = Date.UTC(2026, 0, 1)
 const realNow = Date.now
 Date.now = () => clock
 
-// ── mocks ────────────────────────────────────────────────────────────────────
 let dbBootstrapped = false
-/** The worker's own `initDb()` lands on an in-memory, migrated test database. */
 function bootstrapDb(): void {
   if (dbBootstrapped) return
   dbBootstrapped = true
@@ -66,7 +36,6 @@ function bootstrapDb(): void {
 }
 mock.module('../db/init', () => ({ ...realInitFns, initDb: bootstrapDb }))
 
-/** Identity marker slot 0 of the vector the stubbed embedder returns. */
 const EMBED_MARKER = 44
 
 function markerVector(): Float32Array {
@@ -94,7 +63,6 @@ mock.module('../db/pending-embeddings', () => ({
   }
 }))
 
-// ── fixture ─────────────────────────────────────────────────────────────────
 bootstrapDb()
 // vec_thoughts is a vec0 virtual table — v002 skips it on `:memory:` databases.
 getDb()
@@ -130,22 +98,16 @@ function clearQueue(): void {
 
 const sweepQueries = (): number => events.filter(event => event === 'sweep-query').length
 
-// ── boot the shipped worker ──────────────────────────────────────────────────
-// Two orphans exist before boot: the sweep's very first tick is then observable
-// in the requeue, not just in the event log.
 const bootOrphan = orphan('boot orphan')
 const archivedOrphan = orphan('archived orphan', 'archived')
 
 await import('./embedder-process')
 
-/** The hourly timer the shipped `startWorker` armed (its ms differs from the poll timer). */
 const sweepTimer = intervals.find(entry => entry.ms !== config.embedder.pollIntervalMs)
-/** One manual sweep tick: the same callback the interval would fire. */
 const sweepTick = (): void => {
   if (!sweepTimer) throw new Error('no sweep timer was armed')
   sweepTimer.handler()
 }
-/** One manual poll tick, clock advanced past the gate `processBatch` checks. */
 function pollTick(): void {
   const poll = intervals.find(entry => entry.ms === config.embedder.pollIntervalMs)
   if (!poll) throw new Error('no poll timer was armed')
@@ -170,16 +132,12 @@ test('the sweep runs at boot and is re-armed hourly, both read off the timer sea
   expect(sweepTimer?.ms).toBe(60 * 60 * 1000)
   expect(events.filter(event => event === 'arm:3600000').length).toBe(1)
 
-  // Boot run: `startWorker` sweeps BEFORE arming the hourly timer, so at this
-  // point the first sweep query has already happened and precedes that arm.
   const bootSweepAt = events.indexOf('sweep-query')
   expect(bootSweepAt).toBeGreaterThanOrEqual(0)
   expect(bootSweepAt).toBeLessThan(events.indexOf('arm:3600000'))
-  // …and it did real work: the non-archived orphan is queued, the archived one is not.
   expect(queueIds()).toContain(bootOrphan)
   expect(queueIds()).not.toContain(archivedOrphan)
 
-  // The armed callback IS the sweep: one explicit tick (empty queue) queries again.
   clearQueue()
   const before = sweepQueries()
   sweepTick()
@@ -187,7 +145,6 @@ test('the sweep runs at boot and is re-armed hourly, both read off the timer sea
 })
 
 test('a tick with retryable queue work performs no sweep query', () => {
-  // Retryable work present: the worker would hand these rows to the embedder.
   getDb()
     .prepare('INSERT OR REPLACE INTO pending_embeddings (thought_id, created_at) VALUES (?, ?)')
     .run(bootOrphan, new Date(clock).toISOString())
@@ -197,8 +154,6 @@ test('a tick with retryable queue work performs no sweep query', () => {
   const requeuesBefore = queueIds().length
   sweepTick()
 
-  // Not a single sweep query: the full anti-join (thoughts × vec_thoughts) is
-  // exactly the cost #2468 removed from the tick that competes with real work.
   expect(sweepQueries()).toBe(before)
   expect(queueIds().length).toBe(requeuesBefore)
 })
@@ -227,8 +182,6 @@ test('an orphaned live thought is picked up by a tick, and an archived one is ne
   expect(queueIds()).toContain(picked)
   expect(queueIds()).not.toContain(dropped)
 
-  // "Eventually": the requeue is what the next batch consumes, so the vector
-  // lands and the queue row goes away — an archived thought reaches neither.
   pollTick()
   await flush()
 

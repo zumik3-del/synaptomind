@@ -4,55 +4,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, expect, mock, test } from 'bun:test'
 
-/**
- * Task #1573 — the batch loop of #1572 driven FOR REAL.
- *
- * `embedder-process.ts` is a side-effect module: importing it runs `initDb()`,
- * validates the model and starts the poll worker. The invariant "only
- * `succeeded` reaches the retire path" (and the skip log / backoff decisions)
- * therefore lives behind that import, and `src/embedder/batch.test.ts` can only
- * mirror the composition. This suite drives the shipped loop instead:
- *
- *  · `../db/init` → `:memory:` database (the worker's own `initDb()` call),
- *  · `./model` + `./model-validator` → no model download, and the embed step is
- *    the deterministic mid-batch edit window,
- *  · `../db/pending-embeddings` → real queue functions with `insertEmbedding`
- *    able to throw (the all-failed leg) and a spy on `deleteEmbeddedFromQueue`
- *    that records the ids the SHIPPED loop passes, then performs the real delete.
- *
- * It runs in a child bun process (see `embedder-batch-loop.test.ts`): bun's
- * `mock.module` leaks through `export *`, and this file mocks four modules.
- *
- * Excluded from the default `bun test` glob (`*.suite.ts`).
- */
-
-// ── environment: `config` is read at import time, so every knob must be set
-// before the first dynamic import ────────────────────────────────────────────
 const scratch = mkdtempSync(join(tmpdir(), 'synaptomind-batch-loop-'))
 const logFile = join(scratch, 'logs.jsonl')
 process.env.SYNAPTOMIND_LOG_FILE = logFile
 process.env.SYNAPTOMIND_LOG_FORMAT = 'json'
-// A 5 ms poll makes "six consecutive batches" observable in milliseconds; the
-// production interval (7 s) would make this suite take minutes.
 process.env.SYNAPTOMIND_EMBEDDER_POLL_INTERVAL = '5'
-// Precache mode keeps the worker resident and skips the idle-unload timer.
 process.env.SYNAPTOMIND_EMBEDDER_PRECACHE = 'true'
 process.env.SYNAPTOMIND_EMBEDDER_BATCH_SIZE = '8'
-// Safety net: if the `../db/init` mock below ever fails to apply, the worker
-// opens THIS throwaway file instead of a real database path.
 process.env.SYNAPTOMIND_DB_PATH = join(scratch, 'never-used.db')
-// Pinned rather than inherited: the dtype the shipped process forwards to
-// `ensureModelFiles` is asserted below, and an ambient override would make that
-// assertion depend on the caller's shell.
-//
-// Deliberately NOT the default (`q8`): a dtype equal to the default cannot tell
-// `config.embedder.dtype` apart from a hardcoded literal `'q8'` at
-// `embedder-process.ts:234`, so the assertion below stayed green against that
-// mutation (review #1588 finding 3). Driving `fp32` makes the literal and the
-// config value differ, so a literal at the call site fails the suite.
 process.env.SYNAPTOMIND_EMBEDDER_DTYPE = 'fp32'
 
-// ── real modules, snapshotted before the mocks replace them ──────────────────
 // Plain-object snapshots, not namespaces: `mock.module` rewrites the namespace
 // a mocked specifier already handed out, so reading through `realInit.initDb` /
 // `realQueue.insertEmbedding` after mocking would call the mock again.
@@ -62,9 +23,7 @@ const { getDb } = await import('../context/container')
 const { config } = await import('../config')
 const { seedThought } = await import('../test/helpers')
 
-// ── mocks ────────────────────────────────────────────────────────────────────
 let dbBootstrapped = false
-/** The worker's own `initDb()` lands on an in-memory, migrated test database. */
 function bootstrapDb(): void {
   if (dbBootstrapped) return
   dbBootstrapped = true
@@ -73,29 +32,14 @@ function bootstrapDb(): void {
 mock.module('../db/init', () => ({ ...realInitFns, initDb: bootstrapDb }))
 
 const control = {
-  /** Runs inside the embed step: the deterministic "content changed mid-batch" window. */
   edit: null as null | (() => void),
-  /**
-   * Runs between the store and the retire step of a batch: the #2471 window, in
-   * which the server commits a content update AFTER the hash check that
-   * `insertEmbedding` performs and BEFORE the queue row is retired.
-   */
   retireEdit: null as null | ((ids: string[]) => void),
-  /**
-   * Make every store throw. Starts TRUE: the phase-A row is seeded before the
-   * worker boots, and the boot batch itself must be the first all-failed batch —
-   * with the flag false that first batch would store and delete the row, leaving
-   * an empty queue and no failure to back off from.
-   */
   storeThrows: true,
-  /** Serve the worker an empty queue without touching the real one (freeze). */
   drainQueue: false
 }
 
-/** Identity marker slot 0 of the vector the stubbed embedder returns. */
 const EMBED_MARKER = 55
 
-/** Every text the SHIPPED loop asked the embedder for, in call order. */
 const embeddedTexts: string[] = []
 
 function markerVector(): Float32Array {
@@ -110,11 +54,9 @@ mock.module('./model', () => ({
     embeddedTexts.push(...texts)
     return texts.map(() => markerVector())
   },
-  // `handle-request.ts` (the worker's IPC leg) imports the singular form too.
   generateEmbedding: async () => markerVector(),
   resetExtractor: () => {}
 }))
-/** The model call the SHIPPED process booted with (`embedder.dtype` wiring). */
 interface EnsureModelCall {
   cacheDir: string
   model: string
@@ -128,17 +70,8 @@ mock.module('./model-validator', () => ({
   }
 }))
 
-/** Ids the SHIPPED loop handed to the retire path, per call. */
 const deleteCalls: string[][] = []
-/**
- * The `(id, contentHash)` pairs of every retire call, flattened. The hash is the
- * one the vector was embedded from, so it pins that the loop forwards the batch
- * row's hash instead of re-reading (or inventing) one at retire time.
- */
 const retireCalls: { id: string; contentHash: string }[] = []
-// The queue module moved to the db layer (task #1581): the mock specifier follows
-// it, and every mock mirrors the db-first signature so the worker's `db` argument
-// reaches the real function instead of being read as the first parameter.
 mock.module('../db/pending-embeddings', () => ({
   ...realQueueFns,
   insertEmbedding: (db: Database, id: string, embedding: Float32Array, expectedHash: string) => {
@@ -155,7 +88,6 @@ mock.module('../db/pending-embeddings', () => ({
   }
 }))
 
-// ── timer capture so the suite can tear the worker down and exit ──────────────
 const timers = new Set<ReturnType<typeof setInterval>>()
 const realSetInterval = globalThis.setInterval
 globalThis.setInterval = ((handler: () => void, timeout?: number) => {
@@ -164,7 +96,6 @@ globalThis.setInterval = ((handler: () => void, timeout?: number) => {
   return timer
 }) as typeof globalThis.setInterval
 
-// ── fixture ─────────────────────────────────────────────────────────────────
 bootstrapDb()
 // vec_thoughts is a vec0 virtual table — v002 skips it on `:memory:` databases.
 getDb()
@@ -173,11 +104,6 @@ getDb()
   )
   .run()
 
-/**
- * Seed a queued thought whose content and `content_hash` are written TOGETHER
- * (task #1572 gotcha: `seedThought` leaves the hash NULL, and the v035 trigger
- * records the row's CURRENT hash — a batch only skips when the hash diverges).
- */
 function seedQueued(content: string, hash: string): string {
   const id = seedThought({ content })
   getDb()
@@ -214,12 +140,6 @@ interface LogRow {
   metadata: string | null
 }
 
-/**
- * The worker's logger writes to the temp JSONL file; read it back as an
- * operator would. One shared read connection: the probes below poll this in a
- * tight loop while the worker polls at 5 ms, and re-opening per probe would
- * stretch the wait past the row's retry budget.
- */
 function logRows(): LogRow[] {
   if (!existsSync(logFile)) return []
   const raw = readFileSync(logFile, 'utf8')
@@ -240,9 +160,7 @@ function logRows(): LogRow[] {
         message: obj.msg ?? '',
         metadata: obj.meta === undefined ? null : JSON.stringify(obj.meta)
       })
-    } catch {
-      /* ignore malformed lines */
-    }
+    } catch {}
   }
   return rows
 }
@@ -260,10 +178,8 @@ async function waitFor(what: string, probe: () => boolean, timeoutMs = 10_000): 
   throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`)
 }
 
-// ── phase A fixture: one row that always fails to store ──────────────────────
 const failedId = seedQueued('failing content', 'hash-fail')
 
-// ── boot the shipped worker ──────────────────────────────────────────────────
 await import('./embedder-process')
 
 afterAll(() => {
@@ -273,19 +189,10 @@ afterAll(() => {
 })
 
 test('the shipped process validates the model with the configured dtype', () => {
-  // `ensureModelFiles` runs during boot, before the worker's first batch, so at
-  // least one call has already happened by the time this runs.
   expect(ensureModelCalls.length).toBeGreaterThanOrEqual(1)
 
   const call = ensureModelCalls[0]
-  // The file the validator then demands (onnx/model.onnx for fp32, versus
-  // onnx/model_quantized.onnx for the q8 default) is only the file the LOADER
-  // opens if this argument really is the config dtype — so a literal here is a
-  // wrong-file bug, not a cosmetic one.
   expect(call.dtype).toBe(config.embedder.dtype)
-  // Pinned to the non-default value this suite set: `toBe(config.embedder.dtype)`
-  // alone would also pass for a literal that happened to equal the default, and
-  // this literal is the assertion a hardcoded `'q8'` at the call site fails.
   expect(call.dtype).toBe('fp32')
   expect(call.model).toBe(config.embedder.model)
   expect(call.cacheDir).toBe(config.embedder.cacheDir)
@@ -294,8 +201,6 @@ test('the shipped process validates the model with the configured dtype', () => 
 test('AC6 (real loop): an all-failed batch drives the backoff, and the store fault reaches handleFailedItem with its message', async () => {
   await waitFor('the all-failed backoff log', () => backoffLogs().length > 0)
 
-  // AC1 through the REAL `storeRow`: the thrown message is carried into
-  // `failed` and recorded on the queue row by `handleFailedItem`.
   const row = queueRow(failedId)
   expect(row?.last_error).toBe('boom')
   expect(row?.attempts).toBeGreaterThanOrEqual(5)
@@ -309,9 +214,6 @@ test('AC6 (real loop): an all-failed batch drives the backoff, and the store fau
 test('AC2/AC5/AC6/AC8 (real loop): a skipped row never reaches the retire path, is logged, and does not advance the backoff', async () => {
   const backoffBefore = backoffLogs().length
 
-  // Phase B fixture:
-  //  · `stableId` keeps the hash its batch reads → stored, deleted, vector written;
-  //  · `skipId` is edited inside every embed step → skipped on every batch.
   control.storeThrows = false
   getDb().prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(failedId)
   const stableId = seedQueued('stable content', 'hash-stable')
@@ -325,32 +227,21 @@ test('AC2/AC5/AC6/AC8 (real loop): a skipped row never reaches the retire path, 
   }
 
   await waitFor('six mid-batch-skip batches', () => skipLogs().length >= 6)
-  // Freeze the worker (empty queue from the worker's point of view) so the
-  // snapshot below is stable.
   control.drainQueue = true
   await Bun.sleep(20)
 
-  // AC8 — the success path still deletes the queue row and writes the vector.
   expect(deleteCalls.flat()).toContain(stableId)
   expect(queueRow(stableId)).toBeNull()
   expect(storedMarker(stableId)).toBe(EMBED_MARKER)
 
-  // AC2 — THE INVARIANT: the shipped loop never handed the skipped id to the
-  // delete path, so its freshness signal survives…
   expect(deleteCalls.flat()).not.toContain(skipId)
   expect(skipLogs().length).toBeGreaterThanOrEqual(6)
   const skipped = queueRow(skipId)
   expect(skipped).not.toBeNull()
-  // `attempts` is 1, not 6: every mid-batch edit fires the v035 trigger, whose
-  // `INSERT OR REPLACE` re-creates the queue row and resets the counter, so the
-  // recorded attempt means "skips since the last content change". What matters
-  // is that an attempt IS recorded and the row stays retryable.
   expect(skipped?.attempts).toBeGreaterThanOrEqual(1)
   expect(skipped?.is_error).toBe(0)
-  // AC5 — …the skip recorded an attempt carrying the shared reason…
   expect(skipped?.last_error).toBe(realQueueFns.CONTENT_CHANGED_REASON)
 
-  // AC5 — …and the batch logged a warning carrying skippedCount/reason/ids.
   const skipRow = skipLogs().at(-1)!
   const metadata = JSON.parse(skipRow.metadata ?? '{}') as {
     skippedCount?: number
@@ -362,14 +253,10 @@ test('AC2/AC5/AC6/AC8 (real loop): a skipped row never reaches the retire path, 
   expect(metadata.skippedCount).toBeGreaterThanOrEqual(1)
   expect(metadata.ids).toContain(skipId)
 
-  // AC6 — backoff tracks embedder health: six-plus all-skipped batches added
-  // no backoff step, while the all-failed phase did.
   expect(backoffLogs().length).toBe(backoffBefore)
 }, 20_000)
 
 test('AC1 (real loop): an edit between the store and the retire keeps the row queued, and the next poll re-embeds the update', async () => {
-  // Thaw the worker and end the AC2 mid-batch edit: from here on, a batch
-  // embeds exactly what it read.
   control.edit = null
   control.drainQueue = false
 
@@ -378,9 +265,6 @@ test('AC1 (real loop): an edit between the store and the retire keeps the row qu
   const raceId = seedQueued('race content', oldHash)
   const embeddedBefore = embeddedTexts.length
 
-  // The shipped loop's retire step is the last point before the guarded DELETE,
-  // so the server-side update is injected EXACTLY there: after `insertEmbedding`
-  // matched the old hash and wrote the vector, before the queue row is retired.
   let raceEdits = 0
   control.retireEdit = ids => {
     if (raceEdits > 0 || !ids.includes(raceId)) return
@@ -397,23 +281,17 @@ test('AC1 (real loop): an edit between the store and the retire keeps the row qu
   control.drainQueue = true
   await Bun.sleep(20)
 
-  // The update really landed inside the window — the interleaving is not vacuous.
   expect(raceEdits).toBe(1)
 
-  // Both retire calls carried the hash the vector was embedded from: the refused
-  // one (old hash) and the one that finally retired the row (new hash).
   expect(retireCalls.filter(c => c.id === raceId).map(c => c.contentHash)).toEqual([
     oldHash,
     newHash
   ])
 
-  // THE INVARIANT: the guard refused the first retire, so the fresh queue row
-  // survived and the next poll embedded the NEW content…
   expect(embeddedTexts.slice(embeddedBefore).filter(t => t.startsWith('race content'))).toEqual([
     'race content',
     'race content v2'
   ])
-  // …and only that pass retired the row, for a vector built from the current content.
   expect(queueRow(raceId)).toBeNull()
   expect(storedMarker(raceId)).toBe(EMBED_MARKER)
 }, 20_000)

@@ -16,8 +16,6 @@ import {
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
 function makeInput(overrides?: Partial<InsertProposalInput>): InsertProposalInput {
   return {
     source_thought_id: overrides?.source_thought_id ?? seedThought(),
@@ -33,8 +31,6 @@ function makeInput(overrides?: Partial<InsertProposalInput>): InsertProposalInpu
 function now(): string {
   return new Date().toISOString()
 }
-
-// ── migration sanity ─────────────────────────────────────────────────────────
 
 test('placement_proposals table exists after migration', () => {
   const db = getDb()
@@ -89,16 +85,12 @@ test('placement_proposals has idx_pp_dedup partial unique index on pending state
   const db = getDb()
   const indexes = db.prepare(`PRAGMA index_list('placement_proposals')`).all() as { name: string }[]
   expect(indexes.map(i => i.name)).toContain('idx_pp_dedup')
-  // Verify it is partial: examine the index SQL
   const info = db.prepare(`PRAGMA index_info('idx_pp_dedup')`).all() as {
     cid: number
     name: string
   }[]
-  // The dedup index covers the five key columns
   expect(info).toHaveLength(5)
 })
-
-// ── insertProposal / getProposal ──────────────────────────────────────────────
 
 test('insertProposal inserts a pending row and returns it', () => {
   const db = getDb()
@@ -121,7 +113,6 @@ test('insertProposal inserts a pending row and returns it', () => {
 test('insertProposal derives id via randomUUIDv7', () => {
   const db = getDb()
   const row = insertProposal(db, makeInput())
-  // v7 ids are 26 chars; just check length and non-empty
   expect(row.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/)
 })
 
@@ -137,8 +128,6 @@ test('getProposal returns the inserted row by id', () => {
   expect(found!.id).toBe(row.id)
   expect(found!.state).toBe('pending')
 })
-
-// ── listProposals ─────────────────────────────────────────────────────────────
 
 test('listProposals returns empty array when nothing is queued', () => {
   expect(listProposals(getDb())).toHaveLength(0)
@@ -184,11 +173,10 @@ test('listProposals defaults to pending state, excludes accepted rows', () => {
     })
   )
   updateProposalState(db, p1.id, { state: 'accepted', decided_by: 'user' })
-  // p1 is now accepted; src2's proposal is still pending
   const pending = listProposals(db)
   const accepted = listProposals(db, { state: 'accepted' })
   expect(pending).toHaveLength(1)
-  expect(pending[0].id).not.toBe(p1.id) // pending does not include the accepted one
+  expect(pending[0].id).not.toBe(p1.id)
   expect(accepted).toHaveLength(1)
   expect(accepted[0].id).toBe(p1.id)
 })
@@ -201,11 +189,8 @@ test('listProposals excludes expired rows by default', () => {
     db,
     makeInput({ source_thought_id: src, payload: 'expired-was-pending', expires_at: twoDaysAgo })
   )
-  // A retention cutoff in the past: the row expires but is still inside the
-  // window, so it is hidden from the default list yet retained as `expired`.
   deleteExpired(db, new Date(Date.now() - 30 * 86400000).toISOString())
   expect(listProposals(db)).toHaveLength(0)
-  // The expired row is still in the DB, just not returned by default
   expect(listProposals(db, { state: 'expired' })).toHaveLength(1)
 })
 
@@ -218,11 +203,8 @@ test('deleteExpired stamps decided_at so an expired row is pruned one window lat
   deleteExpired(db, new Date(Date.now() - 30 * 86400000).toISOString())
   const expired = listProposals(db, { state: 'expired' })
   expect(expired).toHaveLength(1)
-  // Without a decided_at stamp the row was invisible to the prune half of
-  // deleteExpired itself and accumulated forever.
   expect(expired[0].decided_at).not.toBeNull()
 
-  // One retention window after the decision, the prune half removes it.
   const row = listProposals(db, { state: 'expired' })[0]
   const afterWindow = new Date(Date.parse(row.decided_at as string) + 1).toISOString()
   expect(deleteExpired(db, afterWindow)).toBe(1)
@@ -237,8 +219,6 @@ test('listAcceptedProposalsByRun orders by applied_at, not created_at', () => {
     db,
     makeInput({ source_thought_id: src, item_kind: 'edge', edge_type: 'parent', run_id: 'run-1' })
   )
-  // Applied in the opposite order to creation: the manifest must follow
-  // `applied_at` (reverse application order), not `created_at`.
   updateProposalState(db, first.id, {
     state: 'accepted',
     decided_at: '2026-01-02T00:00:00.000Z',
@@ -278,7 +258,6 @@ test('listProposals respects limit', () => {
 test('listProposals orders newest first', () => {
   const db = getDb()
   insertProposal(db, makeInput({ payload: 'old' }))
-  // Manually set an older created_at on the first row
   db.prepare(`UPDATE placement_proposals SET created_at = ? WHERE payload = ?`).run(
     '2020-01-01T00:00:00.000Z',
     'old'
@@ -288,8 +267,6 @@ test('listProposals orders newest first', () => {
   expect(rows[0].payload).toBe('new')
   expect(rows[1].payload).toBe('old')
 })
-
-// ── dedup: double pending insert → one row ───────────────────────────────────
 
 test('double pending insert of the same item → one row (dedup)', () => {
   const db = getDb()
@@ -308,11 +285,8 @@ test('double pending insert of the same item → one row (dedup)', () => {
     expires_at: null
   }
   const first = insertProposal(db, input)
-  // Identical input again
   const second = insertProposal(db, input)
-  // Same row id, not a duplicate
   expect(second.id).toBe(first.id)
-  // Only one row exists
   const all = listProposals(db)
   expect(all).toHaveLength(1)
 })
@@ -351,7 +325,6 @@ test('re-insert refreshes payload/fingerprint/expires_at on the existing row', (
     expires_at: null
   }
   const first = insertProposal(db, input)
-  // Re-insert with updated fields
   const refreshed = insertProposal(db, {
     ...input,
     payload: '{"v":2}',
@@ -366,11 +339,8 @@ test('re-insert refreshes payload/fingerprint/expires_at on the existing row', (
   expect(refreshed.confidence).toBe(0.95)
   expect(refreshed.rationale).toBe('updated rationale')
   expect(refreshed.expires_at).not.toBeNull()
-  // Row count unchanged
   expect(listProposals(db)).toHaveLength(1)
 })
-
-// ── updateProposalState ───────────────────────────────────────────────────────
 
 test('updateProposalState transitions pending → accepted and persists', () => {
   const db = getDb()
@@ -387,7 +357,6 @@ test('updateProposalState transitions pending → accepted and persists', () => 
   expect(updated!.decided_by).toBe('agent')
   expect(updated!.applied_at).not.toBeNull()
   expect(updated!.result).toBe('done')
-  // Verify persisted via getProposal
   const reloaded = getProposal(db, row.id)
   expect(reloaded!.state).toBe('accepted')
 })
@@ -413,15 +382,12 @@ test('all ProposalState values are accepted', () => {
   }
 })
 
-// ── ON DELETE CASCADE ─────────────────────────────────────────────────────────
-
 test('deleting a source thought cascades: proposal row is removed', () => {
   const db = getDb()
   const src = seedThought()
   const row = insertProposal(db, makeInput({ source_thought_id: src }))
   db.prepare('DELETE FROM thoughts WHERE id = ?').run(src)
   expect(getProposal(db, row.id)).toBeUndefined()
-  // Also no rows left for this source
   expect(listProposals(db).filter(r => r.source_thought_id === src)).toHaveLength(0)
 })
 
@@ -431,12 +397,8 @@ test('deleting a target thought cascades: proposal row is removed', () => {
   const src = seedThought()
   insertProposal(db, makeInput({ source_thought_id: src, target_id: tgt }))
   db.prepare('DELETE FROM thoughts WHERE id = ?').run(tgt)
-  // All proposals are gone because each was tied to the deleted target
-  // (or source). List should be empty.
   expect(listProposals(db)).toHaveLength(0)
 })
-
-// ── deleteExpired ─────────────────────────────────────────────────────────────
 
 test('deleteExpired marks expired-past-pending rows as expired and deletes old terminal rows', () => {
   const db = getDb()
@@ -445,7 +407,6 @@ test('deleteExpired marks expired-past-pending rows as expired and deletes old t
   const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString()
   const tenDaysAgo = new Date(Date.now() - 10 * 86400000).toISOString()
 
-  // Pending with expired-at in the past
   insertProposal(
     db,
     makeInput({
@@ -455,7 +416,6 @@ test('deleteExpired marks expired-past-pending rows as expired and deletes old t
       edge_type: 'develops'
     })
   )
-  // Terminal row decided long ago (different source to avoid dedup)
   const accepted = insertProposal(
     db,
     makeInput({ source_thought_id: src2, item_kind: 'edge', edge_type: 'parent' })
@@ -466,15 +426,12 @@ test('deleteExpired marks expired-past-pending rows as expired and deletes old t
   })
 
   const removed = deleteExpired(db, twoDaysAgo)
-  expect(removed).toBe(2) // 1 expired (state change) + 1 pruned (delete)
-  // Pending-only listing no longer sees the expired or pruned rows
+  expect(removed).toBe(2)
   expect(listProposals(db)).toHaveLength(0)
-  // The expired row still exists but is no longer pending
   const expiredRows = db
     .prepare("SELECT id FROM placement_proposals WHERE state = 'expired'")
     .all() as { id: string }[]
   expect(expiredRows).toHaveLength(1)
-  // No terminal rows remain
   const terminalRows = db
     .prepare("SELECT id FROM placement_proposals WHERE state != 'pending' AND state != 'expired'")
     .all() as { id: string }[]
@@ -512,8 +469,6 @@ test('deleteExpired does not remove terminal rows decided after cutoff', () => {
   expect(getProposal(db, accepted.id)?.state).toBe('accepted')
 })
 
-// ── idempotency via dedup at the DB level (partial unique index) ─────────────
-
 test('idx_pp_dedup rejects a concurrent duplicate pending insert (UNIQUE violation)', () => {
   const db = getDb()
   const src = seedThought()
@@ -529,8 +484,6 @@ test('idx_pp_dedup rejects a concurrent duplicate pending insert (UNIQUE violati
     payload: '{"d":1}',
     fingerprint: 'fp-dup'
   }
-  // The application-level dedup in insertProposal prevents a second row.
-  // This test verifies the function itself does not throw and returns the same row.
   const first = insertProposal(db, input)
   const second = insertProposal(db, input)
   expect(second.id).toBe(first.id)

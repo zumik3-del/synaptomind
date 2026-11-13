@@ -10,16 +10,7 @@ import { getDb } from '../context/container'
 import { closeDb, initDb, readVecIndexState } from './init'
 import { MIGRATIONS } from './migrations'
 
-// Regression coverage for audit F5 / #2474: `openDatabase` reshapes `vec_thoughts`
-// outside the migration ledger, so a database that went through the dimension
-// rebuild has to say so in `_meta` — otherwise "stored dimensions ≠ configured"
-// is only inferable from a config value that the same boot already overwrote.
-//
-// Everything here is file-backed (the rebuild branch is skipped for `:memory:`),
-// and the dimension change is a real config change replayed by a real re-open.
-
 const CONFIGURED = config.embedder.dimensions
-/** Any dimensions other than the configured ones: the rebuild renders `FLOAT[n]`. */
 const REBUILT = CONFIGURED === 384 ? 512 : 384
 
 const tmpRoot = mkdtempSync(join(tmpdir(), 'synaptomind-vec-rebuild-'))
@@ -51,7 +42,6 @@ function openRaw<T>(dbPath: string, fn: (db: Database) => T): T {
   }
 }
 
-/** The `_meta` rows read off the file directly — no init, no service code. */
 function metaRows(dbPath: string): Record<string, string> {
   return openRaw(dbPath, db => {
     const rows = db.prepare(`SELECT key, value FROM _meta`).all() as {
@@ -69,7 +59,6 @@ function pendingIds(): string[] {
   return rows.map(row => row.thought_id)
 }
 
-/** `pending_embeddings` read off the file, for the boots that never get published. */
 function pendingIdsOnDisk(dbPath: string): string[] {
   return openRaw(dbPath, db =>
     (db.prepare(`SELECT thought_id FROM pending_embeddings`).all() as { thought_id: string }[]).map(
@@ -78,7 +67,6 @@ function pendingIdsOnDisk(dbPath: string): string[] {
   )
 }
 
-/** Put a real vector in `vec_thoughts` so the rebuild has an indexed row to lose. */
 function seedVector(id: string): void {
   const embedding = new Float32Array(CONFIGURED)
   getDb()
@@ -89,7 +77,6 @@ function seedVector(id: string): void {
     )
 }
 
-/** Rows actually present in the vector index, read off the file. */
 function vecRowCount(dbPath: string): number {
   return openRaw(
     dbPath,
@@ -103,7 +90,6 @@ test('a fresh database records the dimensions its vector index was built with', 
 
   const state = readVecIndexState(getDb())
   expect(state.dimensions).toBe(CONFIGURED)
-  // Never rebuilt: no rebuild stamp to misread as one.
   expect(state.rebuiltAt).toBeNull()
   expect(metaRows(dbPath)).not.toHaveProperty('embedder_dimensions')
 })
@@ -113,7 +99,7 @@ test('a mid-life dimension change is readable from _meta alone and re-queues eve
   initDb({ dbPath, runMigrations: true })
   const id = seedThought({ content: 'rebuild me' })
   seedVector(id)
-  drainPendingEmbeddings([id]) // model an already-embedded thought
+  drainPendingEmbeddings([id])
   expect(vecRowCount(dbPath)).toBe(1)
 
   config.embedder.dimensions = REBUILT
@@ -124,7 +110,6 @@ test('a mid-life dimension change is readable from _meta alone and re-queues eve
   expect(state.dimensions).toBe(REBUILT)
   expect(Date.parse(state.rebuiltAt ?? '')).toBeGreaterThan(0)
 
-  // The table really was rebuilt at the new width, not just recorded as such.
   const ddl = openRaw(
     dbPath,
     db =>
@@ -139,11 +124,9 @@ test('a mid-life dimension change is readable from _meta alone and re-queues eve
   // column too, or every project-scoped query fails against the reshaped table
   // (the seed above runs before the rebuild, so width alone cannot catch it).
   expect(ddl).toContain('PARTITION KEY')
-  // The indexed vector did not survive the reshape; it is re-queued exactly once.
   expect(vecRowCount(dbPath)).toBe(0)
   expect(pendingIds()).toEqual([id])
 
-  // And the rebuild is the database's own statement: a raw `_meta` read says it.
   closeDb()
   const meta = metaRows(dbPath)
   expect(meta.vec_dimensions).toBe(String(REBUILT))
@@ -158,12 +141,9 @@ test('a repeat open with unchanged dimensions writes no _meta row and re-queues 
   closeDb()
   initDb({ dbPath, runMigrations: true })
   const rebuiltAt = readVecIndexState(getDb()).rebuiltAt
-  // The embedder has caught up, so a second re-queue would be visible as a row.
   drainPendingEmbeddings([id])
   closeDb()
 
-  // A write log on `_meta` turns "writes nothing" into an observation rather than
-  // an absence of visible difference.
   openRaw(dbPath, db => {
     db.exec(`CREATE TABLE meta_write_log (key TEXT NOT NULL, op TEXT NOT NULL)`)
     db.exec(
@@ -191,7 +171,6 @@ test('a database carrying only the legacy dimension marker upgrades without a re
   const dbPath = freshDbPath()
   initDb({ dbPath, runMigrations: true })
   closeDb()
-  // Every install that predates #2474 has the old key and nothing else.
   openRaw(dbPath, db => {
     db.exec(`UPDATE _meta SET key = 'embedder_dimensions' WHERE key = 'vec_dimensions'`)
   })
@@ -200,7 +179,6 @@ test('a database carrying only the legacy dimension marker upgrades without a re
 
   const state = readVecIndexState(getDb())
   expect(state.dimensions).toBe(CONFIGURED)
-  // An upgrade is not a rebuild: nothing was dropped and nothing was re-queued.
   expect(state.rebuiltAt).toBeNull()
   const meta = metaRows(dbPath)
   expect(meta.vec_dimensions).toBe(String(CONFIGURED))
@@ -242,7 +220,7 @@ test('the rebuild marker outlives a migration replayed after it was written', ()
   initDb({ dbPath, runMigrations: true })
   const rebuiltAt = readVecIndexState(getDb()).rebuiltAt
   expect(rebuiltAt).not.toBeNull()
-  drainPendingEmbeddings([id]) // the embedder has caught up again
+  drainPendingEmbeddings([id])
   closeDb()
 
   // Rewind one version so the next boot takes the ordinary migration path: this is
@@ -256,12 +234,10 @@ test('the rebuild marker outlives a migration replayed after it was written', ()
 
   initDb({ dbPath, runMigrations: true })
 
-  // The migration really ran instead of being skipped…
   const version = getDb().prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as {
     value: string
   }
   expect(version.value).toBe(String(newest))
-  // …and the marker came through untouched, so nothing was rebuilt again.
   const state = readVecIndexState(getDb())
   expect(state.dimensions).toBe(REBUILT)
   expect(state.rebuiltAt).toBe(rebuiltAt)
@@ -286,18 +262,12 @@ test('a rebuild that dies before the marker write is repeated on the next boot',
   })
 
   config.embedder.dimensions = REBUILT
-  // The marker is written last, so a crash here leaves the old dimensions behind…
   expect(() => initDb({ dbPath, runMigrations: true })).toThrow('simulated marker failure')
   expect(metaRows(dbPath).vec_dimensions).toBe(String(CONFIGURED))
 
-  // …while the destructive part already happened: empty table at the new width and a
-  // queued thought. Re-queuing a queued thought is idempotent, so the retry cannot
-  // double it.
   expect(vecRowCount(dbPath)).toBe(0)
   expect(pendingIdsOnDisk(dbPath)).toEqual([id])
 
-  // The stale marker is what makes the next boot redo the rebuild instead of
-  // trusting a half-reset index.
   openRaw(dbPath, db => db.exec(`DROP TRIGGER fail_vec_marker`))
   initDb({ dbPath, runMigrations: true })
   const state = readVecIndexState(getDb())

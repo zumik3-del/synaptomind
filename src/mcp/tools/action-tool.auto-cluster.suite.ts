@@ -6,10 +6,6 @@ import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
 /**
- * `auto_cluster` option pass-through (task #925 / #930): the handler's
- * numeric-string coercion is asserted on the options object the service
- * receives, so `runAutoCluster` is replaced by a capturing stub.
- *
  * That stub is a process-global `mock.module` with no unmock, and it leaks
  * through the `export *` re-export into every later file of the same `bun test`
  * process — under the serial oracle it silently turned the whole

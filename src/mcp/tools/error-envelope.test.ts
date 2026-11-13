@@ -12,12 +12,6 @@ import {
 import { type ActionToolConfig, registerActionTool } from './action-tool'
 import { errorResult } from './utils'
 
-// Regression coverage for #1756 (audit M6): a classified, retryable embedder
-// failure (statusCode 503) must surface in the MCP error envelope as
-// `structuredContent.result.error.{statusCode,retryable}` — nested under
-// `result` so the declared `{ result }` output schema stays satisfied — while an
-// unclassified error keeps the plain `{ content, isError }` shape.
-
 type ToolResult = {
   content: Array<{ type: string; text: string }>
   structuredContent?: {
@@ -26,7 +20,6 @@ type ToolResult = {
   isError?: boolean
 }
 
-/** Wrap a register function in a fake server and return the registered callback. */
 function captureTool(
   register: (server: McpServer) => void
 ): (args: Record<string, unknown>) => Promise<unknown> {
@@ -160,9 +153,6 @@ describe('registerActionTool classifies thrown domain errors in the envelope', (
   })
 })
 
-// The dispatcher's `{ result }` wrapper exists so the SDK's output-schema
-// validation accepts the envelope; drive a classified failure through a real
-// server/client pair to prove the SDK does not reject structuredContent.
 describe('the retryable envelope survives the MCP SDK output-schema check', () => {
   async function configuredClient(): Promise<Client> {
     const server = new SdkMcpServer({ name: 'test', version: '0.0.0' })

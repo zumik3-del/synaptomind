@@ -6,9 +6,6 @@ import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
 /**
- * Degraded-branch contract for task #951: when the embedder is unavailable,
- * memory_status action=propose returns degraded:true with lexical-only signals.
- *
  * Runs in isolation (no .test suffix) to avoid bun:test mock.module leakage
  * through export * re-exports (PR #114, b2e5cd5).
  */
@@ -36,7 +33,6 @@ async function setupClient(): Promise<Client> {
   return c
 }
 
-/** The plan lives in the shared envelope's `item` (task #2179). */
 function parseResult(result: unknown): { data: any; meta: any; isError: boolean } {
   const r = result as { content: Array<{ type: string; text: string }>; isError?: boolean }
   const text = r.content?.[0]?.text ?? '{}'
@@ -48,8 +44,6 @@ function parseResult(result: unknown): { data: any; meta: any; isError: boolean 
   }
 }
 
-// A fresh test DB registers no project for this path: the answer keeps the
-// global scope while satisfying the hard-cwd contract.
 const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 beforeEach(async () => {
@@ -66,7 +60,6 @@ describe('memory_status propose degraded branch', () => {
     seedThought({ content: 'degraded thought alpha' })
     seedThought({ content: 'degraded thought beta' })
 
-    // Fallback: call propose on a seeded thought directly.
     const ids: string[] = []
     for (let i = 0; i < 2; i++) {
       const r = await client.callTool({
@@ -76,12 +69,9 @@ describe('memory_status propose degraded branch', () => {
       const text = (r as { content: Array<{ text: string }> })?.content?.[0]?.text ?? ''
       try {
         ids.push(JSON.parse(text).item.id)
-      } catch {
-        /* skip */
-      }
+      } catch {}
     }
     if (ids.length === 0) {
-      // If seeding failed entirely, still assert degraded via a known-empty graph.
       const emptyResult = await client.callTool({
         name: 'memory_status',
         arguments: { action: 'propose', content: 'standalone draft degraded', cwd: UNSCOPED_CWD }
@@ -103,8 +93,6 @@ describe('memory_status propose degraded branch', () => {
     expect(isError).toBe(false)
     expect(data.degraded).toBe(true)
     expect(Array.isArray(data.edges)).toBe(true)
-    // Degraded path suppresses embedding-based edges; lexical merge may still
-    // fire if the draft is a near-dup of another thought.
     if (data.edges.length > 0) {
       expect(data.lifecycle.action).toBeOneOf(['link', 'merge', 'replaces+archive'])
     } else {

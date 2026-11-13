@@ -31,7 +31,6 @@ function itVec(name: string, fn: (db: Database) => void | Promise<void>): void {
   test.skipIf(!VEC_AVAILABLE)(name, () => withVecDb(fn))
 }
 
-/** Seed a specific 384-d vector so cosine similarity is controllable. */
 function seedVecEmbeddingRaw(db: Database, thoughtId: string, vector: Float32Array): void {
   const buf = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength)
   db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
@@ -114,9 +113,6 @@ describe('groupResultsByCluster', () => {
       createEdge(db, clusterId, m2, 'cluster')
     } catch {}
 
-    // `groupResultsByCluster` is the grouping the MCP recall surface applies
-    // (`recall.ts`, group_by_cluster) since `searchThoughtsGrouped` died with
-    // the HTTP search route (ADR 2026-10-26).
     const grouped = groupResultsByCluster(await searchThoughts({ query: 'member', topK: 10 }))
     const clusterGroup = grouped.find(g => g.cluster !== undefined)
     expect(clusterGroup?.cluster?.id).toBe(clusterId)
@@ -125,21 +121,16 @@ describe('groupResultsByCluster', () => {
   })
 })
 
-// ── Recency boost (issue #145, task #821) ─────────────────────────────────────
-
 describe('recency boost — service layer', () => {
   test('recency order survives applyGraphStanding within each standing group', async () => {
     const db = getDb()
     const nowMs = Date.now()
     const older = new Date(nowMs - 20 * 24 * 3600_000).toISOString()
     const newer = new Date(nowMs - 5 * 24 * 3600_000).toISOString()
-    // Two current (non-contested) thoughts with different ages — both land in
-    // the 'current' standing group. Newer must rank first within that group.
     const oldId = seedThought({ content: 'REC_STANDING same topic marker' })
     const newId = seedThought({ content: 'REC_STANDING same topic marker' })
     db.prepare(`UPDATE thoughts SET created_at = ? WHERE id = ?`).run(older, oldId)
     db.prepare(`UPDATE thoughts SET created_at = ? WHERE id = ?`).run(newer, newId)
-    // Add a contradicted pair so we can also verify intra-group recency there.
     const aId = seedThought({ content: 'REC_STANDING alpha' })
     const bId = seedThought({ content: 'REC_STANDING beta' })
     createEdge(db, aId, bId, 'contradicts')
@@ -153,13 +144,10 @@ describe('recency boost — service layer', () => {
       supersessionMode: 'flag'
     })
 
-    // Both oldId and newId are 'current' (no replaces edge).
     const currentIds = results.filter(r => r.standing === 'current').map(r => r.thought.id)
     expect(currentIds).toContain(oldId)
     expect(currentIds).toContain(newId)
-    // Newer ranks above older within the current group.
     expect(currentIds.indexOf(newId)).toBeLessThan(currentIds.indexOf(oldId))
-    // Contradicted pair both present and ordered (same age → stable sort).
     const contradictedIds = results
       .filter(r => r.standing === 'contradicted')
       .map(r => r.thought.id)
@@ -169,7 +157,6 @@ describe('recency boost — service layer', () => {
 
   test('suppress + recency backfills to topK from final-score pool', async () => {
     const db = getDb()
-    // Create 3 old (superseded) + 3 new (current) with identical keywords.
     const oldIds: string[] = []
     const newIds: string[] = []
     for (let i = 0; i < 3; i++) {
@@ -203,7 +190,6 @@ describe('recency boost — service layer', () => {
     const nowMs = Date.now()
     const older = new Date(nowMs - 20 * 24 * 3600_000).toISOString()
     const newer = new Date(nowMs - 5 * 24 * 3600_000).toISOString()
-    // Identical content so BM25 scores are equal; recency breaks the tie.
     const oldId = seedThought({ content: 'REC_TAG shared topic tag', tags: '["alpha"]' })
     const newId = seedThought({ content: 'REC_TAG shared topic tag', tags: '["alpha"]' })
     db.prepare(`UPDATE thoughts SET created_at = ? WHERE id = ?`).run(older, oldId)
@@ -222,14 +208,12 @@ describe('recency boost — service layer', () => {
     const ids = results.map(r => r.thought.id)
     expect(ids).toContain(oldId)
     expect(ids).toContain(newId)
-    // Newer should rank above older after tag filtering.
     expect(ids.indexOf(newId)).toBeLessThan(ids.indexOf(oldId))
   })
 
   test('clamps: w>1→1, w<0→0, NaN→0', async () => {
     seedThought({ content: 'REC_CLAMP marker' })
 
-    // w>1 → clamped to 1 (no error).
     const over = await searchThoughts({
       query: 'REC_CLAMP',
       topK: 5,
@@ -237,7 +221,6 @@ describe('recency boost — service layer', () => {
     })
     expect(Array.isArray(over)).toBe(true)
 
-    // w<0 → clamped to 0 (no recency fields).
     const under = await searchThoughts({
       query: 'REC_CLAMP',
       topK: 5,
@@ -247,7 +230,6 @@ describe('recency boost — service layer', () => {
       true
     )
 
-    // NaN → clamped to 0.
     const nan = await searchThoughts({
       query: 'REC_CLAMP',
       topK: 5,
@@ -259,7 +241,6 @@ describe('recency boost — service layer', () => {
   test('clamps: half-life ≤0/NaN→30, >3650→3650', async () => {
     seedThought({ content: 'REC_HL marker' })
 
-    // half-life ≤ 0 → falls back to DEFAULT (30).
     const zeroHl = await searchThoughts({
       query: 'REC_HL',
       topK: 5,
@@ -276,7 +257,6 @@ describe('recency boost — service layer', () => {
     })
     expect(Array.isArray(nanHl)).toBe(true)
 
-    // half-life > 3650 → clamped to 3650.
     const hugeHl = await searchThoughts({
       query: 'REC_HL',
       topK: 5,
@@ -291,7 +271,6 @@ describe('recency boost — service layer', () => {
     const nowMs = Date.now()
     const older = new Date(nowMs - 20 * 24 * 3600_000).toISOString()
     const newer = new Date(nowMs - 5 * 24 * 3600_000).toISOString()
-    // Cluster head and members all share the same keyword so they surface in results.
     const memberOld = seedThought({ content: 'REC_GC cluster topic' })
     const memberNew = seedThought({ content: 'REC_GC cluster topic' })
     const clusterId = seedThought({ content: 'REC_GC cluster topic' })
@@ -301,8 +280,6 @@ describe('recency boost — service layer', () => {
     createEdge(db, clusterId, memberOld, 'cluster')
     createEdge(db, clusterId, memberNew, 'cluster')
 
-    // The MCP recall surface groups with `searchThoughts` + `groupResultsByCluster`
-    // (the deleted `searchThoughtsGrouped` wrapper did exactly this pair).
     const results = groupResultsByCluster(
       await searchThoughts({
         query: 'REC_GC cluster topic',
@@ -321,12 +298,9 @@ describe('recency boost — service layer', () => {
     const itemIds = items.map(r => r.thought.id)
     expect(itemIds).toContain(memberOld)
     expect(itemIds).toContain(memberNew)
-    // Newer member ranks first within the cluster group.
     expect(itemIds.indexOf(memberNew)).toBeLessThan(itemIds.indexOf(memberOld))
   })
 })
-
-// ── Relevance-confidence signal (issue #155, task #884/885) ─────────────────
 
 describe('low_confidence + min_relevance — service layer', () => {
   test('min_relevance=0 (default) preserves all results and their low_confidence flags', async () => {
@@ -367,7 +341,6 @@ describe('low_confidence + min_relevance — service layer', () => {
   })
 
   itVec('min_relevance>0 filters out weak vector-only results, keeps BM25 anchors', async db => {
-    // BM25 hit: contains the keyword → strong lexical anchor.
     const bm25Id = seedThought({
       content: 'MIN_REL_BM25 unique keyword anchor'
     })
@@ -375,7 +348,6 @@ describe('low_confidence + min_relevance — service layer', () => {
       bm25Id,
       'MIN_REL_BM25 unique keyword anchor'
     )
-    // Vector-only hit: cosine ≈ 0.2 against the query → weak, below the floor.
     const vecOnlyId = seedThought({
       content: 'MIN_REL_VEC unrelated semantic noise'
     })
@@ -392,8 +364,6 @@ describe('low_confidence + min_relevance — service layer', () => {
         topK: 10,
         hybrid: true,
         embedding: weakQuery,
-        // Ungated reference: the default gate is ON since #2178, so a baseline
-        // that must contain the weak vector hit has to turn it off explicitly.
         minRelevance: 0
       },
       db
@@ -419,14 +389,10 @@ describe('low_confidence + min_relevance — service layer', () => {
       db
     )
 
-    // The weak vector-only hit is a real candidate (present ungated)...
     const baselineIds = baseline.map(r => r.thought.id)
     expect(baselineIds).toContain(bm25Id)
     expect(baselineIds).toContain(vecOnlyId)
     expect(ungated.map(r => r.thought.id)).toContain(vecOnlyId)
-    // ...and the gate drops it while keeping the lexical anchor. Without the
-    // gate `gatedIds` would equal the baseline and the negative assertion
-    // below would fail.
     const gatedIds = gated.map(r => r.thought.id)
     expect(gatedIds).toContain(bm25Id)
     expect(gatedIds).not.toContain(vecOnlyId)
@@ -434,13 +400,11 @@ describe('low_confidence + min_relevance — service layer', () => {
 
   test('min_relevance>0 backfills to topK from overfetch pool', async () => {
     const db = getDb()
-    // Create many thoughts so we can test backfill.
     const ids: string[] = []
     for (let i = 0; i < 20; i++) {
       const id = seedThought({ content: `MIN_REL_FILL topic marker ${i}` })
       ids.push(id)
     }
-    // Add FTS for a few so they become BM25 hits (strong matches).
     for (let i = 0; i < 3; i++) {
       db.prepare(`INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`).run(
         ids[i],
@@ -455,9 +419,7 @@ describe('low_confidence + min_relevance — service layer', () => {
       minRelevance: 0.9
     })
 
-    // Should still return topK results because the overfetch pool backfills.
     expect(results.length).toBeGreaterThanOrEqual(1)
-    // All returned results should be strong matches.
     for (const r of results) {
       expect(r.low_confidence).toBe(false)
     }
@@ -468,7 +430,6 @@ describe('low_confidence + min_relevance — service layer', () => {
     const oldId = seedThought({ content: 'MIN_REL_SUP old claim' })
     const newId = seedThought({ content: 'MIN_REL_SUP new claim' })
     createEdge(db, newId, oldId, 'replaces')
-    // Make oldId a BM25 hit (so it would survive gating).
     db.prepare(`INSERT INTO thoughts_fts (thought_id, content) VALUES (?, ?)`).run(
       oldId,
       'MIN_REL_SUP old claim'
@@ -487,9 +448,7 @@ describe('low_confidence + min_relevance — service layer', () => {
     })
 
     const resultIds = results.map(r => r.thought.id)
-    // Suppressed old thought should be gone.
     expect(resultIds).not.toContain(oldId)
-    // New thought should be present.
     expect(resultIds).toContain(newId)
   })
 
@@ -512,9 +471,7 @@ describe('low_confidence + min_relevance — service layer', () => {
 
     const noRecIds = new Set(noRecency.map(r => r.thought.id))
     const withRecIds = new Set(withRecency.map(r => r.thought.id))
-    // Same result set (recency only changes order, not membership).
     expect(noRecIds).toEqual(withRecIds)
-    // low_confidence flags are identical per-id.
     const noRecById = new Map(noRecency.map(r => [r.thought.id, r.low_confidence]))
     for (const r of withRecency) {
       expect(noRecById.get(r.thought.id)).toBe(r.low_confidence)
@@ -524,7 +481,6 @@ describe('low_confidence + min_relevance — service layer', () => {
   test('confidenceFloor clamp: out-of-range values clamped to [0,1]', async () => {
     seedThought({ content: 'MIN_REL_CLAMP marker' })
 
-    // confidenceFloor > 1 → clamped to 1.
     const over = await searchThoughts({
       query: 'MIN_REL_CLAMP',
       topK: 10,
@@ -533,7 +489,6 @@ describe('low_confidence + min_relevance — service layer', () => {
     })
     expect(Array.isArray(over)).toBe(true)
 
-    // confidenceFloor < 0 → clamped to 0.
     const under = await searchThoughts({
       query: 'MIN_REL_CLAMP',
       topK: 10,
@@ -541,7 +496,6 @@ describe('low_confidence + min_relevance — service layer', () => {
       confidenceFloor: -0.5
     })
     expect(Array.isArray(under)).toBe(true)
-    // With floor=0, all vector hits are strong matches.
     for (const r of under) {
       expect(r.low_confidence).toBe(false)
     }
@@ -590,7 +544,6 @@ describe('low_confidence + min_relevance — service layer', () => {
       minRelevance: 0.9
     })
 
-    // Every BM25 anchor is strong, so the gate must not shrink the set below topK.
     expect(results.length).toBe(3)
     for (const r of results) {
       expect(r.low_confidence).toBe(false)
@@ -612,7 +565,6 @@ describe('low_confidence + min_relevance — service layer', () => {
       minRelevance: 0.9
     })
 
-    // Only one candidate exists → the gate returns it and under-fills `topK`.
     expect(results.map(r => r.thought.id)).toEqual([onlyId])
   })
 
@@ -643,7 +595,6 @@ describe('low_confidence + min_relevance — service layer', () => {
     const ids = results.map(r => r.thought.id)
     expect(ids).toContain(taggedId)
     expect(ids).not.toContain(untaggedId)
-    // No over-drop: the surviving tagged anchor is strong and retained.
     for (const r of results) {
       expect(r.low_confidence).toBe(false)
     }
@@ -655,13 +606,10 @@ describe('low_confidence + min_relevance — service layer', () => {
       bm25Id,
       'MIN_REL_ONE lexical anchor'
     )
-    // sim == 1.0 against the query (identical unit vectors). Content has no
-    // query token, so it can only survive via the vector leg.
     const exactId = seedThought({ content: 'semantic exact vector content' })
     const unit = new Float32Array(384)
     unit[0] = 1
     seedVecEmbeddingRaw(db, exactId, unit)
-    // sim ≈ 0.1 → weak; no query token either.
     const weakId = seedThought({ content: 'semantic weak vector content' })
     const weak = new Float32Array(384)
     weak[0] = 0.1
@@ -689,11 +637,6 @@ describe('low_confidence + min_relevance — service layer', () => {
     const db = getDb()
     const id = seedThought({ content: 'id-gate target with no shared marker' })
 
-    // A full uuid is an explicit reference: `runSearch` resolves it before the
-    // embedding/BM25 legs and before the gate (search.service.ts:113-116), so a
-    // thought with no cosine and no lexical overlap still comes back even at
-    // minRelevance=1 — and it was never a candidate the gate could drop.
-    // No embedding or vec0 fixture is needed for exactly that reason.
     const outcome = await searchThoughtsOutcome({ query: id, minRelevance: 1, topK: 5 }, db)
 
     expect(outcome.items.map(r => r.thought.id)).toEqual([id])
@@ -701,8 +644,6 @@ describe('low_confidence + min_relevance — service layer', () => {
     expect(outcome.filtered_out).toBe(0)
   })
 })
-
-// ── is_global project scoping (epic #1489) ───────────────────────────────────
 
 describe('searchThoughts — is_global is always included in a project-scoped search', () => {
   const P1 = 'proj-global-1'
@@ -731,7 +672,6 @@ describe('searchThoughts — is_global is always included in a project-scoped se
       project_id: P2,
       status: 'active'
     })
-    // A global thought owned by P2 — it must still surface in a P1 search.
     const global = seedThought({
       content: `${QUERY} global`,
       project_id: P2,
@@ -761,9 +701,6 @@ describe('searchThoughts — is_global is always included in a project-scoped se
   })
 
   test('a direct project match outranks an unrelated global row', async () => {
-    // The local row carries the query's second token, the global row does not,
-    // so BM25 must rank the project match first. Sanity assertion on the order,
-    // never on an exact score.
     const local = seedThought({
       content: `${QUERY} PROJECT_ONLY_TOKEN`,
       project_id: P1,

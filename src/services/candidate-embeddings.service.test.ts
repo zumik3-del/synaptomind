@@ -14,12 +14,6 @@ function vec(marker: number): Float32Array {
   return v
 }
 
-/**
- * Store one vector for `id` (file-backed DB / vec0 only) and drain its queued
- * re-embed: these fixtures are all seeded by id only, so this names the state
- * "the vector is current". A candidate whose row is still pending is embedded
- * live on purpose (task #1569, R1).
- */
 function storeVec(id: string, vector: Float32Array): void {
   getDb()
     .prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`)
@@ -27,7 +21,6 @@ function storeVec(id: string, vector: Float32Array): void {
   drainPendingEmbeddings([id])
 }
 
-/** First component of every returned vector — the identity marker. */
 function markers(vectors: Float32Array[]): number[] {
   return vectors.map(v => v[0])
 }
@@ -86,8 +79,6 @@ test('embeds exactly the missing candidates, in candidate order, and covers all 
       { id: 'c', content: 'gamma' },
       { id: 'd', content: 'delta' }
     ]
-    // b and d are stored; a and c must be embedded — the call keeps candidate
-    // order, not map order, and the merged result stays aligned to candidates.
     storeVec('b', vec(22))
     storeVec('d', vec(44))
     const seen: string[][] = []
@@ -104,7 +95,6 @@ test('embeds exactly the missing candidates, in candidate order, and covers all 
     expect(seen).toEqual([['alpha', 'gamma']])
     expect(result).toHaveLength(4)
     expect(markers(result)).toEqual([1, 22, 3, 44])
-    // Coverage: every candidate resolved to a vector, none dropped.
     expect(result.every(v => v instanceof Float32Array && v.length === 384)).toBe(true)
   })
 })
@@ -132,8 +122,6 @@ test('throws when the embedder returns the wrong number of vectors', async () =>
       { id: 'a', content: 'alpha' },
       { id: 'b', content: 'beta' }
     ]
-    // Nothing stored, so both candidates are missing and the embedder owes two
-    // vectors; a short reply must surface instead of silently shifting rows.
     await expect(resolveCandidateEmbeddings(candidates, async () => [vec(1)], db)).rejects.toThrow(
       'embedder returned 1 vectors for 2 candidates'
     )
@@ -158,7 +146,6 @@ test('keeps candidates without a vec_thoughts row and stored ones side by side',
       db
     )
 
-    // Only the absent candidate is embedded; the stored one keeps its vector.
     expect(seen).toEqual([['missing content']])
     expect(markers(result)).toEqual([5, 7])
   })

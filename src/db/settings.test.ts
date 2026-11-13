@@ -45,11 +45,9 @@ test('getThoughtLimitsDB uses the configured soft limit and buffer', () => {
 test('derived hard limit rounds to the nearest integer', () => {
   const { softLimit: originalSoft, hardLimitBufferPercent: originalBuffer } = config.thoughts
   try {
-    // 33 * 1.1 = 36.3 -> 36 (round down)
     config.thoughts.softLimit = 33
     config.thoughts.hardLimitBufferPercent = 10
     expect(getThoughtLimitsDB().hardLimit).toBe(36)
-    // 10 * 1.05 = 10.5 -> 11 (half rounds up)
     config.thoughts.softLimit = 10
     config.thoughts.hardLimitBufferPercent = 5
     expect(getThoughtLimitsDB().hardLimit).toBe(11)
@@ -59,10 +57,6 @@ test('derived hard limit rounds to the nearest integer', () => {
   }
 })
 
-// The `_meta` runtime overrides (`thought_soft_limit`,
-// `thought_hard_limit_buffer_percent` and the legacy absolute
-// `thought_hard_limit`) had no production writer; task #2201 removed the
-// resolution branch, so a stored value must be inert.
 test('stored _meta limit values are ignored — config is the only source', () => {
   writeMeta('thought_soft_limit', '100')
   writeMeta('thought_hard_limit_buffer_percent', '50')

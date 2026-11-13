@@ -26,7 +26,6 @@ test('backupDatabase writes a VACUUM INTO snapshot next to the db', () => {
   expect(backupPath).toContain('.pre-v47.')
   expect(backupPath.endsWith('.bak')).toBe(true)
 
-  // The snapshot is a usable database with the same data.
   const snap = new Database(backupPath, { readonly: true })
   const row = snap.prepare('SELECT v FROM t WHERE id = 1').get() as { v: string }
   expect(row.v).toBe('hello')
@@ -50,11 +49,9 @@ test('pruneBackups keeps only the N most recent backups', () => {
   const { mkdirSync } = require('node:fs')
   mkdirSync(dir, { recursive: true })
   const base = 'synaptomind.db'
-  // Create 4 backups with distinct mtimes.
   for (let i = 0; i < 4; i++) {
     const p = join(dir, `${base}.pre-v${10 + i}.2026-01-0${i + 1}T00:00:00.000Z.bak`)
     writeFileSync(p, '')
-    // Stagger mtimes.
     const { utimesSync } = require('node:fs')
     utimesSync(p, new Date(2026, 0, i + 1), new Date(2026, 0, i + 1))
   }
@@ -73,7 +70,6 @@ test('initDb takes a backup when migrations are pending', () => {
   initDb({ dbPath, runMigrations: true })
   closeDb()
 
-  // Rewind one version so the next boot has a pending migration.
   const db = new Database(dbPath)
   db.prepare("UPDATE _meta SET value = '46' WHERE key = 'schema_version'").run()
   db.close()

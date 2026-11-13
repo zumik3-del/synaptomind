@@ -5,28 +5,6 @@ import { join } from 'node:path'
 import { DEFAULTS, ENV_MAPPINGS } from './config'
 import { loadFreshConfig } from './test/fresh-config'
 
-/**
- * The config surface left behind by the pruning tasks.
- *
- * `autoLink.*` (#1937), `triage.*` (#1946) and the decay auto-archive pair
- * (#1943) lost their readers, so they are gone from `DEFAULTS`, the config type
- * and `ENV_MAPPINGS`. `placement.maxProposals` / `maxItemsPerEnqueue` went the
- * same way (#1946): the per-enqueue cap chain resolves
- * `placement.maxProposalsPerEnqueue` first, so those two aliases could never win.
- *
- * The last cleanup (#2201) dropped two knobs whose only reader was removed with
- * them: `slots.hardLimit` (the ceiling is derived from
- * `thoughts.hardLimitBufferPercent`) and `autoCluster.dryRun`
- * (`runAutoCluster` now takes an explicit `dryRun` per call).
- *
- * The RUNTIME object is a different matter: `deepMerge` copies the operator's
- * file keys verbatim, so on an instance whose config.json still carries a
- * removed block the merged object HAS the key — inert, read by nobody (the same
- * note the `api/` removal guards record). Unknown keys must keep loading
- * without an error; only the declared surface shrinks.
- */
-
-/** Top-level sections and dotted paths that must not come back. */
 const REMOVED_SECTIONS = ['autoLink', 'triage', 'ttl']
 const REMOVED_PATHS = [
   'decay.archiveThreshold',
@@ -56,7 +34,6 @@ const REMOVED_ENV_VARS = [
   'SYNAPTOMIND_AUTO_CLUSTER_DRY_RUN'
 ]
 
-/** Read a dotted path out of an object tree (`undefined` when it is absent). */
 function readPath(obj: unknown, path: string): unknown {
   let current: unknown = obj
   for (const key of path.split('.')) {
@@ -78,7 +55,6 @@ function scratchDir(): string {
   return SCRATCH
 }
 
-/** Ambient env minus the removed variables, so a case never inherits one. */
 function baseEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
@@ -88,11 +64,6 @@ function baseEnv(): Record<string, string> {
   return env
 }
 
-/**
- * Load `src/config.ts` with `cwd`'s `config.json` (when it has one) and report
- * the resolved config plus the module's `DEFAULTS`. A failed load reports
- * `code !== 0` and prints no `RESOLVED=` line.
- */
 async function loadConfig(
   cwd: string,
   env: Record<string, string> = {}
@@ -119,8 +90,6 @@ function parsedLine(out: string, prefix: string): Record<string, unknown> | null
   return line ? (JSON.parse(line.slice(prefix.length)) as Record<string, unknown>) : null
 }
 
-// ── the declared surface ─────────────────────────────────────────────────────
-
 describe('config surface — the removed keys are gone', () => {
   test('DEFAULTS carries none of the removed sections', () => {
     const defaults = DEFAULTS as unknown as Record<string, unknown>
@@ -132,9 +101,6 @@ describe('config surface — the removed keys are gone', () => {
   })
 
   test('the config type is the contract: reading a removed path is a type error', () => {
-    // `Extract` collapses to `never` while the member is absent, so this line
-    // stops compiling the moment a removed key comes back — `bun run tsc
-    // --noEmit` is the gate for the type half of the guarantee.
     const absent = 'autoLink' as const
     type RemovedMember = Extract<typeof absent, keyof typeof DEFAULTS>
     const REMOVED_IS_NOT_A_MEMBER: RemovedMember extends never ? true : false = true
@@ -158,8 +124,6 @@ describe('config surface — the removed keys are gone', () => {
     for (const name of REMOVED_ENV_VARS) expect(declared).not.toContain(name)
   })
 })
-
-// ── the kept surface ─────────────────────────────────────────────────────────
 
 describe('config surface — every mapping targets a real default', () => {
   test('retention-review defaults and environment mappings are declared', () => {
@@ -221,8 +185,6 @@ describe('config surface — every mapping targets a real default', () => {
   })
 })
 
-// ── a legacy config.json ─────────────────────────────────────────────────────
-
 describe('config load — a config.json carrying removed keys', () => {
   const LEGACY = {
     contentLanguage: 'en',
@@ -260,17 +222,12 @@ describe('config load — a config.json carrying removed keys', () => {
 
     expect(baseline.code).toBe(0)
     expect(control.code).toBe(0)
-    // The env layer still works (control), and no removed variable has a
-    // mapping left that could override anything below it.
     expect(resolvedControl!.contentLanguage).toBe('ru')
     const envs = new Set(ENV_MAPPINGS.map(m => m.env))
     for (const name of REMOVED_ENV_VARS) expect(envs.has(name)).toBe(false)
   })
 
   test('the removed knobs ride along as inert keys on the merged runtime object', async () => {
-    // `deepMerge` copies operator keys verbatim, so a file that still carries
-    // them produces a resolved object WITH the key. Nothing reads it: the
-    // declared surface (DEFAULTS, the config type) has no member for it.
     const cwd = scratchDir()
     writeFileSync(
       join(cwd, 'config.json'),
@@ -286,7 +243,6 @@ describe('config load — a config.json carrying removed keys', () => {
     expect(readPath(resolved, 'autoCluster.dryRun')).toBe(true)
     for (const path of ['slots.hardLimit', 'autoCluster.dryRun'])
       expect(readPath(defaults, path)).toBeUndefined()
-    // The surviving members of those two sections still resolve their defaults.
     expect(readPath(resolved, 'slots.defaultMaxChars')).toBe(DEFAULTS.slots.defaultMaxChars)
     expect(readPath(resolved, 'autoCluster.minMembers')).toBe(DEFAULTS.autoCluster.minMembers)
   })
@@ -298,8 +254,6 @@ describe('config load — a config.json carrying removed keys', () => {
     const res = await loadConfig(cwd, {
       SYNAPTOMIND_SLOTS_HARD_LIMIT: '900',
       SYNAPTOMIND_AUTO_CLUSTER_DRY_RUN: 'true',
-      // Positive control: a live mapping into the same section, so a no-op
-      // result cannot be explained by the whole env layer being ignored.
       SYNAPTOMIND_AUTO_CLUSTER_MIN_MEMBERS: '7'
     })
 
@@ -322,8 +276,6 @@ describe('config load — a config.json carrying removed keys', () => {
     expect(controlled.code).toBe(0)
     const a = parsedLine(res.out, 'RESOLVED=')
     const b = parsedLine(controlled.out, 'RESOLVED=')
-    // The removed variable is not applied: the resolved placement/decay knobs
-    // are identical (the removed keys are not on DEFAULTS at all).
     for (const path of REMOVED_PATHS) expect(readPath(b, path)).toBeUndefined()
     expect(readPath(a, 'placement.maxProposalsPerEnqueue')).toBe(
       readPath(b, 'placement.maxProposalsPerEnqueue')

@@ -1,17 +1,3 @@
-/**
- * Heavy auto-cluster perf suite (task #1569, review finding O4).
- *
- * The 3000-candidate run is an O(N^2) job (row cache ~36 MB, ~4 s measured) and
- * the default `bun test` gate must not carry it: this host also runs prod
- * (AGENTS.md §8). `*.suite.ts` is excluded from the test glob, and the wrapper
- * `auto-cluster.perf.test.ts` spawns it only when `SYNAPTOMIND_PERF_SUITE=1`.
- * The same stored-vector path stays pinned for correctness at N=200 inside the
- * gate (`auto-cluster.service.test.ts`); only the scale/timing assertion is here.
- *
- * Run explicitly:
- *   SYNAPTOMIND_PERF_SUITE=1 bun test ./src/services/auto-cluster.perf.test.ts
- *   bun test ./src/services/auto-cluster.perf.suite.ts
- */
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
@@ -21,13 +7,6 @@ import { runAutoCluster } from './auto-cluster.service'
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-/**
- * Bulk-seed `count` eligible candidates with stored 384-dim vectors.
- *
- * Duplicated from `auto-cluster.service.test.ts` on purpose: importing a
- * `*.test.ts` here would register that file's tests inside this process, and
- * there is no shared non-test fixture module for it.
- */
 function seedClusterCandidates(count: number, past: string): string[] {
   const db = getDb()
   const ids: string[] = []
@@ -49,8 +28,6 @@ function seedClusterCandidates(count: number, past: string): string[] {
       insertVec.run(id, buffer)
     }
   })()
-  // Drained: a queued row would force a live re-embed (task #1569, R1), and this
-  // suite measures the stored-vector path.
   drainPendingEmbeddings(ids)
   return ids
 }
@@ -75,7 +52,6 @@ test('runAutoCluster: 3000 stored-vector candidates complete well under 10 s wit
 
     expect(embedCalls).toBe(0)
     expect(result.candidates).toBe(3000)
-    // Every stored vector is [1, 0, ...]: all pairs at distance 0, so one group.
     expect(result.groups).toHaveLength(1)
     expect(result.groups[0].members.length).toBe(ids.length)
     expect(elapsedMs).toBeLessThan(10_000)

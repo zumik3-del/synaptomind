@@ -29,8 +29,6 @@ function requirementsMet(rule: EdgeTypeRule, signals: PairSignals): boolean {
   return rule.requires.every(key => signals[key] !== undefined && signals[key] !== null)
 }
 
-// Similarity alone may only yield `related`: every typed rule requires a non-embedding
-// signal, and `contradicts` is never inferred from similarity (safety invariant, task #927).
 export const EDGE_TYPE_RULES: EdgeTypeRule[] = [
   {
     id: 'supersede.newer_replaces_older',

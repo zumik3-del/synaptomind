@@ -1,15 +1,3 @@
-/**
- * #1574 AC1/AC10 behavioural probe: each claim the 5 developer pins make, tested
- * INDEPENDENTLY of the embedder mechanism, so it runs identically against the
- * pre-change (99cbf0e) sources and the #1571 sources.
- *
- * Why a separate probe: against the pre-change sources the developer's own pins
- * mostly die on the real embedder call (5 s bun timeout) instead of on their
- * assertion, which makes their RED status uninformative. This file injects a
- * counting embedder (`deps.embed`) wherever the pin did not, so every claim is
- * decided by the code path rather than by the harness.
- */
-
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { closeDb, getDb } from '../../db'
 import * as searchDb from '../../db/search'
@@ -42,17 +30,10 @@ function storeVec(id: string, vector: Float32Array): void {
   drainPendingEmbeddings([id])
 }
 
-/**
- * Content-keyed embedder stand-in, so a fixture can force the same vectors from
- * the live path that it planted in `vec_thoughts`. Content the fixture did not
- * plant gets a neutral vector. This makes the probe's verdict depend on the CODE
- * PATH under test, not on which vectors the harness happens to supply.
- */
 function keyedEmbed(table: Record<string, Float32Array>, fallback = vec384(0)) {
   return async (texts: string[]): Promise<Float32Array[]> => texts.map(t => table[t] ?? fallback)
 }
 
-/** The pre-change default neighbour lookup, reconstructed for the equivalence claim. */
 function indexLookup(projectId: string): SearchNeighborsFn {
   return (_id, embedding, k) =>
     searchDb
@@ -176,8 +157,6 @@ describe('#1574 pin probes', () => {
       const src = seedThought({ id: 'eq-src', content: 'eq source' })
       seedEdge(cluster, member, 'cluster')
       seedEdge(root, member, 'parent')
-      // The live path is given the SAME vectors the index reads, so the two sides
-      // differ only by the neighbour mechanism under test.
       const fixture: Record<string, Float32Array> = {
         'eq source': vec384(0),
         'eq member': vec384(Math.acos(0.9)),
@@ -205,10 +184,6 @@ describe('#1574 pin probes', () => {
         edges: p.edges.map(e => `${e.target_id}@${e.confidence.toFixed(6)}`).sort(),
         lifecycle: p.lifecycle.action
       })
-      // The developer's reported fixture output, verbatim. Annotated (not
-      // inferred) so `kind`/`lifecycle` keep their literal-union types: a bare
-      // object literal widens them to `string`, which `toEqual<T>(expected: T)`
-      // rejects against the received union type.
       const expected: ReturnType<typeof project> = {
         kind: 'cluster',
         target: cluster,
@@ -249,14 +224,10 @@ describe('#1574 pin probes', () => {
 
       const defaultTargets = viaDefault.edges.map(e => e.target_id)
       const indexTargets = viaIndex.edges.map(e => e.target_id)
-      // The developer's reported shape: 10 pairs vs 8.
       expect(defaultTargets).toHaveLength(10)
       expect(indexTargets).toHaveLength(8)
-      // `src` itself and the cluster occupy index slots, so the two farthest
-      // candidates fall outside the index window.
       expect(defaultTargets).not.toContain('ss-cluster')
       expect(indexTargets).not.toContain('ss-cluster')
-      // One-way: nothing the index kept is lost by the new path.
       const defaultIds = new Set(defaultTargets)
       expect(indexTargets.every(id => defaultIds.has(id))).toBe(true)
     })

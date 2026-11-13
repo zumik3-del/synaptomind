@@ -7,11 +7,6 @@ import { createThoughtWithUrlLinksService } from '../../services/url_links.servi
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
-// Coverage for task #170 finding F15: the MCP store path must stamp
-// source='mcp' on created thoughts. Before the fix db/thoughts.ts carried a
-// dead `source === 'mcp'` branch that nothing ever populated, so
-// graph.service's agent category was unreachable from the MCP surface.
-
 mock.module('../../embedder/client', () => ({
   generateEmbedding: () => new Float32Array(384),
   generateEmbeddings: () => [new Float32Array(384)],
@@ -76,14 +71,10 @@ describe('memory_store create stamps source=mcp (F15)', () => {
   })
 
   test('negative control: the service itself does not default to mcp', () => {
-    // The source is added by the MCP tool layer, not by the shared service;
-    // otherwise every HTTP-created thought would also be stamped as agent-made.
     const thought = createThoughtWithUrlLinksService({ content: 'direct service marker' })
     expect(dbSource(thought.id)).toBeNull()
   })
 })
-
-// ── is_global flag through the MCP store surface (epic #1489) ────────────────
 
 describe('memory_store is_global flag', () => {
   test('create with is_global:true persists 1', async () => {

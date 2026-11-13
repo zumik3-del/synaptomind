@@ -74,7 +74,6 @@ export function buildCandidatePool(
     project_id: projectId,
     limit: maxCandidates
   }).filter(t => !t.is_cluster)
-  // The source can be a draft the active-only query skips; pair generation needs it present.
   if (!pool.some(t => t.id === thought.id)) pool.unshift(thought)
   return pool
 }

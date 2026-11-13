@@ -1,26 +1,4 @@
 /**
- * Per-input fingerprint matrix for the converted destructive actions (task
- * #2492).
- *
- * The sibling contract suite proves that a preview token is refused when *the*
- * state drifts; it cannot see which state, so dropping one of the inputs an
- * action folds into its fingerprint kept every case green (the drift dimension
- * task #2467 found). Here each declared input is moved on its own and the token
- * minted before that change must be refused, which is what a dropped input
- * stops doing.
- *
- * The input set is never listed here: it is parsed out of each action's own
- * `fingerprintOf(...)` declaration (`src/test/confirm-gate-declaration.ts`),
- * and the probes only have to identify one declared part each. Adding a part to
- * a fingerprint therefore fails the coverage test until it gets a probe, and
- * dropping one fails until its probe goes with it — a change to what an action
- * guards always moves a test file, never just the code.
- *
- * The embedder is mocked (same recipe as the sibling contract suites) because
- * `auto_cluster` embeds its candidate pool; the vectors are content-keyed so a
- * probe can add a candidate that joins no cluster without touching the planned
- * groups.
- *
  * The plan itself must come from the real service: a process-global
  * `mock.module` stub of a shared service, left behind by an earlier file of the
  * same `bun test` process, freezes `candidates`/`groups`, so every probe's
@@ -40,7 +18,6 @@ import { FINGERPRINT_CASES } from '../../test/confirm-gate-fingerprints'
 import { createTestDb } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
-/** A candidate whose content carries this marker is embedded onto a second axis. */
 const FAR_MARKER = 'gate cluster far'
 
 function embeddingFor(text: string): Float32Array {
@@ -75,20 +52,16 @@ async function call(tool: string, args: Record<string, unknown>) {
   let data: unknown = text
   try {
     data = JSON.parse(text)
-  } catch {
-    /* keep text */
-  }
+  } catch {}
   return { data: data as any, isError: response.isError === true, text }
 }
 
-/** The token a preview issued, from the envelope mirror or the item itself. */
 function previewToken(data: any): string {
   const token = data?.meta?.preview?.token ?? data?.item?.preview_token
   expect(typeof token).toBe('string')
   return token as string
 }
 
-/** The token row a preview left behind, for the declared-scope assertion. */
 function tokenScope(token: string): { kind: string; target_id: string } | undefined {
   return getDb().prepare('SELECT kind, target_id FROM preview_tokens WHERE token = ?').get(token) as
     | { kind: string; target_id: string }
@@ -119,7 +92,6 @@ describe('fingerprint declaration coverage', () => {
   test('every declared fingerprint input has exactly one probe, in both directions', () => {
     for (const entry of FINGERPRINT_CASES) {
       const declaration = fingerprintDeclaration(entry.module, entry.kind)
-      // Throws when a declared part has no probe key, or a key binds none or two.
       const bindings = bindProbeKeys(declaration.parts, Object.keys(entry.probes))
       expect(bindings.map(binding => binding.part)).toEqual(declaration.parts)
       for (const probes of Object.values(entry.probes)) {
@@ -144,9 +116,6 @@ describe('fingerprint declaration coverage', () => {
 
 describe('auto_cluster plan freshness', () => {
   test('the plan comes from the real planner, not a stub left by another file', async () => {
-    // Same fixture state the auto_cluster probes start from. A leaked
-    // `mock.module('../../services/auto-cluster.service')` answers with
-    // `candidates: 0, groups: []` and would make all three probes vacuous.
     gateCaseOf('memory_crystallize action=auto_cluster').setup()
     const planned = await runAutoCluster({
       dryRun: true,
@@ -181,9 +150,6 @@ describe('per-input fingerprint matrix over the converted actions', () => {
               preview_token: token
             })
 
-            // The refusal IS the proof the mutation did not run: the gate throws
-            // before `apply`, and a probe may legitimately move the guarded state
-            // the fixtures assert on, so `assertUntouched` cannot be used here.
             expect(refused.isError).toBe(true)
             expect(refused.text).toContain(`preview token ${probe.refusal}`)
           })

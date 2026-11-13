@@ -72,7 +72,6 @@ test('reflectSessionService creates new decision when sufficiently different', (
 
 test('reflectSessionService skips archived decisions when checking dedup', () => {
   const db = getDb()
-  // Create an archived decision manually
   const thoughtId = crypto.randomUUID()
   db.prepare(
     "INSERT INTO thoughts (id, content, status, source, project_id, is_cluster, is_protected, created_at, updated_at) VALUES (?, ?, 'archived', 'session-reflection', 'default', 0, 1, ?, ?)"
@@ -95,7 +94,6 @@ test('reflectSessionService creates decision thoughts', () => {
     .prepare("SELECT t.id, t.content FROM thoughts t WHERE t.source = 'session-reflection'")
     .all() as { id: string; content: string }[]
   expect(thoughts.length).toBe(2)
-  // Check that each decision thought has the 'decision' tag
   for (const t of thoughts) {
     const tag = db
       .prepare(

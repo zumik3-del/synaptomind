@@ -62,7 +62,6 @@ test('collapses the pair edge between source and target without creating a self-
   const transferred = transferEdgesFromSource(source, target, db)
 
   expect(transferred).toBe(0)
-  // both pair edges are deleted, neither recreated as target→target
   expect(edgeCountBetween(db, target, target, 'related')).toBe(0)
   expect(edgeCountBetween(db, target, target, 'develops')).toBe(0)
   expect(edgeExists(db, source, target, 'related')).toBe(false)
@@ -74,14 +73,12 @@ test('skips a duplicate edge on the target and continues the merge', () => {
   const target = seedThought({ content: 'target thought' })
   const x = seedThought({ content: 'shared neighbor' })
   const y = seedThought({ content: 'other neighbor' })
-  // both source→x and target→x exist: remapping source→x would duplicate
   seedEdge(source, x, 'develops')
   seedEdge(target, x, 'develops')
   seedEdge(source, y, 'develops')
 
   const transferred = transferEdgesFromSource(source, target, db)
 
-  // duplicate skipped (EdgeAlreadyExistsError), the other edge still transfers
   expect(transferred).toBe(1)
   expect(edgeCountBetween(db, target, x, 'develops')).toBe(1)
   expect(edgeExists(db, target, y, 'develops')).toBe(true)
@@ -96,8 +93,6 @@ test('skips a cluster edge whose remapped source is not a cluster thought', () =
 
   const transferred = transferEdgesFromSource(source, target, db)
 
-  // revalidation fails → edge not transferred, but original is deleted
-  // (source will be archived after merge, so dangling source→member edges are noise)
   expect(transferred).toBe(0)
   expect(edgeExists(db, source, member, 'cluster')).toBe(false)
   expect(edgeExists(db, target, member, 'cluster')).toBe(false)
@@ -113,7 +108,6 @@ test('skips a cluster edge when both remapped endpoints are clusters', () => {
   const transferred = transferEdgesFromSource(source, target, db)
 
   expect(transferred).toBe(0)
-  // original edge removed from source; source will be archived
   expect(edgeExists(db, source, otherCluster, 'cluster')).toBe(false)
   expect(edgeExists(db, target, otherCluster, 'cluster')).toBe(false)
 })

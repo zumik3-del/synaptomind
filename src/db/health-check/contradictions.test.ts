@@ -20,7 +20,6 @@ describe('findContradictsWithHierarchy', () => {
     const parent = seedThought({ content: 'parent claim' })
     const child = seedThought({ content: 'child claim' })
     seedEdge(parent, child, 'parent')
-    // v046 allows one edge per pair: the second one is legacy state.
     seedLegacyPairEdge(child, parent, 'contradicts')
 
     const found = findContradictsWithHierarchy(db)
@@ -55,7 +54,6 @@ describe('findContradictsRedundantWithReplaces', () => {
     const oldThought = seedThought({ content: 'old' })
     const newThought = seedThought({ content: 'new' })
     seedEdge(newThought, oldThought, 'replaces')
-    // junk: normally impossible — v046 keeps one edge per pair, so it is legacy state
     seedLegacyPairEdge(oldThought, newThought, 'contradicts')
 
     const found = findContradictsRedundantWithReplaces(db)
@@ -140,7 +138,7 @@ describe('findContradictionInCluster', () => {
     })
     seedEdge(cluster, live, 'cluster')
     seedEdge(cluster, archived, 'cluster')
-    seedEdge(archived, live, 'contradicts') // opposite contradicts direction
+    seedEdge(archived, live, 'contradicts')
 
     expect(findContradictionInCluster(db)).toEqual([])
   })
@@ -162,8 +160,6 @@ describe('findContradictionInCluster', () => {
     seedEdge(cluster, b, 'cluster')
     seedEdge(a, b, 'contradicts')
 
-    // No signal is lost: the info-severity `contradicts_to_archived` check owns
-    // this pair, so the fix suppresses only the warning.
     expect(findContradictionInCluster(db)).toEqual([])
     const stale = findContradictsToArchived(db)
     expect(stale).toHaveLength(1)
@@ -242,7 +238,6 @@ describe('findSupportsSelfConflict', () => {
     const a = seedThought({ content: 'a' })
     const b = seedThought({ content: 'b' })
     seedEdge(a, b, 'supports')
-    // junk: one-edge-per-pair should prevent it — seeded as legacy state
     seedLegacyPairEdge(b, a, 'contradicts')
 
     const found = findSupportsSelfConflict(db)
@@ -307,12 +302,9 @@ describe('runHealthCheckService semantic_consistency integration', () => {
     seedEdge(cluster, archived, 'cluster')
     seedEdge(live, archived, 'contradicts')
 
-    // Neighbouring checks must still register: the archived fix must not
-    // disable a sibling finder or its severity registration.
     const parent = seedThought({ content: 'parent claim in the hierarchy' })
     const child = seedThought({ content: 'child claim in the hierarchy' })
     seedEdge(parent, child, 'parent')
-    // v046 allows one edge per pair: the second one is legacy state.
     seedLegacyPairEdge(child, parent, 'contradicts')
     const junk1 = seedThought({ content: 'junk supports endpoint one' })
     const junk2 = seedThought({ content: 'junk supports endpoint two' })
@@ -323,18 +315,13 @@ describe('runHealthCheckService semantic_consistency integration', () => {
     const semantic = report.categories.find(c => c.name === 'semantic_consistency')!
     const counts = new Map(semantic.checks.map(c => [c.name, c.count]))
     expect(counts.get('contradiction_in_cluster')).toBe(0)
-    expect(counts.get('contradicts_to_archived')).toBe(0) // only one endpoint archived
+    expect(counts.get('contradicts_to_archived')).toBe(0)
     expect(counts.get('contradicts_with_hierarchy')).toBe(1)
     expect(counts.get('supports_self_conflict')).toBe(1)
     expect(report.summary.issues.critical).toBe(1)
     expect(report.summary.issues.warning).toBe(1)
   })
 
-  // The two tests below are a pair: identical fixtures whose only difference is
-  // the archived member's status, and both are tagged so no incidental
-  // info-severity finding (untagged thoughts) moves the score. The 15-point
-  // delta is the semantic_consistency warning-category penalty, so together they
-  // pin the category-penalty path in src/services/health-check.service.ts.
   test('an archived contradicting member costs no warning-category penalty', () => {
     const cluster = seedThought({
       content: 'cluster of contradicting members',
@@ -383,7 +370,6 @@ describe('runHealthCheckService semantic_consistency integration', () => {
     const counts = new Map(semantic.checks.map(c => [c.name, c.count]))
     expect(counts.get('contradiction_in_cluster')).toBe(1)
     expect(report.summary.issues).toEqual({ critical: 0, warning: 1, info: 0 })
-    // 100 - 15: exactly one warning-bearing category (ADR score formula).
     expect(report.summary.health_score).toBe(85)
   })
 })

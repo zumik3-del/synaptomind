@@ -67,8 +67,6 @@ describe('searchThoughts graph standing (ADR #142 D2)', () => {
     const b = seedThought({ content: 'standing claim beta' })
     createEdge(getDb(), a, b, 'contradicts')
 
-    // `suppress` must not hide a contradicted endpoint: neither side is
-    // authoritative, so both stay visible for the agent to resolve.
     const results = await searchThoughts({
       query: QUERY,
       topK: 10,
@@ -118,10 +116,6 @@ describe('searchThoughts graph standing (ADR #142 D2)', () => {
   })
 
   test('suppress over-fetches to backfill topK when superseded rows rank first', async () => {
-    // Six superseded rows whose keyword relevance outranks their current
-    // replacements, all ahead of the current rows in the raw (BM25) order.
-    // A non-widening pool would fetch topK superseded rows, drop them all and
-    // return an empty/short list.
     const query = 'suppressionbackfill'
     const oldIds: string[] = []
     const newIds: string[] = []
@@ -159,7 +153,6 @@ describe('searchThoughts graph standing (ADR #142 D2)', () => {
     const newThought = seedThought({ content: `${query} current` })
     createEdge(getDb(), newThought, oldThought, 'replaces')
 
-    // The relevance leg alone would put the superseded row first.
     const raw = bm25SearchIds(getDb(), query, 10)
     expect(raw.indexOf(oldThought)).toBeLessThan(raw.indexOf(newThought))
 
@@ -223,8 +216,6 @@ describe('searchThoughts graph standing (ADR #142 D2)', () => {
     createEdge(getDb(), replacement, oldThought, 'replaces')
     createEdge(getDb(), oldThought, rival, 'contradicts')
 
-    // Superseded wins the tie for suppression: the stale claim is dropped even
-    // though it is also contradicted. The contradicted-only rival stays.
     const suppressed = await searchThoughts({
       query: 'standingboth',
       topK: 10,
@@ -255,9 +246,6 @@ describe('searchThoughts graph standing (ADR #142 D2)', () => {
   })
 })
 
-// Regression guard: standing ordering must not be driven by `similarity`.
-// `similarity` is populated from the vector leg only, so BM25-only hits
-// carry 0 and a similarity-primary sort would sink them below every vector hit.
 describe('orderByStanding (ADR #142 item 3)', () => {
   function stubResult(id: string, similarity: number, standing: GraphStanding): SearchResult {
     return {

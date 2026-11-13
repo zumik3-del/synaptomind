@@ -4,12 +4,6 @@ import { z } from 'zod/v4'
 import { ValidationError } from '../errors'
 import { jsonBodyOrDefault } from './utils'
 
-// `jsonBodyOrDefault` is the one surviving piece of the old HTTP request
-// contract (ADR 2026-10-26): the ops plane's repair route still reads an
-// optional JSON body through it. These cases came out of the deleted
-// route-level contract suite, retargeted at the helper itself.
-
-/** A minimal Hono context whose only used surface is `c.req.text()`. */
 function makeContext(body?: string): Context {
   return {
     req: new Request('http://localhost/api/health-check/repair', {
@@ -35,7 +29,6 @@ test('an empty or whitespace-only body returns the default', async () => {
 })
 
 test('a JSON null literal returns the default instead of dereferencing null', async () => {
-  // Before #1787 the bare `null` reached the caller and became a 500.
   expect(await jsonBodyOrDefault(makeContext('null'), DEFAULT)).toEqual({ confirm: false })
 })
 

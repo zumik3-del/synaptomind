@@ -5,23 +5,6 @@ import { join } from 'node:path'
 import { assertEmbedderDtype, DEFAULTS, EMBEDDER_DTYPES, ENV_MAPPINGS } from './config'
 import { loadFreshConfig } from './test/fresh-config'
 
-/**
- * The `embedder.dtype` contract.
- *
- * `dtype` decides which ONNX file the embedder downloads and loads (q8 ->
- * `onnx/model_quantized.onnx` ~118 MB, fp32 -> `onnx/model.onnx` ~449 MB), so
- * the DEFAULT is a memory/disk commitment and an unknown value must never be
- * absorbed by a silent fallback: on a metered or offline host the fp32 fallback
- * would pull 449 MB nobody asked for. Both directions are pinned here.
- *
- * The env/file override is asserted through `applyEnvOverrides`, which runs at
- * module-import time — importing `./config` directly would freeze one
- * combination forever, so the load-time cases evaluate a cache-busted fresh
- * module instance with a scratch `config.json` and environment
- * (`loadFreshConfig`) and read back `config.embedder.dtype`. No model, no
- * network, no DB.
- */
-
 let SCRATCH = ''
 
 afterEach(() => {
@@ -34,10 +17,6 @@ function scratchDir(): string {
   return SCRATCH
 }
 
-/**
- * Ambient env minus the dtype override, so a case never inherits the setting it
- * is supposed to control.
- */
 function baseEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
@@ -52,11 +31,6 @@ interface LoadResult {
   out: string
 }
 
-/**
- * Load `src/config.ts` with `cwd`'s `config.json` (when it has one) and report
- * what it resolved. A `DTYPE=` line is printed only when the module loaded, so
- * its absence is the observable "no silent fallback".
- */
 async function loadConfig(cwd: string, dtype: string | undefined): Promise<LoadResult> {
   const env = baseEnv()
   if (dtype !== undefined) env.SYNAPTOMIND_EMBEDDER_DTYPE = dtype
@@ -178,7 +152,6 @@ describe('embedder.dtype — as resolved at config load', () => {
     expect(res.out).toContain('invalid embedder.dtype')
     expect(res.out).toContain('"int8"')
     expect(res.out).toContain('allowed values: fp32, q8')
-    // The fallback would have logged a dtype; nothing resolved.
     expect(res.out).not.toContain('DTYPE=')
   })
 
@@ -206,13 +179,6 @@ describe('embedder.dtype — as resolved at config load', () => {
   })
 })
 
-// The label is part of the error's value: the env override is applied after the
-// file merge, so it wins, and blaming config.json for a bad env value (or the
-// reverse) sends the operator to the wrong place. `assertEmbedderDtype`'s own
-// `source` argument is covered above — these cases exercise the CALL SITE that
-// picks the label, at module load, through the same child process (config.json
-// is read from cwd).
-
 describe('embedder.dtype — the error names the layer that actually carried the value', () => {
   test('a bad value from the environment is blamed on the env var, not config.json', async () => {
     const cwd = scratchDir()
@@ -233,7 +199,6 @@ describe('embedder.dtype — the error names the layer that actually carried the
 
     expect(res.code).not.toBe(0)
     expect(res.out).toContain('from config.json: "fp16"')
-    // The env var is unset here: naming it would be a lie about the source.
     expect(res.out).not.toContain('SYNAPTOMIND_EMBEDDER_DTYPE')
   })
 
@@ -245,7 +210,6 @@ describe('embedder.dtype — the error names the layer that actually carried the
 
     expect(res.code).not.toBe(0)
     expect(res.out).toContain('from SYNAPTOMIND_EMBEDDER_DTYPE: "int8"')
-    // The overridden file value is not what aborted the load.
     expect(res.out).not.toContain('fp16')
   })
 })

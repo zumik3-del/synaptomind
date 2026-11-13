@@ -1,13 +1,3 @@
-/**
- * No-write guarantee tests for the placement engine (`engine.ts`, ADR 2026-09-28 / task #950/#951).
- *
- * The placement policy layer (ADR §2.4) is strictly propose-only: it must
- * never pull in graph writers. Two independent checks guard this invariant:
- *  1. Static import scan — no placement source file imports a writer symbol.
- *  2. Runtime fingerprint — mutable table counts are unchanged across every
- *     branch of `proposePlacementPlan`.
- */
-
 import { beforeEach, afterEach, describe, expect, test } from 'bun:test'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -19,17 +9,12 @@ import { proposePlacementPlan } from './engine'
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-// ── time constants ────────────────────────────────────────────────────────────
-
 const NOW = '2026-01-01T00:00:00.000Z'
 const T0 = '2025-01-01T00:00:00.000Z'
 const T1 = '2025-02-01T00:00:00.000Z'
 const T2 = '2025-03-01T00:00:00.000Z'
 const T3 = '2025-04-01T00:00:00.000Z'
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-/** Deterministic embed stub: one zero vector per candidate text. */
 function okEmbed(): (texts: string[]) => Promise<Float32Array[]> {
   return async texts => texts.map(() => new Float32Array(384))
 }
@@ -40,14 +25,10 @@ function failEmbed(): (texts: string[]) => Promise<Float32Array[]> {
   }
 }
 
-/**
- * `searchNeighbors` stub keyed by thought id. Unknown ids get no neighbours.
- */
 function stubSearch(map: Record<string, Array<{ id: string; similarity: number }>>) {
   return (_id: string, _emb: Float32Array, _topK: number) => map[_id] ?? []
 }
 
-/** Snapshot of the mutable tables the engine must never touch. */
 function fp(db: Database): Record<string, number> {
   const c = (sql: string) => (db.prepare(sql).get() as { n: number }).n
   return {
@@ -60,11 +41,6 @@ function fp(db: Database): Record<string, number> {
   }
 }
 
-/**
- * Parse import bindings from a TypeScript source file; returns non-keyword
- * identifiers (strips block + line comments first so literal mentions in docs
- * don't false-positive).
- */
 function importedIdentifiers(src: string): string[] {
   const stripped = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
   const bodies: string[] = []
@@ -79,15 +55,12 @@ function importedIdentifiers(src: string): string[] {
   return [...out]
 }
 
-// Writers the placement layer must never pull in (ADR §2.4 — propose-only).
 const WRITER_IMPORTS = [
-  // edges
   'createEdge',
   'deleteEdge',
   'createEdgeService',
   'deleteEdgeService',
   'createEdgesService',
-  // thoughts / lifecycle
   'createThought',
   'updateThought',
   'deleteThought',
@@ -97,17 +70,12 @@ const WRITER_IMPORTS = [
   'updateThoughtByIdService',
   'archiveThoughtByIdService',
   'mergeThoughtsService',
-  // clusters
   'createClusterService',
-  // crystallize / supersede surface
   'crystallize',
-  // misc writers (unlikely to leak, but part of the guardrail)
   'deleteEdges',
   'insertEmbedding',
   'boostImportance'
 ]
-
-// ── no-write guarantee ───────────────────────────────────────────────────────
 
 describe('no-write guarantee', () => {
   test('static import scan: placement non-test files import no graph writer', () => {
@@ -126,7 +94,6 @@ describe('no-write guarantee', () => {
 
   test('runtime fingerprint unchanged across branches', async () => {
     const db = getDb()
-    // Seed a rich graph spanning all branches.
     seedThought({ id: 'fw-c', content: 'cluster agg', is_cluster: 1, created_at: T0 })
     seedThought({ id: 'fw-m', content: 'cluster member', created_at: T1 })
     seedThought({ id: 'fw-keep', content: 'plain idea', created_at: T2 })
@@ -141,16 +108,13 @@ describe('no-write guarantee', () => {
     seedEdge('fw-c', 'fw-m', 'cluster')
 
     const before = fp(db)
-    // Keep / standalone.
     await proposePlacementPlan(
       { thoughtId: 'fw-keep' },
       { now: NOW },
       { embed: okEmbed(), searchNeighbors: stubSearch({}) },
       db
     )
-    // Degraded keep (embedder throws).
     await proposePlacementPlan({ thoughtId: 'fw-keep' }, { now: NOW }, { embed: failEmbed() }, db)
-    // Merge + related edge coexist (merge wins).
     await proposePlacementPlan(
       { thoughtId: 'fw-merge-src' },
       { now: NOW },
@@ -160,7 +124,6 @@ describe('no-write guarantee', () => {
       },
       db
     )
-    // Replaces+archive (supersede + active target).
     await proposePlacementPlan(
       { thoughtId: 'fw-re-new' },
       { now: NOW },
@@ -170,14 +133,12 @@ describe('no-write guarantee', () => {
       },
       db
     )
-    // Draft path.
     await proposePlacementPlan(
       { content: 'some draft content', projectId: 'default' },
       { now: NOW },
       { embed: okEmbed(), searchNeighbors: stubSearch({}) },
       db
     )
-    // Cluster placement.
     await proposePlacementPlan(
       { thoughtId: 'fw-m' },
       { now: NOW },

@@ -6,10 +6,6 @@ import { config, hashUserToken } from '../config'
 import { upsertSlot } from '../db/slots'
 import type { McpHttpHandle } from './http-transport'
 
-// Modern-era per-user containment (task #2436, T-mod-2/3, T-neg-5). The
-// 2026-07-28 leg keeps no session to bind, so the proof is the data plane: each
-// envelope tools/call must resolve the caller's own database through the ALS
-// binding, and a legacy session id must still be refused across users.
 const ALICE_TOKEN = 'alice-modern-token'
 const BOB_TOKEN = 'bob-modern-token'
 const MODERN = '2026-07-28'

@@ -1,16 +1,7 @@
 /**
- * What the embedder LOADER hands to transformers.js, with the pipeline mocked.
- *
- * `config.embedder.dtype` only selects the right ONNX file if it actually
- * reaches `pipeline()` — before the dtype work the option was the literal
- * `'fp32'`, so a regression that re-hardcodes it would leave the validator
- * demanding `onnx/model_quantized.onnx` while the loader opened
- * `onnx/model.onnx`. The mocked pipeline makes that visible without a model.
- *
  * `config` is read at import time, so each dtype needs its own process; the
  * wrapper (`model-dtype.test.ts`) spawns this suite twice, once per dtype, and
- * the dtype under test arrives in `SYNAPTOMIND_EMBEDDER_DTYPE`. Excluded from
- * the default `bun test` glob (`*.suite.ts`).
+ * the dtype under test arrives in `SYNAPTOMIND_EMBEDDER_DTYPE`.
  */
 import { expect, mock, test } from 'bun:test'
 
@@ -21,7 +12,6 @@ interface PipelineCall {
 }
 
 const pipelineCalls: PipelineCall[] = []
-/** Every extractor invocation, in order — the text and its per-call options. */
 const extractorCalls: Array<{ text: string; options: Record<string, unknown> }> = []
 
 const mockedEnv = {
@@ -68,8 +58,6 @@ test('the loader forwards config.embedder.dtype to pipeline(), not a literal', a
 })
 
 test('the e5 prefixes and pooling options are the ones the drift measurement assumed', async () => {
-  // The extractor is a singleton, so its invocations are the only place the
-  // prefix and per-call options are visible across the two entry points.
   extractorCalls.length = 0
   const loadsBefore = pipelineCalls.length
 
@@ -81,7 +69,6 @@ test('the e5 prefixes and pooling options are the ones the drift measurement ass
     expect(call.options.pooling).toBe('mean')
     expect(call.options.normalize).toBe(true)
   }
-  // One model resident: later calls reuse the loaded extractor, never reload it.
   expect(pipelineCalls.length).toBe(loadsBefore)
 
   // model.ts re-points the transformers cache at the configured directory

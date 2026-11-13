@@ -21,13 +21,9 @@ const ORIGINAL_PLACEMENT_CONFIG = { ...config.placement }
 
 beforeEach(createTestDb)
 afterEach(() => {
-  // Several tests below mutate the shared config object; restore it so the
-  // mutation cannot leak into other suites in the same Bun process.
   config.placement = { ...ORIGINAL_PLACEMENT_CONFIG }
   closeDb()
 })
-
-// ── helpers ──────────────────────────────────────────────────────────────────
 
 function makeInput(overrides?: Partial<InsertProposalInput>): InsertProposalInput {
   return {
@@ -41,10 +37,6 @@ function makeInput(overrides?: Partial<InsertProposalInput>): InsertProposalInpu
   }
 }
 
-/**
- * Deterministic clock injection: patch global Date for the duration of `fn`.
- * Restores the original on exit (including when fn throws).
- */
 function withClock(nowMs: number, fn: () => void): void {
   const OrigDate = globalThis.Date
   Object.assign(globalThis, {
@@ -61,7 +53,6 @@ function withClock(nowMs: number, fn: () => void): void {
   }
 }
 
-/** Run `bun -e script` in a subprocess with optional env overrides. */
 async function runInSubprocess(script: string, env: Record<string, string> = {}): Promise<string> {
   const proc = Bun.spawnSync([process.execPath, '-e', script], {
     env: { ...process.env, ...env },
@@ -74,8 +65,6 @@ const CONFIG_PROBE = `
 import { config } from './src/config';
 console.log(config.placement.proposalTtlDays + ',' + config.placement.maxPendingProposals);
 `
-
-// ── config defaults ───────────────────────────────────────────────────────────
 
 describe('config defaults', () => {
   test('placement.proposalTtlDays defaults to 30', () => {
@@ -93,7 +82,6 @@ describe('config defaults', () => {
   })
 })
 
-// ── env overrides (subprocess) ──────────────────────────────────────────────
 // config is built at module-load time from process.env; a fresh subprocess is
 // the only way to verify that env vars actually change the resolved value.
 
@@ -135,8 +123,6 @@ describe('env overrides', () => {
     expect(maxMapping?.type).toBe('int')
   })
 })
-
-// ── buildConfigDisplay inclusion ──────────────────────────────────────────────
 
 describe('buildConfigDisplay placement section', () => {
   test('includes the Placement section header', () => {
@@ -181,10 +167,7 @@ describe('buildConfigDisplay placement section', () => {
   })
 })
 
-// ── cleanupPlacementProposals with injected clock ─────────────────────────────
-
 describe('cleanupPlacementProposals', () => {
-  // Keep a stable reference to the saved placement config so we can restore it.
   const savedPlacement = { ...config.placement }
 
   afterEach(() => {
@@ -207,9 +190,7 @@ describe('cleanupPlacementProposals', () => {
       )
       const removed = cleanupPlacementProposals(db)
       expect(removed.proposals).toBe(1)
-      // No longer pending
       expect(listProposals(db)).toHaveLength(0)
-      // Row still exists in state=expired
       const expiredRows = db
         .prepare("SELECT id FROM placement_proposals WHERE state = 'expired'")
         .all() as { id: string }[]
@@ -245,7 +226,6 @@ describe('cleanupPlacementProposals', () => {
       })
       const removed = cleanupPlacementProposals(db)
       expect(removed.proposals).toBe(1)
-      // Row physically deleted
       const remaining = db.prepare('SELECT id FROM placement_proposals').all() as { id: string }[]
       expect(remaining).toHaveLength(0)
     })
@@ -257,7 +237,6 @@ describe('cleanupPlacementProposals', () => {
       const db = getDb()
       const src1 = seedThought()
       const src2 = seedThought()
-      // Pending with expires_at 10 days in the future — should stay pending.
       insertProposal(
         db,
         makeInput({
@@ -267,7 +246,6 @@ describe('cleanupPlacementProposals', () => {
           edge_type: 'parent'
         })
       )
-      // Terminal row decided 1 day ago — should stay in the table.
       const accepted = insertProposal(
         db,
         makeInput({ source_thought_id: src2, item_kind: 'edge', edge_type: 'parent' })
@@ -278,7 +256,6 @@ describe('cleanupPlacementProposals', () => {
       })
       const removed = cleanupPlacementProposals(db)
       expect(removed).toEqual({ proposals: 0, tokens: 0 })
-      // Both rows still exist
       const all = db
         .prepare('SELECT id, state FROM placement_proposals ORDER BY id')
         .all() as Array<{ id: string; state: string }>
@@ -304,7 +281,6 @@ describe('cleanupPlacementProposals', () => {
       )
       const removed = cleanupPlacementProposals(db)
       expect(removed).toEqual({ proposals: 0, tokens: 0 })
-      // Row still pending despite being stale.
       expect(listProposals(db)).toHaveLength(1)
     })
   })
@@ -317,7 +293,6 @@ describe('cleanupPlacementProposals', () => {
       const srcPrune = seedThought()
       const srcFresh = seedThought()
 
-      // Pending → expires in the past.
       insertProposal(
         db,
         makeInput({
@@ -327,7 +302,6 @@ describe('cleanupPlacementProposals', () => {
           edge_type: 'develops'
         })
       )
-      // Terminal → accepted 60 days ago.
       const accepted = insertProposal(
         db,
         makeInput({ source_thought_id: srcPrune, item_kind: 'edge', edge_type: 'parent' })
@@ -336,7 +310,6 @@ describe('cleanupPlacementProposals', () => {
         state: 'accepted',
         decided_at: new Date(Date.now() - 60 * 86400000).toISOString()
       })
-      // Fresh: pending with no expires_at (survives).
       insertProposal(
         db,
         makeInput({ source_thought_id: srcFresh, item_kind: 'edge', edge_type: 'develops' })
@@ -344,7 +317,6 @@ describe('cleanupPlacementProposals', () => {
 
       const removed = cleanupPlacementProposals(db)
       expect(removed.proposals).toBe(2)
-      // Only the fresh one remains, and it is still pending.
       expect(listProposals(db)).toHaveLength(1)
       const freshRow = db
         .prepare("SELECT state FROM placement_proposals WHERE state = 'pending'")
@@ -365,8 +337,6 @@ describe('cleanupPlacementProposals', () => {
     })
   })
 })
-
-// ── expired preview token sweep ───────────────────────────────────────────────
 
 describe('expired preview token sweep', () => {
   test('cleanupPlacementProposals sweeps expired preview tokens', () => {
@@ -420,8 +390,6 @@ describe('expired preview token sweep', () => {
   })
 })
 
-// ── start/stop idempotency ────────────────────────────────────────────────────
-
 describe('start/stop idempotency', () => {
   test('calling startPlacementRetentionJob multiple times does not throw', () => {
     startPlacementRetentionJob()
@@ -443,12 +411,6 @@ describe('start/stop idempotency', () => {
   })
 })
 
-// ── boot-time sweep ──────────────────────────────────────────────────────────
-//
-// The interval is daily, so a host that restarts more often than that would
-// never prune anything. `startPlacementRetentionJob` therefore sweeps once
-// before arming the timer (#2174 review finding).
-
 describe('boot-time sweep', () => {
   test('startPlacementRetentionJob sweeps once before the interval is armed', () => {
     config.placement = { ...config.placement, proposalTtlDays: 30 }
@@ -467,7 +429,6 @@ describe('boot-time sweep', () => {
         `INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`
       ).run('boot-token', 'kind', 'target', 'fp', past, past)
 
-      // Nothing has been swept yet: the timer alone would leave both rows for a day.
       expect(listProposals(db)).toHaveLength(1)
       expect(
         db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get('boot-token')
@@ -490,9 +451,6 @@ describe('boot-time sweep', () => {
   })
 
   test('a failed boot sweep is reported, and the job still starts', () => {
-    // A boot sweep that could throw out of `startPlacementRetentionJob` would
-    // take the process down at startup; it must degrade to a log line instead.
-    // No DB is the cheapest way to make `cleanupPlacementProposals` fail.
     closeDb()
     expect(() => startPlacementRetentionJob()).not.toThrow()
     stopPlacementRetentionJob()

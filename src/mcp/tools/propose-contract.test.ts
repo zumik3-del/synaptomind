@@ -6,14 +6,6 @@ import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 import type { PlacementPlan } from '../../services/placement/types'
 
-/**
- * Contract tests for #951: MCP memory_status action=propose surface.
- *
- * Covers the action-tool contract (thought_id / content paths, project/cwd
- * resolution, error envelopes) and the read-only invariant — the surface
- * must never mutate edges / status / cluster rows.
- */
-
 mock.module('../../embedder/client', () => ({
   generateEmbedding: () => new Float32Array(384),
   generateEmbeddings: async () => [new Float32Array(384)],
@@ -41,7 +33,6 @@ interface ProposeMeta {
   warnings: string[]
 }
 
-/** The plan lives in the shared envelope's `item` (task #2179). */
 function parseResult(result: unknown): {
   data: PlacementPlan | null
   meta: ProposeMeta | null
@@ -63,8 +54,6 @@ function parseResult(result: unknown): {
   }
 }
 
-// A fresh test DB registers no project for this path: the answer keeps the
-// global scope while satisfying the hard-cwd contract.
 const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 beforeEach(async () => {
@@ -75,8 +64,6 @@ beforeEach(async () => {
 afterEach(() => {
   closeDb()
 })
-
-// ── thought_id path ───────────────────────────────────────────────────────────
 
 describe('memory_status propose — thought_id path', () => {
   test('returns a PlacementPlan shape for an existing thought', async () => {
@@ -92,7 +79,7 @@ describe('memory_status propose — thought_id path', () => {
     expect(typeof data!.generated_at).toBe('string')
     expect(typeof data!.degraded).toBe('boolean')
     expect(Array.isArray(data!.edges)).toBe(true)
-    expect(data!.placement).toBeNull() // no cluster match in empty DB
+    expect(data!.placement).toBeNull()
     expect(typeof data!.lifecycle.action).toBe('string')
     expect(['keep', 'link', 'merge', 'replaces+archive']).toContain(data!.lifecycle.action)
     expect(data!.lifecycle.review_required).toBe(true)
@@ -116,13 +103,10 @@ describe('memory_status propose — thought_id path', () => {
       arguments: { action: 'propose', thought_id: id, cwd: UNSCOPED_CWD }
     })
     const planData = parseResult(plan).data
-    // The plan carries a degraded flag and the proposed edges.
     expect(typeof planData!.degraded).toBe('boolean')
     expect(Array.isArray(planData!.edges)).toBe(true)
   })
 })
-
-// ── content (draft) path ─────────────────────────────────────────────────────
 
 describe('memory_status propose — content (draft) path', () => {
   test('returns a PlacementPlan for unpersisted draft content', async () => {
@@ -137,11 +121,10 @@ describe('memory_status propose — content (draft) path', () => {
     expect(typeof data!.generated_at).toBe('string')
     expect(typeof data!.degraded).toBe('boolean')
     expect(Array.isArray(data!.edges)).toBe(true)
-    expect(data!.lifecycle.action).toBe('keep') // no merge target in empty DB
+    expect(data!.lifecycle.action).toBe('keep')
   })
 
   test('draft content uses cwd/project scope when provided', async () => {
-    // Seed a thought in a named project so we can assert project resolution works.
     const db = getDb()
     db.prepare(
       `INSERT OR IGNORE INTO projects (id, name, created_at, local_path) VALUES ('proj-contract', 'Contract Project', ?, '/tmp/proj-contract')`
@@ -158,8 +141,6 @@ describe('memory_status propose — content (draft) path', () => {
     expect(data!.thought_id).toBe('(draft)')
   })
 })
-
-// ── error envelope — missing both thought_id and content ─────────────────────
 
 describe('memory_status propose — input validation', () => {
   test('missing both thought_id and content returns an isError envelope', async () => {
@@ -182,8 +163,6 @@ describe('memory_status propose — input validation', () => {
     expect(isError).toBe(true)
   })
 })
-
-// ── read-only invariant ───────────────────────────────────────────────────────
 
 describe('memory_status propose — read-only invariant', () => {
   function fp(db: import('bun:sqlite').Database): Record<string, number> {

@@ -8,22 +8,6 @@ import { createProjectService, resolveProjectService } from '../../services/proj
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
-/**
- * Task #2187, wire level: the read actions that accept an optional `cwd`
- * (`memory_crystallize action=graph`, `edge_review action=list`) must say when
- * they answer across every project instead of silently widening the answer.
- *
- * The review round found the two actions reading globally with no trace in
- * `meta`; this file pins the two halves of the fix:
- *
- * - without `cwd` the envelope carries `scope: null` and a warning that the
- *   answer spans every project (with every project's rows, not one project's),
- * - with a registered `cwd` the scope is that project and no warning is raised
- *   while the answer really is restricted to it.
- *
- * Neither action reaches the embedder, so no embedder mock is needed here.
- */
-
 const CWD = '/tmp/t2188-read-scope'
 
 let client: Client
@@ -55,7 +39,6 @@ beforeAll(async () => {
   client = await setupClient()
 })
 
-/** Register {@link CWD} and seed one active thought in that project plus one elsewhere. */
 function seedTwoProjects(): { scopedId: string; otherId: string; projectId: string } {
   const project = createProjectService({ name: 'ReadScopeProject', local_path: CWD })
   return {
@@ -93,9 +76,7 @@ describe('memory_crystallize action=graph — scope is reported', () => {
     )
 
     expect(isError).toBe(false)
-    // Both projects' nodes are in the answer — the widening is real...
     expect(data.items.map((n: { id: string }) => n.id).sort()).toEqual([scopedId, otherId].sort())
-    // ...and it is declared instead of happening silently.
     expect(data.meta.scope).toBeNull()
     expect(data.meta.warnings).toContain('no cwd — the answer spans every project')
   })

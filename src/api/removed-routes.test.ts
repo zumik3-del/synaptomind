@@ -4,17 +4,6 @@ import { closeDb } from '../db/init'
 import { createTestDb } from '../test/helpers'
 import { createApp } from './router'
 
-// The HTTP surface is an ops plane since ADR 2026-10-26 (task #2202): 43 of the
-// 46 former routes are gone with no deprecation shim, so a former route must
-// answer Hono's plain 404 — not 200, not 400 (a surviving route would validate
-// the body), and not a `410`/`Deprecation` shim that keeps the transport drift
-// alive. This pins all 43, one row per route, in the order of the contract
-// table in docs/API.md#removed-routes-020 (task #2212 closes the 14-route gap a
-// sample left behind).
-//
-// Requests carry a valid bearer token on purpose: without it the `/api/*` auth
-// middleware would answer 401 and the 404 would prove nothing.
-
 process.env.SYNAPTOMIND_SECRET = 'test-token'
 const app = createApp()
 
@@ -23,15 +12,9 @@ const THOUGHT = '01a00000-0000-7000-8000-000000000001'
 interface FormerRoute {
   method: string
   path: string
-  /** Router the registration lived in before the cut. */
   router: string
 }
 
-/**
- * Paths are the documented templates, not concrete URLs, so this ledger can be
- * diffed against the docs table one-to-one; `PARAMS` materialises them for the
- * actual request.
- */
 const FORMER_ROUTES: FormerRoute[] = [
   { method: 'GET', path: '/api/thoughts/search', router: 'thoughts-search' },
   { method: 'GET', path: '/api/thoughts/timeline', router: 'thoughts' },
@@ -97,12 +80,6 @@ function materialise(path: string): string {
   })
 }
 
-/**
- * The removed-route table in docs/API.md is the published contract; this file is
- * its executable copy. Reading it here means a route added to or dropped from
- * the documentation cannot silently escape the 404 pin (the gap this task
- * closed: 29 of 43 rows were sampled).
- */
 function documentedFormerRoutes(): string[] {
   const doc = readFileSync(new URL('../../docs/API.md', import.meta.url), 'utf8')
   const start = doc.indexOf('## Removed routes (0.20)')
@@ -125,8 +102,6 @@ async function call(method: string, path: string): Promise<Response> {
   return app.request(materialise(path), {
     method,
     headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
-    // A body keeps a hypothetically surviving route from failing validation
-    // with 400: the only acceptable answer below is 404.
     ...(method === 'GET' || method === 'DELETE' ? {} : { body: '{}' })
   })
 }
@@ -157,7 +132,6 @@ test('the ledger covers every router deleted in the cut', () => {
 
 test('the ledger is 43 distinct former routes and none of them is a surviving endpoint', () => {
   expect(FORMER_ROUTES).toHaveLength(43)
-  // A duplicate row would pad the count without proving another route.
   expect(new Set(FORMER_ROUTES.map(label)).size).toBe(FORMER_ROUTES.length)
   const survivors = ['/health', '/api/health-check', '/api/health-check/repair']
   for (const route of FORMER_ROUTES) {
@@ -181,7 +155,6 @@ for (const route of FORMER_ROUTES) {
     // there is no route at all.
     expect(res.headers.get('content-type')).toContain('text/plain')
     expect(await res.text()).toBe('404 Not Found')
-    // No deprecation shim survives the cut.
     expect(res.headers.get('deprecation')).toBeNull()
     expect(res.headers.get('sunset')).toBeNull()
   })

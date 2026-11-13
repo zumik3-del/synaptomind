@@ -7,11 +7,6 @@ import { closeDb } from '../../db/init'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
-// Independent MCP coverage for the agent-facing supersession contract
-// (ADR #142, item 3): `memory_recall` defaults to `suppress`, accepts
-// off|flag|suppress, and the schema rejects unknown values. Mirrors the client
-// setup of tools.test.ts / regression.test.ts.
-
 mock.module('../../embedder/client', () => ({
   generateEmbedding: () => new Float32Array(384),
   generateEmbeddings: () => [new Float32Array(384)],
@@ -57,10 +52,6 @@ function seedSupersededPair(): { oldThought: string; newThought: string } {
   return { oldThought, newThought }
 }
 
-// A fresh test DB registers no project for this path, so the answer keeps the
-// global scope while still satisfying the hard-cwd contract. `compact: false`
-// is what puts standing/superseded_by beside each thought (the envelope keeps
-// them out of the default minimal hit).
 const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 async function recallSupersession(extra: Record<string, unknown> = {}) {

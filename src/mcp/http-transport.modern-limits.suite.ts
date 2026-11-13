@@ -10,8 +10,6 @@ process.env.SYNAPTOMIND_SECRET = 'mcp-modern-limits-suite-secret'
 delete process.env.SYNAPTOMIND_SERVICE_TOKEN
 delete process.env.SYNAPTOMIND_ALLOW_INSECURE
 
-// Same seam as http-transport.lifecycle.suite.ts: count constructions while
-// still delegating to the real factory, so "no instance was built" is provable.
 const realServer = await import('./server')
 const realCreateMcpServer = realServer.createMcpServer
 let createCount = 0
@@ -184,7 +182,6 @@ test('T-mod-5: subscriptions/listen acks first and the third stream is refused i
     const secondReader = second.body!.getReader()
     expect(await nextFrame(secondReader)).toContain('"io.modelcontextprotocol/subscriptionId":502')
 
-    // The cap answers in-band with HTTP 200, before any ack.
     const third = await listen(base, 503)
     expect(third.status).toBe(200)
     expect(third.headers.get('content-type')).toContain('application/json')
@@ -194,11 +191,8 @@ test('T-mod-5: subscriptions/listen acks first and the third stream is refused i
       id: 503
     })
 
-    // Modern streams are not sessions: the legacy map stays empty.
     expect(server.getSessions().size).toBe(0)
 
-    // T-mod-6: stop() resolves while requests are in flight and ends every
-    // open stream gracefully.
     await withTimeout(server.stop(), 5000, 'stop()')
 
     const firstTail = await readUntilDone(firstReader)
@@ -218,7 +212,6 @@ test('T-neg-3: both oversized shapes answer 413 without constructing a server', 
   try {
     const before = createCount
 
-    // Declared Content-Length over the cap: the middleware guard, before any read.
     const declared = await fetch(`${base}/mcp`, {
       method: 'POST',
       headers: modernHeaders('server/discover'),
@@ -232,7 +225,6 @@ test('T-neg-3: both oversized shapes answer 413 without constructing a server', 
     })
     expect(createCount).toBe(before)
 
-    // Chunked (no Content-Length): the bounded read stops at the same cap.
     const chunked = await fetch(`${base}/mcp`, {
       method: 'POST',
       headers: modernHeaders('server/discover'),
@@ -246,7 +238,6 @@ test('T-neg-3: both oversized shapes answer 413 without constructing a server', 
     })
     expect(createCount).toBe(before)
 
-    // Positive control: the counter does observe a served modern request.
     const ok = await discover(base)
     expect(ok.status).toBe(200)
     await ok.body?.cancel()
@@ -270,10 +261,8 @@ test('T-neg-7: maxSessions caps legacy sessions only, never the modern era', asy
     expect(overflow.status).toBe(429)
     expect(await overflow.json()).toEqual({ error: 'Too many sessions' })
     expect(server.getSessions().size).toBe(2)
-    // The cap is checked before a server/transport pair is built (F21).
     expect(createCount).toBe(before)
 
-    // Modern requests are not sessions, so the cap does not touch them.
     for (const id of [91, 92, 93]) {
       const res = await discover(base, id)
       expect(res.status).toBe(200)

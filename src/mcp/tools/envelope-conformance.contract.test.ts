@@ -1,33 +1,3 @@
-/**
- * MCP envelope conformance suite (task #2182).
- *
- * One table walks every action of every action-multiplexed MCP tool and pins the
- * shared contract introduced by tasks #2179 (read side) / #2181 (write side):
- *
- * - exactly one payload slot per answer — `item`, `items`, or the documented
- *   `graph` exception (`items` + `edges`);
- * - `meta` always carries `action`, `scope`, `counts`, `degraded`, `warnings`
- *   (plus the optional `reason` / `preview`);
- * - no legacy top-level key leaks (`thoughts`, `nodes`, `best_match`, bare
- *   arrays, `{ text }` outside `item`);
- * - output hygiene: tag names are plain strings and 0/1 flag columns are
- *   booleans everywhere in the payload.
- *
- * Three further describes pin the optional `cwd` contract (task #2445), the
- * cross-project reach of a cwd-less read and the shaping guarantees (`fields`
- * selection, `reason` passthrough).
- *
- * The table is checked against the advertised `action` enum of every tool, so a
- * newly added action fails this suite until it is covered here — the surface
- * cannot drift back to a per-action answer shape.
- *
- * Known defects found by this suite are pinned with `test.failing` (a fix flips
- * them red, so the pin is removed deliberately) and were reported on the task.
- * The two defects the suite originally pinned were fixed by task #2185 and their
- * cases are ordinary passing tests now: `memory_primers` action=delete answers
- * `{ item, meta }`, and `memory_reflect` action=timeline shapes its rows with the
- * shared read-surface hygiene.
- */
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { Client } from '@modelcontextprotocol/client'
@@ -41,13 +11,6 @@ import { computeFingerprint } from '../../services/placement-proposals.service'
 import { createTestDb, seedEdge, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
-/**
- * Deterministic stand-in for the embedder: identical text maps to the same
- * one-hot vector (cosine similarity 1), distinct text to orthogonal vectors.
- * The placement engine only pairs candidates above the recall floor, so a
- * neighbour exists exactly when the text is shared — the lever the project-scope
- * assertions on `propose` need.
- */
 function stubEmbedding(text: string): Float32Array {
   const vector = new Float32Array(384)
   let hash = 0
@@ -56,8 +19,6 @@ function stubEmbedding(text: string): Float32Array {
   return vector
 }
 
-// Search/cluster/enqueue run the embedding legs; the queue shares one mocked
-// module with the other MCP contract tests.
 mock.module('../../embedder/client', () => ({
   generateEmbedding: (text: string) => stubEmbedding(text),
   generateEmbeddings: (texts: string[]) => texts.map(stubEmbedding),
@@ -83,7 +44,6 @@ interface ToolResult {
   isError?: boolean
 }
 
-/** The `{ result }` payload the SDK validated, plus its `content` mirror. */
 function readResult(result: unknown): {
   payload: unknown
   isError: boolean
@@ -95,9 +55,7 @@ function readResult(result: unknown): {
   let parsedContent: unknown = text
   try {
     parsedContent = JSON.parse(text)
-  } catch {
-    /* the raw-text config answer stays a string */
-  }
+  } catch {}
   return {
     payload: r.structuredContent?.result,
     isError: r.isError === true,
@@ -106,9 +64,6 @@ function readResult(result: unknown): {
   }
 }
 
-// ── fixtures ──────────────────────────────────────────────────────────────────
-
-/** Registered project: every `cwd`-carrying action resolves a real scope. */
 const CWD = '/tmp/opencode/conformance-project'
 const PROJECT = 'proj-conformance'
 
@@ -123,10 +78,8 @@ interface Fixture {
 
 let fx: Fixture
 
-/** Age anchor that clears the default `retentionReview.minAgeDays` (30). */
 const OLD_ISO = '2020-01-01T00:00:00.000Z'
 
-/** Insert a pending edge proposal whose fingerprint matches the live graph. */
 function insertPendingEdge(db: Database, src: string, tgt: string): string {
   const source = getThoughtRow(db, src)
   const target = getThoughtRow(db, tgt)
@@ -173,8 +126,6 @@ function seedFixture(): void {
     created_at: OLD_ISO,
     project_id: PROJECT
   })
-  // The thoughts trigger seeds importance at 1.0, so the candidate's low
-  // importance is written afterwards to clear the retention floor (0.2).
   db.prepare('UPDATE thought_importance SET importance = 0.05 WHERE thought_id = ?').run(retention)
 
   fx = {
@@ -187,27 +138,19 @@ function seedFixture(): void {
   }
 }
 
-// ── the action table ──────────────────────────────────────────────────────────
-
 interface ActionCase {
   tool: string
   action: string
-  /** Canonical action echoed in `meta.action` when the tool aliases an action. */
   metaAction?: string
   args: (f: Fixture) => Record<string, unknown>
   slot: 'item' | 'items' | 'graph'
-  /** The action's own contract accepts `cwd`; the case is called with it. */
   cwd?: boolean
-  /** The answer previews a destructive write (`meta.preview.destructive === true`). */
   preview?: boolean
-  /** The raw-text `config` answer is not a JSON mirror of `content`. */
   noMirror?: boolean
-  /** Pinned known defect: the case asserts the contract and is expected to fail. */
   knownDefect?: string
 }
 
 const CASES: ActionCase[] = [
-  // memory_recall
   {
     tool: 'memory_recall',
     action: 'search',
@@ -232,7 +175,6 @@ const CASES: ActionCase[] = [
     cwd: true
   },
   { tool: 'memory_recall', action: 'list', args: () => ({}), slot: 'items', cwd: true },
-  // memory_store
   {
     tool: 'memory_store',
     action: 'create',
@@ -287,7 +229,6 @@ const CASES: ActionCase[] = [
     slot: 'items',
     cwd: true
   },
-  // memory_supersede
   {
     tool: 'memory_supersede',
     action: 'archive',
@@ -310,7 +251,6 @@ const CASES: ActionCase[] = [
     preview: true,
     cwd: true
   },
-  // memory_status
   { tool: 'memory_status', action: 'slots', args: () => ({}), slot: 'items', cwd: true },
   { tool: 'memory_status', action: 'frontier', args: () => ({}), slot: 'items', cwd: true },
   { tool: 'memory_status', action: 'config', args: () => ({}), slot: 'item', noMirror: true },
@@ -322,7 +262,6 @@ const CASES: ActionCase[] = [
     slot: 'item',
     cwd: true
   },
-  // memory_manage
   { tool: 'memory_manage', action: 'list', args: () => ({}), slot: 'items', cwd: true },
   {
     tool: 'memory_manage',
@@ -346,7 +285,6 @@ const CASES: ActionCase[] = [
     cwd: true
   },
   { tool: 'memory_manage', action: 'resolve', args: () => ({}), slot: 'item', cwd: true },
-  // memory_crystallize
   { tool: 'memory_crystallize', action: 'graph', args: () => ({}), slot: 'graph', cwd: true },
   {
     tool: 'memory_crystallize',
@@ -362,7 +300,6 @@ const CASES: ActionCase[] = [
     slot: 'items',
     preview: true
   },
-  // memory_reflect
   {
     tool: 'memory_reflect',
     action: 'reflect',
@@ -377,7 +314,6 @@ const CASES: ActionCase[] = [
     slot: 'items',
     cwd: true
   },
-  // memory_primers
   { tool: 'memory_primers', action: 'list', args: () => ({}), slot: 'items' },
   {
     tool: 'memory_primers',
@@ -385,7 +321,6 @@ const CASES: ActionCase[] = [
     args: () => ({ primer_id: 'missing-primer' }),
     slot: 'item'
   },
-  // edge_review
   {
     tool: 'edge_review',
     action: 'enqueue',
@@ -421,7 +356,6 @@ const CASES: ActionCase[] = [
     args: f => ({ proposal_id: f.proposalId }),
     slot: 'item'
   },
-  // retention_review
   { tool: 'retention_review', action: 'list', args: () => ({}), slot: 'items' },
   {
     tool: 'retention_review',
@@ -445,7 +379,6 @@ const CASES: ActionCase[] = [
   }
 ]
 
-/** Tools that multiplex actions (every one must be covered above). */
 const ACTION_TOOLS = [
   'edge_review',
   'memory_crystallize',
@@ -459,12 +392,8 @@ const ACTION_TOOLS = [
   'retention_review'
 ]
 
-// ── contract helpers ──────────────────────────────────────────────────────────
-
-/** Top-level keys no answer may carry (pre-#2179 shapes). */
 const LEGACY_KEYS = ['thoughts', 'nodes', 'best_match', 'text', 'results', 'clusters', 'edges']
 
-/** Keys documented as booleans; a 0/1 here means the storage encoding leaked. */
 const BOOLEAN_FIELDS = new Set([
   'is_cluster',
   'is_protected',
@@ -492,15 +421,8 @@ const META_KEYS = new Set([
 ])
 const REASONS = new Set(['no_match', 'id_not_found', 'ambiguous_id'])
 
-/**
- * Retired thought columns no answer may expose at any depth. `is_profile` was
- * removed in v047 (task #2200): the migration keeps the column for the
- * foreign-key parent's sake, so a leaked field would mean the read surface is
- * projecting the raw row again instead of the `Thought` shape.
- */
 const RETIRED_THOUGHT_FIELDS = new Set(['is_profile'])
 
-/** Recursively enforce output hygiene: tag strings, no `{id,name}` object, no 0/1 booleans. */
 function assertHygiene(node: unknown, path: string): void {
   if (Array.isArray(node)) {
     node.forEach((value, index) => {
@@ -535,10 +457,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/**
- * Assert one answer against the shared contract and return its payload so a
- * case can make a further, action-specific assertion.
- */
 function assertEnvelope(
   c: ActionCase,
   result: unknown
@@ -548,7 +466,6 @@ function assertEnvelope(
   if (!isPlainObject(payload))
     throw new Error(`${c.tool} ${c.action} payload is not an object: ${text}`)
 
-  // The wire envelope is `{ result }`; content[] mirrors it except for config.
   if (!c.noMirror && JSON.stringify(rawContent) !== JSON.stringify(payload)) {
     throw new Error(`${c.tool} ${c.action}: content[] and structuredContent.result disagree`)
   }
@@ -658,8 +575,6 @@ function assertEnvelope(
   return { payload, meta }
 }
 
-// ── harness ───────────────────────────────────────────────────────────────────
-
 async function advertisedTools(): Promise<
   Array<{ name: string; description?: string; inputSchema?: unknown }>
 > {
@@ -692,21 +607,9 @@ for (const c of CASES) {
   })
 }
 
-// ── table completeness (drift guard) ─────────────────────────────────────────
-
-/** The two envelope phrases a description uses to introduce a shape's action list. */
 const ITEMS_PHRASE = '{ items, meta } for '
 const ITEM_PHRASE = '{ item, meta } for '
 
-/**
- * The action list that follows `phrase` in `description`, cut at the nearest
- * clause boundary: `; `, a sentence end `. ` or the other envelope phrase.
- *
- * A description reads `… { items, meta } for a, b, c, { item, meta } for d, e; …`,
- * so the list can only end at one of those. Matching `[^;.]+` instead truncated
- * at the first period — inside `meta.counts` — and passed only because the action
- * names happened to precede it (task #2197).
- */
 function envelopeClause(description: string, phrase: string, otherPhrase: string): string {
   const start = description.indexOf(phrase)
   if (start < 0) return ''
@@ -717,11 +620,6 @@ function envelopeClause(description: string, phrase: string, otherPhrase: string
   return body.slice(0, cuts.length > 0 ? Math.min(...cuts) : body.length).replace(/[,\s]+$/, '')
 }
 
-/**
- * Verify that every `edge_review` action is named under the phrase of its slot
- * and by no other phrase. Throws (via `expect`) naming the offending action, so
- * the doctored-description test below can prove the check has teeth.
- */
 function assertEdgeReviewDescription(description: string): void {
   const itemsClause = envelopeClause(description, ITEMS_PHRASE, ITEM_PHRASE)
   const itemClause = envelopeClause(description, ITEM_PHRASE, ITEMS_PHRASE)
@@ -762,17 +660,11 @@ describe('action table completeness', () => {
   })
 
   test('the edge_review description maps every action to the envelope shape it really answers', async () => {
-    // The description is the only place a client learns whether an action
-    // answers { items, meta } or { item, meta }; if it drifts from the table
-    // above, a client following the text misses the per-row report it is sent
-    // (task #2190: rollback was documented as { item, meta }).
     const tool = (await advertisedTools()).find(t => t.name === 'edge_review')
     assertEdgeReviewDescription(tool?.description ?? '')
   })
 
   test('the clause cut runs past the dot inside meta.counts and stops at the next phrase', () => {
-    // The exact shape edge_review uses: the aggregate mention carries a period
-    // (`meta.counts`), which must not end the clause.
     const description =
       'Answers the shared envelope: { items, meta } for list/apply_batch/rollback (aggregate in meta.counts), ' +
       '{ item, meta } for enqueue/apply/reject; a preview sets meta.preview={token,destructive:true}. Actions: enqueue.'
@@ -784,8 +676,6 @@ describe('action table completeness', () => {
   })
 
   test('the description check has teeth: a period before the action list is caught', () => {
-    // Same two shapes, but the items list is split off by a sentence end — the
-    // drift that the former `[^;.]+` capture would have mistaken for a list.
     const doctored =
       'Answers the shared envelope: { items, meta } for collections. list, apply_batch and rollback use that shape, ' +
       '{ item, meta } for enqueue, apply and reject; a preview sets meta.preview={token,destructive:true}.'
@@ -800,17 +690,8 @@ describe('action table completeness', () => {
   })
 })
 
-// ── optional cwd contract (task #2445) ───────────────────────────────────────
-
-/**
- * What a cwd-less answer says about itself: the scope is `null` and the rows
- * span every project. The note is raised by `readEnvelopeScope`, so every read
- * action below answers it, while `memory_reflect action=reflect` stays silent —
- * it is a write and lands in the resolved default project (task #2445).
- */
 const NO_CWD_WARNING = 'no cwd — the answer spans every project'
 
-/** The second, slots-only note: the project-scoped overrides stay unread. */
 const SLOTS_OVERRIDES_WARNING =
   'no project scope — the project-scoped slot overrides were not applied (pass cwd to read them)'
 
@@ -818,11 +699,9 @@ interface CwdContractCase {
   tool: string
   action: string
   args: (f: Fixture) => Record<string, unknown>
-  /** A read action declares the widening; the reflect write must stay silent. */
   warns: boolean
 }
 
-/** The actions that used to reject a missing cwd (task #2179, relaxed by #2445). */
 const CWD_OPTIONAL: CwdContractCase[] = [
   {
     tool: 'memory_recall',
@@ -848,7 +727,6 @@ const CWD_OPTIONAL: CwdContractCase[] = [
   { tool: 'memory_reflect', action: 'timeline', args: () => ({}), warns: true }
 ]
 
-/** Call one contract case and return its `meta`, failing on an error answer. */
 async function cwdContractMeta(c: CwdContractCase, cwd?: string): Promise<Record<string, unknown>> {
   const { payload, isError, text } = readResult(
     await client.callTool({
@@ -898,41 +776,19 @@ describe('cwd is optional: a call without it answers with no scope', () => {
   })
 })
 
-// ── propose without cwd stays project-pinned (tasks #2448/#2449) ─────────────
-
-/**
- * `propose` is the one relaxed read that is *not* cross-project: the plan is
- * built against exactly one project, so its note names that project instead of
- * reusing the generic "spans every project" string (a false claim that let the
- * defect through, tasks #2448/#2449).
- */
 const PROPOSE_THOUGHT_PIN =
   'propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to'
 const PROPOSE_DRAFT_PIN =
   'propose is not cross-project: the plan is restricted to the default project (draft content)'
-/** The same clause, introduced by the missing-`cwd` cause (`scope: null`). */
 const PROPOSE_THOUGHT_WARNING = `no cwd — ${PROPOSE_THOUGHT_PIN}`
 const PROPOSE_DRAFT_WARNING = `no cwd — ${PROPOSE_DRAFT_PIN}`
 
-/**
- * A path no `projects` row registers. It resolves to a known-unresolved scope
- * (`global: true`), which is not the same as a missing `cwd` (`scope: null`), so
- * `propose` must still say it is not cross-project (tasks #2448/#2454).
- */
 const UNREGISTERED_CWD = '/tmp/opencode/unregistered-project'
-/** The unknown-path fact with its resolve hint — restated locally since #2456. */
 const UNKNOWN_PATH_CAUSE = `cwd "${UNREGISTERED_CWD}" matches no known project (check it with memory_manage action=resolve)`
-/**
- * The one note each unregistered-cwd case answers (task #2456): the cause and the
- * pinning clause it explains, instead of the generic note plus a pin. Keeping the
- * pin shared with the cwd-less cases is what makes the two shapes comparable.
- */
 const PROPOSE_THOUGHT_UNREGISTERED_WARNING = `${UNKNOWN_PATH_CAUSE} — ${PROPOSE_THOUGHT_PIN}`
 const PROPOSE_DRAFT_UNREGISTERED_WARNING = `${UNKNOWN_PATH_CAUSE} — ${PROPOSE_DRAFT_PIN}`
-/** The widening claim that is false for `propose` in every cwd shape. */
 const SPANS_EVERY_PROJECT_CLAIM = 'the answer spans every project'
 
-/** Call `propose` and return the plan's proposed edge targets plus its `meta`. */
 async function proposeTargets(
   args: Record<string, unknown>,
   cwd?: string
@@ -951,11 +807,6 @@ async function proposeTargets(
   return { targets: body.item.edges.map(edge => edge.target_id), meta: body.meta }
 }
 
-/**
- * Both projects hold a thought with the *same* text, so the stub embedder makes
- * either twin a strong neighbour: whichever project the plan really used is
- * visible in the proposed edge targets.
- */
 describe('memory_status action=propose without cwd reports the scope it used', () => {
   test('a draft plans against the default project, not every project', async () => {
     const text = 'propose-scope default twin'
@@ -1000,16 +851,6 @@ describe('memory_status action=propose without cwd reports the scope it used', (
   })
 })
 
-/**
- * The residual #2448 case: a `cwd` that is present but unregistered. #2453 keyed
- * the pinning note on `projectId === undefined`, because that is what the planner
- * really reacts to; a scope-based branch would have treated this path like a
- * missing `cwd` and dropped the pinning note. #2456 then folded the two notes
- * into one: the unknown path (with its resolve hint) is the cause, the pinning
- * clause is what it explains, and the false "the answer spans every project"
- * tail is gone. Both cases below pin the exact single string, guard against the
- * old claim resurfacing, and prove the plan is not widened by the bad path.
- */
 describe('memory_status action=propose with an unregistered cwd answers one accurate note', () => {
   test('a thought_id note names the unknown path and its pinning clause', async () => {
     const text = 'propose-unregistered owned twin'
@@ -1118,14 +959,10 @@ describe('memory_reflect action=reflect without cwd writes to the default projec
   })
 })
 
-// ── a cwd-less read really spans every project ───────────────────────────────
-
-/** A second project nothing has registered — `cwd` can only address project A. */
 const OTHER_PROJECT = 'proj-conformance-b'
 const OTHER_CONTENT = 'crossscoped alpha row in project B'
 const SCOPED_CONTENT = 'crossscoped alpha row in project A'
 
-/** One active thought in project A (reachable by `cwd`) and one in project B. */
 function seedCrossProjectRows(): { scopedId: string; otherId: string } {
   return {
     scopedId: seedThought({ content: SCOPED_CONTENT, project_id: PROJECT }),
@@ -1133,7 +970,6 @@ function seedCrossProjectRows(): { scopedId: string; otherId: string } {
   }
 }
 
-/** Ids of the thought rows a collection answer emitted. */
 function answerIds(payload: unknown): string[] {
   const items = (payload as { items: Array<{ thought?: { id?: string }; id?: string }> }).items
   return items.map(row => row.thought?.id ?? row.id ?? '')
@@ -1202,8 +1038,6 @@ describe('memory_manage action=resolve still requires cwd', () => {
     expect(text).toContain('cwd is required for resolve action')
   })
 })
-
-// ── shaping guarantees ───────────────────────────────────────────────────────
 
 describe('fields selection drops scoring metadata', () => {
   test('search with fields=[id,content] returns exactly those columns plus the envelope', async () => {
@@ -1276,7 +1110,6 @@ describe('empty and ambiguous search pass a reason through meta', () => {
     const { payload, isError } = readResult(
       await client.callTool({
         name: 'memory_recall',
-        // 13 hex characters: the #2186 prefix floor, so this really is an id query.
         arguments: { action: 'search', query: 'abcdef0100007', cwd: CWD }
       } as never)
     )
@@ -1293,22 +1126,8 @@ describe('empty and ambiguous search pass a reason through meta', () => {
   })
 })
 
-// ── scope notes on a write and on slots (task #2462) ─────────────────────────
-
-/**
- * The read-side note for a path no project owns — the unknown-path cause plus
- * the widening fact, as `resolveEnvelopeScope` composes it (task #2461). It is
- * the note a *read* raises; a write must never emit it, because a write cannot
- * widen.
- */
 const UNKNOWN_CWD_WARNING = `cwd "${UNREGISTERED_CWD}" matches no known project — the answer spans every project (check it with memory_manage action=resolve)`
 
-/**
- * `slots` keys the overrides note on the *resolved project*, not on whether a
- * `cwd` was passed (#2461): a path no project owns reads the same global-only
- * rows as an omitted one, so it earns the note too. The three shapes below pin
- * the exact warning set of each.
- */
 describe('memory_status action=slots keys its overrides note on the resolved project', () => {
   const slotsMeta = (cwd?: string) =>
     cwdContractMeta({ tool: 'memory_status', action: 'slots', args: () => ({}), warns: true }, cwd)
@@ -1332,14 +1151,6 @@ describe('memory_status action=slots keys its overrides note on the resolved pro
   })
 })
 
-/**
- * A write never widens, so it never earns a widening note (#2461). With an
- * unregistered path the only trace is `scope.global: true`; the row still lands
- * where the action puts it — the default project for a create, its own project
- * for an id-addressed update. Both cases also guard the old read-flavoured
- * claim, and assert that had a note been raised, it would have to name the real
- * destination instead of a project the path does not own.
- */
 describe('a write with an unregistered cwd raises no widening note and keeps its real destination', () => {
   test('create lands in the default project with scope.global and no warning', async () => {
     const content = 'unregistered cwd create row'

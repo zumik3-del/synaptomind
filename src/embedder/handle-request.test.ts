@@ -1,13 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { type EmbedderModel, handleEmbedderRequest, type EmbedderReply } from './handle-request'
 
-/**
- * The model is INJECTED here instead of mocked through `mock.module('./model')`:
- * a static import of this handler no longer reaches `@huggingface/transformers`
- * (see the `EmbedderModel` doc comment), so the file costs milliseconds instead
- * of the ~2.5 s module load. The real wiring — handler + real model layer — is
- * exercised end to end by the embedder child-process suites.
- */
 const calls: string[][] = []
 
 const MODEL: EmbedderModel = {
@@ -58,7 +51,6 @@ describe('handleEmbedderRequest', () => {
         ]
       }
     ])
-    // The batch reaches the model once, in order — not one call per text.
     expect(calls).toEqual([['a', 'b']])
   })
 
@@ -68,11 +60,9 @@ describe('handleEmbedderRequest', () => {
 
     await handleEmbedderRequest({ id: 'r3', method: 'embed_x' }, send, MODEL)
 
-    // #113 regression guard: the client used to wait out its full 60s timeout.
     expect(replies).toEqual([
       { type: 'error', id: 'r3', error: 'Unknown embedder method: embed_x' }
     ])
-    // An unknown method must not reach the model at all.
     expect(calls).toEqual([])
   })
 

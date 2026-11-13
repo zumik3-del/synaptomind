@@ -7,17 +7,6 @@ import { config } from '../config'
 import { openDatabase } from '../db/init'
 import { vec0Path } from '../runtime-mode'
 
-// Task #2299: the mocked scheduler suite (#2298) proves the backoff ARITHMETIC
-// with a fake DB layer; what it cannot prove is that a real SQLite queue on one
-// user's database keeps draining while another user's database cannot even be
-// opened. This suite keeps the real `openDatabase`, real `pending_embeddings`
-// and real `vec_thoughts` (file-backed, so vec0 loads), and mocks only the
-// model/IPC/logging edges — i.e. the parts that would download a model or talk
-// to a parent process.
-//
-// The poll interval is driven by a captured timer, so ticks are deterministic
-// and the suite leaves no live interval behind.
-
 const root = mkdtempSync(join(tmpdir(), 'synaptomind-multi-db-'))
 const healthyPath = join(root, 'healthy.db')
 const brokenPath = join(root, 'broken.db')
@@ -41,8 +30,6 @@ function seedUserDb(path: string, contents: string[]): void {
   db.close(true)
 }
 
-// A directory where a database file is expected: every open throws, which is
-// the real "this user's DB is unavailable" condition, not a mocked rejection.
 mkdirSync(brokenPath)
 seedUserDb(healthyPath, ['healthy-private-marker-1', 'healthy-private-marker-2'])
 
@@ -98,7 +85,6 @@ interface Counts {
   contents: string[]
 }
 
-/** Read a user's real queue/vector state through a vec0-capable connection. */
 function counts(path: string): Counts {
   const db = new Database(path, { readonly: true })
   try {
@@ -126,14 +112,11 @@ test('a healthy user queue drains while another user DB cannot open, and resumes
 
   await tick(5)
 
-  // The healthy user's real rows went through the real queue and the real
-  // vec0 table, while the broken user kept failing to open.
   const healthyDuring = counts(healthyPath)
   expect(healthyDuring.pending).toBe(0)
   expect(healthyDuring.vectors).toBe(2)
   expect(healthyDuring.contents).toEqual(['healthy-private-marker-1', 'healthy-private-marker-2'])
 
-  // Recovery: the path becomes a real, migrated database with one queued row.
   rmSync(brokenPath, { recursive: true, force: true })
   seedUserDb(brokenPath, ['recovered-private-marker'])
   await tick(20)
@@ -143,8 +126,6 @@ test('a healthy user queue drains while another user DB cannot open, and resumes
   expect(brokenAfter.vectors).toBe(1)
   expect(brokenAfter.contents).toEqual(['recovered-private-marker'])
 
-  // Isolation held in both directions and the outage cost the healthy user
-  // nothing: no cross-write, no dead letter.
   const healthyAfter = counts(healthyPath)
   expect(healthyAfter.pending).toBe(0)
   expect(healthyAfter.vectors).toBe(2)

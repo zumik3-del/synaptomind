@@ -103,8 +103,6 @@ test('F4: an active SSE stream refreshes lastAccess and keeps its session past t
     expect(streamRes.status).toBe(200)
     expect(streamRes.headers.get('content-type')).toContain('text/event-stream')
 
-    // Simulate the TTL having already elapsed before the stream delivers bytes.
-    // Any later refresh can only come from trackStreamActivity.
     session!.lastAccess = 0
 
     const reader = streamRes.body!.getReader()
@@ -115,7 +113,6 @@ test('F4: an active SSE stream refreshes lastAccess and keeps its session past t
         const { value, done } = await withTimeout(reader.read(), 1000)
         if (done) break
         if (value && value.length > 0) sawActivity = true
-        // Keep the stream flowing for strictly longer than the TTL.
         if (Date.now() - streamStart > TTL_MS && session!.lastAccess > 0) break
       }
     } finally {
@@ -123,7 +120,6 @@ test('F4: an active SSE stream refreshes lastAccess and keeps its session past t
     }
 
     expect(sawActivity).toBe(true)
-    // Still open, and the sweeper's `now - lastAccess > TTL` predicate is false.
     expect(server.getSessions().has(sessionId)).toBe(true)
     expect(Date.now() - streamStart).toBeGreaterThan(TTL_MS)
     expect(session!.lastAccess).toBeGreaterThan(0)
@@ -144,8 +140,6 @@ test('F20: stop() awaits every per-session close before resolving and clears the
     for (const id of sessionIds) {
       const session = server.getSessions().get(id)
       expect(session).toBeDefined()
-      // Replace the real close with a slow spy: if stop() did not await it,
-      // 'stop-resolved' would be recorded before the transport closes.
       const transport = session!.transport as unknown as { close: () => Promise<void> }
       transport.close = async () => {
         await delay(40)
@@ -158,8 +152,6 @@ test('F20: stop() awaits every per-session close before resolving and clears the
     await stopPromise
     stopped = true
 
-    // Every session's transport close ran (server.close() may close it a second
-    // time), and stop() did not resolve until the slow closes completed.
     const closedIds = new Set(
       events.filter(e => e.startsWith('transport:')).map(e => e.slice('transport:'.length))
     )
@@ -185,11 +177,8 @@ test('F21: a sessionless non-initialize request returns a 400 JSON-RPC without c
       error: { code: -32000, message: 'Bad Request: Mcp-Session-Id header is required' },
       id: null
     })
-    // The guard rejects before createMcpServer/transport construction.
     expect(createCount).toBe(before)
 
-    // Sanity: the counter does observe a real initialize, so the assertion above
-    // is meaningful rather than a mocked-out no-op.
     await initialize(base)
     expect(createCount).toBe(before + 1)
   } finally {

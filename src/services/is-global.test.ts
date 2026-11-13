@@ -5,9 +5,6 @@ import { createThoughtWithUrlLinksService } from '../services/url_links.service'
 import { updateThoughtByIdService } from '../services/thoughts.service'
 import { createTestDb, seedThought } from '../test/helpers'
 
-// DB-layer coverage for the is_global flag (epic #1489), mirroring the
-// is_protected suite (src/services/is-protected.test.ts).
-
 beforeEach(createTestDb)
 afterEach(() => {
   closeDb()
@@ -64,7 +61,6 @@ describe('is_global — DB layer', () => {
     const d = getDb()
     const globalId = createThought(d, { content: 'keep global', is_global: true }).id
     const localId = createThought(d, { content: 'keep local' }).id
-    // Touch other columns only — is_global must be untouched.
     updateThought(d, globalId, { content: 'keep global v2' })
     updateThought(d, localId, { status: 'active' })
     expect(getThoughtRow(d, globalId)?.is_global).toBe(1)
