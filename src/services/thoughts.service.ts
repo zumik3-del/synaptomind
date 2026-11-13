@@ -45,8 +45,6 @@ export function createThoughtWithParentService(
       try {
         createEdge(d, parentId, thought.id, relation ?? 'parent')
       } catch (err) {
-        // A duplicate edge is expected dedup; anything else is a real failure
-        // (e.g. ClusterEdgeValidationError) and must abort the whole create.
         if (!(err instanceof EdgeAlreadyExistsError)) throw err
         insertLog(
           'warning',
@@ -87,9 +85,8 @@ export function updateThoughtByIdService(
   }
   const run = d.transaction(() => {
     const updated = dbUpdateThought(d, id, data)
-    // issue #256: updated content may drop `[[key|...]]` markers — prune the
-    // thought's orphaned url_links rows in the same transaction as the content
-    // update (mirrors the merge path).
+    // Must stay in this transaction: updated content can drop url-link markers, and the merge path
+    // prunes the same way.
     if (updated && data.content !== undefined) {
       pruneThoughtUrlLinks(d, id, data.content)
     }
@@ -106,30 +103,17 @@ export function archiveThoughtByIdService(id: string, d: Database = getDb()): Th
   return dbArchiveThought(d, id) ?? null
 }
 
-/** One `archive_batch` item that could not be archived, with the reason. */
 interface ArchiveBatchError {
   thought_id: string
   error: string
 }
 
-/** Outcome of `archiveThoughtsBatchService` (task #1964): counts plus per-item failures. */
 export interface ArchiveBatchResult {
-  /** Items that ended archived — an already-archived thought counts (idempotent replay). */
   archived: number
-  /** Always `errors.length`, so a caller sees the failure count without scanning. */
   failed: number
   errors: ArchiveBatchError[]
 }
 
-/**
- * Archive several thoughts in one call (task #1964).
- *
- * Reuses `archiveThoughtByIdService`, so the idempotency of an already-archived
- * thought is unchanged. The batch runs in ONE transaction and reports per-item
- * failures instead of aborting the rest — the contract `bulkCreateThoughtsService`
- * already uses: a failure is collected, the items that succeeded still commit,
- * and nothing is swallowed silently.
- */
 export function archiveThoughtsBatchService(
   ids: string[],
   d: Database = getDb()
@@ -151,8 +135,6 @@ export function archiveThoughtsBatchService(
       try {
         const existing = dbGetThought(d, id)
         if (!existing) throw new NotFoundError(`Thought '${id}' not found`)
-        // Mirror the single-item action: archiving an archived thought is a no-op,
-        // not a re-stamp of `archived_at`.
         if (existing.status !== 'archived') archiveThoughtByIdService(id, d)
         archived++
       } catch (err) {
@@ -165,20 +147,13 @@ export function archiveThoughtsBatchService(
   return { archived, failed: errors.length, errors }
 }
 
-/** One page of thoughts plus the total matching the same filters. */
 export interface ThoughtPage {
   thoughts: Thought[]
-  /** Number of thoughts matching the filters, ignoring `limit`/`offset`. */
   total: number
-  /** Page size applied (`null` = no limit). */
   limit: number | null
   offset: number
 }
 
-/**
- * Paginated thought inventory: the page (newest first) together with the total
- * count for the same filters, so a caller can page without a second request.
- */
 export function listThoughtsPageService(
   options: ListThoughtsOptions = {},
   d: Database = getDb()

@@ -11,10 +11,6 @@ export function validateMergePreconditions(source: Thought, allowArchivedSource 
   }
 }
 
-/**
- * Log that a remapped edge is a duplicate on the target and was skipped. Shared
- * by the cluster and non-cluster branches (DRY).
- */
 function logSkippedDuplicateEdge(
   edge: Edge,
   newSourceId: string,
@@ -35,11 +31,6 @@ function logSkippedDuplicateEdge(
   )
 }
 
-/**
- * Attempt to create a remapped edge; returns true on success, false on a
- * duplicate (logged). Any other error propagates. Shared by the cluster and
- * non-cluster branches (DRY).
- */
 function tryCreateRemappedEdge(
   d: Database,
   newSourceId: string,
@@ -72,11 +63,6 @@ export function transferEdgesFromSource(
     const newSourceId = edge.source_id === sourceId ? targetId : edge.source_id
     const newTargetId = edge.target_id === sourceId ? targetId : edge.target_id
 
-    // An edge that pointed at the source from the target (or vice versa)
-    // collapses onto itself after remapping — a self-relation carries no
-    // information. Log it and skip recreation: the pair-edge to the archived
-    // source is meaningless, and recreating it as target→target would fail
-    // the merge.
     if (newSourceId === newTargetId) {
       insertLog(
         'info',
@@ -89,7 +75,6 @@ export function transferEdgesFromSource(
           edge_type: edge.type
         }
       )
-      // Fall through to the uniform delete below.
     } else if (isClusterEdge) {
       const srcRow = getThoughtRow(d, newSourceId)
       const tgtRow = srcRow?.is_cluster ? getThoughtRow(d, newTargetId) : undefined
@@ -100,16 +85,12 @@ export function transferEdgesFromSource(
           transferredEdges++
         }
       }
-      // Otherwise fall through to the uniform delete below.
     } else {
       if (tryCreateRemappedEdge(d, newSourceId, newTargetId, edge.type, edge, targetId, sourceId)) {
         transferredEdges++
       }
     }
 
-    // After handling each edge, delete the original row owned by the source.
-    // The source will be archived shortly after this function returns, so any
-    // remaining edges from it are noise in the health audit.
     deleteEdge(d, edge.id)
   }
 

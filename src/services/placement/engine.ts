@@ -163,7 +163,6 @@ export async function proposePlacementPlan(
 
   edges.sort((a, b) => b.confidence - a.confidence || a.target_id.localeCompare(b.target_id))
   const cappedEdges = edges.slice(0, maxProposals)
-  // Probing the uncapped list lets a supersede candidate past `maxProposals` still win.
   const replaceEdge = edges.find(
     e => e.rule_id === 'supersede.newer_replaces_older' && e.signals.targetStatus === 'active'
   )

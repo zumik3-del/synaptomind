@@ -23,7 +23,6 @@ const SUPERSEDE_OVERLAP_MIN = 0.6
 const DEVELOPS_OVERLAP_MIN = 0.3
 const SIMILARITY_MIN = 0.75
 const NEGATION_DELTA_MIN = 0.5
-// Opposite polarity contradicts only on the same claim; below this overlap it is merely `related`.
 const CONFLICT_OVERLAP_MIN = 0.5
 
 function requirementsMet(rule: EdgeTypeRule, signals: PairSignals): boolean {

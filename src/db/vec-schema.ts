@@ -1,13 +1,6 @@
-/**
- * Single owner of the `vec_thoughts` DDL: v002 (fresh installs), v048 (the scope
- * rebuild) and the boot-time dimension rebuild all render it from here. A second
- * copy would let a dimension change recreate the table without `scope` and every
- * scoped query would then fail (ADR 2026-11-12, audit F5).
- */
-
-/** Partition of the thoughts that must stay visible from every project. */
+// The single owner of the `vec_thoughts` DDL: a second copy would let a dimension rebuild recreate
+// the table without `scope`, and every scoped query would then fail.
 export const VEC_SCOPE_GLOBAL = '__global__'
-/** Partition of a thought with no project; not a project id, so it can collide with none. */
 export const VEC_SCOPE_UNASSIGNED = '__unassigned__'
 
 export function vecTableDdl(dimensions: number, ifNotExists = true): string {
@@ -18,11 +11,8 @@ export function vecTableDdl(dimensions: number, ifNotExists = true): string {
       )`
 }
 
-/**
- * The one definition of a thought's vector partition. `alias` must name the
- * `thoughts` row; the read path adds `'__global__'` to every project scope via
- * `IN (?, '__global__')`.
- */
+// `alias` must name the `thoughts` row, and the read path widens every project scope with
+// `IN (?, '__global__')`, so both sentinels are coupled to the queries.
 export function scopeSql(alias: string): string {
   return (
     `CASE WHEN ${alias}.is_global = 1 THEN '${VEC_SCOPE_GLOBAL}' ` +

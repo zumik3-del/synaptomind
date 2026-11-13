@@ -21,10 +21,6 @@ import { type EmbeddingRow, type FailedRow, type RowOutcome, classifyBatch } fro
 
 const BATCH_SIZE = config.embedder.batchSize
 const MAX_CONSECUTIVE_FAILURES = 5
-// Safety net only: the v035 trigger queues every create and update, so a thought
-// that is neither queued nor vectorised means a trigger gap or a pre-trigger row,
-// not a normal write. Boot + hourly bounds that worst case at one interval (≤1 h)
-// and a tick is skipped entirely while the worker has queue work to do.
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000
 
 interface DbEntry {
@@ -36,10 +32,8 @@ interface DbEntry {
 
 function openAllDbs(): DbEntry[] {
   if (Array.isArray(config.users) && config.users.length > 0) {
-    // Open lazily so a temporarily unavailable database can be retried.
     return config.users.map(u => ({ id: u.id, db: null, dbPath: u.dbPath, nextPollAt: 0 }))
   }
-  // Legacy single-user mode: keep the singleton published so closeDb() works.
   initDb()
   const db = getDb()
   return [{ id: 'default', db, nextPollAt: 0 }]
@@ -47,7 +41,6 @@ function openAllDbs(): DbEntry[] {
 
 const entries: DbEntry[] = openAllDbs()
 
-// Per-DB backoff state (parallel to `entries`).
 const consecutiveFailuresByDb: number[] = entries.map(() => 0)
 const currentBackoffByDb: number[] = entries.map(() => 1)
 
@@ -100,7 +93,6 @@ function resetIdleTimer() {
   }, config.embedder.idleTimeoutMs)
 }
 
-/** Store one row through `insertEmbedding` and map its outcome for `classifyBatch`. */
 function storeRow(
   db: Database,
   row: EmbeddingRow,
@@ -198,7 +190,6 @@ async function processOneDb(idx: number): Promise<boolean> {
       })
     }
 
-    // Backoff tracks EMBEDDER health, so a content change is not counted.
     consecutiveFailuresByDb[idx] =
       failed.length === rows.length ? consecutiveFailuresByDb[idx] + 1 : 0
     const newBackoff =
@@ -327,7 +318,6 @@ process.on('message', async (raw: unknown) => {
   }
 })
 
-// initDb already called inside openAllDbs() for legacy mode.
 console.log('[embedder] checking model files...')
 insertLog('debug', 'embedding', 'Embedder process started, validating model', {
   model: config.embedder.model,

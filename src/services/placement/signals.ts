@@ -21,7 +21,6 @@ const EVOLUTION_RE =
   /\b(?:now|updated?|changed?|instead|revis(?:ed|ion)|replac(?:e|es|ed)|supersed(?:e|es|ed)|deprecated|obsolete|newer|previously|longer)\b/g
 
 const DEPENDENCY_TAGS = new Set(['pending', 'todo', 'blocked', 'task'])
-// `task` is deliberately absent: a generic "Task ..." heading is not a dependency cue.
 const DEPENDENCY_RE = /^\s*(?:todo|pending|blocked)\b/i
 
 function matches(re: RegExp, text: string): string[] {

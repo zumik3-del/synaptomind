@@ -37,7 +37,6 @@ export interface AcceptedApplyResult extends ApplyResultBase {
   idempotent: boolean
   calls: PlannedWriterCall[]
   result: string | null
-  /** Synthesized when the caller supplied none; null only for rows accepted before ids existed. */
   run_id: string | null
 }
 

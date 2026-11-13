@@ -36,7 +36,6 @@ export function runIdLookup(
     limit === undefined
       ? ID_PREFIX_MATCH_HARD_CAP
       : Math.min(Math.max(Math.floor(limit), 1), ID_PREFIX_MATCH_HARD_CAP)
-  // One row past the cap distinguishes "exactly cap matches" from "more than the caller asked to see".
   const hits = findThoughtsByIdQuery(d, query, cap + 1, filters)
   if (hits === null) return null
   return {
@@ -45,7 +44,6 @@ export function runIdLookup(
   }
 }
 
-// No `id` arm: an id lookup is answered before the gate runs, so an id row never reaches this.
 export function keepsUnderRelevanceGate(result: SearchResult, threshold: number): boolean {
   if (threshold <= 0) return true
   if (result.match_source.includes('bm25')) return true

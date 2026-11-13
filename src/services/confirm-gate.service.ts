@@ -14,7 +14,6 @@ export type FingerprintPart =
 function fingerprintPart(part: FingerprintPart): string {
   if (Array.isArray(part)) return part.map(fingerprintPart).join(',')
   if (part === null || part === undefined) return ''
-  // Strings are quoted so a separator inside one cannot pass for a boundary.
   return typeof part === 'string' ? JSON.stringify(part) : String(part)
 }
 
@@ -39,8 +38,6 @@ export type GuardedOutcome<Preview, Result> =
   | { status: 'preview'; token: string | null; value: Preview }
   | { status: 'executed'; value: Result }
 
-// A `null` fingerprint means the target is already gone: nothing is minted, and
-// `apply` runs unguarded so its own not-found answer stands instead of a token error.
 export async function runGuarded<Preview, Result>(
   request: GateRequest,
   run: GuardedRun<Preview, Result>,

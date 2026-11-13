@@ -39,14 +39,11 @@ function concat(fragments: SqlFragment[]): SqlFragment {
   }
 }
 
-// The alias `v` must be `vec_thoughts`. Empty when no project is addressed (single global walk).
 export function buildVecScopeSQL(options: FilterOptions): SqlFragment {
   if (!options.projectFilter) return { sql: '', params: [] }
   return { sql: `AND v.scope IN (?, '${VEC_SCOPE_GLOBAL}') `, params: [options.projectFilter] }
 }
 
-// The alias `t` must be `thoughts`. A global thought stays visible from any project: the flag
-// widens, never narrows.
 export function buildFilterSQL(options: FilterOptions): SqlFragment {
   const fragments = residualFragments(options)
   if (options.projectFilter) {
@@ -58,8 +55,6 @@ export function buildFilterSQL(options: FilterOptions): SqlFragment {
   return concat(fragments)
 }
 
-// No project clause: `(project_id = ? OR is_global = 1)` in a count driven from `thoughts` would
-// defeat the project index and turn the probe back into a corpus scan.
 export function buildResidualFilterSQL(options: FilterOptions): SqlFragment {
   return concat(residualFragments(options))
 }

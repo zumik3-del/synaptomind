@@ -7,7 +7,6 @@ export default {
     db.run(`DROP TABLE IF EXISTS pending_git_embeddings`)
     db.run(`DROP TABLE IF EXISTS vec_git_commits`)
 
-    // Remove git columns from projects using legacy alter pattern
     db.run(`CREATE TABLE IF NOT EXISTS _projects_new (
       id          TEXT PRIMARY KEY,
       name        TEXT NOT NULL,

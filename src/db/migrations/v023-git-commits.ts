@@ -32,8 +32,6 @@ export default {
         id        TEXT PRIMARY KEY,
         embedding FLOAT[${opts.dimensions}] distance_metric=cosine
       )`)
-    } catch {
-      // vec0 unavailable in :memory: tests
-    }
+    } catch {}
   }
 }

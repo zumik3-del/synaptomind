@@ -46,8 +46,6 @@ export function applyGraphStanding(
   return orderByStanding(annotated)
 }
 
-// `similarity` is deliberately not a sort key: it exists only for the vector leg, so using it
-// would sink every keyword-only hit below every vector hit and discard the hybrid ranking.
 export function orderByStanding(results: SearchResult[]): SearchResult[] {
   return [...results].sort(
     (a, b) => STANDING_RANK[a.standing ?? 'current'] - STANDING_RANK[b.standing ?? 'current']

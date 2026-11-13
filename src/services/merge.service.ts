@@ -129,9 +129,7 @@ export function mergeThoughtsService(
       if (!updated) throw new NotFoundError(`Target thought '${targetId}' not found during update`)
     }
 
-    // issue #256: merged content may drop `[[key|...]]` markers — prune the
-    // target's orphaned url_links rows in the same transaction as the content
-    // update (mirrors the PUT route path, which merge otherwise bypasses).
+    // Must stay in this transaction: merge otherwise bypasses the PUT route's url-link prune.
     if (mergedContent !== undefined) {
       pruneThoughtUrlLinks(d, targetId, mergedContent)
     }

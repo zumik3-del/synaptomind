@@ -1,13 +1,5 @@
-// ── Compact output mode plumbing ─────────────────────────────────────────────
-// Shared, side-effect-free helpers for the opt-in `compact` + `fields` output
-// controls. One resolveFields normalizes a field selection; one projectFields
-// projects an arbitrary object. Split out of `utils.ts` so that module keeps
-// its envelope/scope/shape focus (SRP).
-
-/** Minimal field set selected by `compact: true`. */
 export const COMPACT_FIELDS = ['id', 'content', 'status', 'tags', 'project'] as const
 
-/** A single value accepted anywhere a field selection may appear. */
 export type FieldSelectionInput = boolean | string | string[] | Record<string, unknown>
 
 interface ParsedFieldSelection {
@@ -127,7 +119,6 @@ export function resolveFields(...args: FieldSelectionInput[]): string[] {
 }
 
 export function projectFields(...args: unknown[]): unknown {
-  // Support projectFields(data, fields) and projectFields(fields, data).
   if (args.length >= 2) {
     const second = args[1]
     if (

@@ -3,19 +3,6 @@ import { collectionEnvelope, readEnvelopeScope } from '../envelope'
 import { projectFields } from '../utils'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
-/**
- * `memory_crystallize action=graph` — the one envelope exception (task #2181).
- *
- * A graph is two collections, not one: the nodes are `items` and the edges ride
- * beside them as a named `edges` field, because interleaving them in one array
- * would force every caller to filter by shape. Every other action of the MCP
- * surface stays `{ item, meta }` / `{ items, meta }`.
- *
- * `cwd` is optional here (task #2187): the scope is resolved through the shared
- * read-side helper like every other read, so a cwd-less or unregistered call
- * answers globally and says so in `meta.warnings` instead of silently spanning
- * projects with no trace.
- */
 export const graphHandler: ActionHandler = {
   run(args: ActionArgs) {
     const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
@@ -35,8 +22,6 @@ export const graphHandler: ActionHandler = {
       scope,
       warnings,
       total,
-      // The nodes are a page of the graph, so `total = returned + filtered_out`
-      // holds like every other collection (task #2190).
       filtered_out: Math.max(0, total - data.nodes.length),
       counts: { edges: data.edges.length }
     })

@@ -7,7 +7,6 @@ import { listPendingCandidates } from './frontier.service'
 import { getThoughtByIdService } from './thoughts.service'
 import type { Database } from 'bun:sqlite'
 
-// Canonical slot order — consumers (MCP digest, future UI) rely on it.
 export const SLOT_NAMES = [
   'pending_items',
   'architecture_decisions',
@@ -16,8 +15,6 @@ export const SLOT_NAMES = [
 ] as const
 type SlotName = (typeof SLOT_NAMES)[number]
 
-// Virtual slots are composed from existing mechanisms on every read and are
-// never stored; explicit slots live in the `slots` table.
 const VIRTUAL_SLOT_NAMES = new Set<string>(['pending_items', 'architecture_decisions'])
 
 interface SlotView {
@@ -35,7 +32,6 @@ function truncate(content: string, maxChars: number): { content: string; truncat
   return { content: content.slice(0, maxChars), truncated: true }
 }
 
-// pending_items — due pending candidates, the same set the frontier surfaces (FI-03).
 function pendingItemsContent(db: Database, limit?: number, offset?: number): string {
   const candidates = listPendingCandidates(undefined, db)
   const start = Math.max(0, offset ?? 0)
@@ -48,11 +44,6 @@ function pendingItemsContent(db: Database, limit?: number, offset?: number): str
   return bullets.join('\n')
 }
 
-// architecture_decisions — primers, most-hit first (FI-07).
-// Only the top `primer.topN` primers are rendered: the slot content is
-// truncated to `slots.defaultMaxChars` anyway, so reading 500 primers'
-// text first just paid for content that was thrown away. The configured topN
-// is clamped, so a negative one renders a single primer instead of all of them.
 function architectureDecisionsContent(db: Database): string {
   const bullets: string[] = []
   const topN = clampPrimerCount(config.primer.topN, DEFAULTS.primer.topN)
@@ -91,7 +82,6 @@ export function getSlots(
       })
       continue
     }
-    // Explicit: project-scoped row wins over the global fallback.
     const row =
       (projectId ? getSlotRow(d, name, 'project', projectId) : undefined) ??
       getSlotRow(d, name, 'global', null)

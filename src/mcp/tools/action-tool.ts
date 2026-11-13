@@ -3,20 +3,8 @@ import { z } from 'zod/v4'
 import { formatZodIssues } from '../../zod-utils'
 import { errorResult, jsonResult, toolOutputShape } from './utils'
 
-/** Arguments passed to an action handler after the advertised schema has parsed them. */
 export type ActionArgs = Record<string, unknown>
 
-/**
- * One action of a multiplexed MCP tool.
- *
- * `input` is the action-conditional request schema: it only has to declare the
- * fields this action requires (the handler still receives the full argument
- * object). When present it replaces the old inline `if (!args.x) throw`
- * checks, so missing/invalid fields surface as a normal `isError` envelope with
- * a precise message (audit F18). The parsed/validated values overlay the raw
- * args, so any coercion or transform declared by the action schema reaches the
- * handler without dropping the arguments the schema does not mention.
- */
 export interface ActionHandler {
   input?: z.ZodType
   run(args: ActionArgs): unknown | Promise<unknown>
@@ -26,10 +14,9 @@ export interface ActionToolConfig {
   name: string
   description: string
   /**
-   * Advertised argument shape shared by every action: a superset where only
-   * `action` is required. The MCP SDK cannot advertise a discriminated-union
-   * schema (it would serialize to an empty object), so the union lives in
-   * per-action `input` schemas while the superset stays discoverable.
+   * Advertised argument shape shared by every action. It must stay a flat object:
+   * the MCP SDK cannot advertise a discriminated-union schema (it serializes to an
+   * empty object), so the per-action union lives in `ActionHandler.input`.
    */
   inputSchema: Record<string, z.ZodType>
   handlers: Record<string, ActionHandler>
@@ -43,7 +30,6 @@ function isToolResult(value: unknown): value is CallToolResult {
   )
 }
 
-/** Read the HTTP-style `statusCode` a domain error carries (`src/errors.ts`), if any. */
 function errorStatusCode(err: unknown): number | undefined {
   if (err instanceof Error && 'statusCode' in err) {
     const status = (err as { statusCode: unknown }).statusCode
@@ -52,23 +38,10 @@ function errorStatusCode(err: unknown): number | undefined {
   return undefined
 }
 
-/** Required non-empty string with one message reused for both missing and empty input. */
 export function requiredString(message: string): z.ZodString {
   return z.string({ error: message }).min(1, message)
 }
 
-/**
- * Register a single MCP tool that multiplexes several actions behind `action`.
- *
- * Every action tool shares one dispatch path: look up the handler, enforce its
- * action-conditional schema, then run inside a single try/catch that converts
- * any failure into the `isError` envelope. This replaces the previous mix of
- * `actionHandlers` maps and inline if-chains (audit F8) and guarantees
- * project-resolution errors are caught like any other action failure (F9).
- *
- * A handler may return a ready-made tool result (for non-JSON payloads such as
- * `memory_status` action=config); anything else is wrapped in `jsonResult`.
- */
 export function registerActionTool(server: McpServer, config: ActionToolConfig): void {
   server.registerTool(
     config.name,
@@ -87,10 +60,6 @@ export function registerActionTool(server: McpServer, config: ActionToolConfig):
         if (handler.input) {
           const parsed = handler.input.safeParse(args)
           if (!parsed.success) return errorResult(formatZodIssues(parsed.error))
-          // Overlay the action schema's normalized values on the full argument
-          // object: handlers read fields the conditional schema does not
-          // declare, so raw args must survive while declared fields (with any
-          // coercion/transform) replace their unparsed counterparts.
           effectiveArgs = { ...args, ...(parsed.data as ActionArgs) }
         }
 
@@ -98,10 +67,6 @@ export function registerActionTool(server: McpServer, config: ActionToolConfig):
         return isToolResult(result) ? result : jsonResult(result)
       } catch (err) {
         const statusCode = errorStatusCode(err)
-        // A classified domain error surfaces its HTTP status and retryability in
-        // the envelope; 503 is the availability/transient class (embedder not
-        // ready, overloaded, timeout, send failure) and is safe to retry. An
-        // unclassified error keeps the plain message-only envelope.
         return errorResult(
           err instanceof Error ? err.message : `${config.name} failed`,
           statusCode === undefined ? {} : { statusCode, retryable: statusCode === 503 }

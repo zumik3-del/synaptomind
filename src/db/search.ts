@@ -27,8 +27,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
     minImportance
   } = options
 
-  // Defensive normalisation: the service clamps first, but a direct caller's bad value must not
-  // divide by zero or activate a boost it cannot score.
   const recencyWeight =
     options.recencyWeight !== undefined &&
     Number.isFinite(options.recencyWeight) &&
@@ -44,7 +42,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
   const nowMs =
     options.nowMs !== undefined && Number.isFinite(options.nowMs) ? options.nowMs : Date.now()
   const recency = { recencyActive: recencyWeight > 0, recencyWeight, recencyHalfLifeDays, nowMs }
-  // Defaults come from `DEFAULTS`, not the mutable live config, so the DB fallback cannot drift.
   const confidenceFloor =
     options.confidenceFloor !== undefined && Number.isFinite(options.confidenceFloor)
       ? options.confidenceFloor
@@ -60,8 +57,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
   const residual = buildResidualFilterSQL({ statusFilter, clusterFilter, minImportance })
   const filterSql = filter.sql
 
-  // A filtered vec0 leg ranks inside the addressed partition, so `pool` is a width within the
-  // project; a residual filter keeps the whole cap because those filters are still post-KNN.
   const unfilteredPool = Math.min(
     CANDIDATE_POOL_MAX,
     Math.max(topK * CANDIDATE_POOL_MULTIPLIER, topK)
@@ -77,7 +72,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
       degraded = true
       vecIds = []
     }
-    // A short filtered leg means starvation only when the filter matches more embedded rows.
     if (filterSql && vecIds.length < topK) {
       try {
         if (countFilteredVectors(db, scope, residual) > vecIds.length) degraded = true
@@ -85,7 +79,6 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
         degraded = true
       }
     }
-    // The reverse failure: a full topK of `__global__` rows can leave the addressed project absent.
     if (projectFilter) {
       try {
         if (addressedProjectShutOut(db, projectFilter, residual, vecIds)) degraded = true

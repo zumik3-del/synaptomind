@@ -7,22 +7,6 @@ import type { ActionArgs, ActionHandler } from '../action-tool'
 
 const CONTEXT_REQUIRED = 'query or thought_id is required for context action'
 
-/**
- * `context` returns a thought plus its neighbourhood as `{ item: { thought,
- * chain }, meta }`. It accepts either a text `query` (best match + its chain)
- * or a `thought_id` (that thought + its chain, reusing the chain traversal
- * logic). At least one of the two must be supplied. With `thought_id` the call
- * is id-addressed and needs no `cwd`; the query path scopes to `cwd` when it
- * names a project and reports the (global) scope in `meta` when it does not.
- *
- * The query path is deliberately ungated: it wants the single best match, so
- * the default relevance gate of the search surface would turn a weak-but-real
- * neighbourhood into "no match". `getContextService` therefore keeps
- * `minRelevance: 0` unless a caller opts in (task #2187).
- *
- * `include_url_links` (default false) rides on every thought the answer emits —
- * the best match, the chain head and both neighbourhoods — from one batch read.
- */
 export const contextHandler: ActionHandler = {
   input: z
     .object({
@@ -54,8 +38,6 @@ export const contextHandler: ActionHandler = {
               ...chain.downstream.map(e => e.thought)
             ])
           : undefined
-      // An id-addressed lookup is project-free, so it reports no scope and no
-      // scope warning even when the caller passed a cwd.
       return itemEnvelope('context', {
         thought: shapeThought(chain.thought, compact, fields, urlLinks),
         chain: shapeChain(chain, compact, fields, urlLinks)
@@ -69,8 +51,6 @@ export const contextHandler: ActionHandler = {
     })
     if (!context) throw new NotFoundError(`No context found for query '${args.query}'`)
     if (!context.best_match) {
-      // Degraded result with no best match: surface it as an empty item instead
-      // of throwing, so `meta.reason` explains why nothing came back.
       return itemEnvelope('context', null, {
         scope,
         warnings,

@@ -6,18 +6,10 @@ import { sanitizePrimerBounds } from './config.primer-bounds'
 import { sanitizeRetentionReviewBounds } from './config.retention-review-bounds'
 import { MS_PER_DAY } from './utils'
 
-// ONNX precision of the local embedder model. `q8` downloads the quantized
-// ONNX (~118 MB) instead of the fp32 one (~449 MB); transformers.js picks the
-// file by suffix (fp32 -> model.onnx, q8 -> model_quantized.onnx).
 export type EmbedderDtype = 'fp32' | 'q8'
 
 export const EMBEDDER_DTYPES: readonly EmbedderDtype[] = ['fp32', 'q8']
 
-/**
- * Reject an unknown `embedder.dtype` instead of silently falling back: on an
- * offline host the fp32 fallback would download a 449 MB file. Exported so the
- * invalid branch stays directly testable (the load-time call throws at import).
- */
 export function assertEmbedderDtype(dtype: unknown, source: string): void {
   if (typeof dtype === 'string' && (EMBEDDER_DTYPES as readonly string[]).includes(dtype)) return
   throw new Error(
@@ -118,12 +110,8 @@ export const DEFAULTS: Config = {
   thoughts: { softLimit: 600, hardLimitBufferPercent: 20 },
   decay: { rate: 0.95, intervalMs: MS_PER_DAY },
   primer: { promoteThreshold: 5, topN: 3 },
-  // `minSimilarity` is a cosine DISTANCE (see auto-cluster.service.ts
-  // `r.distance < minSimilarity`), so lower = tighter. The distance is now
-  // computed in memory as `1 - cos` instead of read from vec0 — same value.
-  // 0.3 chained the whole active graph into one 1122-member mega-cluster via
-  // Union-Find transitive closure; 0.09 is the calibrated value for e5-small
-  // cosine distance (ADR 2026-09-28, thought 01a094b2-…).
+  // `minSimilarity` here is a cosine DISTANCE, so lower is tighter. 0.3 chained the whole active
+  // graph into one mega-cluster; 0.09 is the calibrated value for e5-small.
   autoCluster: {
     minAgeDays: 3,
     minSimilarity: 0.09,
@@ -135,11 +123,6 @@ export const DEFAULTS: Config = {
     maxCandidates: 100,
     maxProposals: 20
   },
-  // Skip a cluster proposal once a cluster already holds this many members:
-  // prevents feeding the mega-cluster defect (lessons #934/#928). Read-only
-  // proposer — the cap only suppresses the suggestion, it never mutates.
-  // `proposalTtlDays` bounds the review queue (ADR §2.4): terminal rows are
-  // pruned after the TTL and live `pending` rows use `expires_at`.
   placement: {
     maxClusterSize: 50,
     proposalTtlDays: 30,
@@ -148,18 +131,6 @@ export const DEFAULTS: Config = {
   },
   slots: { defaultMaxChars: 2000 },
   graph: { maxDegree: 50 },
-  // Conservative placeholder pending issue #156 calibration: above the observed
-  // nonsense band so noise is never marked confident. Re-derive from a labeled
-  // real-embedder run; override with SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR.
-  // Single source of truth for the DB-layer fallback in `src/db/search.ts` (which
-  // reads `DEFAULTS.search.confidence.vectorFloor` directly — keep them in sync).
-  //
-  // `unrelatedFloor` is the measured similarity of an unrelated query/thought
-  // pair (task #2178, real e5-small run over 200 sampled thoughts: p50 0.7627,
-  // p95 0.8002, p99 0.8123, max 0.8355 over 4000 pairs). It is the zero point of
-  // the calibrated `relevance` scale: `(similarity - unrelatedFloor) /
-  // (vectorFloor - unrelatedFloor)`, clamped to `[0, 1]`. The default noise gate
-  // (`DEFAULT_MIN_RELEVANCE` in `search-normalize.service.ts`) is set from the same run.
   search: { confidence: { vectorFloor: 0.9, unrelatedFloor: 0.8 } },
   rateLimit: { max: 200, windowMs: 60_000, trustProxy: false },
   retentionReview: { minAgeDays: 30, importanceFloor: 0.3, pageSize: 20 },
@@ -322,11 +293,6 @@ function loadFileConfig(): Partial<Config> {
   return JSON.parse(readFileSync(configPath, 'utf-8')) as Partial<Config>
 }
 
-/**
- * Name the layer that actually carried `embedder.dtype`: the env override is
- * applied after the file merge, so it wins, and a bad env value must not be
- * blamed on config.json (nor the reverse).
- */
 function embedderDtypeSource(): string {
   const env = ENV_MAPPINGS.find(m => m.path === 'embedder.dtype')?.env
   return env !== undefined && process.env[env] !== undefined ? env : 'config.json'
@@ -352,9 +318,6 @@ function applyEnvOverrides(fileConfig: Partial<Config>): Config {
   const embedder = merged.embedder as { dtype?: unknown } | undefined
   assertEmbedderDtype(embedder?.dtype, embedderDtypeSource())
 
-  // The primer knobs are sanitized LAST, on the final merged config: the env
-  // override is applied after the config.json merge, so sanitizing earlier
-  // would be bypassed by it.
   merged.primer = sanitizePrimerBounds(merged.primer, DEFAULTS.primer)
   merged.retentionReview = sanitizeRetentionReviewBounds(
     merged.retentionReview,

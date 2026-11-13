@@ -27,9 +27,6 @@ export {
   InvalidEdgeTypeError
 }
 
-// Validation rules (type vocabulary, retype checks, cluster constraints) live in
-// the sibling module; re-exported here so every existing caller keeps importing
-// them from `db/edges`.
 export {
   EDGE_TYPES,
   type EdgeType,
@@ -75,9 +72,6 @@ export function createEdge(
       }
       throw new EdgeConflictError(sourceId, targetId)
     }
-    // `related` is the auto-link placeholder (lowest precedence). A caller
-    // asking for a specific type replaces it instead of hitting a dead end,
-    // since there is no edge-delete MCP tool.
     if (existing.type === 'related') {
       return upgradePlaceholderEdge(db, existing, sourceId, targetId, type)
     }
@@ -120,7 +114,6 @@ function insertEdge(db: Database, sourceId: string, targetId: string, type: stri
   insertInTx()
 
   if (!inserted) {
-    // Re-read the row that won the race / already existed.
     const existing = getEdgePairBetween(db, sourceId, targetId)
     if (existing) return existing
     throw new EdgeAlreadyExistsError()
@@ -146,12 +139,6 @@ function insertEdgeRow(
   }
 }
 
-/**
- * Transactionally replace an existing edge row with a fresh one of `type`,
- * preserving `createdAt`. Shared by the placeholder-upgrade path (a `related`
- * auto-link edge promoted to a specific type) and `retypeEdge` — both delete
- * the old row and insert a new id.
- */
 function replaceEdge(
   db: Database,
   oldEdgeId: string,
@@ -182,10 +169,6 @@ function upgradePlaceholderEdge(
   return replaceEdge(db, placeholder.id, sourceId, targetId, type, new Date().toISOString())
 }
 
-/**
- * Transactionally change an edge's type, preserving the original `created_at`.
- * Validates the new type and cluster constraints before committing.
- */
 export function retypeEdge(db: Database, edgeId: string, newType: string): Edge {
   const edge = findEdge(db, edgeId)
   if (!edge) {
@@ -210,7 +193,6 @@ export function getEdgesForThought(db: Database, id: string): Edge[] {
     .all(id, id) as Edge[]
 }
 
-/** Return the first `limit` edges touching a thought in stable order and their total count. */
 export function getSourceEdgesForThoughtBounded(
   db: Database,
   id: string,
@@ -240,11 +222,6 @@ export function findEdge(db: Database, id: string): Edge {
   return db.prepare('SELECT * FROM edges WHERE id = ?').get(id) as Edge
 }
 
-/**
- * The (single) edge connecting `sourceId` and `targetId`, in either direction,
- * or `undefined` when the pair is not linked. Read-only counterpart of
- * {@link getEdgePairKeys} for a single pair.
- */
 export function getEdgePairBetween(
   db: Database,
   sourceId: string,
@@ -257,11 +234,6 @@ export function getEdgePairBetween(
     .get(sourceId, targetId, targetId, sourceId) as Edge | undefined
 }
 
-/**
- * Batched counterpart of {@link getEdgePairBetween}: returns canonical unordered
- * pair keys for every edge touching `thoughtIds`. Used by candidate detection to
- * skip pairs that are already linked without an N+1 query.
- */
 export function getEdgePairKeys(db: Database, thoughtIds: string[]): Set<string> {
   if (thoughtIds.length === 0) return new Set()
   const ph = sqlIn(thoughtIds)
@@ -273,15 +245,12 @@ export function getEdgePairKeys(db: Database, thoughtIds: string[]): Set<string>
   return new Set(rows.map(r => pairKey(r.source_id, r.target_id)))
 }
 
-/** Targets of `replaces` edges — thoughts superseded by a newer one. */
 export function getReplacedTargetIds(db: Database): string[] {
   const rows = db.prepare(`SELECT DISTINCT target_id FROM edges WHERE type = 'replaces'`).all() as {
     target_id: string
   }[]
   return rows.map(r => r.target_id)
 }
-
-// --- Graph helpers ---
 
 export interface EdgeView {
   id: string

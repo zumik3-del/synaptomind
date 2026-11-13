@@ -27,11 +27,8 @@ export interface InitOptions {
   runMigrations?: boolean
 }
 
-/** Dimensions the current `vec_thoughts` table was built with. */
 const VEC_DIMENSIONS_KEY = 'vec_dimensions'
-/** ISO timestamp of the last dimension-change rebuild; absent when never rebuilt. */
 const VEC_REBUILD_AT_KEY = 'vec_rebuild_at'
-/** Pre-#2474 name for `vec_dimensions`; read-only from here on. */
 const LEGACY_DIMENSIONS_KEY = 'embedder_dimensions'
 
 export interface VecIndexState {
@@ -46,16 +43,7 @@ function metaValue(db: Database, key: string): string | null {
   return row?.value ?? null
 }
 
-/**
- * Boot state that the migration ledger does not own (audit F5): which dimensions
- * `vec_thoughts` was built with, and when it was last rebuilt. Reading it makes
- * "stored dimensions ≠ configured" a `_meta` read instead of an inference; a
- * `dimensions` of null means the marker is absent (never opened by this binary
- * and no legacy key), so the table must be assumed to match the configuration.
- */
 export function readVecIndexState(db: Database): VecIndexState {
-  // An existing database carries the legacy key only: read it as the same fact so
-  // an upgrade never rebuilds, and the next write retires it.
   const stored = metaValue(db, VEC_DIMENSIONS_KEY) ?? metaValue(db, LEGACY_DIMENSIONS_KEY)
   const parsed = stored === null ? Number.NaN : parseInt(stored, 10)
   return {
@@ -64,12 +52,6 @@ export function readVecIndexState(db: Database): VecIndexState {
   }
 }
 
-/**
- * Record which dimensions the vector index holds. `rebuiltAt` is set only when the
- * table was just rebuilt; null leaves the key alone. Called last in the rebuild so
- * a crash leaves the old dimensions in place and the next boot repeats the work
- * instead of hiding a half-reset index.
- */
 function writeVecIndexState(db: Database, dimensions: number, rebuiltAt: string | null): void {
   const upsert = db.prepare(
     `INSERT INTO _meta (key, value) VALUES (?, ?)
@@ -98,10 +80,8 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
     db.run(`PRAGMA busy_timeout = ${busyTimeout}`)
     db.run('PRAGMA foreign_keys = ON')
 
-    // Only `_meta` is bootstrapped before the schema-version guard: an older
-    // binary must refuse a newer database BEFORE any step that could reshape it
-    // (WAL switch, bootstrap DDL, migrations). `CREATE TABLE IF NOT EXISTS` is a
-    // no-op on a database that already has it.
+    // `_meta` must exist before the version guard, and nothing else may run before it: an older
+    // binary has to refuse a newer database before any step that could reshape it.
     db.run(`
     CREATE TABLE IF NOT EXISTS _meta (
       key   TEXT PRIMARY KEY,
@@ -128,8 +108,6 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
     let current = getVersion(db)
     const maxVersion = MIGRATIONS.length > 0 ? Math.max(...MIGRATIONS.map(m => m.version)) : 0
     if (current > maxVersion) {
-      // The handle was never published through `setDb`, so `closeDb()` cannot
-      // reach it: the finally block below closes it before rethrowing.
       throw new Error(
         `Database schema version ${current} is newer than this binary supports (max ${maxVersion}). ` +
           'Restore from a backup taken before the upgrade or upgrade the binary.'
@@ -142,11 +120,8 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
 
     loadVecExtension(db, isMemory)
 
-    const d = db // guaranteed non-null from here
+    const d = db
 
-    // Bootstrap tables for non-migration mode (tests, memory DB).
-    // In production (runMigrations=true), the migration system owns the full schema
-    // and will ALTER TABLE to add any missing columns.
     d.run(`
     CREATE TABLE IF NOT EXISTS thoughts (
       id         TEXT PRIMARY KEY,
@@ -207,10 +182,6 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
       }
     }
 
-    // Back up the database before any pending migration runs: migrations are the
-    // only irreversible step, so a snapshot is only taken when there is work to
-    // do. `:memory:` databases and the test bootstrap path (runMigrations=false,
-    // which returns earlier) never reach here.
     if (!isMemory) {
       const pendingMigrations = MIGRATIONS.filter(m => m.version > current)
       if (pendingMigrations.length > 0) {
@@ -221,8 +192,8 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
 
     for (const migration of MIGRATIONS) {
       if (current >= migration.version) continue
-      // Apply the migration and stamp its schema_version in one transaction: a crash
-      // between the two must not leave a non-idempotent migration half-applied (audit H1).
+      // Apply and stamp in one transaction: a crash between them must not leave a non-idempotent
+      // migration half-applied with the old version recorded.
       const run = d.transaction(() => {
         migration.apply(d, { isMemory, dimensions })
         setVersion(d, migration.version)
@@ -231,10 +202,6 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
       current = migration.version
     }
 
-    // Three boot-time owners, none of them the ledger: the migrations own
-    // `schema_version`, this branch owns `vec_dimensions`/`vec_rebuild_at` and the
-    // embedding re-queue, `resetDeadLetters` owns `pending_embeddings.is_error`,
-    // and the default-project branch owns `default_project_id` plus its row.
     if (!isMemory) {
       const vec = readVecIndexState(d)
       const rebuilt = vec.dimensions !== null && vec.dimensions !== dimensions
@@ -249,21 +216,17 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
           SELECT id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM thoughts WHERE status != 'archived'
         `)
       }
-      // A rebuild, a fresh install and an upgrade from the legacy key all land here;
-      // a steady-state boot (`vec_dimensions` current, legacy key gone) writes nothing.
       if (rebuilt || vec.dimensions === null || metaValue(d, LEGACY_DIMENSIONS_KEY) !== null) {
         writeVecIndexState(d, dimensions, rebuilt ? new Date().toISOString() : null)
       }
     }
 
-    // Dead letters are NOT reset on boot by default: a permanently poisonous
-    // thought would otherwise get MAX_ATTEMPTS fresh tries on every restart and
-    // loop forever. Recovery after a fix is opt-in via config/env.
+    // Dead letters are not reset on boot by default: a permanently poisonous thought would get
+    // MAX_ATTEMPTS fresh tries on every restart and loop forever.
     if (config.embedder.resetDeadLetters) {
       d.run(`UPDATE pending_embeddings SET is_error = 0, error = NULL WHERE is_error = 1`)
     }
 
-    // Ensure default project exists — recover if _meta points to a deleted project
     const defaultMeta = d
       .prepare(`SELECT value FROM _meta WHERE key = 'default_project_id'`)
       .get() as { value: string } | undefined
@@ -290,9 +253,7 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
     if (!success) {
       try {
         db.close(true)
-      } catch {
-        // best-effort cleanup on throw path
-      }
+      } catch {}
     }
   }
 }
@@ -308,7 +269,6 @@ export function closeDb(): void {
   try {
     db = getDb()
   } catch {
-    // DB never initialized (or already closed): nothing to do.
     clearDb()
     return
   }

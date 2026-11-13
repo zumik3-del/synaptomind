@@ -92,8 +92,6 @@ export function bm25ScoredIdsFiltered(
       error: err instanceof Error ? err.message : String(err)
     })
     if (throwOnError) throw err
-    // The service passes `throwOnError: true` so a filtered failure surfaces as `degraded` rather
-    // than silently widening the scope to the unfiltered leg; direct callers keep the fallback.
     return bm25ScoredIds(db, query, limit, throwOnError)
   }
 }

@@ -6,9 +6,8 @@ interface DatabaseIdentity {
   inode?: string
 }
 
-// Resolve components in filesystem order: normalizing before resolving a symlink
-// would give the wrong answer for `symlink/..`. Missing components are allowed,
-// but dangling symlinks and all errors other than ENOENT fail closed.
+// Components must resolve in filesystem order: normalizing before resolving a symlink gives the
+// wrong answer for `symlink/..`. Only ENOENT is tolerated; anything else fails closed.
 function databaseIdentity(path: string): DatabaseIdentity {
   let resolved = parse(path).root
   for (const component of path.slice(resolved.length).split('/')) {
@@ -23,7 +22,6 @@ function databaseIdentity(path: string): DatabaseIdentity {
       resolved = entry.isSymbolicLink() ? realpathSync(next) : next
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      // A dangling symlink is not a missing component: it cannot be safely resolved.
       try {
         lstatSync(next)
       } catch (missing) {
@@ -45,9 +43,8 @@ function databaseIdentity(path: string): DatabaseIdentity {
   }
 }
 
-// This is a startup snapshot, not a filesystem lock. Operators must prevent
-// untrusted changes to database files and parent directories after validation;
-// use trusted, non-writable directories and restart after path changes.
+// A startup snapshot, not a filesystem lock: operators must keep database files and their parent
+// directories non-writable by untrusted users and restart after a path change.
 export function assertDistinctDatabasePaths(paths: string[]): void {
   const identities: DatabaseIdentity[] = []
   for (const path of paths) {

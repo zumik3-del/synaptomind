@@ -8,12 +8,6 @@ interface IntervalJobOptions {
   onError?: (err: unknown) => void
 }
 
-/**
- * Resolve the databases a background job must touch this tick: every registered
- * user DB when running multi-user, falling back to the legacy singleton (or
- * none, when no DB is bound) in single-user / closed-DB situations.
- * Shared by all interval jobs to avoid copy-pasted resolution logic (DRY).
- */
 export function jobDatabases(): Database[] {
   const entries = listUserDatabases()
   if (entries.length > 0) return entries.map(entry => entry.db)
@@ -32,13 +26,9 @@ export function createIntervalJob(
   stop: () => void
 } {
   let timer: ReturnType<typeof setInterval> | null = null
-  // Reentrancy guard: a tick that is still running when the next interval fires
-  // is skipped instead of being overlapped, so a slow job cannot pile up.
   let running = false
 
   function start(): void {
-    // Starting an already-running job would overwrite the handle and orphan the
-    // previous timer — `stop` could then only ever clear the last one.
     if (timer) return
     if (opts.guard && !opts.guard()) return
     timer = setInterval(() => {
@@ -61,8 +51,6 @@ export function createIntervalJob(
       }
       running = false
     }, opts.intervalMs)
-    // Do not let the interval keep the event loop alive on its own; the
-    // process should be free to exit once real work (server, stdio) is done.
     timer.unref()
   }
 

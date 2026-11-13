@@ -11,9 +11,7 @@ export default {
     ]) {
       try {
         db.run(`ALTER TABLE projects ADD COLUMN ${col}`)
-      } catch {
-        // column already exists
-      }
+      } catch {}
     }
 
     const legacyRepo = ''

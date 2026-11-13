@@ -2,20 +2,6 @@ import type { McpServer } from '@modelcontextprotocol/server'
 import { getAdvertisedSoftLimitService } from '../../services/settings.service'
 import { toolOutputShape } from './utils'
 
-/**
- * The in-band quick map.
- *
- * Deliberately short: it carries only what an agent needs to pick a tool, and
- * points at `docs/mcp-tools.md` (actions, arguments, dry-run/confirm pattern,
- * envelopes) and `docs/API.md` (the ops endpoints) for the rest. Keeping the
- * detail in one place is what stops this text from drifting away from the
- * registered surface, which it did when it still advertised tools and jobs that
- * no longer exist (tasks #1937-#1951).
- *
- * The only value resolved at call time is the advertised content soft limit,
- * read through the same service the tool schemas use (`settings.service`), so
- * the two can never disagree (F13).
- */
 function buildGuideText(softLimit: number): string {
   return `# SynaptoMind — Reference
 

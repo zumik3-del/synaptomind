@@ -36,7 +36,6 @@ export interface ThoughtSignals {
 export interface PairSignals {
   sourceId: string
   targetId: string
-  /** `0` on the degraded lexical-only path, which every typed rule must tolerate. */
   embeddingSimilarity: number
   lexicalOverlap: number
   negationDelta: number

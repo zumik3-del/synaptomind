@@ -20,19 +20,10 @@ export function findPendingEmbeddings(
     .all(limit) as { id: string; content: string; contentHash: string }[]
 }
 
-/**
- * Whether the worker has retryable queue work, i.e. the same rows
- * `findPendingEmbeddings` would hand it.
- *
- * Dead letters are excluded on purpose: they leave the poll loop until an opt-in
- * reset, so counting them would let one poison row disable the orphan sweep.
- */
 export function hasPendingEmbeddings(db: Database): boolean {
   return db.prepare('SELECT 1 FROM pending_embeddings WHERE is_error = 0 LIMIT 1').get() !== null
 }
 
-// Archive-status thoughts are excluded from default search — re-embedding them
-// would be wasted compute on rows the search sweep keeps skipping.
 export function sweepOrphanedThoughts(
   db: Database,
   limit: number
@@ -48,14 +39,7 @@ export function sweepOrphanedThoughts(
     .all(limit) as { id: string; content: string }[]
 }
 
-/**
- * Queue `ids` for embedding, ignoring rows that are already queued.
- *
- * `INSERT OR IGNORE` keeps an existing row intact, so a thought that already
- * carries attempts / a dead-letter marker is not silently reset by a sweep.
- * The sweep calls this for orphaned thoughts (`sweepOrphanedThoughts`) and the
- * next regular batch picks them up.
- */
+// `INSERT OR IGNORE` keeps an existing row intact, so a sweep never resets attempts or a dead letter.
 export function requeueEmbeddings(db: Database, ids: string[]): void {
   const createdAt = new Date().toISOString()
   const insert = db.prepare(
@@ -67,7 +51,7 @@ export function requeueEmbeddings(db: Database, ids: string[]): void {
   tx()
 }
 
-/** Retires rows regardless of freshness — the batch path uses `deleteEmbeddedFromQueue`. */
+// Retires rows regardless of freshness; the batch path must use `deleteEmbeddedFromQueue` instead.
 export function deleteFromQueue(db: Database, ids: string[]) {
   const del = db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?')
   const tx = db.transaction(() => {
@@ -76,23 +60,14 @@ export function deleteFromQueue(db: Database, ids: string[]) {
   tx()
 }
 
-/** A queue row whose vector was written, with the `content_hash` it was embedded from. */
 export interface EmbeddedRow {
   id: string
   contentHash: string
 }
 
-/**
- * Retire the queue rows of a stored batch, but only while the thought's
- * `content_hash` still equals the hash its vector was embedded from.
- *
- * The delete is the last step of a batch, long after the hash check inside
- * `insertEmbedding`, so a content update committed by the server in between has
- * already re-queued the thought under its NEW hash (v035 trigger). Deleting by
- * id alone drops that fresh row and strands the stale vector with no freshness
- * signal — permanently (audit F8). The guard is evaluated by the DELETE itself,
- * so the row stays queued and the next poll re-embeds it.
- */
+// The guard must live inside the DELETE: a content update committed since `insertEmbedding` has
+// already re-queued the thought under its new hash, so deleting by id alone strands a stale vector
+// with no freshness signal.
 export function deleteEmbeddedFromQueue(db: Database, rows: EmbeddedRow[]): void {
   const del = db.prepare(`
     DELETE FROM pending_embeddings
@@ -127,30 +102,11 @@ export function handleFailedItem(db: Database, id: string, error: string) {
   }
 }
 
-/**
- * Why `insertEmbedding` skipped a row, as recorded on the queue row and in the
- * worker's log. Single-sourced here: the producer (`insertEmbedding` below) and
- * the batch classifier (`embedder-process.ts`) must not drift apart, since a
- * mismatch would silently change how a mass content change is reported.
- *
- * Deliberately NOT a failure of the embedder: the batch was embedded from
- * content that is already obsolete, and the next poll re-reads the row, so this
- * skip is retryable work rather than a fault (see `embedder-process.ts`).
- */
 export const CONTENT_CHANGED_REASON =
   'content changed during batch — embedding skipped, re-queued for retry'
 
-/**
- * Write the vector for `id`, but only while its content still matches
- * `expectedHash`.
- *
- * Returns `true` when the vector was written, `false` when the row was SKIPPED
- * because its content changed after the batch was built — in that case NOTHING
- * is written and the caller must treat the row as unembedded: it may not be
- * dropped from `pending_embeddings`, because that queue row is the only signal
- * that the (still stale) `vec_thoughts` vector no longer matches the content
- * (task #1572). The caller retries it on the next poll.
- */
+// `false` means nothing was written and the row was NOT embedded: it must stay queued, because that
+// queue row is the only signal that the stored vector no longer matches the content.
 export function insertEmbedding(
   db: Database,
   id: string,
@@ -169,10 +125,8 @@ export function insertEmbedding(
     )
     return false
   }
-  // VEC-DEL by id alone (a partition predicate silently misses after a move),
-  // then VEC-UPSERT: the partition is read in the same statement as the insert,
-  // so a thought whose project moved during the batch lands in its new partition
-  // and never a stale one (ADR 2026-11-12 §5.4).
+  // Delete by id alone: a partition predicate here silently misses a moved row. The upsert rereads
+  // the partition in the same statement, so a thought that moved mid-batch lands in its new scope.
   db.run('DELETE FROM vec_thoughts WHERE id = ?', [id])
   db.run(
     `INSERT INTO vec_thoughts (id, embedding, scope)

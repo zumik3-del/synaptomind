@@ -1,5 +1,3 @@
-// Extracted from src/mcp/http-transport.ts (architectural audit, ziptask #1578):
-// the event store plus the session-lifecycle helpers it was bundled with.
 import { config } from '../config'
 import type {
   McpServer,
@@ -9,23 +7,14 @@ import type {
   WebStandardStreamableHTTPServerTransport
 } from '@modelcontextprotocol/server'
 
-// The per-session event cap is config-driven (F16); it lives with the store that
-// enforces it.
 export const MAX_EVENTS_PER_SESSION = config.mcp.maxEventsPerSession
 
 interface InMemoryEventStoreOptions {
-  /**
-   * Invoked when a resume anchor cannot be replayed because its event was
-   * evicted by the per-session cap (F10). Defaults to a console.warn so the
-   * resumability loss is observable even without a custom hook.
-   */
   onReplayAnchorEvicted?: (eventId: EventId) => void
 }
 
 export class InMemoryEventStore implements EventStore {
   private events = new Map<EventId, { streamId: StreamId; message: unknown }>()
-  // Events dropped by the cap, so a missing anchor can be told apart from an id
-  // that was never stored (a client bug rather than a resumability loss).
   private evicted = new Set<EventId>()
   private readonly onReplayAnchorEvicted?: (eventId: EventId) => void
 
@@ -39,7 +28,6 @@ export class InMemoryEventStore implements EventStore {
 
   private forgetEvent(eventId: EventId): void {
     this.evicted.add(eventId)
-    // Bound the tombstone set too: past the cap an evicted id is unreachable.
     while (this.evicted.size > MAX_EVENTS_PER_SESSION) {
       const oldest = this.evicted.values().next().value
       if (oldest === undefined) break
@@ -50,7 +38,6 @@ export class InMemoryEventStore implements EventStore {
   async storeEvent(streamId: StreamId, message: unknown): Promise<EventId> {
     const eventId = this.generateEventId(streamId)
     this.events.set(eventId, { streamId, message })
-    // Bound per-session memory: Map preserves insertion order, so drop oldest first.
     while (this.events.size > MAX_EVENTS_PER_SESSION) {
       const oldest = this.events.keys().next().value
       if (oldest === undefined) break
@@ -76,8 +63,6 @@ export class InMemoryEventStore implements EventStore {
 
     const anchor = this.events.get(lastEventId)
     if (!anchor) {
-      // Only a known-but-evicted event is a resumability loss worth surfacing;
-      // an unknown id simply has no replay.
       if (this.evicted.has(lastEventId)) this.signalEvictedAnchor(lastEventId)
       return ''
     }
@@ -85,7 +70,6 @@ export class InMemoryEventStore implements EventStore {
     const streamId = anchor.streamId
     let found = false
 
-    // Iterate in Map insertion order — chronological, unlike sorting id strings.
     for (const [id, { streamId: sId, message }] of this.events) {
       if (id === lastEventId) {
         found = true
@@ -104,12 +88,8 @@ export async function disposePair(
 ): Promise<void> {
   try {
     await transport.close()
-  } catch {
-    /* already closed */
-  }
+  } catch {}
   try {
     await server.close()
-  } catch {
-    /* already closed */
-  }
+  } catch {}
 }

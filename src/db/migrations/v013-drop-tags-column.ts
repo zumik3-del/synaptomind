@@ -5,8 +5,6 @@ export default {
   apply(db: Database): void {
     try {
       db.run(`ALTER TABLE thoughts DROP COLUMN tags`)
-    } catch {
-      // column already gone
-    }
+    } catch {}
   }
 }

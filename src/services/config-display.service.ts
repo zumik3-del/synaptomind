@@ -35,7 +35,6 @@ const SECTION_LABELS: Record<string, string> = {
   placement: 'Placement'
 }
 
-// Filesystem layout must not leak to MCP clients: redact path-bearing settings.
 const SENSITIVE_PATH_KEYS = new Set([
   'db.path',
   'log.file',
@@ -50,11 +49,6 @@ function displayValue(path: string, val: unknown): string {
   return formatValue(val)
 }
 
-/**
- * Render the effective configuration as human-readable text for the MCP
- * `memory_status` config action. Lives in the service layer so the tool stays
- * thin (finding F11) and path-bearing settings remain redacted.
- */
 export function buildConfigDisplay(): string {
   const c = config as unknown as Record<string, unknown>
   const d = DEFAULTS as unknown as Record<string, unknown>

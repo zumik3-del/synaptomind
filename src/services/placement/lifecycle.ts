@@ -35,7 +35,6 @@ export function findMergeTarget(pool: Thought[], source: Thought): MergeTarget |
   return best
 }
 
-// Must stay in step with the merge preconditions in `merge.ts`, which throw instead.
 function mergeBlockers(source: Thought): string[] {
   const blocked: string[] = []
   if (source.status === 'archived') blocked.push('source is archived')

@@ -4,19 +4,6 @@ import { BATCH_ITEMS_MAX } from '../../../validation'
 import { collectionEnvelope } from '../envelope'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
-/**
- * `memory_store action=unlink_batch` (task #1972): several edges in one call.
- *
- * Mirrors `link_batch`/`archive_batch`: the batch runs in a single transaction
- * and reports per-edge status instead of failing whole. Unlike the single
- * `unlink` (which is idempotent per edge), the batch validates that every
- * `edge_id` exists before deleting any of them, so a missing id aborts the
- * whole batch instead of leaving a partial prune behind.
- *
- * `confirm` defaults to a non-mutating preview (`false`); pass `confirm: true`
- * to execute the deletes. The preview issues no token — `meta.preview` tells a
- * client it is looking at a pending write (`token: null`).
- */
 export const unlinkBatchHandler: ActionHandler = {
   input: z.object({
     edge_ids: z

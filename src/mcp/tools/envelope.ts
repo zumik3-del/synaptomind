@@ -1,7 +1,5 @@
 import { resolveProjectService } from '../../services/projects.service'
 
-// `memory_crystallize action=graph` is the one exception to the shape below: nodes are `items`
-// and edges ride beside them as `edges`.
 export interface EnvelopeScope {
   project: string | null
   project_name: string | null
@@ -18,7 +16,6 @@ export interface EnvelopeCounts {
 }
 
 export interface EnvelopePreview {
-  /** `null` for the tokenless previews (`unlink_batch`, the retention compact step). */
   token: string | null
   destructive: true
   consequence?: string
@@ -137,7 +134,6 @@ export function readEnvelopeScope(cwd: unknown): {
   return { scope, warnings, projectId: scopeProjectId(scope) }
 }
 
-// A write never widens, so it never warns: an empty or unregistered `cwd` simply scopes nothing.
 export function writeEnvelopeScope(cwd: unknown): {
   scope: EnvelopeScope | null
   warnings: string[]

@@ -10,13 +10,10 @@ export interface Primer {
   created_at: string
 }
 
-/** The default primer page size; also the fallback for a non-numeric limit. */
 const DEFAULT_LIMIT = 500
 
 export function getPrimers(db: Database, limit = DEFAULT_LIMIT): Primer[] {
-  // A LIMIT bind must be an integer (repo gotcha) and a negative LIMIT means
-  // "no limit" in SQLite, so the limit is clamped: no call site can ask for
-  // an unbounded result set.
+  // SQLite reads a negative LIMIT as "no limit", and the bind must be an integer.
   const safeLimit = clampPrimerCount(limit, DEFAULT_LIMIT)
   return db
     .prepare(`SELECT * FROM primers ORDER BY hit_count DESC LIMIT ?`)

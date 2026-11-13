@@ -53,11 +53,8 @@ export interface CategoryResult {
 interface ScoreBreakdown {
   critical_categories: number
   warning_categories: number
-  /** All reported `info` occurrences (`summary.info`), scored or not. */
   info_occurrences: number
-  /** The subset of `info_occurrences` the score actually charges. */
   info_scored_occurrences: number
-  /** Findings whose `info` occurrences are reported but not scored. */
   info_unscored_checks: string[]
   penalty_critical: number
   penalty_warning: number
@@ -74,7 +71,6 @@ export interface HealthReport {
     draft: number
     archived: number
     health_score: number
-    // Prominent, separate counts of issues by severity (raw occurrence counts).
     critical: number
     warning: number
     info: number
@@ -85,7 +81,6 @@ export interface HealthReport {
     warning_issues: number
     info_issues: number
     issues: { critical: number; warning: number; info: number }
-    // How health_score is composed (category presence, not raw counts).
     score_breakdown: ScoreBreakdown
     score_composition: ScoreBreakdown
     score_explanation: ScoreBreakdown
@@ -107,7 +102,6 @@ interface CheckDef {
   name: string
   severity: Severity
   finder: (db: Database) => unknown[]
-  /** Declarative repair hook. Presence marks the check as auto-fixable. */
   autofix?: Autofix
 }
 
@@ -116,18 +110,6 @@ const CRITICAL_CATEGORY_PENALTY = 40
 const WARNING_CATEGORY_PENALTY = 15
 const INFO_OCCURRENCE_PENALTY = 0.25
 
-/**
- * `info` findings that report graph *coverage* rather than a defect: their
- * occurrences are reported (and stay visible in `summary.info` and in the
- * `connectivity` category) but they carry no score penalty.
- *
- * A thought is an island the moment it is published, because activation
- * (`status: active`) precedes linking, so charging each island would make
- * publishing durable knowledge look like a health regression and discourage it
- * (task #1967). Islands are therefore informational only; the finding itself
- * is kept. Only `info` checks may be listed here — the `critical`/`warning`
- * terms are category-presence penalties and stay unchanged.
- */
 const INFO_CHECKS_NOT_SCORED: ReadonlySet<string> = new Set(['island_thoughts'])
 
 function matchesSeverity(check: CheckResult, minSeverity?: Severity): boolean {
@@ -170,9 +152,6 @@ const autofixThoughtIds: Autofix = (db, details) => {
   )
 }
 
-// Only edges whose target is *archived* are truly dangling (the node is out of
-// the graph). A draft target is a legitimate in-progress child and is left for
-// manual review.
 const autofixArchivedParentEdges: Autofix = (db, details) => {
   const ids = (details as Array<{ edge_id: string; target_status: string }>)
     .filter(b => b.target_status === 'archived')
@@ -207,9 +186,6 @@ const CLUSTER_CHECKS: CheckDef[] = [
     finder: findOrphanedClusterMembers,
     autofix: autofixClusterMemberEdges
   },
-  // Age-gated by `autoCluster.minAgeDays` (finder default): auto-cluster only
-  // sees candidates older than that window, so younger dense thoughts are not
-  // yet actionable and must not be flagged as warnings.
   { name: 'clusterless_dense_thoughts', severity: 'warning', finder: findClusterlessDense }
 ]
 
@@ -223,8 +199,6 @@ const CONTENT_CHECKS: CheckDef[] = [
   { name: 'too_short_content', severity: 'info', finder: findTooShort },
   { name: 'test_remnants', severity: 'info', finder: findTestRemnants, autofix: autofixThoughtIds },
   { name: 'stale_drafts', severity: 'info', finder: findStaleDrafts },
-  // Read-only by design: a duplicate draft needs a human merge/archive decision,
-  // so `fix=true` must never act on it (task #1946).
   { name: 'duplicate_drafts', severity: 'warning', finder: findDuplicateDrafts },
   { name: 'untagged_thoughts', severity: 'info', finder: findUntagged }
 ]
@@ -307,12 +281,6 @@ export function runHealthCheckService(
     if (catWarning) warningCats++
   }
 
-  // Penalise the PRESENCE of a category with issues rather than the raw
-  // occurrence count: structural critical categories hit hard, warning
-  // categories moderately, info occurrences slightly. This keeps health_score
-  // a reflection of structural health and prevents it from being zeroed out by
-  // many harmless warning cases (like parent->draft). Info occurrences of
-  // coverage findings (`INFO_CHECKS_NOT_SCORED`) are reported but not charged.
   const penaltyCritical = criticalCats * CRITICAL_CATEGORY_PENALTY
   const penaltyWarning = warningCats * WARNING_CATEGORY_PENALTY
   const penaltyInfo = scoredInfo * INFO_OCCURRENCE_PENALTY
@@ -336,7 +304,6 @@ export function runHealthCheckService(
     summary: {
       ...stats,
       health_score: Math.round(health_score * 10) / 10,
-      // Prominent, separate counts of issues by severity.
       critical,
       warning,
       info,
@@ -347,7 +314,6 @@ export function runHealthCheckService(
       warning_issues: warning,
       info_issues: info,
       issues: { critical, warning, info },
-      // How health_score is composed (category presence, not raw counts).
       score_breakdown: scoreBreakdown,
       score_composition: scoreBreakdown,
       score_explanation: scoreBreakdown,

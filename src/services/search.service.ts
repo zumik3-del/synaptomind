@@ -62,7 +62,6 @@ export interface SearchServiceOptions {
   embedding?: Float32Array
   recencyWeight?: number
   recencyHalfLifeDays?: number
-  /** An explicit `0` disables the gate and reproduces the pre-#2178 result set byte-identically. */
   minRelevance?: number
   confidenceFloor?: number
 }
@@ -79,8 +78,6 @@ interface SearchRun extends SearchOutcome {
 
 async function runSearch(options: SearchServiceOptions, d: Database): Promise<SearchRun> {
   const normalized = normalizeSearchOptions(options)
-  // An id-shaped query resolves first, but a miss must never zero out a legitimate search; a
-  // prefix is a timestamp window, not a reference, so it keeps the caller's status/project scope.
   const idLookup = runIdLookup(options.query, d, normalized.topK, {
     statusFilter: options.statusFilter,
     projectFilter: options.projectFilter,
@@ -121,7 +118,6 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
   })
   const dbDegraded = (dbResults as { degraded?: boolean }).degraded === true
 
-  // A BM25-only hit keeps `relevance` undefined, so a keyword match is never read as a weak semantic one.
   for (const result of dbResults) {
     if (result.similarity !== undefined) {
       result.relevance = calibrateRelevance(result.similarity, unrelatedFloor, confidenceFloor)
@@ -130,7 +126,6 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
 
   const filtered = options.tagFilter ? filterByTags(dbResults, options.tagFilter, d) : dbResults
   const standing = applyGraphStanding(filtered, options, d)
-  // Gate after standing annotation (suppressed rows are already gone) and before the `topK` slice.
   const gated = standing.filter(r => keepsUnderRelevanceGate(r, minRelevance))
   const finalResults = gated.length > topK ? gated.slice(0, topK) : gated
   const degraded = embeddingDegraded || dbDegraded
@@ -150,8 +145,6 @@ async function runSearch(options: SearchServiceOptions, d: Database): Promise<Se
   return outcome
 }
 
-// An id hit is never suppressed (`suppress` degrades to `flag`) and never re-flagged
-// `low_confidence`: the caller named the row, and standing already carries its state.
 function resolveIdLookup(
   lookup: IdLookup,
   options: SearchServiceOptions,

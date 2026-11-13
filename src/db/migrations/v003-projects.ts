@@ -19,9 +19,7 @@ export default {
 
     try {
       db.run(`ALTER TABLE thoughts ADD COLUMN project_id TEXT`)
-    } catch {
-      // column already exists
-    }
+    } catch {}
     db.prepare(`UPDATE thoughts SET project_id = ? WHERE project_id IS NULL`).run(defaultProjectId)
   }
 }

@@ -98,7 +98,6 @@ const defaultSearchNeighbors = (
   candidates: ClusterCandidate[],
   embeddings: Float32Array[]
 ): NonNullable<AutoClusterDeps['searchNeighbors']> => {
-  // Asks for every neighbour so the distance filter lives only in `neighborFn`.
   const lookup = buildInMemoryDistanceLookup(candidates, embeddings)
   return (_candidateId, _embedding, topK) => lookup(_candidateId, topK)
 }

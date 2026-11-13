@@ -22,8 +22,6 @@ export interface VerifyPreviewTokenResult {
   reason?: 'not_found' | 'kind_mismatch' | 'target_mismatch' | 'expired' | 'stale'
 }
 
-// DELETE ... RETURNING claims and validates in one step: two concurrent confirms cannot both
-// pass, and a rejected claim burns the token (fail closed — the caller must re-preview).
 export function consumePreviewTokenService(
   token: string,
   kind: string,

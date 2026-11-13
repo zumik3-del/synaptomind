@@ -23,9 +23,6 @@ export function findDuplicateContent(db: Database): DuplicateContent[] {
 }
 
 export function findTooShort(db: Database, minLength: number = 10): TooShortThought[] {
-  // Archived rows are frozen and un-actionable (the TTL sweeper hard-deletes
-  // them later), so flagging them produces a permanent, unfixable finding —
-  // same reasoning as findDuplicateContent / findTestRemnants.
   return db
     .prepare(`
     SELECT t.id, t.content, length(t.content) AS length FROM ${THOUGHTS}

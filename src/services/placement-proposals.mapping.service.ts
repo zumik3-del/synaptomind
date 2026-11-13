@@ -59,7 +59,6 @@ export function computeFingerprint(input: FingerprintInput): string {
   return createHash('sha1').update(raw).digest('hex')
 }
 
-// Must match the partial unique index `idx_pp_dedup`.
 export function itemKey(parts: {
   sourceId: string
   itemKind: StoredProposalItemKind
@@ -92,7 +91,6 @@ export function proposalExpiry(now: string): string | null {
   return new Date(Date.parse(now) + ttlDays * MS_PER_DAY).toISOString()
 }
 
-// A missing row contributes empty fields, which can never equal a stored fingerprint.
 function assembleFingerprint(
   source: Thought | undefined,
   target: Thought | undefined,

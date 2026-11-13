@@ -43,8 +43,6 @@ export function updatePrimerHits(
     if (getPrimerByThoughtId(d, id)) {
       promoteThoughtToPrimer(d, id, imp.hit_count)
     } else {
-      // Promotion must pass the threshold: calling `promoteThoughtToPrimer` directly refilled
-      // the primer pool on the first hit and ignored the configured value.
       attemptPromote(d, id, imp.hit_count, config.primer.promoteThreshold)
     }
   }

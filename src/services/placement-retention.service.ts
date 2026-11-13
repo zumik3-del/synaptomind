@@ -38,7 +38,6 @@ const onError = (err: unknown): void =>
     error: String(err)
   })
 
-// One synchronous pass per tick, so the reentrancy guard in `createIntervalJob` wraps the whole tick.
 const sweepAll = (): void => {
   for (const db of jobDatabases()) {
     try {
@@ -55,7 +54,6 @@ const job = createIntervalJob(
 )
 
 export function startPlacementRetentionJob(): void {
-  // A daily interval never fires on a host that restarts more often, so sweep once at boot.
   try {
     sweepAll()
   } catch (err) {

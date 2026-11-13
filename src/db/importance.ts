@@ -44,16 +44,6 @@ export function incrementHitCount(db: Database, thoughtId: string): void {
   `).run(new Date().toISOString(), thoughtId)
 }
 
-/**
- * Decay the importance of every row that has not been decayed for a day.
- *
- * The decay job used to have a second half — archiving active, unprotected
- * thoughts whose importance fell below `decay.archiveThreshold` and whose age
- * exceeded `decay.archiveMinAgeDays`. That branch was removed in task #1943.
- * It could still fire outside the `is_protected = 1` default: for rows written
- * before that default, and for cluster thoughts, which `cluster.service.ts`
- * creates with `is_protected = false`.
- */
 export function decayImportance(db: Database, rate: number): void {
   const oneDayAgo = new Date(Date.now() - MS_PER_DAY).toISOString()
   const now = new Date().toISOString()

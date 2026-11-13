@@ -4,7 +4,6 @@ import type { ContradictionMode, SearchServiceOptions, SupersessionMode } from '
 const SUPERSESSION_MODES: readonly SupersessionMode[] = ['off', 'flag', 'suppress']
 const CONTRADICTION_MODES: readonly ContradictionMode[] = ['off', 'flag']
 
-// The agent-facing default is `suppress`, while the library default stays `flag`.
 const DEFAULT_SUPERSESSION_MODE: SupersessionMode = 'suppress'
 const DEFAULT_CONTRADICTION_MODE: ContradictionMode = 'flag'
 

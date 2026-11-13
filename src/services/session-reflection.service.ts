@@ -27,12 +27,6 @@ export interface ReflectResult {
   pending_created: number
 }
 
-/**
- * Stamped on every thought `reflect` creates, next to the semantic tag
- * (`decision` / `pending`). It makes reflect output identifiable, so it can be
- * filtered or cleaned up without touching hand-created thoughts. Tag-based,
- * additive: nothing in the read paths keys off it.
- */
 const REFLECT_TAG = 'reflect'
 
 function reflectTimestamp(): string {
@@ -47,11 +41,6 @@ function assertProjectExists(projectId: string, db: Database): void {
   if (!projectExists(db, projectId)) throw new NotFoundError('Project not found')
 }
 
-/**
- * Validates one goal input array and returns its trimmed entries. A blank or
- * non-string entry is a validation error rather than a silent skip: the caller
- * would otherwise believe the goal was applied.
- */
 function parseGoalEntries(
   entries: readonly unknown[] | undefined,
   field: 'goals_add' | 'goals_remove'
@@ -65,10 +54,6 @@ function parseGoalEntries(
   })
 }
 
-/**
- * Returns true if `decision` is sufficiently similar to any existing
- * non-archived decision-tagged thought (Jaccard >= 0.6 or exact normalised match).
- */
 function hasDuplicateDecision(db: Database, decision: string, projectId: string): boolean {
   const candidates = findActiveDecisionThoughts(db, projectId)
   const norm = normalise(decision)
@@ -133,9 +118,6 @@ export function reflectSessionService(input: ReflectInput, d: Database = getDb()
         .map(l => l.trim())
         .filter(Boolean)
 
-      // Removals run before additions: a removal target is matched against the
-      // goals that were already stored, so a goal added in the same call is
-      // never dropped by a stale removal entry.
       for (const target of goalsToRemove) {
         const lower = target.toLowerCase()
         for (let i = lines.length - 1; i >= 0; i--) {
@@ -162,8 +144,6 @@ export function reflectSessionService(input: ReflectInput, d: Database = getDb()
       })
     }
 
-    // Create a thought for each decision, skipping those that are sufficiently
-    // similar to an existing non-archived decision (dedup across sessions).
     for (const decision of input.decisions ?? []) {
       if (typeof decision !== 'string' || !decision.trim()) {
         throw new ValidationError('decisions entries must be non-empty strings')
@@ -188,8 +168,6 @@ export function reflectSessionService(input: ReflectInput, d: Database = getDb()
     if (!Number.isInteger(wakeDays) || wakeDays < 1 || wakeDays > 365) {
       throw new ValidationError('wake_days must be an integer between 1 and 365')
     }
-    // Delay is per-reflection and set only on newly created pending thoughts;
-    // the content-hash dedup branch leaves an existing schedule untouched.
     const surfaceAfter = new Date(Date.now() + wakeDays * MS_PER_DAY).toISOString()
     for (const item of input.pending ?? []) {
       if (typeof item !== 'string' || !item.trim()) {

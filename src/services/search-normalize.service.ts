@@ -10,8 +10,6 @@ const MIN_RECENCY_HALF_LIFE_DAYS = 1
 const MAX_RECENCY_HALF_LIFE_DAYS = 3650
 const MAX_RECENCY_WEIGHT = 1
 
-// Measured on e5-small (task #2178): unrelated pairs calibrate to <=0.355 while self-relevant
-// p99 is 0.8435, so 0.4 (= raw 0.84) clears the noise and drops only 2 of 200 self-hits.
 export const DEFAULT_MIN_RELEVANCE = 0.4
 
 function clampTopK(value: number | undefined): number {
@@ -55,7 +53,6 @@ export function normalizeSearchOptions(options: SearchServiceOptions): Normalize
   const topK = clampTopK(options.topK)
   const minImportance = clampMinImportance(options.minImportance)
   const supersessionMode = options.supersessionMode ?? 'flag'
-  // `undefined` (caller said nothing) takes the measured default; an explicit `0` disables the gate.
   const minRelevance =
     options.minRelevance === undefined
       ? DEFAULT_MIN_RELEVANCE

@@ -3,8 +3,6 @@ import { insertLog } from '../logging'
 import type { SqlFragment } from './search-filters'
 import { sqlIn } from './utils'
 
-// Counting `FROM thoughts` keeps cost on the addressed partition (~0.1 ms for a 5-row project);
-// counting `FROM vec_thoughts` applies the predicate as a corpus scan (measured 436 ms at 100k).
 export function countFilteredVectors(
   db: Database,
   scope: SqlFragment,
@@ -50,8 +48,6 @@ export function countFilteredVectors(
   }
 }
 
-// The rule is "no row of the project delivered", not a count comparison: a project larger than
-// `topK` always returns fewer rows than it holds, so counting would flag every large project.
 export function addressedProjectShutOut(
   db: Database,
   project: string,
@@ -78,8 +74,6 @@ export function addressedProjectShutOut(
   return row !== null
 }
 
-// `throwOnError: false` keeps graceful degradation for direct callers; the search layer opts in
-// so it can observe the failure and surface `degraded` instead of an empty result.
 export function vecSearchIds(
   db: Database,
   embedding: Float32Array,

@@ -14,8 +14,6 @@ import {
 } from './tags'
 import { sqlIn, toBit } from './utils'
 
-// The auto-clustering candidate query lives in the sibling module; re-exported
-// here so `auto-cluster.service.ts` keeps importing it from `../db/thoughts`.
 export { listClusterCandidates, type ClusterCandidate } from './cluster-candidates'
 
 export interface Thought {
@@ -32,12 +30,7 @@ export interface Thought {
   created_at: string
   updated_at: string
   archived_at: string | null
-  /** Pending surfacing delay; NULL means immediately eligible. */
   surface_after: string | null
-  /**
-   * Configured content language. Not a stored column: the write services set it
-   * (issue #98), and `rowToThought` maps it only when a query projects it.
-   */
   content_language?: string
 }
 
@@ -66,12 +59,10 @@ export interface UpdateThoughtInput {
   surface_after?: string | null
 }
 
-/** Filters shared by the list and count queries (everything except paging). */
 export interface ThoughtListFilters {
   status?: string
   project_id?: string
   tag?: string
-  /** `true` = cluster thoughts only; `false` = exclude cluster thoughts. */
   is_cluster?: boolean
 }
 
@@ -80,7 +71,6 @@ export interface ListThoughtsOptions extends ThoughtListFilters {
   offset?: number
 }
 
-/** Page size used when the caller passes no `limit` (`limit: null` means "all"). */
 export const THOUGHTS_PAGE_LIMIT_DEFAULT = 50
 
 export function rowToThought(row: Record<string, unknown>): Thought {
@@ -148,7 +138,6 @@ export function createThought(db: Database, data: CreateThoughtInput): Thought {
       )
 
     if (res.changes === 0) {
-      // Re-read the existing draft/active thought with the same content.
       const existing = db
         .prepare(
           `SELECT id FROM thoughts WHERE content_hash = ? AND status IN ('draft', 'active') AND project_id = ? LIMIT 1`
@@ -279,7 +268,6 @@ export function updateThought(
     try {
       db.prepare(`UPDATE thoughts SET ${sets.join(', ')} WHERE id = ?`).run(...values)
     } catch (err) {
-      // A concurrent writer can win the pre-check race: map only that one fault.
       throw isContentDedupeViolation(err) ? new ThoughtContentConflictError() : err
     }
 
@@ -299,9 +287,7 @@ export function archiveThought(db: Database, id: string): Thought | undefined {
 export function deleteThought(db: Database, id: string): boolean {
   try {
     db.prepare(`DELETE FROM vec_thoughts WHERE id = ?`).run(id)
-  } catch {
-    // vec_thoughts may not exist (e.g. :memory: tests without vec0)
-  }
+  } catch {}
   const result = db.prepare(`DELETE FROM thoughts WHERE id = ?`).run(id)
   if (result.changes > 0) {
     pruneOrphanTags(db)
@@ -309,11 +295,7 @@ export function deleteThought(db: Database, id: string): boolean {
   return result.changes > 0
 }
 
-/**
- * Build the shared `WHERE ...` fragment (with its bindings) for a thought list.
- * `countThoughts` applies the very same filters as `listThoughts`, so the page
- * and its total can never disagree.
- */
+// `countThoughts` must apply this same fragment, or a page and its total disagree.
 function buildThoughtsWhere(options: ThoughtListFilters): {
   sql: string
   values: SQLQueryBindings[]
@@ -344,7 +326,6 @@ function buildThoughtsWhere(options: ThoughtListFilters): {
       values.push(...tagNames, tagNames.length)
     }
   }
-  // Rows predating the column read as non-cluster, mirroring the search filter.
   if (is_cluster === true) {
     where.push('t.is_cluster = 1')
   } else if (is_cluster === false) {
@@ -362,7 +343,6 @@ export function listThoughts(db: Database, options: ListThoughtsOptions = {}): T
   let sql: string
   let sqlValues: SQLQueryBindings[]
   if (limit === null) {
-    // limit=null means "return all" — no LIMIT clause applied
     sql = baseSql
     sqlValues = values
   } else {
@@ -378,7 +358,6 @@ export function listThoughts(db: Database, options: ListThoughtsOptions = {}): T
   return rows.map(r => ({ ...rowToThought(r), tags: tagMap.get(r.id as string) ?? [] }))
 }
 
-/** Total number of thoughts matching `filters`, ignoring paging. */
 export function countThoughts(db: Database, options: ThoughtListFilters = {}): number {
   const { sql: whereSql, values } = buildThoughtsWhere(options)
   const row = db.prepare(`SELECT COUNT(*) AS total FROM thoughts t${whereSql}`).get(...values) as

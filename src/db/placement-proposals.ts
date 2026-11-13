@@ -1,29 +1,15 @@
 import type { Database } from 'bun:sqlite'
 
-/**
- * Item classes the queue creates and applies (ADR §2.1). `edge` is the only
- * live kind: `placement`/`lifecycle` were removed in task #1942 and the
- * deterministic draft-triage verdicts (`triage_activate`/`triage_archive`) in
- * task #1946, none of which production used enough to justify the machinery.
- */
 export type ProposalItemKind = 'edge'
 
-/**
- * Item kinds the queue no longer creates (tasks #1942, #1946). Rows of these
- * kinds may still exist in installs upgraded from an older version: they stay
- * readable (their state is shown in `list`) but can never be applied or rolled
- * back.
- */
 export type LegacyProposalItemKind =
   | 'placement'
   | 'lifecycle'
   | 'triage_activate'
   | 'triage_archive'
 
-/** Every kind a stored row can carry — the live kinds plus the removed ones. */
 export type StoredProposalItemKind = ProposalItemKind | LegacyProposalItemKind
 
-/** Is this a kind the queue no longer supports (tasks #1942, #1946)? */
 export function isLegacyItemKind(kind: string): kind is LegacyProposalItemKind {
   return (
     kind === 'placement' ||
@@ -33,10 +19,6 @@ export function isLegacyItemKind(kind: string): kind is LegacyProposalItemKind {
   )
 }
 
-/**
- * Queue lifecycle: `pending` is live, every other state is terminal (ADR §2.2).
- * `rolled_back` marks rows reverted by an explicit run rollback (ADR 2026-09-29 §2.8).
- */
 export type ProposalState =
   | 'pending'
   | 'accepted'
@@ -49,7 +31,6 @@ export interface PlacementProposalRow {
   id: string
   project_id: string | null
   source_thought_id: string
-  /** The stored kind — a removed kind is possible in older installs (task #1942). */
   item_kind: StoredProposalItemKind
   target_id: string | null
   edge_type: string | null
@@ -59,7 +40,6 @@ export interface PlacementProposalRow {
   rationale: string
   rule_id: string | null
   payload: string
-  /** Run envelope of the explicit apply/rollback run that decided the row. */
   run_id: string | null
   state: ProposalState
   fingerprint: string
@@ -71,7 +51,6 @@ export interface PlacementProposalRow {
   result: string | null
 }
 
-/** Fields required to enqueue a proposal; `id`/`state`/`created_at` are derived. */
 export interface InsertProposalInput {
   project_id?: string | null
   source_thought_id: string
@@ -92,12 +71,9 @@ export interface InsertProposalInput {
 export interface ListProposalsOptions {
   state?: ProposalState
   project_id?: string
-  /** Optional item-kind filter (ADR 2026-09-29 §2.7); a removed kind still filters. */
   item_kind?: StoredProposalItemKind
-  /** Optional source-thought filter (queued proposals of one source thought). */
   source_thought_id?: string
   sourceThoughtId?: string
-  /** Optional lower bound on created_at (ISO; inclusive). */
   created_after?: string
   createdAfter?: string
   limit?: number
@@ -109,22 +85,10 @@ export interface UpdateProposalStateInput {
   decided_by?: string | null
   applied_at?: string | null
   result?: string | null
-  /** Run envelope; omitted leaves any existing `run_id` untouched. */
   run_id?: string | null
-  /**
-   * Refresh the staleness fingerprint; omitted leaves the stored value. Apply
-   * rewrites it to the post-writer snapshot so rollback can detect later drift
-   * (ADR 2026-09-29 §2.8).
-   */
   fingerprint?: string | null
 }
 
-/**
- * Insert a `pending` proposal, or refresh the existing live row for the same
- * item (ADR §2.3 dedup). The partial unique index `idx_pp_dedup` collapses
- * repeated enqueues of the same item; re-enqueue refreshes `payload`,
- * `fingerprint` and `expires_at` instead of inserting a duplicate.
- */
 export function insertProposal(db: Database, input: InsertProposalInput): PlacementProposalRow {
   const existing = findPendingByItem(db, input)
   if (existing) {
@@ -180,7 +144,6 @@ export function getProposal(db: Database, id: string): PlacementProposalRow | un
   return row ?? undefined
 }
 
-/** List proposals, newest first; defaults to live `pending` rows (ADR §2.9). */
 export function listProposals(
   db: Database,
   options: ListProposalsOptions = {}
@@ -215,14 +178,8 @@ export function listProposals(
     .all(...params) as PlacementProposalRow[]
 }
 
-/**
- * The rollback manifest of one run: its accepted rows in *reverse application
- * order* (ADR 2026-09-29 §2.8). Application order is `applied_at`, not
- * `created_at` — a row enqueued early can be applied late, so ordering by
- * creation would invert a run whose items were confirmed out of order. The
- * `created_at`/`id` tie-breakers keep the order total when two rows share an
- * `applied_at` (a caller-supplied `now`, or same-millisecond applies).
- */
+// Ordering by `applied_at` (not `created_at`) is what makes a rollback invert the run: an item
+// enqueued early can be applied late, and the id tie-breaker keeps the order total.
 export function listAcceptedProposalsByRun(db: Database, runId: string): PlacementProposalRow[] {
   return db
     .prepare(
@@ -233,7 +190,6 @@ export function listAcceptedProposalsByRun(db: Database, runId: string): Placeme
     .all(runId) as PlacementProposalRow[]
 }
 
-/** Transition a proposal to a terminal state, recording the decision metadata. */
 export function updateProposalState(
   db: Database,
   id: string,
@@ -259,15 +215,7 @@ export function updateProposalState(
   return getProposal(db, id)
 }
 
-/**
- * Delete terminal rows decided before `cutoff` and expire `pending` rows whose
- * `expires_at` has passed (ADR §2.4). Returns the number of rows removed.
- *
- * Expiring stamps `decided_at`: without it these rows were invisible to the
- * prune half of this very function (`decided_at IS NOT NULL`) and accumulated
- * forever. They are now decided-at-`now` and pruned one retention window later,
- * like every other terminal row.
- */
+// Expiry must stamp `decided_at`, or these rows stay invisible to the prune below and accumulate forever.
 export function deleteExpired(
   db: Database,
   cutoff: string,
@@ -287,11 +235,8 @@ export function deleteExpired(
   return expired + pruned
 }
 
-/** The live row for the same item, if any — the dedup key of `idx_pp_dedup`. */
 function findPendingByItem(db: Database, input: InsertProposalInput): { id: string } | undefined {
-  // `Statement.get` yields `null` for no match; normalise to `undefined` so
-  // callers can test `=== undefined` (a bare `as` cast here made every
-  // "is this a new item?" check silently report false).
+  // `Statement.get` yields `null`, not `undefined`; a bare cast here made every "new item?" check false.
   const row = db
     .prepare(
       `SELECT id FROM placement_proposals

@@ -16,24 +16,12 @@ interface PendingRequest {
 const EMBEDDER_REQUEST_TIMEOUT_MS = 60_000
 const MAX_PENDING = 256
 
-/**
- * Lifecycle handles `EmbedderClient` exposes so the IPC bookkeeping can refuse
- * requests whose child is gone without owning the spawn/state machine.
- */
 export interface IpcClientDeps {
-  /** Current child process, or null between spawns. */
   getProc: () => Subprocess | null
-  /** False once a crash or exit has latched the child as dead. */
   isAlive: () => boolean
-  /** Latch the crash state (dead, not ready) when the IPC pipe send throws. */
   onSendFailure: () => void
 }
 
-/**
- * Client-side IPC bookkeeping for the embedder child: request ids, the pending
- * map, the per-request 60 s timeout, overload rejection (MAX_PENDING) and
- * result/error dispatch for incoming replies.
- */
 export class IpcClient {
   private nextId = 1
   private pending = new Map<string, PendingRequest>()
@@ -85,7 +73,6 @@ export class IpcClient {
     }
   }
 
-  /** Deliver a child→parent result/error reply; other message types are ignored. */
   dispatch(message: IpcMessage): void {
     if (message.type !== 'result' && message.type !== 'error') return
     if (!message.id) return

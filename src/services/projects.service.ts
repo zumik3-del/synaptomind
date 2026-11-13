@@ -11,10 +11,6 @@ import { getDb } from '../db'
 import { ValidationError } from '../errors'
 import type { Database } from 'bun:sqlite'
 
-// The layering guard (thin-tools.test.ts) forbids tool modules importing the
-// db layer directly, so manage.ts consumes the single-sourced message (still
-// defined in db/projects.ts) and the default-project predicate through this
-// service module.
 export { DEFAULT_PROJECT_DELETE_MESSAGE } from '../db/projects'
 
 export function isDefaultProjectService(id: string, d: Database = getDb()): boolean {

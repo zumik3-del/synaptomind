@@ -10,7 +10,6 @@ const RU_STOPWORDS =
 
 const STOPWORDS: ReadonlySet<string> = new Set([...EN_STOPWORDS, ...RU_STOPWORDS])
 
-/** Unicode-aware normalisation: lower-case, fold `ё`→`е` so variants match. */
 function normalizeToken(token: string): string {
   return token.toLowerCase().replace(/ё/g, 'е')
 }

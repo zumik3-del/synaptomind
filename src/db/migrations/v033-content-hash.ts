@@ -6,9 +6,7 @@ export default {
   apply(db: Database): void {
     try {
       db.run(`ALTER TABLE thoughts ADD COLUMN content_hash TEXT`)
-    } catch {
-      // column already exists
-    }
+    } catch {}
 
     db.run(`CREATE INDEX IF NOT EXISTS idx_thoughts_content_hash ON thoughts(content_hash)`)
 

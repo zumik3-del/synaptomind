@@ -7,7 +7,6 @@ import { COMPACT_FIELDS } from './field-selection'
 export * from './field-selection'
 type McpTextContent = { type: 'text'; text: string }
 
-// Every tool declares `{ result }`; the payload inside matches `content[].text`.
 export const toolOutputShape = {
   result: z
     .unknown()
@@ -20,7 +19,6 @@ export function jsonResult(data: unknown): {
   content: McpTextContent[]
   structuredContent: { result: unknown }
 } {
-  // A bare string payload is wrapped so no action ever returns a bare string in `result`.
   const payload = typeof data === 'string' ? { text: data } : data
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
@@ -33,8 +31,6 @@ export interface ErrorEnvelopeMeta {
   retryable?: boolean
 }
 
-// Unclassified errors keep the plain `{ content, isError }` shape: no `result` key is synthesized,
-// so the declared `{ result }` schema stays valid only where metadata actually exists.
 export function errorResult(
   message: string,
   meta: ErrorEnvelopeMeta = {}
@@ -77,7 +73,6 @@ function stringifyTags(tags: unknown): string[] {
   })
 }
 
-/** Stored as SQLite 0/1, exposed as booleans. */
 const BOOLEAN_FIELDS = new Set(['is_protected', 'is_global', 'is_cluster'])
 
 function toBoolean(value: unknown): boolean {
@@ -96,7 +91,6 @@ function hygienicThought(t: Record<string, unknown>): Record<string, unknown> {
   return out
 }
 
-// `urlLinks` is attached after the projection, so neither `compact` nor `fields` can hide it.
 export function shapeThought(
   thought: unknown,
   compact?: boolean,
@@ -138,7 +132,6 @@ function projectThoughtShape(thought: unknown, compact?: boolean, fields?: unkno
   return out
 }
 
-// `urlLinks` reaches every thought in the chain — head and both neighbourhoods — by design.
 export function shapeChain(
   chain: ChainResult | null | undefined,
   compact: boolean,

@@ -9,8 +9,6 @@ export interface ThoughtIdQuery {
   exact: boolean
 }
 
-// A full UUID is an explicit reference: no status/project scope. A prefix is a timestamp
-// window, so it takes the request scope. `is_cluster` is structural and applies to both.
 export interface IdLookupFilters {
   statusFilter?: string
   projectFilter?: string
@@ -18,11 +16,7 @@ export interface IdLookupFilters {
 }
 
 const ID_HEX_LENGTH = 32
-// UUIDv7 puts a 48-bit millisecond in the first 12 hex chars, so a bulk_create batch shares them
-// and even a 13-hex prefix can address thousands of rows; more than this is never answered.
 export const ID_PREFIX_MATCH_HARD_CAP = 100
-// Below 13 hex chars a hex-looking *word* (`20251025`, `deadbeef`) is indistinguishable from a
-// prefix, and a miss would replace a legitimate word search with an empty id answer.
 const ID_PREFIX_MIN_HEX_LENGTH = 13
 const UUID_HYPHEN_POSITIONS = new Set([8, 12, 16, 20])
 

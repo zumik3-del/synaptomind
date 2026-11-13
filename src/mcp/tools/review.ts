@@ -24,9 +24,6 @@ const handlers = {
     input: z.object({ thought_id: requiredString('thought_id is required for enqueue action') }),
     async run(args: ActionArgs) {
       const projectId = resolveProjectId(args.cwd as string | undefined)
-      // `max_proposals` is the only enqueue cap this tool advertises: the
-      // `max_items` alias is gone, so the canonical value is forwarded as-is
-      // instead of through a precedence rule between several accepted names.
       const outcome = await enqueueThoughtProposals(args.thought_id as string, {
         projectId,
         maxProposals: args.max_proposals as number | undefined
@@ -40,9 +37,6 @@ const handlers = {
 
   list: {
     run(args: ActionArgs) {
-      // A read: the scope comes from the shared read-side helper, so a cwd-less,
-      // blank or unregistered call reports a `meta.warning` instead of silently
-      // spanning every project (tasks #2187, #2461).
       const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
       const includeRetired = args.include_retired === true
       const state = args.state as ListOptions['state']
@@ -59,8 +53,6 @@ const handlers = {
         limit,
         includeRetired
       })
-      // Counts over the same filters (ignoring the page limit) so callers can
-      // see how many retired rows were hidden by default (task #2125).
       const allVisible = listProposals({
         state,
         itemKind,
@@ -115,7 +107,6 @@ const handlers = {
             : ['missing', proposalIds[i]]
         )
       )
-      /** Rows of the batch outcome, with the per-proposal errors folded in as failed rows. */
       function envelopeFor(
         outcome: ReturnType<typeof applyBatchService>,
         previewToken?: string | null
@@ -265,7 +256,6 @@ export function registerEdgeReview(server: McpServer) {
         .describe(
           'Max rows (default 100, 1-1000) for "list"; max items for "apply_batch". OPTIONAL for "list" and "apply_batch". IGNORED for all other actions.'
         ),
-      // Tombstone for the retired enqueue cap: only max_proposals is advertised.
       max_items: z
         .never({ error: 'max_items was removed; use max_proposals' })
         .optional()

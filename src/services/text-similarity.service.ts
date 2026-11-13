@@ -16,8 +16,6 @@ export function jaccard(a: string, b: string): number {
 
 export { clamp01 }
 
-// Raw e5-small cosine is compressed (unrelated pairs ≈0.76–0.80), so thresholds operate on this
-// calibrated scale, not on raw similarity. A degenerate band degrades to a step at confidenceFloor.
 export function calibrateRelevance(
   similarity: number,
   unrelatedFloor: number,

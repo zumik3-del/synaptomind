@@ -97,7 +97,6 @@ export function enqueuePlanService(
   const projectId = source.project_id ?? null
 
   const run = d.transaction(() => {
-    // Overdue rows do not consume the cap; retention only marks them expired later.
     const pending = listProposals(d, {
       state: 'pending',
       limit: maxPending + cappedItems.length + 1

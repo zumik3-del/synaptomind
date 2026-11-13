@@ -42,7 +42,6 @@ export interface SearchRecencyContext {
   nowMs: number
 }
 
-// Shared with the service's relevance gate, so `low_confidence` and `min_relevance` cannot diverge.
 export function isStrongMatch(
   result: Pick<SearchResult, 'match_source' | 'similarity'>,
   floor: number
@@ -117,7 +116,6 @@ export function fetchThoughtsByIds(
         hydration.confidenceFloor
       )
     }
-    // Cosine signals only for embedding-leg hits, so a keyword match is not misread as zero relevance.
     if (sim !== undefined) {
       result.distance = 1 - sim
       result.similarity = sim

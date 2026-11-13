@@ -5,7 +5,6 @@ import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.servic
 import { itemEnvelope } from '../envelope'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 
-/** Audit label recorded on apply/reject/rollback decisions (ADR §2.8). */
 export const AGENT = 'edge_review'
 
 export const applyHandler: ActionHandler = {

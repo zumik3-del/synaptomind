@@ -57,7 +57,6 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
         reason: `a reverse '${edge.type}' edge already exists between the pair`
       }
     }
-    // A `related` placeholder is upgraded in place by `createEdge`, so it is not a conflict.
     if (existing && existing.type !== 'related') {
       return { kind: 'stale', reason: `the pair already holds a '${existing.type}' edge` }
     }

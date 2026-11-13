@@ -2,21 +2,10 @@ import type { Database } from 'bun:sqlite'
 import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
-/** How many pre-migration backups are retained alongside the database. */
 export const DEFAULT_BACKUP_RETENTION = 5
 
-/**
- * Take a consistent, WAL-safe snapshot of `db` into a file next to `dbPath`
- * before a schema migration runs. Uses `VACUUM INTO`, which produces a
- * complete, checkpointed copy regardless of the active journal mode.
- *
- * The backup is named `{db basename}.pre-v{targetVersion}.{timestamp}.bak` so
- * the migration it precedes and the moment it was taken are both recoverable
- * from the filename alone.
- *
- * Throws when the snapshot cannot be written — a failed backup must never be
- * silently followed by an irreversible migration.
- */
+// Throws when the snapshot cannot be written: a failed backup must never be followed by an
+// irreversible migration.
 export function backupDatabase(
   db: Database,
   dbPath: string,
@@ -41,9 +30,7 @@ export function backupDatabase(
   } catch (err) {
     try {
       unlinkSync(backupPath)
-    } catch {
-      // Best effort: the partial file (if any) is not worth failing over.
-    }
+    } catch {}
     throw new Error(
       `Database backup failed before applying migrations (target v${targetVersion}): ${
         err instanceof Error ? err.message : String(err)
@@ -55,11 +42,6 @@ export function backupDatabase(
   return backupPath
 }
 
-/**
- * Keep only the `retention` most recent pre-migration backups for `base`,
- * deleting the rest. A pruning failure is logged but does not abort the
- * migration — the backup itself has already succeeded.
- */
 export function pruneBackups(dir: string, base: string, retention: number): void {
   if (retention <= 0) return
   let entries: string[]

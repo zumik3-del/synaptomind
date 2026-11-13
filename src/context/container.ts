@@ -1,8 +1,3 @@
-// The connection context: process-wide handle registry plus the async-local
-// per-request binding. Infrastructure, not persistence — db query modules never
-// import it, adapters (mcp, middleware, the entry point) may. The map itself
-// stays private; consumers go through the accessors below.
-
 import type { Database } from 'bun:sqlite'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { config } from '../config'

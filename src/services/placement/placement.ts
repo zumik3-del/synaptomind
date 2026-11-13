@@ -182,7 +182,6 @@ function proposeParent(
   return null
 }
 
-// The shared resolver throws one error for two failures; the call is measured to keep them distinct.
 function observeEmbed(embed: (texts: string[]) => Promise<Float32Array[]>): {
   embed: (texts: string[]) => Promise<Float32Array[]>
   countMismatch: () => boolean

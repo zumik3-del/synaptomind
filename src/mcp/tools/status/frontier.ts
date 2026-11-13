@@ -3,7 +3,6 @@ import { getFrontierService } from '../../../services/frontier.service'
 import { collectionEnvelope, readEnvelopeScope } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
-/** `memory_status` action=frontier: `{ items, meta }`; `cwd` is optional. */
 export const frontierHandler: ActionHandler = {
   input: z.object({
     limit: z.number().int().min(1).max(50, 'frontier limit must be at most 50').optional()
