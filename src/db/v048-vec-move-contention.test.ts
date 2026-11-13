@@ -198,7 +198,7 @@ describe('v048 move trigger under a second writer', () => {
     const { value, error, elapsed } = attempt(() => deleteProject(db, bulk))
 
     expect(error).toBeNull()
-    expect(value).toBe(true)
+    expect(value?.deleted).toBe(true)
     expect(scopeOf(db, seeded[0]!)).toBe(target)
     expect(scopeOf(db, seeded[rows - 1]!)).toBe(target)
     expect(

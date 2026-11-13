@@ -184,7 +184,7 @@ test.skipIf(!VEC_AVAILABLE)(
     closeDb()
 
     openRaw(path, db => {
-      expect(schemaVersion(db)).toBe('48')
+      expect(schemaVersion(db)).toBe('49')
       expect(metaValue(db, 'vec_scope_v048')).toBe('done')
 
       expect(vecRows(db).map(row => row.id)).toEqual(['th-a', 'th-b', 'th-global', 'th-unassigned'])
@@ -237,7 +237,7 @@ test.skipIf(!VEC_AVAILABLE)('v048 drops a vector whose thought no longer exists'
   closeDb()
 
   openRaw(path, db => {
-    expect(schemaVersion(db)).toBe('48')
+    expect(schemaVersion(db)).toBe('49')
     expect(vecRows(db).map(row => row.id)).toEqual(['th-a'])
     expect(vecRows(db)[0]!.scope).toBe('proj-a')
   })
@@ -270,7 +270,7 @@ test.skipIf(!VEC_AVAILABLE)(
       }))
 
     const upgraded = snapshot()
-    expect((upgraded as { version: string }).version).toBe('48')
+    expect((upgraded as { version: string }).version).toBe('49')
 
     openRaw(path, db => {
       db.prepare(`UPDATE _meta SET value = '47' WHERE key = 'schema_version'`).run()
@@ -395,7 +395,7 @@ describe('the deleteProject bulk move', () => {
       project_id: 'proj-doomed'
     })
 
-    expect(deleteProject(db, 'proj-doomed')).toBeTrue()
+    expect(deleteProject(db, 'proj-doomed').deleted).toBeTrue()
 
     expect(db.prepare(`SELECT 1 FROM projects WHERE id = 'proj-doomed'`).get()).toBeNull()
     expect(

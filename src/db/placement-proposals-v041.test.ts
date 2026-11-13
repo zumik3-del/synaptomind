@@ -49,12 +49,12 @@ test('v041: idx_pp_run covers (run_id, state) columns', () => {
   expect(info).toHaveLength(2)
 })
 
-test('v041: schema_version is 41 after fresh init', () => {
+test('v041: schema_version is 49 after fresh init', () => {
   const db = getDb()
   const row = db.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
     | { value: string }
     | undefined
-  expect(row?.value).toBe('48')
+  expect(row?.value).toBe('49')
 })
 
 test('v041: re-running init on same in-memory DB is idempotent', () => {
@@ -62,14 +62,14 @@ test('v041: re-running init on same in-memory DB is idempotent', () => {
   const before = db.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
     | { value: string }
     | undefined
-  expect(before?.value).toBe('48')
+  expect(before?.value).toBe('49')
 
   initDb({ dbPath: ':memory:', runMigrations: true })
   const db2 = getDb()
   const after = db2.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
     | { value: string }
     | undefined
-  expect(after?.value).toBe('48')
+  expect(after?.value).toBe('49')
 
   const cols = db2.prepare(`PRAGMA table_info(placement_proposals)`).all() as { name: string }[]
   expect(cols.map(c => c.name)).toContain('run_id')

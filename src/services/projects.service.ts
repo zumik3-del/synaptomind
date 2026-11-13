@@ -4,6 +4,7 @@ import {
   getProject,
   isDefaultProject,
   listProjects,
+  type ProjectDeletion,
   resolveProject,
   updateProject
 } from '../db/projects'
@@ -51,7 +52,7 @@ export function updateProjectService(
   updateProject(d, id, data)
 }
 
-export function deleteProjectService(id: string, d: Database = getDb()): boolean {
+export function deleteProjectService(id: string, d: Database = getDb()): ProjectDeletion {
   return deleteProject(d, id)
 }
 

@@ -66,12 +66,12 @@ test('updateProject clears description', () => {
 test('deleteProject removes project', () => {
   const db = getDb()
   const p = createProject(db, { name: 'To Delete' })
-  expect(deleteProject(db, p.id)).toBeTrue()
+  expect(deleteProject(db, p.id).deleted).toBeTrue()
   expect(getProject(db, p.id)).toBeUndefined()
 })
 
 test('deleteProject returns false for missing id', () => {
-  expect(deleteProject(getDb(), 'nonexistent')).toBeFalse()
+  expect(deleteProject(getDb(), 'nonexistent').deleted).toBeFalse()
 })
 
 test('deleteProject throws when deleting Default project', () => {
@@ -91,7 +91,7 @@ test('deleteProject moves thoughts to Default before deletion', () => {
 		 VALUES (?, 'test', 'active', ?, 0, ?, ?)`
   ).run('thought-1', p.id, new Date().toISOString(), new Date().toISOString())
 
-  expect(deleteProject(db, p.id)).toBeTrue()
+  expect(deleteProject(db, p.id).deleted).toBeTrue()
 
   const thought = db.prepare(`SELECT project_id FROM thoughts WHERE id = ?`).get('thought-1') as {
     project_id: string

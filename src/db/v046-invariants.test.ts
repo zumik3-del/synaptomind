@@ -123,7 +123,7 @@ test('v046 drops self-loops and keeps one edge per pair, a specific relation bea
   closeDb()
 
   openRaw(path, db => {
-    expect(schemaVersion(db)).toBe('48')
+    expect(schemaVersion(db)).toBe('49')
     const remaining = (
       db.prepare(`SELECT id FROM edges ORDER BY id`).all() as { id: string }[]
     ).map(r => r.id)
