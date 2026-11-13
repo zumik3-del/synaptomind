@@ -37,11 +37,9 @@ export function createThoughtWithUrlLinksService(
 ): Thought {
   const run = d.transaction(() => {
     const thought = createThoughtWithParentService(data, options?.parentId, options?.relation, d)
-    if (options?.urlLinks && options.urlLinks.length > 0) {
-      for (const link of options.urlLinks) {
-        upsertThoughtUrlLink(d, thought.id, link.text, link.url, link.text, 0)
-      }
-    }
+    options?.urlLinks?.forEach((link, index) => {
+      upsertThoughtUrlLink(d, thought.id, link.text, link.url, link.text, index)
+    })
     return thought
   })
   return run()

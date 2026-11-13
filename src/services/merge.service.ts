@@ -13,9 +13,12 @@ import {
   type Thought,
   type UpdateThoughtInput
 } from '../db/thoughts'
-import { pruneThoughtUrlLinks } from '../db/thought_url_links'
 import { NotFoundError, ValidationError } from '../errors'
-import { transferEdgesFromSource, validateMergePreconditions } from './merge-helpers.service'
+import {
+  transferEdgesFromSource,
+  transferUrlLinksFromSource,
+  validateMergePreconditions
+} from './merge-helpers.service'
 import { getThoughtByIdService } from './thoughts.service'
 
 export interface MergePreview {
@@ -129,10 +132,8 @@ export function mergeThoughtsService(
       if (!updated) throw new NotFoundError(`Target thought '${targetId}' not found during update`)
     }
 
-    // Must stay in this transaction: merge otherwise bypasses the PUT route's url-link prune.
-    if (mergedContent !== undefined) {
-      pruneThoughtUrlLinks(d, targetId, mergedContent)
-    }
+    // Must stay in this transaction: the source's links move to the target before it is archived.
+    transferUrlLinksFromSource(sourceId, targetId, d)
 
     const transferredEdges = transferEdgesFromSource(sourceId, targetId, d)
 

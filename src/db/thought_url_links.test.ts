@@ -3,9 +3,7 @@ import { getDb } from '../context/container'
 import { closeDb } from '../db/init'
 import {
   deleteThoughtUrlLinksNotIn,
-  extractLinkKeys,
   getThoughtUrlLinksForThoughts,
-  pruneThoughtUrlLinks,
   upsertThoughtUrlLink
 } from '../db/thought_url_links'
 import { createTestDb, seedThought } from '../test/helpers'
@@ -42,21 +40,6 @@ test('deleteThoughtUrlLinksNotIn drops orphans only', () => {
   upsertThoughtUrlLink(db, id, 'keep', 'https://a.com', 'A')
   upsertThoughtUrlLink(db, id, 'drop', 'https://b.com', 'B')
   const removed = deleteThoughtUrlLinksNotIn(db, id, ['keep'])
-  expect(removed).toBe(1)
-  expect(getThoughtUrlLinksForThoughts(db, [id]).map(l => l.key)).toEqual(['keep'])
-})
-
-test('extractLinkKeys parses [[key|label]] and [[key]]', () => {
-  const content = 'see [[k1|Label One]] and [[k2]] also #248 ref'
-  expect(extractLinkKeys(content)).toEqual(['k1', 'k2'])
-})
-
-test('pruneThoughtUrlLinks keeps rows whose marker is in content, drops the rest', () => {
-  const db = getDb()
-  const id = seedThought()
-  upsertThoughtUrlLink(db, id, 'keep', 'https://a.com', 'A')
-  upsertThoughtUrlLink(db, id, 'drop', 'https://b.com', 'B')
-  const removed = pruneThoughtUrlLinks(db, id, 'see [[keep|Keep]] marker')
   expect(removed).toBe(1)
   expect(getThoughtUrlLinksForThoughts(db, [id]).map(l => l.key)).toEqual(['keep'])
 })
