@@ -4,14 +4,14 @@ import { getAdvertisedSoftLimitService } from '../../services/settings.service'
 import { EDGE_TYPES } from '../../services/edges.service'
 import { thoughtStatusSchema } from '../../validation'
 import { registerActionTool } from './action-tool'
-import { createHandler } from './store/create'
+import { createHandler, urlLinkItem } from './store/create'
 import { updateHandler } from './store/update'
 import { linkHandler } from './store/link'
 import { linkBatchHandler } from './store/link-batch'
 import { unlinkHandler } from './store/unlink'
 import { unlinkBatchHandler } from './store/unlink-batch'
 import { retypeHandler } from './store/retype'
-import { bulkCreateHandler } from './store/bulk'
+import { bulkCreateHandler, bulkCreateItemSchema } from './store/bulk'
 
 const handlers = {
   create: createHandler,
@@ -27,7 +27,7 @@ const handlers = {
 export function registerMemoryStore(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_store',
-    description: `Store and modify thoughts. Answers the shared envelope: { item, meta } for a single-object action, { items, meta } for a batch; meta.counts carries the aggregate (linked/failed, created/failed, deleted/failed). A non-mutating preview sets meta.preview={token,destructive:true}. Actions: create, update (tags merge by default; tags_mode=replace to overwrite), link, link_batch (one transaction, per-item results), unlink (preview→confirm; dry-run default), unlink_batch (one transaction, per-edge status, confirm-gated), retype (preview→confirm; returns old/new edge id), bulk_create (create up to 10000 thoughts in one transaction; each item takes memory_store action=create's item shape).`,
+    description: `Store and modify thoughts. Answers the shared envelope: { item, meta } for a single-object action, { items, meta } for a batch; meta.counts carries the aggregate (linked/failed, created/failed, deleted/failed). A non-mutating preview sets meta.preview={token,destructive:true}. Actions: create, update (tags merge by default; tags_mode=replace to overwrite), link, link_batch (one transaction, per-item results), unlink (preview→confirm; dry-run default), unlink_batch (one transaction, per-edge status, confirm-gated), retype (preview→confirm; returns old/new edge id), bulk_create (create up to 10000 thoughts in one transaction; each item takes memory_store action=create's item shape plus project_id, relation and source).`,
     inputSchema: {
       action: z
         .enum([
@@ -104,16 +104,16 @@ export function registerMemoryStore(server: McpServer) {
           'update only: pending surfacing delay as an ISO timestamp (UTC, e.g. 2026-01-01T00:00:00.000Z); pass null to clear. IGNORED for all other actions.'
         ),
       url_links: z
-        .array(z.object({ text: z.string(), url: z.string() }))
+        .array(urlLinkItem)
         .optional()
         .describe(
-          'URL links. OPTIONAL for "create" and "update": create sets the initial list, update replaces the whole set in array order (an omitted field leaves the set untouched, [] clears it). The array order is the link order. IGNORED for all other actions.'
+          'URL links. OPTIONAL for "create" and "update": create sets the initial list, update replaces the whole set in array order (an omitted field leaves the set untouched, [] clears it). The array order is the link order. For "bulk_create" each item carries its own url_links with these semantics, so this top-level field is IGNORED for it. IGNORED for all other actions.'
         ),
       thoughts: z
-        .array(z.unknown())
+        .array(bulkCreateItemSchema)
         .optional()
         .describe(
-          'REQUIRED ONLY for "bulk_create". Thoughts to create in one transaction (1-10000 items), each in memory_store action=create\'s item shape. IGNORED for all other actions.'
+          'REQUIRED ONLY for "bulk_create". Thoughts to create in one transaction (1-10000 items). Each item is a strict object taking the create item fields — content (required), tags, status, parent_id, is_protected, is_global, url_links — plus project_id, relation and source; url_links is written per item in array order in the same transaction, and is_global reaches the row. An unknown key or the retired is_profile is refused, never silently dropped. The top-level content/tags/status/parent_id/is_protected/is_global/url_links are IGNORED for "bulk_create" (each item carries its own). IGNORED for all other actions.'
         ),
       thought_id: z
         .string()
