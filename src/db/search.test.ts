@@ -11,6 +11,7 @@ import { getDb } from '../context/container'
 import { closeDb } from './init'
 import { bm25SearchIds, isStrongMatch, rrfMerge, searchThoughts } from './search'
 import { bm25ScoredIds } from './search-bm25'
+import * as searchBm25Db from './search-bm25'
 import { buildFilterSQL } from './search-filters'
 import * as vectorSearchDb from './search-vector'
 
@@ -1210,5 +1211,142 @@ describe('project-scoped starvation', () => {
 
     expect(results.map(r => r.thought.id).sort()).toEqual([global, own].sort())
     expect((results as { degraded?: boolean }).degraded).toBe(false)
+  })
+})
+
+describe('buildFilterSQL tag scope', () => {
+  const P = 'project-a'
+
+  test('a tag filter emits the indexed AND subquery with lowercased, de-duplicated names', () => {
+    const { sql, params } = buildFilterSQL({ tagFilter: 'Alpha, beta,alpha' })
+
+    expect(params).toEqual(['alpha', 'beta', 2])
+    expect(sql).toContain('AND t.id IN (')
+    expect(sql).toContain('WHERE tg.name COLLATE NOCASE IN (?,?)')
+    expect(sql).toContain('HAVING COUNT(DISTINCT tg.name) = ?')
+  })
+
+  test('the tag clause is appended last, so every other parameter keeps its position', () => {
+    const { sql, params } = buildFilterSQL({
+      statusFilter: 'active',
+      projectFilter: P,
+      minImportance: 0.5,
+      tagFilter: 'beta'
+    })
+
+    expect(params).toEqual(['active', P, 0.5, 'beta', 1])
+    expect(sql.indexOf('t.status = ?')).toBeLessThan(sql.indexOf('ti.importance >= ?'))
+    expect(sql.indexOf('ti.importance >= ?')).toBeLessThan(sql.indexOf('t.id IN ('))
+    expect(sql.trimEnd().endsWith(')')).toBe(true)
+  })
+
+  test('a blank tag adds no clause at all', () => {
+    const { sql, params } = buildFilterSQL({ tagFilter: '  ,  ' })
+
+    expect(sql).toBe('')
+    expect(params).toEqual([])
+  })
+})
+
+describe('the tag clause reaches both retrieval legs (task #2532)', () => {
+  const TOKEN = 'LEGTAG'
+  const FILLER = Array.from({ length: 60 }, (_, i) => `legfiller${i}`).join(' ')
+
+  function seedVector(db: Database, id: string, cos: number): void {
+    const vector = new Float32Array(384)
+    vector[0] = cos
+    vector[1] = Math.sqrt(Math.max(0, 1 - cos * cos))
+    db.prepare(`INSERT INTO vec_thoughts (id, embedding, scope) VALUES (?, ?, 'default')`).run(
+      id,
+      Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength)
+    )
+  }
+
+  // `:memory:` cannot host vec_thoughts, so the BM25-only case seeds thoughts without vectors.
+  function seedLegWorld(db: Database, withVectors = true): string {
+    for (let i = 0; i < 3; i++) {
+      const near = seedThought({ content: `${TOKEN} near ${i}` })
+      if (withVectors) seedVector(db, near, 1)
+    }
+    const tagged = seedThought({ content: `${TOKEN} ${FILLER}`, tags: '["needle"]' })
+    if (withVectors) seedVector(db, tagged, 0.95)
+    return tagged
+  }
+
+  function unitVector(): Float32Array {
+    const v = new Float32Array(384)
+    v[0] = 1
+    return v
+  }
+
+  // vec0 applies the WHERE clause AFTER its k-nearest cut, which is why the caller must widen the
+  // pool: a narrow window cannot be rescued by the tag clause.
+  itVec('the vector leg narrows the tag matches once the k window covers them', db => {
+    const tagged = seedLegWorld(db)
+    const filter = buildFilterSQL({ tagFilter: 'needle' })
+
+    const narrow = vectorSearchDb.vecSearchIds(
+      db,
+      unitVector(),
+      2,
+      { sql: '', params: [] },
+      filter,
+      5
+    )
+    expect(narrow.map(r => r.id)).toEqual([])
+
+    const wide = vectorSearchDb.vecSearchIds(
+      db,
+      unitVector(),
+      1000,
+      { sql: '', params: [] },
+      filter,
+      5
+    )
+    expect(wide.map(r => r.id)).toEqual([tagged])
+  })
+
+  itVec('searchThoughts widens the vector pool and hands the clause to both legs', db => {
+    const tagged = seedLegWorld(db)
+    const vecSpy = spyOn(vectorSearchDb, 'vecSearchIds')
+    const filteredBm25Spy = spyOn(searchBm25Db, 'bm25ScoredIdsFiltered')
+    const plainBm25Spy = spyOn(searchBm25Db, 'bm25ScoredIds')
+    try {
+      const results = searchThoughts(db, {
+        embedding: unitVector(),
+        query: TOKEN,
+        topK: 1,
+        tagFilter: 'needle'
+      })
+
+      const [, embeddingArg, pool, scope, filter] = vecSpy.mock.calls[0]
+      expect(embeddingArg).toBeInstanceOf(Float32Array)
+      expect(pool).toBe(1000)
+      expect(scope).toEqual({ sql: '', params: [] })
+      expect(filter.sql).toContain('t.id IN (')
+      expect(filter.params).toEqual(['needle', 1])
+
+      expect(filteredBm25Spy.mock.calls[0][3]).toBe(filter.sql)
+      expect(filteredBm25Spy.mock.calls[0][4]).toEqual(['needle', 1])
+      expect(plainBm25Spy.mock.calls).toHaveLength(0)
+
+      expect(results.map(r => r.thought.id)).toEqual([tagged])
+    } finally {
+      vecSpy.mockRestore()
+      filteredBm25Spy.mockRestore()
+      plainBm25Spy.mockRestore()
+    }
+  })
+
+  test('the BM25 leg returns only the tagged row through the same fragment', () => {
+    const db = getDb()
+    const tagged = seedLegWorld(db, false)
+    const filter = buildFilterSQL({ tagFilter: 'needle' })
+
+    const unfiltered = bm25ScoredIds(db, TOKEN, 2)
+    expect(unfiltered.map(r => r.id)).not.toContain(tagged)
+
+    const scored = bm25ScoredIdsFiltered(db, TOKEN, 2, filter.sql, filter.params)
+    expect(scored.map(r => r.id)).toEqual([tagged])
   })
 })
