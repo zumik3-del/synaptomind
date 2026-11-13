@@ -83,9 +83,13 @@ function refusalMessage(db: Database, evidence: string[], reason: string): strin
     `Refusing to open ${where}: ${reason}, and ${describe(evidence)}. ` +
     'Replaying the migration chain from version 0 would drop vec_thoughts (v002) and then fail on ' +
     'an element that already exists, so this boot changed nothing. Recovery: restore the pre-upgrade ' +
-    'backup taken next to the database file (<db>.pre-v<N>.<timestamp>.bak), or write the newest ' +
-    `applied migration number into _meta.${SCHEMA_VERSION_KEY} by hand, then restart. ` +
-    'Nothing is repaired or replayed automatically.'
+    'backup taken next to the database file (<db>.pre-v<N>.<timestamp>.bak) and read the number from ' +
+    `its own _meta.${SCHEMA_VERSION_KEY} row. Never copy the <N> out of a backup filename: it names ` +
+    'the version the upgrading boot was moving to, not the one it came from, and a ' +
+    '<db>.pre-v<N>.rebuild.<timestamp>.bak is a vector-index snapshot, not a migration one. ' +
+    'If no backup exists, take the number from the migration sources (src/db/migrations): the ' +
+    'highest version whose objects all appear above, then write it into ' +
+    `_meta.${SCHEMA_VERSION_KEY} by hand and restart. Nothing is repaired or replayed automatically.`
   )
 }
 

@@ -5,7 +5,7 @@ import { config } from '../config'
 import { vec0Path } from '../runtime-mode'
 import { clearDb, getDb, setDb } from '../context/container'
 import { MIGRATIONS } from './migrations'
-import { backupDatabase } from './backup'
+import { backupBeforeRebuild, backupDatabase } from './backup'
 import { BASELINE_TABLE_DDL, META_DDL } from './baseline-schema'
 import { readSchemaVersion } from './schema-stamp'
 import { vecTableDdl } from './vec-schema'
@@ -130,17 +130,15 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
     }
 
     // A snapshot must precede every irreversible step: the migration chain reshapes tables, and the
-    // dimension rebuild below drops `vec_thoughts`. One snapshot per boot serves both.
-    let backupTaken = false
-    const snapshot = (targetVersion: number): void => {
-      backupDatabase(db, resolvedPath, targetVersion)
-      backupTaken = true
-    }
+    // dimension rebuild below drops `vec_thoughts`. One migration snapshot per boot covers both; the
+    // rebuild has its own kind, so a flip loop cannot evict the pre-migration backups.
+    let migrationSnapshotTaken = false
 
     if (!isMemory) {
       const pendingMigrations = MIGRATIONS.filter(m => m.version > current)
       if (pendingMigrations.length > 0) {
-        snapshot(Math.max(...pendingMigrations.map(m => m.version)))
+        backupDatabase(db, resolvedPath, Math.max(...pendingMigrations.map(m => m.version)))
+        migrationSnapshotTaken = true
       }
     }
 
@@ -162,7 +160,10 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
       if (rebuilt) {
         // A pending-migration snapshot already covers this DROP; otherwise take one now, so a
         // failed backup aborts the rebuild before the vectors are thrown away.
-        if (!backupTaken) snapshot(current)
+        if (!migrationSnapshotTaken) {
+          const snapshotPath = backupBeforeRebuild(db, resolvedPath, current)
+          console.error(`[db] vector snapshot before the vec_thoughts drop: ${snapshotPath}`)
+        }
         console.error(
           `[db] dimensions changed ${vec.dimensions} → ${dimensions}, rebuilding vec_thoughts (all embeddings will be re-generated)`
         )
