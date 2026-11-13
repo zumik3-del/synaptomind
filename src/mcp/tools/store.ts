@@ -12,6 +12,7 @@ import { unlinkHandler } from './store/unlink'
 import { unlinkBatchHandler } from './store/unlink-batch'
 import { retypeHandler } from './store/retype'
 import { bulkCreateHandler, bulkCreateItemSchema } from './store/bulk'
+import { BULK_ITEMS_MAX } from '../../services/bulk.service'
 
 const handlers = {
   create: createHandler,
@@ -111,9 +112,11 @@ export function registerMemoryStore(server: McpServer) {
         ),
       thoughts: z
         .array(bulkCreateItemSchema)
+        .min(1, 'thoughts is required for bulk_create action')
+        .max(BULK_ITEMS_MAX, `thoughts accepts at most ${BULK_ITEMS_MAX} items per call`)
         .optional()
         .describe(
-          'REQUIRED ONLY for "bulk_create". Thoughts to create in one transaction (1-10000 items). Each item is a strict object taking the create item fields — content (required), tags, status, parent_id, is_protected, is_global, url_links — plus project_id, relation and source; url_links is written per item in array order in the same transaction, and is_global reaches the row. An unknown key or the retired is_profile is refused, never silently dropped. The top-level content/tags/status/parent_id/is_protected/is_global/url_links are IGNORED for "bulk_create" (each item carries its own). IGNORED for all other actions.'
+          `REQUIRED ONLY for "bulk_create". Thoughts to create in one transaction (1-${BULK_ITEMS_MAX} items, the same bound this schema enforces). VALIDATED for EVERY action: the advertised schema checks the whole call before the action runs, so a present thoughts must be a non-empty array of valid items whatever the action — an empty array is refused with "thoughts is required for bulk_create action" even under action "create". Omit it for the other actions, where its value is otherwise IGNORED. Each item is a strict object taking the create item fields — content (required), tags, status, parent_id, is_protected, is_global, url_links — plus project_id, relation and source; url_links is written per item in array order in the same transaction, and is_global reaches the row. Failure splits two ways: a schema-level refusal (an unknown key, a wrong type, the retired is_profile) drops the whole call and writes nothing, while a per-item failure (e.g. a parent_id that does not exist) yields that item's error row at its index and the rest of the batch commits. The top-level content/tags/status/parent_id/is_protected/is_global/url_links are IGNORED for "bulk_create" (each item carries its own).`
         ),
       thought_id: z
         .string()

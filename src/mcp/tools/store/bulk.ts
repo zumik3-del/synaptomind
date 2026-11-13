@@ -11,9 +11,22 @@ import { createItemShape, isProfileRefusal } from './create'
 
 export const bulkCreateItemSchema = z.strictObject({
   ...createItemShape('each thought requires a non-empty content'),
-  project_id: z.string().optional(),
-  source: z.string().optional(),
-  relation: z.string().optional(),
+  project_id: z
+    .string()
+    .optional()
+    .describe(
+      'OPTIONAL per item: pin this item to its own project id. Unlike the top-level project_id (removed — use cwd), a bulk item may override the project the call resolves from cwd; omit it to take the cwd-resolved project.'
+    ),
+  source: z
+    .string()
+    .optional()
+    .describe('OPTIONAL per item: the source label of this thought (the API default is "mcp").'),
+  relation: z
+    .string()
+    .optional()
+    .describe(
+      'OPTIONAL per item: edge type of the parent link when parent_id is set (default "parent"). IGNORED when parent_id is omitted.'
+    ),
   is_profile: isProfileRefusal
 })
 
