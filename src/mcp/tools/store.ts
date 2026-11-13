@@ -68,14 +68,14 @@ export function registerMemoryStore(server: McpServer) {
           'Thought status (draft/active/archived). OPTIONAL for "create" and "update"; "update" rejects "archived" (archive through memory_supersede action=archive). IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'
         ),
       project_id: z
-        .never({ error: 'project_id was removed; use cwd' })
+        .never({ error: 'project_id was removed; a create takes the project its cwd resolves to' })
         .optional()
-        .describe('Removed; use cwd.'),
+        .describe('Removed; a create takes the project its cwd resolves to.'),
       cwd: z
         .string()
         .optional()
         .describe(
-          'Working directory — auto-resolves project for "create"/"update" (always pass for those). IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'
+          'Working directory — resolves the project a "create" lands in and the project scope meta.scope reports (always pass for "create"/"update"). IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'
         ),
       parent_id: z
         .string()

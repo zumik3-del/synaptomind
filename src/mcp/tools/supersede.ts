@@ -312,14 +312,14 @@ export function registerMemorySupersede(server: McpServer) {
         .optional()
         .describe('Merged tags. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
       project_id: z
-        .never({ error: 'project_id was removed; use cwd' })
+        .never({ error: 'project_id was removed; there is no project argument' })
         .optional()
-        .describe('Removed; use cwd.'),
+        .describe('Removed; there is no project argument.'),
       cwd: z
         .string()
         .optional()
         .describe(
-          'Working directory — auto-resolves project. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'
+          'Working directory — resolves the project scope the answer reports in meta.scope; a "merge" changes no thought\'s project. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'
         ),
       preview_token: z
         .string()
