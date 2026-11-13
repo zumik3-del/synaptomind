@@ -81,24 +81,41 @@ function refusalMessage(db: Database, evidence: string[], reason: string): strin
   const where = db.filename === ':memory:' ? 'the database' : db.filename
   return (
     `Refusing to open ${where}: ${reason}, and ${describe(evidence)}. ` +
-    'Replaying the migration chain from version 0 would drop vec_thoughts (v002) and then fail on ' +
-    'an element that already exists, so this boot changed nothing. Recovery: restore the pre-upgrade ' +
-    'backup taken next to the database file (a <db>.pre-v<N>.<timestamp>.bak); the restored file is ' +
-    'at the version it was taken at, so read the number from its own ' +
-    `_meta.${SCHEMA_VERSION_KEY} row and write nothing by hand. Never copy the <N> out of a backup ` +
-    'filename: in a migration snapshot it names the version the upgrading boot was moving to, not ' +
-    'the one the snapshot was taken at. A <db>.pre-v<N>.rebuild.<timestamp>.bak is a vector-index ' +
-    'snapshot taken at the current version, not a migration one, and its own ' +
+    'Replaying the migration chain from version 0 would drop vec_thoughts (v002) and then fail ' +
+    'on an element that already exists, so this boot changed nothing and replayed nothing; a ' +
+    'later boot replays only the migrations the restored file still needs. Recovery: stop the ' +
+    'unit first, with systemctl stop synaptomind, because the installed unit restarts the ' +
+    'server automatically after an exit (up to five starts a minute, after which it stops ' +
+    'retrying), so a running one reopens this file and rewrites its WAL while you copy over it. ' +
+    'Two copies are then candidates, and the newest wins: the deploy-side copy ' +
+    'the supported update path writes next to the database as ' +
+    '<db>.backup/<basename>.<timestamp>-<pid>-<n>.bak (that directory keeps the newest ' +
+    'BACKUP_KEEP copies, 5 by default, and the update run prints each copy as "Database backed ' +
+    'up: <path>"), and the in-app migration snapshot <db>.pre-v<N>.<timestamp>.bak, written ' +
+    'only when migrations were pending, so the newest pre-v snapshot can be several upgrades ' +
+    'old; every write after the copy you restore is lost. Then restore the pre-upgrade backup ' +
+    'over the database file, with cp -p <backup> <db> followed by rm -f <db>-wal <db>-shm as ' +
+    'docs/DEPLOY.md prescribes, and write nothing by hand: the restored file is at the version ' +
+    'it was taken at, so read the number from its own ' +
+    `_meta.${SCHEMA_VERSION_KEY} row only to see which migrations the next boot will still replay. ` +
+    'Never copy the <N> out of a backup filename: in a migration snapshot it names the version ' +
+    'the upgrading boot was moving to, not the one the snapshot was taken at. A ' +
+    '<db>.pre-v<N>.rebuild.<timestamp>.bak is a vector-index snapshot taken at the current ' +
+    'version, not a migration one, and its own ' +
     `_meta.${SCHEMA_VERSION_KEY} row holds that same number. Keeping the current file instead of ` +
     'restoring a snapshot is a separate step with its own condition: write the number into ' +
     `_meta.${SCHEMA_VERSION_KEY} by hand only when a copy of this file that still carries its stamp ` +
     'row supplies it, then restart. Never take the number from the migration sources ' +
-    '(src/db/migrations) or derive it from the elements above: a migration may add nothing visible ' +
-    '(v047 drops an index and rewrites rows), so those elements only bound how far the chain ' +
-    'reached, and a database at v047 looks no newer than one at v046. With no such copy the ' +
-    'number is not recoverable from this database: do not guess one, since a wrong number either ' +
-    'replays the chain over a migrated schema or skips migrations the file still needs. Nothing is ' +
-    'repaired or replayed automatically.'
+    '(src/db/migrations) or derive it from the elements above: a migration may add nothing ' +
+    'visible (v047 drops an index and rewrites rows), so those elements only bound how far the ' +
+    'chain reached, and a database at v047 looks no newer than one at v046. With no such copy ' +
+    'the number is not recoverable from this database, so do not guess one, since a wrong ' +
+    'number either replays the chain over a migrated schema or skips migrations the file still ' +
+    'needs. With neither a stamped copy nor any backup, the thoughts in this file are intact ' +
+    'and must not be deleted or re-initialised: look for a copy first in the <db>.backup ' +
+    'directory next to the database file (resolving a symlinked <db> to the file it points ' +
+    'at), and for any copy taken before the upgrade, then ask before you remove or overwrite ' +
+    'anything.'
   )
 }
 

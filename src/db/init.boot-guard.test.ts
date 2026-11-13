@@ -18,6 +18,15 @@ afterAll(() => {
   rmSync(tmpRoot, { recursive: true, force: true })
 })
 
+function guardMessage(path: string): string {
+  try {
+    initDb({ dbPath: path, runMigrations: true })
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err)
+  }
+  throw new Error('expected the version guard to refuse')
+}
+
 test('boot refuses when schema_version exceeds max migration', () => {
   initDb({ dbPath, runMigrations: true })
   closeDb()
@@ -28,7 +37,19 @@ test('boot refuses when schema_version exceeds max migration', () => {
   } finally {
     raw.close()
   }
-  expect(() => initDb({ dbPath, runMigrations: true })).toThrow('newer than this binary')
+  const message = guardMessage(dbPath)
+  expect(message).toContain('newer than this binary')
+  // The sibling message carries the same two steps: stop the unit, then restore the newest
+  // deploy-side copy (which loses every later write) or upgrade the binary.
+  expect(message).toContain('systemctl stop synaptomind')
+  expect(message).toContain('up to five starts a minute, after which it stops retrying')
+  expect(message).toContain('<db>.backup/')
+  expect(message).toContain('<basename>.<timestamp>-<pid>-<n>.bak')
+  expect(message).toContain('which loses every write made after it was taken')
+  expect(message).toContain('or upgrade the binary')
+  expect(message.indexOf('systemctl stop synaptomind')).toBeLessThan(
+    message.indexOf('<db>.backup/')
+  )
 })
 
 function writeFutureOnlyDatabase(path: string): void {

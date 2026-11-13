@@ -216,6 +216,81 @@ test('the refusal says where the recovery number really comes from', () => {
   expect(message).toContain('restore the pre-upgrade backup')
 })
 
+test('the recovery advice names the deploy backups and puts the stop before the copy', () => {
+  const dbPath = freshDbPath()
+  seedMigratedDb(dbPath)
+  dropStamp(dbPath)
+
+  const message = refusalMessage(() => initDb({ dbPath, runMigrations: true }))
+  const sentences = sentencesOf(message)
+
+  // Both copy kinds are named, and the deploy-side one is the freshest of the pair: the update
+  // path writes it into a directory the operator can list, and every later write is lost with it.
+  const copies = sentencesMentioning(
+    message,
+    '<db>.backup/<basename>.<timestamp>-<pid>-<n>.bak',
+    'every write after the copy you restore is lost'
+  )
+  expect(copies).toHaveLength(1)
+  expect(copies[0]).toContain('newest')
+  expect(copies[0]).toContain('keeps the newest BACKUP_KEEP copies, 5 by default')
+  expect(copies[0]).toContain('Database backed up: <path>')
+  // The in-app snapshot is demoted to the fallback it is: it exists only when migrations were
+  // pending, so the retained one can be several upgrades stale.
+  expect(copies[0]).toContain('written only when migrations were pending')
+  expect(copies[0]).toContain('several upgrades old')
+
+  // The stop step comes before the copy step, or the unit reopens the file mid-copy.
+  const stop = sentencesMentioning(
+    message,
+    'systemctl stop synaptomind',
+    'restarts the server automatically after an exit'
+  )
+  expect(stop).toHaveLength(1)
+  expect(stop[0]).toContain('up to five starts a minute, after which it stops retrying')
+  const restore = sentencesMentioning(message, 'restore the pre-upgrade backup')
+  expect(restore).toHaveLength(1)
+  expect(sentences.indexOf(stop[0])).toBeLessThan(sentences.indexOf(restore[0]))
+  // The restore step is the one docs/DEPLOY.md prescribes, WAL and SHM sidecars included.
+  expect(restore[0]).toContain('cp -p <backup> <db>')
+  expect(restore[0]).toContain('rm -f <db>-wal <db>-shm')
+
+  // The number is read for a reason: the next boot's pending migrations. Nothing is written.
+  expect(restore[0]).toContain('read the number from its own _meta.schema_version row')
+  expect(restore[0]).toContain('which migrations the next boot will still replay')
+  expect(restore[0]).toContain('write nothing by hand')
+
+  // The replay claim is scoped to this boot, so the next boot's replay is not contradicted.
+  expect(message).not.toContain('Nothing is repaired or replayed automatically')
+  const scope = sentencesMentioning(
+    message,
+    'this boot changed nothing and replayed nothing',
+    'a later boot replays only the migrations the restored file still needs'
+  )
+  expect(scope).toHaveLength(1)
+})
+
+test('the no-copy branch ends with a do-not-delete step instead of a dead end', () => {
+  const dbPath = freshDbPath()
+  seedMigratedDb(dbPath)
+  dropStamp(dbPath)
+
+  const message = refusalMessage(() => initDb({ dbPath, runMigrations: true }))
+  const sentences = sentencesOf(message)
+
+  // The worst case is not a dead end: the file still holds the thoughts and must survive.
+  const last = sentences[sentences.length - 1]
+  expect(last).toContain('the thoughts in this file are intact')
+  expect(last).toContain('must not be deleted or re-initialised')
+  expect(last).toContain('look for a copy first')
+  expect(last).toContain('<db>.backup directory next to the database file')
+  expect(last).toContain('resolving a symlinked <db> to the file it points at')
+  expect(last).toContain('ask before you remove or overwrite anything')
+  // The sentence before it forbids guessing the number, which leaves this step as the only
+  // executable one.
+  expect(sentences[sentences.length - 2]).toContain('do not guess one')
+})
+
 test('the advice does not depend on the evidence list being shown in full', () => {
   // `describe()` truncates the list and appends "+N more", so advice that quoted the list could not
   // be executed on a database with more post-baseline objects than the limit. A migrated database

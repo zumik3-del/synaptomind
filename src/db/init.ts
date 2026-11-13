@@ -100,7 +100,12 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
     if (current > maxVersion) {
       throw new Error(
         `Database schema version ${current} is newer than this binary supports (max ${maxVersion}). ` +
-          'Restore from a backup taken before the upgrade or upgrade the binary.'
+          'Stop the unit first, with systemctl stop synaptomind, because the installed unit ' +
+          'restarts the server automatically after an exit (up to five starts a minute, after ' +
+          'which it stops retrying), so a running one reopens the file while you copy over it. ' +
+          'Then either restore the newest copy the supported update path wrote under ' +
+          '<db>.backup/ (<basename>.<timestamp>-<pid>-<n>.bak), which loses every write made after ' +
+          'it was taken, or upgrade the binary.'
       )
     }
 
