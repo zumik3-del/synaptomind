@@ -406,7 +406,7 @@ test('deleteProject removes project and reassigns thoughts', () => {
   expect(thought.project_id).toBe(p.id)
 
   const deleted = deleteProject(db, p.id)
-  expect(deleted).toBeTrue()
+  expect(deleted.deleted).toBeTrue()
 
   const afterDelete = getProject(db, p.id)
   expect(afterDelete).toBeUndefined()
@@ -418,7 +418,7 @@ test('deleteProject removes project and reassigns thoughts', () => {
 
 test('deleteProject returns false for missing id', () => {
   const result = deleteProject(getDb(), 'nonexistent')
-  expect(result).toBeFalse()
+  expect(result.deleted).toBeFalse()
 })
 
 test('listProjects counts thoughts per project', () => {

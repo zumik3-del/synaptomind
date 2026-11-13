@@ -76,7 +76,7 @@ test('deleteProject rehashes every moved thought with the destination project id
     id: seedLive(thought.content, project.id, NEWER, thought.status)
   }))
 
-  expect(deleteProject(db, project.id)).toBeTrue()
+  expect(deleteProject(db, project.id).deleted).toBeTrue()
 
   for (const thought of moved) {
     const relocated = row(thought.id)
@@ -92,7 +92,7 @@ test('a moved thought absorbs a later write of the same content in the Default p
   const content = 'shared body'
   const movedId = seedLive(content, project.id, OLDER)
 
-  expect(deleteProject(db, project.id)).toBeTrue()
+  expect(deleteProject(db, project.id).deleted).toBeTrue()
 
   expect(createThought(db, { content, project_id: defaultId }).id).toBe(movedId)
   expect(liveRows(content, defaultId).map(thought => thought.id)).toEqual([movedId])
@@ -106,14 +106,14 @@ test('a moved thought that duplicates an older Default thought is archived', () 
   const settledId = seedLive(content, defaultId, OLDER)
   const movedId = seedLive(content, project.id, NEWER)
 
-  expect(deleteProject(db, project.id)).toBeTrue()
+  expect(deleteProject(db, project.id).deleted).toBeTrue()
 
   expect(liveRows(content, defaultId).map(thought => thought.id)).toEqual([settledId])
   const archived = row(movedId)
   expect(archived.project_id).toBe(defaultId)
   expect(archived.status).toBe('archived')
   expect(archived.archived_at).not.toBeNull()
-  expect(archived.is_protected).toBe(0)
+  expect(archived.is_protected).toBe(1)
   expect(archived.content_hash).toBe(computeContentHash(content, defaultId))
 })
 
@@ -125,13 +125,13 @@ test('a moved thought older than the Default duplicate keeps the live slot', () 
   const movedId = seedLive(content, project.id, OLDER)
   const settledId = seedLive(content, defaultId, NEWER)
 
-  expect(deleteProject(db, project.id)).toBeTrue()
+  expect(deleteProject(db, project.id).deleted).toBeTrue()
 
   expect(liveRows(content, defaultId).map(thought => thought.id)).toEqual([movedId])
   const archived = row(settledId)
   expect(archived.status).toBe('archived')
   expect(archived.archived_at).not.toBeNull()
-  expect(archived.is_protected).toBe(0)
+  expect(archived.is_protected).toBe(1)
   expect(row(movedId).content_hash).toBe(computeContentHash(content, defaultId))
 })
 
@@ -143,14 +143,14 @@ test('two live duplicates inside the deleted project collapse to the oldest afte
   const oldestId = seedWithHash(content, project.id, OLDER, 'legacy-hash-oldest')
   const newerId = seedWithHash(content, project.id, NEWER, 'legacy-hash-newer')
 
-  expect(deleteProject(db, project.id)).toBeTrue()
+  expect(deleteProject(db, project.id).deleted).toBeTrue()
 
   expect(liveRows(content, defaultId).map(thought => thought.id)).toEqual([oldestId])
   const archived = row(newerId)
   expect(archived.project_id).toBe(defaultId)
   expect(archived.status).toBe('archived')
   expect(archived.archived_at).not.toBeNull()
-  expect(archived.is_protected).toBe(0)
+  expect(archived.is_protected).toBe(1)
   expect(archived.content_hash).toBe(computeContentHash(content, defaultId))
 })
 

@@ -395,7 +395,7 @@ describe('the deleteProject bulk move', () => {
       project_id: 'proj-doomed'
     })
 
-    expect(deleteProject(db, 'proj-doomed')).toBeTrue()
+    expect(deleteProject(db, 'proj-doomed').deleted).toBeTrue()
 
     expect(db.prepare(`SELECT 1 FROM projects WHERE id = 'proj-doomed'`).get()).toBeNull()
     expect(
