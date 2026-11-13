@@ -37,7 +37,6 @@ export interface MergeThoughtsOptions {
   sourceId: string
   mergedContent?: string
   mergedTags?: string[]
-  projectId?: string
   allowArchivedSource?: boolean
 }
 
@@ -94,14 +93,7 @@ export function mergeThoughtsService(
   options: MergeThoughtsOptions,
   d: Database = getDb()
 ): MergeResult {
-  const {
-    targetId,
-    sourceId,
-    mergedContent,
-    mergedTags,
-    projectId,
-    allowArchivedSource = false
-  } = options
+  const { targetId, sourceId, mergedContent, mergedTags, allowArchivedSource = false } = options
   if (sourceId === targetId) {
     throw new ValidationError('source_id and target_id must be different')
   }
@@ -114,12 +106,10 @@ export function mergeThoughtsService(
 
   validateMergePreconditions(source, allowArchivedSource)
 
-  const finalProjectId = projectId ?? target.project_id ?? source.project_id ?? undefined
-
+  // Id-addressed: project_id is never written by a merge; an empty updateData writes no row.
   const updateData: UpdateThoughtInput = {}
   if (mergedContent !== undefined) updateData.content = mergedContent
   if (mergedTags !== undefined) updateData.tags = mergedTags
-  if (finalProjectId !== undefined) updateData.project_id = finalProjectId
 
   const run = d.transaction(() => {
     const currentSource = getThoughtByIdService(sourceId, d)
