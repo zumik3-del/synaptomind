@@ -83,13 +83,22 @@ function refusalMessage(db: Database, evidence: string[], reason: string): strin
     `Refusing to open ${where}: ${reason}, and ${describe(evidence)}. ` +
     'Replaying the migration chain from version 0 would drop vec_thoughts (v002) and then fail on ' +
     'an element that already exists, so this boot changed nothing. Recovery: restore the pre-upgrade ' +
-    'backup taken next to the database file (<db>.pre-v<N>.<timestamp>.bak) and read the number from ' +
-    `its own _meta.${SCHEMA_VERSION_KEY} row. Never copy the <N> out of a backup filename: it names ` +
-    'the version the upgrading boot was moving to, not the one it came from, and a ' +
-    '<db>.pre-v<N>.rebuild.<timestamp>.bak is a vector-index snapshot, not a migration one. ' +
-    'If no backup exists, take the number from the migration sources (src/db/migrations): the ' +
-    'highest version whose objects all appear above, then write it into ' +
-    `_meta.${SCHEMA_VERSION_KEY} by hand and restart. Nothing is repaired or replayed automatically.`
+    'backup taken next to the database file (a <db>.pre-v<N>.<timestamp>.bak); the restored file is ' +
+    'at the version it was taken at, so read the number from its own ' +
+    `_meta.${SCHEMA_VERSION_KEY} row and write nothing by hand. Never copy the <N> out of a backup ` +
+    'filename: in a migration snapshot it names the version the upgrading boot was moving to, not ' +
+    'the one the snapshot was taken at. A <db>.pre-v<N>.rebuild.<timestamp>.bak is a vector-index ' +
+    'snapshot taken at the current version, not a migration one, and its own ' +
+    `_meta.${SCHEMA_VERSION_KEY} row holds that same number. Keeping the current file instead of ` +
+    'restoring a snapshot is a separate step with its own condition: write the number into ' +
+    `_meta.${SCHEMA_VERSION_KEY} by hand only when a copy of this file that still carries its stamp ` +
+    'row supplies it, then restart. Never take the number from the migration sources ' +
+    '(src/db/migrations) or derive it from the elements above: a migration may add nothing visible ' +
+    '(v047 drops an index and rewrites rows), so those elements only bound how far the chain ' +
+    'reached, and a database at v047 looks no newer than one at v046. With no such copy the ' +
+    'number is not recoverable from this database: do not guess one, since a wrong number either ' +
+    'replays the chain over a migrated schema or skips migrations the file still needs. Nothing is ' +
+    'repaired or replayed automatically.'
   )
 }
 

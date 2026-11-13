@@ -100,6 +100,34 @@ function refusalMessage(run: () => unknown): string {
   return message as string
 }
 
+function sentencesOf(message: string): string[] {
+  return message.split(/(?<=\.)\s+/)
+}
+
+function sentencesMentioning(message: string, ...needles: string[]): string[] {
+  return sentencesOf(message).filter(sentence => needles.every(needle => sentence.includes(needle)))
+}
+
+function adviceOf(message: string): string {
+  const start = message.indexOf('Recovery:')
+  expect(start).toBeGreaterThan(-1)
+  return message.slice(start)
+}
+
+// Baseline tables only plus `count` migration-like tables: no stamp row and no vec_thoughts, so
+// every one of those tables is post-baseline evidence for the refusal.
+function preBaselineWithTables(count: number): string {
+  const dbPath = freshDbPath()
+  initDb({ dbPath, runMigrations: false })
+  closeDb()
+  openRaw(dbPath, db => {
+    for (let i = 1; i <= count; i++) {
+      db.run(`CREATE TABLE extra_${String(i).padStart(2, '0')} (id INTEGER)`)
+    }
+  })
+  return dbPath
+}
+
 function seedMigratedDb(dbPath: string): string {
   initDb({ dbPath, runMigrations: true })
   const id = seedThought({ content: 'keep my vector' })
@@ -148,17 +176,73 @@ test('the refusal says where the recovery number really comes from', () => {
 
   // The number lives in the restored file's own stamp row...
   expect(message).toContain('read the number from its own _meta.schema_version row')
-  // ...never in the backup filename, whose <N> means the version the boot was moving to.
+  // ...never in the backup filename, whose <N> means the version the upgrading boot was moving to.
   expect(message).toContain('Never copy the <N> out of a backup filename')
   expect(message).toContain('it names the version the upgrading boot was moving to')
-  // The rebuild label is explained, so the operator does not restore a vector snapshot.
-  expect(message).toContain('<db>.pre-v<N>.rebuild.<timestamp>.bak is a vector-index snapshot')
-  // The fallback with no backup at all still points at the migration sources.
-  expect(message).toContain('take the number from the migration sources (src/db/migrations)')
+  // That warning is scoped to the migration kind: a .rebuild. name carries the version the file is
+  // already at, so the blanket form ("it names the version the boot was moving to") is false there.
+  const filename = sentencesMentioning(message, 'Never copy the <N> out of a backup filename')
+  expect(filename).toHaveLength(1)
+  expect(filename[0]).toContain('in a migration snapshot')
+  // The rebuild label is explained as the snapshot of a database already at that version, so the
+  // operator does not read a vector snapshot as a migration one.
+  const rebuild = sentencesMentioning(message, '<db>.pre-v<N>.rebuild.<timestamp>.bak')
+  expect(rebuild).toHaveLength(1)
+  expect(rebuild[0]).toContain('vector-index snapshot taken at the current version')
+  expect(rebuild[0]).toContain('not a migration one')
+  // Restoring is one step and it prescribes no hand-write: the restored file carries its own stamp.
+  const restore = sentencesMentioning(message, 'restore the pre-upgrade backup')
+  expect(restore).toHaveLength(1)
+  expect(restore[0]).toContain('write nothing by hand')
+  // Hand-writing is a separate step with its own precondition: a copy of this file that still
+  // carries its stamp row. It is not the "no backup at all" branch, and it is the only hand-write.
+  expect(message).not.toContain('If no backup exists')
+  const handWrites = sentencesOf(message).filter(
+    sentence => sentence.includes('by hand') && !sentence.includes('restore the pre-upgrade backup')
+  )
+  expect(handWrites).toHaveLength(1)
+  expect(handWrites[0]).toContain('a copy of this file')
+  expect(handWrites[0]).toContain('still carries its stamp row')
+  // No advice derives the number: every mention of a derivation source is a prohibition, and the
+  // evidence list is demoted to a bound on how far the chain reached.
+  const derivations = sentencesOf(message).filter(
+    sentence => sentence.includes('migration sources') || sentence.includes('elements above')
+  )
+  expect(derivations.length).toBeGreaterThan(0)
+  for (const sentence of derivations) expect(sentence).toContain('Never')
+  expect(message).toContain('only bound how far the chain reached')
+  expect(message).not.toContain('highest version whose objects all appear')
   // The phrase the removed-stamp test pins, kept verbatim.
   expect(message).toContain('restore the pre-upgrade backup')
-  // The old advice to hand-write the newest applied migration number is gone.
-  expect(message).not.toContain('write the newest applied migration number')
+})
+
+test('the advice does not depend on the evidence list being shown in full', () => {
+  // `describe()` truncates the list and appends "+N more", so advice that quoted the list could not
+  // be executed on a database with more post-baseline objects than the limit. A migrated database
+  // is exactly that population.
+  const migratedPath = freshDbPath()
+  seedMigratedDb(migratedPath)
+  dropStamp(migratedPath)
+  const sparsePath = preBaselineWithTables(3)
+  const crowdedPath = preBaselineWithTables(32)
+  const migrated = refusalMessage(() => initDb({ dbPath: migratedPath, runMigrations: true }))
+  const sparse = refusalMessage(() => initDb({ dbPath: sparsePath, runMigrations: true }))
+  const crowded = refusalMessage(() => initDb({ dbPath: crowdedPath, runMigrations: true }))
+
+  // The crowded lists really are cut short: each message omits elements the database carries.
+  expect(sparse).toContain('extra_03')
+  expect(sparse).not.toContain('more)')
+  expect(crowded).toMatch(/, \+\d+ more\)/)
+  expect(migrated).toMatch(/, \+\d+ more\)/)
+  const named = Array.from({ length: 32 }, (_, i) => `extra_${String(i + 1).padStart(2, '0')}`)
+  expect(named.filter(name => crowded.includes(name)).length).toBeLessThan(named.length)
+
+  // The advice is identical whichever part of the list was shown, and names no derivation from it.
+  expect(adviceOf(migrated)).toBe(adviceOf(sparse))
+  expect(adviceOf(crowded)).toBe(adviceOf(sparse))
+  expect(adviceOf(crowded)).not.toContain('more)')
+  expect(adviceOf(crowded)).not.toContain('highest version whose objects all appear')
+  expect(adviceOf(crowded)).toContain('only bound how far the chain reached')
 })
 
 test('a stamp that is not a migration number is refused instead of read as version 0', () => {

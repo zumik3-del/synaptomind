@@ -79,6 +79,17 @@ function pendingIdsOnDisk(dbPath: string): string[] {
   )
 }
 
+function failureMessage(run: () => unknown): string {
+  let message: string | null = null
+  try {
+    run()
+  } catch (err) {
+    message = err instanceof Error ? err.message : String(err)
+  }
+  expect(message).not.toBeNull()
+  return message as string
+}
+
 function seedVector(id: string): void {
   const embedding = new Float32Array(CONFIGURED)
   getDb()
@@ -383,14 +394,21 @@ test('a failed snapshot aborts the rebuild with the vectors still in place', () 
   const keeper = new Database(dbPath)
   keeper.prepare(`SELECT COUNT(*) AS cnt FROM thoughts`).get()
   chmodSync(dir, 0o555)
+  let message: string | null = null
   try {
-    expect(() => initDb({ dbPath, runMigrations: true })).toThrow(
-      'Database backup failed before rebuilding the vector index'
-    )
+    message = failureMessage(() => initDb({ dbPath, runMigrations: true }))
   } finally {
     chmodSync(dir, 0o755)
     keeper.close(true)
   }
+
+  // A rebuild snapshot is a copy of this file at the version it is already at: the message must
+  // name that version as current, never as the version this boot was moving the schema to.
+  expect(message).toContain(
+    `Database backup failed before rebuilding the vector index (the schema is at v${NEWEST})`
+  )
+  expect(message).not.toContain('moving the schema to')
+  expect(message).not.toContain(`(schema v${NEWEST})`)
 
   expect(backupsOf(dbPath)).toEqual([])
   expect(vecDdl(dbPath)).toContain(`FLOAT[${CONFIGURED}]`)
