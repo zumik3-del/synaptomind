@@ -48,17 +48,25 @@ unsorted (`organizeImports` is off) and JSON is excluded from both scripts, so a
 `git blame` readable.
 
 **Database DI.** Exported service functions take `d: Database = getDb()` as trailing param;
-`getDb()` is called nowhere else in `services/`. db-layer functions take `db: Database` as required
-first param. Inside `d.transaction(...)` pass `d` to every call. Tests: `beforeEach(createTestDb)`;
-pass `db` only for specific instances (file-backed DB for vec0). Never mock `Database`.
-Two documented deviations resolve the connection lazily inside the body: `health.service.ts
-getHealthService(d?)` must observe db unavailability instead of throwing, and `decay.service.ts
-runDecayJob(d?)` also runs before the handle is guaranteed.
-A third deliberate form passes `d: Database` as a required positional (not trailing) where the call
+`getDb()` is called nowhere else in `services/` outside the deviations listed below. db-layer
+functions take `db: Database` as required first param. Inside `d.transaction(...)` pass `d` to
+every call. Tests: `beforeEach(createTestDb)`; pass `db` only for specific instances (file-backed
+DB for vec0). Never mock `Database`.
+Three deviations resolve the connection lazily inside the body: `health.service.ts
+getHealthService(d?)` must observe db unavailability instead of throwing; `decay.service.ts
+runDecayJob(d?)` also runs before the handle is guaranteed; and `jobs.service.ts jobDatabases()`
+— the resolver both interval jobs go through (`decay`, `placement-retention`) — reports the
+registered user databases, else the default one, and returns an empty list only when it has neither
+(no user database registered and `getDb()` throwing), so those jobs simply have nothing to run.
+The positional form passes `d: Database` as a required positional (not trailing) where the call
 must receive the caller's transaction handle or the function is a pure helper: `apply-gates.service.ts`,
 `candidate-embeddings.service.ts`, `health-check-drafts.service.ts`, `health.service.ts`,
 `placement-proposals.mapping.service.ts`, `search-outcome.service.ts`, `search-standing.service.ts`,
-`placement/placement.ts`. Both non-canonical forms are deliberate, not forgotten defaults.
+`placement/placement.ts`.
+The `options` form inserts an `options` argument before `d`: `thoughts.service.ts
+updateThoughtByIdService(id, data, options, d)`, because `UpdateThoughtInput` whitelists columns and
+`url_links` is not one — riding in `data`, it would be dropped silently. These non-canonical forms
+are deliberate, not forgotten defaults.
 Test-only fixtures live in `src/test/` — never in `services/`, where a `bun:test` import would pull
 into the production path.
 

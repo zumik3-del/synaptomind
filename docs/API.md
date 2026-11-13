@@ -15,7 +15,7 @@ slots, proposals and reflection are served by the MCP tools over stdio
 (`synaptomind --stdio`) or HTTP (`POST /mcp` on port 3006). The route-by-route map of the
 endpoints removed in 0.20 is in [Removed routes](#removed-routes-020), and the tool
 reference is [docs/mcp-tools.md](mcp-tools.md). The two surfaces are sibling adapters over
-one service layer, so no HTTP operation is missing from MCP except the four capabilities
+one service layer, so no HTTP operation is missing from MCP except the three capabilities
 listed in [Migration notes](#migration-notes-v020-http-shrink).
 
 A removed route fails loudly with Hono's default `404` — there is no deprecation shim and
@@ -178,8 +178,15 @@ every replacement live in [docs/mcp-tools.md](mcp-tools.md).
 |---|---|---|
 | `GET` | `/api/thoughts/:id/links` | `memory_recall` with `include_url_links: true` |
 | `GET` | `/api/thoughts/links/batch` | `memory_recall` with `include_url_links: true` (any page: `search`/`clusters`/`list`) |
-| `POST` | `/api/thoughts/:id/links` | `memory_store action=create` with `url_links` (create time only) |
-| `DELETE` | `/api/thoughts/:id/links/:key` | — (dropped) |
+| `POST` | `/api/thoughts/:id/links` | `memory_store action=update` with the whole `url_links` set (replace-set: send the list you want) |
+| `DELETE` | `/api/thoughts/:id/links/:key` | `memory_store action=update` with the set minus that link (`[]` clears them all) |
+
+URL links are **thought-owned**, not a separate resource: `memory_store action=create` sets the
+initial list, `action=update` replaces the whole set in array order (an omitted `url_links`
+leaves it untouched, `[]` clears it), and `memory_supersede action=merge` transfers the source's
+links to the target. There is no per-link route or action — one link is upserted or removed by
+sending the set you want, and a content write never touches the links. Shape and collision rule:
+[docs/mcp-tools.md](mcp-tools.md#opt-in-url-links).
 
 ### Tags
 
@@ -242,7 +249,7 @@ every replacement live in [docs/mcp-tools.md](mcp-tools.md).
 
 ## Dropped capabilities
 
-Four capabilities had no MCP twin, so removing the route removed the feature. None of them
+Three capabilities had no MCP twin, so removing the route removed the feature. None of them
 had a consumer outside the route itself (no `deploy/`, `eval/`, `scripts/` or
 documentation example called them):
 
@@ -257,11 +264,10 @@ documentation example called them):
   the member side: `memory_recall action=chain` on a member shows its `cluster` edge from
   the cluster thought (`src/services/cluster.service.ts`), and `memory_crystallize
   action=graph` returns the cluster edges of a project.
-- **URL-link delete and URL-link upsert on an existing thought.** `memory_store
-  action=create` is the only URL-link writer, so a link can be attached at create time only
-  and cannot be removed or added afterwards; it can be corrected by recreating the thought.
-  This is the known capability gap of the 0.20 shrink; the intended future home is
-  `memory_store action=update` with `url_links` (replace-set semantics), not a new tool.
+
+URL-link delete and URL-link upsert are **not** in this list: they were a capability gap
+when 0.20 shipped, and `memory_store action=update` took them over with replace-set
+semantics ([URL links](#url-links)).
 
 ## Migration notes (v0.20 HTTP shrink)
 
@@ -275,10 +281,11 @@ documentation example called them):
    unauthenticated and unrated. The 5 MB body guard still protects the repair route.
 4. **URL links** are read through `memory_recall` with `include_url_links: true` (any of
    `search`/`clusters`/`list`/`get`/`context`/`chain`) and `memory_reflect
-   action=timeline`; they are written only at create time (`memory_store action=create`,
-   `url_links`). See [docs/mcp-tools.md](mcp-tools.md#opt-in-url-links).
+   action=timeline`; they are written by `memory_store` (`action=create` sets the initial
+   list, `action=update` replaces the whole set) and transferred by `memory_supersede
+   action=merge`. See [docs/mcp-tools.md](mcp-tools.md#opt-in-url-links).
 5. **Dropped without replacement:** tag list/rename/delete, explicit slot write
-   (`PUT /api/slots/:name`), cluster-member listing, URL-link delete/upsert — see
+   (`PUT /api/slots/:name`), cluster-member listing — see
    [Dropped capabilities](#dropped-capabilities).
 6. **This page** is the ops-endpoint reference; all route-level operation documentation now
    lives in [docs/mcp-tools.md](mcp-tools.md).
