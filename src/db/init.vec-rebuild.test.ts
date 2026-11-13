@@ -1,8 +1,8 @@
 import { Database } from 'bun:sqlite'
 import { afterAll, afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { config } from '../config'
 import { vec0Path } from '../runtime-mode'
 import { drainPendingEmbeddings, seedThought } from '../test/helpers'
@@ -12,6 +12,7 @@ import { MIGRATIONS } from './migrations'
 
 const CONFIGURED = config.embedder.dimensions
 const REBUILT = CONFIGURED === 384 ? 512 : 384
+const NEWEST = Math.max(...MIGRATIONS.map(m => m.version))
 
 const tmpRoot = mkdtempSync(join(tmpdir(), 'synaptomind-vec-rebuild-'))
 let cases = 0
@@ -27,9 +28,20 @@ afterAll(() => {
   rmSync(tmpRoot, { recursive: true, force: true })
 })
 
+function caseDir(name: string): string {
+  const dir = join(tmpRoot, name)
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
 function freshDbPath(): string {
   cases += 1
   return join(tmpRoot, `case-${cases}.db`)
+}
+
+function backupsOf(dbPath: string): string[] {
+  const prefix = `${basename(dbPath)}.pre-v`
+  return readdirSync(dirname(dbPath)).filter(name => name.startsWith(prefix))
 }
 
 function openRaw<T>(dbPath: string, fn: (db: Database) => T): T {
@@ -81,6 +93,18 @@ function vecRowCount(dbPath: string): number {
   return openRaw(
     dbPath,
     db => (db.prepare(`SELECT COUNT(*) AS cnt FROM vec_thoughts`).get() as { cnt: number }).cnt
+  )
+}
+
+function vecDdl(dbPath: string): string {
+  return openRaw(
+    dbPath,
+    db =>
+      (
+        db.prepare(`SELECT sql FROM sqlite_master WHERE name = 'vec_thoughts'`).get() as {
+          sql: string
+        }
+      ).sql
   )
 }
 
@@ -275,4 +299,71 @@ test('a rebuild that dies before the marker write is repeated on the next boot',
   expect(Date.parse(state.rebuiltAt ?? '')).toBeGreaterThan(0)
   expect(pendingIds()).toEqual([id])
   expect(vecRowCount(dbPath)).toBe(0)
+})
+
+test('a dimension change snapshots the vectors before dropping vec_thoughts', () => {
+  const dbPath = freshDbPath()
+  initDb({ dbPath, runMigrations: true })
+  const id = seedThought({ content: 'keep my vector' })
+  seedVector(id)
+  drainPendingEmbeddings([id])
+  closeDb()
+  for (const stale of backupsOf(dbPath)) {
+    rmSync(join(dirname(dbPath), stale))
+  }
+  expect(backupsOf(dbPath)).toEqual([])
+
+  config.embedder.dimensions = REBUILT
+  initDb({ dbPath, runMigrations: true })
+
+  const snapshots = backupsOf(dbPath)
+  expect(snapshots).toEqual([expect.stringContaining(`.pre-v${NEWEST}.`)])
+  const snapshotPath = join(dirname(dbPath), snapshots[0])
+  expect(vecDdl(snapshotPath)).toContain(`FLOAT[${CONFIGURED}]`)
+  expect(openRaw(snapshotPath, db => db.prepare(`SELECT id FROM vec_thoughts`).all())).toEqual([
+    { id }
+  ])
+
+  expect(vecDdl(dbPath)).toContain(`FLOAT[${REBUILT}]`)
+  expect(vecRowCount(dbPath)).toBe(0)
+  expect(pendingIds()).toEqual([id])
+})
+
+test('a failed snapshot aborts the rebuild with the vectors still in place', () => {
+  // A root process ignores the directory mode, so it cannot make the snapshot fail this way.
+  if (process.getuid?.() === 0) return
+
+  const dir = caseDir('failed-snapshot')
+  const dbPath = join(dir, 'test.db')
+  initDb({ dbPath, runMigrations: true })
+  const id = seedThought({ content: 'keep my vector' })
+  seedVector(id)
+  drainPendingEmbeddings([id])
+  closeDb()
+  for (const stale of backupsOf(dbPath)) {
+    rmSync(join(dir, stale))
+  }
+  // No migration is pending, so the only snapshot this boot can take is the rebuild's.
+  expect(metaRows(dbPath).schema_version).toBe(String(NEWEST))
+
+  config.embedder.dimensions = REBUILT
+
+  // A live connection keeps the WAL sidecars on disk, so the boot below reaches the snapshot;
+  // without them `PRAGMA journal_mode = WAL` fails on the read-only directory first and the
+  // rebuild is never attempted.
+  const keeper = new Database(dbPath)
+  keeper.prepare(`SELECT COUNT(*) AS cnt FROM thoughts`).get()
+  chmodSync(dir, 0o555)
+  try {
+    expect(() => initDb({ dbPath, runMigrations: true })).toThrow('Database backup failed')
+  } finally {
+    chmodSync(dir, 0o755)
+    keeper.close(true)
+  }
+
+  expect(backupsOf(dbPath)).toEqual([])
+  expect(vecDdl(dbPath)).toContain(`FLOAT[${CONFIGURED}]`)
+  expect(vecRowCount(dbPath)).toBe(1)
+  expect(pendingIdsOnDisk(dbPath)).toEqual([])
+  expect(metaRows(dbPath).vec_dimensions).toBe(String(CONFIGURED))
 })
