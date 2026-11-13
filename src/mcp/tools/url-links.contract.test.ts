@@ -7,6 +7,7 @@ import { getDb } from '../../context/container'
 import { createEdge } from '../../db/edges'
 import { closeDb } from '../../db/init'
 import { createTestDb, seedThought } from '../../test/helpers'
+import { createThoughtWithUrlLinksService } from '../../services/url_links.service'
 import { registerAllMemoryTools } from '.'
 
 mock.module('../../embedder/client', () => ({
@@ -372,6 +373,61 @@ describe('one batch query per response', () => {
     )
 
     expect(calls).toBe(0)
+  })
+})
+
+describe('memory_store action=update owns the write side', () => {
+  test('url_links reaches the service and replaces the set in array order', async () => {
+    const id = createThoughtWithUrlLinksService(
+      { content: `${QUERY} replace-set through the tool` },
+      { urlLinks: [{ text: 'old', url: 'https://example.com/old' }] }
+    ).id
+
+    const updated = await callTool('memory_store', {
+      action: 'update',
+      thought_id: id,
+      url_links: [
+        { text: 'second', url: 'https://example.com/2' },
+        { text: 'first', url: 'https://example.com/1' }
+      ]
+    })
+    expect(Object.hasOwn(updated.item ?? {}, 'url_links')).toBe(false)
+
+    const answer = await recall({ action: 'get', thought_id: id, include_url_links: true })
+    expect(answer.item?.url_links).toEqual([
+      { text: 'second', url: 'https://example.com/2', label: 'second' },
+      { text: 'first', url: 'https://example.com/1', label: 'first' }
+    ])
+  })
+
+  test('an omitted url_links leaves the set untouched on a content edit', async () => {
+    const id = createThoughtWithUrlLinksService(
+      { content: `${QUERY} content edit through the tool` },
+      { urlLinks: [{ text: 'docs', url: 'https://example.com/docs' }] }
+    ).id
+
+    await callTool('memory_store', {
+      action: 'update',
+      thought_id: id,
+      content: `${QUERY} content edit through the tool, rewritten`
+    })
+
+    const answer = await recall({ action: 'get', thought_id: id, include_url_links: true })
+    expect(answer.item?.url_links).toEqual([
+      { text: 'docs', url: 'https://example.com/docs', label: 'docs' }
+    ])
+  })
+
+  test('url_links: [] clears the set', async () => {
+    const id = createThoughtWithUrlLinksService(
+      { content: `${QUERY} explicit clear through the tool` },
+      { urlLinks: [{ text: 'docs', url: 'https://example.com/docs' }] }
+    ).id
+
+    await callTool('memory_store', { action: 'update', thought_id: id, url_links: [] })
+
+    const answer = await recall({ action: 'get', thought_id: id, include_url_links: true })
+    expect(answer.item?.url_links).toEqual([])
   })
 })
 
