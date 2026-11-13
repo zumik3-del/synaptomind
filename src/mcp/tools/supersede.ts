@@ -11,7 +11,7 @@ import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 import { validateMergePreconditions } from '../../services/merge-helpers.service'
 import { BATCH_ITEMS_MAX } from '../../validation'
 import { collectionEnvelope, itemEnvelope, writeEnvelopeScope } from './envelope'
-import { resolveProjectId, shapeThought } from './utils'
+import { shapeThought } from './utils'
 import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
 import {
   allActionFields,
@@ -162,7 +162,6 @@ const handlers = {
       preview_token: z.string().optional()
     }),
     async run(args: ActionArgs) {
-      const projectFilter = resolveProjectId(args.cwd as string)
       const sourceId = args.source_id as string
       const targetId = args.target_id as string
       const mergedContent = args.merged_content as string | undefined
@@ -178,8 +177,7 @@ const handlers = {
                 [source.id, source.status, source.updated_at, source.is_protected],
                 [target.id, target.status, target.updated_at, target.is_protected],
                 mergedContent,
-                mergedTags,
-                projectFilter
+                mergedTags
               )
             : null,
         preview: token => {
@@ -225,16 +223,13 @@ const handlers = {
               target: { id: preview.target.id, status: preview.target.status },
               proposed: {
                 merged_content: mergedContent,
-                merged_tags: mergedTags,
-                project_id: projectFilter
+                merged_tags: mergedTags
               },
               effects: {
                 source_archived: mergeOutcome === 'would_merge',
                 target_updated:
                   mergeOutcome === 'would_merge' &&
-                  (mergedContent !== undefined ||
-                    mergedTags !== undefined ||
-                    projectFilter !== undefined),
+                  (mergedContent !== undefined || mergedTags !== undefined),
                 ...(mergeOutcome === 'would_merge' ? { replaces_edge_created: true } : {})
               },
               ...(token === null ? {} : { preview_token: token })
@@ -243,12 +238,12 @@ const handlers = {
           )
         },
         apply: () => {
+          // Id-addressed write: the target keeps its own project; cwd only scopes the answer.
           const result = mergeThoughtsService({
             targetId,
             sourceId,
             mergedContent,
-            mergedTags,
-            projectId: projectFilter
+            mergedTags
           })
           return itemEnvelope(
             'merge',
