@@ -125,7 +125,7 @@ export function transferUrlLinksFromSource(
         {
           target_id: targetId,
           source_id: sourceId,
-          link_key: link.key,
+          link_name: link.key,
           kept_url: targetUrl,
           dropped_url: link.url
         }
