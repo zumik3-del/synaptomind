@@ -6,6 +6,8 @@ import { vec0Path } from '../runtime-mode'
 import { clearDb, getDb, setDb } from '../context/container'
 import { MIGRATIONS } from './migrations'
 import { backupDatabase } from './backup'
+import { BASELINE_TABLE_DDL, META_DDL } from './baseline-schema'
+import { readSchemaVersion } from './schema-stamp'
 import { vecTableDdl } from './vec-schema'
 
 function loadVecExtension(database: Database, isMemory: boolean): void {
@@ -82,19 +84,7 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
 
     // `_meta` must exist before the version guard, and nothing else may run before it: an older
     // binary has to refuse a newer database before any step that could reshape it.
-    db.run(`
-    CREATE TABLE IF NOT EXISTS _meta (
-      key   TEXT PRIMARY KEY,
-      value TEXT
-    )
-  `)
-
-    const getVersion = (database: Database): number => {
-      const row = database.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
-        | { value: string }
-        | undefined
-      return row ? parseInt(row.value, 10) : 0
-    }
+    db.run(META_DDL)
 
     const setVersion = (database: Database, version: number): void => {
       database
@@ -105,7 +95,7 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
         .run(String(version))
     }
 
-    let current = getVersion(db)
+    let current = readSchemaVersion(db)
     const maxVersion = MIGRATIONS.length > 0 ? Math.max(...MIGRATIONS.map(m => m.version)) : 0
     if (current > maxVersion) {
       throw new Error(
@@ -122,50 +112,7 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
 
     const d = db
 
-    d.run(`
-    CREATE TABLE IF NOT EXISTS thoughts (
-      id         TEXT PRIMARY KEY,
-      content    TEXT NOT NULL,
-      status     TEXT NOT NULL DEFAULT 'draft',
-      source     TEXT,
-      project_id TEXT,
-      is_cluster INTEGER DEFAULT 0,
-      is_profile INTEGER DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-  `)
-
-    d.run(`
-    CREATE TABLE IF NOT EXISTS edges (
-      id         TEXT PRIMARY KEY,
-      source_id  TEXT NOT NULL REFERENCES thoughts(id) ON DELETE CASCADE,
-      target_id  TEXT NOT NULL REFERENCES thoughts(id) ON DELETE CASCADE,
-      type       TEXT NOT NULL DEFAULT 'related',
-      created_at TEXT NOT NULL,
-      UNIQUE(source_id, target_id, type)
-    )
-  `)
-
-    d.run(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id          TEXT PRIMARY KEY,
-      name        TEXT NOT NULL,
-      description TEXT,
-      created_at  TEXT NOT NULL
-    )
-  `)
-
-    d.run(`
-    CREATE TABLE IF NOT EXISTS preview_tokens (
-      token       TEXT PRIMARY KEY,
-      kind        TEXT NOT NULL,
-      target_id   TEXT NOT NULL,
-      fingerprint TEXT NOT NULL,
-      created_at  TEXT NOT NULL,
-      expires_at  TEXT NOT NULL
-    )
-  `)
+    for (const ddl of BASELINE_TABLE_DDL) d.run(ddl)
 
     if (!runMigrations) {
       success = true
@@ -182,11 +129,18 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
       }
     }
 
+    // A snapshot must precede every irreversible step: the migration chain reshapes tables, and the
+    // dimension rebuild below drops `vec_thoughts`. One snapshot per boot serves both.
+    let backupTaken = false
+    const snapshot = (targetVersion: number): void => {
+      backupDatabase(db, resolvedPath, targetVersion)
+      backupTaken = true
+    }
+
     if (!isMemory) {
       const pendingMigrations = MIGRATIONS.filter(m => m.version > current)
       if (pendingMigrations.length > 0) {
-        const targetVersion = Math.max(...pendingMigrations.map(m => m.version))
-        backupDatabase(db, resolvedPath, targetVersion)
+        snapshot(Math.max(...pendingMigrations.map(m => m.version)))
       }
     }
 
@@ -206,6 +160,9 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
       const vec = readVecIndexState(d)
       const rebuilt = vec.dimensions !== null && vec.dimensions !== dimensions
       if (rebuilt) {
+        // A pending-migration snapshot already covers this DROP; otherwise take one now, so a
+        // failed backup aborts the rebuild before the vectors are thrown away.
+        if (!backupTaken) snapshot(current)
         console.error(
           `[db] dimensions changed ${vec.dimensions} → ${dimensions}, rebuilding vec_thoughts (all embeddings will be re-generated)`
         )
