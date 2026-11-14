@@ -6,7 +6,7 @@ const PRE_BASELINE_VERSION = 0
 const EVIDENCE_LIMIT = 8
 const INTEGER = /^\d+$/
 
-/** Baseline object name to its baseline columns; a missing key means "not part of the baseline". */
+// A missing key means "not part of the baseline".
 type Fingerprint = Map<string, Set<string>>
 
 let baseline: Fingerprint | null = null
@@ -46,12 +46,7 @@ function preBaselineFingerprint(): Fingerprint {
   }
 }
 
-/**
- * Everything the database carries that a baseline-only file does not: an object no baseline DDL
- * creates (a table, index or trigger a migration added) or a column a migration added to a
- * baseline table. `PRAGMA table_info` runs only on baseline tables, so a vec0 table is never
- * opened before the extension is loaded.
- */
+// `PRAGMA table_info` runs only on baseline tables, so a vec0 table is never opened before the extension is loaded.
 export function postBaselineEvidence(db: Database): string[] {
   const expected = preBaselineFingerprint()
   const found: { rank: number; label: string }[] = []
@@ -119,12 +114,7 @@ function refusalMessage(db: Database, evidence: string[], reason: string): strin
   )
 }
 
-/**
- * The migration version recorded in `_meta`, or 0 for a genuinely pre-baseline database (a fresh
- * file, or baseline tables only). Throws instead of guessing when the stamp is missing or
- * unparseable and the schema proves migrations have run: replaying the chain would drop
- * `vec_thoughts` and then die on an already-present column, bricking a readable database.
- */
+// Throws instead of guessing: replaying the chain would drop `vec_thoughts` and brick a readable database.
 export function readSchemaVersion(db: Database): number {
   const row = db.prepare(`SELECT value FROM _meta WHERE key = ?`).get(SCHEMA_VERSION_KEY) as
     | { value: string | null }

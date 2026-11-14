@@ -13,11 +13,7 @@ export interface ActionHandler {
 export interface ActionToolConfig {
   name: string
   description: string
-  /**
-   * Advertised argument shape shared by every action. It must stay a flat object:
-   * the MCP SDK cannot advertise a discriminated-union schema (it serializes to an
-   * empty object), so the per-action union lives in `ActionHandler.input`.
-   */
+  // The MCP SDK cannot advertise a discriminated-union schema (it serializes to an empty object), so the per-action union lives in `ActionHandler.input`.
   inputSchema: Record<string, z.ZodType>
   handlers: Record<string, ActionHandler>
 }

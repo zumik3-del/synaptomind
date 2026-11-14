@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
-/** What a snapshot precedes; the two kinds never share an eviction budget. */
+// The two kinds never share an eviction budget.
 export type BackupKind = 'migration' | 'rebuild'
 
 export const DEFAULT_BACKUP_RETENTION = 5
