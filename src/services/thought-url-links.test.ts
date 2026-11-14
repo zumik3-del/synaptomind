@@ -4,7 +4,10 @@ import { closeDb } from '../db/init'
 import { getThoughtUrlLinksForThoughts } from '../db/thought_url_links'
 import { createTestDb } from '../test/helpers'
 import { updateThoughtByIdService } from './thoughts.service'
-import { createThoughtWithUrlLinksService } from './url_links.service'
+import {
+  createThoughtWithUrlLinksService,
+  getThoughtUrlLinksBatchService
+} from './url_links.service'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
@@ -152,4 +155,28 @@ test('matrix case 10: update url_links: [] is the only explicit clear', () => {
   updateThoughtByIdService(id, {}, { urlLinks: [] })
 
   expect(linksOf(id)).toEqual([])
+})
+
+test('the batch read dedupes ids, drops blanks and omits thoughts with no links', () => {
+  const withLinks = createLinked('batched with links', [
+    { text: 'a', url: 'https://example.com/a' },
+    { text: 'b', url: 'https://example.com/b' }
+  ])
+  const withoutLinks = createLinked('batched without links', [])
+
+  const batch = getThoughtUrlLinksBatchService([
+    withLinks,
+    withLinks,
+    '',
+    withoutLinks,
+    'no-such-thought'
+  ])
+
+  expect(Object.keys(batch).sort()).toEqual([withLinks])
+  expect(batch[withLinks].map(row => row.key)).toEqual(['a', 'b'])
+})
+
+test('the batch read of no ids is empty without touching the database', () => {
+  expect(getThoughtUrlLinksBatchService([])).toEqual({})
+  expect(getThoughtUrlLinksBatchService(['', ''])).toEqual({})
 })

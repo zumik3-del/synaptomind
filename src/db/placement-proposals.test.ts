@@ -19,7 +19,7 @@ afterEach(closeDb)
 function makeInput(overrides?: Partial<InsertProposalInput>): InsertProposalInput {
   return {
     source_thought_id: overrides?.source_thought_id ?? seedThought(),
-    item_kind: overrides?.item_kind ?? 'edge',
+    item_kind: (overrides?.item_kind ?? 'edge') as InsertProposalInput['item_kind'],
     confidence: overrides?.confidence ?? 0.8,
     rationale: overrides?.rationale ?? 'test rationale',
     payload: overrides?.payload ?? JSON.stringify({ foo: 'bar' }),
@@ -490,4 +490,44 @@ test('idx_pp_dedup rejects a concurrent duplicate pending insert (UNIQUE violati
   const all = db.prepare('SELECT id FROM placement_proposals').all() as { id: string }[]
   expect(all).toHaveLength(1)
   expect(all[0].id).toBe(first.id)
+})
+
+test('listProposals filters by source thought, item kind and a created_after floor together', () => {
+  const db = getDb()
+  const watched = seedThought()
+  const other = seedThought()
+  const kept = insertProposal(
+    db,
+    makeInput({ source_thought_id: watched, item_kind: 'edge', fingerprint: 'fp-kept' })
+  )
+  insertProposal(
+    db,
+    makeInput({ source_thought_id: other, item_kind: 'edge', fingerprint: 'fp-other' })
+  )
+  const tagItem = insertProposal(
+    db,
+    makeInput({ source_thought_id: watched, item_kind: 'placement' as any, fingerprint: 'fp-tag' })
+  )
+
+  expect(
+    listProposals(db, { source_thought_id: watched })
+      .map(row => row.id)
+      .sort()
+  ).toEqual([kept.id, tagItem.id].sort())
+  expect(
+    listProposals(db, { source_thought_id: watched, item_kind: 'placement' }).map(row => row.id)
+  ).toEqual([tagItem.id])
+  expect(listProposals(db, { created_after: '2999-01-01T00:00:00.000Z' })).toEqual([])
+  expect(listProposals(db, { created_after: '2000-01-01T00:00:00.000Z' })).toHaveLength(3)
+})
+
+test('listProposals reads the camelCase alias of the source filter', () => {
+  const db = getDb()
+  const watched = seedThought()
+  const kept = insertProposal(
+    db,
+    makeInput({ source_thought_id: watched, fingerprint: 'fp-alias' })
+  )
+
+  expect(listProposals(db, { sourceThoughtId: watched }).map(row => row.id)).toEqual([kept.id])
 })
