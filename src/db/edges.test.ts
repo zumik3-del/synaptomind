@@ -445,3 +445,9 @@ test('retypeEdge preserves the original created_at', () => {
   const retyped = retypeEdge(db, edge.id, 'supports')
   expect(retyped.created_at).toBe(knownDate)
 })
+
+test('retypeEdge reports a missing edge as not found', () => {
+  expect(() => retypeEdge(getDb(), 'no-such-edge', 'develops')).toThrow(
+    'Edge not found: no-such-edge'
+  )
+})

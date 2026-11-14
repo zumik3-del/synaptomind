@@ -552,3 +552,57 @@ test('deleteThought reports false and changes nothing for an unknown id', () => 
   expect(db.prepare(`SELECT 1 FROM tags WHERE name = ?`).get('keep-me')).not.toBeNull()
   expect(db.prepare(`SELECT 1 FROM thoughts WHERE id = ?`).get(survivor)).not.toBeNull()
 })
+
+test('tags_mode replace swaps the tag set while the default merge keeps it', () => {
+  const db = getDb()
+  const replaced = createThought(db, { content: 'replace mode', tags: ['keep', 'drop'] })
+  const merged = createThought(db, { content: 'merge mode', tags: ['keep', 'drop'] })
+
+  expect(updateThought(db, replaced.id, { tags: ['fresh'], tags_mode: 'replace' })?.tags).toEqual([
+    expect.objectContaining({ name: 'fresh' })
+  ])
+  expect(
+    updateThought(db, merged.id, { tags: ['fresh'], tags_mode: 'merge' })?.tags.map(t => t.name)
+  ).toEqual(expect.arrayContaining(['keep', 'drop', 'fresh']))
+})
+
+test('updateThought writes the is_cluster, is_protected and is_global bits it is given', () => {
+  const db = getDb()
+  const t = createThought(db, { content: 'flag probe' })
+
+  const promoted = updateThought(db, t.id, {
+    is_cluster: true,
+    is_protected: false,
+    is_global: true
+  })
+
+  expect(promoted?.is_cluster).toBe(1)
+  expect(promoted?.is_protected).toBe(0)
+  expect(promoted?.is_global).toBe(1)
+  const back = updateThought(db, t.id, { is_cluster: false, is_global: false })
+  expect(back?.is_cluster).toBe(0)
+  expect(back?.is_global).toBe(0)
+})
+
+test('updateThought sets and clears the surface_after schedule', () => {
+  const db = getDb()
+  const t = createThought(db, { content: 'scheduled thought' })
+  const at = '2030-01-01T00:00:00.000Z'
+
+  expect(updateThought(db, t.id, { surface_after: at })?.surface_after).toBe(at)
+  expect(updateThought(db, t.id, { surface_after: null })?.surface_after).toBeNull()
+})
+
+test('updateThought stamps updated_at but never rewrites created_at', () => {
+  const db = getDb()
+  const t = createThought(db, { content: 'timestamps', status: 'active' })
+  db.prepare(`UPDATE thoughts SET updated_at = ? WHERE id = ?`).run(
+    '2000-01-01T00:00:00.000Z',
+    t.id
+  )
+
+  const updated = updateThought(db, t.id, { content: 'timestamps rewritten' })
+
+  expect(updated?.created_at).toBe(t.created_at)
+  expect(updated?.updated_at! > '2000-01-01T00:00:00.000Z').toBeTrue()
+})

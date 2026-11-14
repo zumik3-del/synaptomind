@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
 import { config } from '../config'
+import { promoteThoughtToPrimer } from '../db/primers'
 import {
   extractResultIds,
   postProcessSearchResults,
@@ -203,4 +204,28 @@ test('updatePrimerHits reads the threshold from the config, not from a literal',
   } finally {
     config.primer.promoteThreshold = original
   }
+})
+
+test('prependPrimerResults keeps a group that carries no items at all', () => {
+  const empty = makeGroupedResult('c1', [])
+  delete (empty as { items?: unknown }).items
+  const primer = makeSearchResult('p1')
+
+  const reordered = prependPrimerResults([empty, primer], ['p1']) as Array<
+    SearchResult | GroupedResult
+  >
+
+  expect(reordered).toHaveLength(2)
+  expect((reordered[0] as SearchResult).thought.id).toBe('p1')
+  expect(reordered[1]).toBe(empty)
+})
+
+test('postProcessSearchResults leaves the primer hoisting alone when showPrimers is off', () => {
+  const primerId = seedThought({ content: 'primer thought' })
+  promoteThoughtToPrimer(getDb(), primerId, config.primer.promoteThreshold)
+  const results = [makeSearchResult('other'), makeSearchResult(primerId)]
+
+  const processed = postProcessSearchResults(results, { showPrimers: false }) as SearchResult[]
+
+  expect(processed.map(result => result.thought.id)).toEqual(['other', primerId])
 })

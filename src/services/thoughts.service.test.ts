@@ -6,6 +6,7 @@ import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError, ThoughtContentConflictError, ValidationError } from '../errors'
 import {
   archiveThoughtByIdService,
+  archiveThoughtsBatchService,
   createThoughtWithParentService,
   getThoughtByIdService,
   listThoughtsPageService,
@@ -13,7 +14,7 @@ import {
 } from './thoughts.service'
 import { createThoughtWithUrlLinksService } from './url_links.service'
 import { mergeThoughtsService } from './merge.service'
-import { validateContentLength } from '../validation'
+import { BATCH_ITEMS_MAX, validateContentLength } from '../validation'
 
 const originalSoftLimit = config.thoughts.softLimit
 const originalHardLimitBufferPercent = config.thoughts.hardLimitBufferPercent
@@ -290,4 +291,73 @@ test('an ordinary update, activation and archive still succeed', () => {
   )
   expect(updateThoughtByIdService(thought.id, { status: 'active' })?.status).toBe('active')
   expect(archiveThoughtByIdService(thought.id)?.status).toBe('archived')
+})
+
+test('a duplicate parent edge is logged and skipped instead of failing the create', () => {
+  const parentId = seedThought()
+  const first = createThoughtWithParentService({ content: 'deduped child' }, parentId, 'parent')
+  // The same content dedupes onto the same thought, so the parent edge is now a duplicate.
+  const second = createThoughtWithParentService({ content: 'deduped child' }, parentId, 'parent')
+
+  expect(second.id).toBe(first.id)
+  const edges = getDb()
+    .prepare(`SELECT type FROM edges WHERE source_id = ? AND target_id = ?`)
+    .all(parentId, first.id) as { type: string }[]
+  expect(edges).toEqual([{ type: 'parent' }])
+})
+
+test('surface_after rejects a value that is not an ISO timestamp and writes nothing', () => {
+  const thought = createThoughtWithUrlLinksService({ content: 'scheduled' })
+
+  for (const value of ['tomorrow', '2026-13-01T00:00:00.000Z', '2026-01-01']) {
+    expect(() => updateThoughtByIdService(thought.id, { surface_after: value as string })).toThrow(
+      ValidationError
+    )
+    expect(() => updateThoughtByIdService(thought.id, { surface_after: value as string })).toThrow(
+      `Invalid surface_after: ${value}`
+    )
+  }
+  expect(getThoughtByIdService(thought.id)?.surface_after).toBeNull()
+})
+
+test('surface_after accepts an ISO timestamp and can be cleared again', () => {
+  const thought = createThoughtWithUrlLinksService({ content: 'scheduled' })
+  const at = '2030-01-01T00:00:00.000Z'
+
+  expect(updateThoughtByIdService(thought.id, { surface_after: at })?.surface_after).toBe(at)
+  expect(updateThoughtByIdService(thought.id, { surface_after: null })?.surface_after).toBeNull()
+})
+
+test('archiveThoughtsBatchService archives each id and reports the missing ones', () => {
+  const first = seedThought({ content: 'batch one' })
+  const second = seedThought({ content: 'batch two' })
+  const missing = '0195d0a4-0000-7000-8000-000000000000'
+
+  const result = archiveThoughtsBatchService([first, second, missing])
+
+  expect(result.archived).toBe(2)
+  expect(result.failed).toBe(1)
+  expect(result.errors).toEqual([{ thought_id: missing, error: `Thought '${missing}' not found` }])
+  expect(getThoughtByIdService(first)?.status).toBe('archived')
+  expect(getThoughtByIdService(second)?.status).toBe('archived')
+})
+
+test('archiveThoughtsBatchService counts an already-archived id without rewriting it', () => {
+  const archived = seedThought({ content: 'already gone', status: 'archived' })
+
+  const result = archiveThoughtsBatchService([archived])
+
+  expect(result).toEqual({ archived: 1, failed: 0, errors: [] })
+  expect(getThoughtByIdService(archived)?.status).toBe('archived')
+})
+
+test('archiveThoughtsBatchService refuses an empty or oversized batch', () => {
+  expect(() => archiveThoughtsBatchService([])).toThrow(
+    'thought_ids is required and must not be empty'
+  )
+
+  const tooMany = Array.from({ length: BATCH_ITEMS_MAX + 1 }, () => 'id')
+  expect(() => archiveThoughtsBatchService(tooMany)).toThrow(
+    `thought_ids accepts at most ${BATCH_ITEMS_MAX} ids per call (got ${tooMany.length})`
+  )
 })
