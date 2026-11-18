@@ -19,7 +19,7 @@ afterEach(closeDb)
 function makeInput(overrides?: Partial<InsertProposalInput>): InsertProposalInput {
   return {
     source_thought_id: overrides?.source_thought_id ?? seedThought(),
-    item_kind: (overrides?.item_kind ?? 'edge') as InsertProposalInput['item_kind'],
+    item_kind: overrides?.item_kind ?? 'edge',
     confidence: overrides?.confidence ?? 0.8,
     rationale: overrides?.rationale ?? 'test rationale',
     payload: overrides?.payload ?? JSON.stringify({ foo: 'bar' }),

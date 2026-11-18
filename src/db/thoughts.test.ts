@@ -602,7 +602,8 @@ test('updateThought stamps updated_at but never rewrites created_at', () => {
   )
 
   const updated = updateThought(db, t.id, { content: 'timestamps rewritten' })
+  if (!updated) throw new Error('updateThought returned no thought')
 
-  expect(updated?.created_at).toBe(t.created_at)
-  expect(updated?.updated_at! > '2000-01-01T00:00:00.000Z').toBeTrue()
+  expect(updated.created_at).toBe(t.created_at)
+  expect(updated.updated_at > '2000-01-01T00:00:00.000Z').toBeTrue()
 })

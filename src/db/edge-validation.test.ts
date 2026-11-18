@@ -10,6 +10,7 @@ import {
   validateRetype
 } from './edge-validation'
 import type { Edge } from './edges'
+import { InvalidEdgeTypeError } from './errors'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 
 beforeEach(createTestDb)
@@ -87,8 +88,9 @@ test('validateRetype rejects an unknown type before it looks at the edge', () =>
   const edge = edgeOf(seedThought(), seedThought())
 
   expect(() => validateRetype(db, edge, 'frobnicates')).toThrow(
-    "Invalid edge type 'frobnicates'. Valid types: related"
+    `Invalid edge type 'frobnicates'. Valid types: ${EDGE_TYPES.join(', ')}`
   )
+  expect(() => validateRetype(db, edge, 'frobnicates')).toThrow(InvalidEdgeTypeError)
 })
 
 test('validateRetype rejects a no-op retype', () => {
