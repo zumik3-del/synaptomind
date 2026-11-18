@@ -116,3 +116,53 @@ test('projectExists returns true for existing project', () => {
 test('projectExists returns false for missing project', () => {
   expect(projectExists(getDb(), 'nonexistent-id')).toBeFalse()
 })
+
+test('updateProject stores a normalized local_path and can clear it again', () => {
+  const db = getDb()
+  const p = createProject(db, { name: 'With Path' })
+
+  updateProject(db, p.id, { local_path: '/mnt/external/project/' })
+  expect(getProject(db, p.id)?.local_path).toBe('/mnt/external/project')
+
+  updateProject(db, p.id, { local_path: 'C:\\Users\\me\\project' })
+  expect(getProject(db, p.id)?.local_path).toBe('C:/Users/me/project')
+
+  updateProject(db, p.id, { local_path: null })
+  expect(getProject(db, p.id)?.local_path).toBeNull()
+})
+
+test('updateProject with nothing to change leaves the row untouched', () => {
+  const db = getDb()
+  const p = createProject(db, { name: 'Untouched' })
+  const before = getProject(db, p.id)
+
+  updateProject(db, p.id, {})
+
+  expect(getProject(db, p.id)).toEqual(before)
+})
+
+test('resolveDefaultProjectId recreates the Default row a damaged file lost', () => {
+  const db = getDb()
+  const id = resolveDefaultProjectId(db)
+  db.prepare(`DELETE FROM projects WHERE id = ?`).run(id)
+  expect(getProject(db, id)).toBeUndefined()
+
+  expect(resolveDefaultProjectId(db)).toBe(id)
+  expect(getProject(db, id)?.name).toBe('Default')
+})
+
+test('resolveDefaultProjectId stamps and creates a default when the stamp is gone', () => {
+  const db = getDb()
+  const original = resolveDefaultProjectId(db)
+  db.prepare(`DELETE FROM _meta WHERE key = 'default_project_id'`).run()
+  db.prepare(`DELETE FROM projects WHERE id = ?`).run(original)
+
+  const created = resolveDefaultProjectId(db)
+
+  expect(created).not.toBe(original)
+  expect(getProject(db, created)?.name).toBe('Default')
+  const stamped = db.prepare(`SELECT value FROM _meta WHERE key = 'default_project_id'`).get() as {
+    value: string
+  }
+  expect(stamped.value).toBe(created)
+})

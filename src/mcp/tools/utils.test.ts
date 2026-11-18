@@ -50,6 +50,13 @@ test('thought output stringifies heterogeneous tags and strictly decodes boolean
   })
 })
 
+test('shapeThought projects a comma-separated fields string', () => {
+  expect(shapeThought({ id: '1', content: 'hi', status: 'active' }, false, 'id, content')).toEqual({
+    id: '1',
+    content: 'hi'
+  })
+})
+
 test('input tag filtering and boolean encoding retain their distinct contracts', () => {
   expect(parseTags(' a , , b ')).toEqual(['a', 'b'])
   expect(parseTags(' , ')).toBeUndefined()
