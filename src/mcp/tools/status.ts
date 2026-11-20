@@ -1,5 +1,6 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/server'
+import { SEVERITIES } from '../../services/health-check.service'
 import { registerActionTool } from './action-tool'
 import { slotsHandler } from './status/slots'
 import { frontierHandler } from './status/frontier'
@@ -95,7 +96,7 @@ export function registerMemoryStatus(server: McpServer) {
           'Include per-edge signals in the output. Default false (slim); true restores full output. OPTIONAL for "propose". IGNORED for all other actions.'
         ),
       severity: z
-        .enum(['critical', 'warning', 'info'])
+        .enum(SEVERITIES)
         .optional()
         .describe('Minimum severity. OPTIONAL for "health". IGNORED for all other actions.'),
       include_details: z

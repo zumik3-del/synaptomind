@@ -34,7 +34,9 @@ import {
 import type { Database } from 'bun:sqlite'
 import { findDuplicateDrafts } from './health-check-drafts.service'
 
-export type Severity = 'critical' | 'warning' | 'info'
+export const SEVERITIES = ['critical', 'warning', 'info'] as const
+
+export type Severity = (typeof SEVERITIES)[number]
 
 export interface CheckResult {
   name: string

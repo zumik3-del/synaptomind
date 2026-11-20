@@ -1,21 +1,26 @@
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
-import { runHealthCheckService } from '../services/health-check.service'
+import { SEVERITIES, runHealthCheckService } from '../services/health-check.service'
 import { runHealthRepairService } from '../services/health-check-repair.service'
+import { ValidationError } from '../errors'
+import { formatZodIssues } from '../zod-utils'
 import { jsonBodyOrDefault } from './utils'
 import type { Severity } from '../services/health-check.service'
 
 const healthCheckRouter = new Hono()
 
+const severitySchema = z.enum(SEVERITIES)
+
 const repairBodySchema = z.object({
   confirm: z.boolean().optional(),
   preview_token: z.string().optional(),
-  severity: z.enum(['critical', 'warning', 'info']).optional()
+  severity: severitySchema.optional()
 })
 
 healthCheckRouter.get('/health-check', c => {
-  const severity = c.req.query('severity') as Severity | undefined
-  const report = runHealthCheckService({ severity })
+  const parsed = severitySchema.optional().safeParse(c.req.query('severity'))
+  if (!parsed.success) throw new ValidationError(formatZodIssues(parsed.error))
+  const report = runHealthCheckService({ severity: parsed.data })
   return c.json(report)
 })
 
