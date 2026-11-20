@@ -341,6 +341,71 @@ test('filters by severity', () => {
   expect(warningChecks.some(c => c.name === 'too_short_content')).toBe(false)
 })
 
+function seedSeverityFindings(): void {
+  const selfLoop = seedThought({ content: 'A' })
+  seedThought({ content: 'empty cluster', is_cluster: 1, is_protected: 0 })
+  seedThought({ content: 'hi' })
+  seedEdge(selfLoop, selfLoop, 'related')
+}
+
+function checkNamesOf(report: ReturnType<typeof runHealthCheckService>): string[] {
+  return report.categories.flatMap(c => c.checks.map(check => check.name))
+}
+
+test('severity filtering narrows the check set in the documented order', () => {
+  seedSeverityFindings()
+
+  const fullNames = checkNamesOf(runHealthCheckService())
+  const criticalNames = checkNamesOf(runHealthCheckService({ severity: 'critical' }))
+  const warningNames = checkNamesOf(runHealthCheckService({ severity: 'warning' }))
+  const infoNames = checkNamesOf(runHealthCheckService({ severity: 'info' }))
+
+  expect(criticalNames.length).toBeGreaterThan(0)
+  expect(criticalNames.length).toBeLessThan(warningNames.length)
+  expect(warningNames.length).toBeLessThan(infoNames.length)
+  expect(warningNames).toEqual(expect.arrayContaining(criticalNames))
+  expect(infoNames).toEqual(expect.arrayContaining(warningNames))
+  expect(infoNames).toEqual(fullNames)
+
+  const criticalChecks = runHealthCheckService({ severity: 'critical' }).categories.flatMap(
+    c => c.checks
+  )
+  expect(criticalChecks.every(check => check.severity === 'critical')).toBe(true)
+  const infoChecks = runHealthCheckService({ severity: 'info' }).categories.flatMap(c => c.checks)
+  expect(infoChecks.some(check => check.severity === 'warning')).toBe(true)
+  expect(infoChecks.some(check => check.severity === 'info')).toBe(true)
+})
+
+test('severity filtering scores the surviving checks only', () => {
+  seedSeverityFindings()
+
+  const full = runHealthCheckService()
+  const critical = runHealthCheckService({ severity: 'critical' })
+  const warning = runHealthCheckService({ severity: 'warning' })
+
+  expect(critical.summary.issues).toEqual({ critical: 1, warning: 0, info: 0 })
+  expect(critical.summary.score_breakdown).toMatchObject({
+    critical_categories: 1,
+    warning_categories: 0,
+    info_occurrences: 0,
+    info_scored_occurrences: 0
+  })
+  expect(critical.summary.health_score).toBe(60)
+
+  expect(warning.summary.issues).toEqual({ critical: 1, warning: 2, info: 0 })
+  expect(warning.summary.score_breakdown).toMatchObject({
+    critical_categories: 1,
+    warning_categories: 1,
+    info_occurrences: 0,
+    info_scored_occurrences: 0
+  })
+  expect(warning.summary.health_score).toBe(45)
+
+  expect(full.summary.issues.info).toBeGreaterThan(0)
+  expect(full.summary.score_breakdown.info_occurrences).toBeGreaterThan(0)
+  expect(full.summary.health_score).toBeLessThan(warning.summary.health_score)
+})
+
 test('health score decreases with issues', () => {
   const clean = runHealthCheckService()
   expect(clean.summary.health_score).toBe(100)
