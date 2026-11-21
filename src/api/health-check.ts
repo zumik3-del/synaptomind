@@ -5,7 +5,6 @@ import { runHealthRepairService } from '../services/health-check-repair.service'
 import { ValidationError } from '../errors'
 import { formatZodIssues } from '../zod-utils'
 import { jsonBodyOrDefault } from './utils'
-import type { Severity } from '../services/health-check.service'
 
 const healthCheckRouter = new Hono()
 
@@ -25,11 +24,7 @@ healthCheckRouter.get('/health-check', c => {
 })
 
 healthCheckRouter.post('/health-check/repair', async c => {
-  const data = (await jsonBodyOrDefault(c, {}, repairBodySchema)) as {
-    confirm?: boolean
-    preview_token?: string
-    severity?: Severity
-  }
+  const data = await jsonBodyOrDefault(c, {}, repairBodySchema)
   const result = runHealthRepairService({
     confirm: data.confirm,
     preview_token: data.preview_token,

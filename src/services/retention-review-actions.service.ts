@@ -33,7 +33,7 @@ export interface RetentionReviewProtectOptions {
 }
 
 function resolveNow(opts: { now?: string }): string {
-  return (opts.now ?? new Date().toISOString()) as string
+  return opts.now ?? new Date().toISOString()
 }
 
 function resolveMinAge(opts: RetentionReviewDeleteOptions): number {
