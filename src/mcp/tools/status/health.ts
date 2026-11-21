@@ -1,4 +1,4 @@
-import { runHealthCheckService } from '../../../services/health-check.service'
+import { runHealthCheckService, type Severity } from '../../../services/health-check.service'
 import { itemEnvelope } from '../envelope'
 import type { ActionArgs, ActionHandler } from '../action-tool'
 
@@ -68,7 +68,7 @@ function projectHealthReport(report: unknown, includeDetails: boolean = false): 
 export const healthHandler: ActionHandler = {
   run(args: ActionArgs) {
     const report = runHealthCheckService({
-      severity: args.severity as 'critical' | 'warning' | 'info' | undefined
+      severity: args.severity as Severity | undefined
     })
     return itemEnvelope('health', projectHealthReport(report, args.include_details === true))
   }
