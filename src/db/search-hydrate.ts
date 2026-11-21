@@ -4,6 +4,7 @@ import type { SearchMatchSource, SearchOptions, SearchResult } from './search-ty
 import { getThoughtTagsBatch } from './tags'
 import { rowToThought } from './thoughts'
 import { sqlIn } from './utils'
+import { MS_PER_DAY } from '../utils'
 
 interface SearchRow {
   id: string
@@ -17,13 +18,12 @@ interface SearchRow {
   updated_at: string
 }
 
-const DAY_MS = 86_400_000
 export const FALLBACK_RECENCY_HALF_LIFE_DAYS = 30
 
 function recencyDecay(createdAt: string, nowMs: number, halfLifeDays: number): number {
   const created = Date.parse(createdAt)
   if (Number.isNaN(created)) return 1
-  const ageDays = Math.max(0, (nowMs - created) / DAY_MS)
+  const ageDays = Math.max(0, (nowMs - created) / MS_PER_DAY)
   return 0.5 ** (ageDays / halfLifeDays)
 }
 

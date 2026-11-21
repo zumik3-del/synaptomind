@@ -50,7 +50,7 @@ export function listRetentionReviewCandidatesService(
   options: RetentionReviewQueryOptions = {},
   d: Database = getDb()
 ): RetentionReviewResult {
-  const now = (options.now ?? new Date().toISOString()) as string
+  const now = options.now ?? new Date().toISOString()
   const nowMs = Date.parse(now)
 
   const minAgeDays = asNumber(options.minAgeDays)

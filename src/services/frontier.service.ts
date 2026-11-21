@@ -3,6 +3,7 @@ import { getAllActiveEdges, getReplacedTargetIds } from '../db/edges'
 import { findFrontierCandidates, type FrontierCandidateRow } from '../db/frontier'
 import { getDb } from '../db'
 import { getThoughtImportance } from '../db/importance'
+import { MS_PER_DAY } from '../utils'
 
 interface FrontierInput {
   project_id?: string
@@ -52,7 +53,7 @@ export function getFrontierService(
   const items: FrontierItem[] = []
   for (const c of candidates.values()) {
     const imp = getThoughtImportance(d, c.id)?.importance ?? 1
-    const ageDays = Math.max(0, (Date.now() - Date.parse(c.created_at)) / 86_400_000)
+    const ageDays = Math.max(0, (Date.now() - Date.parse(c.created_at)) / MS_PER_DAY)
     const ageBonus = ageDays <= 7 ? 0.1 : ageDays <= 30 ? 0.05 : 0
     const blockedBy = upstreamOf.get(c.id) ?? []
     const priority = Math.min(
