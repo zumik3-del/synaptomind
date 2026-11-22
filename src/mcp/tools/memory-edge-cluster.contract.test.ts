@@ -64,7 +64,7 @@ describe('memory_store unlink', () => {
     expect(data.item.edge.type).toBe('contradicts')
     expect(data.item.consequence).toContain('contradicts')
     expect(data.item.instruction).toContain('confirm=true')
-    expect(data.meta.preview).toMatchObject({ token: data.item.preview_token, destructive: true })
+    expect(data.meta.preview).toMatchObject({ token: expect.any(String), destructive: true })
 
     const edge = getEdgePairBetween(db, src, tgt)
     expect(edge).toBeDefined()
@@ -81,7 +81,7 @@ describe('memory_store unlink', () => {
       name: 'memory_store',
       arguments: { action: 'unlink', edge_id: edgeId }
     })
-    const token = parseResult(preview).data.item.preview_token
+    const token = parseResult(preview).data.meta.preview.token
     const result = await client.callTool({
       name: 'memory_store',
       arguments: { action: 'unlink', edge_id: edgeId, confirm: true, preview_token: token }
@@ -142,7 +142,7 @@ describe('memory_store unlink', () => {
         action: 'unlink',
         edge_id: edgeId,
         confirm: true,
-        preview_token: parseResult(firstPreview).data.item.preview_token
+        preview_token: parseResult(firstPreview).data.meta.preview.token
       }
     })
 
@@ -150,7 +150,7 @@ describe('memory_store unlink', () => {
       name: 'memory_store',
       arguments: { action: 'unlink', edge_id: edgeId }
     })
-    const token = parseResult(preview).data.item.preview_token
+    const token = parseResult(preview).data.meta.preview?.token
     const result = await client.callTool({
       name: 'memory_store',
       arguments: { action: 'unlink', edge_id: edgeId, confirm: true, preview_token: token }
@@ -182,7 +182,7 @@ describe('memory_store retype', () => {
     expect(data.item.target_id).toBe(tgt)
     expect(data.item.consequence).toContain('contradicts')
     expect(data.item.consequence).toContain('supports')
-    expect(data.meta.preview).toMatchObject({ token: data.item.preview_token, destructive: true })
+    expect(data.meta.preview).toMatchObject({ token: expect.any(String), destructive: true })
 
     const edge = getEdgePairBetween(db, src, tgt)
     expect(edge).toBeDefined()
@@ -199,7 +199,7 @@ describe('memory_store retype', () => {
       name: 'memory_store',
       arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports' }
     })
-    const retypeToken = parseResult(retypePreview).data.item.preview_token
+    const retypeToken = parseResult(retypePreview).data.meta.preview.token
     const result = await client.callTool({
       name: 'memory_store',
       arguments: {
@@ -233,7 +233,7 @@ describe('memory_store retype', () => {
         action: 'unlink',
         edge_id: data.item.edge_id,
         confirm: true,
-        preview_token: parseResult(unlinkPreview).data.item.preview_token
+        preview_token: parseResult(unlinkPreview).data.meta.preview.token
       }
     })
     const { data: unlinked, isError: unlinkError } = parseResult(unlink)
@@ -252,7 +252,7 @@ describe('memory_store retype', () => {
       name: 'memory_store',
       arguments: { action: 'retype', edge_id: edgeId, new_type: 'supports' }
     })
-    const retypeToken = parseResult(retypePreview).data?.item?.preview_token
+    const retypeToken = parseResult(retypePreview).data?.meta?.preview?.token
     const result = await client.callTool({
       name: 'memory_store',
       arguments: {

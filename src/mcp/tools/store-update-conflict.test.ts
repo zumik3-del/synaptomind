@@ -95,7 +95,7 @@ test('an unknown status answers the generic enum error instead of the archive de
   expect(message).toContain('"draft"')
   expect(message).toContain('"active"')
   expect(message).not.toContain('memory_supersede')
-  expect(rejected.structuredContent).toBeUndefined()
+  expect(rejected.structuredContent?.result?.error?.message).toBe(message)
   expect(getThoughtByIdService(thought.id)?.status).toBe('active')
 })
 
@@ -122,7 +122,7 @@ test('memory_store update to archived is rejected and names the supersede path',
   expect(rejected.isError).toBe(true)
   expect(rejected.content[0]?.text).toContain('memory_supersede action=archive')
   expect(rejected.content[0]?.text).not.toContain('Invalid option')
-  expect(rejected.structuredContent).toBeUndefined()
+  expect(rejected.structuredContent?.result?.error?.message).toBe(rejected.content[0]?.text)
   expect(getThoughtByIdService(thought.id)?.status).toBe('active')
 })
 
@@ -155,7 +155,8 @@ test('memory_supersede archive is the path a rejected update points at', async (
     current_status: 'active',
     outcome: 'would_archive'
   })
-  const token = preview.structuredContent?.result?.item?.preview_token as string | undefined
+  const token = (preview.structuredContent?.result?.meta?.preview as { token?: string } | undefined)
+    ?.token
   expect(typeof token).toBe('string')
   expect(getThoughtByIdService(thought.id)?.status).toBe('active')
 

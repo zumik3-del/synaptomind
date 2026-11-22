@@ -66,8 +66,7 @@ const handlers = {
                 ? 'not_found'
                 : existing.status === 'archived'
                   ? 'already_archived'
-                  : 'would_archive',
-              ...(token === null ? {} : { preview_token: token })
+                  : 'would_archive'
             },
             token === null ? {} : { preview: { token } }
           ),
@@ -231,8 +230,7 @@ const handlers = {
                   mergeOutcome === 'would_merge' &&
                   (mergedContent !== undefined || mergedTags !== undefined),
                 ...(mergeOutcome === 'would_merge' ? { replaces_edge_created: true } : {})
-              },
-              ...(token === null ? {} : { preview_token: token })
+              }
             },
             { ...(token === null ? {} : { preview: { token } }), ...writeEnvelopeScope(args.cwd) }
           )
@@ -314,7 +312,7 @@ export function registerMemorySupersede(server: McpServer) {
         .string()
         .optional()
         .describe(
-          'Working directory — resolves the project scope the answer reports in meta.scope; a "merge" changes no thought\'s project. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'
+          'Working directory — resolves the project scope the answer reports in meta.scope; a "merge" changes no thought\'s project. OPTIONAL for "merge". ACCEPTED AND IGNORED for "archive" and "archive_batch".'
         ),
       preview_token: z
         .string()

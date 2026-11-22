@@ -37,7 +37,7 @@ async function call(tool: string, args: Record<string, unknown>) {
 }
 
 function previewToken(data: any): string {
-  const token = data?.meta?.preview?.token ?? data?.item?.preview_token
+  const token = data?.meta?.preview?.token
   expect(typeof token).toBe('string')
   return token as string
 }

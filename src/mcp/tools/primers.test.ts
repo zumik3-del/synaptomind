@@ -110,7 +110,7 @@ describe('memory_primers delete', () => {
       name: 'memory_primers',
       arguments: { action: 'delete', primer_id: primerId }
     })
-    const token = JSON.parse((preview as any).content[0].text).item.preview_token
+    const token = JSON.parse((preview as any).content[0].text).meta.preview.token
     const result = await client.callTool({
       name: 'memory_primers',
       arguments: { action: 'delete', primer_id: primerId, confirm: true, preview_token: token }

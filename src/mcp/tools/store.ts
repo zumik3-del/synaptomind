@@ -75,7 +75,7 @@ export function registerMemoryStore(server: McpServer) {
         .string()
         .optional()
         .describe(
-          'Working directory — resolves the project a "create" lands in and the project scope meta.scope reports (always pass for "create"/"update"). IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'
+          'Working directory — resolves the project a "create" lands in and the project scope meta.scope reports (always pass for "create"/"update"). ACCEPTED AND IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'
         ),
       parent_id: z
         .string()

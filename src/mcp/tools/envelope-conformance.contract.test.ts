@@ -560,19 +560,29 @@ function assertEnvelope(
     if (preview.token !== null && typeof preview.token !== 'string')
       throw new Error(`${c.tool} ${c.action}: meta.preview.token is not string|null`)
   }
-  if (c.preview === true) {
-    if (meta.preview === undefined)
-      throw new Error(`${c.tool} ${c.action}: preview answer carries no meta.preview`)
-    const token = isPlainObject(payload.item) ? payload.item.preview_token : undefined
-    if (typeof token === 'string' && (meta.preview as Record<string, unknown>).token !== token) {
-      throw new Error(
-        `${c.tool} ${c.action}: meta.preview.token does not mirror item.preview_token`
-      )
-    }
+  if (c.preview === true && meta.preview === undefined) {
+    throw new Error(`${c.tool} ${c.action}: preview answer carries no meta.preview`)
   }
+  assertNoItemPreviewToken(payload, `${c.tool}.${c.action}`)
 
   assertHygiene(payload, `${c.tool}.${c.action}`)
   return { payload, meta }
+}
+
+function assertNoItemPreviewToken(node: unknown, path: string): void {
+  if (Array.isArray(node)) {
+    node.forEach((value, index) => {
+      assertNoItemPreviewToken(value, `${path}[${index}]`)
+    })
+    return
+  }
+  if (node === null || typeof node !== 'object') return
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === 'preview_token') {
+      throw new Error(`preview_token leaked at ${path}.${key} — the token belongs in meta.preview`)
+    }
+    assertNoItemPreviewToken(value, `${path}.${key}`)
+  }
 }
 
 async function advertisedTools(): Promise<
@@ -1217,5 +1227,177 @@ describe('a whitespace-only cwd reads exactly like an omitted one', () => {
     expect(blank.scope).toBeNull()
     expect(blank.warnings).toEqual([NO_CWD_WARNING])
     expect(blank).toEqual(omitted)
+  })
+})
+
+interface CwdAcceptedCase {
+  tool: string
+  action: string
+  args: (f: Fixture) => Record<string, unknown>
+}
+
+const CWD_ACCEPTED: CwdAcceptedCase[] = [
+  {
+    tool: 'memory_recall',
+    action: 'get',
+    args: f => ({ thought_id: f.source })
+  },
+  {
+    tool: 'memory_recall',
+    action: 'chain',
+    args: f => ({ thought_id: f.source })
+  },
+  {
+    tool: 'memory_store',
+    action: 'link',
+    args: f => ({ source_id: f.source, target_id: f.target })
+  },
+  {
+    tool: 'memory_supersede',
+    action: 'archive',
+    args: f => ({ thought_id: f.target })
+  },
+  {
+    tool: 'memory_status',
+    action: 'health',
+    args: () => ({})
+  },
+  {
+    tool: 'memory_status',
+    action: 'config',
+    args: () => ({})
+  },
+  {
+    tool: 'memory_primers',
+    action: 'list',
+    args: () => ({})
+  },
+  {
+    tool: 'memory_crystallize',
+    action: 'auto_cluster',
+    args: () => ({})
+  }
+]
+
+describe('cwd is accepted on every action, including the ones it does not scope', () => {
+  for (const c of CWD_ACCEPTED) {
+    test(`${c.tool} action=${c.action} answers with a cwd it ignores`, async () => {
+      const { isError, text } = readResult(
+        await client.callTool({
+          name: c.tool,
+          arguments: { action: c.action, ...c.args(fx), cwd: CWD }
+        } as never)
+      )
+      expect(text).not.toContain('not applicable')
+      expect({ action: c.action, isError }).toEqual({ action: c.action, isError: false })
+    })
+  }
+
+  test('no advertised description claims an action rejects cwd', async () => {
+    for (const tool of await advertisedTools()) {
+      const description = tool.description ?? ''
+      for (const phrase of ['IGNORED for', 'takes no cwd', 'take no `cwd`']) {
+        if (!description.includes(phrase)) continue
+        const property = (
+          tool.inputSchema as { properties?: Record<string, Record<string, unknown>> }
+        ).properties?.cwd
+        expect(String(property?.description ?? '')).not.toContain(phrase)
+      }
+    }
+  })
+})
+
+function structuredError(result: unknown): { message: string; statusCode?: number } {
+  const { payload, isError, text } = readResult(result)
+  if (!isError) throw new Error(`expected a failure, got a success: ${text}`)
+  const error = (payload as { error?: { message?: unknown; statusCode?: unknown } } | undefined)
+    ?.error
+  if (!isPlainObject(error) || typeof error.message !== 'string') {
+    throw new Error(`failure carried no structuredContent.result.error: ${text}`)
+  }
+  return error as { message: string; statusCode?: number }
+}
+
+describe('every failure answers the structured error envelope', () => {
+  test('a schema failure is an error result, not a text-only SDK rejection', async () => {
+    const error = structuredError(
+      await client.callTool({
+        name: 'memory_recall',
+        arguments: { action: 'search', query: 'conformance source alpha', limit: 'many' }
+      } as never)
+    )
+    expect(error.message).not.toBe('')
+  })
+
+  test('a per-action input failure carries its message', async () => {
+    const error = structuredError(
+      await client.callTool({ name: 'memory_manage', arguments: { action: 'resolve' } } as never)
+    )
+    expect(error.message).toContain('cwd is required for resolve action')
+  })
+
+  test('a domain failure carries its status code', async () => {
+    const error = structuredError(
+      await client.callTool({
+        name: 'memory_recall',
+        arguments: { action: 'get', thought_id: 'no-such-thought' }
+      } as never)
+    )
+    expect(error.statusCode).toBe(404)
+  })
+})
+
+describe('a preview token lives only in meta.preview', () => {
+  const PREVIEW_TOKEN_ACTIONS: CwdAcceptedCase[] = [
+    { tool: 'memory_store', action: 'unlink', args: f => ({ edge_id: f.edgeId }) },
+    {
+      tool: 'memory_store',
+      action: 'retype',
+      args: f => ({ edge_id: f.edgeId, new_type: 'related' })
+    },
+    { tool: 'memory_supersede', action: 'archive', args: f => ({ thought_id: f.target }) },
+    {
+      tool: 'memory_supersede',
+      action: 'merge',
+      args: f => ({ source_id: f.target, target_id: f.source })
+    },
+    { tool: 'memory_manage', action: 'delete', args: () => ({ project_id: PROJECT }) },
+    { tool: 'retention_review', action: 'delete', args: f => ({ thought_id: f.retention }) },
+    { tool: 'edge_review', action: 'apply', args: f => ({ proposal_id: f.proposalId }) }
+  ]
+
+  for (const c of PREVIEW_TOKEN_ACTIONS) {
+    test(`${c.tool} action=${c.action} keeps the token out of item`, async () => {
+      const { payload, isError, text } = readResult(
+        await client.callTool({
+          name: c.tool,
+          arguments: { action: c.action, ...c.args(fx) }
+        } as never)
+      )
+      if (isError) throw new Error(`${c.tool} ${c.action} answered isError: ${text}`)
+      const body = payload as { item?: Record<string, unknown>; meta: Record<string, unknown> }
+      expect(JSON.stringify(body)).not.toContain('preview_token')
+      expect(body.item?.preview_token).toBeUndefined()
+      const preview = body.meta.preview as { token?: unknown } | undefined
+      expect(typeof preview?.token).toBe('string')
+    })
+  }
+
+  test('memory_primers delete keeps the token in meta.preview only', async () => {
+    const { promoteThoughtToPrimer } = await import('../../db/primers')
+    const primer = promoteThoughtToPrimer(getDb(), fx.source, 5)
+    if (!primer) throw new Error('fixture primer was not created')
+
+    const { payload, isError, text } = readResult(
+      await client.callTool({
+        name: 'memory_primers',
+        arguments: { action: 'delete', primer_id: primer.id }
+      } as never)
+    )
+    if (isError) throw new Error(`memory_primers delete answered isError: ${text}`)
+    const body = payload as { item?: Record<string, unknown>; meta: Record<string, unknown> }
+    expect(JSON.stringify(body)).not.toContain('preview_token')
+    const preview = body.meta.preview as { token?: unknown } | undefined
+    expect(typeof preview?.token).toBe('string')
   })
 })
