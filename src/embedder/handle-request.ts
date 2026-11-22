@@ -1,3 +1,4 @@
+import { embedderErrorCode } from './ipc-error-codes'
 import type { EmbedderReply, EmbedderRequest } from './ipc-protocol'
 
 export type { EmbedderReply } from './ipc-protocol'
@@ -39,10 +40,12 @@ export async function handleEmbedderRequest(
       })
     }
   } catch (err: unknown) {
+    const code = embedderErrorCode(err)
     send({
       type: 'error',
       id: message.id,
-      error: err instanceof Error ? err.message : String(err)
+      error: err instanceof Error ? err.message : String(err),
+      ...(code === undefined ? {} : { code })
     })
   }
 }

@@ -16,8 +16,9 @@ import {
   sweepOrphanedThoughts
 } from '../db/pending-embeddings'
 import { handleEmbedderRequest } from './handle-request'
-import type { IpcMessage } from './ipc-protocol'
+import { EMBEDDER_IPC_PROTOCOL_VERSION, type IpcMessage } from './ipc-protocol'
 import { type EmbeddingRow, type FailedRow, type RowOutcome, classifyBatch } from './batch'
+import { batchWorkerEnabled, readEmbedderUsers } from './spawn-scope'
 
 const BATCH_SIZE = config.embedder.batchSize
 const MAX_CONSECUTIVE_FAILURES = 5
@@ -31,6 +32,8 @@ interface DbEntry {
 }
 
 function openAllDbs(): DbEntry[] {
+  const assigned = readEmbedderUsers()
+  if (assigned) return assigned.map(u => ({ id: u.id, db: null, dbPath: u.dbPath, nextPollAt: 0 }))
   if (Array.isArray(config.users) && config.users.length > 0) {
     return config.users.map(u => ({ id: u.id, db: null, dbPath: u.dbPath, nextPollAt: 0 }))
   }
@@ -39,7 +42,10 @@ function openAllDbs(): DbEntry[] {
   return [{ id: 'default', db, nextPollAt: 0 }]
 }
 
-const entries: DbEntry[] = openAllDbs()
+// A parent that delegates background jobs spawns this process for on-demand requests only, so it
+// holds no database handles and never drains a user queue on its own.
+const batchWorker = batchWorkerEnabled()
+const entries: DbEntry[] = batchWorker ? openAllDbs() : []
 
 const consecutiveFailuresByDb: number[] = entries.map(() => 0)
 const currentBackoffByDb: number[] = entries.map(() => 1)
@@ -120,6 +126,7 @@ async function processOneDb(idx: number): Promise<boolean> {
       return false
     }
     didWork = true
+    const startedAt = Date.now()
 
     const embeddings = await generateEmbeddings(rows.map(r => r.content))
     const { succeeded, failed, contentChanged } = classifyBatch(rows, (row, i) =>
@@ -186,44 +193,42 @@ async function processOneDb(idx: number): Promise<boolean> {
       insertLog('info', 'embedding', `Embedded ${rows.length} thought(s)`, {
         db: entry.id,
         count: rows.length,
-        durationMs: 0
+        durationMs: Date.now() - startedAt
       })
     }
 
     consecutiveFailuresByDb[idx] =
       failed.length === rows.length ? consecutiveFailuresByDb[idx] + 1 : 0
+    const failures = consecutiveFailuresByDb[idx]
     const newBackoff =
-      consecutiveFailuresByDb[idx] >= MAX_CONSECUTIVE_FAILURES
-        ? Math.min(currentBackoffByDb[idx] * 2, 64)
-        : 1
+      failures >= MAX_CONSECUTIVE_FAILURES ? Math.min(currentBackoffByDb[idx] * 2, 64) : 1
     if (newBackoff !== currentBackoffByDb[idx]) {
       currentBackoffByDb[idx] = newBackoff
       if (currentBackoffByDb[idx] > 1) {
         console.error(
-          `[embedder] all ${rows.length} items failed (${consecutiveFailuresByDb[idx]}/${MAX_CONSECUTIVE_FAILURES}), backing off to ${currentBackoffByDb[idx]}x interval`
+          `[embedder] all ${rows.length} items failed (${failures}/${MAX_CONSECUTIVE_FAILURES}), backing off to ${currentBackoffByDb[idx]}x interval`
         )
         insertLog('warning', 'embedding', `Backing off to ${currentBackoffByDb[idx]}x interval`, {
           db: entry.id,
           backoff: currentBackoffByDb[idx],
-          consecutiveFailures: consecutiveFailuresByDb[idx]
+          consecutiveFailures: failures
         })
+        consecutiveFailuresByDb[idx] = 0
         resetExtractor()
       }
     }
     return true
   } catch (err) {
     consecutiveFailuresByDb[idx]++
+    const failures = consecutiveFailuresByDb[idx]
     const msg = err instanceof Error ? err.message : String(err)
-    console.error(
-      `[embedder] batch failed (${consecutiveFailuresByDb[idx]}/${MAX_CONSECUTIVE_FAILURES}):`,
-      err
-    )
+    console.error(`[embedder] batch failed (${failures}/${MAX_CONSECUTIVE_FAILURES}):`, err)
     insertLog('error', 'embedding', `Batch failed: ${msg}`, {
       db: entry.id,
       error: msg,
-      consecutiveFailures: consecutiveFailuresByDb[idx]
+      consecutiveFailures: failures
     })
-    if (consecutiveFailuresByDb[idx] >= MAX_CONSECUTIVE_FAILURES) {
+    if (failures >= MAX_CONSECUTIVE_FAILURES) {
       currentBackoffByDb[idx] = Math.min(currentBackoffByDb[idx] * 2, 64)
       consecutiveFailuresByDb[idx] = 0
       console.error(
@@ -232,7 +237,7 @@ async function processOneDb(idx: number): Promise<boolean> {
       insertLog('warning', 'embedding', `Backing off to ${currentBackoffByDb[idx]}x interval`, {
         db: entry.id,
         backoff: currentBackoffByDb[idx],
-        consecutiveFailures: consecutiveFailuresByDb[idx]
+        consecutiveFailures: failures
       })
       resetExtractor()
     }
@@ -326,6 +331,10 @@ insertLog('debug', 'embedding', 'Embedder process started, validating model', {
 })
 await ensureModelFiles(config.embedder.cacheDir, config.embedder.model, config.embedder.dtype)
 console.log('[embedder] model validated, starting worker')
-startWorker()
+if (batchWorker) {
+  startWorker()
+} else {
+  console.log('[embedder] queue worker disabled: the parent delegates background jobs')
+}
 resetIdleTimer()
-process.send?.({ type: 'ready' })
+process.send?.({ type: 'ready', protocol: EMBEDDER_IPC_PROTOCOL_VERSION })

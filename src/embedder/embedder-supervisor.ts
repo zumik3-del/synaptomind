@@ -2,9 +2,16 @@ import { type Subprocess, spawn } from 'bun'
 import { config } from '../config'
 import { insertLog as defaultInsertLog } from '../logging'
 import { EmbedderNotReadyError, EmbedderUnavailableError } from '../errors'
+import { isUnavailable } from '../context/registry'
 import { isCompiled as defaultIsCompiled } from '../runtime-mode'
 import { IpcClient } from './ipc-client'
-import type { IpcMessage } from './ipc-protocol'
+import { EMBEDDER_IPC_PROTOCOL_VERSION, type IpcMessage } from './ipc-protocol'
+import {
+  EMBEDDER_BATCH_WORKER_ENV,
+  EMBEDDER_USERS_ENV,
+  type EmbedderUserDb,
+  processOwnsBackgroundJobs
+} from './spawn-scope'
 
 type InsertLogFn = (
   level: 'debug' | 'info' | 'warning' | 'error',
@@ -62,6 +69,7 @@ export class EmbedderSupervisor {
   protected readyReject: ((err: Error) => void) | null = null
 
   protected startFailed = false
+  protected protocolMismatch: string | null = null
   protected backoffAttempt = 0
   protected cooldownUntil = 0
   protected ensureReadyPromise: Promise<void> | null = null
@@ -85,6 +93,26 @@ export class EmbedderSupervisor {
     return [process.execPath, 'run', `${import.meta.dir}/embedder-process.ts`]
   }
 
+  protected ownsBackgroundJobs(): boolean {
+    return processOwnsBackgroundJobs()
+  }
+
+  // The child polls exactly the user databases the parent registered: configured minus the ones boot
+  // fan-out marked unavailable.
+  protected assignedUserDbs(): EmbedderUserDb[] {
+    const users = Array.isArray(config.users) ? config.users : []
+    return users.filter(u => !isUnavailable(u.id)).map(u => ({ id: u.id, dbPath: u.dbPath }))
+  }
+
+  protected childScopeEnv(): Record<string, string> {
+    const env: Record<string, string> = {}
+    if (Array.isArray(config.users) && config.users.length > 0) {
+      env[EMBEDDER_USERS_ENV] = JSON.stringify(this.assignedUserDbs())
+    }
+    if (!this.ownsBackgroundJobs()) env[EMBEDDER_BATCH_WORKER_ENV] = 'false'
+    return env
+  }
+
   protected spawnProcess(): void {
     this.dead = false
     this.shuttingDown = false
@@ -97,11 +125,36 @@ export class EmbedderSupervisor {
 
     const generation = ++this.generation
 
+    if (!this.ownsBackgroundJobs()) {
+      this.deps.insertLog(
+        'info',
+        'embedder',
+        'Spawning a local embedder child for on-demand requests only (background jobs delegated)',
+        { reason: 'stdio delegating mode: the shared server owns the embedding queue' }
+      )
+    }
+
     const child = spawn(this.getSpawnArgv(), {
       ipc: (message: IpcMessage) => {
         if (generation !== this.generation) return
 
         if (message.type === 'ready') {
+          if (message.protocol !== EMBEDDER_IPC_PROTOCOL_VERSION) {
+            const received = String((message as { protocol?: unknown }).protocol)
+            this.protocolMismatch = `Embedder IPC protocol mismatch: expected ${EMBEDDER_IPC_PROTOCOL_VERSION}, got ${received}`
+            this.startFailed = true
+            this.dead = true
+            this.deps.insertLog(
+              'error',
+              'embedder',
+              'Embedder child speaks an incompatible IPC protocol',
+              { expected: EMBEDDER_IPC_PROTOCOL_VERSION, received }
+            )
+            this.readyReject?.(new EmbedderNotReadyError(this.protocolMismatch))
+            this.readyResolve = null
+            this.readyReject = null
+            return
+          }
           this.ready = true
           this.startFailed = false
           this.backoffAttempt = 0
@@ -130,7 +183,8 @@ export class EmbedderSupervisor {
       env: {
         ...process.env,
         SYNAPTOMIND_EMBEDDER_PRECACHE: this.deps.getEmbedderPrecache() ? 'true' : 'false',
-        SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT: String(this.deps.getEmbedderIdleTimeoutMs())
+        SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT: String(this.deps.getEmbedderIdleTimeoutMs()),
+        ...this.childScopeEnv()
       },
       stdout: 'pipe',
       stderr: 'pipe'
@@ -226,6 +280,7 @@ export class EmbedderSupervisor {
     const deadline = Date.now() + this.startTimeoutMs()
     while (Date.now() < deadline) {
       if (this.ready) return
+      if (this.protocolMismatch) throw new EmbedderNotReadyError(this.protocolMismatch)
       if (this.shuttingDown) {
         throw new EmbedderUnavailableError('Embedder shutting down')
       }
@@ -368,6 +423,7 @@ export class EmbedderSupervisor {
       this.cooldownUntil = 0
     }
     this.ipc.rejectAllPending(new EmbedderUnavailableError(reason))
+    this.protocolMismatch = null
     this.shuttingDown = false
   }
 }

@@ -1,8 +1,9 @@
 import { closeDb, initDb } from '../../db/init'
+import { EMBEDDER_IPC_PROTOCOL_VERSION } from '../ipc-protocol'
 
 initDb()
 
-process.send?.({ type: 'ready' })
+process.send?.({ type: 'ready', protocol: EMBEDDER_IPC_PROTOCOL_VERSION })
 
 process.on('message', (raw: unknown) => {
   const message = raw as { type?: string }

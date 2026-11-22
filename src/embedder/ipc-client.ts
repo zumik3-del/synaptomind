@@ -3,8 +3,10 @@ import {
   EmbedderNotReadyError,
   EmbedderOverloadedError,
   EmbedderSendError,
-  EmbedderTimeoutError
+  EmbedderTimeoutError,
+  EmbedderUnavailableError
 } from '../errors'
+import { embedderErrorFromCode } from './ipc-error-codes'
 import type { IpcMessage } from './ipc-protocol'
 
 interface PendingRequest {
@@ -81,16 +83,16 @@ export class IpcClient {
     this.pending.delete(message.id)
     clearTimeout(req.timer)
     if (message.type === 'error') {
-      req.reject(new Error(message.error ?? 'Unknown embedder error'))
+      req.reject(embedderErrorFromCode(message.code, message.error ?? 'Unknown embedder error'))
       return
     }
     const emb = message.embedding
-    if (Array.isArray(emb?.[0])) {
+    if (!Array.isArray(emb) || emb.length === 0) {
+      req.reject(new EmbedderUnavailableError('Embedder returned an empty embedding payload'))
+    } else if (Array.isArray(emb[0])) {
       req.resolve((emb as number[][]).map(a => new Float32Array(a)))
-    } else if (emb !== undefined) {
-      req.resolve(new Float32Array(emb as number[]))
     } else {
-      req.reject(new Error('Malformed embedder response'))
+      req.resolve(new Float32Array(emb as number[]))
     }
   }
 }
