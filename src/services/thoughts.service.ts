@@ -149,13 +149,15 @@ export function archiveThoughtsBatchService(
     if (!existing) throw new NotFoundError(`Thought '${id}' not found`)
     if (existing.status !== 'archived') archiveThoughtByIdService(id, d)
   })
-  // One level-1 transaction, a savepoint per id: one commit, every bad id isolated.
+  // One run-level transaction, a savepoint per id: the savepoint is the isolation contract.
   const runArchive = d.transaction(() => {
     for (const id of ids) {
       try {
         archiveItem(id)
         archived++
       } catch (err) {
+        // A trigger can RAISE(ROLLBACK) the whole run; continuing would autocommit the rest.
+        if (!d.inTransaction) throw err
         errors.push({ thought_id: id, error: err instanceof Error ? err.message : String(err) })
       }
     }

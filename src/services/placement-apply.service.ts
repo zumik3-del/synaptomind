@@ -215,6 +215,7 @@ export function applyProposalService(
 
   if (gate.kind === 'already_applied') return acceptIdempotent(row, now, decidedBy, runId, d)
 
+  const inBatchRun = d.inTransaction
   try {
     // Nested writer transactions are savepoints, so a writer failure rolls back both.
     const run = d.transaction(() => {
@@ -250,6 +251,8 @@ export function applyProposalService(
       run_id: runId
     }
   } catch (err) {
+    // A trigger's RAISE(ROLLBACK) ends the caller's run; an outcome written now would autocommit.
+    if (inBatchRun && !d.inTransaction) throw err
     const mapped = mapWriterError(err)
     if (mapped.kind === 'stale') {
       persistOutcome(row, 'stale', mapped.reason, now, decidedBy, d)
@@ -305,12 +308,14 @@ export function applyBatchService(
   const applyItem = d.transaction((proposalId: string) =>
     applyProposalService(proposalId, { ...options, runId: batchRunId }, d)
   )
-  // One run-level transaction, a savepoint per item: a crash rolls back the whole run at once.
+  // One run-level transaction, a savepoint per item: the savepoint is the isolation contract.
   const applyRun = d.transaction(() => {
     for (const proposalId of proposalIds) {
       try {
         results.push(applyItem(proposalId))
       } catch (err) {
+        // A trigger can RAISE(ROLLBACK) the whole run; continuing would autocommit the rest.
+        if (!d.inTransaction) throw err
         errors.push({
           proposal_id: proposalId,
           error: err instanceof Error ? err.message : String(err)

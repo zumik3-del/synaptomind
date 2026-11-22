@@ -398,3 +398,20 @@ test('archiveThoughtsBatchService discards every id when the run aborts', () => 
 
   expect(statusesOf([first, middle, last])).toEqual(['active', 'active', 'active'])
 })
+
+test('archiveThoughtsBatchService discards every id when an early id aborts the run', () => {
+  const first = seedThought({ content: 'batch one' })
+  const middle = seedThought({ content: 'batch two' })
+  const last = seedThought({ content: 'batch three' })
+  getDb().run(
+    `CREATE TRIGGER probe_abort_early BEFORE UPDATE OF status ON thoughts
+     WHEN OLD.id = '${first}'
+     BEGIN SELECT RAISE(ROLLBACK, 'probe: run aborted early'); END`
+  )
+
+  expect(() => archiveThoughtsBatchService([first, middle, last])).toThrow(
+    'probe: run aborted early'
+  )
+
+  expect(statusesOf([first, middle, last])).toEqual(['active', 'active', 'active'])
+})

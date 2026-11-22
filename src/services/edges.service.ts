@@ -150,13 +150,15 @@ export function createEdgesBatchService(
     if (!link.target) throw new ValidationError('target is required')
     createEdgeService(link.source, link.target, link.type, d)
   })
-  // One level-1 transaction, a savepoint per link: one commit, every bad link isolated.
+  // One run-level transaction, a savepoint per link: the savepoint is the isolation contract.
   const runLinks = d.transaction(() => {
     links.forEach((link, index) => {
       try {
         linkItem(link)
         linked++
       } catch (err) {
+        // A trigger can RAISE(ROLLBACK) the whole run; continuing would autocommit the rest.
+        if (!d.inTransaction) throw err
         errors.push({
           index,
           source: link?.source,

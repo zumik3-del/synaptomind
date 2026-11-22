@@ -77,3 +77,25 @@ test('a run-level failure leaves no partially applied run under the run_id', () 
   expect(proposalState(db, rowA.id)).toEqual({ state: 'pending', run_id: null })
   expect(proposalState(db, rowB.id)).toEqual({ state: 'pending', run_id: null })
 })
+
+test('a run-level abort on an early item does not autocommit the rest of the run', () => {
+  const db = getDb()
+  const first = pair('atomic-early-a')
+  const second = pair('atomic-early-b')
+  const rowA = insertPendingEdge(db, first.source, first.target, 'develops')
+  const rowB = insertPendingEdge(db, second.source, second.target, 'develops')
+  db.run(
+    `CREATE TRIGGER probe_abort_early BEFORE INSERT ON edges
+     WHEN NEW.source_id = '${first.source}'
+     BEGIN SELECT RAISE(ROLLBACK, 'probe: run aborted early'); END`
+  )
+
+  expect(() =>
+    applyBatchService([rowA.id, rowB.id], { confirm: true, now: NOW, runId: RUN_ID }, db)
+  ).toThrow('probe: run aborted early')
+
+  expect(edgeCount(db, first.source, first.target)).toBe(0)
+  expect(edgeCount(db, second.source, second.target)).toBe(0)
+  expect(proposalState(db, rowA.id)).toEqual({ state: 'pending', run_id: null })
+  expect(proposalState(db, rowB.id)).toEqual({ state: 'pending', run_id: null })
+})
