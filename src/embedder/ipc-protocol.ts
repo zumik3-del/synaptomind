@@ -1,3 +1,7 @@
+import type { EmbedderErrorCode } from './ipc-error-codes'
+
+export const EMBEDDER_IPC_PROTOCOL_VERSION = 1
+
 type EmbeddingPayload = number[] | number[][]
 
 interface EmbedderRequestParams {
@@ -13,9 +17,9 @@ export interface EmbedderRequest {
 
 export type EmbedderReply =
   | { type: 'result'; id?: string; embedding: EmbeddingPayload }
-  | { type: 'error'; id?: string; error: string }
+  | { type: 'error'; id?: string; error: string; code?: EmbedderErrorCode }
 
-type EmbedderLifecycle = { type: 'ready' } | { type: 'exiting' }
+type EmbedderLifecycle = { type: 'ready'; protocol: number } | { type: 'exiting' }
 
 type IpcRequest = EmbedderRequest & { type: 'request' }
 type IpcShutdown = { type: 'shutdown' }

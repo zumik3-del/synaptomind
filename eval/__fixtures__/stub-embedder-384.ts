@@ -8,12 +8,13 @@
 // while still retrieving the right thoughts.
 
 import { writeFileSync } from 'node:fs'
+import { EMBEDDER_IPC_PROTOCOL_VERSION } from '../../src/embedder/ipc-protocol'
 import { deterministicEmbedding } from '../embedding'
 
 const sentinel = process.env.EVAL_STUB_SENTINEL
 if (sentinel) writeFileSync(sentinel, `${process.pid}\n`)
 
-process.send?.({ type: 'ready' })
+process.send?.({ type: 'ready', protocol: EMBEDDER_IPC_PROTOCOL_VERSION })
 
 process.on('message', (raw: unknown) => {
   const message = raw as {

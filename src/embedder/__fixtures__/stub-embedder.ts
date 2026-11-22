@@ -1,4 +1,6 @@
-process.send?.({ type: 'ready' })
+import { EMBEDDER_IPC_PROTOCOL_VERSION } from '../ipc-protocol'
+
+process.send?.({ type: 'ready', protocol: EMBEDDER_IPC_PROTOCOL_VERSION })
 
 process.on('message', (raw: unknown) => {
   const message = raw as {

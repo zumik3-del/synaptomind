@@ -1,4 +1,5 @@
 import { writeFileSync } from 'node:fs'
+import { EMBEDDER_IPC_PROTOCOL_VERSION } from '../ipc-protocol'
 
 const file = process.env.SYNAPTOMIND_STUB_ENV_FILE
 if (file) {
@@ -11,7 +12,7 @@ if (file) {
   )
 }
 
-process.send?.({ type: 'ready' })
+process.send?.({ type: 'ready', protocol: EMBEDDER_IPC_PROTOCOL_VERSION })
 
 process.on('message', (raw: unknown) => {
   if ((raw as { type?: string })?.type === 'shutdown') process.exit(0)
