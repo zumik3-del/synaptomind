@@ -98,17 +98,17 @@ What the three keys count is per action:
 | `memory_recall` id lookup | the rows the id resolved, after the `limit` cap | `0` |
 | `memory_recall` `list`, `memory_reflect` `timeline`, `memory_crystallize` `graph` | the un-paged count matching the filters | the rows the page left out (`offset`/`limit`) |
 | `retention_review` `list` | the candidate count matching the filters, un-paged | `0` — the page remainder is unaccounted |
-| `edge_review` `list` | the rows matching the filters, ignoring the page (internally capped at 1000) | the retired kinds hidden unless `include_retired` — not the page remainder |
+| `edge_review` `list` | the un-paged row count matching the filters, retired kinds excluded unless `include_retired` | the rows the page `limit` left out |
 | `memory_crystallize` `auto_cluster` | the candidate count | `0` |
 | the batch writers (`link_batch`, `unlink_batch`, `bulk_create`, `archive_batch`, `apply_batch`) and the un-paged collections (`slots`, `frontier`, `memory_manage` `list`, `memory_primers` `list`, `rollback`) | the requested item count, or the rows in `items` | `0` |
 | a single-object action | `1` when an `item` came back, `0` when it did not — except `propose`, where it is the planned edge count | `0` |
 
 So `total = returned + filtered_out` holds where the action accounts for every row it dropped —
 the un-paged collections (vacuously: nothing is dropped), `memory_recall` `list`, `memory_reflect`
-`timeline` and `memory_crystallize` `graph` — and it fails for the rest: `search`/`clusters` leave
-the `limit` slice unaccounted, `retention_review` `list` reports `filtered_out: 0` while the page is
-bounded, `edge_review` `list` counts the retired kinds instead of the page remainder, and
-`auto_cluster` counts candidates against grouped items. **Known gap on the default search path**
+`timeline`, `memory_crystallize` `graph` and `edge_review` `list` — and it fails for the rest:
+`search`/`clusters` leave the `limit` slice unaccounted, `retention_review` `list` reports
+`filtered_out: 0` while the page is bounded, and `auto_cluster` counts candidates against grouped
+items. **Known gap on the default search path**
 (audit #2521, Medium 1, not fixed here): the rows the `limit` slice cut are in neither `returned`
 nor `filtered_out`, so a truncated answer reports `total > returned + filtered_out`. Read `returned`
 for the page and `total` for the pool instead of reconstructing one from the other; a tag-filtered
@@ -1046,10 +1046,14 @@ on `confirm: true`.
 
 - `enqueue` → `{ item: <enqueue outcome>, meta }`, with `meta.counts.proposals` and
   `meta.counts.skipped`.
-- `list` → `{ items, meta }`: `items` are the queued rows for the page (retired kinds hidden unless
-  `include_retired`), `meta.counts.total` the rows matching the filters ignoring the page limit,
-  `meta.counts.retired_count` the retired (legacy) kinds hidden by default, and `filtered_out` the
-  rows the page or the retired filter left out. The retired aliases (`proposals`, `results`, `rows`,
+- `list` → `{ items, meta }`: `items` are the rows matching the filters for the page, ordered
+  `created_at` newest first and bounded by `limit` — the retired kinds hidden unless
+  `include_retired`. Page and count run the same predicates in SQL (pending liveness and the
+  retired-kind exclusion included), so `returned + filtered_out = total` always holds and a page is
+  short only when fewer rows match. `meta.counts.total` is that un-paged `COUNT(*)`, so it never
+  stops at the page cap; `filtered_out` is the rows the `limit` left out; `meta.counts.retired_count`
+  is the retired (legacy) rows the default filter hid, which sit in neither `total` nor
+  `filtered_out`. The retired aliases (`proposals`, `results`, `rows`,
   `count`, `visible_count`, `returned_count`, `retired`, `retiredCount`, `hidden_retired`,
   `breakdown`) are gone; read the canonical keys above.
 - `apply` → `{ item: <apply report>, meta }`; the report's `status` is `dry_run` (preview),

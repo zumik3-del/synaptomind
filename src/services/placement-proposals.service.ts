@@ -2,14 +2,17 @@ import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { getDb } from '../db'
 import {
+  countProposals,
   getProposal,
   insertProposal,
-  isLegacyItemKind,
   listAcceptedProposalsByRun,
   listProposals,
   updateProposalState,
   type InsertProposalInput,
-  type PlacementProposalRow
+  type ListProposalsOptions,
+  type PlacementProposalRow,
+  type ProposalState,
+  type StoredProposalItemKind
 } from '../db/placement-proposals'
 import { getThoughtRow } from '../db/thoughts'
 import { NotFoundError, ValidationError } from '../errors'
@@ -99,8 +102,9 @@ export function enqueuePlanService(
   const run = d.transaction(() => {
     const pending = listProposals(d, {
       state: 'pending',
+      unexpired_at: now,
       limit: maxPending + cappedItems.length + 1
-    }).filter(row => row.expires_at === null || row.expires_at > now)
+    })
     const keys = new Set(pending.map(toItemKey))
     let pendingCount = pending.length
 
@@ -169,34 +173,84 @@ export function listPlacementProposalsService(
   options: ListOptions = {},
   d: Database = getDb()
 ): PlacementProposalRow[] {
-  const state = options.state ?? 'pending'
-  const now = options.now ?? new Date().toISOString()
-  const sourceThoughtId = options.sourceThoughtId ?? options.source_thought_id
+  return listProposals(d, {
+    ...listFilterOptions(resolveListFilters(options)),
+    limit: clampListLimit(options.limit)
+  })
+}
+
+// Same filters as `listPlacementProposalsService`, counted in SQL: the page limit never caps it.
+export function countPlacementProposalsService(
+  options: ListOptions = {},
+  d: Database = getDb()
+): number {
+  return countProposals(d, listFilterOptions(resolveListFilters(options)))
+}
+
+export interface PlacementProposalPage {
+  items: PlacementProposalRow[]
+  /** Un-paged rows matching the filters (the retired kinds excluded unless `includeRetired`). */
+  total: number
+  /** Retired (legacy) rows the default filter hid: in neither `total` nor the page. */
+  hiddenRetired: number
+}
+
+// One read snapshot for the page, its total and the hidden retired count: separate statements could
+// let a concurrent write move a row across the returned/filtered_out boundary. All three derive from
+// one resolved filter set, so they also share one clock.
+export function listPlacementProposalsPageService(
+  options: ListOptions = {},
+  d: Database = getDb()
+): PlacementProposalPage {
+  const filterOptions = listFilterOptions(resolveListFilters(options))
+  return d.transaction(() => {
+    const items = listProposals(d, { ...filterOptions, limit: clampListLimit(options.limit) })
+    const total = countProposals(d, filterOptions)
+    const withRetired = countProposals(d, { ...filterOptions, exclude_legacy: false })
+    return { items, total, hiddenRetired: withRetired - total }
+  })()
+}
+
+// Page and total must read the same set, or both `returned + filtered_out = total` and the page's
+// fullness lie: a row dropped after LIMIT would consume a page slot.
+function listFilterOptions(filters: ResolvedListFilters): ListProposalsOptions {
+  return {
+    state: filters.state,
+    project_id: filters.projectId,
+    item_kind: filters.itemKind,
+    source_thought_id: filters.sourceThoughtId,
+    created_after: filters.createdAfter,
+    unexpired_at: filters.state === 'pending' ? filters.now : undefined,
+    exclude_legacy: filters.itemKind === undefined && !filters.includeRetired
+  }
+}
+
+interface ResolvedListFilters {
+  state: ProposalState
+  now: string
+  projectId: string | undefined
+  itemKind: StoredProposalItemKind | undefined
+  sourceThoughtId: string | undefined
+  createdAfter: string | undefined
+  includeRetired: boolean
+}
+
+function resolveListFilters(options: ListOptions): ResolvedListFilters {
   const createdAfter = options.createdAfter ?? options.created_after
-  const projectId = options.projectId ?? options.project_id
-  const itemKind = options.itemKind ?? options.item_kind
-  const includeRetired = options.includeRetired ?? options.include_retired ?? false
   if (createdAfter !== undefined && !isoDateTimeSchema.safeParse(createdAfter).success) {
     throw new ValidationError(
       `Invalid created_after: ${String(createdAfter)}. Must be a valid ISO timestamp.`
     )
   }
-  const rows = listProposals(d, {
-    state,
-    project_id: projectId,
-    item_kind: itemKind,
-    source_thought_id: sourceThoughtId,
-    created_after: createdAfter,
-    limit: clampListLimit(options.limit)
-  })
-  let result = rows
-  if (state === 'pending') {
-    result = result.filter(row => row.expires_at === null || row.expires_at > now)
+  return {
+    state: options.state ?? 'pending',
+    now: options.now ?? new Date().toISOString(),
+    projectId: options.projectId ?? options.project_id,
+    itemKind: options.itemKind ?? options.item_kind,
+    sourceThoughtId: options.sourceThoughtId ?? options.source_thought_id,
+    createdAfter,
+    includeRetired: options.includeRetired ?? options.include_retired ?? false
   }
-  if (itemKind === undefined && !includeRetired) {
-    result = result.filter(row => !isLegacyItemKind(row.item_kind))
-  }
-  return result
 }
 
 export function rejectPlacementProposalService(

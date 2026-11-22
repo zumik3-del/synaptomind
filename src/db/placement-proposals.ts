@@ -10,13 +10,15 @@ export type LegacyProposalItemKind =
 
 export type StoredProposalItemKind = ProposalItemKind | LegacyProposalItemKind
 
+const LEGACY_ITEM_KINDS: readonly LegacyProposalItemKind[] = [
+  'placement',
+  'lifecycle',
+  'triage_activate',
+  'triage_archive'
+]
+
 export function isLegacyItemKind(kind: string): kind is LegacyProposalItemKind {
-  return (
-    kind === 'placement' ||
-    kind === 'lifecycle' ||
-    kind === 'triage_activate' ||
-    kind === 'triage_archive'
-  )
+  return (LEGACY_ITEM_KINDS as readonly string[]).includes(kind)
 }
 
 export type ProposalState =
@@ -68,7 +70,7 @@ export interface InsertProposalInput {
   run_id?: string | null
 }
 
-export interface ListProposalsOptions {
+export interface ProposalFilterOptions {
   state?: ProposalState
   project_id?: string
   item_kind?: StoredProposalItemKind
@@ -76,6 +78,13 @@ export interface ListProposalsOptions {
   sourceThoughtId?: string
   created_after?: string
   createdAfter?: string
+  /** Drop rows whose `expires_at` is at or before this clock (pending liveness). */
+  unexpired_at?: string
+  /** Drop rows of a retired (legacy) item kind. */
+  exclude_legacy?: boolean
+}
+
+export interface ListProposalsOptions extends ProposalFilterOptions {
   limit?: number
 }
 
@@ -144,14 +153,12 @@ export function getProposal(db: Database, id: string): PlacementProposalRow | un
   return row ?? undefined
 }
 
-export function listProposals(
-  db: Database,
-  options: ListProposalsOptions = {}
-): PlacementProposalRow[] {
-  const state = options.state ?? 'pending'
-  const limit = Math.floor(options.limit ?? 100)
+function filterClauses(options: ProposalFilterOptions): {
+  clauses: string[]
+  params: Array<string | number>
+} {
   const clauses = ['state = ?']
-  const params: Array<string | number> = [state]
+  const params: Array<string | number> = [options.state ?? 'pending']
   if (options.project_id !== undefined) {
     clauses.push('project_id = ?')
     params.push(options.project_id)
@@ -170,12 +177,38 @@ export function listProposals(
     clauses.push('created_at >= ?')
     params.push(createdAfter)
   }
+  if (options.exclude_legacy === true) {
+    clauses.push(`item_kind NOT IN (${LEGACY_ITEM_KINDS.map(() => '?').join(', ')})`)
+    params.push(...LEGACY_ITEM_KINDS)
+  }
+  if (options.unexpired_at !== undefined) {
+    clauses.push('(expires_at IS NULL OR expires_at > ?)')
+    params.push(options.unexpired_at)
+  }
+  return { clauses, params }
+}
+
+export function listProposals(
+  db: Database,
+  options: ListProposalsOptions = {}
+): PlacementProposalRow[] {
+  const limit = Math.floor(options.limit ?? 100)
+  const { clauses, params } = filterClauses(options)
   params.push(limit)
   return db
     .prepare(
       `SELECT * FROM placement_proposals WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT ?`
     )
     .all(...params) as PlacementProposalRow[]
+}
+
+// The list's total must come from SQL: counting the rows of a capped page silently stops at the cap.
+export function countProposals(db: Database, options: ProposalFilterOptions = {}): number {
+  const { clauses, params } = filterClauses(options)
+  const row = db
+    .prepare(`SELECT COUNT(*) AS n FROM placement_proposals WHERE ${clauses.join(' AND ')}`)
+    .get(...params) as { n: number }
+  return row.n
 }
 
 // Ordering by `applied_at` (not `created_at`) is what makes a rollback invert the run: an item

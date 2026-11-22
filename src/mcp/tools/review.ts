@@ -3,11 +3,11 @@ import type { McpServer } from '@modelcontextprotocol/server'
 import { proposalsLimitSchema } from '../../validation'
 import {
   enqueueThoughtProposals,
-  listPlacementProposalsService as listProposals,
+  listPlacementProposalsPageService as listProposalsPage,
   rejectPlacementProposalService as reject,
   type ListOptions
 } from '../../services/placement-proposals.service'
-import { isLegacyItemKind, getProposalService } from '../../services/placement-proposals.service'
+import { getProposalService } from '../../services/placement-proposals.service'
 import type { PlacementProposalRow } from '../../services/placement-proposals.service'
 import { applyBatchService } from '../../services/placement-apply.service'
 import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
@@ -38,46 +38,25 @@ const handlers = {
   list: {
     run(args: ActionArgs) {
       const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
-      const includeRetired = args.include_retired === true
-      const state = args.state as ListOptions['state']
-      const itemKind = args.item_kind as ListOptions['itemKind']
-      const sourceThoughtId = args.source_thought_id as string | undefined
-      const createdAfter = args.created_after as string | undefined
-      const limit = args.limit as number | undefined
-      const visible = listProposals({
-        state,
-        itemKind,
-        sourceThoughtId,
-        createdAfter,
+      const filters: ListOptions = {
+        state: args.state as ListOptions['state'],
+        itemKind: args.item_kind as ListOptions['itemKind'],
+        sourceThoughtId: args.source_thought_id as string | undefined,
+        createdAfter: args.created_after as string | undefined,
         projectId,
-        limit,
-        includeRetired
+        now: new Date().toISOString()
+      }
+      const page = listProposalsPage({
+        ...filters,
+        includeRetired: args.include_retired === true,
+        limit: args.limit as number | undefined
       })
-      const allVisible = listProposals({
-        state,
-        itemKind,
-        sourceThoughtId,
-        createdAfter,
-        projectId,
-        limit: 1000,
-        includeRetired
-      })
-      const allMatching = listProposals({
-        state,
-        itemKind,
-        sourceThoughtId,
-        createdAfter,
-        projectId,
-        limit: 1000,
-        includeRetired: true
-      })
-      const retiredCount = allMatching.filter(row => isLegacyItemKind(row.item_kind)).length
-      return collectionEnvelope('list', visible, {
+      return collectionEnvelope('list', page.items, {
         scope,
         warnings,
-        total: allVisible.length,
-        filtered_out: allMatching.length - allVisible.length,
-        counts: { retired_count: retiredCount }
+        total: page.total,
+        filtered_out: Math.max(0, page.total - page.items.length),
+        counts: { retired_count: page.hiddenRetired }
       })
     }
   },
@@ -164,7 +143,7 @@ const handlers = {
 export function registerEdgeReview(server: McpServer) {
   registerActionTool(server, {
     name: 'edge_review',
-    description: `Review and apply placement proposals. Answers the shared envelope: { items, meta } for list/apply_batch/rollback (aggregate in meta.counts), { item, meta } for enqueue/apply/reject; a preview sets meta.preview={token,destructive:true}. Actions: enqueue (persisted thought only; queues the plan's edge items and reports the skipped ones), list (default pending), apply (dry-run unless confirm=true), apply_batch (per-call cap), rollback (dry-run; one items row per proposal of the run), reject. Rows of a retired item kind (triage_*) stay listable but cannot be applied.`,
+    description: `Review and apply placement proposals. Answers the shared envelope: { items, meta } for list/apply_batch/rollback (aggregate in meta.counts), { item, meta } for enqueue/apply/reject; a preview sets meta.preview={token,destructive:true}. Actions: enqueue (persisted thought only; queues the plan's edge items and reports the skipped ones), list (default pending; page and counts.total apply the same filters in SQL — pending liveness and, unless include_retired, the retired-kind exclusion — so counts.total is the un-paged row count, counts.filtered_out the rows the page limit left out and counts.retired_count the retired rows the default filter hid), apply (dry-run unless confirm=true), apply_batch (per-call cap), rollback (dry-run; one items row per proposal of the run), reject. Rows of a retired item kind (triage_*) stay listable but cannot be applied.`,
     inputSchema: {
       action: z
         .enum(['enqueue', 'list', 'apply', 'apply_batch', 'rollback', 'reject'])
