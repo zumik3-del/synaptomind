@@ -70,18 +70,21 @@ const handlers = {
         targetId: projectId,
         fingerprint: () => fingerprintOf(project.id, project.name, project.thought_count),
         preview: token =>
-          itemEnvelope('delete', {
-            action: 'preview',
-            project: { id: project.id, name: project.name, description: project.description },
-            thought_count: project.thought_count,
-            consequence:
-              project.thought_count > 0
-                ? `${project.thought_count} thought(s) will be moved to the Default project before deletion; any whose content is already live there will be archived, not kept live.`
-                : 'Project has no thoughts — safe to delete.',
-            instruction:
-              'Call memory_manage again with action=delete, project_id=..., confirm=true to proceed.',
-            preview_token: token
-          }),
+          itemEnvelope(
+            'delete',
+            {
+              action: 'preview',
+              project: { id: project.id, name: project.name, description: project.description },
+              thought_count: project.thought_count,
+              consequence:
+                project.thought_count > 0
+                  ? `${project.thought_count} thought(s) will be moved to the Default project before deletion; any whose content is already live there will be archived, not kept live.`
+                  : 'Project has no thoughts — safe to delete.',
+              instruction:
+                'Call memory_manage again with action=delete, project_id=..., confirm=true to proceed.'
+            },
+            { preview: { token } }
+          ),
         apply: () => {
           const deletion = deleteProjectService(projectId)
           if (!deletion.deleted) throw new NotFoundError(`Project not found: ${projectId}`)
@@ -160,7 +163,7 @@ export function registerMemoryManage(server: McpServer) {
         .string()
         .optional()
         .describe(
-          'REQUIRED for "resolve". Working directory path to resolve project from. IGNORED for all other actions.'
+          'REQUIRED for "resolve": the working directory path to resolve. ACCEPTED AND IGNORED for all other actions.'
         ),
       fields: z
         .array(z.string())

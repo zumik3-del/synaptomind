@@ -249,7 +249,7 @@ export function registerEdgeReview(server: McpServer) {
         .string()
         .optional()
         .describe(
-          'Working directory — auto-resolves project. OPTIONAL for "enqueue" and "list". IGNORED for "apply", "apply_batch", "rollback", "reject".'
+          'Working directory — auto-resolves project. OPTIONAL for "enqueue" and "list". ACCEPTED AND IGNORED for "apply", "apply_batch", "rollback", "reject".'
         ),
       limit: proposalsLimitSchema
         .optional()

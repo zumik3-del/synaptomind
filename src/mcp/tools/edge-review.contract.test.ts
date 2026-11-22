@@ -268,7 +268,7 @@ describe('edge_review apply', () => {
     expect(isError).toBe(false)
     expect(data.item.status).toBe('dry_run')
     expect(Array.isArray(data.item.calls)).toBe(true)
-    expect(data.meta.preview).toMatchObject({ token: data.item.preview_token, destructive: true })
+    expect(data.meta.preview).toMatchObject({ token: expect.any(String), destructive: true })
     expect(propState(db, row.id)).toBe('pending')
   })
 
@@ -282,7 +282,7 @@ describe('edge_review apply', () => {
       name: 'edge_review',
       arguments: { action: 'apply', proposal_id: row.id }
     })
-    const token = parseResult(preview).data.item.preview_token
+    const token = parseResult(preview).data.meta.preview.token
     const result = await client.callTool({
       name: 'edge_review',
       arguments: { action: 'apply', proposal_id: row.id, confirm: true, preview_token: token }
@@ -448,7 +448,7 @@ describe('edge_review: stored triage_* rows from an older install', () => {
       name: 'edge_review',
       arguments: { action: 'apply', proposal_id: 'retired-apply-archive' }
     })
-    const token = parseResult(preview).data.item.preview_token
+    const token = parseResult(preview).data.meta.preview.token
     const result = await client.callTool({
       name: 'edge_review',
       arguments: {

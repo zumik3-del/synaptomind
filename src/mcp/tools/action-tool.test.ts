@@ -63,7 +63,7 @@ function captureTool(
 const demoConfig: ActionToolConfig = {
   name: 'memory_demo',
   description: 'dispatcher probe',
-  inputSchema: { action: z.string() },
+  inputSchema: { action: z.string(), value: z.number().optional(), content: z.string().optional() },
   handlers: {
     echo: { run: args => ({ echoed: args.value }) },
     needs_content: {
@@ -189,14 +189,17 @@ const ACTION_REGISTRARS: Array<{ name: string; register: (server: McpServer) => 
   { name: 'memory_primers', register: registerMemoryPrimers }
 ]
 
-describe('unknown action is rejected by every registered action tool', () => {
+describe('an unknown action is refused by every registered action tool', () => {
   for (const { name, register } of ACTION_REGISTRARS) {
-    test(`${name} returns the dispatcher Unknown action envelope`, async () => {
+    test(`${name} answers a structured refusal listing the valid actions`, async () => {
       const handler = captureTool(register)
       const result = (await handler({ action: 'definitely_not_an_action' })) as ToolResult
 
       expect(result.isError).toBe(true)
-      expect(result.content[0].text).toBe('Unknown action: definitely_not_an_action')
+      expect(result.content[0].text).toContain('Invalid option')
+      expect(result.structuredContent?.result).toEqual({
+        error: { message: result.content[0].text }
+      })
     })
   }
 })

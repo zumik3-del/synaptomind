@@ -53,8 +53,7 @@ const handlers = {
                 created_at: primer.created_at
               },
               consequence,
-              instruction,
-              preview_token: token
+              instruction
             },
             { preview: { token, consequence, instruction } }
           )

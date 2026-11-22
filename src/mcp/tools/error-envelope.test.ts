@@ -88,12 +88,12 @@ describe('errorResult mirrors classified metadata under structuredContent.result
     })
   })
 
-  test('an unclassified error keeps the plain envelope with no structuredContent', () => {
+  test('an unclassified error still carries the structured envelope, message only', () => {
     const result = errorResult('boom')
 
     expect(result.isError).toBe(true)
     expect(result.content).toEqual([{ type: 'text', text: 'boom' }])
-    expect(result.structuredContent).toBeUndefined()
+    expect(result.structuredContent).toEqual({ result: { error: { message: 'boom' } } })
   })
 })
 
@@ -134,22 +134,22 @@ describe('registerActionTool classifies thrown domain errors in the envelope', (
     })
   })
 
-  test('a handler throwing a plain Error keeps structuredContent undefined', async () => {
+  test('a handler throwing a plain Error answers the structured envelope, message only', async () => {
     const handler = captureTool(server => registerActionTool(server, classifiedConfig))
     const result = (await handler({ action: 'plain' })) as ToolResult
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toBe('handler exploded')
-    expect(result.structuredContent).toBeUndefined()
+    expect(result.structuredContent?.result?.error).toEqual({ message: 'handler exploded' })
   })
 
-  test('a handler throwing a non-Error keeps structuredContent undefined', async () => {
+  test('a handler throwing a non-Error answers the structured envelope, message only', async () => {
     const handler = captureTool(server => registerActionTool(server, classifiedConfig))
     const result = (await handler({ action: 'non_error' })) as ToolResult
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toBe('memory_demo failed')
-    expect(result.structuredContent).toBeUndefined()
+    expect(result.structuredContent?.result?.error).toEqual({ message: 'memory_demo failed' })
   })
 })
 

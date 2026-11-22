@@ -70,7 +70,7 @@ describe('memory_supersede confirmation contract', () => {
       action: 'archive',
       thought_id: id,
       confirm: true,
-      preview_token: archPreview.data.item.preview_token
+      preview_token: archPreview.data.meta.preview.token
     })
     expect(executed.isError).toBe(false)
     expect(executed.data.item).toMatchObject({
@@ -105,7 +105,7 @@ describe('memory_supersede confirmation contract', () => {
       action: 'archive',
       thought_id: flagged,
       confirm: true,
-      preview_token: preview.data.item.preview_token
+      preview_token: preview.data.meta.preview.token
     })
     expect(executed.isError).toBe(false)
     expect(executed.data.item).toMatchObject({
@@ -323,7 +323,7 @@ describe('memory_supersede confirmation contract', () => {
       target_id: target,
       merged_content: 'merged',
       confirm: true,
-      preview_token: mergePreview.data.item.preview_token
+      preview_token: mergePreview.data.meta.preview.token
     })
     expect(result.isError).toBe(false)
     expect(result.data.item).toMatchObject({

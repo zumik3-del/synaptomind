@@ -30,17 +30,12 @@ export const applyHandler: ActionHandler = {
               row.run_id
             )
           : null,
-      preview: token => {
-        const result = applyProposalService(proposalId, {
+      preview: () =>
+        applyProposalService(proposalId, {
           confirm: false,
           runId: args.run_id as string | undefined,
           decidedBy: AGENT
-        })
-        return {
-          ...(result as unknown as Record<string, unknown>),
-          ...(token === null ? {} : { preview_token: token })
-        }
-      },
+        }),
       apply: () =>
         applyProposalService(proposalId, {
           confirm: true,

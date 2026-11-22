@@ -154,7 +154,7 @@ describe('retention_review MCP', () => {
           action: 'delete',
           thought_id: id,
           confirm: true,
-          preview_token: deletePreview.data.item.preview_token
+          preview_token: deletePreview.data.meta.preview.token
         }
       })
     )
@@ -523,7 +523,7 @@ describe('memory_supersede', () => {
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: thought.id }
     })
-    const token = parseResult(preview).data.item.preview_token
+    const token = parseResult(preview).data.meta.preview.token
     const result = await callTool({
       name: 'memory_supersede',
       arguments: { action: 'archive', thought_id: thought.id, confirm: true, preview_token: token }
@@ -554,7 +554,7 @@ describe('memory_supersede', () => {
         action: 'archive',
         thought_id: thought.id,
         confirm: true,
-        preview_token: parseResult(preview1).data.item.preview_token
+        preview_token: parseResult(preview1).data.meta.preview.token
       }
     })
     const preview2 = await callTool({
@@ -567,7 +567,7 @@ describe('memory_supersede', () => {
         action: 'archive',
         thought_id: thought.id,
         confirm: true,
-        preview_token: parseResult(preview2).data.item.preview_token
+        preview_token: parseResult(preview2).data.meta.preview.token
       }
     })
     const { data, isError } = parseResult(second)
@@ -608,7 +608,7 @@ describe('memory_supersede', () => {
         target_id: target.id,
         merged_content: 'merged result',
         confirm: true,
-        preview_token: parseResult(mergePreview).data.item.preview_token
+        preview_token: parseResult(mergePreview).data.meta.preview.token
       }
     })
     const { data, isError } = parseResult(result)
@@ -999,7 +999,7 @@ describe('merge edge cases', () => {
         target_id: target.id,
         merged_content: 'merged',
         confirm: true,
-        preview_token: parseResult(mergePreview).data.item.preview_token
+        preview_token: parseResult(mergePreview).data.meta.preview.token
       }
     })
     const { data, isError } = parseResult(result)
@@ -1032,7 +1032,7 @@ describe('merge edge cases', () => {
         action: 'archive',
         thought_id: source.id,
         confirm: true,
-        preview_token: parseResult(archPreview).data.item.preview_token
+        preview_token: parseResult(archPreview).data.meta.preview.token
       }
     })
 
@@ -1053,7 +1053,7 @@ describe('merge edge cases', () => {
         source_id: source.id,
         target_id: target.id,
         confirm: true,
-        preview_token: parseResult(mergePreview2).data.item.preview_token
+        preview_token: parseResult(mergePreview2).data.meta.preview.token
       }
     })
     const { isError } = parseResult(result)

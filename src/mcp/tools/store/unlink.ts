@@ -19,7 +19,7 @@ export const unlinkHandler: ActionHandler = {
       targetId: edgeId,
       fingerprint: () =>
         fingerprintOf(edge.id, edge.source_id, edge.target_id, edge.type, edge.created_at),
-      preview: token => {
+      preview: () => {
         const consequence = `Removes the '${edge.type}' edge between '${edge.source_id}' and '${edge.target_id}'.`
         const instruction = `Call memory_store again with action=unlink, edge_id=${edgeId}, confirm=true to proceed.`
         return {
@@ -33,7 +33,6 @@ export const unlinkHandler: ActionHandler = {
             created_at: edge.created_at
           },
           consequence,
-          preview_token: token,
           instruction
         }
       },
