@@ -44,12 +44,24 @@ export interface FreshConfigOptions {
   env?: Record<string, string | undefined>
   /** `config.json` payload to load, or `undefined` for "no file at all". */
   configFile?: unknown
+  /**
+   * Raw `config.json` text, for a payload `JSON.stringify` cannot express — `1e999` parses to
+   * `Infinity` inside the loader, which is how a non-finite file value reaches the schema.
+   */
+  configText?: string
+  /**
+   * Delete every ambient `SYNAPTOMIND_*` / `EMBEDDER_*` variable before applying `env`, so the
+   * developer's shell cannot decide the outcome of the load under test.
+   */
+  isolated?: boolean
 }
 
 export async function loadFreshConfig(options: FreshConfigOptions = {}): Promise<FreshConfigLoad> {
   const scratch = mkdtempSync(join(tmpdir(), 'synaptomind-config-probe-'))
   const configPath = join(scratch, 'config.json')
-  if (options.configFile !== undefined) {
+  if (options.configText !== undefined) {
+    writeFileSync(configPath, options.configText)
+  } else if (options.configFile !== undefined) {
     writeFileSync(configPath, JSON.stringify(options.configFile))
   }
 
@@ -60,6 +72,11 @@ export async function loadFreshConfig(options: FreshConfigOptions = {}): Promise
     else process.env[key] = value
   }
 
+  if (options.isolated === true) {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('SYNAPTOMIND_') || key.startsWith('EMBEDDER_')) install(key, undefined)
+    }
+  }
   install('SYNAPTOMIND_CONFIG', configPath)
   for (const [key, value] of Object.entries(options.env ?? {})) install(key, value)
 
