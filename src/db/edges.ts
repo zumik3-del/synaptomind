@@ -1,9 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { EdgeAlreadyExistsError } from './errors'
-import { NotFoundError } from './errors'
-import { validateRetype } from './edge-validation'
-import { boostImportance } from './importance'
 import { getThoughtRow, getThoughtsBatchWithTags, type Thought } from './thoughts'
 import { sqlIn, pairKey } from './utils'
 
@@ -90,24 +87,6 @@ export function replaceEdgeRow(
   db.prepare('DELETE FROM edges WHERE id = ?').run(oldEdgeId)
   insertEdgeRowStrict(db, id, sourceId, targetId, type, createdAt)
   return id
-}
-
-export function retypeEdge(db: Database, edgeId: string, newType: string): Edge {
-  const edge = findEdge(db, edgeId)
-  if (!edge) {
-    throw new NotFoundError(`Edge not found: ${edgeId}`)
-  }
-
-  validateRetype(db, edge, newType)
-
-  let id = ''
-  const replaceInTx = db.transaction(() => {
-    id = replaceEdgeRow(db, edge.id, edge.source_id, edge.target_id, newType, edge.created_at)
-    boostImportance(db, edge.source_id, 0.1)
-  })
-  replaceInTx()
-
-  return findEdge(db, id)
 }
 
 export function deleteEdge(db: Database, id: string): boolean {

@@ -10,6 +10,15 @@ const DOOR = 'db/index'
 const HANDLE = 'db/handle'
 const HANDLE_EXCEPTION = 'db/init'
 const UPPER_LAYER = /^(context|services|api|mcp)\/|^errors$/
+const LOGGING = /^logging(\/|$)/
+const SCRIPT_EXTENSION = /\.(ts|tsx|js|jsx|mjs|cjs)$/
+
+// The db/ files allowed to log, each with the reason its caller cannot observe the outcome it logs.
+const LOGGING_EXCEPTIONS: Record<string, string> = {
+  'db/pending-embeddings.ts': 'the caller sees a void/false return, not the row transition',
+  'db/search-bm25.ts': 'the caller receives the fallback result, never the SQL exception',
+  'db/search-vector.ts': 'the caller receives the fallback result, never the SQL exception'
+}
 
 // *.test.ts / *.suite.ts are excluded: a test beside a db module may exercise the layers above it.
 function filesUnder(dir: string): string[] {
@@ -28,21 +37,32 @@ interface Import {
   target: string
 }
 
+const STATIC_SPECIFIER = [/\bfrom\s+['"]([^'"]+)['"]/g, /\bimport\s+['"]([^'"]+)['"]/g]
+const DYNAMIC_SPECIFIER = [/\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)/g]
+
+// A `.js` specifier names a `.ts` module here, so an equality rule must see the module, not the file.
 function stripExtension(path: string): string {
-  return path.replace(/\.ts$/, '')
+  return path.replace(SCRIPT_EXTENSION, '')
 }
 
-function importsOf(file: string): Import[] {
+function specifiersOf(file: string, patterns: RegExp[]): Import[] {
   const source = readFileSync(file, 'utf8')
-  const specifiers = [
-    ...source.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g),
-    ...source.matchAll(/\bimport\s+['"]([^'"]+)['"]/g)
-  ].map(match => match[1])
+  const specifiers = patterns.flatMap(pattern =>
+    [...source.matchAll(pattern)].map(match => match[1])
+  )
   return specifiers.map(specifier => ({
     file: relative(SRC, file),
     specifier,
     target: stripExtension(relative(SRC, resolve(dirname(file), specifier)))
   }))
+}
+
+function importsOf(file: string): Import[] {
+  return specifiersOf(file, STATIC_SPECIFIER)
+}
+
+function dynamicImportsOf(file: string): Import[] {
+  return specifiersOf(file, DYNAMIC_SPECIFIER)
 }
 
 function relativeImports(file: string): Import[] {
@@ -51,6 +71,15 @@ function relativeImports(file: string): Import[] {
 
 function describeImport(entry: Import): string {
   return `${entry.file} imports '${entry.specifier}'`
+}
+
+function isAuditedLogging(file: string): boolean {
+  return Object.hasOwn(LOGGING_EXCEPTIONS, file)
+}
+
+function mayReachHandle(file: string): boolean {
+  const module = stripExtension(file)
+  return module === DOOR || module === HANDLE_EXCEPTION
 }
 
 describe('the db layer boundary', () => {
@@ -79,8 +108,7 @@ describe('the db layer boundary', () => {
     const offenders = filesUnder(SRC)
       .flatMap(importsOf)
       .filter(entry => entry.target === HANDLE)
-      .filter(entry => stripExtension(entry.file) !== DOOR)
-      .filter(entry => stripExtension(entry.file) !== HANDLE_EXCEPTION)
+      .filter(entry => !mayReachHandle(entry.file))
       .map(describeImport)
 
     expect(
@@ -101,5 +129,47 @@ describe('the db layer boundary', () => {
     ]
 
     expect(offenders, 'context/ depends on db/, never the reverse').toEqual([])
+  })
+
+  test('db/ imports logging only where the caller cannot observe the outcome', () => {
+    const offenders = filesUnder(DB_DIR)
+      .flatMap(importsOf)
+      .filter(entry => LOGGING.test(entry.target))
+      .filter(entry => !isAuditedLogging(entry.file))
+      .map(describeImport)
+
+    expect(
+      offenders,
+      `logging/ is an upper layer: log in the caller, or list the file in LOGGING_EXCEPTIONS with the reason its caller cannot observe the outcome (audited: ${Object.keys(LOGGING_EXCEPTIONS).join(', ')})`
+    ).toEqual([])
+  })
+
+  test('no module reaches a forbidden one through import() or require()', () => {
+    const offenders = filesUnder(SRC)
+      .flatMap(dynamicImportsOf)
+      .filter(entry => {
+        const inDb = entry.file.startsWith('db/')
+        if (!inDb) return entry.target === HANDLE && !mayReachHandle(entry.file)
+        if (UPPER_LAYER.test(entry.target)) return true
+        return LOGGING.test(entry.target) && !isAuditedLogging(entry.file)
+      })
+      .map(describeImport)
+
+    expect(
+      offenders,
+      'import() and require() cross a boundary as a static import does: db/ reaches no layer above it, and only db/index.ts or db/init.ts reaches db/handle'
+    ).toEqual([])
+  })
+
+  test('every specifier is normalised to its extensionless module path', () => {
+    const offenders = filesUnder(SRC)
+      .flatMap(relativeImports)
+      .filter(entry => SCRIPT_EXTENSION.test(entry.target))
+      .map(describeImport)
+
+    expect(
+      offenders,
+      "a '.js' specifier names a '.ts' module: strip the script extension before matching, or an equality rule (db/handle, context) misses it"
+    ).toEqual([])
   })
 })

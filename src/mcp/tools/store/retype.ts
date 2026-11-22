@@ -1,7 +1,6 @@
 import { z } from 'zod/v4'
-import { EDGE_TYPES, validateRetypeService } from '../../../services/edges.service'
+import { EDGE_TYPES, retypeEdge, validateRetypeService } from '../../../services/edges.service'
 import { getDb } from '../../../db'
-import { retypeEdge } from '../../../db/edges'
 import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.service'
 import { itemEnvelope } from '../envelope'
 import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'

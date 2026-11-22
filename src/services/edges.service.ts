@@ -61,6 +61,24 @@ export function createEdge(
   return insertEdge(d, sourceId, targetId, type)
 }
 
+export function retypeEdge(d: Database, edgeId: string, newType: string): Edge {
+  const edge = findEdge(d, edgeId)
+  if (!edge) {
+    throw new NotFoundError(`Edge not found: ${edgeId}`)
+  }
+
+  validateRetype(d, edge, newType)
+
+  let id = ''
+  const replaceInTx = d.transaction(() => {
+    id = replaceEdgeRow(d, edge.id, edge.source_id, edge.target_id, newType, edge.created_at)
+    boostImportance(d, edge.source_id, 0.1)
+  })
+  replaceInTx()
+
+  return findEdge(d, id)
+}
+
 function insertEdge(d: Database, sourceId: string, targetId: string, type: string): Edge {
   let id = ''
   let inserted = false
