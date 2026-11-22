@@ -7,13 +7,22 @@
  * Imports nothing on purpose: the logging, embedder and runtime modules import this table.
  */
 
-export type RawEnvKind = 'flag' | 'positive-int' | 'path' | 'file' | 'secret' | 'secret-list'
+export type RawEnvKind =
+  | 'flag'
+  | 'positive-int'
+  | 'path'
+  | 'path-list'
+  | 'file'
+  | 'secret'
+  | 'secret-list'
 
 export interface RawEnvEntry {
   env: string
   kind: RawEnvKind
   /** The value the reader falls back to when the variable is unset or unusable. */
   fallback?: number
+  /** A flag the reader treats as on unless it is exactly the string "false". */
+  inverted?: boolean
   description: string
 }
 
@@ -47,6 +56,25 @@ export const RAW_ENV: readonly RawEnvEntry[] = [
     description: 'base restart backoff for the embedder child (src/embedder/embedder-supervisor.ts)'
   },
   {
+    env: 'SYNAPTOMIND_EMBEDDER_USERS',
+    kind: 'path-list',
+    description:
+      'user databases handed to the embedder child as JSON; read in src/embedder/spawn-scope.ts'
+  },
+  {
+    env: 'SYNAPTOMIND_EMBEDDER_BATCH_WORKER',
+    kind: 'flag',
+    inverted: true,
+    description:
+      'parent sets "false" so the child skips the background jobs; read in src/embedder/spawn-scope.ts'
+  },
+  {
+    env: 'SYNAPTOMIND_EMBEDDER_SCRIPT',
+    kind: 'path',
+    description:
+      'embedder entry script used instead of the default (src/embedder/embedder-supervisor.ts)'
+  },
+  {
     env: 'SYNAPTOMIND_SECRET',
     kind: 'secret',
     description: 'single-user bearer token; inert when users are configured (src/auth.ts)'
@@ -75,11 +103,13 @@ export function rawEnvFallbackNumber(env: string): number {
   return fallback
 }
 
-/** The value the reading module would use, with secrets and paths reduced to presence. */
+/** The value the reading module would use, with secrets, paths and the user list reduced to presence or a count. */
 export function rawEnvEffective(entry: RawEnvEntry, env: NodeJS.ProcessEnv = process.env): string {
   switch (entry.kind) {
-    case 'flag':
-      return env[entry.env] === 'true' ? 'yes' : 'no'
+    case 'flag': {
+      const raw = env[entry.env]
+      return (entry.inverted === true ? raw !== 'false' : raw === 'true') ? 'yes' : 'no'
+    }
     case 'positive-int': {
       const raw = env[entry.env]?.trim() ?? ''
       const value = raw === '' ? Number.NaN : Number(raw)
@@ -90,6 +120,17 @@ export function rawEnvEffective(entry: RawEnvEntry, env: NodeJS.ProcessEnv = pro
     case 'file':
     case 'secret':
       return (env[entry.env] ?? '').trim() === '' ? '-' : '[set]'
+    case 'path-list': {
+      const raw = (env[entry.env] ?? '').trim()
+      if (raw === '') return '-'
+      try {
+        const parsed: unknown = JSON.parse(raw)
+        if (!Array.isArray(parsed)) return '[set]'
+        return `${parsed.length} ${parsed.length === 1 ? 'path' : 'paths'}`
+      } catch {
+        return '[set]'
+      }
+    }
     case 'secret-list': {
       const prefix = entry.env.replace('<ID>', '')
       const ids = Object.keys(env)

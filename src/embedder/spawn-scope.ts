@@ -3,6 +3,8 @@ import { config } from '../config'
 export const EMBEDDER_USERS_ENV = 'SYNAPTOMIND_EMBEDDER_USERS'
 export const EMBEDDER_BATCH_WORKER_ENV = 'SYNAPTOMIND_EMBEDDER_BATCH_WORKER'
 
+// Read with literal keys so src/config.raw-env.test.ts can see them; the constants are for writing.
+
 export interface EmbedderUserDb {
   id: string
   dbPath: string
@@ -19,7 +21,7 @@ export function processOwnsBackgroundJobs(argv: readonly string[] = process.argv
 
 // null = the parent handed no list (standalone or single-database child): fall back to config.users.
 export function readEmbedderUsers(): EmbedderUserDb[] | null {
-  const raw = process.env[EMBEDDER_USERS_ENV]
+  const raw = process.env.SYNAPTOMIND_EMBEDDER_USERS
   if (raw === undefined) return null
   try {
     const parsed: unknown = JSON.parse(raw)
@@ -36,5 +38,5 @@ export function readEmbedderUsers(): EmbedderUserDb[] | null {
 }
 
 export function batchWorkerEnabled(): boolean {
-  return process.env[EMBEDDER_BATCH_WORKER_ENV] !== 'false'
+  return process.env.SYNAPTOMIND_EMBEDDER_BATCH_WORKER !== 'false'
 }
