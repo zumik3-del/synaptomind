@@ -285,15 +285,25 @@ export function archiveThought(db: Database, id: string): Thought | undefined {
   })
 }
 
+function isMissingTableError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('no such table')
+}
+
 export function deleteThought(db: Database, id: string): boolean {
-  try {
-    db.prepare(`DELETE FROM vec_thoughts WHERE id = ?`).run(id)
-  } catch {}
-  const result = db.prepare(`DELETE FROM thoughts WHERE id = ?`).run(id)
-  if (result.changes > 0) {
-    pruneOrphanTags(db)
-  }
-  return result.changes > 0
+  const run = db.transaction(() => {
+    try {
+      db.prepare(`DELETE FROM vec_thoughts WHERE id = ?`).run(id)
+    } catch (err) {
+      // `:memory:` and vec0-less DBs carry no vec_thoughts table; every other failure is real.
+      if (!isMissingTableError(err)) throw err
+    }
+    const result = db.prepare(`DELETE FROM thoughts WHERE id = ?`).run(id)
+    if (result.changes > 0) {
+      pruneOrphanTags(db)
+    }
+    return result.changes > 0
+  })
+  return run()
 }
 
 // `countThoughts` must apply this same fragment, or a page and its total disagree.

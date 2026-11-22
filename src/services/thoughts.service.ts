@@ -144,19 +144,23 @@ export function archiveThoughtsBatchService(
   let archived = 0
   const errors: ArchiveBatchError[] = []
 
-  const run = d.transaction(() => {
+  const archiveItem = d.transaction((id: string) => {
+    const existing = dbGetThought(d, id)
+    if (!existing) throw new NotFoundError(`Thought '${id}' not found`)
+    if (existing.status !== 'archived') archiveThoughtByIdService(id, d)
+  })
+  // One level-1 transaction, a savepoint per id: one commit, every bad id isolated.
+  const runArchive = d.transaction(() => {
     for (const id of ids) {
       try {
-        const existing = dbGetThought(d, id)
-        if (!existing) throw new NotFoundError(`Thought '${id}' not found`)
-        if (existing.status !== 'archived') archiveThoughtByIdService(id, d)
+        archiveItem(id)
         archived++
       } catch (err) {
         errors.push({ thought_id: id, error: err instanceof Error ? err.message : String(err) })
       }
     }
   })
-  run()
+  runArchive()
 
   return { archived, failed: errors.length, errors }
 }

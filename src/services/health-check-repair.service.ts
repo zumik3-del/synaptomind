@@ -70,17 +70,22 @@ export function runHealthRepairService(
 
   const previewToken = options.preview_token
   if (!previewToken) throw new ValidationError('preview_token is required')
-  const verification = consumePreviewTokenService(
-    previewToken,
-    'health_repair',
-    'health',
-    fingerprint,
-    d
-  )
-  if (!verification.valid)
-    throw new ValidationError(`preview token ${verification.reason ?? 'invalid'}`)
 
-  const repaired = runAutoFix(d, fullReport.categories)
+  // Token and repairs commit together, so a failure mid-loop leaves both the data and the token.
+  const applyRepairs = d.transaction(() => {
+    const verification = consumePreviewTokenService(
+      previewToken,
+      'health_repair',
+      'health',
+      fingerprint,
+      d
+    )
+    if (!verification.valid)
+      throw new ValidationError(`preview token ${verification.reason ?? 'invalid'}`)
+    return runAutoFix(d, fullReport.categories)
+  })
+
+  const repaired = applyRepairs()
 
   const report = runHealthCheckService({ severity: options.severity }, d)
   return { status: 'executed', action: 'repair', repaired, report }

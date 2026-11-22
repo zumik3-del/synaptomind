@@ -301,16 +301,25 @@ export function applyBatchService(
 
   const results: ApplyResult[] = []
   const errors: ApplyBatchOutcome['errors'] = []
-  for (const proposalId of proposalIds) {
-    try {
-      results.push(applyProposalService(proposalId, { ...options, runId: batchRunId }, d))
-    } catch (err) {
-      errors.push({
-        proposal_id: proposalId,
-        error: err instanceof Error ? err.message : String(err)
-      })
+
+  const applyItem = d.transaction((proposalId: string) =>
+    applyProposalService(proposalId, { ...options, runId: batchRunId }, d)
+  )
+  // One run-level transaction, a savepoint per item: a crash rolls back the whole run at once.
+  const applyRun = d.transaction(() => {
+    for (const proposalId of proposalIds) {
+      try {
+        results.push(applyItem(proposalId))
+      } catch (err) {
+        errors.push({
+          proposal_id: proposalId,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
     }
-  }
+  })
+  applyRun()
+
   const joinedRun =
     batchRunId !== undefined &&
     results.some(r => r.status === 'accepted' && r.run_id === batchRunId)
