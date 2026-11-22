@@ -33,6 +33,9 @@ Bun + Hono + SQLite (vec0 + FTS5); local embeddings via `@huggingface/transforme
 ## 4. Code conventions
 
 - SOLID, KISS, DRY where they matter; one thing per function; files ≤350 lines; clear names
+- **No speculative growth.** Add a module, abstraction, option, config key or dependency only when a
+  current caller needs it; extend an existing seam before adding a parallel one; a refactor that
+  deletes code beats one that adds it. Three similar lines are cheaper than the wrong abstraction.
 - Tests alongside source (`*.test.ts`)
 
 **Comments.** None by default — code is read by agents, and a stale comment misleads more than
@@ -87,6 +90,11 @@ depends on the db layer by design.
   `src/test/lanes.ts` holds the lanes and shard weights, and `src/test/lanes.test.ts` fails when a
   test that boots the entry point or binds a listener is missing from the slow lane
 - Glob: `*.test.ts` runs; `*.suite.ts` is excluded (isolated subprocess suites)
+- **Coverage follows risk, not a percentage.** Every Core path (persistence, wire contracts,
+  retrieval, write atomicity) has a test that fails when its behaviour breaks; a Pillar covers the
+  behaviour it promises; Scaffolding gets a smoke-level check. New code needs the failing case it
+  prevents, not a mirror of its implementation — and a pin that cannot be made to fail is worse than
+  none, so prove it by mutation (revert the fix, seed a stray value) before calling it coverage.
 - Gotchas → §8
 
 ## 6. Branching, release & deploy
@@ -105,7 +113,9 @@ merge-commit subject and must be `<type>(<scope>): <desc>`
 (`fix`/`feat`/`chore`/`docs`/`refactor`/`test`/`ci`/`build`; `feat!:` or `BREAKING CHANGE:` = breaking).
 No `Fixed bug`/`update stuff`/emoji-only.
 
-**Release:** on a clean `dev`, `bash scripts/release.sh <version>` (validates semver, bumps
+**Release:** **bump versions only when the user asks** — a merged wave is not a release trigger, and
+no agent cuts one on its own initiative. When asked, on a clean `dev`,
+`bash scripts/release.sh <version>` (validates semver, bumps
 `package.json`, regenerates `CHANGELOG.md`; no tag/commit/push) → commit
 `chore: bump version to <version>` → push → open release PR `dev` → `main` → user merges. The push to
 `main` triggers `.github/workflows/release.yml`: `detect` (only if the version changed and
