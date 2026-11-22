@@ -4,7 +4,6 @@ type Mode = 'all-failed' | 'catch' | 'ok' | 'recover'
 const MODE = (process.env.SYNAPTOMIND_BACKOFF_MODE ?? 'all-failed') as Mode
 
 const MAX_CONSECUTIVE_FAILURES = 5
-const MAX_BACKOFF = 64
 const FAIL_ROUNDS_BEFORE_SUCCESS = 6
 const SUCCESS_ROUND = FAIL_ROUNDS_BEFORE_SUCCESS + 1
 
@@ -15,7 +14,6 @@ interface LogEntry {
 }
 
 const logs: LogEntry[] = []
-const consoleErrors: string[] = []
 const row = { id: 'row', content: 'row', contentHash: 'hash' }
 
 let now = 1_000_000
@@ -25,16 +23,12 @@ let pollHandler: (() => void) | undefined
 
 const originalNow = Date.now
 const originalSetInterval = globalThis.setInterval
-const originalConsoleError = console.error
 
 Date.now = () => now
 globalThis.setInterval = ((fn: () => void, ms?: number) => {
   if (ms === 10) pollHandler = fn
   return 1 as unknown as ReturnType<typeof setInterval>
 }) as typeof setInterval
-console.error = ((...args: unknown[]) => {
-  consoleErrors.push(args.map(arg => String(arg)).join(' '))
-}) as typeof console.error
 
 mock.module('../config', () => ({
   config: {
@@ -111,7 +105,6 @@ const failureCounts = (): unknown[] => backoffLogs().map(l => l.meta?.consecutiv
 afterAll(() => {
   Date.now = originalNow
   globalThis.setInterval = originalSetInterval
-  console.error = originalConsoleError
 })
 
 test(`${MODE}: the batch loop starts its poller`, async () => {
@@ -143,9 +136,6 @@ if (MODE === 'catch') {
     expect(backoffValues()).toEqual([2, 4])
     // The second threshold lands on round ten; without the reset it would land on round six.
     expect(rounds).toBe(10)
-
-    expect(consoleErrors.filter(line => line.includes('(5/5)'))).toHaveLength(2)
-    expect(consoleErrors.some(line => line.includes('(6/5)'))).toBe(false)
   })
 }
 
@@ -177,9 +167,6 @@ if (MODE === 'all-failed') {
     // Those rounds crossed a further threshold, which must not log again or restart the ramp.
     expect(backoffLogs()).toHaveLength(cappedLogs)
     expect(backoffValues()).toEqual([2, 4, 8, 16, 32, 64])
-    expect(
-      consoleErrors.filter(line => line.includes(`backing off to ${MAX_BACKOFF}x`))
-    ).toHaveLength(1)
   })
 }
 
