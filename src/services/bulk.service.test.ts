@@ -90,6 +90,25 @@ test('bulkCreateThoughtsService discards every item when the run aborts', () => 
   expect(count.n).toBe(0)
 })
 
+test('bulkCreateThoughtsService discards every item when an early item aborts the run', () => {
+  getDb().run(
+    `CREATE TRIGGER probe_abort_early BEFORE INSERT ON thoughts
+     WHEN NEW.content = 'first good item'
+     BEGIN SELECT RAISE(ROLLBACK, 'probe: run aborted early'); END`
+  )
+
+  expect(() =>
+    bulkCreateThoughtsService([
+      { content: 'first good item' },
+      { content: 'second good item' },
+      { content: 'third good item' }
+    ])
+  ).toThrow('probe: run aborted early')
+
+  const count = getDb().prepare('SELECT COUNT(*) AS n FROM thoughts').get() as { n: number }
+  expect(count.n).toBe(0)
+})
+
 test('bulkCreateThoughtsService applies the default project to items without one', () => {
   seedThought({ content: 'anchor', project_id: 'bulk-project' })
   const result = bulkCreateThoughtsService(

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
-import { getDb } from '../context/container'
-import { createEdge } from './edges'
+import { getDb } from './index'
+import { createEdge } from '../services/edges.service'
 import { annotateGraphStanding } from './graph-annotations'
 import { closeDb } from './init'
 

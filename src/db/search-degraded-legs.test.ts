@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { closeDb } from './init'
 import { bm25ScoredIds } from './search-bm25'
 import { vecSearchIds } from './search-vector'

@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { closeDb } from './init'
 import {
   createTestDb,

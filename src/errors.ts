@@ -4,24 +4,10 @@ export {
   SelfLoopEdgeError,
   EdgeConflictError,
   InvalidEdgeTypeError,
-  ThoughtContentConflictError
+  ThoughtContentConflictError,
+  NotFoundError,
+  ValidationError
 } from './db/errors'
-
-export class NotFoundError extends Error {
-  readonly statusCode = 404
-  constructor(msg = 'Not found') {
-    super(msg)
-    this.name = 'NotFoundError'
-  }
-}
-
-export class ValidationError extends Error {
-  readonly statusCode = 400
-  constructor(msg: string) {
-    super(msg)
-    this.name = 'ValidationError'
-  }
-}
 
 export class RetentionReviewIneligibleError extends Error {
   readonly statusCode = 409

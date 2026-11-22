@@ -29,7 +29,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { closeDb, getDb, initDb } from '../src/db'
 import { buildFilterSQL, buildVecScopeSQL } from '../src/db/search-filters'
-import type { SearchResult } from '../src/db/search-types'
+import type { SearchResult } from '../src/types/search'
 import { vecSearchIds } from '../src/db/search-vector'
 import { deterministicEmbedding } from './embedding'
 import {

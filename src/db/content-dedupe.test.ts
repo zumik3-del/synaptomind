@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { assertNoLiveContentConflict, isContentDedupeViolation } from './content-dedupe'
 import { ThoughtContentConflictError } from './errors'
 import { closeDb } from './init'

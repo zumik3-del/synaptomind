@@ -1,5 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/server'
-import { getAdvertisedSoftLimitService } from '../../services/settings.service'
+import { getThoughtLimitsDB } from '../../config.thought-limits'
 import { toolOutputShape } from './utils'
 
 function buildGuideText(softLimit: number): string {
@@ -97,7 +97,7 @@ export function registerMemoryGuide(server: McpServer) {
       outputSchema: toolOutputShape
     },
     async () => {
-      const softLimit = getAdvertisedSoftLimitService()
+      const softLimit = getThoughtLimitsDB().softLimit
       const text = buildGuideText(softLimit)
       return { content: [{ type: 'text' as const, text }], structuredContent: { result: { text } } }
     }

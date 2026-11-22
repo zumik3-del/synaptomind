@@ -26,8 +26,8 @@ const { dirname, isAbsolute } = await import('path')
 const { serve } = await import('bun')
 const { app } = await import('./app')
 const { config } = await import('./config')
-const { closeDb, openDatabase } = await import('./db/init')
-const { als, bootFanOut } = await import('./context/registry')
+const { als, clearRegistry, closeDb, listUserDatabases, openDatabase } = await import('./db')
+const { bootFanOut } = await import('./context/registry')
 const { startEmbedderProcess, stopEmbedderProcess } = await import('./embedder/client')
 const { closeLogging } = await import('./logging')
 const { startMcpHttpServer } = await import('./mcp/http-transport')
@@ -126,15 +126,12 @@ async function shutdown(extra?: () => void | Promise<void>): Promise<void> {
   await stopEmbedderProcess()
   closeLogging()
   if (extra) await extra()
-  try {
-    const { clearRegistry, listUserDatabases } = await import('./context/registry')
-    for (const { db } of listUserDatabases()) {
-      try {
-        db.close(true)
-      } catch {}
-    }
-    clearRegistry()
-  } catch {}
+  for (const { db } of listUserDatabases()) {
+    try {
+      db.close(true)
+    } catch {}
+  }
+  clearRegistry()
   closeDb()
   process.exit(0)
 }

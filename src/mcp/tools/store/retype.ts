@@ -1,9 +1,7 @@
 import { z } from 'zod/v4'
-import {
-  retypeEdgeService,
-  validateRetypeService,
-  EDGE_TYPES
-} from '../../../services/edges.service'
+import { validateRetypeService, EDGE_TYPES } from '../../../services/edges.service'
+import { getDb } from '../../../db'
+import { retypeEdge } from '../../../db/edges'
 import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.service'
 import { itemEnvelope } from '../envelope'
 import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
@@ -37,7 +35,7 @@ export const retypeHandler: ActionHandler = {
         consequence: `Changes edge type from '${oldType}' to '${newType}'.`
       }),
       apply: () => {
-        const retyped = retypeEdgeService(edgeId, newType)
+        const retyped = retypeEdge(getDb(), edgeId, newType)
         return {
           status: 'retyped',
           edge_id: retyped.id,

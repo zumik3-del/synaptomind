@@ -1,11 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import {
-  getDb,
-  getUserDb,
-  listRegisteredUsers,
-  listUserDatabases,
-  registrySize
-} from '../context/container'
+import { getDb, getUserDb, listRegisteredUsers, listUserDatabases, registrySize } from '../db'
 import { config } from '../config'
 import { getEmbedderState, type EmbedderState } from '../embedder/client-core'
 import { VERSION } from '../version'

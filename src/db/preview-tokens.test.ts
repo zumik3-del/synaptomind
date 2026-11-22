@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { vec0Path } from '../runtime-mode'
 import { createTestDb } from '../test/helpers'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { closeDb, initDb } from './init'
 import {
   createPreviewToken,

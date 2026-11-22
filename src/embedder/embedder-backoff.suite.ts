@@ -57,7 +57,7 @@ mock.module('../db/init', () => ({
   closeDb: () => {},
   openDatabase: () => ({ close: () => {} })
 }))
-mock.module('../context/container', () => ({ getDb: () => ({ close: () => {} }) }))
+mock.module('../db', () => ({ getDb: () => ({ close: () => {} }) }))
 mock.module('../logging', () => ({
   insertLog: (level: string, _type: string, message: string, meta?: Record<string, unknown>) => {
     logs.push({ level, message, meta })

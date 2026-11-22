@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { closeDb, initDb } from './init'
 
 describe('closeDb', () => {

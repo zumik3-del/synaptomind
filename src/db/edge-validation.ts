@@ -1,6 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { ValidationError } from '../errors'
-import { ClusterEdgeValidationError, InvalidEdgeTypeError } from './errors'
+import { ClusterEdgeValidationError, InvalidEdgeTypeError, ValidationError } from './errors'
 import type { Edge } from './edges'
 
 export const EDGE_TYPES = [

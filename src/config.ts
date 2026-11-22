@@ -191,7 +191,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_EMBEDDER_BATCH_SIZE', 'embedder.batchSize', 'int'),
   M('SYNAPTOMIND_RESET_DEAD_LETTER', 'embedder.resetDeadLetters', 'bool'),
 
-  // `positiveIntOr` in src/db/settings.ts replaces anything that is not a positive integer.
+  // `positiveIntOr` in src/config.thought-limits.ts replaces anything that is not a positive integer.
   M('SYNAPTOMIND_THOUGHT_SOFT_LIMIT', 'thoughts.softLimit', 'int', { min: 1 }),
   M('SYNAPTOMIND_THOUGHT_HARD_LIMIT_BUFFER_PERCENT', 'thoughts.hardLimitBufferPercent', 'int', {
     min: 1

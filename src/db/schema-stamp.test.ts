@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite'
 import { expect, test } from 'bun:test'
-import { BASELINE_TABLE_DDL, META_DDL } from './baseline-schema'
+import { BASELINE_TABLE_DDL, META_DDL } from './schema/baseline-schema'
 import { postBaselineEvidence, readSchemaVersion } from './schema-stamp'
 
 function baselineDb(): Database {

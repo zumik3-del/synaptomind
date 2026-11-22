@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb } from '../test/helpers'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { closeDb } from './init'
 import {
   createProject,
-  deleteProject,
   getProject,
   listProjects,
   projectExists,
   resolveDefaultProjectId,
   updateProject
 } from './projects'
+import { deleteProject } from '../services/projects.service'
 
 beforeEach(createTestDb)
 afterEach(closeDb)

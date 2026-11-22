@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { getDb } from '../db'
-import { createEdge, deleteEdge, getEdgesForThought, type Edge } from '../db/edges'
+import { deleteEdge, getEdgesForThought, type Edge } from '../db/edges'
+import { createEdge } from './edges.service'
 import { getThoughtRow, type Thought } from '../db/thoughts'
 import {
   deleteThoughtUrlLinksNotIn,

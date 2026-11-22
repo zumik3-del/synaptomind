@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { getDb } from '../context/container'
+import { getDb } from '../db'
 import { closeDb, initDb } from '../db/init'
 import { seedEdge, seedThought, createTestDb } from '../test/helpers'
 import { computeContentHash } from '../utils'

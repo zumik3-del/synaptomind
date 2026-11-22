@@ -7,7 +7,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
-import { getDb } from '../../context/container'
+import { getDb } from '../../db'
 import { closeDb } from '../../db/init'
 import { resolveDefaultProjectId } from '../../db/projects'
 import { createProjectService } from '../../services/projects.service'

@@ -55,12 +55,14 @@ export function bulkCreateThoughtsService(
       d
     )
   )
-  // One level-1 transaction, a savepoint per item: one commit, every bad item isolated.
+  // One run-level transaction, a savepoint per item: the savepoint is the isolation contract.
   const runBulk = d.transaction(() => {
     for (let i = 0; i < items.length; i++) {
       try {
         created.push({ index: i, thought: createItem(items[i]) })
       } catch (err) {
+        // A trigger can RAISE(ROLLBACK) the whole run; continuing would autocommit the rest.
+        if (!d.inTransaction) throw err
         errors.push({ index: i, error: err instanceof Error ? err.message : String(err) })
       }
     }

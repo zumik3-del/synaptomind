@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
-import { createEdge } from './edges'
+import { createEdge } from '../services/edges.service'
 import { getClusterMembers, getClusterThought } from './cluster-edges'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { closeDb } from './init'
 
 beforeEach(createTestDb)

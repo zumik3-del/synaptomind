@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb } from '../test/helpers'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { closeDb, initDb } from './init'
 import v042 from './migrations/v042-is-global'
 

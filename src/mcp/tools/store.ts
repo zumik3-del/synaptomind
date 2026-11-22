@@ -1,6 +1,6 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/server'
-import { getAdvertisedSoftLimitService } from '../../services/settings.service'
+import { getThoughtLimitsDB } from '../../config.thought-limits'
 import { EDGE_TYPES } from '../../services/edges.service'
 import { thoughtStatusSchema } from '../../validation'
 import { registerActionTool } from './action-tool'
@@ -48,7 +48,7 @@ export function registerMemoryStore(server: McpServer) {
         .string()
         .optional()
         .describe(
-          `REQUIRED for "create". OPTIONAL for "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype". Recommended soft limit: ${getAdvertisedSoftLimitService()} chars.`
+          `REQUIRED for "create". OPTIONAL for "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype". Recommended soft limit: ${getThoughtLimitsDB().softLimit} chars.`
         ),
       tags: z
         .array(z.string())

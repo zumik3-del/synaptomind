@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { statfsSync } from 'node:fs'
-import { scopeSql, vecTableDdl } from '../vec-schema'
+import { scopeSql, vecTableDdl } from '../schema/vec-schema'
 
 const STAGE_TABLE = 'vec_thoughts_scope_stage'
 const STAGE_INDEX = 'idx_vec_thoughts_scope_stage_scope'

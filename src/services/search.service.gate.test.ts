@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
-import { createEdge } from '../db/edges'
+import { createEdge } from './edges.service'
 import { closeDb } from '../db/init'
 import { createTestDb, isVecExtensionAvailable, seedThought, withVecDb } from '../test/helpers'
 import { DEFAULT_MIN_RELEVANCE } from './search-normalize.service'

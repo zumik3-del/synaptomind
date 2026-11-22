@@ -3,7 +3,7 @@ import { afterAll, afterEach, expect, spyOn, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { getDb, setDb } from '../context/container'
+import { getDb, setDb } from './index'
 import { vec0Path } from '../runtime-mode'
 import { closeDb, initDb, openDatabase } from './init'
 

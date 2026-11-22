@@ -1,9 +1,9 @@
 import type { Database } from 'bun:sqlite'
 export type { Thought } from '../db/thoughts'
 import { config } from '../config'
-import { createEdge } from '../db/edges'
+import { createEdge } from './edges.service'
 import { getDb } from '../db'
-import { getThoughtLimitsDB } from '../db/settings'
+import { getThoughtLimitsDB } from '../config.thought-limits'
 import { deleteThoughtUrlLinksNotIn, upsertThoughtUrlLink } from '../db/thought_url_links'
 import type { UrlLink } from './url_links.service'
 import {
@@ -149,13 +149,15 @@ export function archiveThoughtsBatchService(
     if (!existing) throw new NotFoundError(`Thought '${id}' not found`)
     if (existing.status !== 'archived') archiveThoughtByIdService(id, d)
   })
-  // One level-1 transaction, a savepoint per id: one commit, every bad id isolated.
+  // One run-level transaction, a savepoint per id: the savepoint is the isolation contract.
   const runArchive = d.transaction(() => {
     for (const id of ids) {
       try {
         archiveItem(id)
         archived++
       } catch (err) {
+        // A trigger can RAISE(ROLLBACK) the whole run; continuing would autocommit the rest.
+        if (!d.inTransaction) throw err
         errors.push({ thought_id: id, error: err instanceof Error ? err.message : String(err) })
       }
     }

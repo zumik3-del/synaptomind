@@ -1,4 +1,4 @@
-import { config, DEFAULTS } from '../config'
+import { config, DEFAULTS } from './config'
 
 export interface ThoughtLimits {
   softLimit: number

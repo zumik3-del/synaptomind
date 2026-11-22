@@ -1,11 +1,11 @@
 import type { Database } from 'bun:sqlite'
 import {
-  createEdge,
   getEdgesForThought,
   getSourceEdgesForThoughtBounded,
   toEdgeView,
   type EdgeView
 } from '../db/edges'
+import { createEdge } from './edges.service'
 import { getDb } from '../db'
 import {
   archiveThought as dbArchiveThought,
