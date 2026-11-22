@@ -16,6 +16,7 @@ interface AdvertisedTool {
   description?: string
   inputSchema?: unknown
   outputSchema?: unknown
+  cwdContract?: string[]
 }
 
 let client: Client
@@ -49,13 +50,35 @@ function pinnedShape(value: unknown): unknown {
   return out
 }
 
+// The cwd prose is pinned sentence by sentence: only the clauses that state the
+// contract (ignored / optional / required for resolve) survive, whitespace normalised.
+const CWD_CONTRACT_MARKERS = ['ACCEPTED AND IGNORED', 'OPTIONAL', 'REQUIRED for']
+
+function cwdDescription(tool: AdvertisedTool): string {
+  const cwd = (tool.inputSchema as { properties?: Record<string, { description?: unknown }> })
+    ?.properties?.cwd
+  return typeof cwd?.description === 'string' ? cwd.description : ''
+}
+
+function extractCwdContract(tool: AdvertisedTool): string[] {
+  return cwdDescription(tool)
+    .split(/(?<=\.)\s+/)
+    .map(sentence => sentence.replace(/\s+/g, ' ').trim())
+    .filter(sentence => CWD_CONTRACT_MARKERS.some(marker => sentence.includes(marker)))
+}
+
 function advertisedShape(tools: AdvertisedTool[]): unknown {
   return tools
-    .map(tool => ({
-      name: tool.name,
-      inputSchema: pinnedShape(tool.inputSchema),
-      outputSchema: pinnedShape(tool.outputSchema)
-    }))
+    .map(tool => {
+      // A recorded tool carries its pinned contract; a live one is extracted from the prose.
+      const cwdContract = tool.cwdContract ?? extractCwdContract(tool)
+      return {
+        name: tool.name,
+        ...(cwdContract.length > 0 ? { cwdContract } : {}),
+        inputSchema: pinnedShape(tool.inputSchema),
+        outputSchema: pinnedShape(tool.outputSchema)
+      }
+    })
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -135,5 +158,33 @@ describe('tools/list advertises the recorded contract', () => {
       return { ...tool, inputSchema: { ...schema, properties: reversed } }
     })
     expect(snapshotDrift(reordered, SNAPSHOT)).toBeNull()
+  })
+
+  test('the cwd contract check has teeth: a reverted description is drift', () => {
+    const doctored = structuredClone(SNAPSHOT) as Array<{
+      name: string
+      cwdContract?: string[]
+      inputSchema?: { properties?: Record<string, { description?: string }> }
+    }>
+    const recall = doctored.find(tool => tool.name === 'memory_recall')
+    if (!recall?.inputSchema?.properties?.cwd)
+      throw new Error('snapshot has no recall cwd argument')
+    recall.inputSchema.properties.cwd.description =
+      'Working directory — resolves the project scope. OPTIONAL for search/clusters/list/context. IGNORED for get/chain.'
+    delete recall.cwdContract
+    expect(snapshotDrift(doctored, SNAPSHOT)).not.toBeNull()
+  })
+
+  test('every tool that states a cwd contract in the snapshot states one live', async () => {
+    const live = (await advertisedTools())
+      .map(tool => ({ name: tool.name, cwdContract: extractCwdContract(tool) }))
+      .filter(entry => entry.cwdContract.length > 0)
+      .map(entry => entry.name)
+      .sort()
+    const recorded = (SNAPSHOT as AdvertisedTool[])
+      .filter(tool => (tool.cwdContract ?? []).length > 0)
+      .map(tool => tool.name)
+      .sort()
+    expect(live).toEqual(recorded)
   })
 })

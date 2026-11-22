@@ -1,6 +1,10 @@
 [
   {
     "name": "edge_review",
+    "cwdContract": [
+      "OPTIONAL for \"enqueue\" and \"list\".",
+      "ACCEPTED AND IGNORED for \"apply\", \"apply_batch\", \"rollback\", \"reject\"."
+    ],
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -107,6 +111,10 @@
   },
   {
     "name": "memory_crystallize",
+    "cwdContract": [
+      "OPTIONAL for \"graph\" and \"cluster\" (always pass for those; auto_cluster operates globally).",
+      "ACCEPTED AND IGNORED for \"auto_cluster\"."
+    ],
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -229,6 +237,10 @@
   },
   {
     "name": "memory_manage",
+    "cwdContract": [
+      "REQUIRED for \"resolve\": the working directory path to resolve.",
+      "ACCEPTED AND IGNORED for all other actions."
+    ],
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -325,6 +337,10 @@
   },
   {
     "name": "memory_recall",
+    "cwdContract": [
+      "OPTIONAL for search/clusters/list/context: omitting it (or passing no registered path) answers across every project and says so in meta.warnings.",
+      "ACCEPTED AND IGNORED for get/chain."
+    ],
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -473,6 +489,9 @@
   },
   {
     "name": "memory_reflect",
+    "cwdContract": [
+      "OPTIONAL for both actions: reflect writes to the resolved project, or to the default project when it is absent; timeline answers across every project when it is absent and says so in meta.warnings."
+    ],
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -565,6 +584,10 @@
   },
   {
     "name": "memory_status",
+    "cwdContract": [
+      "OPTIONAL for \"slots\", \"frontier\" and \"propose\": omitting it leaves meta.scope null and is noted in meta.warnings (an unregistered path raises a global scope and its own warning).",
+      "ACCEPTED AND IGNORED for \"config\", \"health\"."
+    ],
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -665,6 +688,9 @@
   },
   {
     "name": "memory_store",
+    "cwdContract": [
+      "ACCEPTED AND IGNORED for \"link\", \"link_batch\", \"unlink\", \"unlink_batch\", \"retype\"."
+    ],
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -928,6 +954,10 @@
   },
   {
     "name": "memory_supersede",
+    "cwdContract": [
+      "OPTIONAL for \"merge\".",
+      "ACCEPTED AND IGNORED for \"archive\" and \"archive_batch\"."
+    ],
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

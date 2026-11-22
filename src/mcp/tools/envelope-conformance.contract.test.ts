@@ -1280,6 +1280,53 @@ const CWD_ACCEPTED: CwdAcceptedCase[] = [
   }
 ]
 
+const CWD_REJECTED_PHRASES = ['IGNORED for', 'takes no cwd', 'take no `cwd`']
+
+// The cwd descriptions that name actions the argument does not scope. Pinned per
+// tool because the words, not the tool-level prose, are the client-visible contract.
+const CWD_IGNORE_CLAUSE: Record<string, { clause: string; scopes: string }> = {
+  memory_store: {
+    clause: 'ACCEPTED AND IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".',
+    scopes: 'always pass for "create"/"update"'
+  },
+  memory_recall: {
+    clause: 'ACCEPTED AND IGNORED for get/chain.',
+    scopes: 'OPTIONAL for search/clusters/list/context'
+  },
+  memory_supersede: {
+    clause: 'ACCEPTED AND IGNORED for "archive" and "archive_batch".',
+    scopes: 'OPTIONAL for "merge"'
+  },
+  memory_status: {
+    clause: 'ACCEPTED AND IGNORED for "config", "health".',
+    scopes: 'OPTIONAL for "slots", "frontier" and "propose"'
+  },
+  memory_crystallize: {
+    clause: 'ACCEPTED AND IGNORED for "auto_cluster".',
+    scopes: 'OPTIONAL for "graph" and "cluster"'
+  },
+  edge_review: {
+    clause: 'ACCEPTED AND IGNORED for "apply", "apply_batch", "rollback", "reject".',
+    scopes: 'OPTIONAL for "enqueue" and "list"'
+  },
+  memory_manage: {
+    clause: 'ACCEPTED AND IGNORED for all other actions.',
+    scopes: 'REQUIRED for "resolve"'
+  }
+}
+
+function cwdDescription(tool: { inputSchema?: unknown }): string {
+  const cwd = schemaProps(tool).cwd as { description?: unknown } | undefined
+  return typeof cwd?.description === 'string' ? cwd.description.replace(/\s+/g, ' ').trim() : ''
+}
+
+function acceptedIgnoreClause(description: string): string {
+  const start = description.indexOf('ACCEPTED AND IGNORED')
+  if (start < 0) return ''
+  const end = description.indexOf('.', start)
+  return description.slice(start, end < 0 ? undefined : end + 1)
+}
+
 describe('cwd is accepted on every action, including the ones it does not scope', () => {
   for (const c of CWD_ACCEPTED) {
     test(`${c.tool} action=${c.action} answers with a cwd it ignores`, async () => {
@@ -1294,15 +1341,33 @@ describe('cwd is accepted on every action, including the ones it does not scope'
     })
   }
 
-  test('no advertised description claims an action rejects cwd', async () => {
+  test('the guard table covers exactly the cwd descriptions that claim an ignored action', async () => {
+    const claiming = (await advertisedTools())
+      .filter(tool => acceptedIgnoreClause(cwdDescription(tool)) !== '')
+      .map(tool => tool.name)
+      .sort()
+    expect(claiming).toEqual(Object.keys(CWD_IGNORE_CLAUSE).sort())
+  })
+
+  for (const [tool, contract] of Object.entries(CWD_IGNORE_CLAUSE)) {
+    test(`${tool} advertises cwd as accepted and ignored for the actions it does not scope`, async () => {
+      const advertised = (await advertisedTools()).find(t => t.name === tool)
+      if (!advertised) throw new Error(`${tool} is not advertised`)
+      const description = cwdDescription(advertised)
+      expect(acceptedIgnoreClause(description)).toBe(contract.clause)
+      expect(description.split('ACCEPTED AND IGNORED').join('')).not.toContain('IGNORED for')
+      expect(description).toContain(contract.scopes)
+    })
+  }
+
+  test('no tool-level description claims an action rejects cwd', async () => {
     for (const tool of await advertisedTools()) {
-      const description = tool.description ?? ''
-      for (const phrase of ['IGNORED for', 'takes no cwd', 'take no `cwd`']) {
-        if (!description.includes(phrase)) continue
-        const property = (
-          tool.inputSchema as { properties?: Record<string, Record<string, unknown>> }
-        ).properties?.cwd
-        expect(String(property?.description ?? '')).not.toContain(phrase)
+      for (const phrase of CWD_REJECTED_PHRASES) {
+        expect({
+          tool: tool.name,
+          phrase,
+          claims: (tool.description ?? '').includes(phrase)
+        }).toEqual({ tool: tool.name, phrase, claims: false })
       }
     }
   })
