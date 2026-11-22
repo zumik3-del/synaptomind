@@ -37,7 +37,16 @@ with an added slash.
   counter store, separate from the MCP transport's. `/health` is not rate limited — it must
   stay cheap enough to poll from a container healthcheck.
 - **Body limit:** request bodies over 5 MB are rejected with `413
-  {"error":"Request body too large (max 5MB)"}`.
+  {"error":"Request body too large (max 5MB)"}`. The limit holds regardless of the
+  framing: the bytes are counted as the body streams in, so a chunked request without
+  `Content-Length`, and a `Content-Length` that understates the body, are cut at the
+  same 5 MB — while a declared length over the cap is rejected before the body is read
+  at all. On `/api/*` the counting happens in front of the route handler
+  (`src/middleware/body-cap.ts`), which therefore never runs for an oversized body and
+  is never handed one. On the MCP listener the same limit is enforced inside the route
+  handler instead, because MCP must answer `415` for a non-JSON media type before it
+  reads the body; the SDK's own `maxRequestBodySize` runs in that same read and is not
+  a third limit. One limit, one constant (`MAX_REQUEST_BODY_BYTES`), two mount points.
 - **Errors:** handlers return `{"error": "..."}` with an appropriate HTTP status — `400`
   validation, `401` auth, `404` not found, `409` conflict, `413` too large, `429` rate
   limited, `500` internal, `503` a dependency is not ready (the embedder still loading) or a
