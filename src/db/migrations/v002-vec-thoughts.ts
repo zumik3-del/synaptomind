@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { vecTableDdl } from '../vec-schema'
+import { vecTableDdl } from '../schema/vec-schema'
 
 export default {
   version: 2,

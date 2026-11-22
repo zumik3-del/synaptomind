@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { ID_PREFIX_MATCH_HARD_CAP } from '../db/search-id'
-import { getDb } from '../context/container'
+import { getDb } from '../db'
 import { closeDb } from '../db/init'
 import { createTestDb, seedThought } from '../test/helpers'
 import { searchThoughts, searchThoughtsOutcome } from './search.service'
@@ -282,8 +282,8 @@ describe('searchThoughtsOutcome — id lookup', () => {
   test('a superseded thought is still answered by its id, flagged not suppressed (task #2186)', async () => {
     const oldId = seedThought({ id: A, content: 'SUPERSEDED_ID marker' })
     const newId = seedThought({ id: B, content: 'SUPERSEDING_ID marker' })
-    const { createEdge } = await import('../db/edges')
-    const { getDb } = await import('../context/container')
+    const { createEdge } = await import('./edges.service')
+    const { getDb } = await import('../db')
     createEdge(getDb(), newId, oldId, 'replaces')
 
     const outcome = await searchThoughtsOutcome({ query: A, supersessionMode: 'suppress' })

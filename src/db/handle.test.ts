@@ -13,7 +13,7 @@ import {
   register,
   registrySize,
   setDb
-} from './container'
+} from './handle'
 
 const DUMMY_USER = { id: 'u', dbPath: '/tmp/opencode/dummy.db', tokenSha256: 'a'.repeat(64) }
 

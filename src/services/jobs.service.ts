@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { getDb, listUserDatabases } from '../context/container'
+import { getDb, listUserDatabases } from '../db'
 
 interface IntervalJobOptions {
   name: string

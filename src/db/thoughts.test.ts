@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { createTestDb, seedThought } from '../test/helpers'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { ThoughtContentConflictError } from './errors'
 import { closeDb } from './init'
 import {
@@ -10,7 +10,8 @@ import {
   getThoughtImportance,
   incrementHitCount
 } from './importance'
-import { createProject, deleteProject, getProject, listProjects, updateProject } from './projects'
+import { createProject, getProject, listProjects, updateProject } from './projects'
+import { deleteProject } from '../services/projects.service'
 import {
   archiveThought,
   createThought,

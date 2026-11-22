@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite'
-import { BASELINE_TABLE_DDL, META_DDL } from './baseline-schema'
+import { BASELINE_TABLE_DDL, META_DDL } from './schema/baseline-schema'
 
 const SCHEMA_VERSION_KEY = 'schema_version'
 const PRE_BASELINE_VERSION = 0

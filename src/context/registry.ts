@@ -1,8 +1,5 @@
-export * from './container'
-
 import { config } from '../config'
-import { openDatabase } from '../db/init'
-import { clearRegistry, register, setDb } from './container'
+import { clearRegistry, openDatabase, register, setDb } from '../db'
 
 const unavailable = new Map<string, string>()
 

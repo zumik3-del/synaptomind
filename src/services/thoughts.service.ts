@@ -1,9 +1,9 @@
 import type { Database } from 'bun:sqlite'
 export type { Thought } from '../db/thoughts'
 import { config } from '../config'
-import { createEdge } from '../db/edges'
+import { createEdge } from './edges.service'
 import { getDb } from '../db'
-import { getThoughtLimitsDB } from '../db/settings'
+import { getThoughtLimitsDB } from '../config.thought-limits'
 import { deleteThoughtUrlLinksNotIn, upsertThoughtUrlLink } from '../db/thought_url_links'
 import type { UrlLink } from './url_links.service'
 import {

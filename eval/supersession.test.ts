@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { getDb } from '../src/context/container'
-import { createEdge } from '../src/db/edges'
+import { getDb } from '../src/db'
+import { createEdge } from '../src/services/edges.service'
 import { closeDb } from '../src/db/init'
 import { createTestDb, seedThought } from '../src/test/helpers'
 import { EVAL_SCENARIOS } from './datasets'

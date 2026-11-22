@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { createTestDb, seedThought } from '../test/helpers'
 import { computeContentHash } from '../utils'
 import { closeDb } from './init'
-import { createProject, deleteProject, getProject, resolveDefaultProjectId } from './projects'
+import { createProject, getProject, resolveDefaultProjectId } from './projects'
+import { deleteProject } from '../services/projects.service'
 import { createThought } from './thoughts'
 
 beforeEach(createTestDb)

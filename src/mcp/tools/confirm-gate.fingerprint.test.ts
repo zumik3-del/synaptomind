@@ -9,7 +9,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
-import { getDb } from '../../context/container'
+import { getDb } from '../../db'
 import { closeDb } from '../../db/init'
 import { runAutoCluster } from '../../services/auto-cluster.service'
 import { createProjectService } from '../../services/projects.service'

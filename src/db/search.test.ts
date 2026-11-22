@@ -7,7 +7,7 @@ import {
   seedThought,
   withVecDb
 } from '../test/helpers'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { closeDb } from './init'
 import { bm25SearchIds, isStrongMatch, rrfMerge, searchThoughts } from './search'
 import { bm25ScoredIds } from './search-bm25'

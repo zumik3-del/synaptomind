@@ -1,17 +1,102 @@
 import {
-  createEdge,
   deleteEdge,
   findEdge,
-  retypeEdge,
+  getEdgePairBetween,
+  insertEdgeRow,
+  replaceEdgeRow,
   validateRetype,
+  EDGE_TYPES,
+  EdgeAlreadyExistsError,
+  ClusterEdgeValidationError,
+  EdgeConflictError,
+  InvalidEdgeTypeError,
+  SelfLoopEdgeError,
+  SYMMETRIC_EDGE_TYPES,
+  isValidEdgeType,
+  validateClusterConstraint,
   type Edge
 } from '../db/edges'
+import { boostImportance } from '../db/importance'
 import { getDb } from '../db'
 import { NotFoundError, ValidationError } from '../errors'
 import { BATCH_ITEMS_MAX } from '../validation'
 import type { Database } from 'bun:sqlite'
 
 export { EDGE_TYPES, type EdgeType, type EdgeView } from '../db/edges'
+
+export function createEdge(
+  d: Database,
+  sourceId: string,
+  targetId: string,
+  type: string = 'related'
+): Edge {
+  if (!isValidEdgeType(type)) {
+    throw new InvalidEdgeTypeError(type, [...EDGE_TYPES])
+  }
+  if (type === 'child') {
+    throw new ClusterEdgeValidationError(
+      "Edge type 'child' is deprecated. Use 'parent' instead — 'parent' covers both directions."
+    )
+  }
+  if (sourceId === targetId) {
+    throw new SelfLoopEdgeError()
+  }
+  validateClusterConstraint(d, sourceId, targetId, type)
+
+  const existing = getEdgePairBetween(d, sourceId, targetId)
+  if (existing) {
+    if (existing.type === type) {
+      if (SYMMETRIC_EDGE_TYPES.has(type)) return existing
+      if (existing.source_id === sourceId && existing.target_id === targetId) {
+        throw new EdgeAlreadyExistsError()
+      }
+      throw new EdgeConflictError(sourceId, targetId)
+    }
+    if (existing.type === 'related') {
+      return upgradePlaceholderEdge(d, existing, sourceId, targetId, type)
+    }
+    throw new EdgeConflictError(sourceId, targetId)
+  }
+
+  return insertEdge(d, sourceId, targetId, type)
+}
+
+function insertEdge(d: Database, sourceId: string, targetId: string, type: string): Edge {
+  let id = ''
+  let inserted = false
+  const insertInTx = d.transaction(() => {
+    const row = insertEdgeRow(d, sourceId, targetId, type)
+    id = row.id
+    inserted = row.inserted
+    if (inserted) boostImportance(d, sourceId, 0.1)
+  })
+  insertInTx()
+
+  if (!inserted) {
+    const existing = getEdgePairBetween(d, sourceId, targetId)
+    if (existing) return existing
+    throw new EdgeAlreadyExistsError()
+  }
+
+  return findEdge(d, id)
+}
+
+function upgradePlaceholderEdge(
+  d: Database,
+  placeholder: Edge,
+  sourceId: string,
+  targetId: string,
+  type: string
+): Edge {
+  let id = ''
+  const replaceInTx = d.transaction(() => {
+    id = replaceEdgeRow(d, placeholder.id, sourceId, targetId, type, new Date().toISOString())
+    boostImportance(d, sourceId, 0.1)
+  })
+  replaceInTx()
+
+  return findEdge(d, id)
+}
 
 export function createEdgeService(
   sourceId: string,
@@ -216,19 +301,13 @@ export function deleteEdgesBatchService(
   return outcome()
 }
 
-export function findEdgeService(edgeId: string, d: Database = getDb()): Edge | undefined {
-  return findEdge(d, edgeId)
-}
-
-export function retypeEdgeService(edgeId: string, newType: string, d: Database = getDb()): Edge {
-  return retypeEdge(d, edgeId, newType)
-}
-
 export function validateRetypeService(
   edgeId: string,
   newType: string,
   d: Database = getDb()
 ): Edge {
+  // Read-only retype validation: the preview needs the current edge and must refuse an invalid
+  // type before it issues a token, so this path never writes.
   const edge = findEdge(d, edgeId)
   if (!edge) {
     throw new NotFoundError(`Edge not found: ${edgeId}`)

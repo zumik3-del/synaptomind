@@ -3,12 +3,12 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { config } from '../config'
 import { vec0Path } from '../runtime-mode'
-import { clearDb, getDb, setDb } from '../context/container'
+import { clearDb, getDb, setDb } from './handle'
 import { MIGRATIONS } from './migrations'
 import { backupBeforeRebuild, backupDatabase } from './backup'
-import { BASELINE_TABLE_DDL, META_DDL } from './baseline-schema'
+import { BASELINE_TABLE_DDL, META_DDL } from './schema/baseline-schema'
 import { readSchemaVersion } from './schema-stamp'
-import { vecTableDdl } from './vec-schema'
+import { vecTableDdl } from './schema/vec-schema'
 
 function loadVecExtension(database: Database, isMemory: boolean): void {
   if (isMemory) return

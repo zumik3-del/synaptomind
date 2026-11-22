@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
-import { getDb } from '../../context/container'
+import { getDb } from '../../db'
 import { closeDb } from '../../db/init'
 import { BULK_ITEMS_MAX } from '../../services/bulk.service'
 import { createProjectService } from '../../services/projects.service'

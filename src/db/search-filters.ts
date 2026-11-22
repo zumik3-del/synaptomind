@@ -1,7 +1,7 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
 import { parseTags } from '../utils'
 import { buildFoldedTagFilterSql } from './tags'
-import { VEC_SCOPE_GLOBAL } from './vec-schema'
+import { VEC_SCOPE_GLOBAL } from './schema/vec-schema'
 
 export interface SqlFragment {
   sql: string

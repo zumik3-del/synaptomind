@@ -3,10 +3,10 @@ import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { config } from '../config'
-import { getDb, setDb } from '../context/container'
+import { getDb, setDb } from '../db'
 import { closeDb, initDb } from '../db/init'
 import { vec0Path } from '../runtime-mode'
-import { scopeSql } from '../db/vec-schema'
+import { scopeSql } from '../db/schema/vec-schema'
 
 /**
  * A migrated `:memory:` image, serialized once per test process.

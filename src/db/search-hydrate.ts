@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { buildFilterSQL } from './search-filters'
-import type { SearchMatchSource, SearchOptions, SearchResult } from './search-types'
+import type { SearchMatchSource, SearchOptions, SearchResult } from '../types/search'
 import { getThoughtTagsBatch } from './tags'
 import { rowToThought } from './thoughts'
 import { sqlIn } from './utils'

@@ -1,5 +1,5 @@
-import type { GraphStanding } from './graph-annotations'
-import type { Thought } from './thoughts'
+import type { GraphStanding } from '../db/graph-annotations'
+import type { Thought } from '../db/thoughts'
 
 export interface SearchOptions {
   embedding: Float32Array

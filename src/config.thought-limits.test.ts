@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { config, DEFAULTS } from '../config'
-import { createTestDb } from '../test/helpers'
-import { getDb } from '../context/container'
-import { closeDb } from './init'
-import { getThoughtLimitsDB } from './settings'
+import { config, DEFAULTS } from './config'
+import { createTestDb } from './test/helpers'
+import { getDb } from './db'
+import { closeDb } from './db/init'
+import { getThoughtLimitsDB } from './config.thought-limits'
 
 beforeEach(createTestDb)
 afterEach(closeDb)
@@ -81,5 +81,36 @@ test('invalid configured soft limit and buffer fall back to defaults', () => {
   } finally {
     config.thoughts.softLimit = originalSoft
     config.thoughts.hardLimitBufferPercent = originalBuffer
+  }
+})
+
+test('getThoughtLimitsDB needs no database, before and after closeDb()', () => {
+  const original = config.thoughts.softLimit
+  try {
+    closeDb()
+    expect(() => getDb()).toThrow()
+    config.thoughts.softLimit = 432
+    expect(getThoughtLimitsDB().softLimit).toBe(432)
+
+    createTestDb()
+    expect(getThoughtLimitsDB().softLimit).toBe(432)
+
+    closeDb()
+    expect(() => getDb()).toThrow()
+    expect(getThoughtLimitsDB().softLimit).toBe(432)
+  } finally {
+    config.thoughts.softLimit = original
+  }
+})
+
+test('getThoughtLimitsDB reflects the latest configured value on every call (no module-load cache)', () => {
+  const original = config.thoughts.softLimit
+  try {
+    config.thoughts.softLimit = 100
+    expect(getThoughtLimitsDB().softLimit).toBe(100)
+    config.thoughts.softLimit = 250
+    expect(getThoughtLimitsDB().softLimit).toBe(250)
+  } finally {
+    config.thoughts.softLimit = original
   }
 })

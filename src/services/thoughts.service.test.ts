@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { config } from '../config'
 import { getDb } from '../db'
-import { getThoughtLimitsDB } from '../db/settings'
+import { getThoughtLimitsDB } from '../config.thought-limits'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError, ThoughtContentConflictError, ValidationError } from '../errors'
 import {

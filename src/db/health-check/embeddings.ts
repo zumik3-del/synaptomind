@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { scopeSql } from '../vec-schema'
+import { scopeSql } from '../schema/vec-schema'
 import type { DeadPrimer, ImportanceOutlier, MissingEmbedding, ScopeMismatch } from './types'
 
 export function findMissingEmbeddings(db: Database): MissingEmbedding[] {

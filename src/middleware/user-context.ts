@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import type { Context, Next } from 'hono'
 import { resolveUser, type UserRef } from '../auth'
-import { als, getDb, getUserDb } from '../context/container'
+import { als, getDb, getUserDb } from '../db'
 
 declare module 'hono' {
   interface ContextVariableMap {

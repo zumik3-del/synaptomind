@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
-import { createEdge } from '../db/edges'
-import { getDb } from '../context/container'
+import { createEdge } from './edges.service'
+import { getDb } from '../db'
 import { closeDb } from '../db/init'
 import {
   createTestDb,

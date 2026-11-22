@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { insertLog } from '../logging'
-import { scopeSql } from './vec-schema'
+import { scopeSql } from './schema/vec-schema'
 
 export const MAX_ATTEMPTS = 10
 
