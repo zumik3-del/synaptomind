@@ -563,14 +563,20 @@ test('an empty payload from the child rejects instead of resolving a zero-length
   expect((err as Error).message).toBe('Embedder returned an empty embedding payload')
 })
 
-test('a short batch reply is passed through unpadded: the client does not verify the vector count', async () => {
-  await startEmbedderProcess()
+for (const [marker, returned] of [
+  ['__short__', 1],
+  ['__long__', 3]
+] as const) {
+  test(`a batch reply with ${returned} vector(s) for 2 text(s) is refused, naming both numbers`, async () => {
+    await startEmbedderProcess()
 
-  const vectors = await generateEmbeddings(['__short__', 'b'])
+    const err: unknown = await generateEmbeddings([marker, 'b']).catch(e => e)
 
-  expect(vectors).toHaveLength(1)
-  expect(Array.from(vectors[0]!)).toEqual([1, 1, 2])
-})
+    expect(err).toBeInstanceOf(EmbedderUnavailableError)
+    expect((err as EmbedderUnavailableError).statusCode).toBe(503)
+    expect((err as Error).message).toBe(`Embedder returned ${returned} vector(s) for 2 text(s)`)
+  })
+}
 
 for (const protocol of ['absent', 2] as const) {
   const got = protocol === 'absent' ? 'undefined' : String(protocol)

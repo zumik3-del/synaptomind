@@ -48,7 +48,12 @@ process.on('message', (raw: unknown) => {
       process.send?.({ type: 'result', id: message.id, embedding: [[1, 1, 2]] })
       return
     }
-    process.send?.({ type: 'result', id: message.id, embedding: texts.map(t => [t.length, 1, 2]) })
+    const vectors = texts.map(t => [t.length, 1, 2])
+    if (texts.includes('__long__')) {
+      process.send?.({ type: 'result', id: message.id, embedding: [...vectors, [0, 0, 0]] })
+      return
+    }
+    process.send?.({ type: 'result', id: message.id, embedding: vectors })
     return
   }
 
