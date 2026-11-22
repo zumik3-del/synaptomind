@@ -22,6 +22,7 @@ import { batchWorkerEnabled, readEmbedderUsers } from './spawn-scope'
 
 const BATCH_SIZE = config.embedder.batchSize
 const MAX_CONSECUTIVE_FAILURES = 5
+const MAX_BACKOFF = 64
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000
 
 interface DbEntry {
@@ -128,6 +129,7 @@ async function processOneDb(idx: number): Promise<boolean> {
     didWork = true
     const startedAt = Date.now()
 
+    // Shape is strict per IPC, length is not: a missing vector fails its row below, extras ignored.
     const embeddings = await generateEmbeddings(rows.map(r => r.content))
     const { succeeded, failed, contentChanged } = classifyBatch(rows, (row, i) =>
       storeRow(db, row, embeddings[i])
@@ -197,23 +199,24 @@ async function processOneDb(idx: number): Promise<boolean> {
       })
     }
 
-    consecutiveFailuresByDb[idx] =
-      failed.length === rows.length ? consecutiveFailuresByDb[idx] + 1 : 0
-    const failures = consecutiveFailuresByDb[idx]
-    const newBackoff =
-      failures >= MAX_CONSECUTIVE_FAILURES ? Math.min(currentBackoffByDb[idx] * 2, 64) : 1
-    if (newBackoff !== currentBackoffByDb[idx]) {
-      currentBackoffByDb[idx] = newBackoff
-      if (currentBackoffByDb[idx] > 1) {
+    const allFailed = failed.length === rows.length
+    consecutiveFailuresByDb[idx] = allFailed ? consecutiveFailuresByDb[idx] + 1 : 0
+    if (!allFailed) {
+      currentBackoffByDb[idx] = 1
+    } else if (consecutiveFailuresByDb[idx] >= MAX_CONSECUTIVE_FAILURES) {
+      const failures = consecutiveFailuresByDb[idx]
+      consecutiveFailuresByDb[idx] = 0
+      const backoff = Math.min(currentBackoffByDb[idx] * 2, MAX_BACKOFF)
+      if (backoff !== currentBackoffByDb[idx]) {
+        currentBackoffByDb[idx] = backoff
         console.error(
-          `[embedder] all ${rows.length} items failed (${failures}/${MAX_CONSECUTIVE_FAILURES}), backing off to ${currentBackoffByDb[idx]}x interval`
+          `[embedder] all ${rows.length} items failed (${failures}/${MAX_CONSECUTIVE_FAILURES}), backing off to ${backoff}x interval`
         )
-        insertLog('warning', 'embedding', `Backing off to ${currentBackoffByDb[idx]}x interval`, {
+        insertLog('warning', 'embedding', `Backing off to ${backoff}x interval`, {
           db: entry.id,
-          backoff: currentBackoffByDb[idx],
+          backoff,
           consecutiveFailures: failures
         })
-        consecutiveFailuresByDb[idx] = 0
         resetExtractor()
       }
     }
@@ -229,7 +232,7 @@ async function processOneDb(idx: number): Promise<boolean> {
       consecutiveFailures: failures
     })
     if (failures >= MAX_CONSECUTIVE_FAILURES) {
-      currentBackoffByDb[idx] = Math.min(currentBackoffByDb[idx] * 2, 64)
+      currentBackoffByDb[idx] = Math.min(currentBackoffByDb[idx] * 2, MAX_BACKOFF)
       consecutiveFailuresByDb[idx] = 0
       console.error(
         `[embedder] too many failures, backing off to ${currentBackoffByDb[idx]}x interval`
