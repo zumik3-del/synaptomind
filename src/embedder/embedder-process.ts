@@ -121,7 +121,7 @@ async function processOneDb(idx: number): Promise<boolean> {
     didWork = true
     const startedAt = Date.now()
 
-    // Shape is strict per IPC, length is not: a missing vector fails its row below, extras ignored.
+    // The model resolves one vector per row or throws, so the payload length always matches.
     const embeddings = await generateEmbeddings(rows.map(r => r.content))
     const { succeeded, failed, contentChanged } = classifyBatch(rows, (row, i) =>
       storeRow(db, row, embeddings[i])
@@ -220,14 +220,17 @@ async function processOneDb(idx: number): Promise<boolean> {
       consecutiveFailures: failures
     })
     if (failures >= MAX_CONSECUTIVE_FAILURES) {
-      currentBackoffByDb[idx] = Math.min(currentBackoffByDb[idx] * 2, MAX_BACKOFF)
+      const backoff = Math.min(currentBackoffByDb[idx] * 2, MAX_BACKOFF)
       consecutiveFailuresByDb[idx] = 0
-      insertLog('warning', 'embedding', `Backing off to ${currentBackoffByDb[idx]}x interval`, {
-        db: entry.id,
-        backoff: currentBackoffByDb[idx],
-        consecutiveFailures: failures
-      })
-      resetExtractor()
+      if (backoff !== currentBackoffByDb[idx]) {
+        currentBackoffByDb[idx] = backoff
+        insertLog('warning', 'embedding', `Backing off to ${backoff}x interval`, {
+          db: entry.id,
+          backoff,
+          consecutiveFailures: failures
+        })
+        resetExtractor()
+      }
     }
     return didWork
   }

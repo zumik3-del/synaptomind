@@ -101,6 +101,8 @@ async function tick(): Promise<void> {
 const backoffLogs = (): LogEntry[] => logs.filter(l => l.message.startsWith('Backing off to '))
 const backoffValues = (): unknown[] => backoffLogs().map(l => l.meta?.backoff)
 const failureCounts = (): unknown[] => backoffLogs().map(l => l.meta?.consecutiveFailures)
+const roundFailureCounts = (): unknown[] =>
+  logs.filter(l => l.message.startsWith('Batch failed: ')).map(l => l.meta?.consecutiveFailures)
 
 afterAll(() => {
   Date.now = originalNow
@@ -136,6 +138,37 @@ if (MODE === 'catch') {
     expect(backoffValues()).toEqual([2, 4])
     // The second threshold lands on round ten; without the reset it would land on round six.
     expect(rounds).toBe(10)
+  })
+
+  test('the catch branch is silent at the cap: the counter keeps clearing without a sixth log', async () => {
+    for (let i = 0; i < 4000 && backoffValues().length < 6; i++) {
+      await tick()
+    }
+
+    expect(backoffValues()).toEqual([2, 4, 8, 16, 32, 64])
+    const cappedRounds = rounds
+    const cappedLogs = backoffLogs().length
+    const countsAtCap = roundFailureCounts().length
+
+    for (let i = 0; i < 400; i++) {
+      await tick()
+    }
+
+    // Four seconds of simulated time fits ~6 rounds behind the 64x gate; a snap back to 1x would fit
+    // hundreds, so the count is what proves the multiplier survived the cap.
+    const advanced = rounds - cappedRounds
+    expect(advanced).toBeGreaterThanOrEqual(5)
+    expect(advanced).toBeLessThanOrEqual(8)
+    expect(backoffLogs()).toHaveLength(cappedLogs)
+    expect(backoffValues()).toEqual([2, 4, 8, 16, 32, 64])
+
+    // A counter that stopped clearing would keep counting past the threshold (6, 7, 8...) instead.
+    const tail = roundFailureCounts().slice(countsAtCap)
+    expect(tail).toHaveLength(advanced)
+    expect(tail[0]).toBe(1)
+    expect(
+      tail.every(count => typeof count === 'number' && count <= MAX_CONSECUTIVE_FAILURES)
+    ).toBe(true)
   })
 }
 

@@ -87,6 +87,7 @@ export class IpcClient {
       return
     }
     const emb = message.embedding
+    // Shape only; a vector count that disagrees with the request is refused by generateEmbeddings.
     if (!Array.isArray(emb) || emb.length === 0) {
       req.reject(new EmbedderUnavailableError('Embedder returned an empty embedding payload'))
     } else if (Array.isArray(emb[0])) {
