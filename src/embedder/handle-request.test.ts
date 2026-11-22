@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { EmbedderNotReadyError } from '../errors'
 import { type EmbedderModel, handleEmbedderRequest, type EmbedderReply } from './handle-request'
 
 const calls: string[][] = []
@@ -11,6 +12,8 @@ const MODEL: EmbedderModel = {
   },
   generateEmbeddings: async texts => {
     calls.push(texts)
+    if (texts[0] === '__not_ready__')
+      throw new EmbedderNotReadyError('Embedder model failed to load')
     return texts.map(() => new Float32Array([4, 5, 6]))
   }
 }
@@ -76,6 +79,26 @@ describe('handleEmbedderRequest', () => {
     )
 
     expect(replies).toEqual([{ type: 'error', id: 'r4', error: 'model exploded' }])
+    expect(Object.hasOwn(replies[0] as object, 'code')).toBe(false)
+  })
+
+  test('a typed failure is labelled with the IPC code of its class', async () => {
+    const { replies, send } = collect()
+
+    await handleEmbedderRequest(
+      { id: 'r5', method: 'embed_batch', params: { texts: ['__not_ready__'] } },
+      send,
+      MODEL
+    )
+
+    expect(replies).toEqual([
+      {
+        type: 'error',
+        id: 'r5',
+        error: 'Embedder model failed to load',
+        code: 'not_ready'
+      }
+    ])
   })
 
   test("method 'embed' without params defaults text to '' and still replies", async () => {

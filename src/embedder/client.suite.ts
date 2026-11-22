@@ -6,7 +6,8 @@ import { createTestDb, seedThought } from '../test/helpers'
 import { config } from '../config'
 import { searchThoughtsOutcome } from '../services/search.service'
 import { closeDb } from '../db/init'
-import { EmbedderUnavailableError } from '../errors'
+import { clearUnavailable, markUnavailable } from '../context/registry'
+import { EmbedderNotReadyError, EmbedderUnavailableError } from '../errors'
 import { EmbedderClient } from './embedder-client'
 import { getHealthService } from '../services/health.service'
 import {
@@ -28,6 +29,7 @@ import {
 const STUB_PATH = `${import.meta.dir}/__fixtures__/stub-embedder.ts`
 const LIFECYCLE_STUB_PATH = `${import.meta.dir}/__fixtures__/stub-embedder-lifecycle.ts`
 const ENV_STUB_PATH = `${import.meta.dir}/__fixtures__/stub-embedder-env.ts`
+const PROTOCOL_STUB_PATH = `${import.meta.dir}/__fixtures__/stub-embedder-protocol.ts`
 
 const scratchDirs: string[] = []
 
@@ -51,6 +53,7 @@ afterEach(async () => {
   delete process.env.SYNAPTOMIND_STUB_REQUEST_FILE
   delete process.env.SYNAPTOMIND_STUB_EXIT_FILE
   delete process.env.SYNAPTOMIND_STUB_ENV_FILE
+  delete process.env.SYNAPTOMIND_STUB_PROTOCOL
   delete process.env.EMBEDDER_BACKOFF_BASE_MS
   for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
@@ -101,13 +104,30 @@ function readChildEnv(file: string): Record<string, string | null> {
   return JSON.parse(readFileSync(file, 'utf8'))
 }
 
-function envStubScratch(): { envFile: string } {
+function envStubScratch(): { envFile: string; attempts: () => number } {
   const dir = mkdtempSync(join(tmpdir(), 'synaptomind-embedder-'))
   scratchDirs.push(dir)
   const envFile = join(dir, 'env.json')
+  const attemptFile = join(dir, 'attempts')
   process.env.SYNAPTOMIND_EMBEDDER_SCRIPT = ENV_STUB_PATH
   process.env.SYNAPTOMIND_STUB_ENV_FILE = envFile
-  return { envFile }
+  process.env.SYNAPTOMIND_STUB_ATTEMPT_FILE = attemptFile
+  return {
+    envFile,
+    attempts: () => (existsSync(attemptFile) ? Number(readFileSync(attemptFile, 'utf8').trim()) : 0)
+  }
+}
+
+function protocolStub(protocol: 'absent' | number): { attempts: () => number } {
+  const dir = mkdtempSync(join(tmpdir(), 'synaptomind-embedder-'))
+  scratchDirs.push(dir)
+  const counter = join(dir, 'attempts')
+  process.env.SYNAPTOMIND_EMBEDDER_SCRIPT = PROTOCOL_STUB_PATH
+  process.env.SYNAPTOMIND_STUB_PROTOCOL = String(protocol)
+  process.env.SYNAPTOMIND_STUB_ATTEMPT_FILE = counter
+  return {
+    attempts: () => (existsSync(counter) ? Number(readFileSync(counter, 'utf8').trim()) : 0)
+  }
 }
 
 test('startEmbedderProcess becomes ready against the stub subprocess', async () => {
@@ -528,3 +548,130 @@ test('cooldown branch is reachable and waits before respawn', async () => {
   await client.stopEmbedderProcess().catch(() => {})
   await started.catch(() => {})
 }, 30_000)
+
+test('a coded error reply surfaces as its typed class with the 503 statusCode', async () => {
+  await startEmbedderProcess()
+
+  const err: unknown = await generateEmbedding('__typed__').catch(e => e)
+
+  expect(err).toBeInstanceOf(EmbedderNotReadyError)
+  expect((err as EmbedderNotReadyError).statusCode).toBe(503)
+  expect((err as Error).message).toBe('stub failure: model is loading')
+})
+
+test('an empty payload from the child rejects instead of resolving a zero-length vector', async () => {
+  await startEmbedderProcess()
+
+  const err: unknown = await generateEmbedding('__empty__').catch(e => e)
+
+  expect(err).toBeInstanceOf(EmbedderUnavailableError)
+  expect((err as Error).message).toBe('Embedder returned an empty embedding payload')
+})
+
+test('a short batch reply is passed through unpadded: the client does not verify the vector count', async () => {
+  await startEmbedderProcess()
+
+  const vectors = await generateEmbeddings(['__short__', 'b'])
+
+  expect(vectors).toHaveLength(1)
+  expect(Array.from(vectors[0]!)).toEqual([1, 1, 2])
+})
+
+for (const protocol of ['absent', 2] as const) {
+  const got = protocol === 'absent' ? 'undefined' : String(protocol)
+  test(`a ready with ${protocol === 'absent' ? 'no protocol' : `protocol ${protocol}`} fails fast: one spawn, latched failure, EmbedderNotReadyError`, async () => {
+    const stub = protocolStub(protocol)
+    const client = new EmbedderClient()
+    try {
+      const first: unknown = await client.startEmbedderProcess().catch(e => e)
+      expect(first).toBeInstanceOf(EmbedderNotReadyError)
+      expect((first as Error).message).toBe(
+        `Embedder IPC protocol mismatch: expected 1, got ${got}`
+      )
+      expect(client.getEmbedderState()).toBe('failed')
+
+      const second: unknown = await client.startEmbedderProcess().catch(e => e)
+      expect(second).toBeInstanceOf(EmbedderNotReadyError)
+      expect(stub.attempts()).toBe(1)
+
+      await client.stopEmbedderProcess()
+      expect(client.getEmbedderState()).toBe('stopped')
+
+      process.env.SYNAPTOMIND_EMBEDDER_SCRIPT = STUB_PATH
+      await client.startEmbedderProcess()
+      expect(client.getEmbedderState()).toBe('ok')
+      expect(stub.attempts()).toBe(1)
+    } finally {
+      await client.stopEmbedderProcess().catch(() => {})
+    }
+  }, 15_000)
+}
+
+test('the child receives the configured users minus the ones boot fan-out marked unavailable', async () => {
+  const users = config.users
+  config.users = [
+    { id: 'alpha', dbPath: '/tmp/alpha.db', tokenSha256: '0'.repeat(64) },
+    { id: 'beta', dbPath: '/tmp/beta.db', tokenSha256: '1'.repeat(64) }
+  ]
+  markUnavailable('alpha', new Error('unreadable'))
+  const { envFile } = envStubScratch()
+  const client = new EmbedderClient()
+  try {
+    await client.startEmbedderProcess()
+
+    const env = readChildEnv(envFile)
+    const assigned = JSON.parse(env.users ?? 'null') as unknown[]
+    expect(assigned).toEqual([{ id: 'beta', dbPath: '/tmp/beta.db' }])
+    expect(Object.keys(assigned[0] as object).sort()).toEqual(['dbPath', 'id'])
+    expect(env.batchWorker).toBeNull()
+  } finally {
+    clearUnavailable()
+    config.users = users
+    await client.stopEmbedderProcess().catch(() => {})
+    delete process.env.SYNAPTOMIND_STUB_ENV_FILE
+  }
+})
+
+test('a delegating stdio session spawns nothing until a request, then flags its child as on-demand only', async () => {
+  const argv = [...process.argv]
+  const stdioStandalone = config.mcp.stdioStandalone
+  process.argv.push('--stdio')
+  config.mcp.stdioStandalone = false
+  const { envFile, attempts } = envStubScratch()
+  const client = new EmbedderClient()
+  try {
+    expect(client.getEmbedderState()).toBe('stopped')
+    expect(attempts()).toBe(0)
+
+    const vector = await client.generateEmbedding('hello')
+
+    expect(Array.from(vector)).toEqual([5, 1, 2])
+    expect(attempts()).toBe(1)
+    expect(readChildEnv(envFile).batchWorker).toBe('false')
+    expect(client.getEmbedderState()).toBe('ok')
+  } finally {
+    process.argv.splice(0, process.argv.length, ...argv)
+    config.mcp.stdioStandalone = stdioStandalone
+    await client.stopEmbedderProcess().catch(() => {})
+    delete process.env.SYNAPTOMIND_STUB_ENV_FILE
+  }
+})
+
+test('a standalone stdio session leaves the child batch-worker flag unset', async () => {
+  const argv = [...process.argv]
+  const stdioStandalone = config.mcp.stdioStandalone
+  process.argv.push('--stdio', '--stdio-standalone')
+  config.mcp.stdioStandalone = false
+  const { envFile } = envStubScratch()
+  const client = new EmbedderClient()
+  try {
+    await client.startEmbedderProcess()
+
+    expect(readChildEnv(envFile).batchWorker).toBeNull()
+  } finally {
+    process.argv.splice(0, process.argv.length, ...argv)
+    config.mcp.stdioStandalone = stdioStandalone
+    await client.stopEmbedderProcess().catch(() => {})
+    delete process.env.SYNAPTOMIND_STUB_ENV_FILE
+  }
+})
