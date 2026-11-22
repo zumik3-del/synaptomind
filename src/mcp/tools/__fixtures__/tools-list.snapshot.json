@@ -126,9 +126,6 @@
           ],
           "type": "string"
         },
-        "compact": {
-          "type": "boolean"
-        },
         "confirm": {
           "type": "boolean"
         },
@@ -194,6 +191,7 @@
           "items": {
             "type": "string"
           },
+          "minItems": 1,
           "type": "array"
         },
         "title": {
@@ -502,10 +500,19 @@
           ],
           "type": "string"
         },
+        "compact": {
+          "type": "boolean"
+        },
         "cwd": {
           "type": "string"
         },
         "decisions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "fields": {
           "items": {
             "type": "string"
           },
@@ -721,8 +728,11 @@
         },
         "edge_ids": {
           "items": {
+            "minLength": 1,
             "type": "string"
           },
+          "maxItems": 1000,
+          "minItems": 1,
           "type": "array"
         },
         "edge_type": {
@@ -752,9 +762,11 @@
           "items": {
             "properties": {
               "source": {
+                "minLength": 1,
                 "type": "string"
               },
               "target": {
+                "minLength": 1,
                 "type": "string"
               },
               "type": {
@@ -778,6 +790,8 @@
             ],
             "type": "object"
           },
+          "maxItems": 1000,
+          "minItems": 1,
           "type": "array"
         },
         "new_type": {

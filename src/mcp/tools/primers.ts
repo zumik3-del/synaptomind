@@ -7,19 +7,36 @@ import {
 } from '../../services/primers.service'
 import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 import { collectionEnvelope, itemEnvelope } from './envelope'
-import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import { actionInput, registerActionTool, requiredString, type ActionArgs } from './action-tool'
+
+const PRIMERS_ARGS = {
+  primer_id: z
+    .string()
+    .optional()
+    .describe('REQUIRED for "delete". Primer ID. REJECTED for "list".'),
+  confirm: z
+    .boolean()
+    .optional()
+    .describe('CONSUMED by "delete" (true executes; false/omitted previews). REJECTED for "list".'),
+  preview_token: z
+    .string()
+    .optional()
+    .describe(
+      'OPTIONAL preview token returned by a prior preview. CONSUMED by "delete" (true executes with token validation; missing/stale fails). REJECTED for "list".'
+    )
+}
 
 const handlers = {
   list: {
+    input: actionInput(PRIMERS_ARGS, []),
     run() {
       return collectionEnvelope('list', listPrimersService())
     }
   },
 
   delete: {
-    input: z.object({
-      primer_id: requiredString('primer_id is required for delete action'),
-      preview_token: z.string().optional()
+    input: actionInput(PRIMERS_ARGS, ['primer_id', 'confirm', 'preview_token'], {
+      primer_id: requiredString('primer_id is required for delete action')
     }),
     async run(args: ActionArgs) {
       const primerId = args.primer_id as string
@@ -72,25 +89,10 @@ const handlers = {
 export function registerMemoryPrimers(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_primers',
-    description: `Manage primers (the always-at-hand set). Answers the shared envelope: { items, meta } for list and { item, meta } for delete; a preview sets meta.preview={token,destructive:true}. Actions: list, delete (preview→confirm).`,
+    description: `Manage primers (the always-at-hand set). Answers the shared envelope: { items, meta } for list and { item, meta } for delete; a preview sets meta.preview={token,destructive:true}. Actions: list, delete (preview→confirm). Every action refuses an argument that belongs to another one.`,
     inputSchema: {
       action: z.enum(['list', 'delete']).describe('Action'),
-      primer_id: z
-        .string()
-        .optional()
-        .describe('REQUIRED for "delete". Primer ID. IGNORED for "list".'),
-      confirm: z
-        .boolean()
-        .optional()
-        .describe(
-          'CONSUMED by "delete" (true executes; false/omitted previews). IGNORED for "list".'
-        ),
-      preview_token: z
-        .string()
-        .optional()
-        .describe(
-          'OPTIONAL preview token returned by a prior preview. CONSUMED by "delete" (true executes with token validation; missing/stale fails). IGNORED for "list".'
-        )
+      ...PRIMERS_ARGS
     },
     handlers
   })

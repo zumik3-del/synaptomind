@@ -27,7 +27,9 @@ afterEach(closeDb)
 interface HealthCheckResponse {
   summary: {
     health_score: number
-    issues: { critical: number; warning: number; info: number }
+    critical: number
+    warning: number
+    info: number
   }
   categories: Array<{
     name: string
@@ -226,7 +228,7 @@ test('GET /api/health-check without a severity parameter returns the full report
   const full = await getReport('/api/health-check')
   expect(full.categories.map(c => c.name)).toEqual(CATEGORY_NAMES)
   expect(full.categories.every(c => c.checks.length > 0)).toBe(true)
-  expect(full.summary.issues.info).toBeGreaterThan(0)
+  expect(full.summary.info).toBeGreaterThan(0)
 
   const info = await getReport('/api/health-check?severity=info')
   expect(info).toEqual(full)
@@ -243,7 +245,9 @@ test('GET /api/health-check filters by each valid severity in the documented ord
   expect(criticalChecks.length).toBeGreaterThan(0)
   expect(criticalChecks.every(check => check.severity === 'critical')).toBe(true)
   expect(criticalChecks.length).toBeLessThan(fullNames.length)
-  expect(critical.summary.issues).toEqual({ critical: 1, warning: 0, info: 0 })
+  expect([critical.summary.critical, critical.summary.warning, critical.summary.info]).toEqual([
+    1, 0, 0
+  ])
   expect(critical.summary.health_score).toBe(60)
 
   const warning = await getReport('/api/health-check?severity=warning')
@@ -252,7 +256,9 @@ test('GET /api/health-check filters by each valid severity in the documented ord
   expect(warningChecks.some(check => check.severity === 'critical')).toBe(true)
   expect(warningChecks.some(check => check.severity === 'warning')).toBe(true)
   expect(warningChecks.length).toBeLessThan(fullNames.length)
-  expect(warning.summary.issues).toEqual({ critical: 1, warning: 2, info: 0 })
+  expect([warning.summary.critical, warning.summary.warning, warning.summary.info]).toEqual([
+    1, 2, 0
+  ])
   expect(warning.summary.health_score).toBe(45)
 
   expect(full.summary.health_score).toBeLessThan(critical.summary.health_score)

@@ -1,15 +1,14 @@
-import { z } from 'zod/v4'
 import { rollbackService as rollbackRun } from '../../../services/placement-rollback.service'
 import { listAcceptedProposalsByRunService } from '../../../services/placement-proposals.service'
 import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.service'
 import { collectionEnvelope } from '../envelope'
-import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { REVIEW_ARGS } from './args'
 import { AGENT } from './apply'
 
 export const rollbackHandler: ActionHandler = {
-  input: z.object({
-    run_id: requiredString('run_id is required for rollback action'),
-    preview_token: z.string().optional()
+  input: actionInput(REVIEW_ARGS, ['run_id', 'confirm', 'preview_token'], {
+    run_id: requiredString('run_id is required for rollback action')
   }),
   async run(args: ActionArgs) {
     const runId = args.run_id as string

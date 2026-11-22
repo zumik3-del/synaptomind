@@ -284,7 +284,7 @@ describe('every thought the answer emits carries its links', () => {
     const item = answer.item as Record<string, any>
 
     expect(item.thought.url_links).toHaveLength(1)
-    expect(item.chain.upstream[0].thought.url_links).toHaveLength(1)
+    expect(item.upstream[0].thought.url_links).toHaveLength(1)
   })
 
   test('a grouped search answer attaches links to cluster members', async () => {

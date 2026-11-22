@@ -1,36 +1,9 @@
-import { z } from 'zod/v4'
-import {
-  BULK_ITEMS_MAX,
-  type BulkCreateItem,
-  bulkCreateThoughtsService
-} from '../../../services/bulk.service'
+import { bulkCreateThoughtsService, type BulkCreateItem } from '../../../services/bulk.service'
 import { collectionEnvelope, writeEnvelopeScope } from '../envelope'
-import { resolveProjectId, shapeThought } from '../utils'
-import type { ActionArgs, ActionHandler } from '../action-tool'
-import { createItemShape, isProfileRefusal } from './create'
-
-export const bulkCreateItemSchema = z.strictObject({
-  ...createItemShape('each thought requires a non-empty content'),
-  project_id: z
-    .string()
-    .optional()
-    .describe(
-      'OPTIONAL per item: pin this item to its own project id. Unlike the top-level project_id (removed — use cwd), a bulk item may override the project the call resolves from cwd; omit it to take the cwd-resolved project, or the default project when the cwd matches none.'
-    ),
-  source: z
-    .string()
-    .optional()
-    .describe(
-      'OPTIONAL per item: the source label, stored exactly as given and never defaulted — an omitted source is written as NULL, not "mcp". That is the difference from action=create, which always stamps source "mcp": the graph maps source "mcp" to the agent category, so a bulk item with no source is categorised by its tags instead.'
-    ),
-  relation: z
-    .string()
-    .optional()
-    .describe(
-      'OPTIONAL per item: edge type of the parent link when parent_id is set (default "parent"). IGNORED when parent_id is omitted.'
-    ),
-  is_profile: isProfileRefusal
-})
+import { resolveProjectId, shapeEntity } from '../utils'
+import { actionInput, type ActionArgs, type ActionHandler } from '../action-tool'
+import { STORE_ARGS } from './args'
+import { thoughtsArg } from './items'
 
 interface BulkCreateRow {
   index: number
@@ -40,21 +13,16 @@ interface BulkCreateRow {
 }
 
 export const bulkCreateHandler: ActionHandler = {
-  input: z.object({
-    thoughts: z
-      .array(bulkCreateItemSchema, { error: 'thoughts is required for bulk_create action' })
-      .min(1, 'thoughts is required for bulk_create action')
-      .max(BULK_ITEMS_MAX, `thoughts accepts at most ${BULK_ITEMS_MAX} items per call`)
-  }),
+  input: actionInput(STORE_ARGS, ['thoughts'], { thoughts: thoughtsArg }),
   run(args: ActionArgs) {
-    const items = args.thoughts as BulkCreateItem[] | undefined
+    const items = args.thoughts as BulkCreateItem[]
     const defaultProjectId = resolveProjectId(args.cwd as string | undefined)
     const { created, errors } = bulkCreateThoughtsService(items, defaultProjectId)
     const rows: BulkCreateRow[] = [
       ...created.map(item => ({
         index: item.index,
         status: 'created' as const,
-        thought: shapeThought(item.thought)
+        thought: shapeEntity(item.thought)
       })),
       ...errors.map(error => ({
         index: error.index,

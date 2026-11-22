@@ -4,26 +4,36 @@ import type { UrlLink } from '../../../services/url_links.service'
 import { updateThoughtByIdService } from '../../../services/thoughts.service'
 import type { ThoughtStatus } from '../../../types/thought'
 import { itemEnvelope, writeEnvelopeScope } from '../envelope'
-import { shapeThought } from '../utils'
-import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { shapeEntity } from '../utils'
+import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { STORE_ARGS } from './args'
 
 const ARCHIVED_NEEDS_SUPERSEDE =
   'update cannot set status "archived"; use memory_supersede action=archive (preview, then confirm:true with its preview_token)'
 
 export const updateHandler: ActionHandler = {
-  input: z.object({
-    thought_id: requiredString('thought_id is required for update action'),
-    status: z
-      .enum(['draft', 'active'], {
-        error: issue => (issue.input === 'archived' ? ARCHIVED_NEEDS_SUPERSEDE : undefined)
-      })
-      .optional()
-      .describe('draft or active only; archiving goes through memory_supersede action=archive.'),
-    is_profile: z
-      .never({ error: 'is_profile is retired; remove this field. There is no replacement.' })
-      .optional(),
-    surface_after: z.iso.datetime().nullable().optional()
-  }),
+  input: actionInput(
+    STORE_ARGS,
+    [
+      'thought_id',
+      'content',
+      'tags',
+      'tags_mode',
+      'status',
+      'is_protected',
+      'is_global',
+      'surface_after',
+      'url_links'
+    ],
+    {
+      thought_id: requiredString('thought_id is required for update action'),
+      status: z
+        .enum(['draft', 'active'], {
+          error: issue => (issue.input === 'archived' ? ARCHIVED_NEEDS_SUPERSEDE : undefined)
+        })
+        .optional()
+    }
+  ),
   run(args: ActionArgs) {
     // Id-addressed write: cwd scopes the answer, it never relocates the row (docs/mcp-tools.md).
     const updated = updateThoughtByIdService(
@@ -41,6 +51,6 @@ export const updateHandler: ActionHandler = {
       { urlLinks: args.url_links as UrlLink[] | undefined }
     )
     if (!updated) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-    return itemEnvelope('update', shapeThought(updated), writeEnvelopeScope(args.cwd))
+    return itemEnvelope('update', shapeEntity(updated), writeEnvelopeScope(args.cwd))
   }
 }

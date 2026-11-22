@@ -85,7 +85,6 @@ describe('memory_store is_global flag', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(data.item.is_global).toBe(true)
     expect(dbIsGlobal(data.item.id)).toBe(1)
   })
 

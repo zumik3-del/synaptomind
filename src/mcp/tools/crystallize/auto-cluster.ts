@@ -1,22 +1,22 @@
-import { z } from 'zod/v4'
 import { runAutoCluster } from '../../../services/auto-cluster.service'
 import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.service'
 import { collectionEnvelope } from '../envelope'
-import type { ActionArgs, ActionHandler } from '../action-tool'
-
-function optionalNumber(value: unknown): number | undefined {
-  if (value === undefined || value === null || value === '') return undefined
-  const n = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(n) ? n : undefined
-}
+import { actionInput, type ActionArgs, type ActionHandler } from '../action-tool'
+import { CRYSTALLIZE_ARGS } from './args'
 
 export const autoClusterHandler: ActionHandler = {
-  input: z.object({ preview_token: z.string().optional() }),
+  input: actionInput(CRYSTALLIZE_ARGS, [
+    'min_age_days',
+    'min_similarity',
+    'min_members',
+    'confirm',
+    'preview_token'
+  ]),
   async run(args: ActionArgs) {
     const opts = {
-      minAgeDays: optionalNumber(args.min_age_days),
-      minSimilarity: optionalNumber(args.min_similarity),
-      minMembers: optionalNumber(args.min_members)
+      minAgeDays: args.min_age_days as number | undefined,
+      minSimilarity: args.min_similarity as number | undefined,
+      minMembers: args.min_members as number | undefined
     }
     const planned = await runAutoCluster({ ...opts, dryRun: true })
     const outcome = await runGuarded(args, {

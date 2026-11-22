@@ -1,12 +1,10 @@
-import { z } from 'zod/v4'
 import { getFrontierService } from '../../../services/frontier.service'
 import { collectionEnvelope, readEnvelopeScope } from '../envelope'
-import type { ActionArgs, ActionHandler } from '../action-tool'
+import { actionInput, type ActionArgs, type ActionHandler } from '../action-tool'
+import { STATUS_ARGS } from './args'
 
 export const frontierHandler: ActionHandler = {
-  input: z.object({
-    limit: z.number().int().min(1).max(50, 'frontier limit must be at most 50').optional()
-  }),
+  input: actionInput(STATUS_ARGS, ['limit']),
   run(args: ActionArgs) {
     const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
     const { items } = getFrontierService({

@@ -10,16 +10,36 @@ import { errorResult, jsonResult, toolOutputShape } from './utils'
 export type ActionArgs = Record<string, unknown>
 
 export interface ActionHandler {
-  input?: z.ZodType
+  // Every action carries its own schema, so an argument outside it is refused instead of ignored.
+  input: z.ZodObject<z.ZodRawShape>
   run(args: ActionArgs): unknown | Promise<unknown>
 }
 
 export interface ActionToolConfig {
   name: string
   description: string
-  // The MCP SDK cannot advertise a discriminated-union schema (it serializes to an empty object), so the per-action union lives in `ActionHandler.input`.
+  // The MCP SDK cannot advertise a discriminated-union schema (it serializes to an empty object), so the advertised
+  // shape stays flat and each action's `input` narrows it.
   inputSchema: Record<string, z.ZodType>
   handlers: Record<string, ActionHandler>
+}
+
+// `cwd` is the universal envelope argument: every action accepts it, and only the schema of an action that reads it
+// validates it. `action` carries no meaning inside an action's own arguments.
+const UNIVERSAL_ARGS = new Set(['action', 'cwd'])
+
+export function actionInput(
+  args: Record<string, z.ZodType>,
+  fields: readonly string[],
+  overrides: Record<string, z.ZodType> = {}
+): z.ZodObject<z.ZodRawShape> {
+  const shape: Record<string, z.ZodType> = {}
+  for (const field of fields) {
+    const schema = overrides[field] ?? args[field]
+    if (schema === undefined) throw new Error(`"${field}" is not an advertised argument`)
+    shape[field] = schema
+  }
+  return z.object(shape)
 }
 
 function isToolResult(value: unknown): value is CallToolResult {
@@ -66,6 +86,10 @@ export function requiredString(message: string): z.ZodString {
   return z.string({ error: message }).min(1, message)
 }
 
+function irrelevantArgs(action: string, args: ActionArgs, accepted: Set<string>): string[] {
+  return Object.keys(args).filter(key => !UNIVERSAL_ARGS.has(key) && !accepted.has(key))
+}
+
 export function registerActionTool(server: McpServer, config: ActionToolConfig): void {
   const argsSchema = z.object(config.inputSchema)
   server.registerTool(
@@ -85,12 +109,17 @@ export function registerActionTool(server: McpServer, config: ActionToolConfig):
         const handler = config.handlers[action]
         if (!handler) return errorResult(`Unknown action: ${action}`)
 
-        let effectiveArgs: ActionArgs = parsed
-        if (handler.input) {
-          const argsResult = handler.input.safeParse(parsed)
-          if (!argsResult.success) return errorResult(formatZodIssues(argsResult.error))
-          effectiveArgs = { ...parsed, ...(argsResult.data as ActionArgs) }
-        }
+        const accepted = new Set(Object.keys(handler.input.shape))
+        const irrelevant = irrelevantArgs(action, parsed, accepted)
+        if (irrelevant.length)
+          return errorResult(`${irrelevant.join(', ')} is not applicable to ${action} action`)
+
+        const candidate: ActionArgs = { ...parsed }
+        delete candidate.action
+        if (!accepted.has('cwd')) delete candidate.cwd
+        const argsResult = handler.input.safeParse(candidate)
+        if (!argsResult.success) return errorResult(formatZodIssues(argsResult.error))
+        const effectiveArgs: ActionArgs = { ...parsed, ...(argsResult.data as ActionArgs) }
 
         const result = await handler.run(effectiveArgs)
         return isToolResult(result) ? result : jsonResult(result)

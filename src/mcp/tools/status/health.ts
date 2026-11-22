@@ -1,75 +1,20 @@
-import { runHealthCheckService, type Severity } from '../../../services/health-check.service'
+import { z } from 'zod/v4'
+import { runHealthCheckView, severitySchema } from '../../../services/health-check.service'
+import type { Severity } from '../../../services/health-check.service'
 import { itemEnvelope } from '../envelope'
-import type { ActionArgs, ActionHandler } from '../action-tool'
+import { actionInput, type ActionArgs, type ActionHandler } from '../action-tool'
+import { STATUS_ARGS } from './args'
 
 const CONTENT_LIMIT = 80
 
-function shortContent(value: string): string {
-  return value.length > CONTENT_LIMIT ? value.slice(0, CONTENT_LIMIT) : value
-}
-
-function slimDetail(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(slimDetail)
-  if (value === null || typeof value !== 'object') return value
-  const out: Record<string, unknown> = {}
-  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof val === 'string' && key.toLowerCase().includes('content')) {
-      out[key] = shortContent(val)
-    } else if (Array.isArray(val) || (val !== null && typeof val === 'object')) {
-      out[key] = slimDetail(val)
-    } else {
-      out[key] = val
-    }
-  }
-  return out
-}
-
-function projectHealthReport(report: unknown, includeDetails: boolean = false): unknown {
-  const r = (report ?? {}) as Record<string, unknown>
-  const { summary, categories, ...rest } = r
-  const s = (summary ?? {}) as Record<string, unknown>
-  const {
-    score_composition: _score_composition,
-    score_explanation: _score_explanation,
-    score_components: _score_components,
-    score_details: _score_details,
-    score_formula: _score_formula,
-    formula: _formula,
-    ...slimSummary
-  } = s
-
-  const slimCategories = Array.isArray(categories)
-    ? categories.map((cat: unknown) => {
-        const c = (cat ?? {}) as Record<string, unknown>
-        const checks = Array.isArray(c.checks) ? c.checks : undefined
-        return {
-          ...c,
-          checks: Array.isArray(checks)
-            ? checks.map((check: unknown) => {
-                const ch = (check ?? {}) as Record<string, unknown>
-                if (!includeDetails) {
-                  const { details: _details, ...restCheck } = ch
-                  return restCheck
-                }
-                const { details, ...restCheck } = ch
-                return {
-                  ...restCheck,
-                  details: Array.isArray(details) ? details.map(slimDetail) : details
-                }
-              })
-            : checks
-        }
-      })
-    : categories
-
-  return { ...rest, summary: slimSummary, categories: slimCategories }
-}
-
 export const healthHandler: ActionHandler = {
+  input: actionInput(STATUS_ARGS, ['severity', 'include_details']),
   run(args: ActionArgs) {
-    const report = runHealthCheckService({
-      severity: args.severity as Severity | undefined
+    const view = runHealthCheckView({
+      severity: args.severity as Severity | undefined,
+      details: args.include_details === true,
+      contentLimit: CONTENT_LIMIT
     })
-    return itemEnvelope('health', projectHealthReport(report, args.include_details === true))
+    return itemEnvelope('health', view)
   }
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { toBit } from '../../db/utils'
 import { parseTags } from '../../utils'
-import { jsonResult, shapeThought } from './utils'
+import { jsonResult, shapeEntity } from './utils'
 
 describe('jsonResult envelope', () => {
   test("wraps a bare string payload as { text: 'x' }", () => {
@@ -36,12 +36,15 @@ describe('jsonResult envelope', () => {
 
 test('thought output stringifies heterogeneous tags and strictly decodes boolean fields', () => {
   expect(
-    shapeThought({
-      tags: [' a ', { name: 'Name', tag: 'other' }, { tag: 'Tag' }, { id: 3 }, 4],
-      is_protected: 1,
-      is_global: '1',
-      is_cluster: true
-    })
+    shapeEntity(
+      {
+        tags: [' a ', { name: 'Name', tag: 'other' }, { tag: 'Tag' }, { id: 3 }, 4],
+        is_protected: 1,
+        is_global: '1',
+        is_cluster: true
+      },
+      { compact: false }
+    )
   ).toEqual({
     tags: [' a ', 'Name', 'Tag', '3', '4'],
     is_protected: true,
@@ -50,8 +53,10 @@ test('thought output stringifies heterogeneous tags and strictly decodes boolean
   })
 })
 
-test('shapeThought projects a comma-separated fields string', () => {
-  expect(shapeThought({ id: '1', content: 'hi', status: 'active' }, false, 'id, content')).toEqual({
+test('shapeEntity projects an explicit fields selection', () => {
+  expect(
+    shapeEntity({ id: '1', content: 'hi', status: 'active' }, { fields: ['id', 'content'] })
+  ).toEqual({
     id: '1',
     content: 'hi'
   })

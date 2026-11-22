@@ -195,7 +195,7 @@ describe('retention_review MCP', () => {
       await callTool({ name: 'retention_review', arguments: { ...args, confirm: true } })
     )
     expect(compacted.isError).toBe(false)
-    expect(compacted.data.item.summary.project_id).toBe('default')
+    expect(compacted.data.item.summary.project).toBe('Default')
     expect(compacted.data.item.summary.tags).toContain('mcp-tag')
     const invalid = parseResult(
       await callTool({
