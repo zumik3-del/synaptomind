@@ -1,4 +1,4 @@
-import { shapeThought, type BatchUrlLinks } from '../utils'
+import { shapeEntity, type BatchUrlLinks } from '../utils'
 import type { GroupedResult, SearchResult } from '../../../services/search.service'
 
 export interface SearchScores {
@@ -80,7 +80,7 @@ export function shapeSearchItem(
       )
     }
   }
-  const thought = shapeThought(result.thought, compact, fields, urlLinks)
+  const thought = shapeEntity(result.thought, { compact, fields, urlLinks })
   const explicitFields = Array.isArray(fields)
     ? fields.length > 0
     : typeof fields === 'string' && fields.trim().length > 0

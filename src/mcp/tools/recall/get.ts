@@ -2,17 +2,18 @@ import { z } from 'zod/v4'
 import { NotFoundError } from '../../../errors'
 import { getThoughtByIdService } from '../../../services/thoughts.service'
 import { getChainService } from '../../../services/graph.service'
-import { shapeThought, loadUrlLinks } from '../utils'
+import { shapeEntity, loadUrlLinks } from '../utils'
 import { itemEnvelope } from '../envelope'
 import type { Thought } from '../../../db/thoughts'
-import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { RECALL_ARGS } from './args'
 
 export const getHandler: ActionHandler = {
-  input: z.object({
-    thought_id: requiredString('thought_id is required for get action'),
-    include_edges: z.boolean().optional(),
-    max_degree: z.coerce.number().int().min(1).max(200).optional()
-  }),
+  input: actionInput(
+    RECALL_ARGS,
+    ['thought_id', 'include_edges', 'max_degree', 'compact', 'fields', 'include_url_links'],
+    { thought_id: requiredString('thought_id is required for get action') }
+  ),
   run(args: ActionArgs) {
     const id = args.thought_id as string
     const thought = getThoughtByIdService(id)
@@ -31,13 +32,13 @@ export const getHandler: ActionHandler = {
             ...(chain?.downstream ?? []).map(e => e.thought)
           ])
         : undefined
-    const shaped = shapeThought(thought, compact, fields, urlLinks) as Thought
+    const shaped = shapeEntity(thought, { compact, fields, urlLinks }) as Thought
     if (!chain) return itemEnvelope('get', shaped)
     const edges = (list: unknown): unknown =>
       Array.isArray(list)
         ? list.map((e: { edge: unknown; thought?: Thought }) => ({
             ...e,
-            thought: e?.thought ? shapeThought(e.thought, compact, fields, urlLinks) : e?.thought
+            thought: e?.thought ? shapeEntity(e.thought, { compact, fields, urlLinks }) : e?.thought
           }))
         : list
     return itemEnvelope('get', {

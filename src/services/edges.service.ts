@@ -193,13 +193,8 @@ export interface UnlinkBatchResult {
   deleted: number
   preview: number
   failed: number
-  unlinked: number
-  previews: number
-  failures: number
   total: number
   results: UnlinkBatchItemResult[]
-  items: UnlinkBatchItemResult[]
-  edges: UnlinkBatchItemResult[]
   errors: UnlinkBatchError[]
   instruction?: string
 }
@@ -233,13 +228,8 @@ export function deleteEdgesBatchService(
       deleted,
       preview,
       failed: errors.length,
-      unlinked: deleted,
-      previews: preview,
-      failures: errors.length,
       total: edgeIds.length,
       results,
-      items: results,
-      edges: results,
       errors
     }
     if (preview > 0 && !confirm) {

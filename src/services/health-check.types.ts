@@ -1,6 +1,9 @@
 import type { Database } from 'bun:sqlite'
+import { z } from 'zod/v4'
 
 export const SEVERITIES = ['critical', 'warning', 'info'] as const
+
+export const severitySchema = z.enum(SEVERITIES)
 
 export type Severity = (typeof SEVERITIES)[number]
 
@@ -39,36 +42,48 @@ export interface ScoreBreakdown {
   formula: string
 }
 
+export interface HealthSummary {
+  total_thoughts: number
+  total_edges: number
+  total_clusters: number
+  active: number
+  draft: number
+  archived: number
+  health_score: number
+  critical: number
+  warning: number
+  info: number
+  score_breakdown: ScoreBreakdown
+}
+
 export interface HealthReport {
-  summary: {
-    total_thoughts: number
-    total_edges: number
-    total_clusters: number
-    active: number
-    draft: number
-    archived: number
-    health_score: number
-    critical: number
-    warning: number
-    info: number
-    critical_count: number
-    warning_count: number
-    info_count: number
-    critical_issues: number
-    warning_issues: number
-    info_issues: number
-    issues: { critical: number; warning: number; info: number }
-    score_breakdown: ScoreBreakdown
-    score_composition: ScoreBreakdown
-    score_explanation: ScoreBreakdown
-    score_components: ScoreBreakdown
-    score_details: ScoreBreakdown
-    score_formula: string
-    formula: string
-  }
+  summary: HealthSummary
   categories: CategoryResult[]
 }
 
 export interface HealthCheckOptions {
   severity?: Severity
+}
+
+export interface HealthViewOptions extends HealthCheckOptions {
+  details?: boolean
+  contentLimit?: number
+}
+
+export interface CheckView {
+  name: string
+  severity: Severity
+  count: number
+  auto_fixable?: boolean
+  details?: unknown[]
+}
+
+export interface CategoryView {
+  name: string
+  checks: CheckView[]
+}
+
+export interface HealthView {
+  summary: HealthSummary
+  categories: CategoryView[]
 }

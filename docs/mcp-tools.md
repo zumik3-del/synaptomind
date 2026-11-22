@@ -227,6 +227,12 @@ per-action input failure and a domain error:
 - **Schema failures.** The tool's arguments are validated by the tool itself, not by the SDK, so a
   rejected argument answers the same structured error instead of a text-only SDK rejection
   (`src/mcp/tools/action-tool.ts`).
+- **Per-action arguments.** Each action validates against its own slice of the advertised schema,
+  which is the single source for both the advertisement and the refusal. An argument the action
+  does not read is refused — `<keys> is not applicable to <action> action` — instead of being
+  silently ignored: passing `thoughts` to `create`, or `confirm` to `edge_review list`, is an error,
+  and nothing is written. `action` and `cwd` are the only arguments every action tolerates; `cwd`
+  is validated only where an action declares it (`memory_manage action=resolve`).
 - **SDK-level refusals.** Two refusals never reach the action layer and answer text-only, with no
   `structuredContent`: the SDK's output-schema validation and its input-element cap, which is
   active only when the server configures one. Neither is reachable from a call this tool set
@@ -337,36 +343,44 @@ There is no HTTP counterpart to that rule: the HTTP listener serves only `/healt
 
 ## Compact output and field selection
 
-Read tools (`memory_recall`, `memory_status`, `memory_crystallize`,
-`retention_review`) accept two output controls, applied to the thought objects inside `item`/`items`:
+Every action that emits thought objects accepts two output controls, applied to those objects
+inside `item`/`items`:
 
-- `compact: true` — trims each thought to the minimal field set
-  `{ id, content, status, tags (as strings), project }`.
+- `compact` — **default `true`**: each thought keeps the minimal field set
+  `{ id, content, status, tags (as strings), project }`. Pass `compact: false` for the whole row.
 - `fields: ["id", "content", ...]` — returns only the requested fields (intersected
   with the available columns). Explicit `fields` take precedence over `compact`.
+
+`project` is derived, never a stored key: it is the row's project *name* (falling back to the
+project id when no name resolves) and is omitted when the row carries no project at all. So
+`fields: ["project"]` means the same thing on every surface.
 
 Examples:
 
 ```json
-{ "action": "list", "compact": true, "cwd": "/path/to/project" }
+{ "action": "list", "cwd": "/path/to/project" }
 { "action": "list", "fields": ["id", "content"], "cwd": "/path/to/project" }
-{ "action": "get", "thought_id": "01a172b4-d486-700c-a16e-5ae3d2d77a90", "compact": true }
-{ "action": "search", "query": "marker", "compact": true, "cwd": "/path/to/project" }
+{ "action": "get", "thought_id": "01a172b4-d486-700c-a16e-5ae3d2d77a90", "compact": false }
+{ "action": "search", "query": "marker", "cwd": "/path/to/project" }
 ```
 
 Output hygiene applies to every shaped thought, compact or not: `tags` are plain strings (never
 `{ id, name }`), and the storage 0/1 columns `is_protected`, `is_global` and `is_cluster` are
-booleans (`src/mcp/tools/utils.ts`, `shapeThought`).
+booleans (`src/mcp/tools/field-selection.ts`, `shapeEntity` — the one projection every tool shares).
 
-Compact defaults (v0.19 MCP UX cleanup):
+Which surfaces take the controls:
 
-- `memory_recall` — every action defaults to compact output; pass `compact: false`
-  for the full thought, or `fields` for an explicit subset.
-- `memory_status` `propose` — defaults to the slim plan (top 3 edges, no signals);
-  pass `compact: false` or `include_signals: true` (or `max_edges`) for full output.
-- `memory_crystallize` `graph`, `retention_review` `list` — compact is opt-in
-  (`compact: true`); full output is the default unless `fields` is supplied.
-  (`retention_review` applies `compact`/`fields` to its candidate list.)
+- **Compact by default.** `memory_recall` (all six actions), `memory_reflect action=timeline`,
+  `retention_review action=list`, and the write answers that return thought rows
+  (`memory_store` `create`/`update`/`bulk_create`, `memory_supersede` `archive`/`merge`,
+  `memory_crystallize` `cluster`). Nothing to opt into — a caller who wants the whole row passes
+  `compact: false`, and a caller who read the row back with `memory_recall compact=false` sees the
+  same thing.
+- **Whole rows, `fields` only.** `memory_status action=slots`, `memory_manage action=list` and
+  `memory_crystallize action=graph` advertise no `compact`: slots and projects answer their own
+  row shape, the graph answers nodes and edges, and all three narrow by `fields` alone.
+- `memory_status action=propose` keeps its own compact switch for the *plan* (top 3 edges, no
+  signals); pass `compact: false` or `include_signals: true` (or `max_edges`) for full output.
 
 Explicit `fields` always take precedence over `compact` on every tool.
 
@@ -389,7 +403,7 @@ A thought's url links ride on the thought output behind one boolean argument,
   query, never one per thought (`getThoughtUrlLinksBatchService`,
   `src/services/url_links.service.ts`).
 - **Not hidden by `compact`, not trimmed by `fields`.** The value is attached after the
-  thought shaping (`src/mcp/tools/utils.ts`, `shapeThought`), so
+  thought shaping (`src/mcp/tools/field-selection.ts`, `shapeEntity`), so
   `include_url_links: true` with `fields: ["id"]` answers `{ id, url_links }`. The flag
   itself is a read control, not a thought column.
 - **Absence is distinguishable from emptiness.** Omitted or `false`: the key is **absent**
@@ -663,9 +677,11 @@ inside them but never remove the edge lists. A missing id fails with a `404` err
 
 ### `action=context` / `action=chain` / `action=clusters`
 
-`context` returns one thought plus its neighbourhood: `{ item: { thought, chain }, meta }`, where
-`chain` carries `upstream`/`downstream`. It accepts a text `query` (best match + its chain; `cwd`
-scopes the query path when given) or a `thought_id` (that thought + its chain, no project scope).
+`context` returns one chain view: `{ item: { thought, upstream, downstream }, meta }`. It accepts a
+text `query` (best match + its chain; `cwd` scopes the query path when given) or a `thought_id`
+(that thought + its chain, no project scope). Both forms answer the same shape, and the
+`thought_id` form is literally the `chain` reader below — one code path
+(`src/mcp/tools/recall/chain.ts`), so a caller sees the same head and neighbourhood either way.
 A degraded query with no best match answers `item: null` with `meta.reason: "no_match"` instead of
 throwing. The query path is **not** gated: `context` asks for the single best match, so the
 default `min_relevance` gate of `search` would turn a weak-but-real neighbourhood into
@@ -1085,6 +1101,8 @@ so a single call can narrow eligibility or page without reconfiguring anything
 | `importance_floor` | number | `retentionReview.importanceFloor` (0.3) | Candidate importance must stay below this value (0–1) |
 | `limit` | int | `retentionReview.pageSize` (20) | Page size (1–100) |
 | `offset` | int | `0` | Pagination offset |
+| `compact` | boolean | `true` | Compact candidate rows (`compact: false` for the whole thought) |
+| `fields` | string[] | — | Columns to keep in each candidate; wins over `compact` |
 
 ```json
 { "action": "list", "min_age_days": 90, "importance_floor": 0.1, "limit": 50, "offset": 0 }
@@ -1093,9 +1111,10 @@ so a single call can narrow eligibility or page without reconfiguring anything
 - `list` → `{ items: <candidates>, meta }`; `meta.counts` carries the page (`limit`, `offset`) plus
   the shared three, where `total` is the candidate count for the filters ignoring the page
   (`src/mcp/tools/retention-review.ts`). Candidates come back oldest first (age anchor ascending),
-  then by id, with `content` truncated to 200 characters; `compact` and `fields` apply as on every
-  other read tool. The query spans every project — a candidate carries its `project_id`/
-  `project_name`, and no `cwd` narrows the list.
+  then by id, with `content` truncated to 200 characters; candidates are compact by default
+  (`compact: false` returns the whole row) and `fields` narrows them like every other shaped
+  thought. The query spans every project — no `cwd` narrows the list, and a candidate reports its
+  project through the derived `project` key.
 - `protect` → `{ item: <protect report>, meta }`.
 - `delete` → `{ item: <delete report>, meta }`; the preview `item` carries
   `status: "preview"`, `action: "preview"`, `deleted: false`, `preview: true`, `confirm: false`,
@@ -1156,10 +1175,13 @@ created in the default project (`src/services/session-reflection.service.ts:171-
 land in that project instead; a path no project owns behaves like an absent one (rows for the default
 project, slot edits global) and still raises no warning.
 
-`action=timeline` is the plain paginated thought list (`status`, `cwd`, `limit`, `offset`) as
-`{ items, meta }`; `cwd` scopes it to one project, and omitted, it lists every project with the
-standard `no cwd` warning. `meta.counts` carries the `limit` and `offset` that actually ran
-(defaults applied) beside the shared `total`/`returned`/`filtered_out`.
+`action=timeline` is the plain paginated thought list (`status`, `cwd`, `limit`, `offset`,
+`compact`, `fields`, `include_url_links`) as `{ items, meta }`; it is the same reader as
+`memory_recall action=list` (`src/mcp/tools/list-page.ts`), so the two answer one shape. `cwd`
+scopes it to one project, and omitted, it lists every project with the standard `no cwd` warning.
+`meta.counts` carries the `limit` and `offset` that actually ran (defaults applied) beside the
+shared `total`/`returned`/`filtered_out`. Rows are compact by default: `compact: false` returns the
+whole thought, and `fields` selects columns.
 
 ## `memory_primers` — the always-at-hand set
 
@@ -1351,6 +1373,25 @@ see [API.md](API.md)):
 6. **Output hygiene.** Tags are plain strings and the flag columns are booleans everywhere;
    scoring metadata (`scores`, `match_source`) lives behind `compact: false`, while safety
    annotations stay visible in compact output.
+7. **One projection, one `project` key.** Every thought-shaped object goes through
+   `shapeEntity` (`src/mcp/tools/field-selection.ts`); `project` is the derived project **name**
+   (project id when no name resolves), never `project_id`/`project_name`, and it is omitted when
+   the row carries no project. `fields: ["project"]` now means the same thing on every surface.
+   A write answer is compact too, so `memory_store create` answers `item: { id, content, status,
+   tags, project }` — read the row back with `memory_recall compact=false` for the whole row.
+8. **Context answers the chain view.** `memory_recall action=context` returns
+   `{ item: { thought, upstream, downstream }, meta }` for both the query and the `thought_id`
+   form; there is no nested `chain` key any more, and the `thought_id` form is the same reader as
+   `action=chain`.
+9. **Health aliases removed.** `memory_status action=health` and `GET /api/health-check` answer
+   one view: severity counts are `critical`/`warning`/`info` and score details live under
+   `score_breakdown` only (see [API.md](API.md)); `issues`, `*_count`, `*_issues`,
+   `score_composition`, `score_explanation`, `score_components`, `score_details`,
+   `score_formula` and `formula` are gone.
+10. **An argument outside the action is an error.** The advertised `inputSchema` is the single
+    source for per-action validation: an argument the action does not read now fails with
+    `<keys> is not applicable to <action> action` instead of being ignored. `action` and `cwd`
+    stay universal.
 
 ## Migration notes (v0.19 MCP UX cleanup)
 
@@ -1363,8 +1404,9 @@ Breaking changes for MCP clients:
 2. **Compact defaults.** `memory_recall` now defaults to compact output; pass
    `compact: false` for full thoughts. `memory_status` `propose` defaults to the
    slim plan (top 3 edges, no signals); pass `compact: false` or
-   `include_signals: true`. Other read tools stay full by default; opt in with
-   `compact: true`. Explicit `fields` always win.
+   `include_signals: true`. The other read tools defaulted to full rows at this
+   release; the next-release note above turns `compact` on for every thought-shaped
+   answer. Explicit `fields` always win.
 3. **Preview tokens required.** Every destructive action (`memory_store`
    `unlink`/`retype`, `memory_supersede` `archive`/`archive_batch`/`merge`,
    `memory_manage` `delete`, `edge_review` `apply`/`apply_batch`/`rollback`,

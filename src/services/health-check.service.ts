@@ -5,17 +5,24 @@ import { CATEGORIES, runChecks } from './health-check-registry.service'
 import { scoreCategories } from './health-check-scoring.service'
 import {
   SEVERITIES,
+  severitySchema,
   type CategoryResult,
+  type CategoryView,
   type CheckResult,
+  type CheckView,
   type HealthCheckOptions,
   type HealthReport,
+  type HealthView,
+  type HealthViewOptions,
   type Severity
 } from './health-check.types'
 
-export { SEVERITIES }
-export type { CategoryResult, CheckResult, HealthReport, Severity }
+export { SEVERITIES, severitySchema }
+export type { CategoryResult, CheckResult, HealthReport, HealthView, HealthViewOptions, Severity }
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, info: 2 }
+
+const TRUNCATION_MARKER = '…'
 
 function matchesSeverity(check: CheckResult, minSeverity?: Severity): boolean {
   if (!minSeverity) return true
@@ -48,23 +55,58 @@ export function runHealthCheckService(
       critical: score.critical,
       warning: score.warning,
       info: score.info,
-      critical_count: score.critical,
-      warning_count: score.warning,
-      info_count: score.info,
-      critical_issues: score.critical,
-      warning_issues: score.warning,
-      info_issues: score.info,
-      issues: { critical: score.critical, warning: score.warning, info: score.info },
-      score_breakdown: score.breakdown,
-      score_composition: score.breakdown,
-      score_explanation: score.breakdown,
-      score_components: score.breakdown,
-      score_details: score.breakdown,
-      score_formula: score.breakdown.formula,
-      formula: score.breakdown.formula
+      score_breakdown: score.breakdown
     },
     categories
   }
+}
+
+function truncateContent(value: string, contentLimit: number | undefined): string {
+  if (contentLimit === undefined || value.length <= contentLimit) return value
+  return `${value.slice(0, contentLimit)}${TRUNCATION_MARKER}`
+}
+
+// A shortened content value carries the marker, so a caller can tell a cut string from a short one.
+function viewDetail(value: unknown, contentLimit: number | undefined): unknown {
+  if (Array.isArray(value)) return value.map(entry => viewDetail(entry, contentLimit))
+  if (value === null || typeof value !== 'object') return value
+  const out: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof entry === 'string' && key.toLowerCase().includes('content')) {
+      out[key] = truncateContent(entry, contentLimit)
+    } else if (entry !== null && typeof entry === 'object') {
+      out[key] = viewDetail(entry, contentLimit)
+    } else {
+      out[key] = entry
+    }
+  }
+  return out
+}
+
+// The one wire shape of a health report: MCP and HTTP both build on it. `details` adds the
+// per-check findings (content strings cut at `contentLimit`), and the repair hooks never leave
+// the service layer.
+export function runHealthCheckView(
+  options: HealthViewOptions = {},
+  d: Database = getDb()
+): HealthView {
+  const report = runHealthCheckService({ severity: options.severity }, d)
+  const categories: CategoryView[] = report.categories.map(cat => ({
+    name: cat.name,
+    checks: cat.checks.map(check => {
+      const view: CheckView = {
+        name: check.name,
+        severity: check.severity,
+        count: check.count
+      }
+      if (check.auto_fixable !== undefined) view.auto_fixable = check.auto_fixable
+      if (options.details === true) {
+        view.details = check.details.map(detail => viewDetail(detail, options.contentLimit))
+      }
+      return view
+    })
+  }))
+  return { summary: report.summary, categories }
 }
 
 export type { HealthRepairResult } from './health-check-repair.service'

@@ -1,16 +1,16 @@
 import { z } from 'zod/v4'
-import { validateRetypeService, EDGE_TYPES } from '../../../services/edges.service'
+import { EDGE_TYPES, validateRetypeService } from '../../../services/edges.service'
 import { getDb } from '../../../db'
 import { retypeEdge } from '../../../db/edges'
 import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.service'
 import { itemEnvelope } from '../envelope'
-import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { STORE_ARGS } from './args'
 
 export const retypeHandler: ActionHandler = {
-  input: z.object({
+  input: actionInput(STORE_ARGS, ['edge_id', 'new_type', 'confirm', 'preview_token'], {
     edge_id: requiredString('edge_id is required for retype action'),
-    new_type: z.enum(EDGE_TYPES),
-    preview_token: z.string().optional()
+    new_type: z.enum(EDGE_TYPES)
   }),
   async run(args: ActionArgs) {
     const edgeId = args.edge_id as string

@@ -1,18 +1,8 @@
-import { z } from 'zod/v4'
-import {
-  createEdgesBatchService,
-  EDGE_TYPES,
-  type LinkBatchItem
-} from '../../../services/edges.service'
-import { BATCH_ITEMS_MAX } from '../../../validation'
+import { createEdgesBatchService, type LinkBatchItem } from '../../../services/edges.service'
 import { collectionEnvelope } from '../envelope'
-import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
-
-const linkItem = z.object({
-  source: requiredString('each link requires a non-empty source thought id'),
-  target: requiredString('each link requires a non-empty target thought id'),
-  type: z.enum(EDGE_TYPES).optional()
-})
+import { actionInput, type ActionArgs, type ActionHandler } from '../action-tool'
+import { STORE_ARGS } from './args'
+import { linksArg } from './items'
 
 interface LinkBatchRow {
   index: number
@@ -24,12 +14,7 @@ interface LinkBatchRow {
 }
 
 export const linkBatchHandler: ActionHandler = {
-  input: z.object({
-    links: z
-      .array(linkItem, { error: 'links is required for link_batch action' })
-      .min(1, 'links is required for link_batch action')
-      .max(BATCH_ITEMS_MAX, `links accepts at most ${BATCH_ITEMS_MAX} items per call`)
-  }),
+  input: actionInput(STORE_ARGS, ['links'], { links: linksArg }),
   run(args: ActionArgs) {
     const links = args.links as LinkBatchItem[]
     const result = createEdgesBatchService(links)

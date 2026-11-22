@@ -1,8 +1,8 @@
 import type { Database } from 'bun:sqlite'
 import { getDb } from '../db'
 import { ValidationError } from '../errors'
-import { runHealthCheckService } from './health-check.service'
-import type { HealthReport, Severity } from './health-check.service'
+import { runHealthCheckService, runHealthCheckView } from './health-check.service'
+import type { HealthReport, HealthView, Severity } from './health-check.service'
 import { createPreviewTokenService, consumePreviewTokenService } from './preview-tokens.service'
 
 export interface HealthRepairResult {
@@ -11,7 +11,7 @@ export interface HealthRepairResult {
   preview_token?: string
   repairable?: Array<{ category: string; name: string; count: number }>
   repaired?: Array<{ category: string; name: string; count: number }>
-  report?: HealthReport
+  report?: HealthView
 }
 
 function runAutoFix(
@@ -87,6 +87,6 @@ export function runHealthRepairService(
 
   const repaired = applyRepairs()
 
-  const report = runHealthCheckService({ severity: options.severity }, d)
+  const report = runHealthCheckView({ severity: options.severity, details: true }, d)
   return { status: 'executed', action: 'repair', repaired, report }
 }

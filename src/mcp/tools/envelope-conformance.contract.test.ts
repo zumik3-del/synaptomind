@@ -1175,7 +1175,7 @@ describe('a write with an unregistered cwd raises no widening note and keeps its
 
     const db = getDb()
     const destination = resolveDefaultProjectId(db)
-    const body = payload as { item: { project_id: string }; meta: Record<string, unknown> }
+    const body = payload as { item: { project: string }; meta: Record<string, unknown> }
     const warnings = body.meta.warnings as string[]
     expect(body.meta.scope).toEqual({ project: null, project_name: null, global: true })
     expect(warnings).toEqual([])
@@ -1205,12 +1205,12 @@ describe('a write with an unregistered cwd raises no widening note and keeps its
     )
     expect(isError).toBe(false)
 
-    const body = payload as { item: { project_id: string }; meta: Record<string, unknown> }
+    const body = payload as { item: { project: string }; meta: Record<string, unknown> }
     const warnings = body.meta.warnings as string[]
     expect(body.meta.scope).toEqual({ project: null, project_name: null, global: true })
     expect(warnings).toEqual([])
     expect(warnings.join('\n')).not.toContain(SPANS_EVERY_PROJECT_CLAIM)
-    expect(body.item.project_id).toBe(PROJECT)
+    expect(body.item.project).toBe('Conformance')
     for (const warning of warnings) expect(warning).toContain('Conformance')
   })
 })

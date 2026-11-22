@@ -210,7 +210,7 @@ describe('bulk_create item is_global', () => {
 
     expect(answer.isError).toBe(false)
     const id = createdIds(answer)[0]
-    expect((answer.envelope.items ?? [])[0].thought.is_global).toBe(true)
+    expect((answer.envelope.items ?? [])[0].thought).not.toHaveProperty('is_global')
     expect((answer.envelope.items ?? [])[0].thought.status).toBe('active')
     expect(thoughtRow(id)).toMatchObject({ is_global: 1, project_id: p2 })
     expect(await scopedSearch()).toContain(id)
@@ -297,19 +297,20 @@ describe('bulk_create honours the per-item project, source and relation', () => 
   })
 })
 
-describe('bulk_create ignores the top-level create fields', () => {
-  test('a top-level is_global, url_links and tags never reach the items', async () => {
-    const answer = await bulk([{ content: 'top level fields ignored item' }], {
+describe('bulk_create refuses the top-level create fields', () => {
+  test('a top-level is_global, url_links and tags are refused and nothing is written', async () => {
+    const answer = await bulk([{ content: 'top level fields refused item' }], {
       is_global: true,
       url_links: [{ text: 'top', url: 'https://example.com/top' }],
       tags: ['top-tag']
     })
 
-    expect(answer.isError).toBe(false)
-    const id = createdIds(answer)[0]
-    expect(thoughtRow(id).is_global).toBe(0)
-    expect(linksOf(id)).toEqual([])
-    expect((answer.envelope.items ?? [])[0].thought.tags).toEqual([])
+    expect(answer.isError).toBe(true)
+    expect(answer.text).toContain('is not applicable to bulk_create action')
+    expect(answer.text).toContain('is_global')
+    expect(answer.text).toContain('url_links')
+    expect(answer.text).toContain('tags')
+    expect(count('SELECT COUNT(*) AS n FROM thoughts')).toBe(0)
   })
 })
 
@@ -431,22 +432,16 @@ describe('the advertised thoughts field is validated for every action', () => {
     expect(count('SELECT COUNT(*) AS n FROM thoughts')).toBe(0)
   })
 
-  test('create with a non-empty thoughts array is accepted and its value ignored', async () => {
+  test('create with a non-empty thoughts array is refused and its items are never written', async () => {
     const answer = await call('memory_store', {
       action: 'create',
-      content: 'top-level content wins',
+      content: 'top-level content loses',
       thoughts: [{ content: 'item content must never be written', tags: ['item-tag'] }]
     })
 
-    expect(answer.isError).toBe(false)
-    expect(answer.envelope.item?.content).toBe('top-level content wins')
-    expect(answer.envelope.item?.tags).toEqual([])
-    expect(count('SELECT COUNT(*) AS n FROM thoughts')).toBe(1)
-    expect(
-      count(
-        "SELECT COUNT(*) AS n FROM thoughts WHERE content = 'item content must never be written'"
-      )
-    ).toBe(0)
+    expect(answer.isError).toBe(true)
+    expect(answer.text).toContain('thoughts is not applicable to create action')
+    expect(count('SELECT COUNT(*) AS n FROM thoughts')).toBe(0)
   })
 })
 
@@ -454,11 +449,9 @@ describe('the thoughts description states the every-action validation, not an un
   test('claims validation for every action and never an ignore for all other actions', async () => {
     const description = (await advertisedThoughts()).description as string
 
-    expect(description).toContain('VALIDATED for EVERY action')
-    expect(description).toContain(
-      'the advertised schema checks the whole call before the action runs'
-    )
+    expect(description).toContain('VALIDATED before the action runs')
     expect(description).toContain('an empty array is refused')
+    expect(description).toContain('REJECTED for all other actions')
     expect(description).not.toContain('IGNORED for all other actions')
   })
 })
