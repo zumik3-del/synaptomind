@@ -12,7 +12,6 @@ import { configFixture, createTestDb, seedEdge, seedThought } from '../test/help
 import { DRAFT_THOUGHT_ID, proposePlacementPlan } from './placement/engine'
 import {
   computeFingerprint,
-  countPlacementProposalsService,
   enqueuePlanService,
   isProposalStale,
   listPlacementProposalsPageService,
@@ -997,39 +996,6 @@ describe('regression: proposePlacementPlan does not write to placement_proposals
     )
     expect(plan.thought_id).toBe(DRAFT_THOUGHT_ID)
     expect(queueRowCount(db)).toBe(0)
-  })
-})
-
-describe('countPlacementProposalsService', () => {
-  test('the total is un-paged: one number for limit 1 and limit 1000', () => {
-    const db = getDb()
-    for (let i = 0; i < 5; i++) {
-      const s = seedThought({ id: `cnt-s${i}`, content: `count source ${i}`, created_at: T_SRC })
-      const t = seedThought({ id: `cnt-t${i}`, content: `count target ${i}`, created_at: T_TGT })
-      enqueueProposals(edgePlan(s, t), { now: NOW }, db)
-    }
-
-    expect(countPlacementProposalsService({ now: NOW, limit: 1 }, db)).toBe(5)
-    expect(countPlacementProposalsService({ now: NOW, limit: 1000 }, db)).toBe(5)
-    expect(list({ now: NOW, limit: 1 }, db)).toHaveLength(1)
-  })
-
-  test('the count shares the page filter set: lapsed and retired rows are in neither by default', () => {
-    const db = getDb()
-    const s1 = seedThought({ id: 'cf-s1', content: 'count filter 1', created_at: T_SRC })
-    const s2 = seedThought({ id: 'cf-s2', content: 'count filter 2', created_at: T_SRC })
-    const t1 = seedThought({ id: 'cf-t1', content: 'count filter t1', created_at: T_TGT })
-    const t2 = seedThought({ id: 'cf-t2', content: 'count filter t2', created_at: T_TGT })
-    const t3 = seedThought({ id: 'cf-t3', content: 'count filter t3', created_at: T_TGT })
-    enqueueProposals(edgePlan(s1, t1), { now: NOW }, db)
-    enqueueProposals(edgePlan(s2, t2), { now: NOW }, db)
-    insertLapsedProposal(db, s1, t3, '2026-01-02T00:00:00.000Z')
-    insertRetiredProposal(db, 'cf-retired', s1, t3)
-
-    expect(countPlacementProposalsService({ now: NOW }, db)).toBe(2)
-    expect(list({ now: NOW }, db)).toHaveLength(2)
-    expect(countPlacementProposalsService({ now: NOW, includeRetired: true }, db)).toBe(3)
-    expect(list({ now: NOW, includeRetired: true }, db)).toHaveLength(3)
   })
 })
 

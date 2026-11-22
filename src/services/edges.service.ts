@@ -30,13 +30,13 @@ export function createEdge(
   targetId: string,
   type: string = 'related'
 ): Edge {
-  if (!isValidEdgeType(type)) {
-    throw new InvalidEdgeTypeError(type, [...EDGE_TYPES])
-  }
   if (type === 'child') {
     throw new ClusterEdgeValidationError(
       "Edge type 'child' is deprecated. Use 'parent' instead — 'parent' covers both directions."
     )
+  }
+  if (!isValidEdgeType(type)) {
+    throw new InvalidEdgeTypeError(type, [...EDGE_TYPES])
   }
   if (sourceId === targetId) {
     throw new SelfLoopEdgeError()

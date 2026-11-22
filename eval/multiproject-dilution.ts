@@ -62,15 +62,6 @@ export interface DilutionCorpusSizes {
 export const DILUTION_CORPUS: Required<DilutionCorpusSizes> = { big: 700, mid: 200 }
 
 /**
- * The ADR §8 acceptance corpus: 4 500 rows rank nearer than the ground truth, so
- * the stopgap's cap-wide global pool cannot reach the smallest project.
- */
-export const DILUTION_ACCEPTANCE_CORPUS: Required<DilutionCorpusSizes> = {
-  big: 3000,
-  mid: 1500
-}
-
-/**
  * Over-cap corpora (#2494 AC): 1 200 and 10 000 rows rank nearer than the ground
  * truth. Both are past `CANDIDATE_POOL_MAX`, so the pre-fix leg answers nothing
  * at any k; a project-scoped leg ranks inside the partition and recovers.

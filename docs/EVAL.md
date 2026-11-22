@@ -246,10 +246,8 @@ addressed project, one further project-index probe
 (`src/db/search-vector.ts:91-101`). Both arms above are project-filtered, so
 their current cost is the p50/p95 shown plus that count. No re-measurement is
 recorded after the probe landed, the harness scores recall and precision rather
-than wall time, and no test drives the 4 505-row corpus
-(`DILUTION_ACCEPTANCE_CORPUS`, `eval/multiproject-dilution.ts:68-71`, is
-exported but unused), so these are one-off measurements rather than a
-`bun run eval` output.
+than wall time, and no test drives the 4 505-row corpus, so these are one-off
+measurements rather than a `bun run eval` output.
 
 Mechanism on generated corpora (384 dimensions, 21 partitions, 1 000 rows in the
 queried project, raw SQL against a partitioned `vec_thoughts`):

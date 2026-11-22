@@ -15,14 +15,6 @@ export function clearUnavailable(): void {
   unavailable.clear()
 }
 
-export function unavailableUsers(): string[] {
-  return [...unavailable.keys()]
-}
-
-export function getUnavailableUsers(): Array<{ userId: string; error: string }> {
-  return [...unavailable.entries()].map(([userId, error]) => ({ userId, error }))
-}
-
 export interface BootFanOutResult {
   registered: string[]
   unavailable: Array<{ userId: string; error: string }>

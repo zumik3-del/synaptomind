@@ -34,7 +34,7 @@ export function findScopeMismatches(db: Database): ScopeMismatch[] {
   }
 }
 
-export function findDeadPrimers(db: Database, _days: number = 30): DeadPrimer[] {
+export function findDeadPrimers(db: Database): DeadPrimer[] {
   return db
     .prepare(`
     SELECT p.thought_id, t.content, COALESCE(p.hit_count, 0) AS hit_count

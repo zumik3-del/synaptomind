@@ -1,4 +1,3 @@
-import { z } from 'zod/v4'
 import { NotFoundError } from '../../../errors'
 import { getThoughtByIdService } from '../../../services/thoughts.service'
 import { getChainService } from '../../../services/graph.service'

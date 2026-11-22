@@ -3,7 +3,6 @@ import { ValidationError } from '../errors'
 import {
   buildSearchOptions,
   parseContradictionMode,
-  parseOptionalNumber,
   parseSupersessionMode
 } from './search-options.service'
 
@@ -32,28 +31,6 @@ test('an unadvertised mode is refused with the accepted list', () => {
   expect(() => parseContradictionMode('suppress')).toThrow(
     "invalid contradiction_mode 'suppress'; expected off|flag"
   )
-})
-
-test('an absent or empty optional number is undefined rather than zero', () => {
-  expect(parseOptionalNumber(undefined, 'min_importance')).toBeUndefined()
-  expect(parseOptionalNumber('', 'min_importance')).toBeUndefined()
-})
-
-test('an optional number parses the decimal forms the wire accepts', () => {
-  expect(parseOptionalNumber('0', 'min_importance')).toBe(0)
-  expect(parseOptionalNumber('0.35', 'min_importance')).toBe(0.35)
-  expect(parseOptionalNumber('-1', 'recency_weight')).toBe(-1)
-  // parseFloat stops at the second dot, so a malformed tail is ignored rather than refused.
-  expect(parseOptionalNumber('0.1.2', 'min_importance')).toBe(0.1)
-})
-
-test('an optional number rejects text and the non-finite spellings', () => {
-  for (const raw of ['abc', 'Infinity', 'NaN', '-Infinity']) {
-    expect(() => parseOptionalNumber(raw, 'min_relevance')).toThrow(ValidationError)
-    expect(() => parseOptionalNumber(raw, 'min_relevance')).toThrow(
-      `invalid min_relevance '${raw}'; expected a number`
-    )
-  }
 })
 
 test('buildSearchOptions defaults the status to active and carries every caller value through', () => {

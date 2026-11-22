@@ -180,14 +180,6 @@ export function listPlacementProposalsService(
   })
 }
 
-// Same filters as `listPlacementProposalsService`, counted in SQL: the page limit never caps it.
-export function countPlacementProposalsService(
-  options: ListOptions = {},
-  d: Database = getDb()
-): number {
-  return countProposals(d, listFilterOptions(resolveListFilters(options)))
-}
-
 export interface PlacementProposalPage {
   items: PlacementProposalRow[]
   /** Un-paged rows matching the filters (the retired kinds excluded unless `includeRetired`). */
