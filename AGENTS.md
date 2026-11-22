@@ -74,9 +74,18 @@ Test-only fixtures live in `src/test/` — never in `services/`, where a `bun:te
 into the production path.
 
 **Layering.** `api/mcp → services → db`; routes stay thin (parse/serialize only, validation +
-orchestration in services). Error classes live in `src/errors.ts`: it is cycle-free and neutral
-against `services`/`api`/`mcp`, but it re-exports six classes from `db/errors.ts`, so the module
-depends on the db layer by design.
+orchestration in services). `db/` issues SQL and returns rows: no domain policy, no config
+derivation, no logging decision, and it never imports `services`, `api`, `mcp`, `context` or
+`src/errors.ts`; DDL lives in `db/schema/`, migrations in `db/migrations/`, and a pure data or type
+module does not live in `db/`. **One owner for the handle:** the default handle, the multi-user
+registry and the ALS live in `db/handle.ts` and are exported only through `src/db/index.ts` —
+callers import them from `../db` (inside `db/` via `./index`; `db/init.ts` imports `./handle`
+because the barrel re-exports `init`), and `context/` imports `db/`, never the reverse. Error classes
+live in `src/errors.ts`: it is cycle-free and neutral against `services`/`api`/`mcp`, but it
+re-exports **eight** classes from `db/errors.ts` (the six edge/content conflicts plus
+`NotFoundError` and `ValidationError`), so the module depends on the db layer by design. The policy
+carved out of `db/` keeps a db-first signature beside its trailing-`d` wrapper:
+`edges.service.ts createEdge` and `projects.service.ts deleteProject`.
 
 ## 5. Testing setup
 
