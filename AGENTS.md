@@ -84,8 +84,8 @@ because the barrel re-exports `init`), and `context/` imports `db/`, never the r
 live in `src/errors.ts`: it is cycle-free and neutral against `services`/`api`/`mcp`, but it
 re-exports **eight** classes from `db/errors.ts` (the six edge/content conflicts plus
 `NotFoundError` and `ValidationError`), so the module depends on the db layer by design. The policy
-carved out of `db/` keeps a db-first signature beside its trailing-`d` wrapper:
-`edges.service.ts createEdge` and `projects.service.ts deleteProject`.
+carved out of `db/` keeps a db-first signature with no wrapper when that is all its callers need:
+`edges.service.ts createEdge` and `retypeEdge`, `projects.service.ts deleteProject`.
 
 ## 5. Testing setup
 
