@@ -19,6 +19,7 @@ import { handleEmbedderRequest } from './handle-request'
 import { EMBEDDER_IPC_PROTOCOL_VERSION, type IpcMessage } from './ipc-protocol'
 import { type EmbeddingRow, type FailedRow, type RowOutcome, classifyBatch } from './batch'
 import { batchWorkerEnabled, readEmbedderUsers } from './spawn-scope'
+import { createIntervalJob } from '../interval-job'
 
 const BATCH_SIZE = config.embedder.batchSize
 const MAX_CONSECUTIVE_FAILURES = 5
@@ -51,8 +52,6 @@ const entries: DbEntry[] = batchWorker ? openAllDbs() : []
 const consecutiveFailuresByDb: number[] = entries.map(() => 0)
 const currentBackoffByDb: number[] = entries.map(() => 1)
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
-let sweepTimer: ReturnType<typeof setInterval> | null = null
 let idleTimer: ReturnType<typeof setTimeout> | null = null
 let batchInFlight = false
 let dbStartIndex = 0
@@ -62,14 +61,8 @@ function clearTimers(): void {
     clearTimeout(idleTimer)
     idleTimer = null
   }
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-  if (sweepTimer) {
-    clearInterval(sweepTimer)
-    sweepTimer = null
-  }
+  void pollJob.stop()
+  void sweepJob.stop()
 }
 
 function closeAllDbs(): void {
@@ -88,8 +81,7 @@ function resetIdleTimer() {
     return
   }
   idleTimer = setTimeout(() => {
-    console.log('[embedder] idle timeout, exiting process')
-    insertLog('debug', 'embedding', 'Model unloaded (idle)', {
+    insertLog('info', 'embedding', 'Model unloaded (idle)', {
       idleMinutes: config.embedder.idleTimeoutMs / 60000
     })
     process.send?.({ type: 'exiting' })
@@ -209,9 +201,6 @@ async function processOneDb(idx: number): Promise<boolean> {
       const backoff = Math.min(currentBackoffByDb[idx] * 2, MAX_BACKOFF)
       if (backoff !== currentBackoffByDb[idx]) {
         currentBackoffByDb[idx] = backoff
-        console.error(
-          `[embedder] all ${rows.length} items failed (${failures}/${MAX_CONSECUTIVE_FAILURES}), backing off to ${backoff}x interval`
-        )
         insertLog('warning', 'embedding', `Backing off to ${backoff}x interval`, {
           db: entry.id,
           backoff,
@@ -225,7 +214,6 @@ async function processOneDb(idx: number): Promise<boolean> {
     consecutiveFailuresByDb[idx]++
     const failures = consecutiveFailuresByDb[idx]
     const msg = err instanceof Error ? err.message : String(err)
-    console.error(`[embedder] batch failed (${failures}/${MAX_CONSECUTIVE_FAILURES}):`, err)
     insertLog('error', 'embedding', `Batch failed: ${msg}`, {
       db: entry.id,
       error: msg,
@@ -234,9 +222,6 @@ async function processOneDb(idx: number): Promise<boolean> {
     if (failures >= MAX_CONSECUTIVE_FAILURES) {
       currentBackoffByDb[idx] = Math.min(currentBackoffByDb[idx] * 2, MAX_BACKOFF)
       consecutiveFailuresByDb[idx] = 0
-      console.error(
-        `[embedder] too many failures, backing off to ${currentBackoffByDb[idx]}x interval`
-      )
       insertLog('warning', 'embedding', `Backing off to ${currentBackoffByDb[idx]}x interval`, {
         db: entry.id,
         backoff: currentBackoffByDb[idx],
@@ -269,7 +254,7 @@ async function processBatch(): Promise<void> {
   }
 }
 
-async function processSweep(): Promise<void> {
+function processSweep(): void {
   const order = entries.map((_, i) => (dbStartIndex + i) % entries.length)
   for (const idx of order) {
     const entry = entries[idx]
@@ -283,7 +268,6 @@ async function processSweep(): Promise<void> {
           db,
           orphans.map(o => o.id)
         )
-        console.log(`[embedder] sweep: re-queued ${orphans.length} orphaned thought(s)`)
         insertLog('info', 'embedding', `Sweep requeued ${orphans.length} thought(s)`, {
           db: entry.id,
           count: orphans.length,
@@ -291,7 +275,6 @@ async function processSweep(): Promise<void> {
         })
       }
     } catch (err) {
-      console.error('[embedder] sweep failed:', err)
       insertLog('error', 'embedding', 'Sweep failed', {
         db: entry.id,
         error: err instanceof Error ? err.message : String(err)
@@ -300,20 +283,43 @@ async function processSweep(): Promise<void> {
   }
 }
 
+const pollJob = createIntervalJob(
+  {
+    name: 'embedder-poll',
+    intervalMs: config.embedder.pollIntervalMs,
+    unref: false,
+    onError: err => {
+      insertLog('error', 'embedding', 'Embedder poll loop failed', {
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+  },
+  processBatch
+)
+
+const sweepJob = createIntervalJob(
+  {
+    name: 'embedder-sweep',
+    intervalMs: SWEEP_INTERVAL_MS,
+    unref: false,
+    onError: err => {
+      insertLog('error', 'embedding', 'Embedder sweep loop failed', {
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+  },
+  processSweep
+)
+
 function startWorker(): void {
-  if (pollTimer) return
-  processBatch()
-  pollTimer = setInterval(() => {
-    void processBatch()
-  }, config.embedder.pollIntervalMs)
-  void processSweep()
-  sweepTimer = setInterval(processSweep, SWEEP_INTERVAL_MS)
+  pollJob.start()
+  sweepJob.start()
 }
 
 process.on('message', async (raw: unknown) => {
   const message = raw as IpcMessage
   if (message.type === 'shutdown') {
-    console.log('[embedder] shutdown requested, exiting')
+    insertLog('info', 'embedding', 'Shutdown requested, exiting')
     clearTimers()
     resetExtractor()
     closeAllDbs()
@@ -326,18 +332,16 @@ process.on('message', async (raw: unknown) => {
   }
 })
 
-console.log('[embedder] checking model files...')
 insertLog('debug', 'embedding', 'Embedder process started, validating model', {
   model: config.embedder.model,
   dtype: config.embedder.dtype,
   cacheDir: config.embedder.cacheDir
 })
 await ensureModelFiles(config.embedder.cacheDir, config.embedder.model, config.embedder.dtype)
-console.log('[embedder] model validated, starting worker')
 if (batchWorker) {
   startWorker()
 } else {
-  console.log('[embedder] queue worker disabled: the parent delegates background jobs')
+  insertLog('info', 'embedding', 'Queue worker disabled: the parent delegates background jobs')
 }
 resetIdleTimer()
 process.send?.({ type: 'ready', protocol: EMBEDDER_IPC_PROTOCOL_VERSION })

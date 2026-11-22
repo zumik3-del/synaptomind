@@ -9,6 +9,7 @@ import { createMcpHandler } from '@modelcontextprotocol/server'
 import { createMcpRouteHandler, SessionRegistry, type Session } from './mcp-route'
 import { drainRejectedBody } from './request-body'
 import { createMcpServer } from './server'
+import { getHealthService } from '../services/health.service'
 
 export type { Session } from './mcp-route'
 export { MAX_REQUEST_BODY_BYTES } from '../middleware/http-errors'
@@ -97,7 +98,10 @@ export function startMcpHttpServer(
 
   app.all('/mcp', route)
 
-  app.get('/health', c => c.json({ status: 'ok' }))
+  app.get('/health', c => {
+    const { status } = getHealthService()
+    return c.json({ status }, status === 'ok' ? 200 : 503)
+  })
 
   const server = serve({
     fetch: app.fetch,

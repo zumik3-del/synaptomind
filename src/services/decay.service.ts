@@ -1,20 +1,22 @@
+import type { Database } from 'bun:sqlite'
 import { config } from '../config'
 import { decayImportance } from '../db/importance'
+import { insertLog } from '../logging'
 import { createIntervalJob, jobDatabases } from './jobs.service'
-import type { Database } from 'bun:sqlite'
-
-const onError = (err: unknown): void => console.error('[decay] job error:', err)
 
 export function runDecayJob(d?: Database): void {
   if (d) {
     decayImportance(d, config.decay.rate)
     return
   }
-  for (const db of jobDatabases()) {
+  for (const { userId, db } of jobDatabases()) {
     try {
       decayImportance(db, config.decay.rate)
     } catch (err) {
-      onError(err)
+      insertLog('warning', 'decay', 'Decay job failed', {
+        userId,
+        error: err instanceof Error ? err.message : String(err)
+      })
     }
   }
 }
@@ -22,8 +24,7 @@ export function runDecayJob(d?: Database): void {
 const job = createIntervalJob(
   {
     name: 'decay',
-    intervalMs: config.decay.intervalMs,
-    onError
+    intervalMs: config.decay.intervalMs
   },
   () => {
     runDecayJob()
@@ -33,6 +34,6 @@ const job = createIntervalJob(
 export function startDecayJob(): void {
   job.start()
 }
-export function stopDecayJob(): void {
-  job.stop()
+export function stopDecayJob(): Promise<void> {
+  return job.stop()
 }
