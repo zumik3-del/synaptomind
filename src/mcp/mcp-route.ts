@@ -1,4 +1,3 @@
-import type { Database } from 'bun:sqlite'
 import type { Context } from 'hono'
 import {
   isJsonContentType,
@@ -8,14 +7,9 @@ import {
   WebStandardStreamableHTTPServerTransport
 } from '@modelcontextprotocol/server'
 import type { UserRef } from '../auth'
-import { als } from '../context/container'
+import { bodyTooLargeResponse } from '../middleware/http-errors'
 import { disposePair, InMemoryEventStore } from './in-memory-event-store'
-import {
-  bodyTooLargeResponse,
-  containsInitialize,
-  readJsonBody,
-  unsupportedMediaTypeResponse
-} from './request-body'
+import { containsInitialize, readJsonBody, unsupportedMediaTypeResponse } from './request-body'
 import { createMcpServer } from './server'
 
 export interface Session {
@@ -27,18 +21,95 @@ export interface Session {
   userId: string
 }
 
-export interface McpRouteDeps {
-  sessions: Map<string, Session>
-  modern: McpHttpHandler
+export interface SessionPair {
+  server: McpServer
+  transport: WebStandardStreamableHTTPServerTransport
+}
+
+export interface SessionRegistryOptions {
   maxSessions: number
   keepAliveMs: number
   maxRequestBodyBytes: number
+  ttlMs: number
 }
 
-function countUserSessions(sessions: Map<string, Session>, userId: string): number {
-  let count = 0
-  for (const session of sessions.values()) if (session.userId === userId) count++
-  return count
+// Sessions live in this one process: an id issued by one instance is unknown to another, so the
+// HTTP transport must run single-instance. Scaling out needs sticky routing (or a shared session
+// store and transport lookup), not another replica behind a plain round-robin.
+export class SessionRegistry {
+  private readonly sessions = new Map<string, Session>()
+  private readonly options: SessionRegistryOptions
+
+  constructor(options: SessionRegistryOptions) {
+    this.options = options
+  }
+
+  /** Live sessions keyed by id, for the transport handle's `getSessions()` and its tests. */
+  get view(): Map<string, Session> {
+    return this.sessions
+  }
+
+  get(id: string): Session | undefined {
+    return this.sessions.get(id)
+  }
+
+  countForUser(userId: string): number {
+    let count = 0
+    for (const session of this.sessions.values()) if (session.userId === userId) count++
+    return count
+  }
+
+  atCapacity(userId: string): boolean {
+    return this.countForUser(userId) >= this.options.maxSessions
+  }
+
+  /** Builds the server/transport pair; the session registers itself when the transport issues an id. */
+  create(ref: UserRef): SessionPair {
+    const server = createMcpServer()
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: () => crypto.randomUUID(),
+      keepAliveMs: this.options.keepAliveMs,
+      maxRequestBodySize: this.options.maxRequestBodyBytes,
+      eventStore: new InMemoryEventStore(),
+      onsessioninitialized: id => {
+        this.sessions.set(id, { server, transport, lastAccess: Date.now(), userId: ref.userId })
+      },
+      onsessionclosed: id => {
+        this.sessions.delete(id)
+      }
+    })
+    return { server, transport }
+  }
+
+  async dispose(id: string): Promise<void> {
+    const session = this.sessions.get(id)
+    if (!session) return
+    this.sessions.delete(id)
+    await disposePair(session.server, session.transport)
+  }
+
+  async disposeAll(): Promise<void> {
+    await Promise.allSettled([...this.sessions.keys()].map(id => this.dispose(id)))
+    this.sessions.clear()
+  }
+
+  sweep(now: number = Date.now()): void {
+    for (const [id, session] of this.sessions) {
+      if (now - session.lastAccess > this.options.ttlMs) void this.dispose(id)
+    }
+  }
+
+  startSweep(intervalMs = 60_000): () => void {
+    const timer = setInterval(() => this.sweep(), intervalMs)
+    timer.unref()
+    return () => clearInterval(timer)
+  }
+}
+
+export interface McpRouteDeps {
+  registry: SessionRegistry
+  modern: McpHttpHandler
+  maxRequestBodyBytes: number
 }
 
 // SSE bodies carry the SDK's keep-alive frames, so touching `lastAccess` per chunk is what keeps a
@@ -62,7 +133,7 @@ function trackStreamActivity(response: Response, session: Session): Response {
 }
 
 export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promise<Response> {
-  const { sessions, modern, maxSessions, keepAliveMs, maxRequestBodyBytes } = deps
+  const { registry, modern, maxRequestBodyBytes } = deps
 
   async function serveSession(c: Context, session: Session, parsed: unknown): Promise<Response> {
     session.lastAccess = Date.now()
@@ -84,40 +155,22 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
       )
     }
 
-    if (countUserSessions(sessions, ref.userId) >= maxSessions) {
+    if (registry.atCapacity(ref.userId)) {
       return c.json({ error: 'Too many sessions' }, 429)
     }
 
-    const mcpServer = createMcpServer()
-    const transport = new WebStandardStreamableHTTPServerTransport({
-      sessionIdGenerator: () => crypto.randomUUID(),
-      keepAliveMs,
-      maxRequestBodySize: maxRequestBodyBytes,
-      eventStore: new InMemoryEventStore(),
-      onsessioninitialized: id => {
-        sessions.set(id, {
-          server: mcpServer,
-          transport,
-          lastAccess: Date.now(),
-          userId: ref.userId
-        })
-      },
-      onsessionclosed: id => {
-        sessions.delete(id)
-      }
-    })
-
+    const pair = registry.create(ref)
     try {
-      await mcpServer.connect(transport)
-      const response = await transport.handleRequest(c.req.raw, { parsedBody: parsed })
-      const session = transport.sessionId ? sessions.get(transport.sessionId) : undefined
+      await pair.server.connect(pair.transport)
+      const response = await pair.transport.handleRequest(c.req.raw, { parsedBody: parsed })
+      const session = pair.transport.sessionId ? registry.get(pair.transport.sessionId) : undefined
       if (!session) {
-        await disposePair(mcpServer, transport)
+        await disposePair(pair.server, pair.transport)
         return response
       }
       return trackStreamActivity(response, session)
     } catch (err) {
-      await disposePair(mcpServer, transport)
+      await disposePair(pair.server, pair.transport)
       throw err
     }
   }
@@ -126,7 +179,7 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
     const sessionId = c.req.header('mcp-session-id')
 
     if (sessionId) {
-      const session = sessions.get(sessionId)
+      const session = registry.get(sessionId)
       if (!session) {
         return c.json(
           { jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null },
@@ -152,15 +205,8 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
   }
 
   return async (c: Context): Promise<Response> => {
-    const ref: UserRef | undefined = c.get('mcpUser')
+    const ref = c.get('mcpUser')
     if (!ref) return c.json({ error: 'Unauthorized' }, 401)
-
-    const db = (als.getStore() as { db?: Database } | undefined)?.db
-    if (!db && ref.kind !== 'legacy')
-      return new Response(JSON.stringify({ error: 'Database unavailable' }), {
-        status: 503,
-        headers: { 'content-type': 'application/json' }
-      })
 
     const isPost = c.req.method === 'POST'
     if (isPost && !isJsonContentType(c.req.header('content-type')))
@@ -169,7 +215,7 @@ export function createMcpRouteHandler(deps: McpRouteDeps): (c: Context) => Promi
     let parsed: unknown
     if (isPost) {
       const read = await readJsonBody(c.req.raw, maxRequestBodyBytes)
-      if (read.tooLarge) return bodyTooLargeResponse()
+      if (read.tooLarge) return bodyTooLargeResponse('jsonrpc')
       parsed = read.body
     }
 

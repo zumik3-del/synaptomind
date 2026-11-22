@@ -1,25 +1,10 @@
 import { readRequestBody } from '@modelcontextprotocol/server'
+import { jsonRpcError } from '../middleware/http-errors'
 
 export type BoundedJsonBody = { tooLarge: true } | { tooLarge: false; body: unknown }
 
-function jsonRpcError(status: number, code: number, message: string): Response {
-  return Response.json({ jsonrpc: '2.0', error: { code, message }, id: null }, { status })
-}
-
-export function bodyTooLargeResponse(): Response {
-  return jsonRpcError(413, -32000, 'Request body too large (max 5MB)')
-}
-
-export function clientAbortResponse(): Response {
-  return jsonRpcError(400, -32700, 'Parse error: Invalid JSON')
-}
-
 export function unsupportedMediaTypeResponse(): Response {
   return jsonRpcError(415, -32000, 'Unsupported Media Type: Content-Type must be application/json')
-}
-
-export function isClientAbort(err: unknown): boolean {
-  return err instanceof Error && err.name === 'AbortError'
 }
 
 function parseJsonOrUndefined(text: string): unknown {

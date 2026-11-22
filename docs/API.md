@@ -21,6 +21,11 @@ listed in [Migration notes](#migration-notes-v020-http-shrink).
 A removed route fails loudly with Hono's default `404` — there is no deprecation shim and
 no `410 Gone` window.
 
+Path matching is exact, trailing slash included: `/api/health-check/` answers `404` (only
+`/api/health-check` is mounted), and the same holds on the MCP listener, where `/mcp/` is
+`404` and only `/mcp` is mounted. Hono's default strict routing means a route never matches
+with an added slash.
+
 - **Auth:** the two `/api/*` endpoints require `Authorization: Bearer <token>` (`401
   {"error":"Unauthorized"}` otherwise). In single-user mode (`users: []`, the default) the
   token is `SYNAPTOMIND_SECRET`; in multi-user mode it is one of the configured users'

@@ -15,12 +15,15 @@ describe('shared auth middleware (F19 architectural guard)', () => {
     expect(existsSync(join(ROOT, 'src/api/middleware/auth.ts'))).toBe(false)
   })
 
-  test('the API router imports the shared src/middleware/auth.ts', () => {
-    expect(readSource('src/api/router.ts')).toContain("from '../middleware/auth'")
+  test('the guarded pipeline is the one place the shared auth middleware is mounted', () => {
+    expect(readSource('src/middleware/guarded-pipeline.ts')).toContain("from './auth'")
+    expect(readSource('src/api/router.ts')).toContain('createGuardedPipeline')
+    expect(readSource('src/mcp/http-transport.ts')).toContain('createGuardedPipeline')
   })
 
-  test('the MCP HTTP transport imports the shared src/middleware/auth.ts', () => {
-    expect(readSource('src/mcp/http-transport.ts')).toContain("from '../middleware/auth'")
+  test('neither HTTP surface defines its own auth middleware', () => {
+    expect(readSource('src/api/router.ts')).not.toContain('function authMiddleware')
+    expect(readSource('src/mcp/http-transport.ts')).not.toContain('function authMiddleware')
   })
 })
 
