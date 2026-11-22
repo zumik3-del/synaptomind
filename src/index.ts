@@ -98,8 +98,10 @@ try {
 
 if (!ownsBackgroundJobs) {
   console.error(
-    '[synaptomind] stdio mode: embedder and background jobs delegated to the shared server ' +
-      '(set SYNAPTOMIND_MCP_STDIO_STANDALONE=true or pass --stdio-standalone to run them locally)'
+    '[synaptomind] stdio mode: background jobs delegated to the shared server; ' +
+      'embedding requests run in an on-demand local child that loads the model per session ' +
+      '(no queue, no user databases) — set SYNAPTOMIND_MCP_STDIO_STANDALONE=true or pass ' +
+      '--stdio-standalone to run the scheduled jobs locally'
   )
 } else {
   if (noEmbedder) {

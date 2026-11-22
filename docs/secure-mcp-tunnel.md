@@ -66,7 +66,9 @@ tunnel-client init \
   --mcp-command "/usr/bin/env SYNAPTOMIND_DB_PATH=$SYNAPTOMIND_DIR/data/synaptomind.db SYNAPTOMIND_EMBEDDER_CACHE_DIR=$SYNAPTOMIND_DIR/data/huggingface $BUN_BIN run $SYNAPTOMIND_DIR/src/index.ts --stdio"
 ```
 
-By default `--stdio` does not start the embedder or background jobs at startup.
+By default `--stdio` starts no background worker, embedding queue or timer at
+startup; each active client spawns an on-demand local child that holds only the
+model, loaded on its first search and released after `embedder.idleTimeoutMs`.
 An embedding request can still start a local embedder child on demand; it does
 not reuse the shared server's child. Run a separate server against the same
 database to own the background jobs, or, for a standalone
@@ -74,7 +76,9 @@ single-user deployment without a shared server, add `--stdio-standalone` to
 the MCP command. Do not start multiple owners for the same database. Standalone
 stdio is unavailable with multi-user configuration; in multi-user mode stdio
 uses the isolated legacy `db.path`, not a user database. See
-[stdio ownership](CONFIG.md#stdio-ownership) and [multi-user configuration](CONFIG.md#users-multi-user).
+[stdio ownership](CONFIG.md#stdio-ownership) and
+[multi-user configuration](CONFIG.md#users-multi-user); the decision is the
+[delegating-stdio ADR](https://forgejo.home.lan/authelia/artifacts/src/commit/39efb5db4d4f269e15ad1468377db30368581f22/synaptomind/adr/2026-11-22-stdio-delegating-promise-no-local-worker.md).
 
 Review `$TUNNEL_PROFILE_DIR/synaptomind.yaml`. Keep the health/admin listener on
 loopback. Port `8080` is fixed here so every later health command uses the same

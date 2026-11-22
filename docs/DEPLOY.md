@@ -199,7 +199,14 @@ Operationally:
   2026-07-28 era keeps none, its listen streams are bounded by
   `mcp.maxSubscriptions`.
 - MCP stdio stays single-user: it opens `db.path` only and refuses to start when
-  that path aliases a user database.
+  that path aliases a user database. A delegating client (`stdioStandalone=false`)
+  runs no background worker, but it still loads its model on demand — its first
+  semantic search pays that load inside the 5 s embedding budget and degrades to
+  BM25 when it overruns — so the resident-model budget is the server's child
+  **plus one per actively used client**, released after `embedder.idleTimeoutMs`
+  and permanent with `embedder.precache=true` (see the
+  [delegating-stdio ADR](https://forgejo.home.lan/authelia/artifacts/src/commit/39efb5db4d4f269e15ad1468377db30368581f22/synaptomind/adr/2026-11-22-stdio-delegating-promise-no-local-worker.md)
+  and [CONFIG.md](CONFIG.md#stdio-ownership)).
 
 ### Advanced: direct `update.sh`
 

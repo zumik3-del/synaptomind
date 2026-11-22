@@ -240,6 +240,7 @@ describe('stdio embedder ownership', () => {
     }
   }
 
+  // No local worker, not no local model: ADR 2026-11-22-stdio-delegating-promise.
   test('delegating mode spawns nothing at boot and one child, without jobs, on demand', async () => {
     const dir = makeTempDir()
     const dbPath = join(dir, 'test.db')
@@ -262,6 +263,7 @@ describe('stdio embedder ownership', () => {
     expect(previewTokenCount(dbPath)).toBe(1)
     expect(stdout).toContain('"id":3')
     expect(stderr).toContain('background jobs delegated to the shared server')
+    expect(stderr).toContain('on-demand local child')
   }, 30_000)
 
   test('standalone mode spawns exactly one child at boot and sweeps locally', async () => {
