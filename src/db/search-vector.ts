@@ -1,4 +1,5 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
+// Audited db/ logging: the caller receives the fallback result, never the SQL exception.
 import { insertLog } from '../logging'
 import type { SqlFragment } from './search-filters'
 import { sqlIn } from './utils'

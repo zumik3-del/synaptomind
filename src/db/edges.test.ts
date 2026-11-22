@@ -1,14 +1,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
-import {
-  createEdge,
-  deleteEdge,
-  getAllActiveEdges,
-  getEdgesForThought,
-  isValidEdgeType,
-  retypeEdge
-} from './edges'
-import { getDb } from '../context/container'
+import { deleteEdge, getAllActiveEdges, getEdgesForThought, isValidEdgeType } from './edges'
+import { createEdge, retypeEdge } from '../services/edges.service'
+import { getDb } from './index'
 import { closeDb } from './init'
 import { getThoughtImportance } from './importance'
 

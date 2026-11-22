@@ -1,19 +1,22 @@
-import { config } from '../config'
+import type { Database } from 'bun:sqlite'
+import { type Config, config } from '../config'
 import { getDb } from '../db'
-import { MS_PER_DAY } from '../utils'
 import { deleteExpired } from '../db/placement-proposals'
 import { deleteExpiredPreviewTokens } from '../db/preview-tokens'
 import { insertLog } from '../logging/log'
+import { MS_PER_DAY } from '../utils'
 import { createIntervalJob, jobDatabases } from './jobs.service'
-import type { Database } from 'bun:sqlite'
 
 export interface PlacementRetentionResult {
   proposals: number
   tokens: number
 }
 
-export function cleanupPlacementProposals(d: Database = getDb()): PlacementRetentionResult {
-  const ttlDays = config.placement.proposalTtlDays
+export function cleanupPlacementProposals(
+  d: Database = getDb(),
+  cfg: Config = config
+): PlacementRetentionResult {
+  const ttlDays = cfg.placement.proposalTtlDays
 
   let proposals = 0
   if (ttlDays >= 0) {
@@ -33,34 +36,24 @@ export function cleanupPlacementProposals(d: Database = getDb()): PlacementReten
   return { proposals, tokens }
 }
 
-const onError = (err: unknown): void =>
-  insertLog('warning', 'placement-retention', 'Placement retention job failed', {
-    error: String(err)
-  })
-
 const sweepAll = (): void => {
-  for (const db of jobDatabases()) {
+  for (const { userId, db } of jobDatabases()) {
     try {
       cleanupPlacementProposals(db)
     } catch (err) {
-      onError(err)
+      insertLog('warning', 'placement-retention', 'Placement retention job failed', {
+        userId,
+        error: err instanceof Error ? err.message : String(err)
+      })
     }
   }
 }
 
-const job = createIntervalJob(
-  { name: 'placement-retention', intervalMs: MS_PER_DAY, onError },
-  sweepAll
-)
+const job = createIntervalJob({ name: 'placement-retention', intervalMs: MS_PER_DAY }, sweepAll)
 
 export function startPlacementRetentionJob(): void {
-  try {
-    sweepAll()
-  } catch (err) {
-    onError(err)
-  }
   job.start()
 }
-export function stopPlacementRetentionJob(): void {
-  job.stop()
+export function stopPlacementRetentionJob(): Promise<void> {
+  return job.stop()
 }

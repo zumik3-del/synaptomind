@@ -1,34 +1,16 @@
-import { z } from 'zod/v4'
 import { createThoughtWithUrlLinksService } from '../../../services/url_links.service'
 import type { ThoughtStatus } from '../../../types/thought'
-import { thoughtStatusSchema } from '../../../validation'
 import { itemEnvelope, writeEnvelopeScope } from '../envelope'
-import { resolveProjectId, shapeThought } from '../utils'
-import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
-
-export const urlLinkItem = z.object({ text: z.string(), url: z.string() })
-
-export const isProfileRefusal = z
-  .never({ error: 'is_profile is retired; remove this field. There is no replacement.' })
-  .optional()
-
-export function createItemShape(contentMessage: string) {
-  return {
-    content: requiredString(contentMessage),
-    tags: z.array(z.string()).optional(),
-    status: thoughtStatusSchema.optional(),
-    parent_id: z.string().optional(),
-    is_protected: z.boolean().optional(),
-    is_global: z.boolean().optional(),
-    url_links: z.array(urlLinkItem).optional()
-  }
-}
+import { resolveProjectId, shapeEntity } from '../utils'
+import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { STORE_ARGS } from './args'
 
 export const createHandler: ActionHandler = {
-  input: z.object({
-    ...createItemShape('content is required for create action'),
-    is_profile: isProfileRefusal
-  }),
+  input: actionInput(
+    STORE_ARGS,
+    ['content', 'tags', 'status', 'parent_id', 'is_protected', 'is_global', 'url_links'],
+    { content: requiredString('content is required for create action') }
+  ),
   run(args: ActionArgs) {
     const thought = createThoughtWithUrlLinksService(
       {
@@ -45,6 +27,6 @@ export const createHandler: ActionHandler = {
         urlLinks: args.url_links as { text: string; url: string }[] | undefined
       }
     )
-    return itemEnvelope('create', shapeThought(thought), writeEnvelopeScope(args.cwd))
+    return itemEnvelope('create', shapeEntity(thought), writeEnvelopeScope(args.cwd))
   }
 }

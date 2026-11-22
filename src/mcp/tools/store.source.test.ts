@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
-import { getDb } from '../../context/container'
+import { getDb } from '../../db'
 import { closeDb } from '../../db/init'
 import { createThoughtWithUrlLinksService } from '../../services/url_links.service'
 import { createTestDb } from '../../test/helpers'
@@ -85,7 +85,6 @@ describe('memory_store is_global flag', () => {
     const { data, isError } = parseResult(result)
 
     expect(isError).toBe(false)
-    expect(data.item.is_global).toBe(true)
     expect(dbIsGlobal(data.item.id)).toBe(1)
   })
 

@@ -71,14 +71,15 @@ test('mcp transport limit env overrides parse as ints', () => {
   expect(config.mcp.maxSubscriptions).toBe(5)
 })
 
-test('transport constants are assigned from config.mcp', () => {
+test('transport limits are read from the config the server is started with', () => {
   const transportSource = readFileSync(join(import.meta.dir, 'http-transport.ts'), 'utf8')
   const storeSource = readFileSync(join(import.meta.dir, 'in-memory-event-store.ts'), 'utf8')
 
-  expect(transportSource).toContain('const MAX_SESSIONS = config.mcp.maxSessions')
-  expect(transportSource).toContain('const SESSION_TTL_MS = config.mcp.sessionTtlMs')
-  expect(transportSource).toContain('const KEEPALIVE_MS = config.mcp.keepAliveMs')
-  expect(transportSource).toContain('const MAX_SUBSCRIPTIONS = config.mcp.maxSubscriptions')
+  expect(transportSource).toContain('const cfg = options.config ?? config')
+  expect(transportSource).toContain('maxSessions: cfg.mcp.maxSessions')
+  expect(transportSource).toContain('ttlMs: cfg.mcp.sessionTtlMs')
+  expect(transportSource).toContain('keepAliveMs: cfg.mcp.keepAliveMs')
+  expect(transportSource).toContain('maxSubscriptions: cfg.mcp.maxSubscriptions')
   expect(storeSource).toContain(
     'export const MAX_EVENTS_PER_SESSION = config.mcp.maxEventsPerSession'
   )

@@ -48,7 +48,7 @@ mock.module('../db/init', () => ({
     return dbs[dbPath]
   }
 }))
-mock.module('../context/container', () => ({
+mock.module('../db', () => ({
   getDb: () => {
     throw new Error('unexpected legacy mode')
   }

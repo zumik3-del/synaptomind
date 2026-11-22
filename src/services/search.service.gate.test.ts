@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
-import { createEdge } from '../db/edges'
+import { createEdge } from './edges.service'
 import { closeDb } from '../db/init'
-import { createTestDb, isVecExtensionAvailable, seedThought, withVecDb } from '../test/helpers'
+import {
+  configFixture,
+  createTestDb,
+  isVecExtensionAvailable,
+  seedThought,
+  withVecDb
+} from '../test/helpers'
 import { DEFAULT_MIN_RELEVANCE } from './search-normalize.service'
 import { searchThoughts, searchThoughtsOutcome } from './search.service'
 
@@ -238,17 +244,18 @@ describe('search.confidence.unrelatedFloor drives the calibration', () => {
       const withDefault = await searchThoughtsOutcome(vectorOptions({ minRelevance: 0 }), db)
       expect(withDefault.items[0].relevance).toBeCloseTo(0, 6)
 
-      const original = config.search.confidence.unrelatedFloor
-      try {
-        config.search.confidence.unrelatedFloor = 0.5
-        const withOverride = await searchThoughtsOutcome(vectorOptions({ minRelevance: 0 }), db)
-        expect(withOverride.items[0].relevance).toBeCloseTo(0.5, 6)
+      const override = configFixture({
+        search: { confidence: { ...config.search.confidence, unrelatedFloor: 0.5 } }
+      })
+      const withOverride = await searchThoughtsOutcome(
+        vectorOptions({ minRelevance: 0 }),
+        db,
+        override
+      )
+      expect(withOverride.items[0].relevance).toBeCloseTo(0.5, 6)
 
-        const gated = await searchThoughtsOutcome(vectorOptions(), db)
-        expect(gated.items.map(r => r.thought.id)).toEqual([id])
-      } finally {
-        config.search.confidence.unrelatedFloor = original
-      }
+      const gated = await searchThoughtsOutcome(vectorOptions(), db, override)
+      expect(gated.items.map(r => r.thought.id)).toEqual([id])
     })
   })
 })

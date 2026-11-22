@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import {
   createTestDb,
   drainPendingEmbeddings,

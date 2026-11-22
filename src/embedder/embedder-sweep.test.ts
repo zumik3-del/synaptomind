@@ -8,7 +8,13 @@ import { expect, test } from 'bun:test'
 test('embedder orphan sweep suite (isolated process)', async () => {
   const proc = Bun.spawn(['bun', 'test', './src/embedder/embedder-sweep.suite.ts'], {
     cwd: `${import.meta.dir}/../..`,
-    env: process.env,
+    env: {
+      ...process.env,
+      SYNAPTOMIND_EMBEDDER_POLL_INTERVAL: '600000',
+      SYNAPTOMIND_EMBEDDER_BATCH_SIZE: '8',
+      SYNAPTOMIND_EMBEDDER_PRECACHE: 'true',
+      SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT: '0'
+    },
     stdout: 'pipe',
     stderr: 'pipe'
   })

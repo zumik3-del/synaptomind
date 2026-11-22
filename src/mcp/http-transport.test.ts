@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { Database } from 'bun:sqlite'
 import { request as httpRequest } from 'node:http'
 import { Hono } from 'hono'
 import { config } from '../config'
+import { clearRegistry, register } from '../db'
+import { closeDb } from '../db/init'
+import { clearHealthProbeCache, getHealthService } from '../services/health.service'
+import { configFixture, createTestDb } from '../test/helpers'
 import {
   MAX_REQUEST_BODY_BYTES,
   mcpErrorHandler,
@@ -115,6 +120,11 @@ beforeAll(async () => {
   delete process.env.SYNAPTOMIND_SERVICE_TOKEN
   delete process.env.SYNAPTOMIND_ALLOW_INSECURE
 
+  // `/health` probes the bound databases: without a fixture this file only passed in a
+  // full run because another file happened to leave one bound. Bind one explicitly.
+  createTestDb()
+  clearHealthProbeCache()
+
   mainPort = await freePort()
   mainServer = startMcpHttpServer('127.0.0.1', mainPort)
   mainBase = `http://127.0.0.1:${mainPort}`
@@ -127,6 +137,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await corsServer?.stop()
   await mainServer?.stop()
+  clearRegistry()
+  clearHealthProbeCache()
+  closeDb()
   if (previousSecret === undefined) delete process.env.SYNAPTOMIND_SECRET
   else process.env.SYNAPTOMIND_SECRET = previousSecret
   if (previousServiceToken === undefined) delete process.env.SYNAPTOMIND_SERVICE_TOKEN
@@ -166,6 +179,50 @@ describe('HTTP auth boundary', () => {
     const res = await fetch(`${mainBase}/health`)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ status: 'ok' })
+  })
+
+  test('/health answers 503 when degraded and carries no configured user identity', async () => {
+    const users = [
+      { id: 'private-alice', dbPath: '/private/alice.db', tokenSha256: 'a'.repeat(64) },
+      { id: 'private-bob', dbPath: '/private/bob.db', tokenSha256: 'b'.repeat(64) }
+    ]
+    const port = await freePort()
+    const server = startMcpHttpServer('127.0.0.1', port, { config: configFixture({ users }) })
+    clearHealthProbeCache()
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/health`)
+      const text = await res.text()
+      expect(res.status).toBe(503)
+      expect(JSON.parse(text)).toEqual({ status: 'degraded' })
+      expect(text).not.toContain('private')
+    } finally {
+      await server.stop()
+      clearHealthProbeCache()
+    }
+  })
+
+  test('getHealthService lists one database per user plus the configured-but-unopened ones', () => {
+    const first = new Database(':memory:')
+    const second = new Database(':memory:')
+    register('alice', first)
+    register('bob', second)
+    const users = [
+      { id: 'alice', dbPath: '/private/alice.db', tokenSha256: 'a'.repeat(64) },
+      { id: 'bob', dbPath: '/private/bob.db', tokenSha256: 'b'.repeat(64) },
+      { id: 'carol', dbPath: '/private/carol.db', tokenSha256: 'c'.repeat(64) }
+    ]
+    clearHealthProbeCache()
+    try {
+      const health = getHealthService(undefined, configFixture({ users }))
+      expect(health.databases).toEqual(['ok', 'ok', 'degraded'])
+      expect(health.status).toBe('degraded')
+      expect(health.checks.database).toBe('degraded')
+    } finally {
+      clearRegistry()
+      first.close()
+      second.close()
+      clearHealthProbeCache()
+    }
   })
 })
 

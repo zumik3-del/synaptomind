@@ -7,9 +7,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
-import { getDb } from '../../context/container'
+import { getDb } from '../../db'
 import { closeDb } from '../../db/init'
-import { resolveDefaultProjectId } from '../../db/projects'
 import { createProjectService } from '../../services/projects.service'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { computeContentHash } from '../../utils'
@@ -95,7 +94,7 @@ describe('memory_store action=update — an id-addressed write keeps its row pro
     })
 
     expect(updated.isError).toBe(false)
-    expect(updated.data.item.project_id).toBe(homeId)
+    expect(updated.data.item.project).toBe('Home project')
     expect(rowOf(thoughtId)).toMatchObject({
       project_id: homeId,
       content_hash: computeContentHash('edited content', homeId),
@@ -156,7 +155,7 @@ describe('memory_store action=update — an id-addressed write keeps its row pro
     })
 
     expect(created.isError).toBe(false)
-    expect(created.data.item.project_id).toBe(foreignId)
+    expect(created.data.item.project).toBe('Foreign project')
     expect(rowOf(created.data.item.id)).toMatchObject({
       project_id: foreignId,
       content_hash: computeContentHash('created through the foreign path', foreignId)
@@ -176,7 +175,7 @@ describe('memory_store action=update — an id-addressed write keeps its row pro
     })
 
     expect(created.isError).toBe(false)
-    expect(created.data.item.project_id).toBe(resolveDefaultProjectId(getDb()))
+    expect(created.data.item.project).toBe('Default')
     expect(created.data.meta.scope).toBeNull()
   })
 })
@@ -244,7 +243,7 @@ describe('memory_supersede action=merge — an id-addressed write keeps the targ
     expect(executed.data.item).toMatchObject({
       status: 'executed',
       action: 'merge',
-      result: { target: { content: 'merged content', project_id: homeId } }
+      result: { target: { content: 'merged content', project: 'Home project' } }
     })
     expect(rowOf(sourceId).status).toBe('archived')
     expect(rowOf(targetId)).toMatchObject({

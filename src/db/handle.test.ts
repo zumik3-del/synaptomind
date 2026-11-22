@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { config } from '../config'
 import {
   als,
   clearDb,
@@ -12,32 +11,33 @@ import {
   listUserDatabases,
   register,
   registrySize,
-  setDb
-} from './container'
+  setDb,
+  setMultiUserMode
+} from './handle'
 
-const DUMMY_USER = { id: 'u', dbPath: '/tmp/opencode/dummy.db', tokenSha256: 'a'.repeat(64) }
-
+// Multi-user mode is the container's own switch (`setMultiUserMode`), the same one boot fan-out
+// flips; the loaded config is frozen, so no case writes users into the global.
 describe('container fail-closed', () => {
   beforeEach(() => {
     clearRegistry()
     clearDb()
-    config.users = []
+    setMultiUserMode(false)
   })
 
   afterEach(() => {
     clearRegistry()
     clearDb()
-    config.users = []
+    setMultiUserMode(false)
   })
 
   test('unbound getDb throws in multi-user mode', () => {
-    config.users = [DUMMY_USER as any]
+    setMultiUserMode(true)
     expect(isMultiUser()).toBe(true)
     expect(() => getDb()).toThrow()
   })
 
   test('ALS binding works', () => {
-    config.users = [DUMMY_USER as any]
+    setMultiUserMode(true)
     const db = new Database(':memory:')
     register('u', db)
     als.run({ userId: 'u', db }, () => {
@@ -47,7 +47,6 @@ describe('container fail-closed', () => {
   })
 
   test('single-user fallback works', () => {
-    config.users = []
     clearRegistry()
     const db = new Database(':memory:')
     setDb(db)
@@ -66,13 +65,13 @@ describe('container registry accessors', () => {
   beforeEach(() => {
     clearRegistry()
     clearDb()
-    config.users = []
+    setMultiUserMode(false)
   })
 
   afterEach(() => {
     clearRegistry()
     clearDb()
-    config.users = []
+    setMultiUserMode(false)
   })
 
   test('registrySize tracks register and clearRegistry', () => {

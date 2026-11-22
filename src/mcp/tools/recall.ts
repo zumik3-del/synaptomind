@@ -1,7 +1,7 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/server'
-import { NotFoundError, ValidationError } from '../../errors'
-import { thoughtStatusSchema, timelineLimitSchema } from '../../validation'
+import { ValidationError } from '../../errors'
+import { thoughtStatusSchema } from '../../validation'
 import { groupResultsByCluster, searchThoughtsOutcome } from '../../services/search.service'
 import {
   buildSearchOptions,
@@ -9,86 +9,43 @@ import {
   parseSupersessionMode
 } from '../../services/search-options.service'
 import { postProcessSearchResults } from '../../services/search_postprocess.service'
-import { getChainService } from '../../services/graph.service'
 import { contextHandler } from './recall/context'
+import { RECALL_ARGS } from './recall/args'
 import type { SearchOutcome } from '../../services/search-outcome.service'
 import type { SearchResult } from '../../services/search.service'
 import type { GroupedResult } from '../../services/search.service'
-import type { Thought } from '../../services/thoughts.service'
-import { listThoughtsPageService } from '../../services/thoughts.service'
 import { getHandler as getRecallGetHandler } from './recall/get'
-import { shapeThought, shapeChain, loadUrlLinks, type BatchUrlLinks } from './utils'
+import { chainOptions, chainView } from './recall/chain'
+import { loadUrlLinks, type BatchUrlLinks } from './utils'
 import { shapeSearchItem } from './recall/shape'
+import { listPage } from './list-page'
 import {
   collectionEnvelope,
   itemEnvelope,
   readEnvelopeScope,
   type EnvelopeReason
 } from './envelope'
-import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
-import { allActionFields, validateActionFields } from './action-fields'
+import { actionInput, registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
-const ACTION_FIELDS: Record<string, string[]> = {
-  search: [
-    'query',
-    'status',
-    'cwd',
-    'tag',
-    'is_cluster',
-    'group_by_cluster',
-    'min_importance',
-    'hybrid',
-    'recency_weight',
-    'recency_half_life_days',
-    'min_relevance',
-    'supersession_mode',
-    'contradiction_mode',
-    'limit',
-    'compact',
-    'fields',
-    'include_url_links'
-  ],
-  clusters: [
-    'query',
-    'status',
-    'cwd',
-    'tag',
-    'is_cluster',
-    'min_importance',
-    'hybrid',
-    'recency_weight',
-    'recency_half_life_days',
-    'min_relevance',
-    'limit',
-    'compact',
-    'fields',
-    'include_url_links'
-  ],
-  context: [
-    'query',
-    'thought_id',
-    'cwd',
-    'direction',
-    'max_degree',
-    'compact',
-    'fields',
-    'include_url_links'
-  ],
-  chain: ['thought_id', 'direction', 'max_degree', 'compact', 'fields', 'include_url_links'],
-  get: ['thought_id', 'include_edges', 'max_degree', 'compact', 'fields', 'include_url_links'],
-  list: [
-    'status',
-    'cwd',
-    'tag',
-    'is_cluster',
-    'limit',
-    'offset',
-    'compact',
-    'fields',
-    'include_url_links'
-  ]
-}
-const ACTION_FIELDS_ALL = allActionFields(ACTION_FIELDS)
+const SEARCH_ARGS = [
+  'query',
+  'status',
+  'cwd',
+  'tag',
+  'is_cluster',
+  'group_by_cluster',
+  'min_importance',
+  'hybrid',
+  'recency_weight',
+  'recency_half_life_days',
+  'min_relevance',
+  'supersession_mode',
+  'contradiction_mode',
+  'limit',
+  'compact',
+  'fields',
+  'include_url_links'
+]
 
 function degradedOf(items: SearchResult[]): boolean {
   return (items as SearchResult[] & { degraded?: boolean }).degraded === true
@@ -150,7 +107,7 @@ const handlers = {
   get: getRecallGetHandler,
 
   search: {
-    input: z.object({
+    input: actionInput(RECALL_ARGS, SEARCH_ARGS, {
       query: requiredString('query is required for search action'),
       status: thoughtStatusSchema.default('active')
     }),
@@ -187,33 +144,40 @@ const handlers = {
   context: contextHandler,
 
   chain: {
-    input: z.object({ thought_id: requiredString('thought_id is required for chain action') }),
+    input: actionInput(
+      RECALL_ARGS,
+      ['thought_id', 'direction', 'max_degree', 'compact', 'fields', 'include_url_links'],
+      { thought_id: requiredString('thought_id is required for chain action') }
+    ),
     run(args: ActionArgs) {
-      const chain = getChainService(
-        args.thought_id as string,
-        args.direction as 'upstream' | 'downstream' | 'both' | undefined,
-        args.max_degree as number | undefined
-      )
-      if (!chain) throw new NotFoundError(`Thought '${args.thought_id}' not found`)
-      const compact = args.compact !== false
-      const fields = args.fields
-      const urlLinks =
-        args.include_url_links === true
-          ? loadUrlLinks([
-              chain.thought,
-              ...chain.upstream.map(e => e.thought),
-              ...chain.downstream.map(e => e.thought)
-            ])
-          : undefined
-      return itemEnvelope('chain', shapeChain(chain, compact, fields, urlLinks))
+      return itemEnvelope('chain', chainView(args.thought_id as string, chainOptions(args)))
     }
   },
 
   clusters: {
-    input: z.object({
-      query: requiredString('query is required for clusters action'),
-      status: thoughtStatusSchema.default('active')
-    }),
+    input: actionInput(
+      RECALL_ARGS,
+      [
+        'query',
+        'status',
+        'cwd',
+        'tag',
+        'is_cluster',
+        'min_importance',
+        'hybrid',
+        'recency_weight',
+        'recency_half_life_days',
+        'min_relevance',
+        'limit',
+        'compact',
+        'fields',
+        'include_url_links'
+      ],
+      {
+        query: requiredString('query is required for clusters action'),
+        status: thoughtStatusSchema.default('active')
+      }
+    ),
     async run(args: ActionArgs) {
       const { limit, scope, warnings, projectId } = queryActionPreamble(args)
       if (args.is_cluster === false) {
@@ -241,30 +205,23 @@ const handlers = {
   },
 
   list: {
-    input: z.object({
-      status: z.enum(['draft', 'active', 'archived', 'all']).default('all')
-    }),
+    input: actionInput(
+      RECALL_ARGS,
+      [
+        'status',
+        'cwd',
+        'tag',
+        'is_cluster',
+        'limit',
+        'offset',
+        'compact',
+        'fields',
+        'include_url_links'
+      ],
+      { status: z.enum(['draft', 'active', 'archived', 'all']).default('all') }
+    ),
     run(args: ActionArgs) {
-      const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
-      const page = listThoughtsPageService({
-        status: args.status as string | undefined,
-        project_id: projectId,
-        tag: args.tag as string | undefined,
-        is_cluster: args.is_cluster as boolean | undefined,
-        limit: args.limit as number | undefined,
-        offset: args.offset as number | undefined
-      })
-      const compact = args.compact !== false
-      const fields = args.fields
-      const urlLinks = args.include_url_links === true ? loadUrlLinks(page.thoughts) : undefined
-      const items = page.thoughts.map((t: Thought) => shapeThought(t, compact, fields, urlLinks))
-      return collectionEnvelope('list', items, {
-        scope,
-        warnings,
-        total: page.total,
-        filtered_out: Math.max(0, page.total - items.length),
-        counts: { limit: page.limit ?? 0, offset: page.offset }
-      })
+      return listPage('list', args)
     }
   }
 }
@@ -272,169 +229,11 @@ const handlers = {
 export function registerMemoryRecall(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_recall',
-    description: `Search and retrieve thoughts. Every action answers in one envelope: collections return { items, meta }, single objects return { item, meta }. meta = { action, scope, counts: { total, returned, filtered_out }, degraded, warnings } plus an optional reason (no_match, ambiguous_id, id_not_found). Id lookup: a query that is a full UUID or a hex prefix of at least 13 characters is resolved against thought ids before the semantic and lexical legs. A full UUID is an explicit reference and ignores status/cwd/tag/min_importance; a prefix is only a timestamp window, so it takes the status/cwd/tag/min_importance scope of the call like any other query, and a prefix that addresses nothing inside that scope falls back to the ordinary search. is_cluster is a shape constraint rather than a scope, so it applies to both forms: clusters never answers a non-cluster row (the request comes back empty with a reason). An addressed id never widens to other rows (a prefix that addresses several answers every one of them, at most limit rows, with reason ambiguous_id). The resolution never suppresses a contested hit: standing, superseded_by and contradicted_by are annotated, while low_confidence keeps its retrieval meaning (no BM25 anchor, cosine below the floor) and stays false on an id hit. A miss is not an answer: when an id-shaped query addresses no thought, the answer is the ordinary search for the same text with an id_not_found note in meta.warnings (reason id_not_found only when that fallback matched nothing either), so a hex-looking word stays searchable. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/cwd/tag/is_cluster filters; limit/offset and the total ride in meta.counts, never in a row). Status defaults: search/clusters active, list all; pass status to override. cwd is optional for search, clusters, list and context: it scopes the answer to one project, and omitting it answers across every project with a meta.warnings note (get/chain do not take it). An unscoped search keeps the single cap-1000 candidate walk, so more than 1000 nearer rows can fill it and leave another project unrepresented; an unscoped answer cannot know which project was meant — a short or empty one reports degraded, a full one is silently about other projects — so pass cwd to rank inside one project instead. Relevance: an omitted min_relevance applies the default gate to cosine-only search/clusters hits (they surface as meta.counts.filtered_out, never as a reason), while BM25-anchored and id rows are never gated. context is exempt from that default gate — it asks for the single best match, so it keeps the pre-gate best match unless a caller passes min_relevance, which is a service-level opt-in there (the tool argument applies to search/clusters). Output modes: compact (default true) keeps the minimal thought fields (id, content, status, tags as strings, project) and no per-hit score block, but never hides a safety annotation — standing is emitted unless it is 'current', and superseded_by/contradicted_by plus low_confidence: true are emitted whenever they apply, so a contested or weak hit never looks clean; ranking metadata, match_source included (['id'] marks an id-addressed hit), is opt-in. compact=false adds that metadata (scores { similarity, distance, rrf_score, bm25_score, relevance, recency_score, final_score }, match_source, plus standing: 'current' and low_confidence: false as neutral markers). An explicit fields selection returns only those thought columns and drops the ranking metadata — scores and match_source, so an id hit is no longer labelled as one; safety annotations, include_url_links and get's include_edges output are not thought columns and stay. include_url_links (default false, all six actions) adds url_links to every thought the answer emits — [{text, url, label}] read in one batch query, never trimmed by fields and never hidden by compact; with true and no links the key is [], and with the argument omitted or false the key is absent.`,
+    description: `Search and retrieve thoughts. Every action answers in one envelope: collections return { items, meta }, single objects return { item, meta }. meta = { action, scope, counts: { total, returned, filtered_out }, degraded, warnings } plus an optional reason (no_match, ambiguous_id, id_not_found). Id lookup: a query that is a full UUID or a hex prefix of at least 13 characters is resolved against thought ids before the semantic and lexical legs. A full UUID is an explicit reference and ignores status/cwd/tag/min_importance; a prefix is only a timestamp window, so it takes the status/cwd/tag/min_importance scope of the call like any other query, and a prefix that addresses nothing inside that scope falls back to the ordinary search. is_cluster is a shape constraint rather than a scope, so it applies to both forms: clusters never answers a non-cluster row (the request comes back empty with a reason). An addressed id never widens to other rows (a prefix that addresses several answers every one of them, at most limit rows, with reason ambiguous_id). The resolution never suppresses a contested hit: standing, superseded_by and contradicted_by are annotated, while low_confidence keeps its retrieval meaning (no BM25 anchor, cosine below the floor) and stays false on an id hit. A miss is not an answer: when an id-shaped query addresses no thought, the answer is the ordinary search for the same text with an id_not_found note in meta.warnings (reason id_not_found only when that fallback matched nothing either), so a hex-looking word stays searchable. Actions: search (hybrid RRF by default; vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters, list (paginated inventory without query: status/cwd/tag/is_cluster filters; limit/offset and the total ride in meta.counts, never in a row). Status defaults: search/clusters active, list all; pass status to override. cwd is optional for search, clusters, list and context: it scopes the answer to one project, and omitted, it answers across every project with a meta.warnings note; get/chain accept it and ignore it (an id-addressed read keeps its own project). Output: compact defaults to true (id, content, status, tags, project); compact=false or fields widen it. context answers the same chain view as chain ({ thought, upstream, downstream }), from a text query or a thought_id.`,
     inputSchema: {
       action: z.enum(['search', 'get', 'context', 'chain', 'clusters', 'list']).describe('Action'),
-      query: z
-        .string()
-        .optional()
-        .describe(
-          'Search query (REQUIRED for search/clusters; accepted by context as an alternative to thought_id). IGNORED for get/chain/list.'
-        ),
-      status: thoughtStatusSchema
-        .optional()
-        .describe(
-          'Filter by status (search/clusters default: active; list default: all). IGNORED for get/context/chain.'
-        ),
-      project_id: z
-        .never({ error: 'project_id was removed; use cwd' })
-        .optional()
-        .describe('Removed; use cwd.'),
-      cwd: z
-        .string()
-        .optional()
-        .describe(
-          'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for search/clusters/list/context: omitting it (or passing no registered path) answers across every project and says so in meta.warnings. ACCEPTED AND IGNORED for get/chain.'
-        ),
-      tag: z
-        .string()
-        .optional()
-        .describe('Filter by tag (search/clusters/list). IGNORED for get/context/chain.'),
-      is_cluster: z
-        .boolean()
-        .optional()
-        .describe(
-          'Cluster filter: true = cluster thoughts only, false = exclude cluster thoughts (search/clusters/list). IGNORED for get/context/chain.'
-        ),
-      group_by_cluster: z.boolean().optional().describe('Group results by cluster (search only).'),
-      min_importance: z.coerce
-        .number()
-        .min(0)
-        .max(1)
-        .optional()
-        .describe('Minimum importance (0-1) (search/clusters only).'),
-      hybrid: z
-        .boolean()
-        .optional()
-        .describe(
-          'Hybrid search: true (default) fuses the vector and BM25 legs via RRF; false restricts results to the vector (embedding) leg only. (search/clusters only).'
-        ),
-      mode: z
-        .never({ error: 'mode was removed; use hybrid' })
-        .optional()
-        .describe('Removed; use hybrid.'),
-
-      recency_weight: z.coerce
-        .number()
-        .min(0)
-        .max(1)
-        .optional()
-        .describe(
-          'Opt-in recency boost weight (0-1). 0/default preserves relevance-only ranking; >0 adds recency_weight × 0.5^(ageDays/halfLifeDays) to the relevance score and returns recency_score + final_score (search/clusters only).'
-        ),
-      recency_half_life_days: z.coerce
-        .number()
-        .positive()
-        .max(3650)
-        .optional()
-        .describe(
-          'Recency decay half-life in days (default 30, 1-3650); only used when recency_weight > 0 (search/clusters only).'
-        ),
-      min_relevance: z.coerce
-        .number()
-        .min(0)
-        .max(1)
-        .optional()
-        .describe(
-          'Relevance gate on the calibrated relevance scale (0-1). Omitted = the measured default 0.4 (a raw cosine of 0.84): cosine-only hits below the threshold are dropped, while BM25-anchored and explicit-id rows are never gated. An explicit 0 disables the gate and restores the fail-open result set. Dropped rows appear as meta.counts.filtered_out, not as a reason (search/clusters only; memory_recall action=context is exempt from the default gate and keeps its pre-gate best match, so a gate there is a service-level opt-in).'
-        ),
-      supersession_mode: z
-        .enum(['off', 'flag', 'suppress'])
-        .optional()
-        .describe(
-          'Superseded thoughts: off (no annotation), flag (annotate), suppress (drop). Agent default: suppress (search only).'
-        ),
-      contradiction_mode: z
-        .enum(['off', 'flag'])
-        .optional()
-        .describe(
-          'Contradicted thoughts: off or flag (default). Contradicted endpoints are never suppressed (search only).'
-        ),
-      thought_id: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED for "get" and "chain"; also accepted by "context" (alternative to query). IGNORED for "search", "clusters", "list".'
-        ),
-      include_edges: z
-        .boolean()
-        .optional()
-        .describe(
-          'get only: when true, return incident edges inline (upstream/downstream with type and created_at). Default false.'
-        ),
-      include_url_links: z
-        .boolean()
-        .optional()
-        .describe(
-          "When true, every thought the answer emits carries url_links: [{text, url, label}] ordered by sort_order then creation (text is the stored link key that memory_store create and update set — update replaces the whole set, merge moves the source's links to the target — and label defaults to text). One batch query per response. Default false, where the key is absent; true with no links returns []. Never trimmed by fields and never hidden by compact. Applies to all six actions, including get's upstream/downstream neighbours and chain/context neighbourhoods."
-        ),
-      direction: z
-        .enum(['upstream', 'downstream', 'both'])
-        .optional()
-        .describe('Traversal direction (default: both) (context/chain only).'),
-      max_degree: z.coerce
-        .number()
-        .int()
-        .min(1)
-        .max(200)
-        .optional()
-        .describe(
-          'Max edges to return for chain/context/get (default 50, 1-200). IGNORED for search/clusters/list.'
-        ),
-      limit: timelineLimitSchema
-        .optional()
-        .describe(
-          'Max results for search/clusters (default 10) or list page size (default 50). IGNORED for get/context/chain.'
-        ),
-      offset: z
-        .number()
-        .int()
-        .min(0)
-        .max(1_000_000)
-        .optional()
-        .describe('list only: offset for pagination. IGNORED for all other actions.'),
-      compact: z
-        .boolean()
-        .optional()
-        .describe(
-          'Compact output (default true): each hit keeps the minimal thought fields (id, content, status, tags as strings, project) and no score block, but safety annotations are never hidden — standing is emitted unless it is "current", and superseded_by/contradicted_by plus low_confidence: true whenever they apply. compact=false adds the opt-in ranking metadata: scores { similarity, distance, rrf_score, bm25_score, relevance, recency_score, final_score }, match_source, and the neutral standing: "current"/low_confidence: false values. Also shapes the thought objects of get/context/chain/list; get\'s include_edges output stays under both settings.'
-        ),
-      fields: z
-        .array(z.string())
-        .optional()
-        .describe(
-          "Thought columns to include in each output thought. Selects on the shaped thought only, so the ranking metadata (scores, match_source — which also drops the ['id'] label of an id-addressed hit) is dropped from search hits when set; safety annotations (standing, superseded_by, contradicted_by, low_confidence) and get's include_edges output are not thought columns and remain. OPTIONAL for all actions."
-        ),
-      top_k: z
-        .never({ error: 'top_k was removed; use limit' })
-        .optional()
-        .describe('Removed; use limit.'),
-      cluster: z
-        .never({ error: 'cluster was removed; use is_cluster' })
-        .optional()
-        .describe('Removed; use is_cluster.')
+      ...RECALL_ARGS
     },
-    handlers: Object.fromEntries(
-      Object.entries(handlers).map(([action, handler]) => [
-        action,
-        {
-          ...handler,
-          async run(args: ActionArgs) {
-            validateActionFields(action, args, ACTION_FIELDS, ACTION_FIELDS_ALL)
-            return handler.run(args)
-          }
-        }
-      ])
-    )
+    handlers
   })
 }

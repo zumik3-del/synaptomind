@@ -6,7 +6,12 @@ import { Client } from '@modelcontextprotocol/client'
 import { closeDb } from '../../db/init'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
-import { type ActionToolConfig, registerActionTool, requiredString } from './action-tool'
+import {
+  actionInput,
+  type ActionToolConfig,
+  registerActionTool,
+  requiredString
+} from './action-tool'
 import { registerMemoryRecall } from './recall'
 import { registerMemoryStore } from './store'
 import { registerMemorySupersede } from './supersede'
@@ -60,28 +65,38 @@ function captureTool(
   return handler
 }
 
+const DEMO_ARGS = {
+  value: z.number().optional(),
+  content: z.string().optional()
+}
+
 const demoConfig: ActionToolConfig = {
   name: 'memory_demo',
   description: 'dispatcher probe',
-  inputSchema: { action: z.string(), value: z.number().optional(), content: z.string().optional() },
+  inputSchema: { action: z.string(), ...DEMO_ARGS },
   handlers: {
-    echo: { run: args => ({ echoed: args.value }) },
+    echo: { input: actionInput(DEMO_ARGS, ['value']), run: args => ({ echoed: args.value }) },
     needs_content: {
-      input: z.object({ content: requiredString('content is required for create action') }),
+      input: actionInput(DEMO_ARGS, ['content'], {
+        content: requiredString('content is required for create action')
+      }),
       run: () => ({ ok: true })
     },
     passthrough: {
+      input: actionInput(DEMO_ARGS, []),
       run: () => ({
         content: [{ type: 'text' as const, text: 'raw text' }],
         structuredContent: { result: 'raw text' }
       })
     },
     boom: {
+      input: actionInput(DEMO_ARGS, []),
       run: () => {
         throw new Error('handler exploded')
       }
     },
     boom_non_error: {
+      input: actionInput(DEMO_ARGS, []),
       run: () => {
         throw 'bare string failure'
       }

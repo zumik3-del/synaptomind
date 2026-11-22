@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { getDb } from '../context/container'
+import { getDb } from '../db'
 import { closeDb } from '../db/init'
 import { createTestDb, seedThought } from '../test/helpers'
 import { createEdgesBatchService } from './edges.service'
@@ -51,6 +51,26 @@ test('a run-level abort discards every link of the run', () => {
       { source: c, target: d }
     ])
   ).toThrow()
+
+  const edges = getDb().prepare('SELECT COUNT(*) AS n FROM edges').get() as { n: number }
+  expect(edges.n).toBe(0)
+})
+
+test('a run-level abort on an early link does not autocommit the remaining links', () => {
+  const [a, b, c, d] = ['a', 'b', 'c', 'd'].map(name => seedThought({ content: `${name} content` }))
+  getDb().run(
+    `CREATE TRIGGER probe_abort_early BEFORE INSERT ON edges
+     WHEN NEW.source_id = '${a}'
+     BEGIN SELECT RAISE(ROLLBACK, 'probe: run aborted early'); END`
+  )
+
+  expect(() =>
+    createEdgesBatchService([
+      { source: a, target: b },
+      { source: b, target: c },
+      { source: c, target: d }
+    ])
+  ).toThrow('probe: run aborted early')
 
   const edges = getDb().prepare('SELECT COUNT(*) AS n FROM edges').get() as { n: number }
   expect(edges.n).toBe(0)

@@ -3,7 +3,7 @@ import { afterAll, expect, mock, test } from 'bun:test'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { getDb } from '../context/container'
+import { getDb } from '../db'
 
 const MODE = process.env.SYNAPTOMIND_CLEANUP_MODE ?? 'legacy-idle'
 const MULTI = MODE.startsWith('multi-')

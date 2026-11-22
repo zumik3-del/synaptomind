@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { config } from '../config'
 import { createGuardedPipeline } from './guarded-pipeline'
+import { configFixture } from '../test/helpers'
 import { MAX_REQUEST_BODY_BYTES, type ErrorShape } from './http-errors'
 
 // Task #2602: the one guarded pipeline both HTTP surfaces mount. `shape` only picks the error
@@ -15,17 +16,15 @@ const TOO_LARGE_BODY = JSON.stringify({ pad: 'x'.repeat(MAX_REQUEST_BODY_BYTES +
 const previousSecret = process.env.SYNAPTOMIND_SECRET
 const previousServiceToken = process.env.SYNAPTOMIND_SERVICE_TOKEN
 const previousInsecure = process.env.SYNAPTOMIND_ALLOW_INSECURE
-const originalUsers = config.users
+const singleUser = configFixture({ users: [] })
 
 beforeAll(() => {
-  config.users = []
   process.env.SYNAPTOMIND_SECRET = SECRET
   delete process.env.SYNAPTOMIND_SERVICE_TOKEN
   delete process.env.SYNAPTOMIND_ALLOW_INSECURE
 })
 
 afterAll(() => {
-  config.users = originalUsers
   for (const [key, value] of [
     ['SYNAPTOMIND_SECRET', previousSecret],
     ['SYNAPTOMIND_SERVICE_TOKEN', previousServiceToken],
@@ -44,7 +43,7 @@ const SURFACE_KINDS: ReadonlyArray<{ name: string; shape: ErrorShape }> = [
 // One pipeline instance per surface, mounted exactly the way the surface mounts it.
 function surfaceApp(shape: ErrorShape): Hono {
   const app = new Hono()
-  for (const guard of createGuardedPipeline({ shape })) app.use('/probe', guard)
+  for (const guard of createGuardedPipeline({ shape, config: singleUser })) app.use('/probe', guard)
   app.get('/probe', c => c.text('ok'))
   app.post('/probe', c => c.text('reached'))
   return app
@@ -122,7 +121,7 @@ describe('guarded pipeline — body cap', () => {
   })
 
   test('a body of exactly the limit still reaches the handler (the cap is strict >)', async () => {
-    const body = JSON.stringify({ pad: 'x'.repeat(MAX_REQUEST_BODY_BYTES) })
+    const body = 'x'.repeat(MAX_REQUEST_BODY_BYTES)
     const res = await post(surfaceApp('json'), body, true, MAX_REQUEST_BODY_BYTES)
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('reached')

@@ -1,4 +1,4 @@
-import { config, DEFAULTS } from '../config'
+import { config, DEFAULTS, type Config } from '../config'
 import { clampPrimerCount } from '../config.limits'
 import { getDb } from '../db'
 import { getPrimers } from '../db/primers'
@@ -44,9 +44,9 @@ function pendingItemsContent(db: Database, limit?: number, offset?: number): str
   return bullets.join('\n')
 }
 
-function architectureDecisionsContent(db: Database): string {
+function architectureDecisionsContent(db: Database, cfg: Config): string {
   const bullets: string[] = []
-  const topN = clampPrimerCount(config.primer.topN, DEFAULTS.primer.topN)
+  const topN = clampPrimerCount(cfg.primer.topN, DEFAULTS.primer.topN)
   for (const primer of getPrimers(db, topN)) {
     const thought = getThoughtByIdService(primer.thought_id, db)
     if (!thought) continue
@@ -57,7 +57,8 @@ function architectureDecisionsContent(db: Database): string {
 
 export function getSlots(
   opts?: { projectId?: string; names?: string[]; limit?: number; offset?: number },
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): SlotView[] {
   const projectId = opts?.projectId || undefined
   const filter = opts?.names?.length ? new Set(opts.names) : null
@@ -66,9 +67,9 @@ export function getSlots(
   for (const name of SLOT_NAMES) {
     if (filter && !filter.has(name)) continue
     if (VIRTUAL_SLOT_NAMES.has(name)) {
-      const maxChars = config.slots.defaultMaxChars
+      const maxChars = cfg.slots.defaultMaxChars
       let content: string
-      if (name === 'architecture_decisions') content = architectureDecisionsContent(d)
+      if (name === 'architecture_decisions') content = architectureDecisionsContent(d, cfg)
       else content = pendingItemsContent(d, opts?.limit, opts?.offset)
       const { content: truncatedContent, truncated } = truncate(content, maxChars)
       views.push({
@@ -85,7 +86,7 @@ export function getSlots(
     const row =
       (projectId ? getSlotRow(d, name, 'project', projectId) : undefined) ??
       getSlotRow(d, name, 'global', null)
-    const maxChars = row?.max_chars ?? config.slots.defaultMaxChars
+    const maxChars = row?.max_chars ?? cfg.slots.defaultMaxChars
     const { content, truncated } = truncate(row?.content ?? '', maxChars)
     views.push({
       name,

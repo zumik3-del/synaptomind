@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { config } from '../config'
 import { vec0Path } from '../runtime-mode'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { closeDb, initDb } from './init'
 import { MIGRATIONS } from './migrations'
 

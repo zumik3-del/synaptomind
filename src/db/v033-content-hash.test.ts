@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { BASELINE_TABLE_DDL, META_DDL } from './baseline-schema'
+import { BASELINE_TABLE_DDL, META_DDL } from './schema/baseline-schema'
 import v033 from './migrations/v033-content-hash'
 
 function legacyDb(): Database {

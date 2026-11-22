@@ -1,18 +1,11 @@
-import { z } from 'zod/v4'
 import { deleteEdgesBatchService } from '../../../services/edges.service'
-import { BATCH_ITEMS_MAX } from '../../../validation'
 import { collectionEnvelope } from '../envelope'
-import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { actionInput, type ActionArgs, type ActionHandler } from '../action-tool'
+import { STORE_ARGS } from './args'
+import { edgeIdsArg } from './items'
 
 export const unlinkBatchHandler: ActionHandler = {
-  input: z.object({
-    edge_ids: z
-      .array(requiredString('each edge_ids entry must be a non-empty id'), {
-        error: 'edge_ids is required for unlink_batch action'
-      })
-      .min(1, 'edge_ids is required for unlink_batch action')
-      .max(BATCH_ITEMS_MAX, `edge_ids accepts at most ${BATCH_ITEMS_MAX} ids per call`)
-  }),
+  input: actionInput(STORE_ARGS, ['edge_ids', 'confirm'], { edge_ids: edgeIdsArg }),
   run(args: ActionArgs) {
     const confirm = args.confirm === true
     const result = deleteEdgesBatchService(args.edge_ids as string[], confirm)

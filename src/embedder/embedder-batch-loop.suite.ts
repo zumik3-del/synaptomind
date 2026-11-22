@@ -19,7 +19,7 @@ process.env.SYNAPTOMIND_EMBEDDER_DTYPE = 'fp32'
 // `realQueue.insertEmbedding` after mocking would call the mock again.
 const realInitFns = { ...(await import('../db/init')) }
 const realQueueFns = { ...(await import('../db/pending-embeddings')) }
-const { getDb } = await import('../context/container')
+const { getDb } = await import('../db')
 const { config } = await import('../config')
 const { seedThought } = await import('../test/helpers')
 

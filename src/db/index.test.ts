@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test'
-import { getDb as containerGetDb } from '../context/container'
+import { getDb as containerGetDb } from './handle'
 import * as barrel from './index'
 import * as init from './init'
 
-test('the db barrel re-exports the init lifecycle and the container handle unchanged', () => {
+test('the db barrel re-exports the init lifecycle and the handle unchanged', () => {
   expect(barrel.initDb).toBe(init.initDb)
   expect(barrel.openDatabase).toBe(init.openDatabase)
   expect(barrel.closeDb).toBe(init.closeDb)

@@ -4,7 +4,6 @@ type Mode = 'all-failed' | 'catch' | 'ok' | 'recover'
 const MODE = (process.env.SYNAPTOMIND_BACKOFF_MODE ?? 'all-failed') as Mode
 
 const MAX_CONSECUTIVE_FAILURES = 5
-const MAX_BACKOFF = 64
 const FAIL_ROUNDS_BEFORE_SUCCESS = 6
 const SUCCESS_ROUND = FAIL_ROUNDS_BEFORE_SUCCESS + 1
 
@@ -15,7 +14,6 @@ interface LogEntry {
 }
 
 const logs: LogEntry[] = []
-const consoleErrors: string[] = []
 const row = { id: 'row', content: 'row', contentHash: 'hash' }
 
 let now = 1_000_000
@@ -25,16 +23,12 @@ let pollHandler: (() => void) | undefined
 
 const originalNow = Date.now
 const originalSetInterval = globalThis.setInterval
-const originalConsoleError = console.error
 
 Date.now = () => now
 globalThis.setInterval = ((fn: () => void, ms?: number) => {
   if (ms === 10) pollHandler = fn
   return 1 as unknown as ReturnType<typeof setInterval>
 }) as typeof setInterval
-console.error = ((...args: unknown[]) => {
-  consoleErrors.push(args.map(arg => String(arg)).join(' '))
-}) as typeof console.error
 
 mock.module('../config', () => ({
   config: {
@@ -57,7 +51,7 @@ mock.module('../db/init', () => ({
   closeDb: () => {},
   openDatabase: () => ({ close: () => {} })
 }))
-mock.module('../context/container', () => ({ getDb: () => ({ close: () => {} }) }))
+mock.module('../db', () => ({ getDb: () => ({ close: () => {} }) }))
 mock.module('../logging', () => ({
   insertLog: (level: string, _type: string, message: string, meta?: Record<string, unknown>) => {
     logs.push({ level, message, meta })
@@ -107,11 +101,12 @@ async function tick(): Promise<void> {
 const backoffLogs = (): LogEntry[] => logs.filter(l => l.message.startsWith('Backing off to '))
 const backoffValues = (): unknown[] => backoffLogs().map(l => l.meta?.backoff)
 const failureCounts = (): unknown[] => backoffLogs().map(l => l.meta?.consecutiveFailures)
+const roundFailureCounts = (): unknown[] =>
+  logs.filter(l => l.message.startsWith('Batch failed: ')).map(l => l.meta?.consecutiveFailures)
 
 afterAll(() => {
   Date.now = originalNow
   globalThis.setInterval = originalSetInterval
-  console.error = originalConsoleError
 })
 
 test(`${MODE}: the batch loop starts its poller`, async () => {
@@ -143,9 +138,37 @@ if (MODE === 'catch') {
     expect(backoffValues()).toEqual([2, 4])
     // The second threshold lands on round ten; without the reset it would land on round six.
     expect(rounds).toBe(10)
+  })
 
-    expect(consoleErrors.filter(line => line.includes('(5/5)'))).toHaveLength(2)
-    expect(consoleErrors.some(line => line.includes('(6/5)'))).toBe(false)
+  test('the catch branch is silent at the cap: the counter keeps clearing without a sixth log', async () => {
+    for (let i = 0; i < 4000 && backoffValues().length < 6; i++) {
+      await tick()
+    }
+
+    expect(backoffValues()).toEqual([2, 4, 8, 16, 32, 64])
+    const cappedRounds = rounds
+    const cappedLogs = backoffLogs().length
+    const countsAtCap = roundFailureCounts().length
+
+    for (let i = 0; i < 400; i++) {
+      await tick()
+    }
+
+    // Four seconds of simulated time fits ~6 rounds behind the 64x gate; a snap back to 1x would fit
+    // hundreds, so the count is what proves the multiplier survived the cap.
+    const advanced = rounds - cappedRounds
+    expect(advanced).toBeGreaterThanOrEqual(5)
+    expect(advanced).toBeLessThanOrEqual(8)
+    expect(backoffLogs()).toHaveLength(cappedLogs)
+    expect(backoffValues()).toEqual([2, 4, 8, 16, 32, 64])
+
+    // A counter that stopped clearing would keep counting past the threshold (6, 7, 8...) instead.
+    const tail = roundFailureCounts().slice(countsAtCap)
+    expect(tail).toHaveLength(advanced)
+    expect(tail[0]).toBe(1)
+    expect(
+      tail.every(count => typeof count === 'number' && count <= MAX_CONSECUTIVE_FAILURES)
+    ).toBe(true)
   })
 }
 
@@ -177,9 +200,6 @@ if (MODE === 'all-failed') {
     // Those rounds crossed a further threshold, which must not log again or restart the ramp.
     expect(backoffLogs()).toHaveLength(cappedLogs)
     expect(backoffValues()).toEqual([2, 4, 8, 16, 32, 64])
-    expect(
-      consoleErrors.filter(line => line.includes(`backing off to ${MAX_BACKOFF}x`))
-    ).toHaveLength(1)
   })
 }
 

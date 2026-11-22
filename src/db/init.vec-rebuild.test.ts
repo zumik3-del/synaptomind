@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { config } from '../config'
 import { vec0Path } from '../runtime-mode'
-import { drainPendingEmbeddings, seedThought } from '../test/helpers'
-import { getDb } from '../context/container'
+import { configFixture, drainPendingEmbeddings, seedThought } from '../test/helpers'
+import { getDb } from './index'
 import { closeDb, initDb, readVecIndexState } from './init'
 import { MIGRATIONS } from './migrations'
 
@@ -14,16 +14,16 @@ const CONFIGURED = config.embedder.dimensions
 const REBUILT = CONFIGURED === 384 ? 512 : 384
 const NEWEST = Math.max(...MIGRATIONS.map(m => m.version))
 
+function dimensionsConfig(dimensions: number) {
+  return configFixture({ embedder: { ...config.embedder, dimensions } })
+}
+
 const tmpRoot = mkdtempSync(join(tmpdir(), 'synaptomind-vec-rebuild-'))
 let cases = 0
 
-afterEach(() => {
-  config.embedder.dimensions = CONFIGURED
-  closeDb()
-})
+afterEach(closeDb)
 
 afterAll(() => {
-  config.embedder.dimensions = CONFIGURED
   closeDb()
   rmSync(tmpRoot, { recursive: true, force: true })
 })
@@ -137,9 +137,8 @@ test('a mid-life dimension change is readable from _meta alone and re-queues eve
   drainPendingEmbeddings([id])
   expect(vecRowCount(dbPath)).toBe(1)
 
-  config.embedder.dimensions = REBUILT
   closeDb()
-  initDb({ dbPath, runMigrations: true })
+  initDb({ dbPath, runMigrations: true, config: dimensionsConfig(REBUILT) })
 
   const state = readVecIndexState(getDb())
   expect(state.dimensions).toBe(REBUILT)
@@ -172,9 +171,8 @@ test('a repeat open with unchanged dimensions writes no _meta row and re-queues 
   const dbPath = freshDbPath()
   initDb({ dbPath, runMigrations: true })
   const id = seedThought({ content: 'stay put' })
-  config.embedder.dimensions = REBUILT
   closeDb()
-  initDb({ dbPath, runMigrations: true })
+  initDb({ dbPath, runMigrations: true, config: dimensionsConfig(REBUILT) })
   const rebuiltAt = readVecIndexState(getDb()).rebuiltAt
   drainPendingEmbeddings([id])
   closeDb()
@@ -195,7 +193,7 @@ test('a repeat open with unchanged dimensions writes no _meta row and re-queues 
     )
   })
 
-  initDb({ dbPath, runMigrations: true })
+  initDb({ dbPath, runMigrations: true, config: dimensionsConfig(REBUILT) })
 
   expect(getDb().prepare(`SELECT key, op FROM meta_write_log`).all()).toEqual([])
   expect(readVecIndexState(getDb()).rebuiltAt).toBe(rebuiltAt)
@@ -233,8 +231,7 @@ test('a legacy marker that disagrees with the configuration still rebuilds and r
 
   // Ignoring the legacy key here would read "no marker", skip the rebuild and stamp
   // the *configured* dimensions onto a table still shaped for the old ones.
-  config.embedder.dimensions = REBUILT
-  initDb({ dbPath, runMigrations: true })
+  initDb({ dbPath, runMigrations: true, config: dimensionsConfig(REBUILT) })
 
   const state = readVecIndexState(getDb())
   expect(state.dimensions).toBe(REBUILT)
@@ -250,9 +247,8 @@ test('the rebuild marker outlives a migration replayed after it was written', ()
   const id = seedThought({ content: 'survive a version bump' })
   seedVector(id)
   drainPendingEmbeddings([id])
-  config.embedder.dimensions = REBUILT
   closeDb()
-  initDb({ dbPath, runMigrations: true })
+  initDb({ dbPath, runMigrations: true, config: dimensionsConfig(REBUILT) })
   const rebuiltAt = readVecIndexState(getDb()).rebuiltAt
   expect(rebuiltAt).not.toBeNull()
   drainPendingEmbeddings([id])
@@ -267,7 +263,7 @@ test('the rebuild marker outlives a migration replayed after it was written', ()
     db.prepare(`UPDATE _meta SET value = ? WHERE key = 'schema_version'`).run(String(newest - 1))
   })
 
-  initDb({ dbPath, runMigrations: true })
+  initDb({ dbPath, runMigrations: true, config: dimensionsConfig(REBUILT) })
 
   const version = getDb().prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as {
     value: string
@@ -296,15 +292,16 @@ test('a rebuild that dies before the marker write is repeated on the next boot',
     )
   })
 
-  config.embedder.dimensions = REBUILT
-  expect(() => initDb({ dbPath, runMigrations: true })).toThrow('simulated marker failure')
+  expect(() => initDb({ dbPath, runMigrations: true, config: dimensionsConfig(REBUILT) })).toThrow(
+    'simulated marker failure'
+  )
   expect(metaRows(dbPath).vec_dimensions).toBe(String(CONFIGURED))
 
   expect(vecRowCount(dbPath)).toBe(0)
   expect(pendingIdsOnDisk(dbPath)).toEqual([id])
 
   openRaw(dbPath, db => db.exec(`DROP TRIGGER fail_vec_marker`))
-  initDb({ dbPath, runMigrations: true })
+  initDb({ dbPath, runMigrations: true, config: dimensionsConfig(REBUILT) })
   const state = readVecIndexState(getDb())
   expect(state.dimensions).toBe(REBUILT)
   expect(Date.parse(state.rebuiltAt ?? '')).toBeGreaterThan(0)
@@ -324,8 +321,7 @@ test('a dimension change snapshots the vectors before dropping vec_thoughts', ()
   }
   expect(backupsOf(dbPath)).toEqual([])
 
-  config.embedder.dimensions = REBUILT
-  initDb({ dbPath, runMigrations: true })
+  initDb({ dbPath, runMigrations: true, config: dimensionsConfig(REBUILT) })
 
   const snapshots = backupsOf(dbPath)
   expect(snapshots).toEqual([expect.stringContaining(`.pre-v${NEWEST}.rebuild.`)])
@@ -355,8 +351,7 @@ test('a boot that already took a migration snapshot takes no second rebuild snap
   openRaw(dbPath, db =>
     db.prepare(`UPDATE _meta SET value = ? WHERE key = 'schema_version'`).run(String(NEWEST - 1))
   )
-  config.embedder.dimensions = REBUILT
-  initDb({ dbPath, runMigrations: true })
+  initDb({ dbPath, runMigrations: true, config: dimensionsConfig(REBUILT) })
 
   // The pre-migration snapshot already predates the DROP, so the rebuild takes none of its own.
   const snapshots = backupsOf(dbPath)
@@ -386,8 +381,6 @@ test('a failed snapshot aborts the rebuild with the vectors still in place', () 
   // No migration is pending, so the only snapshot this boot can take is the rebuild's.
   expect(metaRows(dbPath).schema_version).toBe(String(NEWEST))
 
-  config.embedder.dimensions = REBUILT
-
   // A live connection keeps the WAL sidecars on disk, so the boot below reaches the snapshot;
   // without them `PRAGMA journal_mode = WAL` fails on the read-only directory first and the
   // rebuild is never attempted.
@@ -396,7 +389,9 @@ test('a failed snapshot aborts the rebuild with the vectors still in place', () 
   chmodSync(dir, 0o555)
   let message: string | null = null
   try {
-    message = failureMessage(() => initDb({ dbPath, runMigrations: true }))
+    message = failureMessage(() =>
+      initDb({ dbPath, runMigrations: true, config: dimensionsConfig(REBUILT) })
+    )
   } finally {
     chmodSync(dir, 0o755)
     keeper.close(true)

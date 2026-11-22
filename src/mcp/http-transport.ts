@@ -2,13 +2,14 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve } from 'bun'
 import { getValidTokens } from '../auth'
-import { config } from '../config'
+import { config, type Config } from '../config'
 import { createGuardedPipeline } from '../middleware/guarded-pipeline'
 import { createErrorHandler, MAX_REQUEST_BODY_BYTES } from '../middleware/http-errors'
 import { createMcpHandler } from '@modelcontextprotocol/server'
 import { createMcpRouteHandler, SessionRegistry, type Session } from './mcp-route'
 import { drainRejectedBody } from './request-body'
 import { createMcpServer } from './server'
+import { getHealthService } from '../services/health.service'
 
 export type { Session } from './mcp-route'
 export { MAX_REQUEST_BODY_BYTES } from '../middleware/http-errors'
@@ -20,12 +21,9 @@ export interface McpHttpHandle {
 
 interface McpHttpOptions {
   corsOrigins?: string[]
+  /** The config the server authenticates and sizes its sessions from; the frozen global when absent. */
+  config?: Config
 }
-
-const MAX_SESSIONS = config.mcp.maxSessions
-const SESSION_TTL_MS = config.mcp.sessionTtlMs
-const KEEPALIVE_MS = config.mcp.keepAliveMs
-const MAX_SUBSCRIPTIONS = config.mcp.maxSubscriptions
 
 // Unknown errors must never surface as Hono's non-JSON 500: MCP clients parse JSON-RPC.
 export const mcpErrorHandler = createErrorHandler('jsonrpc')
@@ -35,15 +33,16 @@ export function startMcpHttpServer(
   port: number,
   options: McpHttpOptions = {}
 ): McpHttpHandle {
+  const cfg = options.config ?? config
   const app = new Hono()
   const registry = new SessionRegistry({
-    maxSessions: MAX_SESSIONS,
-    keepAliveMs: KEEPALIVE_MS,
+    maxSessions: cfg.mcp.maxSessions,
+    keepAliveMs: cfg.mcp.keepAliveMs,
     maxRequestBodyBytes: MAX_REQUEST_BODY_BYTES,
-    ttlMs: SESSION_TTL_MS
+    ttlMs: cfg.mcp.sessionTtlMs
   })
 
-  getValidTokens()
+  getValidTokens(cfg)
 
   app.onError(mcpErrorHandler)
 
@@ -76,7 +75,8 @@ export function startMcpHttpServer(
     if (outcome === 'abandoned') c.header('Connection', 'close')
   })
 
-  for (const guard of createGuardedPipeline({ shape: 'jsonrpc' })) app.use('/mcp', guard)
+  for (const guard of createGuardedPipeline({ shape: 'jsonrpc', config: options.config }))
+    app.use('/mcp', guard)
 
   const stopSweep = registry.startSweep()
 
@@ -84,8 +84,8 @@ export function startMcpHttpServer(
   // unmemoized: an SDK factory instance cannot serve a second request.
   const modern = createMcpHandler(() => createMcpServer(), {
     legacy: 'reject',
-    keepAliveMs: KEEPALIVE_MS,
-    maxSubscriptions: MAX_SUBSCRIPTIONS,
+    keepAliveMs: cfg.mcp.keepAliveMs,
+    maxSubscriptions: cfg.mcp.maxSubscriptions,
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES
   })
 
@@ -97,7 +97,10 @@ export function startMcpHttpServer(
 
   app.all('/mcp', route)
 
-  app.get('/health', c => c.json({ status: 'ok' }))
+  app.get('/health', c => {
+    const { status } = getHealthService(undefined, cfg)
+    return c.json({ status }, status === 'ok' ? 200 : 503)
+  })
 
   const server = serve({
     fetch: app.fetch,

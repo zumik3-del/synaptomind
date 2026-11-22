@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { createTestDb, seedThought } from '../test/helpers'
 import { closeDb } from './init'
-import { createProject, deleteProject, resolveDefaultProjectId } from './projects'
+import { createProject, resolveDefaultProjectId } from './projects'
+import { deleteProject } from '../services/projects.service'
 import {
   countIncomingActiveRetentionReviewEdges,
   getRetentionReviewEligibilityThought,

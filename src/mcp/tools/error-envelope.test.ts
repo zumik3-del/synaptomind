@@ -39,37 +39,45 @@ function captureTool(
   return handler
 }
 
+const NO_ARGS = z.object({})
+
 const classifiedConfig: ActionToolConfig = {
   name: 'memory_demo',
   description: 'envelope probe',
   inputSchema: { action: z.string() },
   handlers: {
     timeout: {
+      input: NO_ARGS,
       run: () => {
         throw new EmbedderTimeoutError()
       }
     },
     send_failure: {
+      input: NO_ARGS,
       run: () => {
         throw new EmbedderSendError()
       }
     },
     not_ready: {
+      input: NO_ARGS,
       run: () => {
         throw new EmbedderNotReadyError()
       }
     },
     unavailable: {
+      input: NO_ARGS,
       run: () => {
         throw new EmbedderUnavailableError()
       }
     },
     plain: {
+      input: NO_ARGS,
       run: () => {
         throw new Error('handler exploded')
       }
     },
     non_error: {
+      input: NO_ARGS,
       run: () => {
         throw 'bare string failure'
       }

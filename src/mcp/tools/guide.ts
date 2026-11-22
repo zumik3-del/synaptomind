@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/server'
-import { getAdvertisedSoftLimitService } from '../../services/settings.service'
+import { type Config, config } from '../../config'
+import { getThoughtLimitsDB } from '../../config.thought-limits'
 import { toolOutputShape } from './utils'
 
 function buildGuideText(softLimit: number): string {
@@ -79,17 +80,17 @@ memory_crystallize action=graph paginates nodes: cwd scopes the answer (a call w
 A recalled thought whose hit count reaches primer.promoteThreshold (default 5) becomes a primer on the search path. memory_primers delete is preview-first (confirm=true).
 
 ## Health check
-memory_status action=health; severity restricts reported findings (read-only; repair via POST /api/health-check/repair with preview+confirm). Score: 100 - criticalCategories×40 - warningCategories×15 - scoredInfoOccurrences×0.25, clamped [0,100]. Islands are an informational coverage finding and are not scored, so publishing an unlinked thought never lowers the score.
+memory_status action=health; severity restricts reported findings (read-only; repair via POST /api/health-check/repair with preview+confirm). Score: 100 - criticalCategories×40 - warningCategories×15 - scoredInfoOccurrences×0.25, clamped [0,100]. The summary carries critical, warning and info beside score_breakdown; the alias keys are gone. Islands are an informational coverage finding and are not scored, so publishing an unlinked thought never lowers the score.
 contradiction_in_cluster remediation: memory_store action=unlink on the contradicts edge, or retype it to supports/related, or archive the cluster thought. Dry-run first, then confirm=true.
 
 ## Placement proposal and review
 memory_status action=propose returns a read-only plan (placement, edges[], lifecycle) and never writes. edge_review enqueue/list/apply/apply_batch/rollback/reject; apply is dry-run unless confirm=true and re-checks staleness. The queue holds edge items only: a plan's placement and lifecycle items are reported as skipped.
 
 ## Session reflection
-memory_reflect reflect writes thoughts, it is not read-only: decisions create active thoughts tagged decision + reflect; pending create draft thoughts tagged pending + reflect (surface after wake_days, default 7). The reflect tag marks every thought reflect created, so they can be filtered (search tag=reflect) or cleaned up without touching hand-created ones. summary appends to project_context; goals_add adds goals and goals_remove removes stored goal lines using case-insensitive substring matching. Retired goals_delta fails with a hint to use goals_add/goals_remove. memory_reflect action=timeline is the paginated thought list (status, cwd, limit, offset, include_url_links) as {items, meta}; meta.counts carries the applied limit and offset beside total, returned and filtered_out.`
+memory_reflect reflect writes thoughts, it is not read-only: decisions create active thoughts tagged decision + reflect; pending create draft thoughts tagged pending + reflect (surface after wake_days, default 7). The reflect tag marks every thought reflect created, so they can be filtered (search tag=reflect) or cleaned up without touching hand-created ones. summary appends to project_context; goals_add adds goals and goals_remove removes stored goal lines using case-insensitive substring matching. Retired goals_delta fails with a hint to use goals_add/goals_remove. memory_reflect action=timeline is the paginated thought list (status, cwd, limit, offset, compact, fields, include_url_links) — the same reader as memory_recall action=list, so compact defaults to true and fields selects columns — as {items, meta}; meta.counts carries the applied limit and offset beside total, returned and filtered_out.`
 }
 
-export function registerMemoryGuide(server: McpServer) {
+export function registerMemoryGuide(server: McpServer, cfg: Config = config) {
   server.registerTool(
     'memory_guide',
     {
@@ -97,7 +98,7 @@ export function registerMemoryGuide(server: McpServer) {
       outputSchema: toolOutputShape
     },
     async () => {
-      const softLimit = getAdvertisedSoftLimitService()
+      const softLimit = getThoughtLimitsDB(cfg).softLimit
       const text = buildGuideText(softLimit)
       return { content: [{ type: 'text' as const, text }], structuredContent: { result: { text } } }
     }

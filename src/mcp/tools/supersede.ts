@@ -11,33 +11,70 @@ import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 import { validateMergePreconditions } from '../../services/merge-helpers.service'
 import { BATCH_ITEMS_MAX } from '../../validation'
 import { collectionEnvelope, itemEnvelope, writeEnvelopeScope } from './envelope'
-import { shapeThought } from './utils'
-import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
-import {
-  allActionFields,
-  validateActionFields as validateSharedActionFields
-} from './action-fields'
+import { shapeEntity } from './utils'
+import { actionInput, registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
 const MERGE_PREVIEW_EDGE_LIMIT = 50
-const ACTION_FIELDS: Record<string, string[]> = {
-  archive: ['thought_id'],
-  archive_batch: ['thought_ids'],
-  merge: ['source_id', 'target_id', 'merged_content', 'merged_tags', 'cwd']
-}
-const ACTION_FIELDS_ALL = allActionFields(ACTION_FIELDS)
 
-function validateActionFields(action: string, args: ActionArgs): void {
-  if (args.confirm !== undefined && typeof args.confirm !== 'boolean') {
-    throw new Error('confirm must be a boolean (true to execute; false or omitted to preview)')
-  }
-  validateSharedActionFields(action, args, ACTION_FIELDS, ACTION_FIELDS_ALL)
+const SUPERSEDE_ARGS = {
+  confirm: z
+    .boolean()
+    .optional()
+    .describe('CONSUMED by all actions (true executes; false/omitted previews).'),
+  thought_id: z
+    .string()
+    .optional()
+    .describe('REQUIRED for "archive". Thought ID. REJECTED for "archive_batch" and "merge".'),
+  thought_ids: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'REQUIRED ONLY for "archive_batch". Thought IDs to archive in one call (1-1000); partial failures are reported per item. Rejected for other actions.'
+    ),
+  source_id: z
+    .string()
+    .optional()
+    .describe(
+      'REQUIRED ONLY for "merge". Source thought ID — will be archived. Rejected for other actions.'
+    ),
+  target_id: z
+    .string()
+    .optional()
+    .describe(
+      'REQUIRED ONLY for "merge". Target thought ID — will be updated. Rejected for other actions.'
+    ),
+  merged_content: z
+    .string()
+    .optional()
+    .describe(
+      'Replacement content for merge. OPTIONAL for "merge". REJECTED for "archive" and "archive_batch".'
+    ),
+  merged_tags: z
+    .array(z.string())
+    .optional()
+    .describe('Merged tags. OPTIONAL for "merge". REJECTED for "archive" and "archive_batch".'),
+  project_id: z
+    .never({ error: 'project_id was removed; there is no project argument' })
+    .optional()
+    .describe('Removed; there is no project argument.'),
+  cwd: z
+    .string()
+    .optional()
+    .describe(
+      'Working directory — resolves the project scope the answer reports in meta.scope; a "merge" changes no thought\'s project. OPTIONAL for "merge". ACCEPTED AND IGNORED for "archive" and "archive_batch".'
+    ),
+  preview_token: z
+    .string()
+    .optional()
+    .describe(
+      'OPTIONAL preview token returned by a prior preview. CONSUMED by "archive", "archive_batch", "merge" (true executes with token validation; missing/stale fails). REJECTED for all other actions.'
+    )
 }
 
 const handlers = {
   archive: {
-    input: z.object({
-      thought_id: requiredString('thought_id is required for archive action'),
-      preview_token: z.string().optional()
+    input: actionInput(SUPERSEDE_ARGS, ['thought_id', 'confirm', 'preview_token'], {
+      thought_id: requiredString('thought_id is required for archive action')
     }),
     async run(args: ActionArgs) {
       const thoughtId = args.thought_id as string
@@ -77,7 +114,7 @@ const handlers = {
           return itemEnvelope('archive', {
             status: 'executed',
             action: 'archive',
-            result: shapeThought(result)
+            result: shapeEntity(result)
           })
         }
       })
@@ -86,14 +123,13 @@ const handlers = {
   },
 
   archive_batch: {
-    input: z.object({
+    input: actionInput(SUPERSEDE_ARGS, ['thought_ids', 'confirm', 'preview_token'], {
       thought_ids: z
         .array(requiredString('each thought_ids entry must be a non-empty id'), {
           error: 'thought_ids is required for archive_batch action'
         })
         .min(1, 'thought_ids is required for archive_batch action')
-        .max(BATCH_ITEMS_MAX, `thought_ids accepts at most ${BATCH_ITEMS_MAX} ids per call`),
-      preview_token: z.string().optional()
+        .max(BATCH_ITEMS_MAX, `thought_ids accepts at most ${BATCH_ITEMS_MAX} ids per call`)
     }),
     async run(args: ActionArgs) {
       const ids = args.thought_ids as string[]
@@ -155,11 +191,14 @@ const handlers = {
   },
 
   merge: {
-    input: z.object({
-      source_id: requiredString('source_id is required for merge action'),
-      target_id: requiredString('target_id is required for merge action'),
-      preview_token: z.string().optional()
-    }),
+    input: actionInput(
+      SUPERSEDE_ARGS,
+      ['source_id', 'target_id', 'merged_content', 'merged_tags', 'confirm', 'preview_token'],
+      {
+        source_id: requiredString('source_id is required for merge action'),
+        target_id: requiredString('target_id is required for merge action')
+      }
+    ),
     async run(args: ActionArgs) {
       const sourceId = args.source_id as string
       const targetId = args.target_id as string
@@ -249,7 +288,7 @@ const handlers = {
               status: 'executed',
               action: 'merge',
               result: {
-                target: shapeThought(result.target),
+                target: shapeEntity(result.target),
                 edges_transferred: result.transferredEdges
               }
             },
@@ -265,73 +304,11 @@ const handlers = {
 export function registerMemorySupersede(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_supersede',
-    description: `Version and supersede thoughts. Answers the shared envelope: { item, meta } for archive/merge, { items, meta } for archive_batch (one row per requested occurrence, aggregate in meta.counts.archived/failed); a preview sets meta.preview={token,destructive:true}. All actions preview by default; set confirm=true to execute. Actions: archive (idempotent), archive_batch (per-item partial results), merge (source→target; reports edges_transferred).`,
+    description: `Version and supersede thoughts. Answers the shared envelope: { item, meta } for archive/merge, { items, meta } for archive_batch (one row per requested occurrence, aggregate in meta.counts.archived/failed); a preview sets meta.preview={token,destructive:true}. All actions preview by default; set confirm=true to execute. Actions: archive (idempotent), archive_batch (per-item partial results), merge (source→target; reports edges_transferred). Every action refuses an argument that belongs to another one.`,
     inputSchema: {
       action: z.enum(['archive', 'archive_batch', 'merge']).describe('Action'),
-      confirm: z
-        .boolean()
-        .optional()
-        .describe('CONSUMED by all actions (true executes; false/omitted previews).'),
-      thought_id: z
-        .string()
-        .optional()
-        .describe('REQUIRED for "archive". Thought ID. IGNORED for "archive_batch" and "merge".'),
-      thought_ids: z
-        .array(z.string())
-        .optional()
-        .describe(
-          'REQUIRED ONLY for "archive_batch". Thought IDs to archive in one call (1-1000); partial failures are reported per item. Rejected for other actions.'
-        ),
-      source_id: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED ONLY for "merge". Source thought ID — will be archived. Rejected for other actions.'
-        ),
-      target_id: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED ONLY for "merge". Target thought ID — will be updated. Rejected for other actions.'
-        ),
-      merged_content: z
-        .string()
-        .optional()
-        .describe(
-          'Replacement content for merge. OPTIONAL for "merge". REJECTED for "archive" and "archive_batch".'
-        ),
-      merged_tags: z
-        .array(z.string())
-        .optional()
-        .describe('Merged tags. OPTIONAL for "merge". IGNORED for "archive" and "archive_batch".'),
-      project_id: z
-        .never({ error: 'project_id was removed; there is no project argument' })
-        .optional()
-        .describe('Removed; there is no project argument.'),
-      cwd: z
-        .string()
-        .optional()
-        .describe(
-          'Working directory — resolves the project scope the answer reports in meta.scope; a "merge" changes no thought\'s project. OPTIONAL for "merge". ACCEPTED AND IGNORED for "archive" and "archive_batch".'
-        ),
-      preview_token: z
-        .string()
-        .optional()
-        .describe(
-          'OPTIONAL preview token returned by a prior preview. CONSUMED by "archive", "archive_batch", "merge" (true executes with token validation; missing/stale fails). IGNORED for all other actions.'
-        )
+      ...SUPERSEDE_ARGS
     },
-    handlers: Object.fromEntries(
-      Object.entries(handlers).map(([action, handler]) => [
-        action,
-        {
-          ...handler,
-          run(args: ActionArgs) {
-            validateActionFields(action, args)
-            return handler.run(args)
-          }
-        }
-      ])
-    )
+    handlers
   })
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createTestDb, seedThought } from '../test/helpers'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { closeDb } from './init'
 import { getSlotRow, upsertSlot } from './slots'
 

@@ -4,7 +4,7 @@ import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { config, DEFAULTS, ENV_MAPPINGS } from '../config'
-import { getDb } from '../context/container'
+import { getDb } from '../db'
 import { closeDb } from '../db/init'
 import { registerAllMemoryTools } from '../mcp/tools'
 import { createTestDb, seedThought } from '../test/helpers'
@@ -190,22 +190,12 @@ describe('the in-band guide', () => {
 
 describe('the surviving promotion on the search path', () => {
   const MARKER = 'SURVIVORPRIMERMARKER'
-  const THRESHOLD = 3
+  const THRESHOLD = config.primer.promoteThreshold
   const UNSCOPED_CWD = '/tmp/guard-unscoped'
-  let originalThreshold = 0
   let client: Client
 
   beforeAll(async () => {
     client = await setupClient()
-  })
-
-  beforeEach(() => {
-    originalThreshold = config.primer.promoteThreshold
-    config.primer.promoteThreshold = THRESHOLD
-  })
-
-  afterEach(() => {
-    config.primer.promoteThreshold = originalThreshold
   })
 
   async function search(): Promise<Array<{ thought: { id: string } }>> {
@@ -227,8 +217,7 @@ describe('the surviving promotion on the search path', () => {
   test('a thought below the threshold is not promoted', async () => {
     const id = seedThought({ content: `${MARKER} below the threshold` })
 
-    await search()
-    await search()
+    for (let hit = 1; hit < THRESHOLD; hit++) await search()
 
     expect(primerRow(id)).toBeNull()
   })
@@ -236,8 +225,7 @@ describe('the surviving promotion on the search path', () => {
   test('a thought that reaches the threshold is promoted to a primer', async () => {
     const id = seedThought({ content: `${MARKER} reaching the threshold` })
 
-    await search()
-    await search()
+    for (let hit = 1; hit < THRESHOLD; hit++) await search()
     const items = await search()
 
     expect(items.map(r => r.thought.id)).toContain(id)

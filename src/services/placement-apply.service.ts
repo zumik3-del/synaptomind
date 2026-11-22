@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { config, type Config } from '../config'
 import { getDb } from '../db'
 import {
   getProposal,
@@ -158,7 +159,8 @@ function persistOutcome(
 export function applyProposalService(
   proposalId: string,
   options: ApplyOptions = {},
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): ApplyResult {
   const row = getProposal(d, proposalId)
   if (!row) throw new NotFoundError(`placement proposal '${proposalId}' not found`)
@@ -191,7 +193,7 @@ export function applyProposalService(
   if (row.state !== 'pending')
     return { ...base, status: 'failed', reason: `proposal is '${row.state}', not 'pending'` }
 
-  const gate = evaluateGates(row, options, d)
+  const gate = evaluateGates(row, options, d, cfg)
 
   if (options.confirm !== true) {
     if (gate.kind === 'stale') return { ...base, status: 'stale', reason: gate.reason }
@@ -215,6 +217,7 @@ export function applyProposalService(
 
   if (gate.kind === 'already_applied') return acceptIdempotent(row, now, decidedBy, runId, d)
 
+  const inBatchRun = d.inTransaction
   try {
     // Nested writer transactions are savepoints, so a writer failure rolls back both.
     const run = d.transaction(() => {
@@ -250,6 +253,8 @@ export function applyProposalService(
       run_id: runId
     }
   } catch (err) {
+    // A trigger's RAISE(ROLLBACK) ends the caller's run; an outcome written now would autocommit.
+    if (inBatchRun && !d.inTransaction) throw err
     const mapped = mapWriterError(err)
     if (mapped.kind === 'stale') {
       persistOutcome(row, 'stale', mapped.reason, now, decidedBy, d)
@@ -266,7 +271,8 @@ export function applyProposalService(
 export function applyBatchService(
   proposalIds: string[],
   options: ApplyOptions = {},
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): ApplyBatchOutcome {
   if (!Array.isArray(proposalIds)) throw new ValidationError('proposal_ids must be an array')
 
@@ -303,14 +309,16 @@ export function applyBatchService(
   const errors: ApplyBatchOutcome['errors'] = []
 
   const applyItem = d.transaction((proposalId: string) =>
-    applyProposalService(proposalId, { ...options, runId: batchRunId }, d)
+    applyProposalService(proposalId, { ...options, runId: batchRunId }, d, cfg)
   )
-  // One run-level transaction, a savepoint per item: a crash rolls back the whole run at once.
+  // One run-level transaction, a savepoint per item: the savepoint is the isolation contract.
   const applyRun = d.transaction(() => {
     for (const proposalId of proposalIds) {
       try {
         results.push(applyItem(proposalId))
       } catch (err) {
+        // A trigger can RAISE(ROLLBACK) the whole run; continuing would autocommit the rest.
+        if (!d.inTransaction) throw err
         errors.push({
           proposal_id: proposalId,
           error: err instanceof Error ? err.message : String(err)

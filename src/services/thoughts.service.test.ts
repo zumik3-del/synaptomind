@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { config } from '../config'
 import { getDb } from '../db'
-import { getThoughtLimitsDB } from '../db/settings'
-import { createTestDb, seedEdge, seedThought } from '../test/helpers'
+import { getThoughtLimitsDB } from '../config.thought-limits'
+import { configFixture, createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError, ThoughtContentConflictError, ValidationError } from '../errors'
 import {
   archiveThoughtByIdService,
@@ -16,18 +16,19 @@ import { createThoughtWithUrlLinksService } from './url_links.service'
 import { mergeThoughtsService } from './merge.service'
 import { BATCH_ITEMS_MAX, validateContentLength } from '../validation'
 
-const originalSoftLimit = config.thoughts.softLimit
-const originalHardLimitBufferPercent = config.thoughts.hardLimitBufferPercent
-const originalContentLanguage = config.contentLanguage
-
 beforeEach(createTestDb)
 afterEach(() => {
   const { closeDb } = require('../db/init')
   closeDb()
-  config.thoughts.softLimit = originalSoftLimit
-  config.thoughts.hardLimitBufferPercent = originalHardLimitBufferPercent
-  config.contentLanguage = originalContentLanguage
 })
+
+function withThoughtLimits(softLimit: number, hardLimitBufferPercent: number) {
+  return configFixture({
+    thoughts: { ...config.thoughts, softLimit, hardLimitBufferPercent }
+  })
+}
+
+const russian = configFixture({ contentLanguage: 'ru' })
 
 test('getThoughtByIdService returns thought', () => {
   const id = seedThought({ content: 'hello' })
@@ -71,8 +72,13 @@ test('createThoughtWithParentService rejects content over hard limit', () => {
 })
 
 test('createThoughtWithParentService stamps content_language from config', () => {
-  config.contentLanguage = 'ru'
-  const t = createThoughtWithParentService({ content: 'language probe' })
+  const t = createThoughtWithParentService(
+    { content: 'language probe' },
+    undefined,
+    undefined,
+    undefined,
+    russian
+  )
   expect(Object.hasOwn(t, 'content_language')).toBeTrue()
   expect(t.content_language).toBe('ru')
 })
@@ -87,14 +93,18 @@ test('updateThoughtByIdService updates content', () => {
 
 test('updateThoughtByIdService stamps content_language from config', () => {
   const id = seedThought()
-  config.contentLanguage = 'ru'
-  const updated = updateThoughtByIdService(id, { content: 'language probe' })
+  const updated = updateThoughtByIdService(
+    id,
+    { content: 'language probe' },
+    {},
+    undefined,
+    russian
+  )
   expect(Object.hasOwn(updated!, 'content_language')).toBeTrue()
   expect(updated!.content_language).toBe('ru')
 })
 
 test('read paths do not own content_language', () => {
-  config.contentLanguage = 'ru'
   const id = seedThought({ content: 'read probe' })
 
   const read = getThoughtByIdService(id)
@@ -213,48 +223,64 @@ test('validateContentLength does not throw under soft limit', () => {
 })
 
 test('createThoughtWithParentService accepts content exactly at the derived hard limit', () => {
-  config.thoughts.softLimit = 10
-  config.thoughts.hardLimitBufferPercent = 50
-  const { hardLimit } = getThoughtLimitsDB()
+  const cfg = withThoughtLimits(10, 50)
+  const { hardLimit } = getThoughtLimitsDB(cfg)
   expect(hardLimit).toBe(15)
 
-  const thought = createThoughtWithParentService({ content: 'x'.repeat(hardLimit) })
+  const thought = createThoughtWithParentService(
+    { content: 'x'.repeat(hardLimit) },
+    undefined,
+    undefined,
+    undefined,
+    cfg
+  )
   expect(thought.content).toHaveLength(hardLimit)
 })
 
 test('createThoughtWithParentService rejects content one char over the derived hard limit', () => {
-  config.thoughts.softLimit = 10
-  config.thoughts.hardLimitBufferPercent = 50
-  const { hardLimit } = getThoughtLimitsDB()
+  const cfg = withThoughtLimits(10, 50)
+  const { hardLimit } = getThoughtLimitsDB(cfg)
 
-  expect(() => createThoughtWithParentService({ content: 'x'.repeat(hardLimit + 1) })).toThrow(
-    ValidationError
-  )
+  expect(() =>
+    createThoughtWithParentService(
+      { content: 'x'.repeat(hardLimit + 1) },
+      undefined,
+      undefined,
+      undefined,
+      cfg
+    )
+  ).toThrow(ValidationError)
 })
 
 test('content between soft and hard limit is accepted (soft limit is advisory)', () => {
-  config.thoughts.softLimit = 10
-  config.thoughts.hardLimitBufferPercent = 50
-  const { softLimit, hardLimit } = getThoughtLimitsDB()
+  const cfg = withThoughtLimits(10, 50)
+  const { softLimit, hardLimit } = getThoughtLimitsDB(cfg)
   const middle = softLimit + 1
   expect(middle).toBeGreaterThan(softLimit)
   expect(middle).toBeLessThan(hardLimit)
 
-  expect(() => createThoughtWithParentService({ content: 'x'.repeat(middle) })).not.toThrow()
+  expect(() =>
+    createThoughtWithParentService(
+      { content: 'x'.repeat(middle) },
+      undefined,
+      undefined,
+      undefined,
+      cfg
+    )
+  ).not.toThrow()
 })
 
 test('updateThoughtByIdService enforces the derived hard limit and accepts the exact ceiling', () => {
   const id = seedThought({ content: 'short' })
-  config.thoughts.softLimit = 10
-  config.thoughts.hardLimitBufferPercent = 50
-  const { hardLimit } = getThoughtLimitsDB()
+  const cfg = withThoughtLimits(10, 50)
+  const { hardLimit } = getThoughtLimitsDB(cfg)
 
-  expect(() => updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit + 1) })).toThrow(
-    ValidationError
-  )
-  expect(updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit) })?.content).toHaveLength(
-    hardLimit
-  )
+  expect(() =>
+    updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit + 1) }, {}, undefined, cfg)
+  ).toThrow(ValidationError)
+  expect(
+    updateThoughtByIdService(id, { content: 'x'.repeat(hardLimit) }, {}, undefined, cfg)?.content
+  ).toHaveLength(hardLimit)
 })
 
 test('updating onto live content throws the 409-class conflict and writes nothing', () => {
@@ -395,6 +421,23 @@ test('archiveThoughtsBatchService discards every id when the run aborts', () => 
   )
 
   expect(() => archiveThoughtsBatchService([first, middle, last])).toThrow()
+
+  expect(statusesOf([first, middle, last])).toEqual(['active', 'active', 'active'])
+})
+
+test('archiveThoughtsBatchService discards every id when an early id aborts the run', () => {
+  const first = seedThought({ content: 'batch one' })
+  const middle = seedThought({ content: 'batch two' })
+  const last = seedThought({ content: 'batch three' })
+  getDb().run(
+    `CREATE TRIGGER probe_abort_early BEFORE UPDATE OF status ON thoughts
+     WHEN OLD.id = '${first}'
+     BEGIN SELECT RAISE(ROLLBACK, 'probe: run aborted early'); END`
+  )
+
+  expect(() => archiveThoughtsBatchService([first, middle, last])).toThrow(
+    'probe: run aborted early'
+  )
 
   expect(statusesOf([first, middle, last])).toEqual(['active', 'active', 'active'])
 })

@@ -8,6 +8,7 @@ import { searchThoughtsOutcome } from '../services/search.service'
 import { closeDb } from '../db/init'
 import { clearUnavailable, markUnavailable } from '../context/registry'
 import { EmbedderNotReadyError, EmbedderUnavailableError } from '../errors'
+import { DEFAULT_DEPS } from './embedder-supervisor'
 import { EmbedderClient } from './embedder-client'
 import { getHealthService } from '../services/health.service'
 import {
@@ -143,6 +144,9 @@ test('injected deps reach the spawned child as SYNAPTOMIND_ env values', async (
   const client = new EmbedderClient({
     getEmbedderPrecache: () => true,
     getEmbedderIdleTimeoutMs: () => 0,
+    getEmbedderEnabled: () => true,
+    getUsers: () => [],
+    getStdioStandalone: () => false,
     insertLog: () => {},
     isCompiled: () => false
   })
@@ -159,19 +163,13 @@ test('injected deps reach the spawned child as SYNAPTOMIND_ env values', async (
 
 test('default deps forward the configured precache and idle timeout to the child', async () => {
   const { envFile } = envStubScratch()
-  const precache = config.embedder.precache
-  const idleTimeoutMs = config.embedder.idleTimeoutMs
-  config.embedder.precache = true
-  config.embedder.idleTimeoutMs = 42_000
   const client = new EmbedderClient()
   try {
     await client.startEmbedderProcess()
     const env = readChildEnv(envFile)
-    expect(env.precache).toBe('true')
-    expect(env.idleTimeoutMs).toBe('42000')
+    expect(env.precache).toBe(String(config.embedder.precache))
+    expect(env.idleTimeoutMs).toBe(String(config.embedder.idleTimeoutMs))
   } finally {
-    config.embedder.precache = precache
-    config.embedder.idleTimeoutMs = idleTimeoutMs
     await client.stopEmbedderProcess()
     delete process.env.SYNAPTOMIND_STUB_ENV_FILE
   }
@@ -196,37 +194,34 @@ class RegressionClient extends EmbedderClient {
   }
 }
 
-for (const disabledBy of ['config', 'flag'] as const) {
-  test(`${disabledBy} disables explicit and on-demand embedder starts with BM25 fallback`, async () => {
-    const enabled = config.embedder.enabled
-    const argv = [...process.argv]
-    const client = new RegressionClient()
-    const stub = useLifecycleStub('ready-no-answer')
-    try {
-      config.embedder.enabled = disabledBy !== 'config'
-      if (disabledBy === 'flag') process.argv.push('--no-embedder')
-      for (const call of [
-        () => client.startEmbedderProcess(),
-        () => client.generateEmbedding('hello'),
-        () => client.generateEmbeddings(['hello', 'world'])
-      ]) {
-        await expect(call()).rejects.toBeInstanceOf(EmbedderUnavailableError)
-      }
-      expect(client.spawns).toBe(0)
-      expect(client.isEmbedderReady()).toBe(false)
-      const id = seedThought({ content: 'quartzbadger unique searchable phrase' })
-      const outcome = await searchThoughtsOutcome({ query: 'quartzbadger', hybrid: true })
-      expect(outcome.items.map(item => item.thought.id)).toContain(id)
-      expect(outcome.items[0]?.degraded).toBe(true)
-      expect(isEmbedderReady()).toBe(false)
-      expect(stub.attempts()).toBe(0)
-    } finally {
-      config.embedder.enabled = enabled
-      process.argv.splice(0, process.argv.length, ...argv)
-      await client.stopEmbedderProcess()
+// The `config.embedder.enabled = false` half of this case loads its own config in a child process
+// (src/embedder/embedder-config-disabled.suite.ts): the loaded config is frozen and process-wide.
+test('the --no-embedder flag disables explicit and on-demand starts with BM25 fallback', async () => {
+  const argv = [...process.argv]
+  const client = new RegressionClient()
+  const stub = useLifecycleStub('ready-no-answer')
+  try {
+    process.argv.push('--no-embedder')
+    for (const call of [
+      () => client.startEmbedderProcess(),
+      () => client.generateEmbedding('hello'),
+      () => client.generateEmbeddings(['hello', 'world'])
+    ]) {
+      await expect(call()).rejects.toBeInstanceOf(EmbedderUnavailableError)
     }
-  })
-}
+    expect(client.spawns).toBe(0)
+    expect(client.isEmbedderReady()).toBe(false)
+    const id = seedThought({ content: 'quartzbadger unique searchable phrase' })
+    const outcome = await searchThoughtsOutcome({ query: 'quartzbadger', hybrid: true })
+    expect(outcome.items.map(item => item.thought.id)).toContain(id)
+    expect(outcome.items[0]?.degraded).toBe(true)
+    expect(isEmbedderReady()).toBe(false)
+    expect(stub.attempts()).toBe(0)
+  } finally {
+    process.argv.splice(0, process.argv.length, ...argv)
+    await client.stopEmbedderProcess()
+  }
+})
 
 test('enabled client starts lazily for a first single request', async () => {
   expect(isEmbedderReady()).toBe(false)
@@ -568,14 +563,20 @@ test('an empty payload from the child rejects instead of resolving a zero-length
   expect((err as Error).message).toBe('Embedder returned an empty embedding payload')
 })
 
-test('a short batch reply is passed through unpadded: the client does not verify the vector count', async () => {
-  await startEmbedderProcess()
+for (const [marker, returned] of [
+  ['__short__', 1],
+  ['__long__', 3]
+] as const) {
+  test(`a batch reply with ${returned} vector(s) for 2 text(s) is refused, naming both numbers`, async () => {
+    await startEmbedderProcess()
 
-  const vectors = await generateEmbeddings(['__short__', 'b'])
+    const err: unknown = await generateEmbeddings([marker, 'b']).catch(e => e)
 
-  expect(vectors).toHaveLength(1)
-  expect(Array.from(vectors[0]!)).toEqual([1, 1, 2])
-})
+    expect(err).toBeInstanceOf(EmbedderUnavailableError)
+    expect((err as EmbedderUnavailableError).statusCode).toBe(503)
+    expect((err as Error).message).toBe(`Embedder returned ${returned} vector(s) for 2 text(s)`)
+  })
+}
 
 for (const protocol of ['absent', 2] as const) {
   const got = protocol === 'absent' ? 'undefined' : String(protocol)
@@ -608,14 +609,13 @@ for (const protocol of ['absent', 2] as const) {
 }
 
 test('the child receives the configured users minus the ones boot fan-out marked unavailable', async () => {
-  const users = config.users
-  config.users = [
+  const users = [
     { id: 'alpha', dbPath: '/tmp/alpha.db', tokenSha256: '0'.repeat(64) },
     { id: 'beta', dbPath: '/tmp/beta.db', tokenSha256: '1'.repeat(64) }
   ]
   markUnavailable('alpha', new Error('unreadable'))
   const { envFile } = envStubScratch()
-  const client = new EmbedderClient()
+  const client = new EmbedderClient({ ...DEFAULT_DEPS, getUsers: () => users })
   try {
     await client.startEmbedderProcess()
 
@@ -626,7 +626,6 @@ test('the child receives the configured users minus the ones boot fan-out marked
     expect(env.batchWorker).toBeNull()
   } finally {
     clearUnavailable()
-    config.users = users
     await client.stopEmbedderProcess().catch(() => {})
     delete process.env.SYNAPTOMIND_STUB_ENV_FILE
   }
@@ -634,9 +633,7 @@ test('the child receives the configured users minus the ones boot fan-out marked
 
 test('a delegating stdio session spawns nothing until a request, then flags its child as on-demand only', async () => {
   const argv = [...process.argv]
-  const stdioStandalone = config.mcp.stdioStandalone
   process.argv.push('--stdio')
-  config.mcp.stdioStandalone = false
   const { envFile, attempts } = envStubScratch()
   const client = new EmbedderClient()
   try {
@@ -651,7 +648,6 @@ test('a delegating stdio session spawns nothing until a request, then flags its 
     expect(client.getEmbedderState()).toBe('ok')
   } finally {
     process.argv.splice(0, process.argv.length, ...argv)
-    config.mcp.stdioStandalone = stdioStandalone
     await client.stopEmbedderProcess().catch(() => {})
     delete process.env.SYNAPTOMIND_STUB_ENV_FILE
   }
@@ -659,9 +655,7 @@ test('a delegating stdio session spawns nothing until a request, then flags its 
 
 test('a standalone stdio session leaves the child batch-worker flag unset', async () => {
   const argv = [...process.argv]
-  const stdioStandalone = config.mcp.stdioStandalone
   process.argv.push('--stdio', '--stdio-standalone')
-  config.mcp.stdioStandalone = false
   const { envFile } = envStubScratch()
   const client = new EmbedderClient()
   try {
@@ -670,7 +664,6 @@ test('a standalone stdio session leaves the child batch-worker flag unset', asyn
     expect(readChildEnv(envFile).batchWorker).toBeNull()
   } finally {
     process.argv.splice(0, process.argv.length, ...argv)
-    config.mcp.stdioStandalone = stdioStandalone
     await client.stopEmbedderProcess().catch(() => {})
     delete process.env.SYNAPTOMIND_STUB_ENV_FILE
   }

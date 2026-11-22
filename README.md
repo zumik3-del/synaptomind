@@ -143,9 +143,9 @@ sequenceDiagram
 SynaptoMind runs as a single Bun process: the HTTP server on port 3005 (health and
 health-check ops endpoints), the MCP server on port 3006 (stdio or HTTP), and a child
 process that serves local embeddings over IPC. Every thought operation is served over MCP;
-the HTTP listener is an ops plane, documented in [docs/API.md](docs/API.md). Storage is one
-SQLite database using the `vec0` extension for vector search, FTS5 for full-text search, and
-an edges table for the graph.
+the HTTP listener is an ops plane, documented in [docs/API.md](docs/API.md). Storage is
+SQLite — one database, or one per user when `users[]` is configured — using the `vec0`
+extension for vector search, FTS5 for full-text search, and an edges table for the graph.
 
 ```mermaid
 graph LR
@@ -156,6 +156,9 @@ graph LR
     C --> E[FTS5 — full-text search]
     C --> F[Graph — edges & links]
 ```
+
+Layers and the rules that enforce them, the runtime modes, the read and write paths traced end
+to end, the DI convention and the Core/Pillar/Scaffolding map: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 

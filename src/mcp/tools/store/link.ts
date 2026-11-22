@@ -1,29 +1,26 @@
 import { z } from 'zod/v4'
 import { createEdgeService } from '../../../services/edges.service'
 import { itemEnvelope } from '../envelope'
-import type { ActionArgs, ActionHandler } from '../action-tool'
+import { actionInput, type ActionArgs, type ActionHandler } from '../action-tool'
+import { STORE_ARGS } from './args'
 
 const SOURCE_REQUIRED = 'source_id is required for link action'
 const TARGET_REQUIRED = 'target_id is required for link action'
 const THOUGHT_ID_RETIRED = 'thought_id is retired for link action; use source_id instead'
 
 export const linkHandler: ActionHandler = {
-  input: z
-    .object({
-      thought_id: z
-        .never({ error: THOUGHT_ID_RETIRED })
-        .optional()
-        .describe('Retired; use source_id instead.'),
-      source_id: z.string({ error: SOURCE_REQUIRED }).min(1, SOURCE_REQUIRED).optional(),
-      target_id: z.string({ error: TARGET_REQUIRED }).optional()
-    })
-    .superRefine((args, ctx) => {
-      if (!args.source_id) {
-        ctx.addIssue({ code: 'custom', message: SOURCE_REQUIRED, path: ['source_id'] })
-      } else if (!args.target_id) {
-        ctx.addIssue({ code: 'custom', message: TARGET_REQUIRED, path: ['target_id'] })
-      }
-    }),
+  input: actionInput(STORE_ARGS, ['source_id', 'target_id', 'edge_type', 'thought_id'], {
+    thought_id: z
+      .never({ error: THOUGHT_ID_RETIRED })
+      .optional()
+      .describe('Retired; use source_id instead.')
+  }).superRefine((args, ctx) => {
+    if (!args.source_id) {
+      ctx.addIssue({ code: 'custom', message: SOURCE_REQUIRED, path: ['source_id'] })
+    } else if (!args.target_id) {
+      ctx.addIssue({ code: 'custom', message: TARGET_REQUIRED, path: ['target_id'] })
+    }
+  }),
   run(args: ActionArgs) {
     const edge = createEdgeService(
       args.source_id as string,

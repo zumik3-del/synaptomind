@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 import { config, DEFAULTS, ENV_MAPPINGS } from '../config'
-import { createTestDb, seedThought } from '../test/helpers'
+import { configFixture, createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
 import { createPreviewToken } from '../db/preview-tokens'
 import { buildConfigDisplay } from './config-display.service'
@@ -17,13 +17,12 @@ import {
   type InsertProposalInput
 } from '../db/placement-proposals'
 
-const ORIGINAL_PLACEMENT_CONFIG = { ...config.placement }
-
 beforeEach(createTestDb)
-afterEach(() => {
-  config.placement = { ...ORIGINAL_PLACEMENT_CONFIG }
-  closeDb()
-})
+afterEach(closeDb)
+
+function ttlConfig(proposalTtlDays: number) {
+  return configFixture({ placement: { ...config.placement, proposalTtlDays } })
+}
 
 function makeInput(overrides?: Partial<InsertProposalInput>): InsertProposalInput {
   return {
@@ -154,28 +153,16 @@ describe('buildConfigDisplay placement section', () => {
   })
 
   test('annotates when an override differs from the default', () => {
-    const saved = { ...config.placement }
-    config.placement = { ...saved, proposalTtlDays: 14 }
-    try {
-      const out = buildConfigDisplay()
-      const line = out.split('\n').find(l => l.includes('placement.proposalTtlDays'))
-      expect(line).toContain('14')
-      expect(line).toContain('[default: 30]')
-    } finally {
-      config.placement = saved
-    }
+    const out = buildConfigDisplay(ttlConfig(14))
+    const line = out.split('\n').find(l => l.includes('placement.proposalTtlDays'))
+    expect(line).toContain('14')
+    expect(line).toContain('[default: 30]')
   })
 })
 
 describe('cleanupPlacementProposals', () => {
-  const savedPlacement = { ...config.placement }
-
-  afterEach(() => {
-    config.placement = savedPlacement
-  })
-
   test('pending past expires_at → expired', () => {
-    config.placement = { ...config.placement, proposalTtlDays: 30 }
+    const cfg = ttlConfig(30)
     withClock(Date.now(), () => {
       const db = getDb()
       const src = seedThought()
@@ -188,7 +175,7 @@ describe('cleanupPlacementProposals', () => {
           edge_type: 'develops'
         })
       )
-      const removed = cleanupPlacementProposals(db)
+      const removed = cleanupPlacementProposals(db, cfg)
       expect(removed.proposals).toBe(1)
       expect(listProposals(db)).toHaveLength(0)
       const expiredRows = db
@@ -199,20 +186,20 @@ describe('cleanupPlacementProposals', () => {
   })
 
   test('sweeps expired preview tokens', () => {
-    config.placement = { ...config.placement, proposalTtlDays: 30 }
+    const cfg = ttlConfig(30)
     withClock(Date.now(), () => {
       const db = getDb()
       const past = new Date(Date.now() - 60000).toISOString()
       db.prepare(
         `INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`
       ).run('expired-tok', 'kind', 'target', 'fp', past, past)
-      const removed = cleanupPlacementProposals(db)
+      const removed = cleanupPlacementProposals(db, cfg)
       expect(removed).toEqual({ proposals: 0, tokens: 1 })
     })
   })
 
   test('terminal older than TTL → pruned (deleted)', () => {
-    config.placement = { ...config.placement, proposalTtlDays: 30 }
+    const cfg = ttlConfig(30)
     withClock(Date.now(), () => {
       const db = getDb()
       const src = seedThought()
@@ -224,7 +211,7 @@ describe('cleanupPlacementProposals', () => {
         state: 'accepted',
         decided_at: new Date(Date.now() - 60 * 86400000).toISOString()
       })
-      const removed = cleanupPlacementProposals(db)
+      const removed = cleanupPlacementProposals(db, cfg)
       expect(removed.proposals).toBe(1)
       const remaining = db.prepare('SELECT id FROM placement_proposals').all() as { id: string }[]
       expect(remaining).toHaveLength(0)
@@ -232,7 +219,7 @@ describe('cleanupPlacementProposals', () => {
   })
 
   test('fresh rows are untouched', () => {
-    config.placement = { ...config.placement, proposalTtlDays: 30 }
+    const cfg = ttlConfig(30)
     withClock(Date.now(), () => {
       const db = getDb()
       const src1 = seedThought()
@@ -254,7 +241,7 @@ describe('cleanupPlacementProposals', () => {
         state: 'accepted',
         decided_at: new Date(Date.now() - 1 * 86400000).toISOString()
       })
-      const removed = cleanupPlacementProposals(db)
+      const removed = cleanupPlacementProposals(db, cfg)
       expect(removed).toEqual({ proposals: 0, tokens: 0 })
       const all = db
         .prepare('SELECT id, state FROM placement_proposals ORDER BY id')
@@ -266,7 +253,7 @@ describe('cleanupPlacementProposals', () => {
   })
 
   test('ttlDays < 0 is a no-op', () => {
-    config.placement = { ...config.placement, proposalTtlDays: -1 }
+    const cfg = ttlConfig(-1)
     withClock(Date.now(), () => {
       const db = getDb()
       const src = seedThought()
@@ -279,14 +266,14 @@ describe('cleanupPlacementProposals', () => {
           edge_type: 'related'
         })
       )
-      const removed = cleanupPlacementProposals(db)
+      const removed = cleanupPlacementProposals(db, cfg)
       expect(removed).toEqual({ proposals: 0, tokens: 0 })
       expect(listProposals(db)).toHaveLength(1)
     })
   })
 
   test('mixed old and fresh rows: only the stale ones are affected', () => {
-    config.placement = { ...config.placement, proposalTtlDays: 30 }
+    const cfg = ttlConfig(30)
     withClock(Date.now(), () => {
       const db = getDb()
       const srcExpire = seedThought()
@@ -315,7 +302,7 @@ describe('cleanupPlacementProposals', () => {
         makeInput({ source_thought_id: srcFresh, item_kind: 'edge', edge_type: 'develops' })
       )
 
-      const removed = cleanupPlacementProposals(db)
+      const removed = cleanupPlacementProposals(db, cfg)
       expect(removed.proposals).toBe(2)
       expect(listProposals(db)).toHaveLength(1)
       const freshRow = db
@@ -326,12 +313,12 @@ describe('cleanupPlacementProposals', () => {
   })
 
   test('pending with expires_at = null survives the TTL run', () => {
-    config.placement = { ...config.placement, proposalTtlDays: 30 }
+    const cfg = ttlConfig(30)
     withClock(Date.now(), () => {
       const db = getDb()
       const src = seedThought()
       insertProposal(db, makeInput({ source_thought_id: src, expires_at: null }))
-      const removed = cleanupPlacementProposals(db)
+      const removed = cleanupPlacementProposals(db, cfg)
       expect(removed.proposals).toBe(0)
       expect(listProposals(db)).toHaveLength(1)
     })
@@ -340,7 +327,7 @@ describe('cleanupPlacementProposals', () => {
 
 describe('expired preview token sweep', () => {
   test('cleanupPlacementProposals sweeps expired preview tokens', () => {
-    config.placement = { ...config.placement, proposalTtlDays: 30 }
+    const cfg = ttlConfig(30)
     withClock(Date.now(), () => {
       const db = getDb()
       const expiredToken = 'expired-token'
@@ -355,7 +342,7 @@ describe('expired preview token sweep', () => {
         new Date(Date.now() - 1000).toISOString()
       )
       const freshToken = createPreviewToken(db, 'kind', 'target', 'fp', 5)
-      const removed = cleanupPlacementProposals(db)
+      const removed = cleanupPlacementProposals(db, cfg)
       expect(removed).toEqual({ proposals: 0, tokens: 1 })
       expect(
         db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(expiredToken)
@@ -367,7 +354,7 @@ describe('expired preview token sweep', () => {
   })
 
   test('expired preview tokens are swept even when ttlDays < 0', () => {
-    config.placement = { ...config.placement, proposalTtlDays: -1 }
+    const cfg = ttlConfig(-1)
     withClock(Date.now(), () => {
       const db = getDb()
       const expiredToken = 'expired-token-2'
@@ -381,7 +368,7 @@ describe('expired preview token sweep', () => {
         new Date(Date.now() - 10000).toISOString(),
         new Date(Date.now() - 1000).toISOString()
       )
-      const removed = cleanupPlacementProposals(db)
+      const removed = cleanupPlacementProposals(db, cfg)
       expect(removed).toEqual({ proposals: 0, tokens: 1 })
       expect(
         db.prepare(`SELECT 1 FROM preview_tokens WHERE token = ?`).get(expiredToken)
@@ -413,7 +400,7 @@ describe('start/stop idempotency', () => {
 
 describe('boot-time sweep', () => {
   test('startPlacementRetentionJob sweeps once before the interval is armed', () => {
-    config.placement = { ...config.placement, proposalTtlDays: 30 }
+    expect(config.placement.proposalTtlDays).toBe(30)
     withClock(Date.now(), () => {
       const db = getDb()
       const src = seedThought()

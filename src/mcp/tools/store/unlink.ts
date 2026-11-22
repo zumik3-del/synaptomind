@@ -1,17 +1,18 @@
-import { z } from 'zod/v4'
-import { deleteEdgeService, findEdgeService } from '../../../services/edges.service'
+import { deleteEdgeService } from '../../../services/edges.service'
+import { getDb } from '../../../db'
+import { findEdge } from '../../../db/edges'
 import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.service'
 import { itemEnvelope } from '../envelope'
-import { requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
+import { STORE_ARGS } from './args'
 
 export const unlinkHandler: ActionHandler = {
-  input: z.object({
-    edge_id: requiredString('edge_id is required for unlink action'),
-    preview_token: z.string().optional()
+  input: actionInput(STORE_ARGS, ['edge_id', 'confirm', 'preview_token'], {
+    edge_id: requiredString('edge_id is required for unlink action')
   }),
   async run(args: ActionArgs) {
     const edgeId = args.edge_id as string
-    const edge = findEdgeService(edgeId)
+    const edge = findEdge(getDb(), edgeId)
     if (!edge) return itemEnvelope('unlink', { status: 'not_found', edge_id: edgeId })
 
     const outcome = await runGuarded(args, {

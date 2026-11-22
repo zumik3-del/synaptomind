@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { getDb } from '../context/container'
+import { getDb } from '../db'
 import { closeDb } from '../db/init'
 import type { SearchResult } from '../db/search'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'

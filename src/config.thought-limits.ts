@@ -1,4 +1,4 @@
-import { config, DEFAULTS } from '../config'
+import { type Config, config, DEFAULTS } from './config'
 
 export interface ThoughtLimits {
   softLimit: number
@@ -14,14 +14,10 @@ function deriveHardLimit(softLimit: number, hardLimitBufferPercent: number): num
   return Math.round(softLimit * (1 + hardLimitBufferPercent / 100))
 }
 
-function configuredSoftLimit(): number {
-  return positiveIntOr(config.thoughts.softLimit, DEFAULTS.thoughts.softLimit)
-}
-
-export function getThoughtLimitsDB(): ThoughtLimits {
-  const softLimit = configuredSoftLimit()
+export function getThoughtLimitsDB(cfg: Config = config): ThoughtLimits {
+  const softLimit = positiveIntOr(cfg.thoughts.softLimit, DEFAULTS.thoughts.softLimit)
   const hardLimitBufferPercent = positiveIntOr(
-    config.thoughts.hardLimitBufferPercent,
+    cfg.thoughts.hardLimitBufferPercent,
     DEFAULTS.thoughts.hardLimitBufferPercent
   )
   return {

@@ -10,6 +10,7 @@ export type LegacyProposalItemKind =
 
 export type StoredProposalItemKind = ProposalItemKind | LegacyProposalItemKind
 
+// Retired kinds are bound straight into the `NOT IN` clause of filterClauses, so the list is SQL data.
 const LEGACY_ITEM_KINDS: readonly LegacyProposalItemKind[] = [
   'placement',
   'lifecycle',

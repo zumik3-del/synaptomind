@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { getDb } from '../context/container'
+import { getDb } from '../db'
 import { closeDb } from '../db/init'
 import { ValidationError } from '../errors'
 import { BATCH_ITEMS_MAX } from '../validation'

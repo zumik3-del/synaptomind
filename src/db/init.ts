@@ -1,14 +1,14 @@
 import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { config } from '../config'
+import { config, type Config } from '../config'
 import { vec0Path } from '../runtime-mode'
-import { clearDb, getDb, setDb } from '../context/container'
+import { clearDb, getDb, setDb } from './handle'
 import { MIGRATIONS } from './migrations'
 import { backupBeforeRebuild, backupDatabase } from './backup'
-import { BASELINE_TABLE_DDL, META_DDL } from './baseline-schema'
+import { BASELINE_TABLE_DDL, META_DDL } from './schema/baseline-schema'
 import { readSchemaVersion } from './schema-stamp'
-import { vecTableDdl } from './vec-schema'
+import { vecTableDdl } from './schema/vec-schema'
 
 function loadVecExtension(database: Database, isMemory: boolean): void {
   if (isMemory) return
@@ -27,6 +27,8 @@ function loadVecExtension(database: Database, isMemory: boolean): void {
 export interface InitOptions {
   dbPath?: string
   runMigrations?: boolean
+  /** The resolved config to read paths, dimensions and the dead-letter switch from. */
+  config?: Config
 }
 
 const VEC_DIMENSIONS_KEY = 'vec_dimensions'
@@ -67,7 +69,8 @@ function writeVecIndexState(db: Database, dimensions: number, rebuiltAt: string 
 export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
   const opts: InitOptions =
     typeof dbPathOrOptions === 'string' ? { dbPath: dbPathOrOptions } : (dbPathOrOptions ?? {})
-  const resolvedPath = opts.dbPath ?? config.db.path
+  const cfg = opts.config ?? config
+  const resolvedPath = opts.dbPath ?? cfg.db.path
   const runMigrations = opts.runMigrations ?? false
   const isMemory = resolvedPath === ':memory:'
 
@@ -76,8 +79,8 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
 
   let success = false
   try {
-    const busyTimeout = Number.isFinite(config.db.busyTimeout)
-      ? Math.max(0, Math.floor(config.db.busyTimeout))
+    const busyTimeout = Number.isFinite(cfg.db.busyTimeout)
+      ? Math.max(0, Math.floor(cfg.db.busyTimeout))
       : 5000
     db.run(`PRAGMA busy_timeout = ${busyTimeout}`)
     db.run('PRAGMA foreign_keys = ON')
@@ -124,7 +127,7 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
       return db
     }
 
-    const dimensions = config.embedder.dimensions
+    const dimensions = cfg.embedder.dimensions
     const runVecSchema = (): void => {
       try {
         d.run(vecTableDdl(dimensions))
@@ -186,7 +189,7 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
 
     // Dead letters are not reset on boot by default: a permanently poisonous thought would get
     // MAX_ATTEMPTS fresh tries on every restart and loop forever.
-    if (config.embedder.resetDeadLetters) {
+    if (cfg.embedder.resetDeadLetters) {
       d.run(`UPDATE pending_embeddings SET is_error = 0, error = NULL WHERE is_error = 1`)
     }
 

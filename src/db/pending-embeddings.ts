@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
+// Audited db/ logging: both sites report a row transition the caller never sees (void/false return).
 import { insertLog } from '../logging'
-import { scopeSql } from './vec-schema'
+import { scopeSql } from './schema/vec-schema'
 
 export const MAX_ATTEMPTS = 10
 

@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { config } from '../config'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { closeDb, initDb } from './init'
-import { seedThought } from '../test/helpers'
+import { configFixture, seedThought } from '../test/helpers'
 
 // The dead-letter row must survive a close/re-open cycle, so this file uses a
 // file-backed DB (a fresh :memory: DB would be empty after every initDb).
@@ -13,10 +13,13 @@ const tmpRoot = mkdtempSync(join(tmpdir(), 'synaptomind-dead-letter-'))
 const dbPath = join(tmpRoot, 'test.db')
 
 afterAll(() => {
-  config.embedder.resetDeadLetters = false
   closeDb()
   rmSync(tmpRoot, { recursive: true, force: true })
 })
+
+function deadLetterConfig(resetDeadLetters: boolean) {
+  return configFixture({ embedder: { ...config.embedder, resetDeadLetters } })
+}
 
 function seedDeadLetter(): string {
   const id = seedThought({ content: 'poison' })
@@ -35,12 +38,12 @@ function deadLetterRow(id: string): { is_error: number; error: string | null } {
 }
 
 test('dead letters are NOT reset on boot by default (#113)', () => {
-  config.embedder.resetDeadLetters = false
-  initDb({ dbPath, runMigrations: true })
+  const cfg = deadLetterConfig(false)
+  initDb({ dbPath, runMigrations: true, config: cfg })
   const id = seedDeadLetter()
 
   closeDb()
-  initDb({ dbPath, runMigrations: true })
+  initDb({ dbPath, runMigrations: true, config: cfg })
 
   const row = deadLetterRow(id)
   expect(row.is_error).toBe(1)
@@ -48,12 +51,12 @@ test('dead letters are NOT reset on boot by default (#113)', () => {
 })
 
 test('dead letters ARE reset when resetDeadLetters is enabled', () => {
-  config.embedder.resetDeadLetters = true
-  initDb({ dbPath, runMigrations: true })
+  const cfg = deadLetterConfig(true)
+  initDb({ dbPath, runMigrations: true, config: cfg })
   const id = seedDeadLetter()
 
   closeDb()
-  initDb({ dbPath, runMigrations: true })
+  initDb({ dbPath, runMigrations: true, config: cfg })
 
   const row = deadLetterRow(id)
   expect(row.is_error).toBe(0)

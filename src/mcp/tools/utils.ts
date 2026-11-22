@@ -3,7 +3,7 @@ import type { ChainResult } from '../../services/graph.service'
 import { resolveProjectService } from '../../services/projects.service'
 import { getThoughtUrlLinksBatchService } from '../../services/url_links.service'
 
-import { COMPACT_FIELDS } from './field-selection'
+import { shapeEntity, type BatchUrlLinks, type ShapeOptions } from './field-selection'
 export * from './field-selection'
 type McpTextContent = { type: 'text'; text: string }
 
@@ -57,116 +57,30 @@ export function resolveProjectId(cwd?: string): string | undefined {
   return undefined
 }
 
-function stringifyTags(tags: unknown): string[] {
-  if (!Array.isArray(tags)) return []
-  return tags.map(t => {
-    if (t && typeof t === 'object') {
-      const o = t as Record<string, unknown>
-      if (typeof o.name === 'string') return o.name
-      if (typeof o.tag === 'string') return o.tag
-      return String(o.id ?? t)
-    }
-    return String(t)
-  })
-}
-
-const BOOLEAN_FIELDS = new Set(['is_protected', 'is_global', 'is_cluster'])
-
-function toBoolean(value: unknown): boolean {
-  return value === true || value === 1
-}
-
-function hygienicValue(field: string, value: unknown): unknown {
-  if (field === 'tags') return stringifyTags(value)
-  if (BOOLEAN_FIELDS.has(field)) return toBoolean(value)
-  return value
-}
-
-function hygienicThought(t: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(t)) out[key] = hygienicValue(key, value)
-  return out
-}
-
-export function shapeThought(
-  thought: unknown,
-  compact?: boolean,
-  fields?: unknown,
-  urlLinks?: BatchUrlLinks
-): unknown {
-  const shaped = projectThoughtShape(thought, compact, fields)
-  if (urlLinks === undefined || !shaped || typeof shaped !== 'object' || Array.isArray(shaped))
-    return shaped
-  return { ...(shaped as Record<string, unknown>), url_links: urlLinksOf(thought, urlLinks) }
-}
-
-function projectThoughtShape(thought: unknown, compact?: boolean, fields?: unknown): unknown {
-  if (!thought || typeof thought !== 'object' || Array.isArray(thought)) return thought
-  const t = thought as Record<string, unknown>
-  const compactFlag = compact === true
-  const requested = Array.isArray(fields)
-    ? fields.map(v => String(v).trim()).filter(Boolean)
-    : typeof fields === 'string'
-      ? fields
-          .split(',')
-          .map(v => v.trim())
-          .filter(Boolean)
-      : []
-  const fieldList: string[] =
-    requested.length > 0 ? [...requested] : compactFlag ? [...COMPACT_FIELDS] : []
-  if (fieldList.length === 0) return hygienicThought(t)
-  const out: Record<string, unknown> = {}
-  const seen = new Set<string>()
-  for (const f of fieldList) {
-    if (seen.has(f)) continue
-    seen.add(f)
-    if (f === 'project') {
-      out.project = t.project_name ?? t.project ?? t.project_id
-    } else if (Object.hasOwn(t, f)) {
-      out[f] = hygienicValue(f, t[f])
-    }
-  }
-  return out
-}
-
 export function shapeChain(
   chain: ChainResult | null | undefined,
-  compact: boolean,
-  fields: unknown,
-  urlLinks?: BatchUrlLinks
+  options: ShapeOptions = {}
 ): ChainResult | null | undefined {
   if (!chain) return chain
   return {
     ...chain,
     thought: chain.thought
-      ? (shapeThought(chain.thought, compact, fields, urlLinks) as ChainResult['thought'])
+      ? (shapeEntity(chain.thought, options) as ChainResult['thought'])
       : chain.thought,
     upstream: Array.isArray(chain.upstream)
       ? chain.upstream.map(e => ({
           ...e,
-          thought: e?.thought
-            ? (shapeThought(e.thought, compact, fields, urlLinks) as typeof e.thought)
-            : e?.thought
+          thought: e?.thought ? (shapeEntity(e.thought, options) as typeof e.thought) : e?.thought
         }))
       : chain.upstream,
     downstream: Array.isArray(chain.downstream)
       ? chain.downstream.map(e => ({
           ...e,
-          thought: e?.thought
-            ? (shapeThought(e.thought, compact, fields, urlLinks) as typeof e.thought)
-            : e?.thought
+          thought: e?.thought ? (shapeEntity(e.thought, options) as typeof e.thought) : e?.thought
         }))
       : chain.downstream
   }
 }
-
-export interface UrlLinkView {
-  text: string
-  url: string
-  label: string
-}
-
-export type BatchUrlLinks = Map<string, UrlLinkView[]>
 
 export function loadUrlLinks(thoughts: ReadonlyArray<unknown>): BatchUrlLinks {
   const ids: string[] = []
@@ -186,10 +100,4 @@ export function loadUrlLinks(thoughts: ReadonlyArray<unknown>): BatchUrlLinks {
     )
   }
   return byThought
-}
-
-function urlLinksOf(thought: unknown, urlLinks: BatchUrlLinks): UrlLinkView[] {
-  if (!thought || typeof thought !== 'object') return []
-  const id = (thought as { id?: unknown }).id
-  return typeof id === 'string' ? (urlLinks.get(id) ?? []) : []
 }

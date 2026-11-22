@@ -1,6 +1,7 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite'
+// Audited db/ logging: the caller receives the fallback result, never the SQL exception.
 import { insertLog } from '../logging'
-import { isStopword } from './stopwords'
+import { isStopword } from '../text/stopwords'
 
 // An empty expression must short-circuit the caller: an empty FTS5 MATCH would become a blanket match.
 function toFtsQuery(query: string): string {

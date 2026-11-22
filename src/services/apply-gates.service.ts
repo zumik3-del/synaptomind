@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { config } from '../config'
+import { config, type Config } from '../config'
 import { SYMMETRIC_EDGE_TYPES, getEdgePairBetween, isValidEdgeType } from '../db/edges'
 import { getClusterMembers, getClusterThought } from '../db/cluster-edges'
 import type { PlacementProposalRow } from '../db/placement-proposals'
@@ -28,7 +28,12 @@ export function plannedEdge(row: PlacementProposalRow): PlannedEdge | undefined 
   return undefined
 }
 
-export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, d: Database): Gate {
+export function evaluateGates(
+  row: PlacementProposalRow,
+  options: ApplyOptions,
+  d: Database,
+  cfg: Config = config
+): Gate {
   // TTL is authoritative and checked first: an overdue row must not be confirmed nor
   // recorded as an idempotent accept, which would inject a phantom run-manifest entry.
   const now = options.now ?? new Date().toISOString()
@@ -79,10 +84,10 @@ export function evaluateGates(row: PlacementProposalRow, options: ApplyOptions, 
       }
     }
     const members = getClusterMembers(d, row.source_thought_id).length
-    if (members >= config.placement.maxClusterSize) {
+    if (members >= cfg.placement.maxClusterSize) {
       return {
         kind: 'stale',
-        reason: `cluster '${row.source_thought_id}' has ${members} members >= maxClusterSize ${config.placement.maxClusterSize}`
+        reason: `cluster '${row.source_thought_id}' has ${members} members >= maxClusterSize ${cfg.placement.maxClusterSize}`
       }
     }
   }

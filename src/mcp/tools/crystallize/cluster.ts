@@ -1,11 +1,12 @@
 import { z } from 'zod/v4'
 import { createClusterService } from '../../../services/cluster.service'
 import { itemEnvelope, writeEnvelopeScope } from '../envelope'
-import { resolveProjectId, shapeThought } from '../utils'
-import type { ActionArgs, ActionHandler } from '../action-tool'
+import { resolveProjectId, shapeEntity } from '../utils'
+import { actionInput, type ActionArgs, type ActionHandler } from '../action-tool'
+import { CRYSTALLIZE_ARGS } from './args'
 
 export const clusterHandler: ActionHandler = {
-  input: z.object({
+  input: actionInput(CRYSTALLIZE_ARGS, ['thought_ids', 'title', 'tags'], {
     thought_ids: z
       .array(z.string(), { error: 'thought_ids is required for cluster action' })
       .min(1, 'thought_ids is required for cluster action')
@@ -21,9 +22,9 @@ export const clusterHandler: ActionHandler = {
     return itemEnvelope(
       'cluster',
       {
-        cluster: shapeThought(created.cluster),
+        cluster: shapeEntity(created.cluster),
         edges: created.edges,
-        members: created.members.map(member => shapeThought(member))
+        members: created.members.map(member => shapeEntity(member))
       },
       {
         ...writeEnvelopeScope(args.cwd),

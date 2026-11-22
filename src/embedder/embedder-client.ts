@@ -1,3 +1,4 @@
+import { EmbedderUnavailableError } from '../errors'
 import { EmbedderSupervisor, type EmbedderClientDeps, DEFAULT_DEPS } from './embedder-supervisor'
 
 export { EMBEDDER_START_TIMEOUT_MS, sleepUnref } from './embedder-supervisor'
@@ -35,6 +36,11 @@ export class EmbedderClient extends EmbedderSupervisor {
     for (let i = 0; i < texts.length; i += EMBEDDER_BATCH_CHUNK) {
       const chunk = texts.slice(i, i + EMBEDDER_BATCH_CHUNK)
       const batch = (await this.sendRequest('embed_batch', { texts: chunk })) as Float32Array[]
+      if (batch.length !== chunk.length) {
+        throw new EmbedderUnavailableError(
+          `Embedder returned ${batch.length} vector(s) for ${chunk.length} text(s)`
+        )
+      }
       embeddings.push(...batch)
     }
     return embeddings

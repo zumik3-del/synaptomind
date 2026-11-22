@@ -53,7 +53,7 @@ mock.module('../db/init', () => ({
     }
   })
 }))
-mock.module('../context/container', () => ({
+mock.module('../db', () => ({
   getDb: () => {
     throw new Error('unexpected legacy mode')
   }

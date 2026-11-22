@@ -1,21 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { config } from '../config'
-import {
-  EdgeAlreadyExistsError,
-  ClusterEdgeValidationError,
-  SelfLoopEdgeError,
-  EdgeConflictError,
-  InvalidEdgeTypeError
-} from './errors'
-import { NotFoundError } from '../errors'
-import {
-  EDGE_TYPES,
-  isValidEdgeType,
-  SYMMETRIC_EDGE_TYPES,
-  validateClusterConstraint,
-  validateRetype
-} from './edge-validation'
-import { boostImportance } from './importance'
+import { EdgeAlreadyExistsError } from './errors'
 import { getThoughtRow, getThoughtsBatchWithTags, type Thought } from './thoughts'
 import { sqlIn, pairKey } from './utils'
 
@@ -25,7 +10,7 @@ export {
   SelfLoopEdgeError,
   EdgeConflictError,
   InvalidEdgeTypeError
-}
+} from './errors'
 
 export {
   EDGE_TYPES,
@@ -42,43 +27,6 @@ export interface Edge {
   target_id: string
   type: string
   created_at: string
-}
-
-export function createEdge(
-  db: Database,
-  sourceId: string,
-  targetId: string,
-  type: string = 'related'
-): Edge {
-  if (!isValidEdgeType(type)) {
-    throw new InvalidEdgeTypeError(type, [...EDGE_TYPES])
-  }
-  if (type === 'child') {
-    throw new ClusterEdgeValidationError(
-      "Edge type 'child' is deprecated. Use 'parent' instead — 'parent' covers both directions."
-    )
-  }
-  if (sourceId === targetId) {
-    throw new SelfLoopEdgeError()
-  }
-  validateClusterConstraint(db, sourceId, targetId, type)
-
-  const existing = getEdgePairBetween(db, sourceId, targetId)
-  if (existing) {
-    if (existing.type === type) {
-      if (SYMMETRIC_EDGE_TYPES.has(type)) return existing
-      if (existing.source_id === sourceId && existing.target_id === targetId) {
-        throw new EdgeAlreadyExistsError()
-      }
-      throw new EdgeConflictError(sourceId, targetId)
-    }
-    if (existing.type === 'related') {
-      return upgradePlaceholderEdge(db, existing, sourceId, targetId, type)
-    }
-    throw new EdgeConflictError(sourceId, targetId)
-  }
-
-  return insertEdge(db, sourceId, targetId, type)
 }
 
 function insertEdgeSql(
@@ -99,30 +47,18 @@ function insertEdgeSql(
   return res.changes
 }
 
-function insertEdge(db: Database, sourceId: string, targetId: string, type: string): Edge {
+export function insertEdgeRow(
+  db: Database,
+  sourceId: string,
+  targetId: string,
+  type: string
+): { id: string; inserted: boolean } {
   const id = Bun.randomUUIDv7()
-  const now = new Date().toISOString()
-
-  let inserted = false
-  const insertInTx = db.transaction(() => {
-    const changes = insertEdgeSql(db, id, sourceId, targetId, type, now)
-    if (changes > 0) {
-      inserted = true
-      boostImportance(db, sourceId, 0.1)
-    }
-  })
-  insertInTx()
-
-  if (!inserted) {
-    const existing = getEdgePairBetween(db, sourceId, targetId)
-    if (existing) return existing
-    throw new EdgeAlreadyExistsError()
-  }
-
-  return findEdge(db, id)
+  const changes = insertEdgeSql(db, id, sourceId, targetId, type, new Date().toISOString())
+  return { id, inserted: changes > 0 }
 }
 
-function insertEdgeRow(
+function insertEdgeRowStrict(
   db: Database,
   id: string,
   sourceId: string,
@@ -139,45 +75,18 @@ function insertEdgeRow(
   }
 }
 
-function replaceEdge(
+export function replaceEdgeRow(
   db: Database,
   oldEdgeId: string,
   sourceId: string,
   targetId: string,
   type: string,
   createdAt: string
-): Edge {
+): string {
   const id = Bun.randomUUIDv7()
-
-  const replaceInTx = db.transaction(() => {
-    db.prepare('DELETE FROM edges WHERE id = ?').run(oldEdgeId)
-    insertEdgeRow(db, id, sourceId, targetId, type, createdAt)
-    boostImportance(db, sourceId, 0.1)
-  })
-  replaceInTx()
-
-  return findEdge(db, id)
-}
-
-function upgradePlaceholderEdge(
-  db: Database,
-  placeholder: Edge,
-  sourceId: string,
-  targetId: string,
-  type: string
-): Edge {
-  return replaceEdge(db, placeholder.id, sourceId, targetId, type, new Date().toISOString())
-}
-
-export function retypeEdge(db: Database, edgeId: string, newType: string): Edge {
-  const edge = findEdge(db, edgeId)
-  if (!edge) {
-    throw new NotFoundError(`Edge not found: ${edgeId}`)
-  }
-
-  validateRetype(db, edge, newType)
-
-  return replaceEdge(db, edge.id, edge.source_id, edge.target_id, newType, edge.created_at)
+  db.prepare('DELETE FROM edges WHERE id = ?').run(oldEdgeId)
+  insertEdgeRowStrict(db, id, sourceId, targetId, type, createdAt)
+  return id
 }
 
 export function deleteEdge(db: Database, id: string): boolean {

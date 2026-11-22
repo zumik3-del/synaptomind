@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { getDb } from '../context/container'
+import { getDb } from '../db'
 import { findEdge } from '../db/edges'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { deleteEdgesBatchService } from './edges.service'
@@ -16,9 +16,6 @@ describe('unlink batch atomicity', () => {
     expect(result.results.map(item => item.status)).toEqual(['failed', 'failed', 'failed'])
     expect(result.errors.map(item => item.index)).toEqual([0, 1, 2])
     expect([result.total, result.deleted, result.preview, result.failed]).toEqual([3, 0, 0, 3])
-    expect([result.unlinked, result.previews, result.failures]).toEqual([0, 0, 3])
-    expect(result.items).toEqual(result.results)
-    expect(result.edges).toEqual(result.results)
     expect(ids.map(id => Boolean(findEdge(db, id)))).toEqual([true, true, true])
   })
 
@@ -43,7 +40,7 @@ describe('unlink batch atomicity', () => {
     const b = seedEdge(seedThought(), seedThought())
     const result = deleteEdgesBatchService([a, b], true, db)
     expect(result.results.map(item => item.status)).toEqual(['deleted', 'deleted'])
-    expect([result.deleted, result.unlinked, result.failed, result.total]).toEqual([2, 2, 0, 2])
+    expect([result.deleted, result.failed, result.total]).toEqual([2, 0, 2])
     expect(result.errors).toEqual([])
     expect([Boolean(findEdge(db, a)), Boolean(findEdge(db, b))]).toEqual([false, false])
   })
@@ -54,16 +51,7 @@ describe('unlink batch atomicity', () => {
     const result = deleteEdgesBatchService([a, a, 'missing'], false, db)
     expect(result.results.map(item => item.status)).toEqual(['preview', 'preview', 'failed'])
     expect(result.results.slice(0, 2).map(item => item.edge?.id)).toEqual([a, a])
-    expect([
-      result.preview,
-      result.previews,
-      result.failed,
-      result.failures,
-      result.deleted,
-      result.total
-    ]).toEqual([2, 2, 1, 1, 0, 3])
-    expect(result.items).toEqual(result.results)
-    expect(result.edges).toEqual(result.results)
+    expect([result.preview, result.failed, result.deleted, result.total]).toEqual([2, 1, 0, 3])
     expect(result.errors.map(item => item.index)).toEqual([2])
     expect(Boolean(findEdge(db, a))).toBe(true)
   })

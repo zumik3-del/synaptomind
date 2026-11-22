@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-import { getDb } from '../context/container'
+import { getDb } from './index'
 import { createTestDb, seedThought } from '../test/helpers'
 
 const realLog = await import('../logging/log')
@@ -28,7 +28,8 @@ mock.module('../logging/log', () => ({
   }
 }))
 
-const { createProject, deleteProject, resolveDefaultProjectId } = await import('./projects')
+const { createProject, resolveDefaultProjectId } = await import('./projects')
+const { deleteProject } = await import('../services/projects.service')
 const { closeDb } = await import('./init')
 
 const OLDER = '2026-01-01T00:00:00.000Z'

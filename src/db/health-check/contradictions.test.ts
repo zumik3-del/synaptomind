@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { createTestDb, seedEdge, seedLegacyPairEdge, seedThought } from '../../test/helpers'
-import { getDb } from '../../context/container'
+import { getDb } from '../index'
 import { closeDb } from '../init'
 import { runHealthCheckService } from '../../services/health-check.service'
 import {
@@ -285,7 +285,7 @@ describe('runHealthCheckService semantic_consistency integration', () => {
     const counts = new Map(semantic.checks.map(c => [c.name, c.count]))
     expect(counts.get('contradicts_with_hierarchy')).toBe(1)
     expect(counts.get('supports_self_conflict')).toBe(1)
-    expect(report.summary.issues.critical).toBeGreaterThanOrEqual(1)
+    expect(report.summary.critical).toBeGreaterThanOrEqual(1)
   })
 
   test('reports contradiction_in_cluster count 0 for an archived cluster member', () => {
@@ -318,8 +318,8 @@ describe('runHealthCheckService semantic_consistency integration', () => {
     expect(counts.get('contradicts_to_archived')).toBe(0)
     expect(counts.get('contradicts_with_hierarchy')).toBe(1)
     expect(counts.get('supports_self_conflict')).toBe(1)
-    expect(report.summary.issues.critical).toBe(1)
-    expect(report.summary.issues.warning).toBe(1)
+    expect(report.summary.critical).toBe(1)
+    expect(report.summary.warning).toBe(1)
   })
 
   test('an archived contradicting member costs no warning-category penalty', () => {
@@ -344,7 +344,9 @@ describe('runHealthCheckService semantic_consistency integration', () => {
     const semantic = report.categories.find(c => c.name === 'semantic_consistency')!
     const counts = new Map(semantic.checks.map(c => [c.name, c.count]))
     expect(counts.get('contradiction_in_cluster')).toBe(0)
-    expect(report.summary.issues).toEqual({ critical: 0, warning: 0, info: 0 })
+    expect([report.summary.critical, report.summary.warning, report.summary.info]).toEqual([
+      0, 0, 0
+    ])
     expect(report.summary.health_score).toBe(100)
   })
 
@@ -369,7 +371,9 @@ describe('runHealthCheckService semantic_consistency integration', () => {
     const semantic = report.categories.find(c => c.name === 'semantic_consistency')!
     const counts = new Map(semantic.checks.map(c => [c.name, c.count]))
     expect(counts.get('contradiction_in_cluster')).toBe(1)
-    expect(report.summary.issues).toEqual({ critical: 0, warning: 1, info: 0 })
+    expect([report.summary.critical, report.summary.warning, report.summary.info]).toEqual([
+      0, 1, 0
+    ])
     expect(report.summary.health_score).toBe(85)
   })
 })

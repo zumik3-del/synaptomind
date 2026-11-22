@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { vec0Path } from '../runtime-mode'
 import { isVecExtensionAvailable, seedEmbedding, seedThought, withVecDb } from '../test/helpers'
 import { closeDb } from './init'
-import { deleteProject } from './projects'
+import { deleteProject } from '../services/projects.service'
 import { updateThought } from './thoughts'
 
 const VEC_AVAILABLE = isVecExtensionAvailable()

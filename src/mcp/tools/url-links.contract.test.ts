@@ -3,8 +3,8 @@ import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import * as thoughtUrlLinksDb from '../../db/thought_url_links'
 import { upsertThoughtUrlLink } from '../../db/thought_url_links'
-import { getDb } from '../../context/container'
-import { createEdge } from '../../db/edges'
+import { getDb } from '../../db'
+import { createEdge } from '../../services/edges.service'
 import { closeDb } from '../../db/init'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { createThoughtWithUrlLinksService } from '../../services/url_links.service'
@@ -284,7 +284,7 @@ describe('every thought the answer emits carries its links', () => {
     const item = answer.item as Record<string, any>
 
     expect(item.thought.url_links).toHaveLength(1)
-    expect(item.chain.upstream[0].thought.url_links).toHaveLength(1)
+    expect(item.upstream[0].thought.url_links).toHaveLength(1)
   })
 
   test('a grouped search answer attaches links to cluster members', async () => {

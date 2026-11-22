@@ -77,7 +77,7 @@ closed set, and an unknown value **aborts startup** instead of falling back — 
 |---------|---------|---------|-------------|
 | `mcp.httpPort` | `SYNAPTOMIND_MCP_HTTP_PORT` | `3006` | MCP HTTP transport port |
 | `mcp.instructionsFile` | `SYNAPTOMIND_MCP_INSTRUCTIONS_FILE` | `""` | Path to custom MCP instructions file (markdown). Falls back to built-in instructions |
-| `mcp.stdioStandalone` | `SYNAPTOMIND_MCP_STDIO_STANDALONE` | `false` | When `true`, a `--stdio` process also starts the embedder and background jobs. By default, the shared HTTP server owns scheduled jobs and stdio does not start an embedder at startup; embedding requests can still start a local child on demand. See [Stdio ownership](#stdio-ownership) |
+| `mcp.stdioStandalone` | `SYNAPTOMIND_MCP_STDIO_STANDALONE` | `false` | When `true`, a `--stdio` process also starts the embedder child at boot and owns the background jobs. By default, only the shared HTTP server owns the scheduled jobs: stdio starts no child and arms no timer, and its embedding requests run in an on-demand local child that loads the model **in that session** and follows `embedder.idleTimeoutMs`/`embedder.precache` — with `precache=true` one model stays resident per MCP client. See [Stdio ownership](#stdio-ownership) |
 | `mcp.corsOrigins` | `SYNAPTOMIND_MCP_CORS_ORIGINS` | `[]` | Comma-separated allowed CORS origins for the MCP HTTP transport. Empty = no CORS headers |
 | `mcp.maxSessions` | `SYNAPTOMIND_MCP_MAX_SESSIONS` | `100` | Max concurrent **legacy** sessions per user (one user exhausting it cannot lock out the others). Legacy (2025-era) transport only: the 2026-07-28 era serves every request with a fresh instance and issues no `mcp-session-id`, so there is no session to cap |
 | `mcp.sessionTtlMs` | `SYNAPTOMIND_MCP_SESSION_TTL_MS` | `3600000` | Idle timeout of a **legacy** session in ms (1h). Legacy-only: the 2026-07-28 era keeps no session between requests, so nothing idles |
@@ -182,11 +182,20 @@ the subscription acknowledgement.
 
 ### Stdio ownership
 
-A stdio MCP client talks to the same SQLite database as the HTTP server. By
-default (`mcp.stdioStandalone=false`) the stdio process does **not** start an
-embedder child or background jobs at startup; the shared HTTP server owns the
-scheduled jobs. An embedding request can still start a local child on demand;
-stdio does not reuse the HTTP server's embedder process.
+The flag decides **who runs the scheduled jobs**, not whether a model exists. A
+stdio MCP client talks to the same SQLite database as the HTTP server. By
+default (`mcp.stdioStandalone=false`) the stdio process starts no child at boot
+and arms no timer: the shared HTTP server owns the background jobs and the
+embedding queue. Its embedding requests still run locally — the first one spawns
+an on-demand child that holds only the model, with no queue and no database
+handle. That search pays the spawn, the model-file validation and the ONNX
+session load inside the 5 s embedding budget (`src/services/search.service.ts`);
+when the load overruns it the search degrades to BM25 with `degraded: true`. The
+child unloads after `embedder.idleTimeoutMs`, and never unloads with
+`embedder.precache=true`, so one model stays resident per warm MCP client. stdio
+does not reuse the HTTP server's embedder process. The decision — no local
+worker, not no local model — is recorded in the
+[delegating-stdio ADR](https://forgejo.home.lan/authelia/artifacts/src/commit/39efb5db4d4f269e15ad1468377db30368581f22/synaptomind/adr/2026-11-22-stdio-delegating-promise-no-local-worker.md).
 
 To run stdio as a fully standalone node (no separate server), enable local
 ownership with either:
@@ -223,16 +232,17 @@ Local embedding model for semantic search. No API keys required.
 | `embedder.resetDeadLetters` | `SYNAPTOMIND_RESET_DEAD_LETTER` | `false` | Re-queue dead-lettered embeddings on startup. Off by default: a poisonous thought would otherwise get fresh attempts on every restart. Enable after fixing an embedding bug to retry failed items |
 | `embedder.batchSize` | `SYNAPTOMIND_EMBEDDER_BATCH_SIZE` | `8` | Embeddings per batch. Higher = faster but more RAM |
 
-**Note:** The embedder child starts with the server, not with the first request:
-`startEmbedderProcess()` runs at boot in every process that owns background jobs (see
-[Stdio ownership](#stdio-ownership)), unless `embedder.enabled=false` or `--no-embedder`.
-`embedder.precache` and `embedder.idleTimeoutMs` never change that; they only decide whether the
-child survives between requests. On start the child validates the model files (downloading any
-missing one) and then polls the embedding queue; the model itself is loaded into memory by the
-first embedding it computes. The queue worker lives inside that child, so a thought queued after an
-idle unload stays pending until the next embedding request starts a child — keep
-`embedder.precache=true` or `embedder.idleTimeoutMs=0` on a host that must embed with no other
-traffic.
+**Note:** In a process that owns background jobs the embedder child starts with the process, not
+with the first request: `startEmbedderProcess()` runs at boot there (see
+[Stdio ownership](#stdio-ownership)), unless `embedder.enabled=false` or `--no-embedder`. A
+delegating `--stdio` process is not one of them: it starts no child at boot, and its first
+embedding request pays the model load inside the 5 s search budget. `embedder.precache` and
+`embedder.idleTimeoutMs` never change that; they only decide whether the child survives between
+requests. On start the child validates the model files (downloading any missing one) and then polls
+the embedding queue; the model itself is loaded into memory by the first embedding it computes. The
+queue worker lives inside that child, so a thought queued after an idle unload stays pending until
+the next embedding request starts a child — keep `embedder.precache=true` or
+`embedder.idleTimeoutMs=0` on a host that must embed with no other traffic.
 
 **Note:** Switching `embedder.dtype` shifts embedding values only slightly — measured on the default
 model with transformers.js 4.2.0, the fp32↔q8 cosine drift is ≤0.0061, far under the ~0.19 median distance between two different

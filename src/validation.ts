@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import type { ThoughtLimits } from './db/settings'
+import type { ThoughtLimits } from './config.thought-limits'
 import { insertLog } from './logging/log'
 import { ValidationError } from './errors'
 import { isThoughtStatus } from './types/thought'

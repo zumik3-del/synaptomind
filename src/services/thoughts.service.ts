@@ -1,9 +1,9 @@
 import type { Database } from 'bun:sqlite'
 export type { Thought } from '../db/thoughts'
-import { config } from '../config'
-import { createEdge } from '../db/edges'
+import { type Config, config } from '../config'
+import { createEdge } from './edges.service'
 import { getDb } from '../db'
-import { getThoughtLimitsDB } from '../db/settings'
+import { getThoughtLimitsDB } from '../config.thought-limits'
 import { deleteThoughtUrlLinksNotIn, upsertThoughtUrlLink } from '../db/thought_url_links'
 import type { UrlLink } from './url_links.service'
 import {
@@ -36,10 +36,11 @@ export function createThoughtWithParentService(
   data: CreateThoughtInput,
   parentId?: string,
   relation?: string,
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): Thought {
   validateStatus(data.status)
-  validateContentLength(data.content, getThoughtLimitsDB())
+  validateContentLength(data.content, getThoughtLimitsDB(cfg))
   const create = d.transaction(() => {
     const thought = dbCreateThought(d, data)
     if (parentId) {
@@ -62,7 +63,7 @@ export function createThoughtWithParentService(
     return thought
   })
   const thought = create()
-  return { ...thought, content_language: config.contentLanguage }
+  return { ...thought, content_language: cfg.contentLanguage }
 }
 
 export interface UpdateThoughtOptions {
@@ -85,11 +86,12 @@ export function updateThoughtByIdService(
   id: string,
   data: UpdateThoughtInput,
   options: UpdateThoughtOptions = {},
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): Thought | null {
   validateStatus(data.status)
   if (data.content !== undefined) {
-    validateContentLength(data.content, getThoughtLimitsDB(), id)
+    validateContentLength(data.content, getThoughtLimitsDB(cfg), id)
   }
   if (data.surface_after !== undefined && data.surface_after !== null) {
     if (
@@ -108,7 +110,7 @@ export function updateThoughtByIdService(
   })
   const updated = run()
   if (!updated) return null
-  return { ...updated, content_language: config.contentLanguage }
+  return { ...updated, content_language: cfg.contentLanguage }
 }
 
 export function archiveThoughtByIdService(id: string, d: Database = getDb()): Thought | null {
@@ -149,13 +151,15 @@ export function archiveThoughtsBatchService(
     if (!existing) throw new NotFoundError(`Thought '${id}' not found`)
     if (existing.status !== 'archived') archiveThoughtByIdService(id, d)
   })
-  // One level-1 transaction, a savepoint per id: one commit, every bad id isolated.
+  // One run-level transaction, a savepoint per id: the savepoint is the isolation contract.
   const runArchive = d.transaction(() => {
     for (const id of ids) {
       try {
         archiveItem(id)
         archived++
       } catch (err) {
+        // A trigger can RAISE(ROLLBACK) the whole run; continuing would autocommit the rest.
+        if (!d.inTransaction) throw err
         errors.push({ thought_id: id, error: err instanceof Error ? err.message : String(err) })
       }
     }

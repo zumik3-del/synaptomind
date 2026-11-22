@@ -11,26 +11,74 @@ import {
   isDefaultProjectService,
   DEFAULT_PROJECT_DELETE_MESSAGE
 } from '../../services/projects.service'
-import { registerActionTool, requiredString, type ActionArgs } from './action-tool'
-import { projectFields } from './utils'
+import { actionInput, registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import { shapeEntity } from './utils'
 import { collectionEnvelope, itemEnvelope } from './envelope'
 import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 
+const MANAGE_ARGS = {
+  project_id: z
+    .string()
+    .optional()
+    .describe('REQUIRED ONLY for "update" and "delete". REJECTED for "list", "create", "resolve".'),
+  name: z
+    .string()
+    .optional()
+    .describe(
+      'REQUIRED for "create". OPTIONAL for "update". REJECTED for "list", "delete", "resolve".'
+    ),
+  description: z
+    .string()
+    .optional()
+    .describe(
+      'Project description. OPTIONAL for "create" and "update". REJECTED for "list", "delete", "resolve".'
+    ),
+  local_path: z
+    .string()
+    .optional()
+    .describe(
+      'Local filesystem path. OPTIONAL for "create" and "update". REJECTED for "list", "delete", "resolve".'
+    ),
+  confirm: z
+    .boolean()
+    .optional()
+    .describe(
+      'CONSUMED by "delete" (true executes; false/omitted previews). REJECTED for all other actions.'
+    ),
+  preview_token: z
+    .string()
+    .optional()
+    .describe(
+      'OPTIONAL preview token returned by a prior preview. CONSUMED by "delete" (true executes with token validation; missing/stale fails). REJECTED for all other actions.'
+    ),
+  cwd: z
+    .string()
+    .optional()
+    .describe(
+      'REQUIRED for "resolve": the working directory path to resolve. ACCEPTED AND IGNORED for all other actions.'
+    ),
+  fields: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Fields to include in output; intersected with available columns. OPTIONAL for "list". REJECTED for all other actions.'
+    )
+}
+
 const handlers = {
   list: {
+    input: actionInput(MANAGE_ARGS, ['fields']),
     run(args: ActionArgs) {
       const projects = listProjectsService()
-      const fields = args.fields
-      const items =
-        Array.isArray(fields) && fields.length > 0
-          ? (projects.map(p => projectFields(p, { fields })) as unknown as typeof projects)
-          : projects
-      return collectionEnvelope('list', items)
+      const items = projects.map(p => shapeEntity(p, { compact: false, fields: args.fields }))
+      return collectionEnvelope('list', items as unknown as typeof projects)
     }
   },
 
   create: {
-    input: z.object({ name: requiredString('name is required for create action') }),
+    input: actionInput(MANAGE_ARGS, ['name', 'description', 'local_path'], {
+      name: requiredString('name is required for create action')
+    }),
     run(args: ActionArgs) {
       const project = createProjectService({
         name: args.name as string,
@@ -42,7 +90,9 @@ const handlers = {
   },
 
   update: {
-    input: z.object({ project_id: requiredString('project_id is required for update action') }),
+    input: actionInput(MANAGE_ARGS, ['project_id', 'name', 'description', 'local_path'], {
+      project_id: requiredString('project_id is required for update action')
+    }),
     run(args: ActionArgs) {
       updateProjectService(args.project_id as string, {
         name: args.name as string | undefined,
@@ -54,9 +104,8 @@ const handlers = {
   },
 
   delete: {
-    input: z.object({
-      project_id: requiredString('project_id is required for delete action'),
-      preview_token: z.string().optional()
+    input: actionInput(MANAGE_ARGS, ['project_id', 'confirm', 'preview_token'], {
+      project_id: requiredString('project_id is required for delete action')
     }),
     async run(args: ActionArgs) {
       const projectId = args.project_id as string
@@ -104,7 +153,9 @@ const handlers = {
   },
 
   resolve: {
-    input: z.object({ cwd: requiredString('cwd is required for resolve action') }),
+    input: actionInput(MANAGE_ARGS, ['cwd'], {
+      cwd: requiredString('cwd is required for resolve action')
+    }),
     run(args: ActionArgs) {
       const project = resolveProjectService(args.cwd as string)
       if (!project) throw new NotFoundError(`No project found for path: ${args.cwd}`)
@@ -120,57 +171,10 @@ const handlers = {
 export function registerMemoryManage(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_manage',
-    description: `Manage projects (CRUD). Every action answers in one envelope: list returns { items, meta }, the single-project actions return { item, meta }. Actions: list, create, update, delete (preview→confirm), resolve (resolve project from cwd/path).`,
+    description: `Manage projects (CRUD). Every action answers in one envelope: list returns { items, meta }, the single-project actions return { item, meta }. Actions: list, create, update, delete (preview→confirm), resolve (resolve project from cwd/path). Every action refuses an argument that belongs to another one.`,
     inputSchema: {
       action: z.enum(['list', 'create', 'update', 'delete', 'resolve']).describe('Action'),
-      project_id: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED ONLY for "update" and "delete". IGNORED for "list", "create", "resolve".'
-        ),
-      name: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED for "create". OPTIONAL for "update". IGNORED for "list", "delete", "resolve".'
-        ),
-      description: z
-        .string()
-        .optional()
-        .describe(
-          'Project description. OPTIONAL for "create" and "update". IGNORED for "list", "delete", "resolve".'
-        ),
-      local_path: z
-        .string()
-        .optional()
-        .describe(
-          'Local filesystem path. OPTIONAL for "create" and "update". IGNORED for "list", "delete", "resolve".'
-        ),
-      confirm: z
-        .boolean()
-        .optional()
-        .describe(
-          'CONSUMED by "delete" (true executes; false/omitted previews). IGNORED for all other actions.'
-        ),
-      preview_token: z
-        .string()
-        .optional()
-        .describe(
-          'OPTIONAL preview token returned by a prior preview. CONSUMED by "delete" (true executes with token validation; missing/stale fails). IGNORED for all other actions.'
-        ),
-      cwd: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED for "resolve": the working directory path to resolve. ACCEPTED AND IGNORED for all other actions.'
-        ),
-      fields: z
-        .array(z.string())
-        .optional()
-        .describe(
-          'Fields to include in output; intersected with available columns. OPTIONAL for "list". IGNORED for all other actions.'
-        )
+      ...MANAGE_ARGS
     },
     handlers
   })

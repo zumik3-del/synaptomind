@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
-import { config } from '../config'
+import { type Config, config } from '../config'
 import { closeDb, getDb } from '../db'
 import {
   insertProposal,
@@ -8,7 +8,7 @@ import {
   type PlacementProposalRow
 } from '../db/placement-proposals'
 import { NotFoundError, ValidationError } from '../errors'
-import { createTestDb, seedEdge, seedThought } from '../test/helpers'
+import { configFixture, createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { DRAFT_THOUGHT_ID, proposePlacementPlan } from './placement/engine'
 import {
   computeFingerprint,
@@ -120,14 +120,8 @@ function edgePlan(
   }
 }
 
-function withPlacementConfig(overrides: Partial<typeof config.placement>, fn: () => void): void {
-  const saved = config.placement
-  config.placement = { ...saved, ...overrides }
-  try {
-    fn()
-  } finally {
-    config.placement = saved
-  }
+function placementConfig(overrides: Partial<typeof config.placement>) {
+  return configFixture({ placement: { ...config.placement, ...overrides } })
 }
 
 function queueRowCount(db: Database): number {
@@ -174,9 +168,10 @@ function insertRetiredProposal(db: Database, id: string, sourceId: string, targe
 function enqueueProposals(
   plan: PlacementPlan,
   options: Parameters<typeof enqueuePlanService>[1],
-  db: Database
+  db: Database,
+  cfg?: Config
 ): PlacementProposalRow[] {
-  return enqueuePlanService(plan, options, db).proposals
+  return enqueuePlanService(plan, options, db, cfg).proposals
 }
 
 function okEmbed(_texts: string[]): Promise<Float32Array[]> {
@@ -405,11 +400,10 @@ describe('enqueuePlanService: plan → row mapping', () => {
     const db = getDb()
     const src = seedThought({ id: 'ttl-src', content: 'ttl source', created_at: T_SRC })
     const tgt = seedThought({ id: 'ttl-tgt', content: 'ttl target', created_at: T_TGT })
-    withPlacementConfig({ proposalTtlDays: -1 }, () => {
-      const rows = enqueueProposals(edgePlan(src, tgt), { now: NOW }, db)
-      expect(rows).toHaveLength(1)
-      expect(rows[0].expires_at).toBeNull()
-    })
+    const cfg = placementConfig({ proposalTtlDays: -1 })
+    const rows = enqueueProposals(edgePlan(src, tgt), { now: NOW }, db, cfg)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].expires_at).toBeNull()
   })
 
   test('multiple edges + placement → one row per edge, the placement reported as skipped', () => {
@@ -651,13 +645,12 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       degraded: false,
       generated_at: NOW
     }
-    withPlacementConfig({ maxPendingProposals: 2 }, () => {
-      expect(() => enqueueProposals(plan, { now: NOW }, db)).toThrow(ValidationError)
-      expect(() => enqueueProposals(plan, { now: NOW }, db)).toThrow(
-        /maximum 2 pending placement proposals reached/
-      )
-      expect(queueRowCount(db)).toBe(0)
-    })
+    const cfg = placementConfig({ maxPendingProposals: 2 })
+    expect(() => enqueueProposals(plan, { now: NOW }, db, cfg)).toThrow(ValidationError)
+    expect(() => enqueueProposals(plan, { now: NOW }, db, cfg)).toThrow(
+      /maximum 2 pending placement proposals reached/
+    )
+    expect(queueRowCount(db)).toBe(0)
   })
 
   test('refreshes of live rows do not count against the cap', () => {
@@ -674,14 +667,13 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       degraded: false,
       generated_at: NOW
     }
-    withPlacementConfig({ maxPendingProposals: 2 }, () => {
-      const first = enqueueProposals(plan, { now: NOW }, db)
-      const second = enqueueProposals(structuredClone(plan), { now: NOW_LATER }, db)
-      expect(second.map(r => r.id)).toEqual(first.map(r => r.id))
-      const fresh = edgePlan(src, t3, { type: 'develops' })
-      expect(() => enqueueProposals(fresh, { now: NOW_LATER }, db)).toThrow(/maximum 2 pending/)
-      expect(queueRowCount(db)).toBe(2)
-    })
+    const cfg = placementConfig({ maxPendingProposals: 2 })
+    const first = enqueueProposals(plan, { now: NOW }, db, cfg)
+    const second = enqueueProposals(structuredClone(plan), { now: NOW_LATER }, db, cfg)
+    expect(second.map(r => r.id)).toEqual(first.map(r => r.id))
+    const fresh = edgePlan(src, t3, { type: 'develops' })
+    expect(() => enqueueProposals(fresh, { now: NOW_LATER }, db, cfg)).toThrow(/maximum 2 pending/)
+    expect(queueRowCount(db)).toBe(2)
   })
 
   test('rejecting a live row frees a slot for a new item', () => {
@@ -698,13 +690,12 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       degraded: false,
       generated_at: NOW
     }
-    withPlacementConfig({ maxPendingProposals: 2 }, () => {
-      const rows = enqueueProposals(plan, { now: NOW }, db)
-      reject(rows[0].id, { decidedBy: 'tester', now: NOW }, db)
-      const third = enqueueProposals(edgePlan(src, t3, { type: 'develops' }), { now: NOW }, db)
-      expect(third).toHaveLength(1)
-      expect(list({ now: NOW }, db)).toHaveLength(2)
-    })
+    const cfg = placementConfig({ maxPendingProposals: 2 })
+    const rows = enqueueProposals(plan, { now: NOW }, db, cfg)
+    reject(rows[0].id, { decidedBy: 'tester', now: NOW }, db)
+    const third = enqueueProposals(edgePlan(src, t3, { type: 'develops' }), { now: NOW }, db, cfg)
+    expect(third).toHaveLength(1)
+    expect(list({ now: NOW }, db)).toHaveLength(2)
   })
 
   test('expired pending rows do not consume the cap', () => {
@@ -712,12 +703,11 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
     const src = seedThought({ id: 'exp-src', content: 'expiry-cap source', created_at: T_SRC })
     const t1 = seedThought({ id: 'exp-t1', content: 'expiry-cap t1', created_at: T_TGT })
     const t2 = seedThought({ id: 'exp-t2', content: 'expiry-cap t2', created_at: T_TGT })
-    withPlacementConfig({ maxPendingProposals: 1 }, () => {
-      enqueueProposals(edgePlan(src, t1), { now: '2026-01-01T00:00:00.000Z' }, db)
-      const second = enqueueProposals(edgePlan(src, t2), { now: '2026-02-01T00:00:00.000Z' }, db)
-      expect(second).toHaveLength(1)
-      expect(list({ now: '2026-02-01T00:00:00.000Z' }, db)).toHaveLength(1)
-    })
+    const cfg = placementConfig({ maxPendingProposals: 1 })
+    enqueueProposals(edgePlan(src, t1), { now: '2026-01-01T00:00:00.000Z' }, db, cfg)
+    const second = enqueueProposals(edgePlan(src, t2), { now: '2026-02-01T00:00:00.000Z' }, db, cfg)
+    expect(second).toHaveLength(1)
+    expect(list({ now: '2026-02-01T00:00:00.000Z' }, db)).toHaveLength(1)
   })
 
   test('expired rows filling the prefetch window do not hide live pending rows', () => {
@@ -730,25 +720,24 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
     const t5 = seedThought({ id: 'pf-t5', content: 'prefetch t5', created_at: T_TGT })
     const t6 = seedThought({ id: 'pf-t6', content: 'prefetch t6', created_at: T_TGT })
     const fresh = seedThought({ id: 'pf-fresh', content: 'prefetch fresh', created_at: T_TGT })
-    withPlacementConfig({ maxPendingProposals: 2, proposalTtlDays: 365 }, () => {
-      const live = [
-        ...enqueueProposals(edgePlan(src, t1), { now: NOW }, db),
-        ...enqueueProposals(edgePlan(src, t2, { type: 'supports' }), { now: NOW }, db)
-      ]
-      backdate(db, live[0].id, '2020-01-01T00:00:00.000Z')
-      backdate(db, live[1].id, '2020-01-01T00:00:01.000Z')
-      // The prefetch reads maxPending + items + 1 = 4 newest pending rows: fill all four with
-      // lapsed rows, so a JS post-filter sees no live row and forgets the two that exist.
-      insertLapsedProposal(db, src, t3, '2020-02-01T00:00:00.000Z')
-      insertLapsedProposal(db, src, t4, '2020-02-01T00:00:01.000Z')
-      insertLapsedProposal(db, src, t5, '2020-02-01T00:00:02.000Z')
-      insertLapsedProposal(db, src, t6, '2020-02-01T00:00:03.000Z')
+    const cfg = placementConfig({ maxPendingProposals: 2, proposalTtlDays: 365 })
+    const live = [
+      ...enqueueProposals(edgePlan(src, t1), { now: NOW }, db, cfg),
+      ...enqueueProposals(edgePlan(src, t2, { type: 'supports' }), { now: NOW }, db, cfg)
+    ]
+    backdate(db, live[0].id, '2020-01-01T00:00:00.000Z')
+    backdate(db, live[1].id, '2020-01-01T00:00:01.000Z')
+    // The prefetch reads maxPending + items + 1 = 4 newest pending rows: fill all four with
+    // lapsed rows, so a JS post-filter sees no live row and forgets the two that exist.
+    insertLapsedProposal(db, src, t3, '2020-02-01T00:00:00.000Z')
+    insertLapsedProposal(db, src, t4, '2020-02-01T00:00:01.000Z')
+    insertLapsedProposal(db, src, t5, '2020-02-01T00:00:02.000Z')
+    insertLapsedProposal(db, src, t6, '2020-02-01T00:00:03.000Z')
 
-      expect(() => enqueueProposals(edgePlan(src, fresh), { now: NOW_LATER }, db)).toThrow(
-        /maximum 2 pending placement proposals reached/
-      )
-      expect(queueRowCount(db)).toBe(6)
-    })
+    expect(() => enqueueProposals(edgePlan(src, fresh), { now: NOW_LATER }, db, cfg)).toThrow(
+      /maximum 2 pending placement proposals reached/
+    )
+    expect(queueRowCount(db)).toBe(6)
   })
 })
 
@@ -880,12 +869,11 @@ describe('list', () => {
     const db = getDb()
     const src = seedThought({ id: 'lx-src', content: 'list-expire source', created_at: T_SRC })
     const tgt = seedThought({ id: 'lx-tgt', content: 'list-expire target', created_at: T_TGT })
-    withPlacementConfig({ proposalTtlDays: 1 }, () => {
-      const rows = enqueueProposals(edgePlan(src, tgt), { now: '2026-01-01T00:00:00.000Z' }, db)
-      expect(rows[0].expires_at).toBe('2026-01-02T00:00:00.000Z')
-      expect(list({ now: '2026-01-01T12:00:00.000Z' }, db)).toHaveLength(1)
-      expect(list({ now: '2026-01-03T00:00:00.000Z' }, db)).toHaveLength(0)
-    })
+    const cfg = placementConfig({ proposalTtlDays: 1 })
+    const rows = enqueueProposals(edgePlan(src, tgt), { now: '2026-01-01T00:00:00.000Z' }, db, cfg)
+    expect(rows[0].expires_at).toBe('2026-01-02T00:00:00.000Z')
+    expect(list({ now: '2026-01-01T12:00:00.000Z' }, db)).toHaveLength(1)
+    expect(list({ now: '2026-01-03T00:00:00.000Z' }, db)).toHaveLength(0)
   })
 })
 

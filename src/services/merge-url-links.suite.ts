@@ -14,7 +14,7 @@ process.env.SYNAPTOMIND_LOG_FORMAT = 'json'
 process.env.SYNAPTOMIND_LOG_LEVEL = 'info'
 
 const { closeDb } = await import('../db/init')
-const { getDb } = await import('../context/container')
+const { getDb } = await import('../db')
 const { insertLog } = await import('../logging/log')
 const { getThoughtUrlLinksForThoughts } = await import('../db/thought_url_links')
 const { createTestDb, seedThought } = await import('../test/helpers')

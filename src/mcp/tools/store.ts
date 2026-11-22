@@ -1,17 +1,16 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/server'
-import { getAdvertisedSoftLimitService } from '../../services/settings.service'
-import { EDGE_TYPES } from '../../services/edges.service'
-import { thoughtStatusSchema } from '../../validation'
+import { type Config, config } from '../../config'
 import { registerActionTool } from './action-tool'
-import { createHandler, urlLinkItem } from './store/create'
+import { createHandler } from './store/create'
 import { updateHandler } from './store/update'
 import { linkHandler } from './store/link'
 import { linkBatchHandler } from './store/link-batch'
 import { unlinkHandler } from './store/unlink'
 import { unlinkBatchHandler } from './store/unlink-batch'
 import { retypeHandler } from './store/retype'
-import { bulkCreateHandler, bulkCreateItemSchema } from './store/bulk'
+import { bulkCreateHandler } from './store/bulk'
+import { STORE_ARGS, storeContentArg } from './store/args'
 import { BULK_ITEMS_MAX } from '../../services/bulk.service'
 
 const handlers = {
@@ -25,10 +24,10 @@ const handlers = {
   bulk_create: bulkCreateHandler
 }
 
-export function registerMemoryStore(server: McpServer) {
+export function registerMemoryStore(server: McpServer, cfg: Config = config) {
   registerActionTool(server, {
     name: 'memory_store',
-    description: `Store and modify thoughts. Answers the shared envelope: { item, meta } for a single-object action, { items, meta } for a batch; meta.counts carries the aggregate (linked/failed, created/failed, deleted/failed). A non-mutating preview sets meta.preview={token,destructive:true}. Actions: create, update (tags merge by default; tags_mode=replace to overwrite), link, link_batch (one run-level transaction with a savepoint per item, so a failing item does not roll back its neighbours; per-item results), unlink (preview→confirm; dry-run default), unlink_batch (one transaction, per-edge status, confirm-gated), retype (preview→confirm; returns old/new edge id), bulk_create (create up to ${BULK_ITEMS_MAX} thoughts in one run-level transaction with a savepoint per item, so a failing item does not roll back its neighbours; each item takes memory_store action=create's item shape plus project_id, relation and source).`,
+    description: `Store and modify thoughts. Answers the shared envelope: { item, meta } for a single-object action, { items, meta } for a batch; meta.counts carries the aggregate (linked/failed, created/failed, deleted/failed). A non-mutating preview sets meta.preview={token,destructive:true}. Actions: create, update (tags merge by default; tags_mode=replace to overwrite), link, link_batch (one run-level transaction with a savepoint per item, so a failing item does not roll back its neighbours; per-item results), unlink (preview→confirm; dry-run default), unlink_batch (one transaction, per-edge status, confirm-gated), retype (preview→confirm; returns old/new edge id), bulk_create (create up to ${BULK_ITEMS_MAX} thoughts in one run-level transaction with a savepoint per item, so a failing item does not roll back its neighbours; each item takes memory_store action=create's item shape plus project_id, relation and source). Every action refuses an argument that belongs to another one, and the thoughts a write returns are compact (id, content, status, tags, project) unless you read the row back with memory_recall compact=false.`,
     inputSchema: {
       action: z
         .enum([
@@ -44,141 +43,8 @@ export function registerMemoryStore(server: McpServer) {
         .describe(
           'The specific action to perform. This dictates which other parameters are required.'
         ),
-      content: z
-        .string()
-        .optional()
-        .describe(
-          `REQUIRED for "create". OPTIONAL for "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype". Recommended soft limit: ${getAdvertisedSoftLimitService()} chars.`
-        ),
-      tags: z
-        .array(z.string())
-        .optional()
-        .describe(
-          'OPTIONAL for "create" and "update" (update merges with existing tags by default; use tags_mode=replace to overwrite the whole tag set). IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'
-        ),
-      tags_mode: z
-        .enum(['replace', 'merge'])
-        .optional()
-        .describe(
-          'update only: how to apply `tags` — "merge" (default) unions with existing tags, "replace" overwrites the whole tag set. IGNORED for all other actions.'
-        ),
-      status: thoughtStatusSchema
-        .optional()
-        .describe(
-          'Thought status (draft/active/archived). OPTIONAL for "create" and "update"; "update" rejects "archived" (archive through memory_supersede action=archive). IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'
-        ),
-      project_id: z
-        .never({ error: 'project_id was removed; a create takes the project its cwd resolves to' })
-        .optional()
-        .describe('Removed; a create takes the project its cwd resolves to.'),
-      cwd: z
-        .string()
-        .optional()
-        .describe(
-          'Working directory — resolves the project a "create" lands in and the project scope meta.scope reports (always pass for "create"/"update"). ACCEPTED AND IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'
-        ),
-      parent_id: z
-        .string()
-        .optional()
-        .describe('Parent thought ID. OPTIONAL for "create". IGNORED for all other actions.'),
-      is_profile: z
-        .never({ error: 'is_profile is retired; remove this field (there is no replacement)' })
-        .optional()
-        .describe('Retired: remove this field; there is no replacement.'),
-      is_protected: z
-        .boolean()
-        .optional()
-        .describe(
-          'Protect from auto-deletion. OPTIONAL for "create" and "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'
-        ),
-      is_global: z
-        .boolean()
-        .optional()
-        .describe(
-          'Mark as global thought (appears in all project-scoped searches). OPTIONAL for "create" and "update". IGNORED for "link", "link_batch", "unlink", "unlink_batch", "retype".'
-        ),
-      surface_after: z.iso
-        .datetime()
-        .nullable()
-        .optional()
-        .describe(
-          'update only: pending surfacing delay as an ISO timestamp (UTC, e.g. 2026-01-01T00:00:00.000Z); pass null to clear. IGNORED for all other actions.'
-        ),
-      url_links: z
-        .array(urlLinkItem)
-        .optional()
-        .describe(
-          'URL links. OPTIONAL for "create" and "update": create sets the initial list, update replaces the whole set in array order (an omitted field leaves the set untouched, [] clears it). The array order is the link order. For "bulk_create" each item carries its own url_links with these semantics, so this top-level field is IGNORED for it. IGNORED for all other actions.'
-        ),
-      thoughts: z
-        .array(bulkCreateItemSchema)
-        .min(1, 'thoughts is required for bulk_create action')
-        .max(BULK_ITEMS_MAX, `thoughts accepts at most ${BULK_ITEMS_MAX} items per call`)
-        .optional()
-        .describe(
-          `REQUIRED ONLY for "bulk_create". Thoughts to create in one run-level transaction with a savepoint per item, so a failing item does not roll back its neighbours (1-${BULK_ITEMS_MAX} items, the same bound this schema enforces). VALIDATED for EVERY action: the advertised schema checks the whole call before the action runs, so a present thoughts must be a non-empty array of valid items whatever the action — an empty array is refused with "thoughts is required for bulk_create action" even under action "create". Omit it for the other actions, where its value is otherwise IGNORED. Each item is a strict object taking the create item fields — content (required), tags, status, parent_id, is_protected, is_global, url_links — plus project_id, relation and source; url_links is written per item in array order in the same transaction, and is_global reaches the row. Failure splits two ways: a schema-level refusal (an unknown key, a wrong type, the retired is_profile) drops the whole call and writes nothing, while a per-item failure (e.g. a parent_id that does not exist) yields that item's error row at its index and the rest of the batch commits. The top-level content/tags/status/parent_id/is_protected/is_global/url_links are IGNORED for "bulk_create" (each item carries its own).`
-        ),
-      thought_id: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED for "update". REJECTED for "link" (use source_id). IGNORED for "create", "link_batch", "unlink", "unlink_batch", "retype".'
-        ),
-
-      source_id: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED ONLY for "link" (source endpoint, same spelling as memory_supersede merge). IGNORED for all other actions.'
-        ),
-      target_id: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED ONLY for "link" (target side, same spelling as memory_supersede merge). IGNORED for all other actions.'
-        ),
-      links: z
-        .array(
-          z.object({ source: z.string(), target: z.string(), type: z.enum(EDGE_TYPES).optional() })
-        )
-        .optional()
-        .describe(
-          'REQUIRED ONLY for "link_batch". Edges to create as {source, target, type?} pairs (1-1000); partial failures are reported per item. IGNORED for all other actions.'
-        ),
-      edge_type: z
-        .enum(EDGE_TYPES)
-        .optional()
-        .describe(
-          'Edge type (default: related). OPTIONAL for "link". IGNORED for "create", "update", "link_batch", "unlink", "unlink_batch", "retype".'
-        ),
-      edge_id: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED for "unlink" and "retype". The edge to modify. IGNORED for all other actions.'
-        ),
-      edge_ids: z
-        .array(z.string())
-        .optional()
-        .describe(
-          'REQUIRED ONLY for "unlink_batch". Edge IDs to delete/preview in one call (1-1000); partial failures are reported per item. IGNORED for all other actions.'
-        ),
-      new_type: z
-        .enum(EDGE_TYPES)
-        .optional()
-        .describe('REQUIRED for "retype". The new edge type. IGNORED for all other actions.'),
-      confirm: z
-        .boolean()
-        .optional()
-        .describe(
-          'CONSUMED by "unlink", "unlink_batch", "retype" (true executes the write; false/omitted is a dry-run). IGNORED for all other actions.'
-        ),
-      preview_token: z
-        .string()
-        .optional()
-        .describe(
-          'OPTIONAL preview token returned by a prior preview. CONSUMED by "unlink" and "retype" (true executes with token validation; missing/stale fails). IGNORED for all other actions.'
-        )
+      ...STORE_ARGS,
+      content: storeContentArg(cfg)
     },
     handlers
   })

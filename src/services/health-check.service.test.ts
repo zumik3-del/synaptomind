@@ -19,45 +19,21 @@ test('runHealthCheckService returns valid structure on empty DB', () => {
       'active',
       'archived',
       'critical',
-      'critical_count',
-      'critical_issues',
       'draft',
-      'formula',
       'health_score',
       'info',
-      'info_count',
-      'info_issues',
-      'issues',
       'score_breakdown',
-      'score_components',
-      'score_details',
-      'score_explanation',
-      'score_formula',
-      'score_composition',
       'total_clusters',
       'total_edges',
       'total_thoughts',
-      'warning',
-      'warning_count',
-      'warning_issues'
+      'warning'
     ].sort()
   )
   expect(report.summary.total_thoughts).toBe(0)
   expect(report.summary.total_edges).toBe(0)
   expect(report.summary.health_score).toBe(100)
-  expect(report.summary.issues).toEqual({ critical: 0, warning: 0, info: 0 })
-  expect(report.summary.critical).toBe(report.summary.critical_count)
-  expect(report.summary.critical).toBe(report.summary.critical_issues)
-  expect(report.summary.warning).toBe(report.summary.warning_count)
-  expect(report.summary.warning).toBe(report.summary.warning_issues)
-  expect(report.summary.info).toBe(report.summary.info_count)
-  expect(report.summary.info).toBe(report.summary.info_issues)
-  expect(report.summary.score_composition).toBe(report.summary.score_breakdown)
-  expect(report.summary.score_explanation).toBe(report.summary.score_breakdown)
-  expect(report.summary.score_components).toBe(report.summary.score_breakdown)
-  expect(report.summary.score_details).toBe(report.summary.score_breakdown)
-  expect(report.summary.formula).toBe(report.summary.score_formula)
-  expect(report.summary.formula).toBe(
+  expect([report.summary.critical, report.summary.warning, report.summary.info]).toEqual([0, 0, 0])
+  expect(report.summary.score_breakdown.formula).toBe(
     '100 - (critical_categories * 40) - (warning_categories * 15) - (info_scored_occurrences * 0.25), clamped to [0, 100]'
   )
   expect(report.categories.length).toBe(6)
@@ -383,7 +359,9 @@ test('severity filtering scores the surviving checks only', () => {
   const critical = runHealthCheckService({ severity: 'critical' })
   const warning = runHealthCheckService({ severity: 'warning' })
 
-  expect(critical.summary.issues).toEqual({ critical: 1, warning: 0, info: 0 })
+  expect([critical.summary.critical, critical.summary.warning, critical.summary.info]).toEqual([
+    1, 0, 0
+  ])
   expect(critical.summary.score_breakdown).toMatchObject({
     critical_categories: 1,
     warning_categories: 0,
@@ -392,7 +370,9 @@ test('severity filtering scores the surviving checks only', () => {
   })
   expect(critical.summary.health_score).toBe(60)
 
-  expect(warning.summary.issues).toEqual({ critical: 1, warning: 2, info: 0 })
+  expect([warning.summary.critical, warning.summary.warning, warning.summary.info]).toEqual([
+    1, 2, 0
+  ])
   expect(warning.summary.score_breakdown).toMatchObject({
     critical_categories: 1,
     warning_categories: 1,
@@ -401,7 +381,7 @@ test('severity filtering scores the surviving checks only', () => {
   })
   expect(warning.summary.health_score).toBe(45)
 
-  expect(full.summary.issues.info).toBeGreaterThan(0)
+  expect(full.summary.info).toBeGreaterThan(0)
   expect(full.summary.score_breakdown.info_occurrences).toBeGreaterThan(0)
   expect(full.summary.health_score).toBeLessThan(warning.summary.health_score)
 })
@@ -423,7 +403,7 @@ test('health score decreases with issues', () => {
 
   const dirty = runHealthCheckService()
   expect(dirty.summary.health_score).toBeLessThan(100)
-  expect(dirty.summary.issues.critical).toBeGreaterThan(0)
+  expect(dirty.summary.critical).toBeGreaterThan(0)
 })
 
 test('fix mode removes orphan edges', () => {
@@ -439,12 +419,12 @@ test('fix mode removes orphan edges', () => {
   db.run('PRAGMA foreign_keys = ON')
 
   const before = runHealthCheckService()
-  expect(before.summary.issues.critical).toBeGreaterThan(0)
+  expect(before.summary.critical).toBeGreaterThan(0)
 
   const _repairPreview = runHealthRepairService()
   runHealthRepairService({ confirm: true, preview_token: _repairPreview.preview_token })
   const after = runHealthCheckService()
-  expect(after.summary.issues.critical).toBe(0)
+  expect(after.summary.critical).toBe(0)
 })
 
 test('fix mode removes empty clusters', () => {

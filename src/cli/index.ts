@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite'
-import { config } from '../config'
+import { config, type Config } from '../config'
 import { vec0Path } from '../runtime-mode'
 import { runHealthCheckService, type HealthReport } from '../services/health-check.service'
 
@@ -20,11 +20,12 @@ export interface OpsHealthCheckResult {
 }
 
 export async function runOpsHealthCheck(
-  opts: OpsHealthCheckOptions = {}
+  opts: OpsHealthCheckOptions = {},
+  cfg: Config = config
 ): Promise<OpsHealthCheckResult> {
-  const configured = config.users?.length
-    ? config.users.map(user => ({ userId: user.id, path: user.dbPath }))
-    : [{ userId: 'default', path: config.db.path }]
+  const configured = cfg.users?.length
+    ? cfg.users.map(user => ({ userId: user.id, path: user.dbPath }))
+    : [{ userId: 'default', path: cfg.db.path }]
   const selected =
     opts.user && opts.user !== 'all'
       ? configured.filter(target => target.userId === opts.user)

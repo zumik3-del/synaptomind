@@ -37,7 +37,16 @@ with an added slash.
   counter store, separate from the MCP transport's. `/health` is not rate limited — it must
   stay cheap enough to poll from a container healthcheck.
 - **Body limit:** request bodies over 5 MB are rejected with `413
-  {"error":"Request body too large (max 5MB)"}`.
+  {"error":"Request body too large (max 5MB)"}`. The limit holds regardless of the
+  framing: the bytes are counted as the body streams in, so a chunked request without
+  `Content-Length`, and a `Content-Length` that understates the body, are cut at the
+  same 5 MB — while a declared length over the cap is rejected before the body is read
+  at all. On `/api/*` the counting happens in front of the route handler
+  (`src/middleware/body-cap.ts`), which therefore never runs for an oversized body and
+  is never handed one. On the MCP listener the same limit is enforced inside the route
+  handler instead, because MCP must answer `415` for a non-JSON media type before it
+  reads the body; the SDK's own `maxRequestBodySize` runs in that same read and is not
+  a third limit. One limit, one constant (`MAX_REQUEST_BODY_BYTES`), two mount points.
 - **Errors:** handlers return `{"error": "..."}` with an appropriate HTTP status — `400`
   validation, `401` auth, `404` not found, `409` conflict, `413` too large, `429` rate
   limited, `500` internal, `503` a dependency is not ready (the embedder still loading) or a
@@ -89,14 +98,13 @@ curl 'http://127.0.0.1:3005/api/health-check?severity=warning' \
 ```
 
 `summary` includes graph counts (`total_thoughts`, `total_edges`, `total_clusters`,
-`active`, `draft`, `archived`), `health_score`, and raw issue counts by severity. The
-severity counts are currently emitted under duplicate aliases: `critical`/`warning`/`info`,
-`critical_count`/`warning_count`/`info_count`, `critical_issues`/`warning_issues`/
-`info_issues`, and the grouped `issues: {critical, warning, info}`. Score details are
-likewise duplicated as `score_breakdown`, `score_composition`, `score_explanation`,
-`score_components`, and `score_details` (the same object), plus `score_formula` and
-`formula` (the same formula string). These compatibility aliases are part of the current
-response and must remain until a separately reviewed deprecation/removal plan.
+`active`, `draft`, `archived`), `health_score`, and raw issue counts by severity as
+`critical`, `warning` and `info`. Those three keys are the only severity counts: the
+former aliases (`critical_count`, `critical_issues`, `warning_count`, `warning_issues`,
+`info_count`, `info_issues` and the grouped `issues: {critical, warning, info}`) are gone,
+removed rather than deprecated. Score details live only under `score_breakdown`: the
+duplicated `score_composition`, `score_explanation`, `score_components`, `score_details`,
+`score_formula` and `formula` aliases are removed with it.
 
 `score_breakdown` fields are `critical_categories`, `warning_categories`,
 `info_occurrences`, `info_scored_occurrences`, `info_unscored_checks`,
@@ -105,6 +113,13 @@ penalties count categories with findings (40 and 15 points); info penalty counts
 occurrences (0.25 each), clamped to a score from 0 to 100. `island_thoughts` occurrences
 are reported but not scored. The `severity` filter also filters which findings and summary
 counts contribute to that response.
+
+The response is built by one service-side view (`runHealthCheckView`, `severity`,
+`details`, `contentLimit`) that `memory_status action=health` shares, so the two surfaces
+cannot drift. `details` entries carry their content strings cut at `contentLimit`; a cut
+string ends in `…`, so a truncated value is never mistaken for a short one. The repair hook
+(`autofix`) never leaves the service layer: the wire reports findings and an
+`auto_fixable: true` marker only.
 
 The same report is available to an agent as `memory_status action=health`; the route is
 kept because an ops surface must be reachable without an MCP client (monitoring, a shell

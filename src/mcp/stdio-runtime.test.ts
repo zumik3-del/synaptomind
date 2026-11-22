@@ -1,12 +1,23 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { spawn } from 'node:child_process'
-import { linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '../db/init'
 import { Database } from 'bun:sqlite'
 
 const repoRoot = join(import.meta.dir, '..', '..')
+const STUB_EMBEDDER = join(repoRoot, 'src', 'embedder', '__fixtures__', 'stub-embedder-env.ts')
+const ATTEMPTS_FILE = 'embedder-attempts'
+const CHILD_ENV_FILE = 'embedder-env.json'
 const INIT = {
   jsonrpc: '2.0',
   id: 1,
@@ -22,10 +33,14 @@ const LIST = { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }
 
 const tempDirs: string[] = []
 
-function makeDbPath(): string {
+function makeTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'synaptomind-stdio-'))
   tempDirs.push(dir)
-  return join(dir, 'test.db')
+  return dir
+}
+
+function makeDbPath(): string {
+  return join(makeTempDir(), 'test.db')
 }
 
 interface StdioRun {
@@ -34,14 +49,23 @@ interface StdioRun {
   exitCode: number | null
 }
 
-function runStdio(extraArgs: string[] = []): Promise<StdioRun> {
+interface StdioOptions {
+  dbPath?: string
+  env?: Record<string, string>
+  request?: Record<string, unknown>
+  /** Runs with the child still alive: the last awaited response has arrived, stdin is still open. */
+  whileRunning?: () => void
+}
+
+function runStdio(extraArgs: string[] = [], options: StdioOptions = {}): Promise<StdioRun> {
   return new Promise((resolve, reject) => {
     const env = { ...process.env } as Record<string, string | undefined>
-    env.SYNAPTOMIND_DB_PATH = makeDbPath()
+    env.SYNAPTOMIND_DB_PATH = options.dbPath ?? makeDbPath()
     env.SYNAPTOMIND_EMBEDDER_ENABLED = 'false'
     env.SYNAPTOMIND_MCP_STDIO_STANDALONE = extraArgs.includes('--stdio-standalone')
       ? 'true'
       : 'false'
+    Object.assign(env, options.env)
 
     const child = spawn(process.execPath, ['src/index.ts', '--stdio', ...extraArgs], {
       cwd: repoRoot,
@@ -52,6 +76,8 @@ function runStdio(extraArgs: string[] = []): Promise<StdioRun> {
     let stdout = ''
     let stderr = ''
     let done = false
+    let closing = false
+    let booted = false
 
     const finish = (code: number | null) => {
       if (done) return
@@ -70,7 +96,22 @@ function runStdio(extraArgs: string[] = []): Promise<StdioRun> {
 
     child.stdout.on('data', chunk => {
       stdout += chunk.toString()
-      if (!done && stdout.includes('"id":2')) child.stdin.end()
+      if (done || closing) return
+      if (!booted && stdout.includes('"id":2')) {
+        booted = true
+        options.whileRunning?.()
+        if (options.request) {
+          child.stdin.write(`${JSON.stringify(options.request)}\n`)
+        } else {
+          closing = true
+          child.stdin.end()
+        }
+        return
+      }
+      if (options.request && stdout.includes('"id":3')) {
+        closing = true
+        child.stdin.end()
+      }
     })
     child.stderr.on('data', chunk => {
       stderr += chunk.toString()
@@ -140,6 +181,106 @@ describe('MCP stdio runtime', () => {
     expect(exitCode).toBe(0)
     assertPureJsonRpcLines(stdout)
     expect(toolsFrom(stdout).length).toBe(11)
+    expect(stderr).not.toContain('background jobs delegated to the shared server')
+  }, 30_000)
+})
+
+describe('stdio embedder ownership', () => {
+  const RECALL = {
+    jsonrpc: '2.0',
+    id: 3,
+    method: 'tools/call',
+    params: { name: 'memory_recall', arguments: { action: 'search', query: 'delegating probe' } }
+  }
+
+  function embedderEnv(dir: string): Record<string, string> {
+    return {
+      SYNAPTOMIND_EMBEDDER_ENABLED: 'true',
+      SYNAPTOMIND_EMBEDDER_SCRIPT: STUB_EMBEDDER,
+      SYNAPTOMIND_STUB_ATTEMPT_FILE: join(dir, ATTEMPTS_FILE),
+      SYNAPTOMIND_STUB_ENV_FILE: join(dir, CHILD_ENV_FILE)
+    }
+  }
+
+  function spawnedChildren(dir: string): number {
+    const file = join(dir, ATTEMPTS_FILE)
+    return existsSync(file) ? Number(readFileSync(file, 'utf8').trim()) || 0 : 0
+  }
+
+  function childBatchWorker(dir: string): string | null | undefined {
+    const file = join(dir, CHILD_ENV_FILE)
+    if (!existsSync(file)) return undefined
+    return (JSON.parse(readFileSync(file, 'utf8')) as { batchWorker: string | null }).batchWorker
+  }
+
+  // The retention job sweeps an expired token synchronously, so survival records no armed timer.
+  function seedExpiredPreviewToken(dbPath: string): void {
+    const db = openDatabase({ dbPath, runMigrations: true })
+    db.run(
+      `INSERT INTO preview_tokens (token, kind, target_id, fingerprint, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        'expired-probe',
+        'apply',
+        'probe-target',
+        'probe-fingerprint',
+        '2020-01-01T00:00:00.000Z',
+        '2020-01-01T00:00:01.000Z'
+      ]
+    )
+    db.close(true)
+  }
+
+  function previewTokenCount(dbPath: string): number {
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      return (db.query('SELECT count(*) AS n FROM preview_tokens').get() as { n: number }).n
+    } finally {
+      db.close()
+    }
+  }
+
+  // No local worker, not no local model: ADR 2026-11-22-stdio-delegating-promise.
+  test('delegating mode spawns nothing at boot and one child, without jobs, on demand', async () => {
+    const dir = makeTempDir()
+    const dbPath = join(dir, 'test.db')
+    seedExpiredPreviewToken(dbPath)
+    let atBoot = -1
+
+    const { stdout, stderr, exitCode } = await runStdio([], {
+      dbPath,
+      env: embedderEnv(dir),
+      whileRunning: () => {
+        atBoot = spawnedChildren(dir)
+      },
+      request: RECALL
+    })
+
+    expect(exitCode).toBe(0)
+    expect(atBoot).toBe(0)
+    expect(spawnedChildren(dir)).toBe(1)
+    expect(childBatchWorker(dir)).toBe('false')
+    expect(previewTokenCount(dbPath)).toBe(1)
+    expect(stdout).toContain('"id":3')
+    expect(stderr).toContain('background jobs delegated to the shared server')
+    expect(stderr).toContain('on-demand local child')
+  }, 30_000)
+
+  test('standalone mode spawns exactly one child at boot and sweeps locally', async () => {
+    const dir = makeTempDir()
+    const dbPath = join(dir, 'test.db')
+    seedExpiredPreviewToken(dbPath)
+
+    const { stdout, stderr, exitCode } = await runStdio(['--stdio-standalone'], {
+      dbPath,
+      env: embedderEnv(dir)
+    })
+
+    expect(exitCode).toBe(0)
+    expect(spawnedChildren(dir)).toBe(1)
+    expect(childBatchWorker(dir)).toBeNull()
+    expect(previewTokenCount(dbPath)).toBe(0)
+    expect(stdout).toContain('"id":2')
     expect(stderr).not.toContain('background jobs delegated to the shared server')
   }, 30_000)
 })

@@ -1,4 +1,4 @@
-import { config, DEFAULTS, ENV_MAPPINGS } from '../config'
+import { config, DEFAULTS, ENV_MAPPINGS, type Config } from '../config'
 import { RAW_ENV, rawEnvEffective } from '../config.raw-env'
 
 function formatValue(val: unknown): string {
@@ -50,8 +50,8 @@ function displayValue(path: string, val: unknown): string {
   return formatValue(val)
 }
 
-export function buildConfigDisplay(): string {
-  const c = config as unknown as Record<string, unknown>
+export function buildConfigDisplay(cfg: Config = config): string {
+  const c = cfg as unknown as Record<string, unknown>
   const d = DEFAULTS as unknown as Record<string, unknown>
   const sections = new Map<string, Array<{ path: string; env: string }>>()
   for (const mapping of ENV_MAPPINGS) {

@@ -5,6 +5,9 @@
 Thought-graph engine. Capture, link, cluster, retrieve thoughts via HTTP API or MCP.
 Bun + Hono + SQLite (vec0 + FTS5); local embeddings via `@huggingface/transformers`.
 
+Architecture — layers and the scan tests that enforce them, runtime modes, the traced read and write
+paths, the DI convention and the code-tier map: `docs/ARCHITECTURE.md`.
+
 ## 2. Stack & toolchain
 
 - Runtime: Bun (latest stable); TypeScript strict (no `any` unless unavoidable)
@@ -33,6 +36,9 @@ Bun + Hono + SQLite (vec0 + FTS5); local embeddings via `@huggingface/transforme
 ## 4. Code conventions
 
 - SOLID, KISS, DRY where they matter; one thing per function; files ≤350 lines; clear names
+- **No speculative growth.** Add a module, abstraction, option, config key or dependency only when a
+  current caller needs it; extend an existing seam before adding a parallel one; a refactor that
+  deletes code beats one that adds it. Three similar lines are cheaper than the wrong abstraction.
 - Tests alongside source (`*.test.ts`)
 
 **Comments.** None by default — code is read by agents, and a stale comment misleads more than
@@ -60,9 +66,11 @@ registered user databases, else the default one, and returns an empty list only 
 (no user database registered and `getDb()` throwing), so those jobs simply have nothing to run.
 The positional form passes `d: Database` as a required positional (not trailing) where the call
 must receive the caller's transaction handle or the function is a pure helper: `apply-gates.service.ts`,
-`candidate-embeddings.service.ts`, `health-check-drafts.service.ts`, `health.service.ts`,
-`placement-proposals.mapping.service.ts`, `search-outcome.service.ts`, `search-standing.service.ts`,
-`placement/placement.ts`.
+`health-check-drafts.service.ts`, `health.service.ts`, `placement-proposals.mapping.service.ts`,
+`search-outcome.service.ts`, `search-standing.service.ts`, `placement/placement.ts`, and
+`retention-review-eligibility.service.ts` (`evaluateEligibility(id, d, opts, now)` — the options
+follow the handle). `candidate-embeddings.service.ts resolveCandidateEmbeddings(candidates, embed,
+db)` takes a required **trailing** handle instead.
 The `options` form inserts an `options` argument before `d`: `thoughts.service.ts
 updateThoughtByIdService(id, data, options, d)`, because `UpdateThoughtInput` whitelists columns and
 `url_links` is not one — riding in `data`, it would be dropped silently. These non-canonical forms
@@ -71,15 +79,28 @@ Test-only fixtures live in `src/test/` — never in `services/`, where a `bun:te
 into the production path.
 
 **Layering.** `api/mcp → services → db`; routes stay thin (parse/serialize only, validation +
-orchestration in services). Error classes live in `src/errors.ts`: it is cycle-free and neutral
-against `services`/`api`/`mcp`, but it re-exports six classes from `db/errors.ts`, so the module
-depends on the db layer by design.
+orchestration in services). `db/` issues SQL and returns rows: no domain policy, no config
+derivation, no logging decision, and it never imports `services`, `api`, `mcp`, `context` or
+`src/errors.ts`; DDL lives in `db/schema/`, migrations in `db/migrations/`, and a pure data or type
+module does not live in `db/`. Both rules are machine-enforced — `src/db/db-boundary.scan.test.ts`
+(seven tests) and `src/mcp/tools/thin-tools.test.ts` (`FORBIDDEN_SPECIFIER`, which also bans
+`bun:sqlite` in tool modules); the layer diagram, the deliberate seams and the one service-layer SQL
+exception (`probeDatabase`) are in `docs/ARCHITECTURE.md`. **One owner for the handle:** the default
+handle, the multi-user registry and the ALS live in `db/handle.ts` and are exported only through
+`src/db/index.ts` —
+callers import them from `../db` (inside `db/` via `./index`; `db/init.ts` imports `./handle`
+because the barrel re-exports `init`), and `context/` imports `db/`, never the reverse. Error classes
+live in `src/errors.ts`: it is cycle-free and neutral against `services`/`api`/`mcp`, but it
+re-exports **eight** classes from `db/errors.ts` (the six edge/content conflicts plus
+`NotFoundError` and `ValidationError`), so the module depends on the db layer by design. The policy
+carved out of `db/` keeps a db-first signature with no wrapper when that is all its callers need:
+`edges.service.ts createEdge` and `retypeEdge`, `projects.service.ts deleteProject`.
 
 ## 5. Testing setup
 
 - Helpers: `src/test/helpers.ts` — `createTestDb()`, `seedThought()`, `seedEdge()`, `seedEmbedding()`
 - Fresh DB per suite: `beforeEach(createTestDb)` — a `Database.deserialize` copy of one migrated
-  `:memory:` image per test process (~0.1 ms, not a 42-migration run), so a migration is only
+  `:memory:` image per test process (~0.1 ms, not a 43-migration run), so a migration is only
   exercised by the migration tests themselves
 - Config load-time guards: `src/test/fresh-config.ts` (`loadFreshConfig`) re-evaluates `config.ts`
   in-process with a scratch env/`config.json`; never spawn `bun -e` for one assertion
@@ -87,6 +108,11 @@ depends on the db layer by design.
   `src/test/lanes.ts` holds the lanes and shard weights, and `src/test/lanes.test.ts` fails when a
   test that boots the entry point or binds a listener is missing from the slow lane
 - Glob: `*.test.ts` runs; `*.suite.ts` is excluded (isolated subprocess suites)
+- **Coverage follows risk, not a percentage.** Every Core path (persistence, wire contracts,
+  retrieval, write atomicity) has a test that fails when its behaviour breaks; a Pillar covers the
+  behaviour it promises; Scaffolding gets a smoke-level check. New code needs the failing case it
+  prevents, not a mirror of its implementation — and a pin that cannot be made to fail is worse than
+  none, so prove it by mutation (revert the fix, seed a stray value) before calling it coverage.
 - Gotchas → §8
 
 ## 6. Branching, release & deploy
@@ -105,7 +131,9 @@ merge-commit subject and must be `<type>(<scope>): <desc>`
 (`fix`/`feat`/`chore`/`docs`/`refactor`/`test`/`ci`/`build`; `feat!:` or `BREAKING CHANGE:` = breaking).
 No `Fixed bug`/`update stuff`/emoji-only.
 
-**Release:** on a clean `dev`, `bash scripts/release.sh <version>` (validates semver, bumps
+**Release:** **bump versions only when the user asks** — a merged wave is not a release trigger, and
+no agent cuts one on its own initiative. When asked, on a clean `dev`,
+`bash scripts/release.sh <version>` (validates semver, bumps
 `package.json`, regenerates `CHANGELOG.md`; no tag/commit/push) → commit
 `chore: bump version to <version>` → push → open release PR `dev` → `main` → user merges. The push to
 `main` triggers `.github/workflows/release.yml`: `detect` (only if the version changed and
