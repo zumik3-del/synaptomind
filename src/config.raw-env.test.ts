@@ -4,19 +4,18 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { ENV_MAPPINGS } from './config'
 import { RAW_ENV, rawEnvEffective, rawEnvEntry, rawEnvFallbackNumber } from './config.raw-env'
+import { EMBEDDER_BATCH_WORKER_ENV, EMBEDDER_USERS_ENV } from './embedder/spawn-scope'
 import { configHandler } from './mcp/tools/status/config'
 
 const SRC = resolve(import.meta.dir)
 
-/**
- * Env variables a production module reads through `process.env` but deliberately does not surface in
- * `RAW_ENV`: the embedder-script switch exists so a test can swap the child process for a stub, and
- * a real deployment has no reason to set it. Naming it here keeps the scan strict — a knob that is
- * neither mapped, registered nor listed fails the suite.
- */
-const TEST_SEAMS = ['SYNAPTOMIND_EMBEDDER_SCRIPT']
-
 const EXCLUDED_DIRS = ['test/', '__fixtures__/']
+
+const EMBEDDER_ENV = [
+  'SYNAPTOMIND_EMBEDDER_USERS',
+  'SYNAPTOMIND_EMBEDDER_BATCH_WORKER',
+  'SYNAPTOMIND_EMBEDDER_SCRIPT'
+]
 
 function productionSources(): Array<{ file: string; source: string }> {
   return [...new Glob('**/*.ts').scanSync({ cwd: SRC })]
@@ -48,6 +47,20 @@ function dynamicReaders(sources: Array<{ file: string; source: string }>): strin
   return sources
     .filter(({ source }) => /process\.env\[\s*[^'"\s\]]/.test(source))
     .map(({ file }) => file)
+}
+
+function declaredNames(omit?: string): Set<string> {
+  return new Set([
+    ...ENV_MAPPINGS.map(mapping => mapping.env),
+    ...RAW_ENV.map(entry => entry.env).filter(env => env !== omit)
+  ])
+}
+
+function uncoveredReads(
+  sources: Array<{ file: string; source: string }>,
+  declared: Set<string>
+): string[] {
+  return [...literalReads(sources).keys()].filter(name => !declared.has(name)).sort()
 }
 
 let saved = new Map<string, string | undefined>()
@@ -133,14 +146,44 @@ describe('rawEnvEffective — the value the reader would use', () => {
     expect(rawEnvEffective(entry, {})).toBe('300000 (default)')
   })
 
+  test('an inverted flag is on unless it is exactly "false"', () => {
+    const entry = rawEnvEntry('SYNAPTOMIND_EMBEDDER_BATCH_WORKER')
+
+    expect(rawEnvEffective(entry, { SYNAPTOMIND_EMBEDDER_BATCH_WORKER: 'false' })).toBe('no')
+    expect(rawEnvEffective(entry, { SYNAPTOMIND_EMBEDDER_BATCH_WORKER: 'true' })).toBe('yes')
+    expect(rawEnvEffective(entry, { SYNAPTOMIND_EMBEDDER_BATCH_WORKER: '0' })).toBe('yes')
+    expect(rawEnvEffective(entry, {})).toBe('yes')
+  })
+
   test('a path, a file and a secret are reduced to presence', () => {
-    for (const name of ['SYNAPTOMIND_VEC0_PATH', 'SYNAPTOMIND_CONFIG', 'SYNAPTOMIND_SECRET']) {
+    for (const name of [
+      'SYNAPTOMIND_VEC0_PATH',
+      'SYNAPTOMIND_CONFIG',
+      'SYNAPTOMIND_SECRET',
+      'SYNAPTOMIND_EMBEDDER_SCRIPT'
+    ]) {
       const entry = rawEnvEntry(name)
 
       expect(rawEnvEffective(entry, { [name]: '/some/where' })).toBe('[set]')
       expect(rawEnvEffective(entry, { [name]: '   ' })).toBe('-')
       expect(rawEnvEffective(entry, {})).toBe('-')
     }
+  })
+
+  test('a path list reports a count and never one of its paths', () => {
+    const entry = rawEnvEntry('SYNAPTOMIND_EMBEDDER_USERS')
+    const one = JSON.stringify([{ id: 'alice', dbPath: '/srv/private/alice.db' }])
+    const two = JSON.stringify([
+      { id: 'alice', dbPath: '/srv/private/alice.db' },
+      { id: 'bob', dbPath: '/srv/private/bob.db' }
+    ])
+
+    expect(rawEnvEffective(entry, { SYNAPTOMIND_EMBEDDER_USERS: one })).toBe('1 path')
+    expect(rawEnvEffective(entry, { SYNAPTOMIND_EMBEDDER_USERS: two })).toBe('2 paths')
+    expect(rawEnvEffective(entry, { SYNAPTOMIND_EMBEDDER_USERS: '{"id":"alice"}' })).toBe('[set]')
+    expect(rawEnvEffective(entry, { SYNAPTOMIND_EMBEDDER_USERS: 'not json' })).toBe('[set]')
+    expect(rawEnvEffective(entry, { SYNAPTOMIND_EMBEDDER_USERS: '   ' })).toBe('-')
+    expect(rawEnvEffective(entry, {})).toBe('-')
   })
 
   test('a secret list reports the env-name ids, sorted, never a token', () => {
@@ -159,16 +202,28 @@ describe('rawEnvEffective — the value the reader would use', () => {
 })
 
 describe('RAW_ENV completeness — a mechanical scan of src/', () => {
-  test('every process.env read is mapped, registered or a named test seam', () => {
-    const reads = literalReads(productionSources())
-    const declared = new Set([
-      ...ENV_MAPPINGS.map(mapping => mapping.env),
-      ...RAW_ENV.map(entry => entry.env),
-      ...TEST_SEAMS
-    ])
+  test('every process.env read is mapped or registered', () => {
+    expect(uncoveredReads(productionSources(), declaredNames())).toEqual([])
+  })
 
-    const uncovered = [...reads.keys()].filter(name => !declared.has(name)).sort()
-    expect(uncovered).toEqual([])
+  test('every embedder knob is registered and read under a literal key', () => {
+    const source = readFileSync(resolve(SRC, 'embedder/spawn-scope.ts'), 'utf8')
+
+    for (const name of EMBEDDER_ENV) expect(RAW_ENV.map(entry => entry.env)).toContain(name)
+    for (const name of [EMBEDDER_USERS_ENV, EMBEDDER_BATCH_WORKER_ENV]) {
+      expect(source).toContain(`process.env.${name}`)
+    }
+    expect(source).not.toContain('process.env[')
+  })
+
+  test('dropping any of the three embedder entries from RAW_ENV fails the scan', () => {
+    const sources = productionSources()
+    const complete = declaredNames()
+
+    for (const removed of EMBEDDER_ENV) {
+      expect(complete.has(removed)).toBe(true)
+      expect(uncoveredReads(sources, declaredNames(removed))).toEqual([removed])
+    }
   })
 
   test('every literal RAW_ENV entry is actually read somewhere in src/', () => {
@@ -226,14 +281,17 @@ describe('memory_status action=config — the raw-env section', () => {
     expect(section).toContain('SYNAPTOMIND_DEBUG = yes:')
     expect(section).toContain('EMBEDDER_START_TIMEOUT_MS = 12345:')
     expect(section).toContain('EMBEDDER_BACKOFF_BASE_MS = 1000 (default):')
+    expect(section).toContain('SYNAPTOMIND_EMBEDDER_BATCH_WORKER = yes:')
   })
 
-  test('never echoes a secret, a file or a path value', async () => {
+  test('never echoes a secret, a file, a path or the user list value', async () => {
     const secret = 'sk-live-do-not-print-me'
     const bearer = 'single-user-bearer-secret'
     const configFile = '/srv/private/config.json'
     const vec0 = '/srv/private/vec0.so'
     const token = 'alice-plaintext-token'
+    const userDb = '/srv/private/embeddings/alice.db'
+    const stubScript = '/srv/private/stub-embedder.ts'
     for (const key of Object.keys(process.env)) {
       if (key.startsWith('SYNAPTOMIND_USER_TOKEN_')) setEnv(key, undefined)
     }
@@ -242,14 +300,20 @@ describe('memory_status action=config — the raw-env section', () => {
     setEnv('SYNAPTOMIND_CONFIG', configFile)
     setEnv('SYNAPTOMIND_VEC0_PATH', vec0)
     setEnv('SYNAPTOMIND_USER_TOKEN_ALICE', token)
+    setEnv('SYNAPTOMIND_EMBEDDER_USERS', JSON.stringify([{ id: 'alice', dbPath: userDb }]))
+    setEnv('SYNAPTOMIND_EMBEDDER_SCRIPT', stubScript)
 
     const text = await configDisplay()
     const section = rawSection(text)
 
-    for (const value of [secret, bearer, configFile, vec0, token]) expect(text).not.toContain(value)
+    for (const value of [secret, bearer, configFile, vec0, token, userDb, stubScript]) {
+      expect(text).not.toContain(value)
+    }
     expect(section).toContain('SYNAPTOMIND_SECRET = [set]:')
     expect(section).toContain('SYNAPTOMIND_CONFIG = [set]:')
     expect(section).toContain('SYNAPTOMIND_VEC0_PATH = [set]:')
+    expect(section).toContain('SYNAPTOMIND_EMBEDDER_USERS = 1 path:')
+    expect(section).toContain('SYNAPTOMIND_EMBEDDER_SCRIPT = [set]:')
     expect(section).toContain('SYNAPTOMIND_USER_TOKEN_<ID> = ALICE:')
   })
 

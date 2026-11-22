@@ -611,7 +611,7 @@ These variables are read directly where they are used, not through the config ta
 above, so they are not part of the resolved config object — `config.json` and the
 defaults above do not apply to them. `memory_status action=config` prints them with
 their effective values under `--- Raw environment ---` (paths and secrets as
-presence only).
+presence only, the embedder user list as a count).
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
@@ -620,6 +620,9 @@ presence only).
 | `SYNAPTOMIND_VEC0_PATH` | — | vec0 extension path override (otherwise resolved next to the binary) |
 | `EMBEDDER_START_TIMEOUT_MS` | `300000` | Deadline for the embedder child to report ready; a non-positive or non-numeric value uses the default |
 | `EMBEDDER_BACKOFF_BASE_MS` | `1000` | Base restart backoff for the embedder child; same fallback rule |
+| `SYNAPTOMIND_EMBEDDER_USERS` | — | User databases the parent hands the embedder child as JSON (`[{ "id", "dbPath" }]`); a child that gets this list polls exactly those databases. Reported as a count, never as paths |
+| `SYNAPTOMIND_EMBEDDER_BATCH_WORKER` | `true` | The parent sets this to `false` for a child that must not run the background jobs; unset or any other value runs them |
+| `SYNAPTOMIND_EMBEDDER_SCRIPT` | — | Embedder entry script used instead of the packaged one; a test seam for stub children |
 | `SYNAPTOMIND_SECRET` | — | Single-user bearer token, see [Authentication](#authentication) |
 | `SYNAPTOMIND_ALLOW_INSECURE` | `false` | Disables auth for local development, see [Authentication](#authentication) |
 | `SYNAPTOMIND_USER_TOKEN_<ID>` | — | Per-user plaintext token, see [Users](#users-multi-user) |
