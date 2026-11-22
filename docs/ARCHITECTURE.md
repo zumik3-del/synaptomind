@@ -180,9 +180,9 @@ The process serves one default database or one database per configured user, nev
 The tier map is not restated here. It is an ADR with fourteen disjoint rows, four placement tests and
 a per-tier verification floor:
 
-- [`synaptomind/adr/2026-11-12-code-tiers-core-pillars-scaffolding.md`](https://forgejo.home.lan/authelia/artifacts/src/commit/9176a3315f4a92aa01046932094059e502f28fb7/synaptomind/adr/2026-11-12-code-tiers-core-pillars-scaffolding.md)
+- [`synaptomind/adr/2026-11-12-code-tiers-core-pillars-scaffolding.md`](https://forgejo.home.lan/authelia/artifacts/src/commit/6371e9cf501628236e84aea7be68eefa85df3fe2/synaptomind/adr/2026-11-12-code-tiers-core-pillars-scaffolding.md)
 - machine reference:
-  `authelia/artifacts@9176a3315f4a92aa01046932094059e502f28fb7:synaptomind/adr/2026-11-12-code-tiers-core-pillars-scaffolding.md`
+  `authelia/artifacts@6371e9cf501628236e84aea7be68eefa85df3fe2:synaptomind/adr/2026-11-12-code-tiers-core-pillars-scaffolding.md`
 
 | Row | Tier | Block |
 | --- | --- | --- |
@@ -204,7 +204,8 @@ a per-tier verification floor:
 Reading this page through the map: the traced read path is rows 3 (`search.service.ts`,
 `db/search*.ts`) and 4 (`recall.ts`, `envelope.ts`); the traced write path is row 2
 (`thoughts.service.ts`, `url_links.service.ts`, `db/thoughts.ts`); the embedder is row 5; the
-per-user middleware is row 10 and the registry row 14.
+per-user middleware is row 10, the per-user fan-out (`src/context/registry.ts`) is row 14, and the
+multi-user handle registry it registers into (`src/db/handle.ts`) is row 1.
 
 Two things the tiers do not mean:
 
@@ -214,12 +215,13 @@ Two things the tiers do not mean:
 - **A tier may raise a task's risk class, never lower it.** A one-line Pillar change is still a T3
   task by risk surface.
 
-Row membership is defined by the ADR's globs, and at `c668c321` seven product paths post-date the
-ADR's last measurement — `src/db/handle.ts`, `src/db/schema/{baseline-schema,vec-schema}.ts`,
-`src/text/stopwords.ts`, `src/mcp/tools/list-page.ts`, `src/lifecycle.ts`, `src/interval-job.ts` — so
-the map's "no unclassified file" claim does not hold at this revision until the refresh in flight
-lands. Classify from the ADR's criteria, and treat a file matching no row as a review finding rather
-than as Scaffolding by default.
+Row membership is defined by the ADR's globs, and at `c668c321` the map covers the corpus: the
+measurement prints `unmatched` and `claimed more than once` both empty, so no product file escapes a
+row and none is counted twice. The seven modules an earlier revision left unclassified —
+`src/db/handle.ts`, `src/db/schema/{baseline-schema,vec-schema}.ts`, `src/text/stopwords.ts`,
+`src/mcp/tools/list-page.ts`, `src/interval-job.ts`, `src/lifecycle.ts` — are placed by the current
+globs (rows 1, 3, 4, 13 and 14 respectively). Classify from the ADR's criteria, and treat a file
+matching no row as a review finding rather than as Scaffolding by default.
 
 ## Where to read next
 
