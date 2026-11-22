@@ -91,11 +91,28 @@ export function createLifecycle(config: LifecycleConfig): Lifecycle {
 
   async function runStop(beforeExit?: () => void | Promise<void>): Promise<void> {
     log('info', 'lifecycle', 'shutting down...')
-    await steps.stopBackgroundJobs()
-    await steps.stopEmbedder()
-    if (beforeExit) await beforeExit()
-    steps.closeDatabases()
+    let firstError: unknown
+    let failed = false
+    async function attempt(name: string, run: () => void | Promise<void>): Promise<void> {
+      try {
+        await run()
+      } catch (err) {
+        if (!failed) {
+          failed = true
+          firstError = err
+        }
+        log('error', 'lifecycle', `Shutdown step failed: ${name}`, {
+          step: name,
+          error: describe(err)
+        })
+      }
+    }
+    await attempt('stopBackgroundJobs', () => steps.stopBackgroundJobs())
+    await attempt('stopEmbedder', () => steps.stopEmbedder())
+    if (beforeExit) await attempt('beforeExit', beforeExit)
+    await attempt('closeDatabases', () => steps.closeDatabases())
     steps.closeLogger()
+    if (failed) throw firstError
   }
 
   function stop(beforeExit?: () => void | Promise<void>): Promise<void> {

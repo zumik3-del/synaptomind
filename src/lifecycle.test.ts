@@ -108,6 +108,41 @@ test('a failing per-user close is logged with its userId and skips no later clos
   expect(captured).toContain('close boom')
 })
 
+test('a throwing stopEmbedder is logged with its step and skips no later close', async () => {
+  const calls: string[] = []
+  const lifecycle = createLifecycle({
+    ownsBackgroundJobs: true,
+    embedderEnabled: true,
+    log: (_level, _type, _message, metadata) => {
+      if (metadata?.step) calls.push(`log:${String(metadata.step)}`)
+    },
+    steps: {
+      ...recorded(calls),
+      stopEmbedder: async () => {
+        calls.push('stop-embedder')
+        throw new Error('embedder boom')
+      }
+    }
+  })
+
+  lifecycle.start()
+  const stopping = lifecycle.stop(() => {
+    calls.push('before-exit')
+  })
+
+  await expect(stopping).rejects.toThrow('embedder boom')
+  expect(calls).toEqual([
+    'start-embedder',
+    'start-jobs',
+    'stop-jobs',
+    'stop-embedder',
+    'log:stopEmbedder',
+    'before-exit',
+    'close-databases',
+    'close-logger'
+  ])
+})
+
 test('src/index.ts does not re-derive the background-job ownership rule', () => {
   const index = source('./index.ts')
   expect(index).toContain('processOwnsBackgroundJobs()')
