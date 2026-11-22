@@ -43,10 +43,8 @@ export function searchThoughts(db: Database, options: SearchOptions): SearchResu
   const nowMs =
     options.nowMs !== undefined && Number.isFinite(options.nowMs) ? options.nowMs : Date.now()
   const recency = { recencyActive: recencyWeight > 0, recencyWeight, recencyHalfLifeDays, nowMs }
-  const confidenceFloor =
-    options.confidenceFloor !== undefined && Number.isFinite(options.confidenceFloor)
-      ? options.confidenceFloor
-      : DEFAULTS.search.confidence.vectorFloor
+  // Validated at config load, or taken as given by the caller; only "absent" needs a value here.
+  const confidenceFloor = options.confidenceFloor ?? DEFAULTS.search.confidence.vectorFloor
 
   const filter = buildFilterSQL(db, {
     statusFilter,

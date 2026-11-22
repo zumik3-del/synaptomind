@@ -30,8 +30,8 @@ afterAll(() => {
   rmSync(configDir, { recursive: true, force: true })
 })
 
-test('invalid file retention-review bounds are sanitized before candidate listing', () => {
-  expect(config.retentionReview).toEqual({ pageSize: 100, importanceFloor: 0, minAgeDays: 30 })
+test('invalid file retention-review values fall back to the defaults before candidate listing', () => {
+  expect(config.retentionReview).toEqual({ pageSize: 20, importanceFloor: 0.3, minAgeDays: 30 })
   const id = seedThought({
     status: 'archived',
     is_protected: 0,

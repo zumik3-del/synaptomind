@@ -20,6 +20,48 @@ cp .env.example .env
 
 ---
 
+## Validation and fallback
+
+Every value that reaches the config is validated once, whoever carried it — `config.json`, the
+environment, or the built-in default. There is one rule for all of them:
+
+> An invalid value — the wrong type, a non-finite number, or one outside its declared bound — is
+> replaced by the **default**, with exactly one warning that names the key, the rejected value and
+> the default used.
+
+Nothing is clamped and nothing is guessed. A rejected environment value falls back to the default
+too, not to the value `config.json` carried, so a rejected layer never silently hands control to a
+lower one. A valid config is used exactly as written.
+
+Environment values are plain scalars: an integer or number with no unit suffix (`7000`, not
+`7000ms`), `true` or `false` for a boolean (nothing else — `1`/`yes` are rejected), a comma-separated
+list for a list. An empty value is rejected for a number or a boolean; a string setting accepts it
+(`SYNAPTOMIND_LOG_FILE=` means "no log file").
+
+### Declared bounds
+
+A bound exists only where the code already constrains the value, and a bound accepts `0` wherever `0`
+is a meaningful setting (`retentionReview.importanceFloor=0`, `db.busyTimeout=0`, the search floors).
+Values below/above the accepted range fall back to the default:
+
+| Setting | Accepted | Default |
+|---------|----------|---------|
+| `db.busyTimeout` | integer `>= 0` | `5000` |
+| `thoughts.softLimit` | integer `>= 1` | `600` |
+| `thoughts.hardLimitBufferPercent` | integer `>= 1` | `20` |
+| `primer.topN` | integer `>= 1` | `3` |
+| `primer.promoteThreshold` | integer `>= 1` | `5` |
+| `retentionReview.minAgeDays` | integer `>= 1` | `30` |
+| `retentionReview.importanceFloor` | number in `[0, 1]` | `0.3` |
+| `retentionReview.pageSize` | integer in `[1, 100]` | `20` |
+| `search.confidence.vectorFloor` | number in `[0, 1]` | `0.9` |
+| `search.confidence.unrelatedFloor` | number in `[0, 1]` | `0.8` |
+
+Every other setting is only type-checked. `embedder.dtype` is the one deliberate exception: it is a
+closed set, and an unknown value **aborts startup** instead of falling back — see its row below.
+
+---
+
 ## Server
 
 | Setting | Env Var | Default | Description |
@@ -231,10 +273,11 @@ delete, or compact them. Candidate defaults are:
 | `retentionReview.importanceFloor` | `SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR` | `0.3` | Candidate importance must be below this threshold |
 | `retentionReview.pageSize` | `SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE` | `20` | Default candidate page size (the `retention_review` `limit` argument accepts 1–100) |
 
-Configuration loading normalizes `pageSize` to an integer in the range 1–100 and
-clamps `importanceFloor` to 0–1. A non-positive or non-numeric `minAgeDays` uses
-the 30-day default. These settings govern the manual retention-review workflow;
-they do not enable age-based thought TTL cleanup.
+Configuration loading validates these values like every other setting: a `pageSize` outside `1–100`,
+an `importanceFloor` outside `0–1` and a `minAgeDays` below `1` fall back to the defaults above with
+one warning. `importanceFloor=0` is accepted (every candidate qualifies); `minAgeDays=0` is not —
+the retention-review queries require a positive age. These settings govern the manual
+retention-review workflow; they do not enable age-based thought TTL cleanup.
 
 `retention_review action=list` accepts `min_age_days` and `importance_floor` to
 override these defaults per call, so candidate eligibility is set here and refined at
@@ -265,8 +308,8 @@ Compact project summary for quick context injection.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `primer.promoteThreshold` | `SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD` | `5` | Min hits before a thought is primer-eligible |
-| `primer.topN` | `SYNAPTOMIND_PRIMER_TOP_N` | `3` | Max thoughts promoted to primer per run |
+| `primer.promoteThreshold` | `SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD` | `5` | Min hits before a thought is primer-eligible (integer `>= 1`) |
+| `primer.topN` | `SYNAPTOMIND_PRIMER_TOP_N` | `3` | Max thoughts promoted to primer per run (integer `>= 1`; SQLite reads a negative `LIMIT` as "no limit", so anything below 1 falls back to the default rather than to 1) |
 
 ---
 
@@ -361,9 +404,10 @@ Context windows for agent startup.
 | `search.confidence.unrelatedFloor` | `SYNAPTOMIND_SEARCH_CONFIDENCE_UNRELATED_FLOOR` | `0.8` | Unitless cosine similarity (0–1) of an unrelated query/thought pair; the zero point of the calibrated `relevance` scale (`(similarity - unrelatedFloor) / (vectorFloor - unrelatedFloor)`). The default noise gate drops cosine-only rows below calibrated `relevance` 0.4 |
 
 The calibrated scale maps `unrelatedFloor` to `relevance` 0 and `vectorFloor` to 1, clamped to
-`[0, 1]` (`src/services/text-similarity.service.ts`). The measurement behind the defaults (200 sampled
-thoughts, 20 unrelated queries, real e5-small embedder): unrelated pairs reach p50 0.7627,
-p95 0.8002, max 0.8355.
+`[0, 1]` (`src/services/text-similarity.service.ts`). Both floors take a number in `[0, 1]`; an
+out-of-range value falls back to its default at load, so nothing downstream has to clamp them. The
+measurement behind the defaults (200 sampled thoughts, 20 unrelated queries, real e5-small embedder):
+unrelated pairs reach p50 0.7627, p95 0.8002, max 0.8355.
 
 **Noise gate.** Cosine-only hits are dropped below calibrated `relevance` **0.4** by default
 (`DEFAULT_MIN_RELEVANCE` in `src/services/search-normalize.service.ts`, a raw similarity of 0.84 on the
@@ -558,7 +602,29 @@ Unauthenticated probes: `GET /health` on both the API and MCP HTTP servers is un
 ### Debug logging
 
 `SYNAPTOMIND_DEBUG=true` enables verbose debug logging (read directly from the
-environment by the logging module, `src/logging/log.ts:112`). Off by default.
+environment by the logging module, `src/logging/log.ts`). Off by default; any value
+other than `true` leaves it off.
+
+### Raw environment
+
+These variables are read directly where they are used, not through the config table
+above, so they are not part of the resolved config object — `config.json` and the
+defaults above do not apply to them. `memory_status action=config` prints them with
+their effective values under `--- Raw environment ---` (paths and secrets as
+presence only).
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `SYNAPTOMIND_DEBUG` | `false` | Verbose debug logging |
+| `SYNAPTOMIND_CONFIG` | — | `config.json` to load; otherwise the repository file, then the working directory |
+| `SYNAPTOMIND_VEC0_PATH` | — | vec0 extension path override (otherwise resolved next to the binary) |
+| `EMBEDDER_START_TIMEOUT_MS` | `300000` | Deadline for the embedder child to report ready; a non-positive or non-numeric value uses the default |
+| `EMBEDDER_BACKOFF_BASE_MS` | `1000` | Base restart backoff for the embedder child; same fallback rule |
+| `SYNAPTOMIND_SECRET` | — | Single-user bearer token, see [Authentication](#authentication) |
+| `SYNAPTOMIND_ALLOW_INSECURE` | `false` | Disables auth for local development, see [Authentication](#authentication) |
+| `SYNAPTOMIND_USER_TOKEN_<ID>` | — | Per-user plaintext token, see [Users](#users-multi-user) |
+
+The declared table lives in `src/config.raw-env.ts`.
 
 ---
 

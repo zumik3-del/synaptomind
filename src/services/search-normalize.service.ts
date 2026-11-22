@@ -57,11 +57,9 @@ export function normalizeSearchOptions(options: SearchServiceOptions): Normalize
     options.minRelevance === undefined
       ? DEFAULT_MIN_RELEVANCE
       : clampUnitInterval(options.minRelevance)
-  const confidenceFloor =
-    options.confidenceFloor !== undefined
-      ? clampUnitInterval(options.confidenceFloor)
-      : clampUnitInterval(config.search.confidence.vectorFloor)
-  const unrelatedFloor = clampUnitInterval(config.search.confidence.unrelatedFloor)
+  // Both floors arrive validated: config.search.confidence is schema-checked at load, so no clamp.
+  const confidenceFloor = options.confidenceFloor ?? config.search.confidence.vectorFloor
+  const unrelatedFloor = config.search.confidence.unrelatedFloor
   const candidateK =
     supersessionMode === 'suppress' || minRelevance > 0
       ? Math.min(SEARCH_MAX_TOP_K, topK * SUPPRESSION_OVERFETCH_FACTOR)

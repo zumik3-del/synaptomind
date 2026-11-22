@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { clampPrimerCount } from '../config.primer-bounds'
+import { clampPrimerCount } from '../config.limits'
 import { boostImportance } from './importance'
 
 export interface Primer {

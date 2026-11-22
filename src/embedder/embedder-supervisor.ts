@@ -1,5 +1,6 @@
 import { type Subprocess, spawn } from 'bun'
 import { config } from '../config'
+import { rawEnvFallbackNumber } from '../config.raw-env'
 import { insertLog as defaultInsertLog } from '../logging'
 import { EmbedderNotReadyError, EmbedderUnavailableError } from '../errors'
 import { isUnavailable } from '../context/registry'
@@ -38,10 +39,10 @@ export const DEFAULT_DEPS: EmbedderClientDeps = {
 export type EmbedderState = 'ok' | 'starting' | 'failed' | 'stopped'
 
 // biome-ignore lint/style/useConst: mutable for test injection of the deadline
-export let EMBEDDER_START_TIMEOUT_MS = 300_000
+export let EMBEDDER_START_TIMEOUT_MS = rawEnvFallbackNumber('EMBEDDER_START_TIMEOUT_MS')
 
 const MAX_BACKOFF_MS = 30_000
-const BACKOFF_BASE_MS = 1_000
+const BACKOFF_BASE_MS = rawEnvFallbackNumber('EMBEDDER_BACKOFF_BASE_MS')
 
 export function sleepUnref(ms: number): Promise<void> {
   return new Promise<void>(r => {
