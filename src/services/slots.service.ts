@@ -1,5 +1,5 @@
 import { config, DEFAULTS } from '../config'
-import { clampPrimerCount } from '../config.primer-bounds'
+import { clampPrimerCount } from '../config.limits'
 import { getDb } from '../db'
 import { getPrimers } from '../db/primers'
 import { getSlotRow } from '../db/slots'

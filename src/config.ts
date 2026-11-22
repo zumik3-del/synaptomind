@@ -2,8 +2,14 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'fs'
 import { isAbsolute, join } from 'path'
 import { assertDistinctDatabasePaths } from './config.db-identity'
-import { sanitizePrimerBounds } from './config.primer-bounds'
-import { sanitizeRetentionReviewBounds } from './config.retention-review-bounds'
+import {
+  applySchema,
+  isPlainObject,
+  parseEnvValue,
+  repairSections,
+  type SchemaEntry,
+  setNested
+} from './config.schema'
 import { MS_PER_DAY } from './utils'
 
 export type EmbedderDtype = 'fp32' | 'q8'
@@ -137,15 +143,18 @@ export const DEFAULTS: Config = {
   users: []
 }
 
-type EnvType = 'string' | 'int' | 'float' | 'bool' | 'list'
+type EnvType = SchemaEntry['type']
 
-interface EnvMapping {
-  env: string
-  path: string
-  type: EnvType
-}
+type EnvMapping = SchemaEntry
 
-const M = (env: string, path: string, type: EnvType): EnvMapping => ({ env, path, type })
+type MappingRules = Omit<SchemaEntry, 'env' | 'path' | 'type'>
+
+const M = (env: string, path: string, type: EnvType, rules: MappingRules = {}): EnvMapping => ({
+  env,
+  path,
+  type,
+  ...rules
+})
 
 export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_CONTENT_LANGUAGE', 'contentLanguage', 'string'),
@@ -164,7 +173,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_MCP_MAX_SUBSCRIPTIONS', 'mcp.maxSubscriptions', 'int'),
 
   M('SYNAPTOMIND_DB_PATH', 'db.path', 'string'),
-  M('SYNAPTOMIND_DB_BUSY_TIMEOUT', 'db.busyTimeout', 'int'),
+  M('SYNAPTOMIND_DB_BUSY_TIMEOUT', 'db.busyTimeout', 'int', { min: 0 }),
   M('SYNAPTOMIND_LOG_LEVEL', 'log.level', 'string'),
   M('SYNAPTOMIND_LOG_FILE', 'log.file', 'string'),
   M('SYNAPTOMIND_LOG_FORMAT', 'log.format', 'string'),
@@ -172,7 +181,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_LOG_FILE_MAX_FILES', 'log.fileMaxFiles', 'int'),
 
   M('SYNAPTOMIND_EMBEDDER_MODEL', 'embedder.model', 'string'),
-  M('SYNAPTOMIND_EMBEDDER_DTYPE', 'embedder.dtype', 'string'),
+  M('SYNAPTOMIND_EMBEDDER_DTYPE', 'embedder.dtype', 'string', { assert: assertEmbedderDtype }),
   M('SYNAPTOMIND_EMBEDDER_ENABLED', 'embedder.enabled', 'bool'),
   M('SYNAPTOMIND_EMBEDDER_DIMENSIONS', 'embedder.dimensions', 'int'),
   M('SYNAPTOMIND_EMBEDDER_POLL_INTERVAL', 'embedder.pollIntervalMs', 'int'),
@@ -182,14 +191,18 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_EMBEDDER_BATCH_SIZE', 'embedder.batchSize', 'int'),
   M('SYNAPTOMIND_RESET_DEAD_LETTER', 'embedder.resetDeadLetters', 'bool'),
 
-  M('SYNAPTOMIND_THOUGHT_SOFT_LIMIT', 'thoughts.softLimit', 'int'),
-  M('SYNAPTOMIND_THOUGHT_HARD_LIMIT_BUFFER_PERCENT', 'thoughts.hardLimitBufferPercent', 'int'),
+  // `positiveIntOr` in src/db/settings.ts replaces anything that is not a positive integer.
+  M('SYNAPTOMIND_THOUGHT_SOFT_LIMIT', 'thoughts.softLimit', 'int', { min: 1 }),
+  M('SYNAPTOMIND_THOUGHT_HARD_LIMIT_BUFFER_PERCENT', 'thoughts.hardLimitBufferPercent', 'int', {
+    min: 1
+  }),
 
   M('SYNAPTOMIND_DECAY_RATE', 'decay.rate', 'float'),
   M('SYNAPTOMIND_DECAY_INTERVAL_MS', 'decay.intervalMs', 'int'),
 
-  M('SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD', 'primer.promoteThreshold', 'int'),
-  M('SYNAPTOMIND_PRIMER_TOP_N', 'primer.topN', 'int'),
+  // SQLite reads a negative `LIMIT` as "no limit", so the primer counts never go below 1.
+  M('SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD', 'primer.promoteThreshold', 'int', { min: 1 }),
+  M('SYNAPTOMIND_PRIMER_TOP_N', 'primer.topN', 'int', { min: 1 }),
 
   M('SYNAPTOMIND_AUTO_CLUSTER_MIN_AGE_DAYS', 'autoCluster.minAgeDays', 'int'),
   M('SYNAPTOMIND_AUTO_CLUSTER_MIN_SIMILARITY', 'autoCluster.minSimilarity', 'float'),
@@ -209,53 +222,32 @@ export const ENV_MAPPINGS: EnvMapping[] = [
 
   M('SYNAPTOMIND_GRAPH_MAX_DEGREE', 'graph.maxDegree', 'int'),
 
-  M('SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR', 'search.confidence.vectorFloor', 'float'),
-  M('SYNAPTOMIND_SEARCH_CONFIDENCE_UNRELATED_FLOOR', 'search.confidence.unrelatedFloor', 'float'),
+  // The calibrated relevance scale divides by (vectorFloor - unrelatedFloor) and clamps to [0,1].
+  M('SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR', 'search.confidence.vectorFloor', 'float', {
+    min: 0,
+    max: 1
+  }),
+  M('SYNAPTOMIND_SEARCH_CONFIDENCE_UNRELATED_FLOOR', 'search.confidence.unrelatedFloor', 'float', {
+    min: 0,
+    max: 1
+  }),
 
   M('SYNAPTOMIND_RATE_LIMIT', 'rateLimit.max', 'int'),
   M('SYNAPTOMIND_RATE_LIMIT_WINDOW_MS', 'rateLimit.windowMs', 'int'),
   M('SYNAPTOMIND_TRUST_PROXY', 'rateLimit.trustProxy', 'bool'),
 
-  M('SYNAPTOMIND_RETENTION_REVIEW_MIN_AGE_DAYS', 'retentionReview.minAgeDays', 'int'),
-  M('SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR', 'retentionReview.importanceFloor', 'float'),
-  M('SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE', 'retentionReview.pageSize', 'int')
+  // The retention-review service rejects a non-positive age, a page outside 1–100 and a floor
+  // outside [0,1]; 0 is a legitimate floor (everything is a candidate) and is accepted.
+  M('SYNAPTOMIND_RETENTION_REVIEW_MIN_AGE_DAYS', 'retentionReview.minAgeDays', 'int', { min: 1 }),
+  M('SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR', 'retentionReview.importanceFloor', 'float', {
+    min: 0,
+    max: 1
+  }),
+  M('SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE', 'retentionReview.pageSize', 'int', {
+    min: 1,
+    max: 100
+  })
 ]
-
-function parseValue(raw: string, type: EnvType): string | number | boolean | string[] {
-  switch (type) {
-    case 'string':
-      return raw
-    case 'int': {
-      const n = parseInt(raw, 10)
-      return Number.isFinite(n) ? n : NaN
-    }
-    case 'float': {
-      const n = parseFloat(raw)
-      return Number.isFinite(n) ? n : NaN
-    }
-    case 'bool':
-      return raw === 'true'
-    case 'list':
-      return raw
-        .split(',')
-        .map(s => s.trim())
-        .filter(Boolean)
-  }
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
-function setNested(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const keys = path.split('.')
-  let current = obj
-  for (let i = 0; i < keys.length - 1; i++) {
-    if (!isPlainObject(current[keys[i]])) current[keys[i]] = {}
-    current = current[keys[i]] as Record<string, unknown>
-  }
-  current[keys[keys.length - 1]] = value
-}
 
 function deepMerge(
   target: Record<string, unknown>,
@@ -293,36 +285,25 @@ function loadFileConfig(): Partial<Config> {
   return JSON.parse(readFileSync(configPath, 'utf-8')) as Partial<Config>
 }
 
-function embedderDtypeSource(): string {
-  const env = ENV_MAPPINGS.find(m => m.path === 'embedder.dtype')?.env
-  return env !== undefined && process.env[env] !== undefined ? env : 'config.json'
-}
-
+/**
+ * The one place a value reaches the resolved config: both layers write, then the per-key schema
+ * validates the merged result and falls back to the default for whatever it rejects. A value that
+ * does not parse is written as the raw string, so the schema rejects and reports it.
+ */
 function applyEnvOverrides(fileConfig: Partial<Config>): Config {
-  const merged = deepMerge(
-    DEFAULTS as unknown as Record<string, unknown>,
-    fileConfig as unknown as Record<string, unknown>
-  )
+  const defaults = DEFAULTS as unknown as Record<string, unknown>
+  const merged = deepMerge(defaults, fileConfig as unknown as Record<string, unknown>)
 
-  for (const { env, path, type } of ENV_MAPPINGS) {
-    const raw = process.env[env]
+  repairSections(merged, defaults, ENV_MAPPINGS)
+
+  for (const entry of ENV_MAPPINGS) {
+    const raw = process.env[entry.env]
     if (raw === undefined) continue
-    const value = parseValue(raw, type)
-    if (typeof value === 'number' && Number.isNaN(value)) {
-      console.error(`[config] invalid value for ${env}: "${raw}" (expected ${type}), using default`)
-      continue
-    }
-    setNested(merged, path, value)
+    const parsed = parseEnvValue(raw, entry.type)
+    setNested(merged, entry.path, parsed.ok ? parsed.value : raw)
   }
 
-  const embedder = merged.embedder as { dtype?: unknown } | undefined
-  assertEmbedderDtype(embedder?.dtype, embedderDtypeSource())
-
-  merged.primer = sanitizePrimerBounds(merged.primer, DEFAULTS.primer)
-  merged.retentionReview = sanitizeRetentionReviewBounds(
-    merged.retentionReview,
-    DEFAULTS.retentionReview
-  )
+  applySchema(merged, defaults, ENV_MAPPINGS)
   merged.users = validateUsers(merged.users, 'config.json')
 
   return merged as unknown as Config

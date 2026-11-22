@@ -62,7 +62,8 @@ describe('embedder.dtype — declared contract', () => {
     expect(mapping).toEqual({
       env: 'SYNAPTOMIND_EMBEDDER_DTYPE',
       path: 'embedder.dtype',
-      type: 'string'
+      type: 'string',
+      assert: expect.any(Function)
     })
   })
 })
