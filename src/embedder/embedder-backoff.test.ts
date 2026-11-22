@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 
-const MODES = ['all-failed', 'catch', 'ok']
+const MODES = ['all-failed', 'catch', 'ok', 'recover']
 
 test('embedder batch backoff bookkeeping (isolated processes)', async () => {
   for (const mode of MODES) {

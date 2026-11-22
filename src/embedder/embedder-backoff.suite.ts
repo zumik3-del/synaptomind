@@ -1,7 +1,12 @@
 import { afterAll, expect, mock, test } from 'bun:test'
 
-type Mode = 'all-failed' | 'catch' | 'ok'
+type Mode = 'all-failed' | 'catch' | 'ok' | 'recover'
 const MODE = (process.env.SYNAPTOMIND_BACKOFF_MODE ?? 'all-failed') as Mode
+
+const MAX_CONSECUTIVE_FAILURES = 5
+const MAX_BACKOFF = 64
+const FAIL_ROUNDS_BEFORE_SUCCESS = 6
+const SUCCESS_ROUND = FAIL_ROUNDS_BEFORE_SUCCESS + 1
 
 interface LogEntry {
   level: string
@@ -15,6 +20,7 @@ const row = { id: 'row', content: 'row', contentHash: 'hash' }
 
 let now = 1_000_000
 let rounds = 0
+let storeAttempts = 0
 let pollHandler: (() => void) | undefined
 
 const originalNow = Date.now
@@ -74,7 +80,9 @@ mock.module('../db/pending-embeddings', () => ({
     return [row]
   },
   insertEmbedding: () => {
+    storeAttempts++
     if (MODE === 'all-failed') throw new Error('boom')
+    if (MODE === 'recover' && storeAttempts !== SUCCESS_ROUND) throw new Error('boom')
     return true
   },
   deleteEmbeddedFromQueue: () => {},
@@ -97,6 +105,8 @@ async function tick(): Promise<void> {
 }
 
 const backoffLogs = (): LogEntry[] => logs.filter(l => l.message.startsWith('Backing off to '))
+const backoffValues = (): unknown[] => backoffLogs().map(l => l.meta?.backoff)
+const failureCounts = (): unknown[] => backoffLogs().map(l => l.meta?.consecutiveFailures)
 
 afterAll(() => {
   Date.now = originalNow
@@ -121,21 +131,69 @@ if (MODE === 'ok') {
     expect(embedded?.meta?.durationMs).toBe(7)
     expect(backoffLogs()).toHaveLength(0)
   })
-} else {
-  test('the backoff advances once per five rounds, logs the pre-reset count, and starts the next run from one', async () => {
+}
+
+if (MODE === 'catch') {
+  test('the catch branch doubles its backoff every five failed rounds', async () => {
     for (let i = 0; i < 400 && backoffLogs().length < 2; i++) {
       await tick()
     }
 
-    const backoff = backoffLogs()
-    expect(backoff).toHaveLength(2)
-    expect(backoff.map(l => l.meta?.consecutiveFailures)).toEqual([5, 5])
-    expect(backoff.map(l => l.meta?.backoff)).toEqual(MODE === 'all-failed' ? [2, 2] : [2, 4])
+    expect(failureCounts()).toEqual([5, 5])
+    expect(backoffValues()).toEqual([2, 4])
     // The second threshold lands on round ten; without the reset it would land on round six.
     expect(rounds).toBe(10)
 
-    const preResetLines = consoleErrors.filter(line => line.includes('(5/5)'))
-    expect(preResetLines).toHaveLength(2)
+    expect(consoleErrors.filter(line => line.includes('(5/5)'))).toHaveLength(2)
     expect(consoleErrors.some(line => line.includes('(6/5)'))).toBe(false)
+  })
+}
+
+if (MODE === 'all-failed') {
+  test('a permanently failing store path ramps every five rounds up to the cap', async () => {
+    for (let i = 0; i < 4000 && backoffLogs().length < 6; i++) {
+      await tick()
+    }
+
+    expect(backoffValues()).toEqual([2, 4, 8, 16, 32, 64])
+    expect(failureCounts()).toEqual([5, 5, 5, 5, 5, 5])
+    // Six doublings at five rounds each: the cap is reached on round thirty, not after two.
+    expect(rounds).toBe(30)
+  })
+
+  test('the cap is stable: no further doubling, no extra log, and the poll gate holds at 64x', async () => {
+    const cappedRounds = rounds
+    const cappedLogs = backoffLogs().length
+
+    for (let i = 0; i < 400; i++) {
+      await tick()
+    }
+
+    // Four seconds of simulated time fits ~6 rounds behind the 64x gate; a snap back to 1x would fit
+    // hundreds, so the count is what proves the multiplier survived the cap.
+    const advanced = rounds - cappedRounds
+    expect(advanced).toBeGreaterThanOrEqual(5)
+    expect(advanced).toBeLessThanOrEqual(8)
+    // Those rounds crossed a further threshold, which must not log again or restart the ramp.
+    expect(backoffLogs()).toHaveLength(cappedLogs)
+    expect(backoffValues()).toEqual([2, 4, 8, 16, 32, 64])
+    expect(
+      consoleErrors.filter(line => line.includes(`backing off to ${MAX_BACKOFF}x`))
+    ).toHaveLength(1)
+  })
+}
+
+if (MODE === 'recover') {
+  test('a single success resets the ramp to 1x', async () => {
+    for (let i = 0; i < 400 && backoffLogs().length < 2; i++) {
+      await tick()
+    }
+
+    // Six failed rounds, one success, five failed rounds again: the second threshold starts a fresh
+    // ramp from 1x, so it doubles to 2x. A ramp that ignored the success would reach 4x here.
+    expect(failureCounts()).toEqual([MAX_CONSECUTIVE_FAILURES, MAX_CONSECUTIVE_FAILURES])
+    expect(backoffValues()).toEqual([2, 2])
+    expect(rounds).toBe(12)
+    expect(logs.filter(l => l.message.startsWith('Embedded '))).toHaveLength(1)
   })
 }
