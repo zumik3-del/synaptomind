@@ -122,7 +122,7 @@ describe('guarded pipeline — body cap', () => {
   })
 
   test('a body of exactly the limit still reaches the handler (the cap is strict >)', async () => {
-    const body = JSON.stringify({ pad: 'x'.repeat(MAX_REQUEST_BODY_BYTES) })
+    const body = 'x'.repeat(MAX_REQUEST_BODY_BYTES)
     const res = await post(surfaceApp('json'), body, true, MAX_REQUEST_BODY_BYTES)
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('reached')
