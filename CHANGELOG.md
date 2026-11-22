@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.25.1
+
+> November 22, 2026
+
+- [`96c58133`](https://github.com/zumik3-del/synaptomind/commit/96c5813312f9ff866a07981c23499468043469eb): fix(embedder): refuse a batch whose payload length disagrees
+- [`f5fb67e6`](https://github.com/zumik3-del/synaptomind/commit/f5fb67e67da2d65efc7185d9d68952c69d77b284): docs: point the architecture doc at the refreshed code-tiers ADR
+- [`9bca4b84`](https://github.com/zumik3-del/synaptomind/commit/9bca4b84d3ecf3144e6305738acfd6cda456d060): docs(agents): point at docs/ARCHITECTURE.md and fix the DI section
+- [`753c26dd`](https://github.com/zumik3-del/synaptomind/commit/753c26dd16bc77c27a4bf647effa3f0ede74ffe3): docs: add docs/ARCHITECTURE.md and link it from the README
+- [`d89193c7`](https://github.com/zumik3-del/synaptomind/commit/d89193c7cf08566703a7ce1c7a8428ec020bb700): refactor(config): freeze the loaded config and give tests an injection seam
+- [`5b0855dd`](https://github.com/zumik3-del/synaptomind/commit/5b0855dd940cd470967288bfa92a83969cbec9c3): docs(agents): name retypeEdge among the db-first policies
+- [`de69bf2f`](https://github.com/zumik3-del/synaptomind/commit/de69bf2fa5d1e8311c0161eda7f57cee3a2e799f): refactor(db): move the retype policy out and close the scan's blind spots
+- [`7ff3f966`](https://github.com/zumik3-del/synaptomind/commit/7ff3f9667d7bf9a4f0824cd2f0fd8553ab65c502): fix(lifecycle): keep shutting down when a step throws
+- [`2608e9d1`](https://github.com/zumik3-del/synaptomind/commit/2608e9d13aa15335f96793dc4cd7c1ef276315b4): test(edges): pin the concurrent-insert result the service must absorb
+- [`89eb4954`](https://github.com/zumik3-del/synaptomind/commit/89eb4954853debaec304bb5a122c1549ff5801cf): test(jobs): pin the runner, lifecycle and per-user health; repair stale pins
+- [`8e0c77f4`](https://github.com/zumik3-del/synaptomind/commit/8e0c77f49ed0059177be918bb6c9e4f3f15d7d79): refactor(mcp): one validation pipeline, one projection and one health view
+- [`f136706e`](https://github.com/zumik3-del/synaptomind/commit/f136706e12141a9f811cd93f3fd458b1dea1c6ee): refactor(core): one job runner, an extractable lifecycle and per-user health
+- [`e92b505d`](https://github.com/zumik3-del/synaptomind/commit/e92b505d5f71b5ec517b19a18f7e35b3e7789629): test(db): pin the db-layer boundary and the relocated policies
+- [`04a41397`](https://github.com/zumik3-del/synaptomind/commit/04a41397a09b78694e20a66b07db521cf7573c9f): fix(db): abort a run when SQLite rolled the transaction back underneath it
+- [`c84e7642`](https://github.com/zumik3-del/synaptomind/commit/c84e764287f3abfd7e0d90734c96fe238c5f6322): docs(stdio): make the delegating promise match the shipped behaviour
+- [`41a476f7`](https://github.com/zumik3-del/synaptomind/commit/41a476f720654ddc64085d2ca5769365072609b0): docs(agents): make the db layer SQL-only and name the single handle owner
+- [`2c6da8de`](https://github.com/zumik3-del/synaptomind/commit/2c6da8de01036acc63aebb634afed89caa065c7d): test(api): pin the body cap against chunked and understated-length requests
+- [`7f01144c`](https://github.com/zumik3-del/synaptomind/commit/7f01144c00eb761fbf7e1a0c45693e208a56fdcf): refactor(core): one DB handle owner, a SQL-only db layer, self-contained errors
+- [`c0dc9580`](https://github.com/zumik3-del/synaptomind/commit/c0dc95803bc2621735a2c25a0a38931918cd321f): fix(api): enforce the body cap while reading, not from the header
+- [`0de6af8e`](https://github.com/zumik3-del/synaptomind/commit/0de6af8edfcdc70b522cbcb10d1db466498a718c): test(stdio): prove a delegating session starts no worker
+- [`c708ac2f`](https://github.com/zumik3-del/synaptomind/commit/c708ac2f9c93601e0ba573e891f33f5d364830a9): docs(agents): ban speculative growth and scope test coverage by tier
+
 ## v0.25.0
 
 > November 22, 2026
