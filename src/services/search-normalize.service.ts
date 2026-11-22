@@ -1,11 +1,11 @@
 import { config, type Config } from '../config'
+import { FALLBACK_RECENCY_HALF_LIFE_DAYS } from '../db/search-hydrate'
 import { clamp01 } from '../utils'
 import type { SearchServiceOptions, SupersessionMode } from './search.service'
 
 const SEARCH_MAX_TOP_K = 1000
 const SUPPRESSION_OVERFETCH_FACTOR = 4
 
-const DEFAULT_RECENCY_HALF_LIFE_DAYS = 30
 const MIN_RECENCY_HALF_LIFE_DAYS = 1
 const MAX_RECENCY_HALF_LIFE_DAYS = 3650
 const MAX_RECENCY_WEIGHT = 1
@@ -33,7 +33,7 @@ function clampRecencyWeight(value: number | undefined): number {
 
 function clampRecencyHalfLifeDays(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value) || value <= 0)
-    return DEFAULT_RECENCY_HALF_LIFE_DAYS
+    return FALLBACK_RECENCY_HALF_LIFE_DAYS
   return Math.min(Math.max(value, MIN_RECENCY_HALF_LIFE_DAYS), MAX_RECENCY_HALF_LIFE_DAYS)
 }
 

@@ -19,14 +19,6 @@ export function parseContradictionMode(raw: string | undefined): ContradictionMo
   throw new ValidationError(`invalid contradiction_mode '${raw}'; expected off|flag`)
 }
 
-export function parseOptionalNumber(raw: string | undefined, name: string): number | undefined {
-  if (raw === undefined || raw === '') return undefined
-  const value = Number.parseFloat(raw)
-  if (!Number.isFinite(value))
-    throw new ValidationError(`invalid ${name} '${raw}'; expected a number`)
-  return value
-}
-
 export interface SearchOptionsParams {
   query: string
   topK: number

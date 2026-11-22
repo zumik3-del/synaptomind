@@ -86,7 +86,7 @@ export function requiredString(message: string): z.ZodString {
   return z.string({ error: message }).min(1, message)
 }
 
-function irrelevantArgs(action: string, args: ActionArgs, accepted: Set<string>): string[] {
+function irrelevantArgs(args: ActionArgs, accepted: Set<string>): string[] {
   return Object.keys(args).filter(key => !UNIVERSAL_ARGS.has(key) && !accepted.has(key))
 }
 
@@ -110,7 +110,7 @@ export function registerActionTool(server: McpServer, config: ActionToolConfig):
         if (!handler) return errorResult(`Unknown action: ${action}`)
 
         const accepted = new Set(Object.keys(handler.input.shape))
-        const irrelevant = irrelevantArgs(action, parsed, accepted)
+        const irrelevant = irrelevantArgs(parsed, accepted)
         if (irrelevant.length)
           return errorResult(`${irrelevant.join(', ')} is not applicable to ${action} action`)
 

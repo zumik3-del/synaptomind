@@ -2,7 +2,7 @@ import { deleteEdgeService } from '../../../services/edges.service'
 import { getDb } from '../../../db'
 import { findEdge } from '../../../db/edges'
 import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.service'
-import { itemEnvelope } from '../envelope'
+import { guardedEnvelope, itemEnvelope } from '../envelope'
 import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 import { STORE_ARGS } from './args'
 
@@ -43,8 +43,6 @@ export const unlinkHandler: ActionHandler = {
       })
     })
 
-    return outcome.status === 'preview'
-      ? itemEnvelope('unlink', outcome.value, { preview: { token: outcome.token } })
-      : itemEnvelope('unlink', outcome.value)
+    return guardedEnvelope('unlink', outcome)
   }
 }

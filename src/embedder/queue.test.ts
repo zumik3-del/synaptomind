@@ -5,7 +5,6 @@ import { getDb } from '../db'
 import {
   MAX_ATTEMPTS,
   deleteEmbeddedFromQueue,
-  deleteFromQueue,
   findPendingEmbeddings,
   handleFailedItem,
   hasPendingEmbeddings,
@@ -221,24 +220,6 @@ test('insertEmbedding replaces an existing vec row instead of duplicating it', (
     rows[0]!.embedding.byteLength / 4
   )
   expect(Array.from(floats)).toEqual([2, 2, 2])
-})
-
-test('deleteFromQueue removes only the given rows', () => {
-  const db = getDb()
-  const keep = seedThought({ content: 'keep' })
-  const drop = seedThought({ content: 'drop' })
-
-  deleteFromQueue(db, [drop])
-
-  const remaining = db.prepare('SELECT thought_id FROM pending_embeddings').all() as {
-    thought_id: string
-  }[]
-  expect(remaining.map(r => r.thought_id)).toContain(keep)
-  expect(remaining.map(r => r.thought_id)).not.toContain(drop)
-})
-
-test('deleteFromQueue tolerates an empty id list', () => {
-  expect(() => deleteFromQueue(getDb(), [])).not.toThrow()
 })
 
 function setContent(id: string, content: string, contentHash: string): void {

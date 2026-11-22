@@ -379,6 +379,38 @@ describe('memory_supersede confirmation contract', () => {
     ).toBe('ineligible')
   })
 
+  test('a preview with no fingerprint declares the documented null token', async () => {
+    const archive = await call({ action: 'archive', thought_id: 'missing-id' })
+    expect(archive.isError).toBe(false)
+    expect(archive.data.item.outcome).toBe('not_found')
+    expect(archive.data.meta.preview).toEqual({ token: null, destructive: true })
+
+    const merge = await call({ action: 'merge', source_id: 'missing', target_id: 'also-missing' })
+    expect(merge.isError).toBe(false)
+    expect(merge.data.item.outcome).toBe('not_found')
+    expect(merge.data.meta.preview).toEqual({ token: null, destructive: true })
+  })
+
+  test('a preview with a fingerprint issues the token the confirm call must send back', async () => {
+    const id = seedThought({ content: 'token round trip', status: 'active' })
+
+    const preview = await call({ action: 'archive', thought_id: id })
+
+    expect(preview.data.meta.preview.destructive).toBe(true)
+    expect(typeof preview.data.meta.preview.token).toBe('string')
+    expect(preview.data.meta.preview.token.length).toBeGreaterThan(0)
+
+    const executed = await call({
+      action: 'archive',
+      thought_id: id,
+      confirm: true,
+      preview_token: preview.data.meta.preview.token
+    })
+    expect(executed.isError).toBe(false)
+    expect(executed.data.item).toMatchObject({ status: 'executed', result: { id } })
+    expect(Object.hasOwn(executed.data.meta, 'preview')).toBe(false)
+  })
+
   test('wrong confirmation types and irrelevant mutation controls fail without writes', async () => {
     const id = seedThought({ content: 'untouched', status: 'active' })
     for (const args of [

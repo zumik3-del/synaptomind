@@ -169,7 +169,7 @@ A non-mutating preview answer is marked in `meta.preview`; an executed answer ca
 
 | Key | Description |
 |---|---|
-| `token` | Token the confirm call must send back; `null` for the tokenless previews (`unlink_batch`, `retention_review` `compact`) |
+| `token` | Token the confirm call must send back; `null` when there is nothing to fingerprint — the two tokenless actions (`unlink_batch`, `retention_review` `compact`) and an `archive`/`merge` preview whose thought does not exist |
 | `destructive` | Always `true` — confirming this answer writes to the graph |
 | `consequence` | What confirming would do, in one sentence (where the action has one) |
 | `instruction` | The exact call that confirms this preview (where the action phrases one) |
@@ -463,7 +463,10 @@ Every destructive action — `memory_store` `unlink` and `retype`, `memory_super
   `meta.preview`.
 
 Two destructive actions take no token — `memory_store action=unlink_batch` and
-`retention_review action=compact` — their preview answers `meta.preview.token: null`.
+`retention_review action=compact` — their preview answers `meta.preview.token: null`. A preview
+whose target does not exist has nothing to fingerprint either: `memory_supersede` `archive` and
+`merge` answer `token: null` alongside `outcome: "not_found"`, and confirming such a preview needs
+no `preview_token`.
 
 Retired inputs may remain visible in the advertised tool schema as never-valued tombstones.
 Some MCP clients validate arguments against that schema before sending a call, and may reject a
@@ -941,7 +944,9 @@ Execution re-reads/revalidates current state, so previews can become stale. Prev
 a token in `meta.preview.token` (stored in DB, ~5 min TTL) for every destructive action (unlink,
 retype, archive, archive_batch, merge, delete, auto_cluster, apply, apply_batch, rollback);
 `confirm: true` requires that token as a `preview_token` argument and fails when it is missing or
-stale. No transactional reservation is implied.
+stale — except when the target does not exist: an `archive` or `merge` preview of a missing
+thought has nothing to fingerprint, answers `token: null` with `outcome: "not_found"`, and needs no
+`preview_token` to confirm. No transactional reservation is implied.
 `archive` and `archive_batch` identify thoughts by ID and scope nothing by it; `cwd` shapes the
 answer of `merge` only, and both other actions accept and ignore it.
 
@@ -956,8 +961,8 @@ the existing thought without re-stamping it.
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = execute |
 
 Preview: `item: { "status": "preview", "action": "archive", "thought_id": "...", "current_status": "active", "outcome": "would_archive" }`
-with the token in `meta.preview`. `outcome` is `not_found`, `already_archived` or
-`would_archive`. Execution answers
+with the token in `meta.preview` (`null` when `outcome` is `not_found`). `outcome` is
+`not_found`, `already_archived` or `would_archive`. Execution answers
 `item: { "status": "executed", "action": "archive", "result": <shaped thought> }`; missing
 thoughts fail with an error.
 
@@ -1018,9 +1023,9 @@ bounded list does not promise every edge will transfer.
 Preview: `item` carries `status: "preview"`, `action: "merge"`, `outcome`, `source`
 (`{ id, status, edges, source_edge_count, truncated }`), `target` (`{ id, status }`),
 `proposed` and `effects` (`{ source_archived, target_updated, replaces_edge_created }`);
-`meta.preview` carries the token. Missing IDs report `outcome: "not_found"`; an
-ineligible merge reports `outcome: "ineligible"` and `reason`. `proposed` reflects supplied
-values; `effects` describes the prospective updates. Execution answers
+`meta.preview` carries the token (`null` when `outcome` is `"not_found"`). Missing IDs report
+`outcome: "not_found"`; an ineligible merge reports `outcome: "ineligible"` and `reason`.
+`proposed` reflects supplied values; `effects` describes the prospective updates. Execution answers
 `item: { "status": "executed", "action": "merge", "result": { "target": <shaped thought>, "edges_transferred": 2 } }`
 — `edges_transferred` is the number of source edges the target now holds, so a caller can verify
 the consolidation. Not every source edge contributes: one that would collapse into a self-loop
@@ -1350,9 +1355,10 @@ see [API.md](API.md)):
    `memory_reflect action=reflect` is a write: without `cwd` its `decisions`/`pending` thoughts go
    to the default project and its `summary`/`goals` to the global slots, with no warning.
 3. **Preview gate moved.** A preview answer always sets
-   `meta.preview = { token, destructive: true, consequence?, instruction? }` (token `null` for
-   `unlink_batch` and `retention_review` `compact`). The token lives only in `meta.preview`: no
-   preview carries a `preview_token` inside `item` or at the top level, single-object and
+   `meta.preview = { token, destructive: true, consequence?, instruction? }` (token `null` when
+   there is nothing to fingerprint — `unlink_batch`, `retention_review` `compact`, and an
+   `archive`/`merge` preview whose thought does not exist). The token lives only in `meta.preview`:
+   no preview carries a `preview_token` inside `item` or at the top level, single-object and
    collection alike.
 4. **Id-shaped search queries resolve by id.** A full UUID or a hex prefix of at least 13
    characters no longer goes through semantic search: it returns that thought, annotated with its
@@ -1413,6 +1419,8 @@ Breaking changes for MCP clients:
    `memory_primers` `delete`, `memory_crystallize` `auto_cluster`,
    `retention_review` `delete`) now returns a `preview_token` on preview and
    requires it (valid, unexpired) on `confirm: true`. Tokens live ~5 minutes.
+   Current behaviour relaxes that for a preview with nothing to fingerprint: it
+   answers `token: null` and confirms without a token (see **Preview metadata**).
 4. **`edge_review` list trimmed.** Response uses canonical keys only:
    `items`, `total`, `returned`, `retired_count`, `all_total`. Retired aliases were
    removed.

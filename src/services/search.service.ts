@@ -4,6 +4,7 @@ import { config, type Config } from '../config'
 import { type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
 export type { SearchResult } from '../db/search'
 import type { Thought } from '../db/thoughts'
+import type { FilterOptions } from '../db/search-filters'
 import type { Database } from 'bun:sqlite'
 import { generateEmbedding } from '../embedder/client'
 import {
@@ -47,14 +48,9 @@ async function generateEmbeddingWithFallback(
 export type SupersessionMode = 'off' | 'flag' | 'suppress'
 export type ContradictionMode = 'off' | 'flag'
 
-export interface SearchServiceOptions {
+export interface SearchServiceOptions extends FilterOptions {
   query: string
   topK?: number
-  statusFilter?: string
-  projectFilter?: string
-  tagFilter?: string
-  clusterFilter?: 'only' | 'exclude'
-  minImportance?: number
   hybrid?: boolean
   supersessionMode?: SupersessionMode
   contradictionMode?: ContradictionMode

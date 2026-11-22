@@ -71,7 +71,8 @@
   "placement": {
     "maxClusterSize": 50,
     "proposalTtlDays": 30,
-    "maxPendingProposals": 500
+    "maxPendingProposals": 500,
+    "maxProposalsPerEnqueue": 5
   },
   "search": {
     "confidence": {
@@ -83,5 +84,10 @@
     "max": 200,
     "windowMs": 60000,
     "trustProxy": false
+  },
+  "retentionReview": {
+    "minAgeDays": 30,
+    "importanceFloor": 0.3,
+    "pageSize": 20
   }
 }

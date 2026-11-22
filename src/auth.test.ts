@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
-import { config, hashUserToken } from './config'
+import { hashUserToken } from './config'
 import { checkBearerAuth, getValidTokens, resolveUser } from './auth'
 import type { UserRef } from './auth'
 import { configFixture } from './test/helpers'

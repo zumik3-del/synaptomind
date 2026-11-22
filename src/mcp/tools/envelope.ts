@@ -1,3 +1,4 @@
+import type { GuardedOutcome } from '../../services/confirm-gate.service'
 import { resolveProjectService } from '../../services/projects.service'
 
 export interface EnvelopeScope {
@@ -98,7 +99,39 @@ export function scopeProjectId(scope: EnvelopeScope | null): string | undefined 
   return scope && !scope.global ? (scope.project ?? undefined) : undefined
 }
 
-function scopeForCwd(cwd: string): EnvelopeScope {
+export function guardedEnvelope<P, R>(
+  action: string,
+  outcome: GuardedOutcome<P, R>,
+  opts: EnvelopeOptions = {}
+): ItemEnvelope<P | R> {
+  if (outcome.status === 'executed') return itemEnvelope(action, outcome.value, opts)
+  return itemEnvelope(action, outcome.value, {
+    ...opts,
+    preview: { ...opts.preview, token: outcome.token }
+  })
+}
+
+export function guardedCollectionEnvelope<
+  P extends { items: unknown[] },
+  R extends { items: unknown[] }
+>(
+  action: string,
+  outcome: GuardedOutcome<P, R>,
+  opts: EnvelopeOptions = {}
+): CollectionEnvelope<P['items'][number] | R['items'][number]> {
+  if (outcome.status === 'executed') return collectionEnvelope(action, outcome.value.items, opts)
+  return collectionEnvelope(action, outcome.value.items, {
+    ...opts,
+    preview: { ...opts.preview, token: outcome.token }
+  })
+}
+
+function cwdOf(cwd: unknown): string | undefined {
+  return typeof cwd === 'string' && cwd.trim().length > 0 ? cwd : undefined
+}
+
+export function scopeForCwd(cwd: string | undefined): EnvelopeScope | null {
+  if (cwd === undefined) return null
   const project = resolveProjectService(cwd)
   if (!project) return { project: null, project_name: null, global: true }
   return { project: project.id, project_name: project.name, global: false }
@@ -108,10 +141,10 @@ export function resolveEnvelopeScope(cwd: string | undefined): {
   scope: EnvelopeScope | null
   warnings: string[]
 } {
-  if (cwd === undefined) {
+  const scope = scopeForCwd(cwd)
+  if (scope === null) {
     return { scope: null, warnings: ['no cwd — the answer spans every project'] }
   }
-  const scope = scopeForCwd(cwd)
   if (scope.global) {
     return {
       scope,
@@ -128,9 +161,7 @@ export function readEnvelopeScope(cwd: unknown): {
   warnings: string[]
   projectId: string | undefined
 } {
-  const { scope, warnings } = resolveEnvelopeScope(
-    typeof cwd === 'string' && cwd.trim().length > 0 ? cwd : undefined
-  )
+  const { scope, warnings } = resolveEnvelopeScope(cwdOf(cwd))
   return { scope, warnings, projectId: scopeProjectId(scope) }
 }
 
@@ -138,6 +169,5 @@ export function writeEnvelopeScope(cwd: unknown): {
   scope: EnvelopeScope | null
   warnings: string[]
 } {
-  if (typeof cwd !== 'string' || cwd.trim().length === 0) return { scope: null, warnings: [] }
-  return { scope: scopeForCwd(cwd), warnings: [] }
+  return { scope: scopeForCwd(cwdOf(cwd)), warnings: [] }
 }

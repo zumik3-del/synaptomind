@@ -1,4 +1,3 @@
-import { z } from 'zod/v4'
 import { getSlots } from '../../../services/slots.service'
 import { shapeEntity } from '../utils'
 import { collectionEnvelope, readEnvelopeScope } from '../envelope'

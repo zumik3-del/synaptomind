@@ -894,6 +894,8 @@ describe('memory_guide', () => {
     const r = result as { content: Array<{ type: string; text: string }> }
     expect(r.content[0].text).toContain('SynaptoMind')
     expect(r.content[0].text).toContain('memory_store')
+    const length = r.content[0].text.length
+    expect(length > 5_000 && length < 10_000, `guide is ${length} chars`).toBe(true)
   })
 
   test('advertises the effective soft limit resolved at call time', async () => {

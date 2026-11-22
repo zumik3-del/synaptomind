@@ -443,6 +443,21 @@ test('findDeadPrimers finds primers with no hits', () => {
   expect(deadOnes[0]?.hit_count).toBe(0)
 })
 
+// The retired `days` parameter never gated this query: age is not a criterion, generation is.
+test('findDeadPrimers carries no age predicate — an ancient dead primer is still dead', () => {
+  const db = getDb()
+  const ancient = seedThought({ content: 'ancient primer thought' })
+  const fresh = seedThought({ content: 'fresh primer thought' })
+  setThoughtAge(ancient, 4000)
+  seedPrimer(db, ancient, 0)
+  seedPrimer(db, fresh, 0)
+
+  const deadOnes = findDeadPrimers(db)
+
+  expect(deadOnes.map(primer => primer.thought_id).sort()).toEqual([ancient, fresh].sort())
+  expect(deadOnes.every(primer => primer.hit_count === 0)).toBe(true)
+})
+
 test('findMissingEmbeddings compares thoughts against the vec table', () => {
   const db = getDb()
   seedVecTable(db)
