@@ -1,25 +1,14 @@
-import { afterEach, describe, expect, test } from 'bun:test'
-import { config, DEFAULTS } from '../config'
+import { describe, expect, test } from 'bun:test'
+import { config, DEFAULTS, type Config } from '../config'
 import { buildConfigDisplay } from './config-display.service'
 
-// Without a config.json the nested config sections are the same object
-// references as DEFAULTS (shallow merge), so a test that wants config to differ
-// from its default must replace the section object rather than mutate a key.
+// The renderer takes the config it describes: the loaded object is frozen, so every case that needs
+// another value hands it a fixture instead of writing into the global.
 const DEFAULT_SOFT_LIMIT = DEFAULTS.thoughts.softLimit
 
-const original = {
-  db: config.db,
-  mcp: config.mcp,
-  embedder: config.embedder,
-  thoughts: config.thoughts
+function withSections(overrides: Partial<Config>): Config {
+  return { ...config, ...overrides }
 }
-
-afterEach(() => {
-  config.db = original.db
-  config.mcp = original.mcp
-  config.embedder = original.embedder
-  config.thoughts = original.thoughts
-})
 
 describe('buildConfigDisplay redaction', () => {
   test('redacts every path-bearing setting and never prints the raw path', () => {
@@ -28,11 +17,13 @@ describe('buildConfigDisplay redaction', () => {
       cacheDir: '/secret/huggingface',
       instructionsFile: '/secret/mcp-instructions.md'
     }
-    config.db = { ...config.db, path: secrets.dbPath }
-    config.embedder = { ...config.embedder, cacheDir: secrets.cacheDir }
-    config.mcp = { ...config.mcp, instructionsFile: secrets.instructionsFile }
-
-    const out = buildConfigDisplay()
+    const out = buildConfigDisplay(
+      withSections({
+        db: { ...config.db, path: secrets.dbPath },
+        embedder: { ...config.embedder, cacheDir: secrets.cacheDir },
+        mcp: { ...config.mcp, instructionsFile: secrets.instructionsFile }
+      })
+    )
 
     for (const secret of Object.values(secrets)) expect(out).not.toContain(secret)
     expect(out).toContain('db.path = [redacted]')
@@ -42,11 +33,13 @@ describe('buildConfigDisplay redaction', () => {
   })
 
   test('renders an empty path as "-" rather than [redacted]', () => {
-    config.db = { ...config.db, path: '' }
-    config.embedder = { ...config.embedder, cacheDir: '' }
-    config.mcp = { ...config.mcp, instructionsFile: '' }
-
-    const out = buildConfigDisplay()
+    const out = buildConfigDisplay(
+      withSections({
+        db: { ...config.db, path: '' },
+        embedder: { ...config.embedder, cacheDir: '' },
+        mcp: { ...config.mcp, instructionsFile: '' }
+      })
+    )
 
     expect(out).toContain('db.path = -')
     expect(out).toContain('embedder.cacheDir = -')
@@ -55,9 +48,9 @@ describe('buildConfigDisplay redaction', () => {
   })
 
   test('formats scalars and annotates a value that differs from the default', () => {
-    config.thoughts = { ...config.thoughts, softLimit: DEFAULT_SOFT_LIMIT + 1 }
-
-    const out = buildConfigDisplay()
+    const out = buildConfigDisplay(
+      withSections({ thoughts: { ...config.thoughts, softLimit: DEFAULT_SOFT_LIMIT + 1 } })
+    )
 
     expect(out).not.toContain('--- Verify ---')
     expect(out).toContain('--- Thoughts ---')
@@ -66,9 +59,9 @@ describe('buildConfigDisplay redaction', () => {
   })
 
   test('omits the default annotation when the value equals the default', () => {
-    config.thoughts = { ...config.thoughts, softLimit: DEFAULT_SOFT_LIMIT }
-
-    const line = buildConfigDisplay()
+    const line = buildConfigDisplay(
+      withSections({ thoughts: { ...config.thoughts, softLimit: DEFAULT_SOFT_LIMIT } })
+    )
       .split('\n')
       .find(l => l.includes('thoughts.softLimit ='))
 
@@ -98,18 +91,15 @@ describe('buildConfigDisplay removed sections', () => {
     expect(out).toContain('placement.maxProposalsPerEnqueue')
   })
   test('an inert section copied from a legacy config.json is not advertised', () => {
-    const mutable = config as unknown as Record<string, unknown>
-    mutable.autoLink = { minSimilarity: 0.5, maxEdgesPerRun: 7, dryRun: true }
-    mutable.triage = { enabled: false }
-    try {
-      const out = buildConfigDisplay()
+    const legacy = {
+      ...config,
+      autoLink: { minSimilarity: 0.5, maxEdgesPerRun: 7, dryRun: true },
+      triage: { enabled: false }
+    } as unknown as Config
+    const out = buildConfigDisplay(legacy)
 
-      expect(out).not.toContain('autoLink')
-      expect(out).not.toContain('triage')
-    } finally {
-      delete mutable.autoLink
-      delete mutable.triage
-    }
+    expect(out).not.toContain('autoLink')
+    expect(out).not.toContain('triage')
   })
 })
 
@@ -127,15 +117,16 @@ describe('buildConfigDisplay Search section', () => {
     expect(line).toContain('0.9')
   })
 
-  test('Search section annotates when env override changes the value', () => {
-    ;(process.env as NodeJS.ProcessEnv).SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR = '0.85'
-    const { config: loadedConfig } = require('../config')
-    if (loadedConfig.search.confidence.vectorFloor === 0.85) {
-      const out = buildConfigDisplay()
-      const line = out.split('\n').find(l => l.includes('search.confidence.vectorFloor'))
-      expect(line).toContain('0.85')
-      expect(line).toContain('[default: 0.9]')
-    }
-    delete (process.env as NodeJS.ProcessEnv).SYNAPTOMIND_SEARCH_CONFIDENCE_VECTOR_FLOOR
+  test('Search section annotates when the resolved value differs from the default', () => {
+    const out = buildConfigDisplay(
+      withSections({
+        search: {
+          confidence: { ...config.search.confidence, vectorFloor: 0.85 }
+        }
+      })
+    )
+    const line = out.split('\n').find(l => l.includes('search.confidence.vectorFloor'))
+    expect(line).toContain('0.85')
+    expect(line).toContain('[default: 0.9]')
   })
 })

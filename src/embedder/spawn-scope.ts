@@ -12,11 +12,12 @@ export interface EmbedderUserDb {
 
 // The parent's own decision (src/index.ts): a stdio session without --stdio-standalone delegates the
 // embedder and the background jobs to the shared server.
-export function processOwnsBackgroundJobs(argv: readonly string[] = process.argv): boolean {
+export function processOwnsBackgroundJobs(
+  argv: readonly string[] = process.argv,
+  stdioStandalone = config.mcp?.stdioStandalone === true
+): boolean {
   const isStdio = argv.includes('--stdio')
-  const stdioStandalone =
-    argv.includes('--stdio-standalone') || config.mcp?.stdioStandalone === true
-  return !isStdio || stdioStandalone
+  return !isStdio || argv.includes('--stdio-standalone') || stdioStandalone
 }
 
 // null = the parent handed no list (standalone or single-database child): fall back to config.users.

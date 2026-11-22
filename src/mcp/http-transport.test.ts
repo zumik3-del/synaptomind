@@ -6,7 +6,7 @@ import { config } from '../config'
 import { clearRegistry, register } from '../db'
 import { closeDb } from '../db/init'
 import { clearHealthProbeCache, getHealthService } from '../services/health.service'
-import { createTestDb } from '../test/helpers'
+import { configFixture, createTestDb } from '../test/helpers'
 import {
   MAX_REQUEST_BODY_BYTES,
   mcpErrorHandler,
@@ -182,38 +182,38 @@ describe('HTTP auth boundary', () => {
   })
 
   test('/health answers 503 when degraded and carries no configured user identity', async () => {
-    const previousUsers = config.users
-    config.users = [
-      { id: 'private-alice', dbPath: '/private/alice.db', tokenSha256: 'a' },
-      { id: 'private-bob', dbPath: '/private/bob.db', tokenSha256: 'b' }
+    const users = [
+      { id: 'private-alice', dbPath: '/private/alice.db', tokenSha256: 'a'.repeat(64) },
+      { id: 'private-bob', dbPath: '/private/bob.db', tokenSha256: 'b'.repeat(64) }
     ]
+    const port = await freePort()
+    const server = startMcpHttpServer('127.0.0.1', port, { config: configFixture({ users }) })
     clearHealthProbeCache()
     try {
-      const res = await fetch(`${mainBase}/health`)
+      const res = await fetch(`http://127.0.0.1:${port}/health`)
       const text = await res.text()
       expect(res.status).toBe(503)
       expect(JSON.parse(text)).toEqual({ status: 'degraded' })
       expect(text).not.toContain('private')
     } finally {
-      config.users = previousUsers
+      await server.stop()
       clearHealthProbeCache()
     }
   })
 
   test('getHealthService lists one database per user plus the configured-but-unopened ones', () => {
-    const previousUsers = config.users
     const first = new Database(':memory:')
     const second = new Database(':memory:')
     register('alice', first)
     register('bob', second)
-    config.users = [
-      { id: 'alice', dbPath: '/private/alice.db', tokenSha256: 'a' },
-      { id: 'bob', dbPath: '/private/bob.db', tokenSha256: 'b' },
-      { id: 'carol', dbPath: '/private/carol.db', tokenSha256: 'c' }
+    const users = [
+      { id: 'alice', dbPath: '/private/alice.db', tokenSha256: 'a'.repeat(64) },
+      { id: 'bob', dbPath: '/private/bob.db', tokenSha256: 'b'.repeat(64) },
+      { id: 'carol', dbPath: '/private/carol.db', tokenSha256: 'c'.repeat(64) }
     ]
     clearHealthProbeCache()
     try {
-      const health = getHealthService()
+      const health = getHealthService(undefined, configFixture({ users }))
       expect(health.databases).toEqual(['ok', 'ok', 'degraded'])
       expect(health.status).toBe('degraded')
       expect(health.checks.database).toBe('degraded')
@@ -221,7 +221,6 @@ describe('HTTP auth boundary', () => {
       clearRegistry()
       first.close()
       second.close()
-      config.users = previousUsers
       clearHealthProbeCache()
     }
   })

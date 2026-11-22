@@ -1,5 +1,6 @@
 import { getClusterForThoughtBatch } from '../db/cluster-edges'
 import { getDb } from '../db'
+import { config, type Config } from '../config'
 import { type SearchResult, searchThoughts as dbSearchThoughts } from '../db/search'
 export type { SearchResult } from '../db/search'
 import type { Thought } from '../db/thoughts'
@@ -74,8 +75,12 @@ interface SearchRun extends SearchOutcome {
   degraded: boolean
 }
 
-async function runSearch(options: SearchServiceOptions, d: Database): Promise<SearchRun> {
-  const normalized = normalizeSearchOptions(options)
+async function runSearch(
+  options: SearchServiceOptions,
+  d: Database,
+  cfg: Config
+): Promise<SearchRun> {
+  const normalized = normalizeSearchOptions(options, cfg)
   const idLookup = runIdLookup(options.query, d, normalized.topK, {
     statusFilter: options.statusFilter,
     projectFilter: options.projectFilter,
@@ -171,18 +176,20 @@ function resolveIdLookup(
 
 export async function searchThoughts(
   options: SearchServiceOptions,
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): Promise<SearchResult[]> {
-  const { items, degraded } = await runSearch(options, d)
+  const { items, degraded } = await runSearch(options, d, cfg)
   Object.assign(items, { degraded })
   return items
 }
 
 export async function searchThoughtsOutcome(
   options: SearchServiceOptions,
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): Promise<SearchOutcome> {
-  const { items, degraded, ...outcome } = await runSearch(options, d)
+  const { items, degraded, ...outcome } = await runSearch(options, d, cfg)
   Object.assign(items, { degraded })
   return { ...outcome, items }
 }

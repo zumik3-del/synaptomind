@@ -2,9 +2,8 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { openDatabase } from '../db/init'
 import { clearRegistry, register } from '../db'
-import { config, hashUserToken } from '../config'
+import { type Config, config, hashUserToken } from '../config'
 import { upsertSlot } from '../db/slots'
-import type { McpHttpHandle } from './http-transport'
 
 const ALICE_TOKEN = 'alice-modern-token'
 const BOB_TOKEN = 'bob-modern-token'
@@ -31,7 +30,8 @@ const LIST_MESSAGE = { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }
 let dbA: Database
 let dbB: Database
 
-let startMcpHttpServer: (host: string, port: number) => McpHttpHandle
+let multiUser: Config
+let startMcpHttpServer: typeof import('./http-transport').startMcpHttpServer
 
 function authHeaders(token: string, extra: Record<string, string> = {}): Record<string, string> {
   return { authorization: `Bearer ${token}`, ...extra }
@@ -116,10 +116,13 @@ beforeAll(async () => {
   const mod = await import('./http-transport')
   startMcpHttpServer = mod.startMcpHttpServer
 
-  config.users = [
-    { id: 'alice', dbPath: '/tmp/alice-modern.db', tokenSha256: hashUserToken(ALICE_TOKEN) },
-    { id: 'bob', dbPath: '/tmp/bob-modern.db', tokenSha256: hashUserToken(BOB_TOKEN) }
-  ]
+  multiUser = {
+    ...config,
+    users: [
+      { id: 'alice', dbPath: '/tmp/alice-modern.db', tokenSha256: hashUserToken(ALICE_TOKEN) },
+      { id: 'bob', dbPath: '/tmp/bob-modern.db', tokenSha256: hashUserToken(BOB_TOKEN) }
+    ]
+  }
 
   clearRegistry()
   dbA = openDatabase({ dbPath: ':memory:', runMigrations: true })
@@ -146,7 +149,7 @@ beforeAll(async () => {
 describe('modern era, multi-user', () => {
   test('T-mod-2: envelope tools/call reads the caller database on both users', async () => {
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: multiUser })
     const base = `http://127.0.0.1:${port}`
     try {
       const a = await slots(base, ALICE_TOKEN)
@@ -164,7 +167,7 @@ describe('modern era, multi-user', () => {
 
   test('T-mod-3: memory_store over the modern leg writes only the caller database', async () => {
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: multiUser })
     const base = `http://127.0.0.1:${port}`
     try {
       const created = await modernToolCall(base, ALICE_TOKEN, 'memory_store', {
@@ -197,7 +200,7 @@ describe('modern era, multi-user', () => {
 describe('cross-user containment (T-neg-5)', () => {
   test('a foreign session id is 403 and the victim session stays intact', async () => {
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: multiUser })
     const base = `http://127.0.0.1:${port}`
     try {
       const aliceSession = await initializeLegacy(base, ALICE_TOKEN)

@@ -1,4 +1,4 @@
-import { config } from '../config'
+import { config, type Config } from '../config'
 import {
   attemptPromote,
   getPrimerByThoughtId,
@@ -32,7 +32,8 @@ export function extractResultIds(results: SearchResult[] | GroupedResult[]): str
 
 export function updatePrimerHits(
   results: SearchResult[] | GroupedResult[],
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): void {
   const ids = extractResultIds(results)
   if (ids.length === 0) return
@@ -43,7 +44,7 @@ export function updatePrimerHits(
     if (getPrimerByThoughtId(d, id)) {
       promoteThoughtToPrimer(d, id, imp.hit_count)
     } else {
-      attemptPromote(d, id, imp.hit_count, config.primer.promoteThreshold)
+      attemptPromote(d, id, imp.hit_count, cfg.primer.promoteThreshold)
     }
   }
 }
@@ -80,9 +81,10 @@ export function prependPrimerResults(
 export function postProcessSearchResults(
   results: SearchResult[] | GroupedResult[],
   opts: SearchPostProcessOptions,
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): SearchResult[] | GroupedResult[] {
-  updatePrimerHits(results, d)
+  updatePrimerHits(results, d, cfg)
   if (!opts.showPrimers) return results
   const primerIds = getPrimerIds(d)
   if (primerIds.length === 0) return results

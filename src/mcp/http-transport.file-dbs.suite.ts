@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { hashUserToken, config } from '../config'
+import { hashUserToken, type Config, config } from '../config'
 import { clearRegistry, register } from '../db'
 import { openDatabase } from '../db/init'
 import { upsertSlot } from '../db/slots'
@@ -28,6 +28,7 @@ const bobPath = join(root, 'bob.db')
 
 let dbAlice: Database
 let dbBob: Database
+let cfg: Config
 let startMcpHttpServer: typeof import('./http-transport').startMcpHttpServer
 
 function authHeaders(token: string, extra: Record<string, string> = {}): Record<string, string> {
@@ -147,13 +148,16 @@ function fileSlotContent(path: string): string {
 }
 
 beforeAll(async () => {
-  config.mcp.maxSessions = 1
   startMcpHttpServer = (await import('./http-transport')).startMcpHttpServer
 
-  config.users = [
-    { id: 'alice', dbPath: alicePath, tokenSha256: hashUserToken(ALICE_TOKEN) },
-    { id: 'bob', dbPath: bobPath, tokenSha256: hashUserToken(BOB_TOKEN) }
-  ]
+  cfg = {
+    ...config,
+    mcp: { ...config.mcp, maxSessions: 1 },
+    users: [
+      { id: 'alice', dbPath: alicePath, tokenSha256: hashUserToken(ALICE_TOKEN) },
+      { id: 'bob', dbPath: bobPath, tokenSha256: hashUserToken(BOB_TOKEN) }
+    ]
+  }
 
   clearRegistry()
   dbAlice = openDatabase({ dbPath: alicePath, runMigrations: true })
@@ -191,7 +195,7 @@ afterAll(() => {
 describe('multi-user isolation over real database files', () => {
   test('interleaved tokens read their own file and a foreign token cannot terminate or replay a session', async () => {
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: cfg })
     const base = `http://127.0.0.1:${port}`
     try {
       const aliceSession = await initialize(base, ALICE_TOKEN)
@@ -250,7 +254,7 @@ describe('multi-user isolation over real database files', () => {
 
   test("a write through one token lands only in that user's file and is invisible to the other", async () => {
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: cfg })
     const base = `http://127.0.0.1:${port}`
     try {
       const aliceSession = await initialize(base, ALICE_TOKEN)
@@ -292,7 +296,7 @@ describe('multi-user isolation over real database files', () => {
 
   test('the session cap is per user: exhausting it for one user leaves the other usable', async () => {
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: cfg })
     const base = `http://127.0.0.1:${port}`
     try {
       await initialize(base, ALICE_TOKEN)

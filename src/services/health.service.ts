@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { getDb, getUserDb, listRegisteredUsers, listUserDatabases, registrySize } from '../db'
-import { config } from '../config'
+import { type Config, config } from '../config'
 import { getEmbedderState, type EmbedderState } from '../embedder/client-core'
 import { insertLog } from '../logging'
 import { VERSION } from '../version'
@@ -105,18 +105,18 @@ function collectDatabases(d?: Database): Array<{ userId?: string; db: Database }
   }
 }
 
-function unavailableConfiguredUsers(): string[] {
-  return (config.users ?? []).filter(user => !getUserDb(user.id)).map(user => user.id)
+function unavailableConfiguredUsers(cfg: Config): string[] {
+  return (cfg.users ?? []).filter(user => !getUserDb(user.id)).map(user => user.id)
 }
 
-export function getHealthService(d?: Database): HealthCheckResult {
+export function getHealthService(d?: Database, cfg: Config = config): HealthCheckResult {
   invalidateCacheIfRegistryChanged()
   const checks: Record<string, string> = {}
   const now = Date.now()
   const databases: DatabaseState[] = collectDatabases(d).map(
     ({ userId, db }) => probeDatabase(db, now, userId ?? 'default').status
   )
-  const unavailable = unavailableConfiguredUsers().length
+  const unavailable = unavailableConfiguredUsers(cfg).length
   for (let i = 0; i < unavailable; i++) databases.push('degraded')
 
   const allOk = databases.length > 0 && databases.every(status => status === 'ok')

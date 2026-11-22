@@ -1,11 +1,11 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
-import { config } from '../../config'
+import { type Config, config } from '../../config'
 import { getDb } from '../../db'
 import { closeDb } from '../../db/init'
 import { getThought } from '../../db/thoughts'
-import { createTestDb, seedThought } from '../../test/helpers'
+import { configFixture, createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
 mock.module('../../embedder/client', () => ({
@@ -37,9 +37,9 @@ function callTool(request: { name: string; arguments?: Record<string, unknown> }
   } as Parameters<Client['callTool']>[0])
 }
 
-async function setupClient(): Promise<Client> {
+async function setupClient(cfg?: Config): Promise<Client> {
   const s = new McpServer({ name: 'test', version: '0.0.0' })
-  registerAllMemoryTools(s)
+  registerAllMemoryTools(s, cfg)
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await s.connect(serverTransport)
   const c = new Client({ name: 'test-client', version: '0.0.0' })
@@ -83,17 +83,12 @@ describe('tool registration', () => {
   })
 
   test('memory_store advertises the effective soft limit at registration', async () => {
-    const original = config.thoughts.softLimit
-    config.thoughts.softLimit = 321
-
-    try {
-      const fresh = await setupClient()
-      const { tools: freshTools } = await fresh.listTools()
-      const storeTool = freshTools.find(t => t.name === 'memory_store')
-      expect(JSON.stringify(storeTool?.inputSchema ?? {})).toContain('321')
-    } finally {
-      config.thoughts.softLimit = original
-    }
+    const fresh = await setupClient(
+      configFixture({ thoughts: { ...config.thoughts, softLimit: 321 } })
+    )
+    const { tools: freshTools } = await fresh.listTools()
+    const storeTool = freshTools.find(t => t.name === 'memory_store')
+    expect(JSON.stringify(storeTool?.inputSchema ?? {})).toContain('321')
   })
 })
 
@@ -902,17 +897,13 @@ describe('memory_guide', () => {
   })
 
   test('advertises the effective soft limit resolved at call time', async () => {
-    const original = config.thoughts.softLimit
-    config.thoughts.softLimit = 123
-
-    try {
-      const result = await callTool({ name: 'memory_guide', arguments: {} })
-      const r = result as { content: Array<{ type: string; text: string }> }
-      expect(r.content[0].text).toContain('≤123 soft')
-      expect(r.content[0].text).not.toContain('≤600 soft')
-    } finally {
-      config.thoughts.softLimit = original
-    }
+    const fresh = await setupClient(
+      configFixture({ thoughts: { ...config.thoughts, softLimit: 123 } })
+    )
+    const result = await fresh.callTool({ name: 'memory_guide', arguments: {} })
+    const r = result as { content: Array<{ type: string; text: string }> }
+    expect(r.content[0].text).toContain('≤123 soft')
+    expect(r.content[0].text).not.toContain('≤600 soft')
   })
 })
 

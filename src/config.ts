@@ -29,7 +29,7 @@ export interface UserConfig {
   tokenSha256: string
 }
 
-interface Config {
+export interface Config {
   contentLanguage: string
   server: { port: number; host: string }
   mcp: {
@@ -389,4 +389,15 @@ export function validateUsers(input: unknown, source = 'config.json'): UserConfi
   return result
 }
 
-export const config: Config = applyEnvOverrides(loadFileConfig())
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value
+  for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested)
+  return Object.freeze(value)
+}
+
+/**
+ * Frozen on purpose: the load is the only writer, and a section the file does not override is the
+ * very object `DEFAULTS` exposes. An in-place write would therefore corrupt the defaults every later
+ * load and every reader falls back to; callers that need other values build their own fixture.
+ */
+export const config: Config = deepFreeze(applyEnvOverrides(loadFileConfig()))

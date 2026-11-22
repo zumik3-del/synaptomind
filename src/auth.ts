@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
-import { config, hashUserToken } from './config'
+import { config, hashUserToken, type Config } from './config'
 
 let warnedMissingTokens = false
 let warnedInertSecret = false
@@ -16,8 +16,8 @@ export interface UserRef {
   kind: UserKind
 }
 
-export function getValidTokens(): string[] {
-  const users = Array.isArray(config.users) ? config.users : []
+export function getValidTokens(cfg: Config = config): string[] {
+  const users = Array.isArray(cfg.users) ? cfg.users : []
 
   if (users.length > 0) {
     if (!warnedInertSecret && process.env.SYNAPTOMIND_SECRET) {
@@ -50,8 +50,8 @@ export function getValidTokens(): string[] {
   return tokens
 }
 
-export function resolveUser(auth: string | undefined): UserRef | null {
-  const users = Array.isArray(config.users) ? config.users : []
+export function resolveUser(auth: string | undefined, cfg: Config = config): UserRef | null {
+  const users = Array.isArray(cfg.users) ? cfg.users : []
 
   if (users.length === 0 && isInsecureMode()) {
     return { userId: 'legacy', kind: 'legacy' }
@@ -73,7 +73,7 @@ export function resolveUser(auth: string | undefined): UserRef | null {
   }
 
   if (users.length === 0) {
-    const tokens = getValidTokens()
+    const tokens = getValidTokens(cfg)
     let ok = false
     for (const t of tokens) {
       if (safeTokenEqual(t, token)) ok = true
@@ -84,8 +84,8 @@ export function resolveUser(auth: string | undefined): UserRef | null {
   return null
 }
 
-export function checkBearerAuth(auth: string | undefined): boolean {
-  return resolveUser(auth) !== null
+export function checkBearerAuth(auth: string | undefined, cfg: Config = config): boolean {
+  return resolveUser(auth, cfg) !== null
 }
 
 // Both sides are hashed first: `timingSafeEqual` throws on a length mismatch, which would turn a

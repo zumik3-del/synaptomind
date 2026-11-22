@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { config } from '../config'
+import { config, type Config } from '../config'
 import { getDb } from '../db'
 import {
   isLegacyItemKind,
@@ -18,8 +18,8 @@ import { MS_PER_DAY } from '../utils'
 type Decision = { action: 'revert' } | { action: 'skipped' | 'refused'; reason: string }
 
 // The rollback window is the retention window; a row that cannot be measured is refused, never reverted.
-function windowRefusal(row: PlacementProposalRow, now: string): Decision | null {
-  const ttlDays = config.placement.proposalTtlDays
+function windowRefusal(row: PlacementProposalRow, now: string, cfg: Config): Decision | null {
+  const ttlDays = cfg.placement.proposalTtlDays
   if (ttlDays < 0) return null
 
   const nowMs = Date.parse(now)
@@ -44,8 +44,13 @@ function windowRefusal(row: PlacementProposalRow, now: string): Decision | null 
   return null
 }
 
-function decideRollback(row: PlacementProposalRow, now: string, d: Database): Decision {
-  const outsideWindow = windowRefusal(row, now)
+function decideRollback(
+  row: PlacementProposalRow,
+  now: string,
+  d: Database,
+  cfg: Config
+): Decision {
+  const outsideWindow = windowRefusal(row, now, cfg)
   if (outsideWindow) return outsideWindow
   if (isLegacyItemKind(row.item_kind)) {
     return {
@@ -86,7 +91,8 @@ function summarize(items: RollbackItemReport[]): RollbackReport['summary'] {
 export function rollbackService(
   runId: string,
   options: RollbackOptions = {},
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): RollbackReport {
   if (!runId) throw new ValidationError('run_id is required')
 
@@ -97,7 +103,7 @@ export function rollbackService(
 
   const items: RollbackItemReport[] = []
   for (const row of accepted) {
-    const decision = decideRollback(row, now, d)
+    const decision = decideRollback(row, now, d, cfg)
     if (decision.action !== 'revert') {
       if (confirm) {
         insertLog(

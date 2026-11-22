@@ -2,11 +2,19 @@ import { Database } from 'bun:sqlite'
 import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { config } from '../config'
+import { type Config, config } from '../config'
 import { getDb, setDb } from '../db'
 import { closeDb, initDb } from '../db/init'
 import { vec0Path } from '../runtime-mode'
 import { scopeSql } from '../db/schema/vec-schema'
+
+/**
+ * The config object is frozen, so a case that needs another value builds its own fixture and hands
+ * it to the consumer; a section keeps the loaded value unless the case replaces it wholesale.
+ */
+export function configFixture(overrides: Partial<Config>): Config {
+  return { ...config, ...overrides }
+}
 
 /**
  * A migrated `:memory:` image, serialized once per test process.

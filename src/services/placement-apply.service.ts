@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { config, type Config } from '../config'
 import { getDb } from '../db'
 import {
   getProposal,
@@ -158,7 +159,8 @@ function persistOutcome(
 export function applyProposalService(
   proposalId: string,
   options: ApplyOptions = {},
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): ApplyResult {
   const row = getProposal(d, proposalId)
   if (!row) throw new NotFoundError(`placement proposal '${proposalId}' not found`)
@@ -191,7 +193,7 @@ export function applyProposalService(
   if (row.state !== 'pending')
     return { ...base, status: 'failed', reason: `proposal is '${row.state}', not 'pending'` }
 
-  const gate = evaluateGates(row, options, d)
+  const gate = evaluateGates(row, options, d, cfg)
 
   if (options.confirm !== true) {
     if (gate.kind === 'stale') return { ...base, status: 'stale', reason: gate.reason }
@@ -269,7 +271,8 @@ export function applyProposalService(
 export function applyBatchService(
   proposalIds: string[],
   options: ApplyOptions = {},
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): ApplyBatchOutcome {
   if (!Array.isArray(proposalIds)) throw new ValidationError('proposal_ids must be an array')
 
@@ -306,7 +309,7 @@ export function applyBatchService(
   const errors: ApplyBatchOutcome['errors'] = []
 
   const applyItem = d.transaction((proposalId: string) =>
-    applyProposalService(proposalId, { ...options, runId: batchRunId }, d)
+    applyProposalService(proposalId, { ...options, runId: batchRunId }, d, cfg)
   )
   // One run-level transaction, a savepoint per item: the savepoint is the isolation contract.
   const applyRun = d.transaction(() => {

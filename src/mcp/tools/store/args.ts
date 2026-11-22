@@ -1,16 +1,17 @@
 import { z } from 'zod/v4'
+import { type Config, config } from '../../../config'
 import { getThoughtLimitsDB } from '../../../config.thought-limits'
 import { EDGE_TYPES } from '../../../services/edges.service'
 import { thoughtStatusSchema } from '../../../validation'
 import { BULK_ITEMS_MAX } from '../../../services/bulk.service'
 import { edgeIdsArg, isProfileRefusal, linksArg, thoughtsArg, urlLinkItem } from './items'
 
-export function storeContentArg(): z.ZodOptional<z.ZodString> {
+export function storeContentArg(cfg: Config = config): z.ZodOptional<z.ZodString> {
   return z
     .string()
     .optional()
     .describe(
-      `REQUIRED for "create". OPTIONAL for "update". REJECTED for "link", "link_batch", "unlink", "unlink_batch", "retype". Recommended soft limit: ${getThoughtLimitsDB().softLimit} chars.`
+      `REQUIRED for "create". OPTIONAL for "update". REJECTED for "link", "link_batch", "unlink", "unlink_batch", "retype". Recommended soft limit: ${getThoughtLimitsDB(cfg).softLimit} chars.`
     )
 }
 

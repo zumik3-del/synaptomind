@@ -1,5 +1,5 @@
 import { type Subprocess, spawn } from 'bun'
-import { config } from '../config'
+import { config, type UserConfig } from '../config'
 import { rawEnvFallbackNumber } from '../config.raw-env'
 import { insertLog as defaultInsertLog } from '../logging'
 import { EmbedderNotReadyError, EmbedderUnavailableError } from '../errors'
@@ -25,6 +25,9 @@ type InsertLogFn = (
 export interface EmbedderClientDeps {
   getEmbedderIdleTimeoutMs: () => number
   getEmbedderPrecache: () => boolean
+  getEmbedderEnabled: () => boolean
+  getUsers: () => UserConfig[]
+  getStdioStandalone: () => boolean
   insertLog: InsertLogFn
   isCompiled: () => boolean
 }
@@ -32,6 +35,9 @@ export interface EmbedderClientDeps {
 export const DEFAULT_DEPS: EmbedderClientDeps = {
   getEmbedderIdleTimeoutMs: () => config.embedder.idleTimeoutMs,
   getEmbedderPrecache: () => config.embedder.precache,
+  getEmbedderEnabled: () => config.embedder.enabled,
+  getUsers: () => config.users,
+  getStdioStandalone: () => config.mcp?.stdioStandalone === true,
   insertLog: defaultInsertLog,
   isCompiled: defaultIsCompiled
 }
@@ -95,19 +101,19 @@ export class EmbedderSupervisor {
   }
 
   protected ownsBackgroundJobs(): boolean {
-    return processOwnsBackgroundJobs()
+    return processOwnsBackgroundJobs(process.argv, this.deps.getStdioStandalone())
   }
 
   // The child polls exactly the user databases the parent registered: configured minus the ones boot
   // fan-out marked unavailable.
   protected assignedUserDbs(): EmbedderUserDb[] {
-    const users = Array.isArray(config.users) ? config.users : []
+    const users = this.deps.getUsers()
     return users.filter(u => !isUnavailable(u.id)).map(u => ({ id: u.id, dbPath: u.dbPath }))
   }
 
   protected childScopeEnv(): Record<string, string> {
     const env: Record<string, string> = {}
-    if (Array.isArray(config.users) && config.users.length > 0) {
+    if (this.deps.getUsers().length > 0) {
       env[EMBEDDER_USERS_ENV] = JSON.stringify(this.assignedUserDbs())
     }
     if (!this.ownsBackgroundJobs()) env[EMBEDDER_BATCH_WORKER_ENV] = 'false'
@@ -235,7 +241,7 @@ export class EmbedderSupervisor {
   }
 
   protected async ensureReady(): Promise<void> {
-    if (!config.embedder.enabled || process.argv.includes('--no-embedder')) {
+    if (!this.deps.getEmbedderEnabled() || process.argv.includes('--no-embedder')) {
       throw new EmbedderUnavailableError('Embedder is disabled')
     }
     if (this.ready) return
