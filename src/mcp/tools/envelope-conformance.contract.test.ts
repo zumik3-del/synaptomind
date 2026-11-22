@@ -282,7 +282,8 @@ const CASES: ActionCase[] = [
     action: 'delete',
     args: () => ({ project_id: PROJECT }),
     slot: 'item',
-    cwd: true
+    cwd: true,
+    preview: true
   },
   { tool: 'memory_manage', action: 'resolve', args: () => ({}), slot: 'item', cwd: true },
   { tool: 'memory_crystallize', action: 'graph', args: () => ({}), slot: 'graph', cwd: true },
@@ -1307,6 +1308,130 @@ describe('cwd is accepted on every action, including the ones it does not scope'
   })
 })
 
+describe('every action of every tool accepts cwd', () => {
+  for (const c of CASES) {
+    test(`${c.tool} action=${c.action} answers the same call with cwd attached`, async () => {
+      const { isError, text } = readResult(
+        await client.callTool({
+          name: c.tool,
+          arguments: { action: c.action, ...c.args(fx), cwd: CWD }
+        } as never)
+      )
+      if (isError) throw new Error(`${c.tool} ${c.action} refused cwd: ${text}`)
+    })
+  }
+})
+
+const REFUSAL_SWEEP: Array<{ tool: string; args: Record<string, unknown> }> = [
+  { tool: 'edge_review', args: { action: 'not_an_action' } },
+  { tool: 'memory_crystallize', args: { action: 'not_an_action' } },
+  { tool: 'memory_manage', args: { action: 'not_an_action' } },
+  { tool: 'memory_primers', args: { action: 'not_an_action' } },
+  { tool: 'memory_recall', args: { action: 'not_an_action' } },
+  { tool: 'memory_reflect', args: { action: 'not_an_action' } },
+  { tool: 'memory_status', args: { action: 'not_an_action' } },
+  { tool: 'memory_store', args: { action: 'not_an_action' } },
+  { tool: 'memory_supersede', args: { action: 'not_an_action' } },
+  { tool: 'retention_review', args: { action: 'not_an_action' } }
+]
+
+function refusal(result: unknown): { message: string; text: string } {
+  const { payload, isError, text } = readResult(result)
+  if (!isError) throw new Error(`expected a refusal, got a success: ${text}`)
+  const error = (payload as { error?: { message?: unknown } } | undefined)?.error
+  if (!isPlainObject(error) || typeof error.message !== 'string') {
+    throw new Error(`refusal carried no structuredContent.result.error: ${text}`)
+  }
+  return { message: error.message, text }
+}
+
+function actionEnum(tool: { inputSchema?: unknown }): string[] {
+  const action = schemaProps(tool).action as { enum?: unknown } | undefined
+  if (!Array.isArray(action?.enum)) throw new Error('the tool advertises no action enum')
+  return action.enum.map(String)
+}
+
+function unknownActionRefusal(tool: string, enumValues: string[]): string {
+  const quoted = enumValues.map(value => `"${value}"`).join('|')
+  return `Input validation error: Invalid arguments for tool ${tool}: action: Invalid option: expected one of ${quoted}`
+}
+
+describe('every registered tool refuses a bad argument in the structured error envelope', () => {
+  test('the sweep table covers every tool that advertises an action', async () => {
+    const actionTools = (await advertisedTools()).filter(t => schemaProps(t).action !== undefined)
+    expect(actionTools.map(t => t.name).sort()).toEqual(REFUSAL_SWEEP.map(c => c.tool).sort())
+  })
+
+  for (const c of REFUSAL_SWEEP) {
+    test(`${c.tool} answers an unknown action with structuredContent.result.error`, async () => {
+      const { message, text } = refusal(
+        await client.callTool({ name: c.tool, arguments: c.args } as never)
+      )
+      const tool = (await advertisedTools()).find(t => t.name === c.tool)
+      if (!tool) throw new Error(`${c.tool} is not advertised`)
+      expect(message).toBe(unknownActionRefusal(c.tool, actionEnum(tool)))
+      expect(text).toBe(message)
+    })
+  }
+
+  test('memory_guide advertises no arguments, so there is no argument it could refuse', async () => {
+    const tool = (await advertisedTools()).find(t => t.name === 'memory_guide')
+    expect(Object.keys(schemaProps(tool ?? {}))).toEqual([])
+    const { isError, text } = readResult(
+      await client.callTool({
+        name: 'memory_guide',
+        arguments: { action: 'not_an_action' }
+      } as never)
+    )
+    expect({ isError, refused: text.includes('Invalid arguments') }).toEqual({
+      isError: false,
+      refused: false
+    })
+  })
+})
+
+const PINNED_REFUSALS = [
+  {
+    label: 'an unknown action',
+    tool: 'memory_recall',
+    args: { action: 'nope' },
+    message:
+      'Input validation error: Invalid arguments for tool memory_recall: action: Invalid option: expected one of "search"|"get"|"context"|"chain"|"clusters"|"list"'
+  },
+  {
+    label: 'a retired tombstone',
+    tool: 'memory_recall',
+    args: { action: 'search', query: 'conformance source alpha', top_k: 1 },
+    message:
+      'Input validation error: Invalid arguments for tool memory_recall: top_k: top_k was removed; use limit'
+  },
+  {
+    label: 'a wrong-typed argument',
+    tool: 'memory_recall',
+    args: { action: 'search', query: 'conformance source alpha', limit: 'many' },
+    message:
+      'Input validation error: Invalid arguments for tool memory_recall: limit: Invalid input: expected number, received NaN'
+  },
+  {
+    label: 'a missing required argument',
+    tool: 'memory_manage',
+    args: { action: 'resolve' },
+    message: 'cwd is required for resolve action'
+  }
+]
+
+describe('refusal wording is byte-identical to the pre-wrapper answer', () => {
+  for (const c of PINNED_REFUSALS) {
+    test(`${c.label} reads exactly as it did before the wrapper`, async () => {
+      const { message, text } = refusal(
+        await client.callTool({ name: c.tool, arguments: c.args } as never)
+      )
+      expect(message).toBe(c.message)
+      expect(text).toBe(c.message)
+    })
+  }
+})
+
 function structuredError(result: unknown): { message: string; statusCode?: number } {
   const { payload, isError, text } = readResult(result)
   if (!isError) throw new Error(`expected a failure, got a success: ${text}`)
@@ -1400,4 +1525,33 @@ describe('a preview token lives only in meta.preview', () => {
     const preview = body.meta.preview as { token?: unknown } | undefined
     expect(typeof preview?.token).toBe('string')
   })
+})
+
+const TOKENLESS_PREVIEWS = new Set(['memory_store.unlink_batch', 'retention_review.compact'])
+
+describe('no action envelope carries preview_token outside meta.preview', () => {
+  for (const c of CASES) {
+    test(`${c.tool} action=${c.action} keeps every token in meta.preview`, async () => {
+      const { payload, isError, text } = readResult(
+        await client.callTool({
+          name: c.tool,
+          arguments: { action: c.action, ...c.args(fx), cwd: CWD }
+        } as never)
+      )
+      if (isError) throw new Error(`${c.tool} ${c.action} answered isError: ${text}`)
+      assertNoItemPreviewToken(payload, `${c.tool}.${c.action}`)
+      if (c.preview !== true) return
+
+      const meta = (payload as { meta?: Record<string, unknown> }).meta
+      const preview = meta?.preview
+      if (!isPlainObject(preview))
+        throw new Error(`${c.tool} ${c.action}: preview answer carries no meta.preview`)
+      const label = `${c.tool}.${c.action}`
+      if (TOKENLESS_PREVIEWS.has(label)) {
+        expect({ label, token: preview.token }).toEqual({ label, token: null })
+      } else {
+        expect({ label, token: typeof preview.token }).toEqual({ label, token: 'string' })
+      }
+    })
+  }
 })
