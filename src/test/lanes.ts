@@ -45,6 +45,7 @@ export const INTEGRATION_TESTS: readonly string[] = [
   'src/mcp/http-transport.modern-isolation.test.ts',
   'src/mcp/http-transport.modern-limits.test.ts',
   'src/mcp/http-transport.modern.test.ts',
+  'src/mcp/http-transport.parity.test.ts',
   'src/mcp/http-transport.test.ts',
   'src/mcp/stdio-runtime.test.ts',
   REMOVED_SUBSYSTEM_GUARD,
