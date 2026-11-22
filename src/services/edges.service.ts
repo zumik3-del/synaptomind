@@ -60,12 +60,16 @@ export function createEdgesBatchService(
   let linked = 0
   const errors: LinkBatchError[] = []
 
-  const run = d.transaction(() => {
+  const linkItem = d.transaction((link: LinkBatchItem) => {
+    if (!link?.source) throw new ValidationError('source is required')
+    if (!link.target) throw new ValidationError('target is required')
+    createEdgeService(link.source, link.target, link.type, d)
+  })
+  // One level-1 transaction, a savepoint per link: one commit, every bad link isolated.
+  const runLinks = d.transaction(() => {
     links.forEach((link, index) => {
       try {
-        if (!link?.source) throw new ValidationError('source is required')
-        if (!link.target) throw new ValidationError('target is required')
-        createEdgeService(link.source, link.target, link.type, d)
+        linkItem(link)
         linked++
       } catch (err) {
         errors.push({
@@ -77,7 +81,7 @@ export function createEdgesBatchService(
       }
     })
   })
-  run()
+  runLinks()
 
   return { linked, failed: errors.length, errors }
 }
@@ -131,93 +135,85 @@ export function deleteEdgesBatchService(
 
   let deleted = 0
   let preview = 0
-  let failed = 0
   const results: UnlinkBatchItemResult[] = []
   const errors: UnlinkBatchError[] = []
 
   const recordFailure = (index: number, id: string, error: string) => {
-    failed++
     results.push({ edge_id: id, status: 'failed', error })
     errors.push({ index, edge_id: id, error })
   }
 
-  const run = d.transaction(() => {
-    if (confirm) {
-      const anyMissing = edgeIds.some(id => !findEdge(d, id))
-      if (anyMissing) {
-        edgeIds.forEach((id, index) => {
-          const edge = findEdge(d, id)
-          if (!edge) {
-            recordFailure(index, id, `Edge not found: ${id}`)
-          } else {
-            recordFailure(
-              index,
-              id,
-              'batch aborted: not all edge_ids exist (transaction rolled back)'
-            )
-          }
-        })
-        return
-      }
-      if (new Set(edgeIds).size !== edgeIds.length) {
-        edgeIds.forEach((id, index) => {
-          recordFailure(index, id, 'batch aborted: duplicate edge_ids (no edges deleted)')
-        })
-        return
-      }
+  const outcome = (): UnlinkBatchResult => {
+    const result: UnlinkBatchResult = {
+      deleted,
+      preview,
+      failed: errors.length,
+      unlinked: deleted,
+      previews: preview,
+      failures: errors.length,
+      total: edgeIds.length,
+      results,
+      items: results,
+      edges: results,
+      errors
     }
+    if (preview > 0 && !confirm) {
+      result.instruction =
+        'Call memory_store again with action=unlink_batch, edge_ids=[...], confirm=true to proceed.'
+    }
+    return result
+  }
 
+  if (!confirm) {
     edgeIds.forEach((id, index) => {
       const edge = findEdge(d, id)
       if (!edge) {
         recordFailure(index, id, `Edge not found: ${id}`)
         return
       }
-      if (!confirm) {
-        preview++
-        results.push({
-          edge_id: id,
-          status: 'preview',
-          edge: {
-            id: edge.id,
-            source_id: edge.source_id,
-            target_id: edge.target_id,
-            type: edge.type,
-            created_at: edge.created_at
-          },
-          consequence: `Removes the '${edge.type}' edge between '${edge.source_id}' and '${edge.target_id}'.`
-        })
-        return
-      }
-      const ok = deleteEdge(d, id)
-      if (ok) {
-        deleted++
-        results.push({ edge_id: id, status: 'deleted' })
-      } else {
-        recordFailure(index, id, `Edge not found: ${id}`)
-      }
+      preview++
+      results.push({
+        edge_id: id,
+        status: 'preview',
+        edge: {
+          id: edge.id,
+          source_id: edge.source_id,
+          target_id: edge.target_id,
+          type: edge.type,
+          created_at: edge.created_at
+        },
+        consequence: `Removes the '${edge.type}' edge between '${edge.source_id}' and '${edge.target_id}'.`
+      })
     })
-  })
-  run()
+    return outcome()
+  }
 
-  const result: UnlinkBatchResult = {
-    deleted,
-    preview,
-    failed,
-    unlinked: deleted,
-    previews: preview,
-    failures: failed,
-    total: edgeIds.length,
-    results,
-    items: results,
-    edges: results,
-    errors
+  // All-or-nothing: a refusal is decided before the transaction opens, so it writes nothing.
+  if (edgeIds.some(id => !findEdge(d, id))) {
+    edgeIds.forEach((id, index) => {
+      const edge = findEdge(d, id)
+      if (!edge) recordFailure(index, id, `Edge not found: ${id}`)
+      else recordFailure(index, id, 'batch aborted: not all edge_ids exist (no edges deleted)')
+    })
+    return outcome()
   }
-  if (preview > 0 && !confirm) {
-    result.instruction =
-      'Call memory_store again with action=unlink_batch, edge_ids=[...], confirm=true to proceed.'
+  if (new Set(edgeIds).size !== edgeIds.length) {
+    edgeIds.forEach((id, index) => {
+      recordFailure(index, id, 'batch aborted: duplicate edge_ids (no edges deleted)')
+    })
+    return outcome()
   }
-  return result
+
+  const removeAll = d.transaction(() => {
+    for (const id of edgeIds) {
+      if (!deleteEdge(d, id)) throw new NotFoundError(`Edge not found: ${id}`)
+      deleted++
+      results.push({ edge_id: id, status: 'deleted' })
+    }
+  })
+  removeAll()
+
+  return outcome()
 }
 
 export function findEdgeService(edgeId: string, d: Database = getDb()): Edge | undefined {

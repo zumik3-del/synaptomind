@@ -1,245 +1,26 @@
 import { getDb } from '../db'
-import {
-  findOrphanEdges,
-  findSelfLoopEdges,
-  findDuplicateEdges,
-  findClusterViolations,
-  findEmptyClusters,
-  findSingletonClusters,
-  findOrphanedClusterMembers,
-  findClusterlessDense,
-  findIslandThoughts,
-  findOverlinkedThoughts,
-  findDuplicateContent,
-  findTooShort,
-  findTestRemnants,
-  findStaleDrafts,
-  findUntagged,
-  findCircularChains,
-  findBrokenParentChains,
-  findReplacesChains,
-  findContradictsWithHierarchy,
-  findContradictsRedundantWithReplaces,
-  findContradictionInCluster,
-  findContradictsToArchived,
-  findSupportsSelfConflict,
-  findMissingEmbeddings,
-  findScopeMismatches,
-  findDeadPrimers,
-  findImportanceOutliers,
-  getGraphStats,
-  deleteEdges,
-  archiveThoughts
-} from '../db/health-check'
+import { getGraphStats } from '../db/health-check'
 import type { Database } from 'bun:sqlite'
-import { findDuplicateDrafts } from './health-check-drafts.service'
+import { CATEGORIES, runChecks } from './health-check-registry.service'
+import { scoreCategories } from './health-check-scoring.service'
+import {
+  SEVERITIES,
+  type CategoryResult,
+  type CheckResult,
+  type HealthCheckOptions,
+  type HealthReport,
+  type Severity
+} from './health-check.types'
 
-export const SEVERITIES = ['critical', 'warning', 'info'] as const
-
-export type Severity = (typeof SEVERITIES)[number]
-
-export interface CheckResult {
-  name: string
-  severity: Severity
-  count: number
-  details: unknown[]
-  auto_fixable?: boolean
-  autofix?: Autofix
-}
-
-export interface CategoryResult {
-  name: string
-  checks: CheckResult[]
-}
-
-interface ScoreBreakdown {
-  critical_categories: number
-  warning_categories: number
-  info_occurrences: number
-  info_scored_occurrences: number
-  info_unscored_checks: string[]
-  penalty_critical: number
-  penalty_warning: number
-  penalty_info: number
-  formula: string
-}
-
-export interface HealthReport {
-  summary: {
-    total_thoughts: number
-    total_edges: number
-    total_clusters: number
-    active: number
-    draft: number
-    archived: number
-    health_score: number
-    critical: number
-    warning: number
-    info: number
-    critical_count: number
-    warning_count: number
-    info_count: number
-    critical_issues: number
-    warning_issues: number
-    info_issues: number
-    issues: { critical: number; warning: number; info: number }
-    score_breakdown: ScoreBreakdown
-    score_composition: ScoreBreakdown
-    score_explanation: ScoreBreakdown
-    score_components: ScoreBreakdown
-    score_details: ScoreBreakdown
-    score_formula: string
-    formula: string
-  }
-  categories: CategoryResult[]
-}
-
-interface HealthCheckOptions {
-  severity?: Severity
-}
-
-type Autofix = (db: Database, details: unknown[]) => number | undefined
-
-interface CheckDef {
-  name: string
-  severity: Severity
-  finder: (db: Database) => unknown[]
-  autofix?: Autofix
-}
+export { SEVERITIES }
+export type { CategoryResult, CheckResult, HealthReport, Severity }
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warning: 1, info: 2 }
-const CRITICAL_CATEGORY_PENALTY = 40
-const WARNING_CATEGORY_PENALTY = 15
-const INFO_OCCURRENCE_PENALTY = 0.25
-
-const INFO_CHECKS_NOT_SCORED: ReadonlySet<string> = new Set(['island_thoughts'])
 
 function matchesSeverity(check: CheckResult, minSeverity?: Severity): boolean {
   if (!minSeverity) return true
   return SEVERITY_ORDER[check.severity] <= SEVERITY_ORDER[minSeverity]
 }
-
-function runChecks(db: Database, checks: CheckDef[]): CheckResult[] {
-  return checks.map(({ name, severity, finder, autofix }) => {
-    const details = finder(db)
-    return {
-      name,
-      severity,
-      count: details.length,
-      details,
-      auto_fixable: autofix ? true : undefined,
-      autofix
-    }
-  })
-}
-
-const autofixEdgeIds: Autofix = (db, details) => {
-  return deleteEdges(
-    db,
-    (details as Array<{ id: string }>).map(e => e.id)
-  )
-}
-
-const autofixClusterMemberEdges: Autofix = (db, details) => {
-  return deleteEdges(
-    db,
-    (details as Array<{ cluster_edge_id: string }>).map(m => m.cluster_edge_id)
-  )
-}
-
-const autofixThoughtIds: Autofix = (db, details) => {
-  return archiveThoughts(
-    db,
-    (details as Array<{ id: string }>).map(t => t.id)
-  )
-}
-
-const autofixArchivedParentEdges: Autofix = (db, details) => {
-  const ids = (details as Array<{ edge_id: string; target_status: string }>)
-    .filter(b => b.target_status === 'archived')
-    .map(b => b.edge_id)
-  if (ids.length === 0) return 0
-  return deleteEdges(db, ids)
-}
-
-const STRUCTURAL_CHECKS: CheckDef[] = [
-  { name: 'orphan_edges', severity: 'critical', finder: findOrphanEdges, autofix: autofixEdgeIds },
-  {
-    name: 'self_loop_edges',
-    severity: 'critical',
-    finder: findSelfLoopEdges,
-    autofix: autofixEdgeIds
-  },
-  { name: 'duplicate_edges', severity: 'critical', finder: findDuplicateEdges },
-  { name: 'cluster_constraint_violations', severity: 'critical', finder: findClusterViolations }
-]
-
-const CLUSTER_CHECKS: CheckDef[] = [
-  {
-    name: 'empty_clusters',
-    severity: 'warning',
-    finder: findEmptyClusters,
-    autofix: autofixThoughtIds
-  },
-  { name: 'singleton_clusters', severity: 'warning', finder: findSingletonClusters },
-  {
-    name: 'orphaned_cluster_members',
-    severity: 'warning',
-    finder: findOrphanedClusterMembers,
-    autofix: autofixClusterMemberEdges
-  },
-  { name: 'clusterless_dense_thoughts', severity: 'warning', finder: findClusterlessDense }
-]
-
-const CONNECTIVITY_CHECKS: CheckDef[] = [
-  { name: 'island_thoughts', severity: 'info', finder: findIslandThoughts },
-  { name: 'overlinked_thoughts', severity: 'warning', finder: findOverlinkedThoughts }
-]
-
-const CONTENT_CHECKS: CheckDef[] = [
-  { name: 'duplicate_content', severity: 'info', finder: findDuplicateContent },
-  { name: 'too_short_content', severity: 'info', finder: findTooShort },
-  { name: 'test_remnants', severity: 'info', finder: findTestRemnants, autofix: autofixThoughtIds },
-  { name: 'stale_drafts', severity: 'info', finder: findStaleDrafts },
-  { name: 'duplicate_drafts', severity: 'warning', finder: findDuplicateDrafts },
-  { name: 'untagged_thoughts', severity: 'info', finder: findUntagged }
-]
-
-const SEMANTIC_CHECKS: CheckDef[] = [
-  { name: 'circular_chains', severity: 'warning', finder: findCircularChains },
-  {
-    name: 'broken_parent_chains',
-    severity: 'warning',
-    finder: findBrokenParentChains,
-    autofix: autofixArchivedParentEdges
-  },
-  { name: 'replaces_chains', severity: 'warning', finder: findReplacesChains },
-  { name: 'contradicts_with_hierarchy', severity: 'warning', finder: findContradictsWithHierarchy },
-  { name: 'contradiction_in_cluster', severity: 'warning', finder: findContradictionInCluster },
-  {
-    name: 'contradicts_redundant_with_replaces',
-    severity: 'info',
-    finder: findContradictsRedundantWithReplaces
-  },
-  { name: 'contradicts_to_archived', severity: 'info', finder: findContradictsToArchived },
-  { name: 'supports_self_conflict', severity: 'critical', finder: findSupportsSelfConflict }
-]
-
-const DRIFT_CHECKS: CheckDef[] = [
-  { name: 'missing_embeddings', severity: 'info', finder: findMissingEmbeddings },
-  { name: 'vector_scope_mismatch', severity: 'warning', finder: findScopeMismatches },
-  { name: 'dead_primers', severity: 'info', finder: findDeadPrimers },
-  { name: 'importance_outliers', severity: 'info', finder: findImportanceOutliers }
-]
-
-const CATEGORIES: Array<{ name: string; checks: CheckDef[] }> = [
-  { name: 'structural_integrity', checks: STRUCTURAL_CHECKS },
-  { name: 'cluster_health', checks: CLUSTER_CHECKS },
-  { name: 'connectivity', checks: CONNECTIVITY_CHECKS },
-  { name: 'content_quality', checks: CONTENT_CHECKS },
-  { name: 'semantic_consistency', checks: SEMANTIC_CHECKS },
-  { name: 'data_drift', checks: DRIFT_CHECKS }
-]
 
 export function runHealthCheckService(
   options: HealthCheckOptions = {},
@@ -258,71 +39,29 @@ export function runHealthCheckService(
       .filter(c => c.checks.length > 0)
   }
 
-  let critical = 0,
-    warning = 0,
-    info = 0
-  let scoredInfo = 0
-  let criticalCats = 0,
-    warningCats = 0
-  for (const cat of categories) {
-    let catCritical = false,
-      catWarning = false
-    for (const check of cat.checks) {
-      if (check.severity === 'critical') {
-        critical += check.count
-        if (check.count > 0) catCritical = true
-      } else if (check.severity === 'warning') {
-        warning += check.count
-        if (check.count > 0) catWarning = true
-      } else {
-        info += check.count
-        if (!INFO_CHECKS_NOT_SCORED.has(check.name)) scoredInfo += check.count
-      }
-    }
-    if (catCritical) criticalCats++
-    if (catWarning) warningCats++
-  }
-
-  const penaltyCritical = criticalCats * CRITICAL_CATEGORY_PENALTY
-  const penaltyWarning = warningCats * WARNING_CATEGORY_PENALTY
-  const penaltyInfo = scoredInfo * INFO_OCCURRENCE_PENALTY
-  const health_score = Math.max(
-    0,
-    Math.min(100, 100 - penaltyCritical - penaltyWarning - penaltyInfo)
-  )
-  const scoreBreakdown: ScoreBreakdown = {
-    critical_categories: criticalCats,
-    warning_categories: warningCats,
-    info_occurrences: info,
-    info_scored_occurrences: scoredInfo,
-    info_unscored_checks: [...INFO_CHECKS_NOT_SCORED],
-    penalty_critical: penaltyCritical,
-    penalty_warning: penaltyWarning,
-    penalty_info: penaltyInfo,
-    formula: `100 - (critical_categories * ${CRITICAL_CATEGORY_PENALTY}) - (warning_categories * ${WARNING_CATEGORY_PENALTY}) - (info_scored_occurrences * ${INFO_OCCURRENCE_PENALTY}), clamped to [0, 100]`
-  }
+  const score = scoreCategories(categories)
 
   return {
     summary: {
       ...stats,
-      health_score: Math.round(health_score * 10) / 10,
-      critical,
-      warning,
-      info,
-      critical_count: critical,
-      warning_count: warning,
-      info_count: info,
-      critical_issues: critical,
-      warning_issues: warning,
-      info_issues: info,
-      issues: { critical, warning, info },
-      score_breakdown: scoreBreakdown,
-      score_composition: scoreBreakdown,
-      score_explanation: scoreBreakdown,
-      score_components: scoreBreakdown,
-      score_details: scoreBreakdown,
-      score_formula: scoreBreakdown.formula,
-      formula: scoreBreakdown.formula
+      health_score: score.health_score,
+      critical: score.critical,
+      warning: score.warning,
+      info: score.info,
+      critical_count: score.critical,
+      warning_count: score.warning,
+      info_count: score.info,
+      critical_issues: score.critical,
+      warning_issues: score.warning,
+      info_issues: score.info,
+      issues: { critical: score.critical, warning: score.warning, info: score.info },
+      score_breakdown: score.breakdown,
+      score_composition: score.breakdown,
+      score_explanation: score.breakdown,
+      score_components: score.breakdown,
+      score_details: score.breakdown,
+      score_formula: score.breakdown.formula,
+      formula: score.breakdown.formula
     },
     categories
   }

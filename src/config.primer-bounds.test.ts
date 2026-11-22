@@ -1,67 +1,42 @@
-import { afterEach, describe, expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { describe, expect, test } from 'bun:test'
 import { DEFAULTS } from './config'
-import { loadFreshConfig } from './test/fresh-config'
+import { loadFreshConfig, type FreshConfigLoad } from './test/fresh-config'
 
-let SCRATCH = ''
+/**
+ * Every primer-knob assertion the deleted `config.primer-bounds.test.ts` carried, re-expressed
+ * against the one schema: the ad-hoc sanitizer clamped a bad count to 1 and floored a fraction, the
+ * schema replaces a value that is not an integer >= 1 with the default and reports it.
+ */
 
-afterEach(() => {
-  if (SCRATCH) rmSync(SCRATCH, { recursive: true, force: true })
-  SCRATCH = ''
-})
-
-function scratchDir(): string {
-  SCRATCH = mkdtempSync(join(tmpdir(), 'synaptomind-config-knobs-'))
-  return SCRATCH
-}
-
-function baseEnv(): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) env[key] = value
+function readPath(obj: unknown, path: string): unknown {
+  let current: unknown = obj
+  for (const key of path.split('.')) {
+    if (current === null || typeof current !== 'object') return undefined
+    current = (current as Record<string, unknown>)[key]
   }
-  delete env.SYNAPTOMIND_PRIMER_TOP_N
-  delete env.SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD
-  return env
+  return current
 }
 
-interface LoadResult {
-  code: number
-  out: string
-  err: string
-}
+const TOP_N = 'SYNAPTOMIND_PRIMER_TOP_N'
+const PROMOTE = 'SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD'
 
-async function loadConfig(cwd: string, env: Record<string, string> = {}): Promise<LoadResult> {
-  const file = join(cwd, 'config.json')
-  const probe = await loadFreshConfig({
-    env: { ...baseEnv(), ...env },
-    configFile: existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as unknown) : undefined
-  })
-  if (probe.error !== undefined) {
-    return { code: 1, out: '', err: `${probe.stderr}\n${probe.error}` }
-  }
-  const resolved = probe.config as { primer: { topN: number; promoteThreshold: number } }
-  return {
-    code: 0,
-    out: `TOPN=${resolved.primer.topN}\nPROMOTE=${resolved.primer.promoteThreshold}`,
-    err: probe.stderr
-  }
-}
-
-function resolved(out: string, key: string): string {
-  const line = out.split('\n').find(l => l.startsWith(`${key}=`))
-  return line === undefined ? '' : line.slice(key.length + 1)
-}
-
-async function loadWithFile(
-  fileConfig: unknown,
+async function load(
+  configFile?: unknown,
   env: Record<string, string> = {}
-): Promise<LoadResult> {
-  const cwd = scratchDir()
-  writeFileSync(join(cwd, 'config.json'), JSON.stringify(fileConfig))
-  return loadConfig(cwd, env)
+): Promise<FreshConfigLoad> {
+  return loadFreshConfig({ configFile, env, isolated: true })
+}
+
+function topN(probe: FreshConfigLoad): unknown {
+  return readPath(probe.config, 'primer.topN')
+}
+
+function promote(probe: FreshConfigLoad): unknown {
+  return readPath(probe.config, 'primer.promoteThreshold')
+}
+
+function warnings(probe: FreshConfigLoad): string[] {
+  return probe.stderr.split('\n').filter(line => line.includes('[config] invalid value'))
 }
 
 describe('primer knobs — the built-in defaults', () => {
@@ -71,181 +46,175 @@ describe('primer knobs — the built-in defaults', () => {
   })
 
   test('a config without a primer section resolves to the defaults', async () => {
-    const res = await loadConfig(scratchDir())
+    const probe = await load()
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('3')
-    expect(resolved(res.out, 'PROMOTE')).toBe('5')
+    expect(probe.error).toBeUndefined()
+    expect(topN(probe)).toBe(3)
+    expect(promote(probe)).toBe(5)
+    expect(warnings(probe)).toEqual([])
   })
 })
 
 describe('primer knobs — config.json (the file path)', () => {
-  test('a negative topN becomes 1, never "unlimited"', async () => {
-    const res = await loadWithFile({ primer: { topN: -5 } })
+  test('a negative topN becomes the default 3, never "unlimited" and never 1', async () => {
+    const probe = await load({ primer: { topN: -5 } })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('1')
-    expect(resolved(res.out, 'PROMOTE')).toBe('5')
+    expect(topN(probe)).toBe(3)
+    expect(promote(probe)).toBe(5)
   })
 
-  test('a zero topN becomes 1', async () => {
-    const res = await loadWithFile({ primer: { topN: 0 } })
+  test('a zero topN becomes the default 3', async () => {
+    const probe = await load({ primer: { topN: 0 } })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('1')
+    expect(topN(probe)).toBe(3)
   })
 
   test('a non-numeric topN falls back to the built-in default (3)', async () => {
-    const res = await loadWithFile({ primer: { topN: 'abc' } })
+    const probe = await load({ primer: { topN: 'abc' } })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('3')
+    expect(topN(probe)).toBe(3)
   })
 
-  test('a negative promoteThreshold becomes 1, never "promote everything"', async () => {
-    const res = await loadWithFile({ primer: { promoteThreshold: -5 } })
+  test('a negative promoteThreshold becomes the default 5, never 1', async () => {
+    const probe = await load({ primer: { promoteThreshold: -5 } })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'PROMOTE')).toBe('1')
-    expect(resolved(res.out, 'TOPN')).toBe('3')
+    expect(promote(probe)).toBe(5)
+    expect(topN(probe)).toBe(3)
   })
 
   test('a non-numeric promoteThreshold falls back to the built-in default (5)', async () => {
-    const res = await loadWithFile({ primer: { promoteThreshold: 'abc' } })
+    const probe = await load({ primer: { promoteThreshold: 'abc' } })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'PROMOTE')).toBe('5')
+    expect(promote(probe)).toBe(5)
   })
 
-  test('a fractional knob is floored, not rounded', async () => {
-    const res = await loadWithFile({ primer: { topN: 2.7 } })
+  test('a fractional knob falls back to the default instead of being floored', async () => {
+    const probe = await load({ primer: { topN: 2.7 } })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('2')
+    expect(topN(probe)).toBe(3)
+    expect(warnings(probe).length).toBe(1)
   })
 
-  test('a primer section that is not an object falls back to both defaults', async () => {
-    const res = await loadWithFile({ primer: 'abc' })
+  test('a primer section that is not an object is one warning and both defaults', async () => {
+    const probe = await load({ primer: 'abc' })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('3')
-    expect(resolved(res.out, 'PROMOTE')).toBe('5')
+    expect(topN(probe)).toBe(3)
+    expect(promote(probe)).toBe(5)
+    expect(warnings(probe)).toEqual([expect.stringContaining('invalid value for primer: "abc"')])
   })
 
   test('valid values are untouched', async () => {
-    const res = await loadWithFile({ primer: { topN: 3, promoteThreshold: 5 } })
+    const probe = await load({ primer: { topN: 3, promoteThreshold: 5 } })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('3')
-    expect(resolved(res.out, 'PROMOTE')).toBe('5')
+    expect(topN(probe)).toBe(3)
+    expect(promote(probe)).toBe(5)
+    expect(warnings(probe)).toEqual([])
   })
 })
 
 describe('primer knobs — the env path', () => {
-  test('SYNAPTOMIND_PRIMER_TOP_N=-5 becomes 1', async () => {
-    const res = await loadConfig(scratchDir(), { SYNAPTOMIND_PRIMER_TOP_N: '-5' })
+  test(`${TOP_N}=-5 becomes the default 3`, async () => {
+    const probe = await load(undefined, { [TOP_N]: '-5' })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('1')
+    expect(topN(probe)).toBe(3)
   })
 
-  test('SYNAPTOMIND_PRIMER_TOP_N=0 becomes 1', async () => {
-    const res = await loadConfig(scratchDir(), { SYNAPTOMIND_PRIMER_TOP_N: '0' })
+  test(`${TOP_N}=0 becomes the default 3`, async () => {
+    const probe = await load(undefined, { [TOP_N]: '0' })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('1')
+    expect(topN(probe)).toBe(3)
   })
 
-  test('SYNAPTOMIND_PRIMER_TOP_N=abc falls back to the built-in default (3)', async () => {
-    const res = await loadConfig(scratchDir(), { SYNAPTOMIND_PRIMER_TOP_N: 'abc' })
+  test(`${TOP_N}=abc becomes the default 3`, async () => {
+    const probe = await load(undefined, { [TOP_N]: 'abc' })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('3')
+    expect(topN(probe)).toBe(3)
   })
 
-  test('the env override wins over a valid file value AND is sanitized', async () => {
-    const res = await loadWithFile({ primer: { topN: 4 } }, { SYNAPTOMIND_PRIMER_TOP_N: '-2' })
+  test('the env override wins over a valid file value AND is validated', async () => {
+    const probe = await load({ primer: { topN: 4 } }, { [TOP_N]: '-2' })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('1')
+    expect(topN(probe)).toBe(3)
+    expect(warnings(probe).length).toBe(1)
   })
 
   test('a valid env override is applied untouched', async () => {
-    const res = await loadConfig(scratchDir(), { SYNAPTOMIND_PRIMER_TOP_N: '7' })
+    const probe = await load(undefined, { [TOP_N]: '7' })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('7')
+    expect(topN(probe)).toBe(7)
+    expect(warnings(probe)).toEqual([])
   })
 
-  test('SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD=-5 becomes 1', async () => {
-    const res = await loadConfig(scratchDir(), { SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD: '-5' })
+  test(`${PROMOTE}=-5 becomes the default 5`, async () => {
+    const probe = await load(undefined, { [PROMOTE]: '-5' })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'PROMOTE')).toBe('1')
+    expect(promote(probe)).toBe(5)
   })
 
-  test('SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD=abc falls back to the built-in default (5)', async () => {
-    const res = await loadConfig(scratchDir(), { SYNAPTOMIND_PRIMER_PROMOTE_THRESHOLD: 'abc' })
+  test(`${PROMOTE}=abc becomes the default 5`, async () => {
+    const probe = await load(undefined, { [PROMOTE]: 'abc' })
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'PROMOTE')).toBe('5')
+    expect(promote(probe)).toBe(5)
   })
 
   test('no override anywhere resolves to 3 / 5', async () => {
-    const res = await loadConfig(scratchDir())
+    const probe = await load()
 
-    expect(res.code).toBe(0)
-    expect(resolved(res.out, 'TOPN')).toBe('3')
-    expect(resolved(res.out, 'PROMOTE')).toBe('5')
+    expect(topN(probe)).toBe(3)
+    expect(promote(probe)).toBe(5)
   })
 })
 
 describe('primer knobs — the stderr report', () => {
-  test('a negative topN names the offending value and the value actually used', async () => {
-    const res = await loadWithFile({ primer: { topN: -5 } })
+  test('a negative topN names the key, the offending value and the default actually used', async () => {
+    const probe = await load({ primer: { topN: -5 } })
 
-    expect(res.err).toContain('[config] invalid value for primer.topN: "-5"')
-    expect(res.err).toContain('(expected an integer >= 1)')
-    expect(res.err).toContain('using 1')
+    expect(warnings(probe)).toEqual([
+      '[config] invalid value for primer.topN: -5 (expected an integer >= 1), using default 3'
+    ])
   })
 
   test('a non-numeric topN names the offending value and the default used', async () => {
-    const res = await loadWithFile({ primer: { topN: 'abc' } })
+    const probe = await load({ primer: { topN: 'abc' } })
 
-    expect(res.err).toContain('[config] invalid value for primer.topN: "abc"')
-    expect(res.err).toContain('using 3')
+    expect(warnings(probe)).toEqual([
+      '[config] invalid value for primer.topN: "abc" (expected an integer >= 1), using default 3'
+    ])
   })
 
-  test('a negative promoteThreshold names the offending value and the value used', async () => {
-    const res = await loadWithFile({ primer: { promoteThreshold: -5 } })
+  test('a negative promoteThreshold names the offending value and the default used', async () => {
+    const probe = await load({ primer: { promoteThreshold: -5 } })
 
-    expect(res.err).toContain('[config] invalid value for primer.promoteThreshold: "-5"')
-    expect(res.err).toContain('using 1')
+    expect(warnings(probe)).toEqual([
+      '[config] invalid value for primer.promoteThreshold: -5 (expected an integer >= 1), using default 5'
+    ])
   })
 
-  test('a negative env override is reported too', async () => {
-    const res = await loadConfig(scratchDir(), { SYNAPTOMIND_PRIMER_TOP_N: '-5' })
+  test('a negative env override names both the key and the env var', async () => {
+    const probe = await load(undefined, { [TOP_N]: '-5' })
 
-    expect(res.err).toContain('[config] invalid value for primer.topN: "-5"')
-    expect(res.err).toContain('using 1')
+    expect(warnings(probe)).toEqual([
+      `[config] invalid value for primer.topN (from ${TOP_N}): -5 (expected an integer >= 1), using default 3`
+    ])
   })
 
-  test('a non-numeric env value is reported by the env layer, naming the value', async () => {
-    const res = await loadConfig(scratchDir(), { SYNAPTOMIND_PRIMER_TOP_N: 'abc' })
+  test('a non-numeric env value names the env var and the value', async () => {
+    const probe = await load(undefined, { [TOP_N]: 'abc' })
 
-    expect(res.err).toContain('[config] invalid value for SYNAPTOMIND_PRIMER_TOP_N: "abc"')
-    expect(resolved(res.out, 'TOPN')).toBe('3')
+    expect(warnings(probe)).toEqual([
+      `[config] invalid value for primer.topN (from ${TOP_N}): "abc" (expected an integer >= 1), using default 3`
+    ])
   })
 
   test('valid values print nothing', async () => {
-    const res = await loadWithFile({ primer: { topN: 3, promoteThreshold: 5 } })
+    const probe = await load({ primer: { topN: 3, promoteThreshold: 5 } })
 
-    expect(res.err).not.toContain('invalid value for primer')
+    expect(probe.stderr).not.toContain('invalid value for primer')
   })
 
   test('a valid env override prints nothing', async () => {
-    const res = await loadConfig(scratchDir(), { SYNAPTOMIND_PRIMER_TOP_N: '3' })
+    const probe = await load(undefined, { [TOP_N]: '3' })
 
-    expect(res.err).not.toContain('invalid value for primer')
+    expect(probe.stderr).not.toContain('invalid value for primer')
   })
 })

@@ -294,7 +294,7 @@ export function registerMemoryRecall(server: McpServer) {
         .string()
         .optional()
         .describe(
-          'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for search/clusters/list/context: omitting it (or passing no registered path) answers across every project and says so in meta.warnings. IGNORED for get/chain.'
+          'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for search/clusters/list/context: omitting it (or passing no registered path) answers across every project and says so in meta.warnings. ACCEPTED AND IGNORED for get/chain.'
         ),
       tag: z
         .string()

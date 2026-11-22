@@ -361,3 +361,40 @@ test('archiveThoughtsBatchService refuses an empty or oversized batch', () => {
     `thought_ids accepts at most ${BATCH_ITEMS_MAX} ids per call (got ${tooMany.length})`
   )
 })
+
+function statusesOf(ids: string[]): Array<string | undefined> {
+  return ids.map(id => getThoughtByIdService(id)?.status)
+}
+
+test('archiveThoughtsBatchService isolates a constraint failure to its own id', () => {
+  const first = seedThought({ content: 'batch one' })
+  const middle = seedThought({ content: 'batch two' })
+  const last = seedThought({ content: 'batch three' })
+  getDb().run(
+    `CREATE TRIGGER probe_block_archive BEFORE UPDATE OF status ON thoughts
+     WHEN OLD.id = '${middle}'
+     BEGIN SELECT RAISE(ABORT, 'probe: archive blocked'); END`
+  )
+
+  const result = archiveThoughtsBatchService([first, middle, last])
+
+  expect(result.archived).toBe(2)
+  expect(result.failed).toBe(1)
+  expect(result.errors).toEqual([{ thought_id: middle, error: 'probe: archive blocked' }])
+  expect(statusesOf([first, middle, last])).toEqual(['archived', 'active', 'archived'])
+})
+
+test('archiveThoughtsBatchService discards every id when the run aborts', () => {
+  const first = seedThought({ content: 'batch one' })
+  const middle = seedThought({ content: 'batch two' })
+  const last = seedThought({ content: 'batch three' })
+  getDb().run(
+    `CREATE TRIGGER probe_abort_run BEFORE UPDATE OF status ON thoughts
+     WHEN OLD.id = '${last}'
+     BEGIN SELECT RAISE(ROLLBACK, 'probe: run aborted'); END`
+  )
+
+  expect(() => archiveThoughtsBatchService([first, middle, last])).toThrow()
+
+  expect(statusesOf([first, middle, last])).toEqual(['active', 'active', 'active'])
+})

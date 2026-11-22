@@ -1,25 +1,17 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve } from 'bun'
-import { getValidTokens, resolveUser, type UserRef } from '../auth'
+import { getValidTokens } from '../auth'
 import { config } from '../config'
-import { authMiddleware } from '../middleware/auth'
-import { als, getDb, getUserDb } from '../context/container'
-import type { Database } from 'bun:sqlite'
-import { createRateLimitMiddleware } from '../middleware/rate-limit'
-import { createMcpServer } from './server'
-import { disposePair } from './in-memory-event-store'
-import type { Context } from 'hono'
+import { createGuardedPipeline } from '../middleware/guarded-pipeline'
+import { createErrorHandler, MAX_REQUEST_BODY_BYTES } from '../middleware/http-errors'
 import { createMcpHandler } from '@modelcontextprotocol/server'
-import { createMcpRouteHandler, type Session } from './mcp-route'
-import {
-  bodyTooLargeResponse,
-  clientAbortResponse,
-  drainRejectedBody,
-  isClientAbort
-} from './request-body'
+import { createMcpRouteHandler, SessionRegistry, type Session } from './mcp-route'
+import { drainRejectedBody } from './request-body'
+import { createMcpServer } from './server'
 
 export type { Session } from './mcp-route'
+export { MAX_REQUEST_BODY_BYTES } from '../middleware/http-errors'
 
 export interface McpHttpHandle {
   stop(): Promise<void>
@@ -34,18 +26,9 @@ const MAX_SESSIONS = config.mcp.maxSessions
 const SESSION_TTL_MS = config.mcp.sessionTtlMs
 const KEEPALIVE_MS = config.mcp.keepAliveMs
 const MAX_SUBSCRIPTIONS = config.mcp.maxSubscriptions
-export const MAX_REQUEST_BODY_BYTES = 5_242_880
 
-// Unknown errors must never surface as Hono's non-JSON 500: MCP clients parse JSON-RPC. A client
-// that aborts mid-body is not a server fault, so it gets the SDK's own parse error.
-export function mcpErrorHandler(err: Error, c: Context): Response {
-  if (isClientAbort(err)) return clientAbortResponse()
-  console.error('[synaptomind] MCP HTTP unhandled error:', err)
-  return c.json(
-    { jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null },
-    500
-  )
-}
+// Unknown errors must never surface as Hono's non-JSON 500: MCP clients parse JSON-RPC.
+export const mcpErrorHandler = createErrorHandler('jsonrpc')
 
 export function startMcpHttpServer(
   host: string,
@@ -53,8 +36,12 @@ export function startMcpHttpServer(
   options: McpHttpOptions = {}
 ): McpHttpHandle {
   const app = new Hono()
-  const sessions = new Map<string, Session>()
-  const rateLimit = createRateLimitMiddleware()
+  const registry = new SessionRegistry({
+    maxSessions: MAX_SESSIONS,
+    keepAliveMs: KEEPALIVE_MS,
+    maxRequestBodyBytes: MAX_REQUEST_BODY_BYTES,
+    ttlMs: SESSION_TTL_MS
+  })
 
   getValidTokens()
 
@@ -89,49 +76,9 @@ export function startMcpHttpServer(
     if (outcome === 'abandoned') c.header('Connection', 'close')
   })
 
-  app.use('/mcp', authMiddleware)
+  for (const guard of createGuardedPipeline({ shape: 'jsonrpc' })) app.use('/mcp', guard)
 
-  const resolveRequestDb = (ref: UserRef): Database | undefined => {
-    try {
-      return ref.kind === 'legacy' ? getDb() : getUserDb(ref.userId)
-    } catch {
-      return undefined
-    }
-  }
-
-  app.use('/mcp', async (c, next) => {
-    const ref = resolveUser(c.req.header('Authorization'))
-    if (!ref) return c.json({ error: 'Unauthorized' }, 401)
-
-    const db = resolveRequestDb(ref)
-    if (!db && ref.kind !== 'legacy')
-      return new Response(JSON.stringify({ error: 'Database unavailable' }), {
-        status: 503,
-        headers: { 'content-type': 'application/json' }
-      })
-
-    ;(c as any).set('mcpUser', ref)
-    return als.run({ userId: ref.userId, db: db as Database }, next)
-  })
-
-  app.use('/mcp', rateLimit)
-
-  app.use('/mcp', async (c, next) => {
-    const contentLength = parseInt(c.req.header('content-length') || '0', 10)
-    if (contentLength > MAX_REQUEST_BODY_BYTES) return bodyTooLargeResponse()
-    return next()
-  })
-
-  const sessionCleanup = setInterval(() => {
-    const now = Date.now()
-    for (const [id, session] of sessions) {
-      if (now - session.lastAccess > SESSION_TTL_MS) {
-        disposePair(session.server, session.transport).catch(() => {})
-        sessions.delete(id)
-      }
-    }
-  }, 60_000)
-  sessionCleanup.unref()
+  const stopSweep = registry.startSweep()
 
   // `legacy: 'reject'` keeps a routing disagreement a protocol error, and the factory must stay
   // unmemoized: an SDK factory instance cannot serve a second request.
@@ -143,10 +90,8 @@ export function startMcpHttpServer(
   })
 
   const route = createMcpRouteHandler({
-    sessions,
+    registry,
     modern,
-    maxSessions: MAX_SESSIONS,
-    keepAliveMs: KEEPALIVE_MS,
     maxRequestBodyBytes: MAX_REQUEST_BODY_BYTES
   })
 
@@ -163,16 +108,12 @@ export function startMcpHttpServer(
 
   return {
     async stop() {
-      clearInterval(sessionCleanup)
-      await Promise.allSettled([
-        ...[...sessions.values()].map(session => disposePair(session.server, session.transport)),
-        modern.close()
-      ])
-      sessions.clear()
+      stopSweep()
+      await Promise.allSettled([registry.disposeAll(), modern.close()])
       await server.stop()
     },
     getSessions() {
-      return sessions
+      return registry.view
     }
   }
 }

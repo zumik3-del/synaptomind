@@ -12,8 +12,10 @@ import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { DRAFT_THOUGHT_ID, proposePlacementPlan } from './placement/engine'
 import {
   computeFingerprint,
+  countPlacementProposalsService,
   enqueuePlanService,
   isProposalStale,
+  listPlacementProposalsPageService,
   listPlacementProposalsService as list,
   rejectPlacementProposalService as reject
 } from './placement-proposals.service'
@@ -130,6 +132,43 @@ function withPlacementConfig(overrides: Partial<typeof config.placement>, fn: ()
 
 function queueRowCount(db: Database): number {
   return (db.prepare('SELECT COUNT(*) AS n FROM placement_proposals').get() as { n: number }).n
+}
+
+/** A pending row whose TTL lapsed long ago: the queue's pending-liveness filter drops it. */
+function insertLapsedProposal(
+  db: Database,
+  sourceId: string,
+  targetId: string,
+  createdAt: string
+): PlacementProposalRow {
+  const row = insertProposal(db, {
+    source_thought_id: sourceId,
+    item_kind: 'edge',
+    target_id: targetId,
+    edge_type: 'related',
+    confidence: 0.5,
+    rationale: 'pending but past its TTL',
+    payload: '{}',
+    fingerprint: `fp-lapsed-${createdAt}`,
+    expires_at: '2000-01-01T00:00:00.000Z'
+  })
+  backdate(db, row.id, createdAt)
+  return row
+}
+
+function backdate(db: Database, id: string, createdAt: string): void {
+  db.prepare('UPDATE placement_proposals SET created_at = ? WHERE id = ?').run(createdAt, id)
+}
+
+/** A retired (legacy) kind, written raw because the insert service only models live kinds. */
+function insertRetiredProposal(db: Database, id: string, sourceId: string, targetId: string): void {
+  db.prepare(`
+    INSERT INTO placement_proposals
+      (id, project_id, source_thought_id, item_kind, target_id, edge_type, lifecycle_action, direction,
+       confidence, rationale, rule_id, payload, fingerprint, state, created_at)
+    VALUES (?, 'default', ?, 'triage_activate', ?, null, null, null, 0.9, 'retired triage verdict',
+      null, '{}', 'fp-retired', 'pending', '2026-01-01T00:00:00.000Z')
+  `).run(id, sourceId, targetId)
 }
 
 function enqueueProposals(
@@ -680,6 +719,37 @@ describe('enqueuePlanService: maxPendingProposals cap', () => {
       expect(list({ now: '2026-02-01T00:00:00.000Z' }, db)).toHaveLength(1)
     })
   })
+
+  test('expired rows filling the prefetch window do not hide live pending rows', () => {
+    const db = getDb()
+    const src = seedThought({ id: 'pf-src', content: 'prefetch source', created_at: T_SRC })
+    const t1 = seedThought({ id: 'pf-t1', content: 'prefetch t1', created_at: T_TGT })
+    const t2 = seedThought({ id: 'pf-t2', content: 'prefetch t2', created_at: T_TGT })
+    const t3 = seedThought({ id: 'pf-t3', content: 'prefetch t3', created_at: T_TGT })
+    const t4 = seedThought({ id: 'pf-t4', content: 'prefetch t4', created_at: T_TGT })
+    const t5 = seedThought({ id: 'pf-t5', content: 'prefetch t5', created_at: T_TGT })
+    const t6 = seedThought({ id: 'pf-t6', content: 'prefetch t6', created_at: T_TGT })
+    const fresh = seedThought({ id: 'pf-fresh', content: 'prefetch fresh', created_at: T_TGT })
+    withPlacementConfig({ maxPendingProposals: 2, proposalTtlDays: 365 }, () => {
+      const live = [
+        ...enqueueProposals(edgePlan(src, t1), { now: NOW }, db),
+        ...enqueueProposals(edgePlan(src, t2, { type: 'supports' }), { now: NOW }, db)
+      ]
+      backdate(db, live[0].id, '2020-01-01T00:00:00.000Z')
+      backdate(db, live[1].id, '2020-01-01T00:00:01.000Z')
+      // The prefetch reads maxPending + items + 1 = 4 newest pending rows: fill all four with
+      // lapsed rows, so a JS post-filter sees no live row and forgets the two that exist.
+      insertLapsedProposal(db, src, t3, '2020-02-01T00:00:00.000Z')
+      insertLapsedProposal(db, src, t4, '2020-02-01T00:00:01.000Z')
+      insertLapsedProposal(db, src, t5, '2020-02-01T00:00:02.000Z')
+      insertLapsedProposal(db, src, t6, '2020-02-01T00:00:03.000Z')
+
+      expect(() => enqueueProposals(edgePlan(src, fresh), { now: NOW_LATER }, db)).toThrow(
+        /maximum 2 pending placement proposals reached/
+      )
+      expect(queueRowCount(db)).toBe(6)
+    })
+  })
 })
 
 describe('reject', () => {
@@ -939,5 +1009,102 @@ describe('regression: proposePlacementPlan does not write to placement_proposals
     )
     expect(plan.thought_id).toBe(DRAFT_THOUGHT_ID)
     expect(queueRowCount(db)).toBe(0)
+  })
+})
+
+describe('countPlacementProposalsService', () => {
+  test('the total is un-paged: one number for limit 1 and limit 1000', () => {
+    const db = getDb()
+    for (let i = 0; i < 5; i++) {
+      const s = seedThought({ id: `cnt-s${i}`, content: `count source ${i}`, created_at: T_SRC })
+      const t = seedThought({ id: `cnt-t${i}`, content: `count target ${i}`, created_at: T_TGT })
+      enqueueProposals(edgePlan(s, t), { now: NOW }, db)
+    }
+
+    expect(countPlacementProposalsService({ now: NOW, limit: 1 }, db)).toBe(5)
+    expect(countPlacementProposalsService({ now: NOW, limit: 1000 }, db)).toBe(5)
+    expect(list({ now: NOW, limit: 1 }, db)).toHaveLength(1)
+  })
+
+  test('the count shares the page filter set: lapsed and retired rows are in neither by default', () => {
+    const db = getDb()
+    const s1 = seedThought({ id: 'cf-s1', content: 'count filter 1', created_at: T_SRC })
+    const s2 = seedThought({ id: 'cf-s2', content: 'count filter 2', created_at: T_SRC })
+    const t1 = seedThought({ id: 'cf-t1', content: 'count filter t1', created_at: T_TGT })
+    const t2 = seedThought({ id: 'cf-t2', content: 'count filter t2', created_at: T_TGT })
+    const t3 = seedThought({ id: 'cf-t3', content: 'count filter t3', created_at: T_TGT })
+    enqueueProposals(edgePlan(s1, t1), { now: NOW }, db)
+    enqueueProposals(edgePlan(s2, t2), { now: NOW }, db)
+    insertLapsedProposal(db, s1, t3, '2026-01-02T00:00:00.000Z')
+    insertRetiredProposal(db, 'cf-retired', s1, t3)
+
+    expect(countPlacementProposalsService({ now: NOW }, db)).toBe(2)
+    expect(list({ now: NOW }, db)).toHaveLength(2)
+    expect(countPlacementProposalsService({ now: NOW, includeRetired: true }, db)).toBe(3)
+    expect(list({ now: NOW, includeRetired: true }, db)).toHaveLength(3)
+  })
+})
+
+describe('listPlacementProposalsPageService', () => {
+  test('an expired row never consumes a page slot', () => {
+    const db = getDb()
+    const src = seedThought({ id: 'pg-src', content: 'page source', created_at: T_SRC })
+    const live: PlacementProposalRow[] = []
+    for (let i = 0; i < 7; i++) {
+      const tgt = seedThought({ id: `pg-t${i}`, content: `page t${i}`, created_at: T_TGT })
+      live.push(...enqueueProposals(edgePlan(src, tgt), { now: NOW }, db))
+    }
+    live.forEach((row, i) => {
+      backdate(db, row.id, `2026-01-01T00:00:0${i}.000Z`)
+    })
+    for (let i = 0; i < 3; i++) {
+      const tgt = seedThought({ id: `pg-x${i}`, content: `page lapsed t${i}`, created_at: T_TGT })
+      insertLapsedProposal(db, src, tgt, `2026-03-0${i + 1}T00:00:00.000Z`)
+    }
+
+    const page = listPlacementProposalsPageService({ now: NOW, limit: 5 }, db)
+
+    expect(page.items).toHaveLength(5)
+    expect(page.items.every(row => row.expires_at !== null && row.expires_at > NOW)).toBe(true)
+    expect(page.total).toBe(7)
+    expect(page.hiddenRetired).toBe(0)
+    const returned = page.items.length
+    const filteredOut = Math.max(0, page.total - returned)
+    expect(returned + filteredOut).toBe(page.total)
+    expect(returned).toBe(Math.min(5, page.total))
+  })
+
+  test('hiddenRetired counts the retired rows in neither total nor the page', () => {
+    const db = getDb()
+    const src = seedThought({ id: 'hr-src', content: 'hidden retired source', created_at: T_SRC })
+    for (let i = 0; i < 3; i++) {
+      const tgt = seedThought({
+        id: `hr-t${i}`,
+        content: `hidden retired t${i}`,
+        created_at: T_TGT
+      })
+      enqueueProposals(edgePlan(src, tgt), { now: NOW }, db)
+    }
+    for (let i = 0; i < 2; i++) {
+      const tgt = seedThought({
+        id: `hr-r${i}`,
+        content: `hidden retired r${i}`,
+        created_at: T_TGT
+      })
+      insertRetiredProposal(db, `hr-retired-${i}`, src, tgt)
+    }
+
+    const page = listPlacementProposalsPageService({ now: NOW, limit: 100 }, db)
+    expect(page.items).toHaveLength(3)
+    expect(page.total).toBe(3)
+    expect(page.hiddenRetired).toBe(2)
+
+    const withRetired = listPlacementProposalsPageService(
+      { now: NOW, limit: 100, includeRetired: true },
+      db
+    )
+    expect(withRetired.items).toHaveLength(5)
+    expect(withRetired.total).toBe(5)
+    expect(withRetired.hiddenRetired).toBe(0)
   })
 })

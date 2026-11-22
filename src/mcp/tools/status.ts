@@ -61,7 +61,7 @@ export function registerMemoryStatus(server: McpServer) {
         .string()
         .optional()
         .describe(
-          'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for "slots", "frontier" and "propose": omitting it leaves meta.scope null and is noted in meta.warnings (an unregistered path raises a global scope and its own warning). Without a registered scope, "slots" reads only the global slot rows and does not apply the project-scoped overrides, "frontier" answers across every project, and "propose" is never cross-project: the plan stays confined to the addressed thought\'s own project, or to the default project for a draft. IGNORED for "config", "health".'
+          'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for "slots", "frontier" and "propose": omitting it leaves meta.scope null and is noted in meta.warnings (an unregistered path raises a global scope and its own warning). Without a registered scope, "slots" reads only the global slot rows and does not apply the project-scoped overrides, "frontier" answers across every project, and "propose" is never cross-project: the plan stays confined to the addressed thought\'s own project, or to the default project for a draft. ACCEPTED AND IGNORED for "config", "health".'
         ),
       thought_id: z
         .string()

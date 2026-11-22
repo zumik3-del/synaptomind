@@ -62,11 +62,9 @@ const handlers = {
             : null,
         preview: token => {
           const result = deleteRetentionReviewCandidateService(id, { confirm: false })
-          return itemEnvelope(
-            'delete',
-            { ...(result as unknown as Record<string, unknown>), preview_token: token },
-            { preview: { token, instruction: result.instruction } }
-          )
+          return itemEnvelope('delete', result, {
+            preview: { token, instruction: result.instruction }
+          })
         },
         apply: () =>
           itemEnvelope('delete', deleteRetentionReviewCandidateService(id, { confirm: true }))

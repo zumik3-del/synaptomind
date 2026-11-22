@@ -1,8 +1,10 @@
 > **Migration note (next release):** every MCP action now answers in one response envelope —
-> `{ items, meta }` for collections, `{ item, meta }` for single objects — `cwd` is optional on
-> the project-scoped actions (it narrows an answer to one project; without it a read answers
-> across every project and says so in `meta`, except `memory_status action=propose`, whose plan
-> stays project-pinned), and an id-shaped `query` resolves that thought directly.
+> `{ items, meta }` for collections, `{ item, meta }` for single objects — a failure answers one
+> structured error shape, `cwd` is optional on the project-scoped actions (it narrows an answer to
+> one project; without it a read answers across every project and says so in `meta`, except
+> `memory_status action=propose`, whose plan stays project-pinned) and accepted-and-ignored on
+> every other action except `memory_manage action=resolve`, which takes it as its input, a preview
+> token rides only in `meta.preview`, and an id-shaped `query` resolves that thought directly.
 > See the **Migration notes (response envelope, cwd scope, id lookup)** section at the end of this
 > document for the full list of breaking changes.
 >
@@ -96,17 +98,17 @@ What the three keys count is per action:
 | `memory_recall` id lookup | the rows the id resolved, after the `limit` cap | `0` |
 | `memory_recall` `list`, `memory_reflect` `timeline`, `memory_crystallize` `graph` | the un-paged count matching the filters | the rows the page left out (`offset`/`limit`) |
 | `retention_review` `list` | the candidate count matching the filters, un-paged | `0` — the page remainder is unaccounted |
-| `edge_review` `list` | the rows matching the filters, ignoring the page (internally capped at 1000) | the retired kinds hidden unless `include_retired` — not the page remainder |
+| `edge_review` `list` | the un-paged row count matching the filters, retired kinds excluded unless `include_retired` | the rows the page `limit` left out |
 | `memory_crystallize` `auto_cluster` | the candidate count | `0` |
 | the batch writers (`link_batch`, `unlink_batch`, `bulk_create`, `archive_batch`, `apply_batch`) and the un-paged collections (`slots`, `frontier`, `memory_manage` `list`, `memory_primers` `list`, `rollback`) | the requested item count, or the rows in `items` | `0` |
 | a single-object action | `1` when an `item` came back, `0` when it did not — except `propose`, where it is the planned edge count | `0` |
 
 So `total = returned + filtered_out` holds where the action accounts for every row it dropped —
 the un-paged collections (vacuously: nothing is dropped), `memory_recall` `list`, `memory_reflect`
-`timeline` and `memory_crystallize` `graph` — and it fails for the rest: `search`/`clusters` leave
-the `limit` slice unaccounted, `retention_review` `list` reports `filtered_out: 0` while the page is
-bounded, `edge_review` `list` counts the retired kinds instead of the page remainder, and
-`auto_cluster` counts candidates against grouped items. **Known gap on the default search path**
+`timeline`, `memory_crystallize` `graph` and `edge_review` `list` — and it fails for the rest:
+`search`/`clusters` leave the `limit` slice unaccounted, `retention_review` `list` reports
+`filtered_out: 0` while the page is bounded, and `auto_cluster` counts candidates against grouped
+items. **Known gap on the default search path**
 (audit #2521, Medium 1, not fixed here): the rows the `limit` slice cut are in neither `returned`
 nor `filtered_out`, so a truncated answer reports `total > returned + filtered_out`. Read `returned`
 for the page and `total` for the pool instead of reconstructing one from the other; a tag-filtered
@@ -172,9 +174,10 @@ A non-mutating preview answer is marked in `meta.preview`; an executed answer ca
 | `consequence` | What confirming would do, in one sentence (where the action has one) |
 | `instruction` | The exact call that confirms this preview (where the action phrases one) |
 
-A single-object preview also keeps `status: "preview"`, `preview_token`, `consequence` and
-`instruction` **inside `item`**; a collection preview keeps them only in `meta.preview`, because
-the batch rows in `items` already carry their own per-row status.
+A single-object preview keeps its `status: "preview"`, `consequence` and `instruction` **inside
+`item`**; the token itself never does — single-object and collection previews carry it only in
+`meta.preview`, which is also where a collection preview keeps the consequence and instruction,
+because the batch rows in `items` already carry their own per-row status.
 
 ## Wire envelope
 
@@ -196,9 +199,10 @@ is wrapped to `{ text }` and its `content[].text` becomes the JSON `{"text":"...
 `content[].text` and the same string as `structuredContent.result.item.text`, with the standard
 envelope `meta` beside it (`src/mcp/tools/status/config.ts`).
 
-An action failure returns `isError: true` with the human-readable message in `content[].text`. When
-the failure carries a domain status code, the classification is additionally mirrored into
-`structuredContent.result.error`:
+Every failure the action layer produces is returned as `isError: true` with the human-readable
+message in `content[].text` **and** a structured classification in
+`structuredContent.result.error` — the same shape for a rejected argument, an unknown action, a
+per-action input failure and a domain error:
 
 ```json
 {
@@ -215,13 +219,23 @@ the failure carries a domain status code, the classification is additionally mir
 - **Nesting.** The metadata sits under `result` — the key the declared output schema expects. The
   SDK client validates `structuredContent` against that schema whenever the key is present, so
   putting it anywhere else would fail the check (`src/mcp/tools/utils.ts:40-42`).
-- **Classified vs unclassified.** Only errors exposing a numeric `statusCode` are enriched. A plain
-  `Error` or a non-`Error` throw keeps the plain `{ content, isError }` shape with **no**
-  `structuredContent` key (`src/mcp/tools/utils.ts:52-55`, `src/mcp/tools/action-tool.ts:99-108`).
+- **Classified vs unclassified.** `message` is always present; `statusCode` and `retryable` ride
+  along only when the failure carries them. A plain `Error` answers
+  `{ "error": { "message": <error.message> } }` with no `statusCode`, while a non-`Error` throw
+  answers the generic `"<tool> failed"` and loses whatever it threw
+  (`src/mcp/tools/action-tool.ts`, `errorResult`).
+- **Schema failures.** The tool's arguments are validated by the tool itself, not by the SDK, so a
+  rejected argument answers the same structured error instead of a text-only SDK rejection
+  (`src/mcp/tools/action-tool.ts`).
+- **SDK-level refusals.** Two refusals never reach the action layer and answer text-only, with no
+  `structuredContent`: the SDK's output-schema validation and its input-element cap, which is
+  active only when the server configures one. Neither is reachable from a call this tool set
+  accepts — every action answers with its payload under `result` and no advertised input approaches
+  the cap — so every refusal a client can provoke carries the structured shape.
 - **Retryability.** `retryable` is `statusCode === 503`. The 503 class is the transient
   availability failures — embedder not ready, overloaded, timed out, send failure
   (`src/errors.ts`) — the only class safe to repeat as-is. Every other classified code
-  (`400`, `404`, `409`) is reported `retryable: false` (`src/mcp/tools/action-tool.ts:107`).
+  (`400`, `404`, `409`) is reported `retryable: false` (`src/mcp/tools/action-tool.ts`).
 
 A client should re-issue the identical request only when `retryable` is `true`; otherwise the
 failure is a bad request and repeating it will not help.
@@ -232,9 +246,10 @@ failure is a bad request and repeating it will not help.
 one project, and omitting it — or passing an empty string — is never an error: a reader answers
 across every project and declares that in `meta`, while a writer falls back to the default project.
 The one reader that never widens is `memory_status action=propose`, whose plan stays pinned to the
-project of the thought it addresses (see below).
+project of the thought it addresses (see below). Every action accepts the argument, including the
+ones whose answer it does not scope: there it is simply ignored, never rejected.
 
-| Tool | Actions taking `cwd` |
+| Tool | Actions whose answer `cwd` scopes |
 |---|---|
 | `memory_recall` | `search`, `context`, `clusters`, `list` |
 | `memory_status` | `slots`, `frontier`, `propose` (pinned, never widened — see below) |
@@ -245,7 +260,8 @@ project of the thought it addresses (see below).
 
 The actions outside the table either address their rows by id (`get`, `chain`, `unlink`, `archive`,
 ...) or are global by design (`health`, `config`, `primers`, `crystallize auto_cluster`), so they
-take no `cwd`. A write that creates a row takes it too and lands in the project the path names
+scope nothing by `cwd` — every action still **accepts** it and simply ignores it there, and no call
+is rejected for carrying one. A write that creates a row takes it too and lands in the project the path names
 (`memory_store` `create`, `bulk_create` — per item when the item carries its own `project_id` —
 and `edge_review enqueue`). The id-addressed writes `memory_store action=update` and
 `memory_supersede action=merge` accept it as well, but only as the scope the answer reports: they
@@ -715,8 +731,8 @@ the thought to another project. Both answer `{ item: <shaped thought>, meta }`; 
 missing id fails with a `404` error envelope.
 
 `update` is **not** an archive path: `status: "archived"` is rejected with an error envelope naming
-`memory_supersede action=archive` (preview it, then `confirm: true` with the returned
-`preview_token`), while `draft`/`active` transitions are unchanged. Archiving is destructive, so it
+`memory_supersede action=archive` (preview it, then `confirm: true` with the token the preview
+returns in `meta.preview.token`), while `draft`/`active` transitions are unchanged. Archiving is destructive, so it
 keeps its single, token-gated write path.
 
 ### `action=link`
@@ -805,7 +821,6 @@ unique), so no `cwd` is required.
     "edge_id": "01a172b4-d4a4-77c6-8a1e-a4d19920ef2b",
     "edge": { "id": "01a172b4-d4a4-77c6-8a1e-a4d19920ef2b", "source_id": "01a172b4-d486-700c-a16e-5ae3d2d77a90", "target_id": "01a172b4-d486-700d-b4f9-02962e9d2f1c", "type": "supports", "created_at": "2026-10-25T10:56:55.972Z" },
     "consequence": "Removes the 'supports' edge between '01a172b4-d486-700c-a16e-5ae3d2d77a90' and '01a172b4-d486-700d-b4f9-02962e9d2f1c'.",
-    "preview_token": "01a172b4-d4a5-7635-9f7a-4263e42f55d6",
     "instruction": "Call memory_store again with action=unlink, edge_id=01a172b4-d4a4-77c6-8a1e-a4d19920ef2b, confirm=true to proceed."
   },
   "meta": {
@@ -871,8 +886,8 @@ only a cluster thought may carry a `cluster` edge).
 | `new_type` | enum | yes | One of: `related`, `parent`, `develops`, `replaces`, `cluster`, `references`, `depends_on`, `contradicts`, `supports` |
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = retype |
 
-**Preview**: `item: { status: "preview", edge_id, old_edge_id, old_type, new_type, source_id, target_id, consequence, preview_token }`
-plus the same token in `meta.preview`.
+**Preview**: `item: { status: "preview", edge_id, old_edge_id, old_type, new_type, source_id, target_id, consequence }`
+plus the token in `meta.preview`.
 
 **Execute**: `item: { status: "retyped", edge_id, old_edge_id, new_edge_id, old_type, new_type }`.
 
@@ -906,12 +921,13 @@ runs in its own nested transaction inside the batch's.
 ## `memory_supersede` — archiving and merging
 
 All three actions preview when `confirm` is omitted or `false`; only `confirm: true` executes.
-Execution re-reads/revalidates current state, so previews can become stale. Preview responses include
-a `preview_token` (stored in DB, ~5 min TTL) for every destructive action (unlink, retype, archive,
-archive_batch, merge, delete, auto_cluster, apply, apply_batch, rollback); `confirm: true` requires a
-valid `preview_token` and fails when it is missing or stale. No transactional reservation is implied.
-`archive` and `archive_batch` identify thoughts by ID and do not accept a project scope; `cwd`
-applies only to `merge`.
+Execution re-reads/revalidates current state, so previews can become stale. Preview responses carry
+a token in `meta.preview.token` (stored in DB, ~5 min TTL) for every destructive action (unlink,
+retype, archive, archive_batch, merge, delete, auto_cluster, apply, apply_batch, rollback);
+`confirm: true` requires that token as a `preview_token` argument and fails when it is missing or
+stale. No transactional reservation is implied.
+`archive` and `archive_batch` identify thoughts by ID and scope nothing by it; `cwd` shapes the
+answer of `merge` only, and both other actions accept and ignore it.
 
 ### `action=archive`
 
@@ -923,8 +939,8 @@ the existing thought without re-stamping it.
 | `thought_id` | string | yes | Thought to archive |
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = execute |
 
-Preview: `item: { "status": "preview", "action": "archive", "thought_id": "...", "current_status": "active", "outcome": "would_archive", "preview_token": "<token>" }`
-with the token mirrored in `meta.preview`. `outcome` is `not_found`, `already_archived` or
+Preview: `item: { "status": "preview", "action": "archive", "thought_id": "...", "current_status": "active", "outcome": "would_archive" }`
+with the token in `meta.preview`. `outcome` is `not_found`, `already_archived` or
 `would_archive`. Execution answers
 `item: { "status": "executed", "action": "archive", "result": <shaped thought> }`; missing
 thoughts fail with an error.
@@ -985,8 +1001,8 @@ bounded list does not promise every edge will transfer.
 
 Preview: `item` carries `status: "preview"`, `action: "merge"`, `outcome`, `source`
 (`{ id, status, edges, source_edge_count, truncated }`), `target` (`{ id, status }`),
-`proposed`, `effects` (`{ source_archived, target_updated, replaces_edge_created }`) and
-`preview_token`; `meta.preview` mirrors the token. Missing IDs report `outcome: "not_found"`; an
+`proposed` and `effects` (`{ source_archived, target_updated, replaces_edge_created }`);
+`meta.preview` carries the token. Missing IDs report `outcome: "not_found"`; an
 ineligible merge reports `outcome: "ineligible"` and `reason`. `proposed` reflects supplied
 values; `effects` describes the prospective updates. Execution answers
 `item: { "status": "executed", "action": "merge", "result": { "target": <shaped thought>, "edges_transferred": 2 } }`
@@ -1015,8 +1031,8 @@ sizes. `cwd` selects the project of the new cluster.
 [CONFIG.md](CONFIG.md)) answers `{ items: <groups>, meta }` with `meta.counts.candidates` and
 `meta.counts.clusters`. It previews when `confirm` is absent or false — `meta.preview` carries the
 token, the consequence and the confirm instruction — and `confirm: true` executes. The retired
-`dry_run` input is rejected with a hint to use `confirm`. `cwd` does not apply to `auto_cluster` —
-the run is global.
+`dry_run` input is rejected with a hint to use `confirm`. `auto_cluster` accepts `cwd` and ignores
+it — the run is global.
 
 Despite the name, `min_similarity` is a maximum cosine **distance**, not a minimum similarity:
 neighbours qualify when their distance is strictly below the threshold. Lower values are tighter.
@@ -1030,10 +1046,14 @@ on `confirm: true`.
 
 - `enqueue` → `{ item: <enqueue outcome>, meta }`, with `meta.counts.proposals` and
   `meta.counts.skipped`.
-- `list` → `{ items, meta }`: `items` are the queued rows for the page (retired kinds hidden unless
-  `include_retired`), `meta.counts.total` the rows matching the filters ignoring the page limit,
-  `meta.counts.retired_count` the retired (legacy) kinds hidden by default, and `filtered_out` the
-  rows the page or the retired filter left out. The retired aliases (`proposals`, `results`, `rows`,
+- `list` → `{ items, meta }`: `items` are the rows matching the filters for the page, ordered
+  `created_at` newest first and bounded by `limit` — the retired kinds hidden unless
+  `include_retired`. Page and count run the same predicates in SQL (pending liveness and the
+  retired-kind exclusion included), so `returned + filtered_out = total` always holds and a page is
+  short only when fewer rows match. `meta.counts.total` is that un-paged `COUNT(*)`, so it never
+  stops at the page cap; `filtered_out` is the rows the `limit` left out; `meta.counts.retired_count`
+  is the retired (legacy) rows the default filter hid, which sit in neither `total` nor
+  `filtered_out`. The retired aliases (`proposals`, `results`, `rows`,
   `count`, `visible_count`, `returned_count`, `retired`, `retiredCount`, `hidden_retired`,
   `breakdown`) are gone; read the canonical keys above.
 - `apply` → `{ item: <apply report>, meta }`; the report's `status` is `dry_run` (preview),
@@ -1079,8 +1099,8 @@ so a single call can narrow eligibility or page without reconfiguring anything
 - `protect` → `{ item: <protect report>, meta }`.
 - `delete` → `{ item: <delete report>, meta }`; the preview `item` carries
   `status: "preview"`, `action: "preview"`, `deleted: false`, `preview: true`, `confirm: false`,
-  `thought_id`, `dependents`, `instruction` and `preview_token`, and `meta.preview` mirrors the
-  token (with the instruction as its `consequence`). Confirming requires the token.
+  `thought_id`, `dependents` and `instruction`, and `meta.preview` carries the token (with the
+  instruction as its `consequence`). Confirming requires the token.
 - `compact` → `{ item, meta }`; input is a non-empty `source_ids` array (1–1000 ids) plus a
   `summary` object (`content` required, `tags` and `project_id` optional). The preview `item`
   carries `status: "preview"`, `preview: true`, `confirm: false`, `source_ids` and `instruction`,
@@ -1163,7 +1183,7 @@ primer row. Deletion is **idempotent**: a missing primer is reported as `not_fou
 | `confirm` | boolean | no | Absent/`false` = preview; `true` = delete |
 
 **Preview** (`confirm` absent/`false`): `item` carries `status: "preview"`, `primer_id`, `primer`,
-`consequence`, `preview_token` and `instruction`; `meta.preview` mirrors the token. A missing
+`consequence` and `instruction`; `meta.preview` carries the token. A missing
 primer in preview returns `item: { "status": "not_found", "primer_id": "..." }` with no
 `meta.preview`.
 
@@ -1203,7 +1223,7 @@ project with `meta.scope: null` and the `no cwd — the answer spans every proje
 
 ### `action=config` / `action=health`
 
-Both are read-only and take no `cwd`. `config` answers the raw-text display described in
+Both are read-only and ignore the `cwd` they accept. `config` answers the raw-text display described in
 [Wire envelope](#wire-envelope) — `content[].text` verbatim, `structuredContent.result.item.text`
 the same string. `health` answers `{ item: <report>, meta }`; pass `include_details: true` for the
 per-check detail arrays (omitted, and content fields shortened, by default).
@@ -1248,8 +1268,8 @@ CRUD over projects plus resolution from a path.
 - `create` → `{ item: <project>, meta }`.
 - `update` requires `project_id` → `{ item: { success: true, project_id }, meta }`.
 - `delete` requires `project_id` and is preview-first: the preview `item` carries
-  `action: "preview"`, `project`, `thought_count`, `consequence`, `instruction` and `preview_token`
-  (`meta.preview` mirrors the token), and its `consequence` states that a moved thought colliding
+  `action: "preview"`, `project`, `thought_count`, `consequence` and `instruction` (`meta.preview`
+  carries the token), and its `consequence` states that a moved thought colliding
   on content with a live row in the destination may be archived instead of kept live — the oldest
   live row per content survives, whichever side it came from; the executed `item` carries
   `action: "deleted"`, `project`, `thoughts_moved`, `moved_to`, `thoughts_archived` and
@@ -1309,8 +1329,9 @@ see [API.md](API.md)):
    to the default project and its `summary`/`goals` to the global slots, with no warning.
 3. **Preview gate moved.** A preview answer always sets
    `meta.preview = { token, destructive: true, consequence?, instruction? }` (token `null` for
-   `unlink_batch` and `retention_review` `compact`). Single-object previews keep the same fields
-   inside `item` as before; collection previews no longer carry `preview_token` at the top level.
+   `unlink_batch` and `retention_review` `compact`). The token lives only in `meta.preview`: no
+   preview carries a `preview_token` inside `item` or at the top level, single-object and
+   collection alike.
 4. **Id-shaped search queries resolve by id.** A full UUID or a hex prefix of at least 13
    characters no longer goes through semantic search: it returns that thought, annotated with its
    standing but never suppressed. A full UUID ignores status and project scope; a prefix honours

@@ -1,0 +1,1122 @@
+[
+  {
+    "name": "edge_review",
+    "cwdContract": [
+      "OPTIONAL for \"enqueue\" and \"list\".",
+      "ACCEPTED AND IGNORED for \"apply\", \"apply_batch\", \"rollback\", \"reject\"."
+    ],
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "enqueue",
+            "list",
+            "apply",
+            "apply_batch",
+            "rollback",
+            "reject"
+          ],
+          "type": "string"
+        },
+        "confirm": {
+          "type": "boolean"
+        },
+        "created_after": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "include_retired": {
+          "type": "boolean"
+        },
+        "item_kind": {
+          "enum": [
+            "edge",
+            "placement",
+            "lifecycle",
+            "triage_activate",
+            "triage_archive"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_items": {
+          "not": {}
+        },
+        "max_proposals": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "preview_token": {
+          "type": "string"
+        },
+        "project_id": {
+          "not": {}
+        },
+        "proposal_id": {
+          "type": "string"
+        },
+        "proposal_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "source_thought_id": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "accepted",
+            "rejected",
+            "expired",
+            "stale",
+            "rolled_back"
+          ],
+          "type": "string"
+        },
+        "thought_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "result": {}
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_crystallize",
+    "cwdContract": [
+      "OPTIONAL for \"graph\" and \"cluster\" (always pass for those; auto_cluster operates globally).",
+      "ACCEPTED AND IGNORED for \"auto_cluster\"."
+    ],
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "graph",
+            "cluster",
+            "auto_cluster"
+          ],
+          "type": "string"
+        },
+        "compact": {
+          "type": "boolean"
+        },
+        "confirm": {
+          "type": "boolean"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "dry_run": {
+          "not": {}
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "limit": {
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "min_age_days": {
+          "maximum": 3650,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_members": {
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "min_similarity": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "offset": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "preview_token": {
+          "type": "string"
+        },
+        "project_id": {
+          "not": {}
+        },
+        "status": {
+          "enum": [
+            "active",
+            "draft",
+            "archived",
+            "all"
+          ],
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "thought_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "result": {}
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_guide",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "result": {}
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_manage",
+    "cwdContract": [
+      "REQUIRED for \"resolve\": the working directory path to resolve.",
+      "ACCEPTED AND IGNORED for all other actions."
+    ],
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "list",
+            "create",
+            "update",
+            "delete",
+            "resolve"
+          ],
+          "type": "string"
+        },
+        "confirm": {
+          "type": "boolean"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "local_path": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "preview_token": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "result": {}
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_primers",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "list",
+            "delete"
+          ],
+          "type": "string"
+        },
+        "confirm": {
+          "type": "boolean"
+        },
+        "preview_token": {
+          "type": "string"
+        },
+        "primer_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "result": {}
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_recall",
+    "cwdContract": [
+      "OPTIONAL for search/clusters/list/context: omitting it (or passing no registered path) answers across every project and says so in meta.warnings.",
+      "ACCEPTED AND IGNORED for get/chain."
+    ],
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "search",
+            "get",
+            "context",
+            "chain",
+            "clusters",
+            "list"
+          ],
+          "type": "string"
+        },
+        "cluster": {
+          "not": {}
+        },
+        "compact": {
+          "type": "boolean"
+        },
+        "contradiction_mode": {
+          "enum": [
+            "off",
+            "flag"
+          ],
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "upstream",
+            "downstream",
+            "both"
+          ],
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "group_by_cluster": {
+          "type": "boolean"
+        },
+        "hybrid": {
+          "type": "boolean"
+        },
+        "include_edges": {
+          "type": "boolean"
+        },
+        "include_url_links": {
+          "type": "boolean"
+        },
+        "is_cluster": {
+          "type": "boolean"
+        },
+        "limit": {
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_degree": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "min_importance": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "min_relevance": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "mode": {
+          "not": {}
+        },
+        "offset": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "project_id": {
+          "not": {}
+        },
+        "query": {
+          "type": "string"
+        },
+        "recency_half_life_days": {
+          "exclusiveMinimum": 0,
+          "maximum": 3650,
+          "type": "number"
+        },
+        "recency_weight": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "active",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "supersession_mode": {
+          "enum": [
+            "off",
+            "flag",
+            "suppress"
+          ],
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "thought_id": {
+          "type": "string"
+        },
+        "top_k": {
+          "not": {}
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "result": {}
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_reflect",
+    "cwdContract": [
+      "OPTIONAL for both actions: reflect writes to the resolved project, or to the default project when it is absent; timeline answers across every project when it is absent and says so in meta.warnings."
+    ],
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "reflect",
+            "timeline"
+          ],
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "decisions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "goals_add": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "goals_delta": {
+          "not": {}
+        },
+        "goals_remove": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include_url_links": {
+          "type": "boolean"
+        },
+        "limit": {
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pending": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "project_id": {
+          "not": {}
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "active",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "wake_days": {
+          "maximum": 365,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "result": {}
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_status",
+    "cwdContract": [
+      "OPTIONAL for \"slots\", \"frontier\" and \"propose\": omitting it leaves meta.scope null and is noted in meta.warnings (an unregistered path raises a global scope and its own warning).",
+      "ACCEPTED AND IGNORED for \"config\", \"health\"."
+    ],
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "slots",
+            "frontier",
+            "config",
+            "health",
+            "propose"
+          ],
+          "type": "string"
+        },
+        "compact": {
+          "type": "boolean"
+        },
+        "content": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "fix": {
+          "not": {}
+        },
+        "include_details": {
+          "type": "boolean"
+        },
+        "include_signals": {
+          "type": "boolean"
+        },
+        "k": {
+          "not": {}
+        },
+        "limit": {
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_edges": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "offset": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "project_id": {
+          "not": {}
+        },
+        "severity": {
+          "enum": [
+            "critical",
+            "warning",
+            "info"
+          ],
+          "type": "string"
+        },
+        "slots_limit": {
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "thought_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "result": {}
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_store",
+    "cwdContract": [
+      "ACCEPTED AND IGNORED for \"link\", \"link_batch\", \"unlink\", \"unlink_batch\", \"retype\"."
+    ],
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "create",
+            "update",
+            "link",
+            "link_batch",
+            "unlink",
+            "unlink_batch",
+            "retype",
+            "bulk_create"
+          ],
+          "type": "string"
+        },
+        "confirm": {
+          "type": "boolean"
+        },
+        "content": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "edge_id": {
+          "type": "string"
+        },
+        "edge_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "edge_type": {
+          "enum": [
+            "related",
+            "parent",
+            "replaces",
+            "develops",
+            "cluster",
+            "references",
+            "depends_on",
+            "contradicts",
+            "supports"
+          ],
+          "type": "string"
+        },
+        "is_global": {
+          "type": "boolean"
+        },
+        "is_profile": {
+          "not": {}
+        },
+        "is_protected": {
+          "type": "boolean"
+        },
+        "links": {
+          "items": {
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "related",
+                  "parent",
+                  "replaces",
+                  "develops",
+                  "cluster",
+                  "references",
+                  "depends_on",
+                  "contradicts",
+                  "supports"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "target"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "new_type": {
+          "enum": [
+            "related",
+            "parent",
+            "replaces",
+            "develops",
+            "cluster",
+            "references",
+            "depends_on",
+            "contradicts",
+            "supports"
+          ],
+          "type": "string"
+        },
+        "parent_id": {
+          "type": "string"
+        },
+        "preview_token": {
+          "type": "string"
+        },
+        "project_id": {
+          "not": {}
+        },
+        "source_id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "active",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "surface_after": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tags_mode": {
+          "enum": [
+            "replace",
+            "merge"
+          ],
+          "type": "string"
+        },
+        "target_id": {
+          "type": "string"
+        },
+        "thought_id": {
+          "type": "string"
+        },
+        "thoughts": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "is_global": {
+                "type": "boolean"
+              },
+              "is_profile": {
+                "not": {}
+              },
+              "is_protected": {
+                "type": "boolean"
+              },
+              "parent_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": "string"
+              },
+              "relation": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "draft",
+                  "active",
+                  "archived"
+                ],
+                "type": "string"
+              },
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "url_links": {
+                "items": {
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "content"
+            ],
+            "type": "object"
+          },
+          "maxItems": 10000,
+          "minItems": 1,
+          "type": "array"
+        },
+        "url_links": {
+          "items": {
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "text",
+              "url"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "result": {}
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_supersede",
+    "cwdContract": [
+      "OPTIONAL for \"merge\".",
+      "ACCEPTED AND IGNORED for \"archive\" and \"archive_batch\"."
+    ],
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "archive",
+            "archive_batch",
+            "merge"
+          ],
+          "type": "string"
+        },
+        "confirm": {
+          "type": "boolean"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "merged_content": {
+          "type": "string"
+        },
+        "merged_tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "preview_token": {
+          "type": "string"
+        },
+        "project_id": {
+          "not": {}
+        },
+        "source_id": {
+          "type": "string"
+        },
+        "target_id": {
+          "type": "string"
+        },
+        "thought_id": {
+          "type": "string"
+        },
+        "thought_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "result": {}
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "retention_review",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "list",
+            "protect",
+            "delete",
+            "compact"
+          ],
+          "type": "string"
+        },
+        "compact": {
+          "type": "boolean"
+        },
+        "confirm": {
+          "type": "boolean"
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "importance_floor": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "limit": {
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "min_age_days": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "preview_token": {
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "summary": {
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "project_id": {
+              "type": "string"
+            },
+            "tags": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "content"
+          ],
+          "type": "object"
+        },
+        "thought_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "result": {}
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    }
+  }
+]

@@ -36,16 +36,13 @@ export function errorResult(
   meta: ErrorEnvelopeMeta = {}
 ): {
   content: McpTextContent[]
-  structuredContent?: { result: { error: ErrorEnvelopeMeta & { message: string } } }
+  structuredContent: { result: { error: ErrorEnvelopeMeta & { message: string } } }
   isError: true
 } {
   const content: McpTextContent[] = [{ type: 'text' as const, text: message }]
   const error: ErrorEnvelopeMeta & { message: string } = { message }
   if (meta.statusCode !== undefined) error.statusCode = meta.statusCode
   if (meta.retryable !== undefined) error.retryable = meta.retryable
-  if (error.statusCode === undefined && error.retryable === undefined) {
-    return { content, isError: true }
-  }
   return { content, structuredContent: { result: { error } }, isError: true }
 }
 

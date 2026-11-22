@@ -1,4 +1,5 @@
 import { config, DEFAULTS, ENV_MAPPINGS } from '../config'
+import { RAW_ENV, rawEnvEffective } from '../config.raw-env'
 
 function formatValue(val: unknown): string {
   if (val === null || val === undefined) return '-'
@@ -68,6 +69,10 @@ export function buildConfigDisplay(): string {
       const defNote = def !== val ? ` [default: ${def}]` : ''
       out += `  ${path} = ${val} (${env})${defNote}\n`
     }
+  }
+  out += '\n--- Raw environment ---\n'
+  for (const entry of RAW_ENV) {
+    out += `  ${entry.env} = ${rawEnvEffective(entry)}: ${entry.description}\n`
   }
   return out
 }

@@ -50,6 +50,46 @@ test('bulkCreateThoughtsService reports per-item failures without aborting the r
   expect(getThoughtByIdService(result.created[1].thought.id)?.content).toBe('another kept item')
 })
 
+test('bulkCreateThoughtsService isolates a constraint failure to its own item', () => {
+  getDb().run(
+    `CREATE TRIGGER probe_block_item BEFORE INSERT ON thoughts
+     WHEN NEW.content = 'poison item'
+     BEGIN SELECT RAISE(ABORT, 'probe: item blocked'); END`
+  )
+
+  const result = bulkCreateThoughtsService([
+    { content: 'first good item' },
+    { content: 'poison item' },
+    { content: 'third good item' }
+  ])
+
+  expect(result.created.map(c => c.index)).toEqual([0, 2])
+  expect(result.errors).toEqual([{ index: 1, error: 'probe: item blocked' }])
+  const contents = getDb().prepare('SELECT content FROM thoughts ORDER BY content').all() as Array<{
+    content: string
+  }>
+  expect(contents.map(row => row.content)).toEqual(['first good item', 'third good item'])
+})
+
+test('bulkCreateThoughtsService discards every item when the run aborts', () => {
+  getDb().run(
+    `CREATE TRIGGER probe_abort_run BEFORE INSERT ON thoughts
+     WHEN NEW.content = 'last item'
+     BEGIN SELECT RAISE(ROLLBACK, 'probe: run aborted'); END`
+  )
+
+  expect(() =>
+    bulkCreateThoughtsService([
+      { content: 'first good item' },
+      { content: 'second good item' },
+      { content: 'last item' }
+    ])
+  ).toThrow()
+
+  const count = getDb().prepare('SELECT COUNT(*) AS n FROM thoughts').get() as { n: number }
+  expect(count.n).toBe(0)
+})
+
 test('bulkCreateThoughtsService applies the default project to items without one', () => {
   seedThought({ content: 'anchor', project_id: 'bulk-project' })
   const result = bulkCreateThoughtsService(

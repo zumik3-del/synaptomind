@@ -218,7 +218,7 @@ describe('memory_supersede action=merge — an id-addressed write keeps the targ
       target_id: targetId,
       merged_content: mergedContent,
       confirm: true,
-      preview_token: preview.data.item.preview_token,
+      preview_token: preview.data.meta.preview.token,
       ...scoped
     })
     return { preview, executed }

@@ -68,3 +68,35 @@ describe('unlink batch atomicity', () => {
     expect(Boolean(findEdge(db, a))).toBe(true)
   })
 })
+
+describe('unlink batch failure paths', () => {
+  test('the aborted-missing message reports no deletion without claiming a rollback', () => {
+    const db = getDb()
+    const existing = seedEdge(seedThought(), seedThought())
+
+    const result = deleteEdgesBatchService([existing, 'missing'], true, db)
+
+    expect(result.errors.map(item => [item.index, item.error])).toEqual([
+      [0, 'batch aborted: not all edge_ids exist (no edges deleted)'],
+      [1, 'Edge not found: missing']
+    ])
+    expect(Boolean(findEdge(db, existing))).toBe(true)
+  })
+
+  test('a delete that fails mid-run rolls the whole unlink back', () => {
+    const db = getDb()
+    const first = seedEdge(seedThought(), seedThought())
+    const second = seedEdge(seedThought(), seedThought())
+    db.run(
+      `CREATE TRIGGER probe_block_unlink BEFORE DELETE ON edges
+       WHEN OLD.id = '${second}'
+       BEGIN SELECT RAISE(ABORT, 'probe: unlink blocked'); END`
+    )
+
+    expect(() => deleteEdgesBatchService([first, second], true, db)).toThrow(
+      'probe: unlink blocked'
+    )
+
+    expect([Boolean(findEdge(db, first)), Boolean(findEdge(db, second))]).toEqual([true, true])
+  })
+})

@@ -15,12 +15,50 @@ describe('shared auth middleware (F19 architectural guard)', () => {
     expect(existsSync(join(ROOT, 'src/api/middleware/auth.ts'))).toBe(false)
   })
 
-  test('the API router imports the shared src/middleware/auth.ts', () => {
-    expect(readSource('src/api/router.ts')).toContain("from '../middleware/auth'")
+  test('the guarded pipeline is the one place the shared auth middleware is mounted', () => {
+    expect(readSource('src/middleware/guarded-pipeline.ts')).toContain("from './auth'")
+    expect(readSource('src/api/router.ts')).toContain('createGuardedPipeline')
+    expect(readSource('src/mcp/http-transport.ts')).toContain('createGuardedPipeline')
   })
 
-  test('the MCP HTTP transport imports the shared src/middleware/auth.ts', () => {
-    expect(readSource('src/mcp/http-transport.ts')).toContain("from '../middleware/auth'")
+  test('neither HTTP surface imports the shared auth middleware directly', () => {
+    for (const surface of ['src/api/router.ts', 'src/mcp/http-transport.ts']) {
+      const source = readSource(surface)
+      expect(source).not.toContain('middleware/auth')
+      expect(source).not.toContain('authMiddleware')
+    }
+  })
+
+  test('each surface mounts the guarded pipeline exactly once', () => {
+    for (const surface of ['src/api/router.ts', 'src/mcp/http-transport.ts']) {
+      expect(readSource(surface).match(/createGuardedPipeline\(\{/g)).toHaveLength(1)
+    }
+  })
+
+  test('neither surface hand-rolls a guard the pipeline owns', () => {
+    for (const surface of ['src/api/router.ts', 'src/mcp/http-transport.ts']) {
+      const source = readSource(surface)
+      for (const handRolled of [
+        'bindUserContext',
+        'createRateLimitMiddleware',
+        'bodyTooLargeResponse',
+        'resolveUser'
+      ]) {
+        expect(source).not.toContain(handRolled)
+      }
+    }
+  })
+
+  test('the database-unavailable 503 is not hand-built on the MCP surface anymore', () => {
+    // It used to be `new Response(JSON.stringify({ error: 'Database unavailable' }), …)` inline in
+    // the transport; the shared user-context middleware owns it now.
+    expect(readSource('src/mcp/http-transport.ts')).not.toContain('Database unavailable')
+    expect(readSource('src/middleware/user-context.ts')).toContain('Database unavailable')
+  })
+
+  test('neither HTTP surface defines its own auth middleware', () => {
+    expect(readSource('src/api/router.ts')).not.toContain('function authMiddleware')
+    expect(readSource('src/mcp/http-transport.ts')).not.toContain('function authMiddleware')
   })
 })
 

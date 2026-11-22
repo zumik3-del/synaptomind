@@ -40,31 +40,32 @@ export function bulkCreateThoughtsService(
   const created: BulkCreateResult['created'] = []
   const errors: BulkCreateResult['errors'] = []
 
-  const run = d.transaction(() => {
-    // Per-item d.transaction() is a savepoint, so the batch stays one transaction.
+  const createItem = d.transaction((t: BulkCreateItem) =>
+    createThoughtWithUrlLinksService(
+      {
+        content: t.content,
+        status: t.status,
+        tags: t.tags,
+        source: t.source,
+        project_id: t.project_id ?? defaultProjectId,
+        is_protected: t.is_protected,
+        is_global: t.is_global
+      },
+      { parentId: t.parent_id, relation: t.relation, urlLinks: t.url_links },
+      d
+    )
+  )
+  // One level-1 transaction, a savepoint per item: one commit, every bad item isolated.
+  const runBulk = d.transaction(() => {
     for (let i = 0; i < items.length; i++) {
-      const t = items[i]
       try {
-        const thought = createThoughtWithUrlLinksService(
-          {
-            content: t.content,
-            status: t.status,
-            tags: t.tags,
-            source: t.source,
-            project_id: t.project_id ?? defaultProjectId,
-            is_protected: t.is_protected,
-            is_global: t.is_global
-          },
-          { parentId: t.parent_id, relation: t.relation, urlLinks: t.url_links },
-          d
-        )
-        created.push({ index: i, thought })
+        created.push({ index: i, thought: createItem(items[i]) })
       } catch (err) {
         errors.push({ index: i, error: err instanceof Error ? err.message : String(err) })
       }
     }
   })
-  run()
+  runBulk()
 
   return { created, errors }
 }

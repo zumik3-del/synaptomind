@@ -133,6 +133,8 @@ describe('search.confidence.unrelatedFloor — the env override', () => {
 
     expect(res.code).toBe(0)
     expect(resolved(res.out, 'FLOOR')).toBe('0.8')
-    expect(res.err).toContain(`invalid value for ${FLOOR_ENV}`)
+    expect(res.err).toContain('invalid value for search.confidence.unrelatedFloor')
+    expect(res.err).toContain(`(from ${FLOOR_ENV})`)
+    expect(res.err).toContain('using default 0.8')
   })
 })

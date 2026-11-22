@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { EMBEDDER_IPC_PROTOCOL_VERSION } from '../ipc-protocol'
 
 const counter = process.env.SYNAPTOMIND_STUB_ATTEMPT_FILE
 const previous =
@@ -16,7 +17,7 @@ function idle(): void {
 const mode = process.env.SYNAPTOMIND_STUB_MODE
 
 function answering(): void {
-  process.send?.({ type: 'ready' })
+  process.send?.({ type: 'ready', protocol: EMBEDDER_IPC_PROTOCOL_VERSION })
   process.on('message', (raw: unknown) => {
     const message = raw as { type?: string; id?: string }
     if (message?.type === 'shutdown') process.exit(0)
@@ -51,7 +52,7 @@ function answering(): void {
 }
 
 function serving(): void {
-  process.send?.({ type: 'ready' })
+  process.send?.({ type: 'ready', protocol: EMBEDDER_IPC_PROTOCOL_VERSION })
   process.on('message', (raw: unknown) => {
     const message = raw as {
       type?: string
@@ -107,7 +108,7 @@ if ((mode === 'idle-exit-once' || mode === 'idle-exit-no-msg') && attempt >= 2) 
     idle()
     setTimeout(() => process.exit(1), hangMs)
   } else {
-    process.send?.({ type: 'ready' })
+    process.send?.({ type: 'ready', protocol: EMBEDDER_IPC_PROTOCOL_VERSION })
     idle()
   }
 } else {

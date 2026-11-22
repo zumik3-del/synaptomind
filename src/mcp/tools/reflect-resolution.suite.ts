@@ -74,7 +74,9 @@ describe('memory_reflect project resolution failure', () => {
     expect(result.content).toHaveLength(1)
     expect(result.content[0].type).toBe('text')
     expect(result.content[0].text).toBe(RESOLUTION_FAILURE)
-    expect(result.structuredContent).toBeUndefined()
+    expect(result.structuredContent).toEqual({
+      result: { error: { message: RESOLUTION_FAILURE } }
+    })
   })
 
   test('timeline with a cwd whose project resolution throws returns the isError envelope', async () => {

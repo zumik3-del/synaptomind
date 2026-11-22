@@ -26,7 +26,7 @@ export const retypeHandler: ActionHandler = {
       targetId: edgeId,
       fingerprint: () =>
         fingerprintOf(edge.id, edge.source_id, edge.target_id, edge.type, edge.created_at, newType),
-      preview: token => ({
+      preview: () => ({
         status: 'preview',
         edge_id: edgeId,
         old_edge_id: edgeId,
@@ -34,8 +34,7 @@ export const retypeHandler: ActionHandler = {
         new_type: newType,
         source_id: edge.source_id,
         target_id: edge.target_id,
-        consequence: `Changes edge type from '${oldType}' to '${newType}'.`,
-        preview_token: token
+        consequence: `Changes edge type from '${oldType}' to '${newType}'.`
       }),
       apply: () => {
         const retyped = retypeEdgeService(edgeId, newType)

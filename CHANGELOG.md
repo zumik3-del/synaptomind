@@ -1,5 +1,81 @@
 # Changelog
 
+## v0.25.0
+
+> November 22, 2026
+
+- [`6af4f6c4`](https://github.com/zumik3-del/synaptomind/commit/6af4f6c476d9ba73647f8dfaf607491a86db94c4): fix(config): register the three embedder env knobs and read them literally
+- [`89760b4d`](https://github.com/zumik3-del/synaptomind/commit/89760b4d8a3dcb633bebe17714fca70faf5db1de): test(mcp): make the cwd description guard assert, and scope the docs claim
+- [`421320e7`](https://github.com/zumik3-del/synaptomind/commit/421320e7b63ecc7e346f6416cc36103e79a03737): test(mcp): pin edge_review counts, the page/total contract and the expired-row slot
+- [`c237acde`](https://github.com/zumik3-del/synaptomind/commit/c237acde685d99f33f38316d239363bfe86dbfb5): fix(embedder): restore the backoff ramp and pin it to the cap
+- [`e33729bc`](https://github.com/zumik3-del/synaptomind/commit/e33729bc782b003c0fd9514485784b5fdf8dc0a5): test(config): pin the fallback matrix the removed bounds tests used to cover
+- [`178e1dd2`](https://github.com/zumik3-del/synaptomind/commit/178e1dd27718fab559f1a8ad3c72449ed87cbc08): fix(mcp): edge_review list counts and pages from one filter set
+- [`b0254967`](https://github.com/zumik3-del/synaptomind/commit/b0254967b8eb19ebbc05ee9f2500974588b630b0): test(http): pin the shared pipeline, the 413/503 bodies and the session registry
+- [`ab8cc781`](https://github.com/zumik3-del/synaptomind/commit/ab8cc781c5e3760d16899aacd22a37d81aad249f): test(mcp): pin the structured error contract, cwd acceptance and preview placement
+- [`1573d78e`](https://github.com/zumik3-del/synaptomind/commit/1573d78e2327aaedc87ce2cac2d7fcf57202b631): test(embedder): pin the IPC error mapping, protocol version and spawn scope
+- [`6d6783c5`](https://github.com/zumik3-del/synaptomind/commit/6d6783c5ac8ab884232ed3787b776a16b434b324): refactor(services): split health-check scoring and retention-review actions into focused modules
+- [`7d43b43c`](https://github.com/zumik3-del/synaptomind/commit/7d43b43cac738b5b48ebf42140bce96667c686a9): test(db): pin atomicity and per-item isolation on the multi-write paths
+- [`d668003b`](https://github.com/zumik3-del/synaptomind/commit/d668003b5b161e0a894fec4ff1789653cbc0a59d): refactor(http): one guarded pipeline for the API and the MCP transport
+- [`28716b45`](https://github.com/zumik3-del/synaptomind/commit/28716b45e9939cfa2ffac68fa814584013e114c6): fix(mcp): one structured error contract, cwd optional everywhere, preview token only in meta
+- [`88fb69a2`](https://github.com/zumik3-del/synaptomind/commit/88fb69a2aec5bc7e2ae446bd0c8618a645bfd1af): refactor(config): validate every key through one schema and fall back, never clamp
+- [`69715a0c`](https://github.com/zumik3-del/synaptomind/commit/69715a0c36664f281a879c518022799bb7e59ca1): fix(embedder): typed IPC failures and no silent second embedder
+- [`1e79d946`](https://github.com/zumik3-del/synaptomind/commit/1e79d946b3ed463b2fb1933c7bd68c278c081157): fix(db): make multi-write paths atomic and batch messages honest
+- [`b0957aab`](https://github.com/zumik3-del/synaptomind/commit/b0957aabbeed2bdae683c0eab4f7e2e5282a6355): refactor: drop redundant string casts in retention-review and health-check
+- [`85e0e8db`](https://github.com/zumik3-del/synaptomind/commit/85e0e8db790744c8f10e8a2f938bafe179897d34): refactor(core): reuse MS_PER_DAY instead of a local day constant
+- [`c9267c51`](https://github.com/zumik3-del/synaptomind/commit/c9267c518f7626dace8ee1f53b189de1b30a32df): refactor(mcp): share the Severity type in the memory_status health handler
+- [`97935541`](https://github.com/zumik3-del/synaptomind/commit/9793554101cc343cb6a0b688ffa638c319c5a368): test(api): pin health-check severity validation and the valid-value matrix
+- [`90d6c9e6`](https://github.com/zumik3-del/synaptomind/commit/90d6c9e62c76d2040df58b6649da0c14ac9a05ff): fix(api): validate the health-check severity query and share one severity list
+- [`d4e4c99e`](https://github.com/zumik3-del/synaptomind/commit/d4e4c99e3bc54824aad905888a3815cb83d389e3): test(core): drop a non-null assertion, a needless cast and a prefix-only assertion
+- [`bd55b0a6`](https://github.com/zumik3-del/synaptomind/commit/bd55b0a6f7b82aced0ed7d8284fcca5f6acc8899): test(core): add unit tests for core tiers (rows 1-4)
+- [`c6904b4d`](https://github.com/zumik3-del/synaptomind/commit/c6904b4d4fea267f338be056322088b1041c2564): refactor(comments): trim leftover descriptive JSDoc blocks to one-line guards
+- [`5b46493f`](https://github.com/zumik3-del/synaptomind/commit/5b46493f04d08e64179a266ea50cc63d0c45ba4c): test: pin the deploy-backup recovery advice and its worst case
+- [`7879751d`](https://github.com/zumik3-del/synaptomind/commit/7879751ddf1cdf9633203d64c4adbad24595d6d2): fix(db): make the recovery advice name the deploy backups and end with a step
+- [`f7d0766a`](https://github.com/zumik3-del/synaptomind/commit/f7d0766aaf8b97f3b969e52ac58b2216a447b5e2): fix(merge): drop the dead project option and stop overstating target_updated
+- [`56a6bde6`](https://github.com/zumik3-del/synaptomind/commit/56a6bde6874c130b9eb546446ad4710b8f866a55): fix(merge): restore the id-addressed merge path lost in the integration merge
+- [`ec1079f5`](https://github.com/zumik3-del/synaptomind/commit/ec1079f5e00397d689d063e29cd36c1b1c59fb2d): test(search): pass the database handle in the vector-count call sites
+- [`961fc9d4`](https://github.com/zumik3-del/synaptomind/commit/961fc9d4fe240fb7bcb46681ef1280fd3a0775e9): test(store): repair the stale project-deletion mock
+- [`cfc5cf85`](https://github.com/zumik3-del/synaptomind/commit/cfc5cf850a1f79c6830d3eadb22ff70aa411ae9e): test(db): pin the recovery advice and the backup failure messages
+- [`67f2bea3`](https://github.com/zumik3-del/synaptomind/commit/67f2bea3fe3c22b95b5c0c909bb5c54523f4e5dd): docs: bring the tool reference, the API doc and AGENTS.md back in line
+- [`f37edfcb`](https://github.com/zumik3-del/synaptomind/commit/f37edfcb7f862db8e24dd21d808973bd2877de3c): fix(list): fold tag names in the list and count filter too
+- [`7f63553e`](https://github.com/zumik3-del/synaptomind/commit/7f63553e53157fb7ad0833d76a1caeb6b710a549): docs(code): stop the tool descriptions advertising the removed project move
+- [`e9a3912f`](https://github.com/zumik3-del/synaptomind/commit/e9a3912ff3b3f5de412f611c5f259c0e65cf9e65): fix(db): make the recovery advice executable and unambiguous
+- [`03376a8e`](https://github.com/zumik3-del/synaptomind/commit/03376a8e4258f9721c9f83e7e01fc90865d7ed98): fix(store): the bulk item source description promised a default the code never applies
+- [`9f2b767e`](https://github.com/zumik3-del/synaptomind/commit/9f2b767ed9125b94132b2cf8c823b2e3a414f06d): perf(search): revert the vector count to the per-row probe
+- [`1f7b7c0b`](https://github.com/zumik3-del/synaptomind/commit/1f7b7c0bfc36cbd018c0c130c146f70d85a0f0b5): test(search): pin Unicode-aware tag matching
+- [`4d00878a`](https://github.com/zumik3-del/synaptomind/commit/4d00878a15d9b413d242b307215d30cbb6cc645b): test(store): pin the advertised bulk_create bounds and item descriptions
+- [`d77f73e2`](https://github.com/zumik3-del/synaptomind/commit/d77f73e2d1454070378396df62d59fab163f2c5a): fix(search): fold tag names in JS so matching is Unicode-aware
+- [`38bbedc4`](https://github.com/zumik3-del/synaptomind/commit/38bbedc46cdaa80154c7340c9c31e3cef084cbec): test(db): prove archived deletion losers stay out of the retention pool
+- [`8c0e13ed`](https://github.com/zumik3-del/synaptomind/commit/8c0e13ed47d5b90264803447432176f2c4ecc7df): fix(store): advertise the bulk_create bounds and item descriptions
+- [`a0037edf`](https://github.com/zumik3-del/synaptomind/commit/a0037edf22c0c3744e9bb146e92e1ad87f85a493): docs(db): mark why archived project-deletion losers keep their protection
+- [`7b828e95`](https://github.com/zumik3-del/synaptomind/commit/7b828e9560b71ff3dd305ae2c619e7635760deb1): test(db): pin the rebuild snapshot identity and retention
+- [`dd76aee6`](https://github.com/zumik3-del/synaptomind/commit/dd76aee6a3291c3c7f652102f91eee9a22921a75): test(db): pin the project-deletion archive report and protection
+- [`8852d58b`](https://github.com/zumik3-del/synaptomind/commit/8852d58b2ef5c8c72fd774f46cb88366e75bd8f0): test(log): pin the merge collision line at the real log sink
+- [`a81dfdac`](https://github.com/zumik3-del/synaptomind/commit/a81dfdacecff9fc77964fbf5b70b8962cb7b67f3): fix(db): give the vec0 rebuild snapshot its own identity and retention
+- [`868c8ddc`](https://github.com/zumik3-del/synaptomind/commit/868c8ddcc23f07d90e667b7d781b34a00f2bf15e): test(search): pin the counted-vector-set equivalence
+- [`bcadf16d`](https://github.com/zumik3-del/synaptomind/commit/bcadf16dfc20c1d4cba20d2ec8a61f959a16de40): fix(db): report and protect thoughts archived by a project deletion
+- [`724ab780`](https://github.com/zumik3-del/synaptomind/commit/724ab780bcc6153f2df3afab614582bf55ec73ea): test(store): pin that id-addressed writes keep their project
+- [`7e6498cb`](https://github.com/zumik3-del/synaptomind/commit/7e6498cb51a67a7845bf368240af449231089798): fix(log): stop the merge collision warning losing its link key
+- [`bc4c261c`](https://github.com/zumik3-del/synaptomind/commit/bc4c261c70f755c4ab597c120b700b091ba08f18): test(store): pin the bulk_create item contract field by field
+- [`3808cb96`](https://github.com/zumik3-del/synaptomind/commit/3808cb96860a8ec9bb6be0f1eae3c11b03f7b7f7): test(search): pin the tag filter in SQL and the id-prefix scope
+- [`68f09ae7`](https://github.com/zumik3-del/synaptomind/commit/68f09ae759c04eb0a27dc0ffc052b36856b8442e): perf(search): count filtered vectors from one materialized id set
+- [`641e4ef4`](https://github.com/zumik3-del/synaptomind/commit/641e4ef4c1455bd5fcd67f7459098ba3a33b58e8): fix(store): bulk_create declares and writes the same item shape
+- [`685fd63c`](https://github.com/zumik3-del/synaptomind/commit/685fd63c8ea62dd9f576b1d1b287dae70ad38503): fix(store): id-addressed writes stop relocating a thought
+- [`229ee060`](https://github.com/zumik3-del/synaptomind/commit/229ee060f80882a57ab30a5d47a3044553ce4ea5): test(url_links): pin thought-owned links across the design matrix
+- [`e8be9d38`](https://github.com/zumik3-del/synaptomind/commit/e8be9d38736ecee5f6408719792509cf3ad432d6): fix(search): push the tag filter into SQL and widen the id-prefix scope
+- [`d3f8b8a9`](https://github.com/zumik3-del/synaptomind/commit/d3f8b8a97d26f376471ca4f8d63882a916c68b3f): test(db): pin the boot-path refusal and the vec0 rebuild backup
+- [`f9b698d0`](https://github.com/zumik3-del/synaptomind/commit/f9b698d0348450ee67c5b57f5053fca7283b36db): fix(url_links): thought-owned links survive every content edit
+- [`e351cf5b`](https://github.com/zumik3-del/synaptomind/commit/e351cf5b0fdb1c3b0d5e5319dc9bb6950b95c91c): test(db): pin content_hash integrity on project deletion and the v049 repair
+- [`9f55ec89`](https://github.com/zumik3-del/synaptomind/commit/9f55ec89958ade2b70f22234bff4e525957a1f01): fix(db): fail closed on a lost schema stamp and back up before the vec0 rebuild
+- [`7eb456d7`](https://github.com/zumik3-del/synaptomind/commit/7eb456d75b8518312ed23ea389db1ae7bd678294): fix(db): keep content_hash consistent when a project is deleted
+- [`b8d0a2b9`](https://github.com/zumik3-del/synaptomind/commit/b8d0a2b95a37ac26d538cf9ef401cbd131007305): refactor(tests): drop remaining decorative comments in embedder tests
+- [`14c3ab58`](https://github.com/zumik3-del/synaptomind/commit/14c3ab58ce622feda0a0a7de8caf204259d6a2e0): refactor(tests): drop decorative comments in embedder and service tests
+- [`a5b95005`](https://github.com/zumik3-del/synaptomind/commit/a5b95005876e4bfed0807a2dab3a47e9e2f1110b): refactor(tests): drop decorative comments in placement and search tests
+- [`301aa8f1`](https://github.com/zumik3-del/synaptomind/commit/301aa8f182055eaf2bd408baca8c7d1a72e18446): refactor(tests): drop decorative comments in mcp tests
+- [`6f917684`](https://github.com/zumik3-del/synaptomind/commit/6f917684d57d67c537810cc3a60d00966a98a34e): refactor(tests): drop decorative comments in db, api and middleware tests
+- [`9a5864ec`](https://github.com/zumik3-del/synaptomind/commit/9a5864ec7d0d840d4d96b631b437bf1c5c7b8f9d): refactor: drop remaining decorative code comments
+- [`b7d91947`](https://github.com/zumik3-del/synaptomind/commit/b7d919478a3194110713cc64e3f561f1636e33c8): refactor: drop decorative code comments
+- [`5770f5f1`](https://github.com/zumik3-del/synaptomind/commit/5770f5f1487dd87082f9ab1e8d527c642888daa0): docs(agents): point to the code-tiers ADR in §2
+
 ## v0.24.1
 
 > November 12, 2026

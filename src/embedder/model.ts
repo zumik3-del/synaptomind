@@ -1,5 +1,6 @@
 import { env, pipeline } from '@huggingface/transformers'
 import { config } from '../config'
+import { EmbedderNotReadyError } from '../errors'
 import { insertLog } from '../logging'
 
 let extractor: Awaited<ReturnType<typeof loadExtractor>> | null = null
@@ -50,7 +51,7 @@ async function getExtractor() {
     )
   }
   await loading
-  if (!extractor) throw new Error('extractor was not set after loading')
+  if (!extractor) throw new EmbedderNotReadyError('Embedder model failed to load')
   return extractor
 }
 

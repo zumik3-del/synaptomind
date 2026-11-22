@@ -30,7 +30,7 @@ export function registerMemoryCrystallize(server: McpServer) {
         .string()
         .optional()
         .describe(
-          'Working directory — auto-resolves project. OPTIONAL for "graph" and "cluster" (always pass for those; auto_cluster operates globally). IGNORED for "auto_cluster".'
+          'Working directory — auto-resolves project. OPTIONAL for "graph" and "cluster" (always pass for those; auto_cluster operates globally). ACCEPTED AND IGNORED for "auto_cluster".'
         ),
       status: graphStatusSchema
         .optional()

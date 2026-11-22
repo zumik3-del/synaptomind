@@ -71,7 +71,7 @@ describe('memory_manage delete of a project holding collisions', () => {
     expect(preview.item.consequence).toContain('archived')
     expect(preview.item.thought_count).toBe(2)
 
-    const executed = await confirmDeletion(client, project.id, preview.item.preview_token)
+    const executed = await confirmDeletion(client, project.id, preview.meta.preview.token)
 
     expect(executed.action).toBe('deleted')
     expect(executed.thoughts_moved).toBe(preview.item.thought_count)
@@ -89,7 +89,7 @@ describe('memory_manage delete of a project without collisions', () => {
     seedThought({ content: 'second body', project_id: project.id, created_at: NEWER })
 
     const preview = await previewDeletion(client, project.id)
-    const item = await confirmDeletion(client, project.id, preview.item.preview_token)
+    const item = await confirmDeletion(client, project.id, preview.meta.preview.token)
     const { action, project: deletedProject, thoughts_moved, moved_to } = item
 
     expect({ action, project: deletedProject, thoughts_moved, moved_to }).toEqual({
@@ -107,7 +107,7 @@ describe('memory_manage delete of a project without collisions', () => {
     const project = createProject(getDb(), { name: 'Empty' })
 
     const preview = await previewDeletion(client, project.id)
-    const item = await confirmDeletion(client, project.id, preview.item.preview_token)
+    const item = await confirmDeletion(client, project.id, preview.meta.preview.token)
 
     expect(item.thoughts_moved).toBe(0)
     expect('moved_to' in item).toBe(false)
