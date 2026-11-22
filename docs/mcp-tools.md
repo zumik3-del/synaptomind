@@ -199,9 +199,10 @@ is wrapped to `{ text }` and its `content[].text` becomes the JSON `{"text":"...
 `content[].text` and the same string as `structuredContent.result.item.text`, with the standard
 envelope `meta` beside it (`src/mcp/tools/status/config.ts`).
 
-An action failure always returns `isError: true` with the human-readable message in
-`content[].text` **and** a structured classification in `structuredContent.result.error` — the same
-shape for a rejected argument, an unknown action, a per-action input failure and a domain error:
+Every failure the action layer produces is returned as `isError: true` with the human-readable
+message in `content[].text` **and** a structured classification in
+`structuredContent.result.error` — the same shape for a rejected argument, an unknown action, a
+per-action input failure and a domain error:
 
 ```json
 {
@@ -219,11 +220,18 @@ shape for a rejected argument, an unknown action, a per-action input failure and
   SDK client validates `structuredContent` against that schema whenever the key is present, so
   putting it anywhere else would fail the check (`src/mcp/tools/utils.ts:40-42`).
 - **Classified vs unclassified.** `message` is always present; `statusCode` and `retryable` ride
-  along only when the failure carries them. A plain `Error` or a non-`Error` throw answers
-  `{ "error": { "message": ... } }` with no `statusCode` (`src/mcp/tools/utils.ts`, `errorResult`).
+  along only when the failure carries them. A plain `Error` answers
+  `{ "error": { "message": <error.message> } }` with no `statusCode`, while a non-`Error` throw
+  answers the generic `"<tool> failed"` and loses whatever it threw
+  (`src/mcp/tools/action-tool.ts`, `errorResult`).
 - **Schema failures.** The tool's arguments are validated by the tool itself, not by the SDK, so a
   rejected argument answers the same structured error instead of a text-only SDK rejection
   (`src/mcp/tools/action-tool.ts`).
+- **SDK-level refusals.** Two refusals never reach the action layer and answer text-only, with no
+  `structuredContent`: the SDK's output-schema validation and its input-element cap, which is
+  active only when the server configures one. Neither is reachable from a call this tool set
+  accepts — every action answers with its payload under `result` and no advertised input approaches
+  the cap — so every refusal a client can provoke carries the structured shape.
 - **Retryability.** `retryable` is `statusCode === 503`. The 503 class is the transient
   availability failures — embedder not ready, overloaded, timed out, send failure
   (`src/errors.ts`) — the only class safe to repeat as-is. Every other classified code
