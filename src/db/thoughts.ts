@@ -74,6 +74,23 @@ export interface ListThoughtsOptions extends ThoughtListFilters {
 
 export const THOUGHTS_PAGE_LIMIT_DEFAULT = 50
 
+export type ThoughtRow = {
+  id: string
+  content: string
+  status: string
+  source: string | null
+  project_id: string
+  project_name: string | null
+  is_cluster: number
+  is_protected?: number
+  is_global?: number
+  created_at: string
+  updated_at: string
+  archived_at?: string | null
+  surface_after?: string | null
+  content_language?: string | null
+}
+
 export function rowToThought(row: Record<string, unknown>): Thought {
   const thought: Thought = {
     id: row.id as string,
@@ -95,12 +112,13 @@ export function rowToThought(row: Record<string, unknown>): Thought {
   return thought
 }
 
-const THOUGHT_BASE_SELECT =
-  'SELECT t.*, p.name as project_name FROM thoughts t LEFT JOIN projects p ON t.project_id = p.id'
+export const THOUGHT_ROW_COLUMNS = 't.*, p.name as project_name'
+export const THOUGHT_ROW_FROM = 'FROM thoughts t LEFT JOIN projects p ON t.project_id = p.id'
+const THOUGHT_BASE_SELECT = `SELECT ${THOUGHT_ROW_COLUMNS} ${THOUGHT_ROW_FROM}`
 const THOUGHT_ROW_SQL = `${THOUGHT_BASE_SELECT} WHERE t.id = ?`
 
 export function getThoughtRow(db: Database, id: string): Thought | undefined {
-  const row = db.prepare(THOUGHT_ROW_SQL).get(id) as Record<string, unknown> | undefined
+  const row = db.prepare(THOUGHT_ROW_SQL).get(id) as ThoughtRow | undefined
   if (!row) return undefined
   return { ...rowToThought(row), tags: getThoughtTags(db, id) }
 }
@@ -174,11 +192,10 @@ function getThoughtsByIds(db: Database, ids: string[]): Map<string, Thought> {
   const map = new Map<string, Thought>()
   if (ids.length === 0) return map
   const ph = sqlIn(ids)
-  const rows = db.prepare(`${THOUGHT_BASE_SELECT} WHERE t.id IN (${ph})`).all(...ids) as Record<
-    string,
-    unknown
-  >[]
-  for (const r of rows) map.set(r.id as string, rowToThought(r))
+  const rows = db
+    .prepare(`${THOUGHT_BASE_SELECT} WHERE t.id IN (${ph})`)
+    .all(...ids) as ThoughtRow[]
+  for (const r of rows) map.set(r.id, rowToThought(r))
   return map
 }
 
@@ -359,12 +376,12 @@ export function listThoughts(db: Database, options: ListThoughtsOptions = {}): T
     sqlValues = [...values, limit, offset]
   }
 
-  const rows = db.prepare(sql).all(...sqlValues) as Record<string, unknown>[]
+  const rows = db.prepare(sql).all(...sqlValues) as ThoughtRow[]
   const tagMap = getThoughtTagsBatch(
     db,
-    rows.map(r => r.id as string)
+    rows.map(r => r.id)
   )
-  return rows.map(r => ({ ...rowToThought(r), tags: tagMap.get(r.id as string) ?? [] }))
+  return rows.map(r => ({ ...rowToThought(r), tags: tagMap.get(r.id) ?? [] }))
 }
 
 export function countThoughts(db: Database, options: ThoughtListFilters = {}): number {

@@ -2,21 +2,9 @@ import type { Database } from 'bun:sqlite'
 import { buildFilterSQL } from './search-filters'
 import type { SearchMatchSource, SearchOptions, SearchResult } from '../types/search'
 import { getThoughtTagsBatch } from './tags'
-import { rowToThought } from './thoughts'
+import { rowToThought, THOUGHT_ROW_COLUMNS, THOUGHT_ROW_FROM, type ThoughtRow } from './thoughts'
 import { sqlIn } from './utils'
 import { MS_PER_DAY } from '../utils'
-
-interface SearchRow {
-  id: string
-  content: string
-  status: string
-  source: string | null
-  project_id: string
-  project_name: string | null
-  is_cluster: number
-  created_at: string
-  updated_at: string
-}
 
 export const FALLBACK_RECENCY_HALF_LIFE_DAYS = 30
 
@@ -81,13 +69,12 @@ export function fetchThoughtsByIds(
 
   const rows = db
     .prepare(`
-      SELECT t.*, p.name as project_name, ti.importance as _importance
-      FROM thoughts t
-      LEFT JOIN projects p ON t.project_id = p.id
+      SELECT ${THOUGHT_ROW_COLUMNS}, ti.importance as _importance
+      ${THOUGHT_ROW_FROM}
       LEFT JOIN thought_importance ti ON t.id = ti.thought_id
       WHERE t.id IN (${ph}) ${filterSql}
     `)
-    .all(...orderedIds, ...params) as Array<SearchRow & { _importance: number | null }>
+    .all(...orderedIds, ...params) as Array<ThoughtRow & { _importance: number | null }>
 
   const tagMap = getThoughtTagsBatch(
     db,
@@ -101,7 +88,7 @@ export function fetchThoughtsByIds(
     const sim = hydration.vecSimById.get(id)
     const bm25 = hydration.bm25ScoreById.get(id)
     const rrf = hydration.rrfScoreById.get(id)
-    const thought = rowToThought(r as unknown as Record<string, unknown>)
+    const thought = rowToThought(r)
     thought.tags = tagMap.get(r.id) ?? []
 
     const matchSource: SearchMatchSource[] = []

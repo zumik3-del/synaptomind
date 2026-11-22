@@ -1,15 +1,11 @@
 import type { GraphStanding } from '../db/graph-annotations'
+import type { FilterOptions } from '../db/search-filters'
 import type { Thought } from '../db/thoughts'
 
-export interface SearchOptions {
+export interface SearchOptions extends FilterOptions {
   embedding: Float32Array
   query?: string
   topK?: number
-  statusFilter?: string
-  projectFilter?: string
-  clusterFilter?: 'only' | 'exclude'
-  minImportance?: number
-  tagFilter?: string
   hybrid?: boolean
   recencyWeight?: number
   recencyHalfLifeDays?: number

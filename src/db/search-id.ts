@@ -1,21 +1,15 @@
 import type { Database } from 'bun:sqlite'
-import { buildFilterSQL } from './search-filters'
+import { buildFilterSQL, type FilterOptions } from './search-filters'
 import type { SearchResult } from '../types/search'
 import { getThoughtTagsBatch } from './tags'
-import { rowToThought } from './thoughts'
+import { rowToThought, THOUGHT_ROW_COLUMNS, THOUGHT_ROW_FROM, type ThoughtRow } from './thoughts'
 
 export interface ThoughtIdQuery {
   pattern: string
   exact: boolean
 }
 
-export interface IdLookupFilters {
-  statusFilter?: string
-  projectFilter?: string
-  clusterFilter?: 'only' | 'exclude'
-  minImportance?: number
-  tagFilter?: string
-}
+export type IdLookupFilters = FilterOptions
 
 const ID_HEX_LENGTH = 32
 export const ID_PREFIX_MATCH_HARD_CAP = 100
@@ -40,18 +34,6 @@ export function parseThoughtIdQuery(raw: string): ThoughtIdQuery | null {
   const exact = hex.length === ID_HEX_LENGTH
   const canonical = hyphenate(hex)
   return { pattern: exact ? canonical : `${canonical}*`, exact }
-}
-
-interface IdRow {
-  id: string
-  content: string
-  status: string
-  source: string | null
-  project_id: string
-  project_name: string | null
-  is_cluster: number
-  created_at: string
-  updated_at: string
 }
 
 function clampPrefixLimit(limit: number): number {
@@ -86,32 +68,28 @@ export function findThoughtsByIdQuery(
     idQuery.exact
       ? db
           .prepare(`
-            SELECT t.*, p.name AS project_name
-            FROM thoughts t
-            LEFT JOIN projects p ON t.project_id = p.id
+            SELECT ${THOUGHT_ROW_COLUMNS} ${THOUGHT_ROW_FROM}
             WHERE t.id = ? ${scope.sql}
             ORDER BY t.id ASC
           `)
           .all(idQuery.pattern, ...scope.params)
       : db
           .prepare(`
-            SELECT t.*, p.name AS project_name
-            FROM thoughts t
-            LEFT JOIN projects p ON t.project_id = p.id
+            SELECT ${THOUGHT_ROW_COLUMNS} ${THOUGHT_ROW_FROM}
             LEFT JOIN thought_importance ti ON ti.thought_id = t.id
             WHERE t.id GLOB ? ${scope.sql}
             ORDER BY t.id ASC
             LIMIT ${cap}
           `)
           .all(idQuery.pattern, ...scope.params)
-  ) as IdRow[]
+  ) as ThoughtRow[]
 
   const tagMap = getThoughtTagsBatch(
     db,
     rows.map(r => r.id)
   )
   return rows.map(row => {
-    const thought = rowToThought(row as unknown as Record<string, unknown>)
+    const thought = rowToThought(row)
     thought.tags = tagMap.get(row.id) ?? []
     const result: SearchResult = {
       thought,
