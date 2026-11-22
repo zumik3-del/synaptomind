@@ -13,7 +13,6 @@ import {
 import {
   CONTENT_CHANGED_REASON,
   deleteEmbeddedFromQueue,
-  deleteFromQueue,
   findPendingEmbeddings,
   handleFailedItem,
   insertEmbedding
@@ -217,7 +216,8 @@ function runPreGuardComposition(
     rows,
     embeddings,
     (_batchRows, succeeded) => {
-      if (succeeded.length > 0) deleteFromQueue(getDb(), succeeded)
+      const del = getDb().prepare('DELETE FROM pending_embeddings WHERE thought_id = ?')
+      for (const id of succeeded) del.run(id)
     },
     afterStore
   )
@@ -255,7 +255,10 @@ function runPreFixLoop(rows: EmbeddingRow[], embeddings: Float32Array[]): string
       succeeded.push(r.id)
     } catch {}
   }
-  if (succeeded.length > 0) deleteFromQueue(db, succeeded)
+  if (succeeded.length > 0) {
+    const del = db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?')
+    for (const id of succeeded) del.run(id)
+  }
   return succeeded
 }
 

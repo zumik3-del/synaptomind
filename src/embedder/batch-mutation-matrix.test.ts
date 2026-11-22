@@ -3,12 +3,7 @@ import { getDb } from '../db'
 import { closeDb } from '../db/init'
 import { classifyBatch } from './batch'
 import { createTestDb, seedThought } from '../test/helpers'
-import {
-  MAX_ATTEMPTS,
-  CONTENT_CHANGED_REASON,
-  deleteFromQueue,
-  handleFailedItem
-} from '../db/pending-embeddings'
+import { MAX_ATTEMPTS, CONTENT_CHANGED_REASON, handleFailedItem } from '../db/pending-embeddings'
 
 beforeEach(() => {
   createTestDb()
@@ -82,20 +77,6 @@ describe('mutation matrix: handleFailedItem outcomes x attempts-before', () => {
   }
 })
 
-describe('mutation matrix: succeed outcome', () => {
-  test('succeed: row is removed from queue (deleteFromQueue) regardless of prior attempts', () => {
-    const id = seedThought({ content: 'stable' })
-    setAttempts(id, MAX_ATTEMPTS - 1)
-    deleteFromQueue(getDb(), [id])
-    const row = getDb().prepare('SELECT 1 FROM pending_embeddings WHERE thought_id = ?').get(id)
-    expect(row).toBeNull()
-  })
-
-  test('succeed: deleteFromQueue tolerates empty list', () => {
-    expect(() => deleteFromQueue(getDb(), [])).not.toThrow()
-  })
-})
-
 describe('backoff isolation (skipped rows do not advance failure counter)', () => {
   test('a skipped outcome yields consecutiveFailures reset to 0, not +1', () => {
     const nextFailures = (failed: number, total: number, current: number): number =>
@@ -116,11 +97,11 @@ describe('backoff isolation (skipped rows do not advance failure counter)', () =
 })
 
 describe('only-succeeded-licenses-delete invariant', () => {
-  test('a skipped row is never passed to deleteFromQueue (stays queued for retry)', () => {
+  test('a skipped row is never retired (stays queued for retry)', () => {
     const db = getDb()
     const skippedId = seedThought({ content: 'old' })
     const succeededId = seedThought({ content: 'stable' })
-    deleteFromQueue(db, [succeededId])
+    db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?').run(succeededId)
     handleFailedItem(db, skippedId, CONTENT_CHANGED_REASON)
 
     expect(

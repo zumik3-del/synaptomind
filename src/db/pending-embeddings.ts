@@ -52,15 +52,6 @@ export function requeueEmbeddings(db: Database, ids: string[]): void {
   tx()
 }
 
-// Retires rows regardless of freshness; the batch path must use `deleteEmbeddedFromQueue` instead.
-export function deleteFromQueue(db: Database, ids: string[]) {
-  const del = db.prepare('DELETE FROM pending_embeddings WHERE thought_id = ?')
-  const tx = db.transaction(() => {
-    for (const id of ids) del.run(id)
-  })
-  tx()
-}
-
 export interface EmbeddedRow {
   id: string
   contentHash: string
