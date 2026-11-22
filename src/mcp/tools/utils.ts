@@ -1,8 +1,8 @@
 import { z } from 'zod/v4'
 import type { ChainResult } from '../../services/graph.service'
-import { resolveProjectService } from '../../services/projects.service'
 import { getThoughtUrlLinksBatchService } from '../../services/url_links.service'
 
+import { scopeForCwd, scopeProjectId } from './envelope'
 import { shapeEntity, type BatchUrlLinks, type ShapeOptions } from './field-selection'
 export * from './field-selection'
 type McpTextContent = { type: 'text'; text: string }
@@ -47,14 +47,7 @@ export function errorResult(
 }
 
 export function resolveProjectId(cwd?: string): string | undefined {
-  if (cwd) {
-    const project = resolveProjectService(cwd)
-    if (project) return project.id
-    console.warn(`[scope] unknown cwd "${cwd}" — search will be global`)
-  } else {
-    console.warn('[scope] no project scope provided — search will be global')
-  }
-  return undefined
+  return scopeProjectId(scopeForCwd(cwd))
 }
 
 export function shapeChain(

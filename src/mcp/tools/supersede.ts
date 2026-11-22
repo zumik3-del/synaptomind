@@ -10,7 +10,7 @@ import { getBoundedMergePreviewService, mergeThoughtsService } from '../../servi
 import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 import { validateMergePreconditions } from '../../services/merge-helpers.service'
 import { BATCH_ITEMS_MAX } from '../../validation'
-import { collectionEnvelope, itemEnvelope, writeEnvelopeScope } from './envelope'
+import { guardedCollectionEnvelope, guardedEnvelope, writeEnvelopeScope } from './envelope'
 import { shapeEntity } from './utils'
 import { actionInput, registerActionTool, requiredString, type ActionArgs } from './action-tool'
 
@@ -91,34 +91,29 @@ const handlers = {
                 existing.is_protected
               )
             : null,
-        preview: token =>
-          itemEnvelope(
-            'archive',
-            {
-              status: 'preview',
-              action: 'archive',
-              thought_id: thoughtId,
-              current_status: existing?.status ?? null,
-              outcome: !existing
-                ? 'not_found'
-                : existing.status === 'archived'
-                  ? 'already_archived'
-                  : 'would_archive'
-            },
-            token === null ? {} : { preview: { token } }
-          ),
+        preview: () => ({
+          status: 'preview',
+          action: 'archive',
+          thought_id: thoughtId,
+          current_status: existing?.status ?? null,
+          outcome: !existing
+            ? 'not_found'
+            : existing.status === 'archived'
+              ? 'already_archived'
+              : 'would_archive'
+        }),
         apply: () => {
           if (!existing) throw new NotFoundError(`Thought '${thoughtId}' not found`)
           const result =
             existing.status === 'archived' ? existing : archiveThoughtByIdService(thoughtId)
-          return itemEnvelope('archive', {
+          return {
             status: 'executed',
             action: 'archive',
             result: shapeEntity(result)
-          })
+          }
         }
       })
-      return outcome.value
+      return guardedEnvelope('archive', outcome)
     }
   },
 
@@ -145,7 +140,7 @@ const handlers = {
                 : ['missing', ids[i]]
             )
           ),
-        preview: token => {
+        preview: () => {
           const seen = new Set<string>()
           const items = ids.map((thought_id, i) => {
             const duplicate = seen.has(thought_id)
@@ -160,11 +155,7 @@ const handlers = {
           })
           const counts: Record<string, number> = {}
           for (const item of items) counts[item.outcome] = (counts[item.outcome] ?? 0) + 1
-          return collectionEnvelope('archive_batch', items, {
-            total: ids.length,
-            counts,
-            preview: { token }
-          })
+          return { items, counts }
         },
         apply: () => {
           const result = archiveThoughtsBatchService(ids)
@@ -180,13 +171,14 @@ const handlers = {
               ? { thought_id, status: 'archived' as const }
               : { thought_id, status: 'failed' as const, error }
           })
-          return collectionEnvelope('archive_batch', items, {
-            total: ids.length,
-            counts: { archived: result.archived, failed: result.failed }
-          })
+          return { items, counts: { archived: result.archived, failed: result.failed } }
         }
       })
-      return outcome.value
+      const report = outcome.value
+      return guardedCollectionEnvelope('archive_batch', outcome, {
+        total: ids.length,
+        counts: report.counts
+      })
     }
   },
 
@@ -218,20 +210,20 @@ const handlers = {
                 mergedTags
               )
             : null,
-        preview: token => {
+        preview: () => {
           const preview = getBoundedMergePreviewService(
             sourceId,
             targetId,
             MERGE_PREVIEW_EDGE_LIMIT
           )
           if (!preview)
-            return itemEnvelope('merge', {
+            return {
               status: 'preview',
               action: 'merge',
               source: { id: sourceId, status: null },
               target: { id: targetId, status: null },
               outcome: 'not_found'
-            })
+            }
           let mergeOutcome = 'would_merge'
           let reason: string | undefined
           if (sourceId === targetId) {
@@ -250,29 +242,25 @@ const handlers = {
             source_edge_count: preview.sourceEdgeCount,
             truncated: preview.sourceEdgeCount > MERGE_PREVIEW_EDGE_LIMIT
           }
-          return itemEnvelope(
-            'merge',
-            {
-              status: 'preview',
-              action: 'merge',
-              outcome: mergeOutcome,
-              ...(reason ? { reason } : {}),
-              source: { id: preview.source.id, status: preview.source.status, ...edgePreview },
-              target: { id: preview.target.id, status: preview.target.status },
-              proposed: {
-                merged_content: mergedContent,
-                merged_tags: mergedTags
-              },
-              effects: {
-                source_archived: mergeOutcome === 'would_merge',
-                target_updated:
-                  mergeOutcome === 'would_merge' &&
-                  (mergedContent !== undefined || mergedTags !== undefined),
-                ...(mergeOutcome === 'would_merge' ? { replaces_edge_created: true } : {})
-              }
+          return {
+            status: 'preview',
+            action: 'merge',
+            outcome: mergeOutcome,
+            ...(reason ? { reason } : {}),
+            source: { id: preview.source.id, status: preview.source.status, ...edgePreview },
+            target: { id: preview.target.id, status: preview.target.status },
+            proposed: {
+              merged_content: mergedContent,
+              merged_tags: mergedTags
             },
-            { ...(token === null ? {} : { preview: { token } }), ...writeEnvelopeScope(args.cwd) }
-          )
+            effects: {
+              source_archived: mergeOutcome === 'would_merge',
+              target_updated:
+                mergeOutcome === 'would_merge' &&
+                (mergedContent !== undefined || mergedTags !== undefined),
+              ...(mergeOutcome === 'would_merge' ? { replaces_edge_created: true } : {})
+            }
+          }
         },
         apply: () => {
           // Id-addressed write: the target keeps its own project; cwd only scopes the answer.
@@ -282,21 +270,17 @@ const handlers = {
             mergedContent,
             mergedTags
           })
-          return itemEnvelope(
-            'merge',
-            {
-              status: 'executed',
-              action: 'merge',
-              result: {
-                target: shapeEntity(result.target),
-                edges_transferred: result.transferredEdges
-              }
-            },
-            writeEnvelopeScope(args.cwd)
-          )
+          return {
+            status: 'executed',
+            action: 'merge',
+            result: {
+              target: shapeEntity(result.target),
+              edges_transferred: result.transferredEdges
+            }
+          }
         }
       })
-      return outcome.value
+      return guardedEnvelope('merge', outcome, writeEnvelopeScope(args.cwd))
     }
   }
 }

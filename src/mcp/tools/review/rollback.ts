@@ -1,7 +1,7 @@
 import { rollbackService as rollbackRun } from '../../../services/placement-rollback.service'
 import { listAcceptedProposalsByRunService } from '../../../services/placement-proposals.service'
 import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.service'
-import { collectionEnvelope } from '../envelope'
+import { guardedCollectionEnvelope } from '../envelope'
 import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 import { REVIEW_ARGS } from './args'
 import { AGENT } from './apply'
@@ -27,10 +27,9 @@ export const rollbackHandler: ActionHandler = {
     })
 
     const report = outcome.value
-    return collectionEnvelope('rollback', report.items, {
+    return guardedCollectionEnvelope('rollback', outcome, {
       total: report.items.length,
-      counts: report.summary,
-      ...(outcome.status === 'preview' ? { preview: { token: outcome.token } } : {})
+      counts: report.summary
     })
   }
 }

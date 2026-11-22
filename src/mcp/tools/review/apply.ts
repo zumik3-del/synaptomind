@@ -1,7 +1,7 @@
 import { applyProposalService } from '../../../services/placement-apply.service'
 import { getProposalService } from '../../../services/placement-proposals.service'
 import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.service'
-import { itemEnvelope } from '../envelope'
+import { guardedEnvelope } from '../envelope'
 import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 import { REVIEW_ARGS } from './args'
 
@@ -43,8 +43,6 @@ export const applyHandler: ActionHandler = {
         })
     })
 
-    return outcome.status === 'preview'
-      ? itemEnvelope('apply', outcome.value, { preview: { token: outcome.token } })
-      : itemEnvelope('apply', outcome.value)
+    return guardedEnvelope('apply', outcome)
   }
 }
