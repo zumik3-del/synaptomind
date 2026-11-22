@@ -3,6 +3,7 @@ import { createTestDb, seedThought } from '../test/helpers'
 import { getDb } from '../context/container'
 import { closeDb } from './init'
 import {
+  countProposals,
   deleteExpired,
   getProposal,
   insertProposal,
@@ -530,4 +531,37 @@ test('listProposals reads the camelCase alias of the source filter', () => {
   )
 
   expect(listProposals(db, { sourceThoughtId: watched }).map(row => row.id)).toEqual([kept.id])
+})
+
+test('countProposals counts the same filter set the page lists, un-capped by any page limit', () => {
+  const db = getDb()
+  const src = seedThought()
+  const live = insertProposal(
+    db,
+    makeInput({ source_thought_id: src, fingerprint: 'fp-count-live' })
+  )
+  insertProposal(
+    db,
+    makeInput({
+      source_thought_id: src,
+      edge_type: 'parent',
+      fingerprint: 'fp-count-lapsed',
+      expires_at: '2000-01-01T00:00:00.000Z'
+    })
+  )
+  db.prepare(`
+    INSERT INTO placement_proposals
+      (id, project_id, source_thought_id, item_kind, target_id, edge_type, lifecycle_action, direction,
+       confidence, rationale, rule_id, payload, fingerprint, state, created_at)
+    VALUES ('count-retired', 'default', ?, 'triage_activate', null, null, null, null, 0.9, 'retired',
+      null, '{}', 'fp-count-retired', 'pending', '2026-01-01T00:00:00.000Z')
+  `).run(src)
+
+  expect(countProposals(db)).toBe(3)
+  expect(countProposals(db, { unexpired_at: now() })).toBe(2)
+  expect(countProposals(db, { exclude_legacy: true })).toBe(2)
+  expect(countProposals(db, { exclude_legacy: true, unexpired_at: now() })).toBe(1)
+  expect(
+    listProposals(db, { exclude_legacy: true, unexpired_at: now(), limit: 100 }).map(row => row.id)
+  ).toEqual([live.id])
 })
