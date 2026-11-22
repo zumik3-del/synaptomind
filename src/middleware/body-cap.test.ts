@@ -8,6 +8,7 @@ import { createMcpRouteHandler, SessionRegistry } from '../mcp/mcp-route'
 import { createMcpServer } from '../mcp/server'
 import { createGuardedPipeline } from '../middleware/guarded-pipeline'
 import { createErrorHandler, MAX_REQUEST_BODY_BYTES } from '../middleware/http-errors'
+import { configFixture } from '../test/helpers'
 
 // Task #2615: the cap is pinned where it used to be trusted rather than measured — a chunked body,
 // and a body that lies about its length, must both be cut by the bytes actually read. Every `/api`
@@ -24,17 +25,15 @@ const UNSUPPORTED_MEDIA_TYPE = {
 const previousSecret = process.env.SYNAPTOMIND_SECRET
 const previousServiceToken = process.env.SYNAPTOMIND_SERVICE_TOKEN
 const previousInsecure = process.env.SYNAPTOMIND_ALLOW_INSECURE
-const originalUsers = config.users
+const singleUser = configFixture({ users: [] })
 
 beforeAll(() => {
-  config.users = []
   process.env.SYNAPTOMIND_SECRET = SECRET
   delete process.env.SYNAPTOMIND_SERVICE_TOKEN
   delete process.env.SYNAPTOMIND_ALLOW_INSECURE
 })
 
 afterAll(() => {
-  config.users = originalUsers
   for (const [key, value] of [
     ['SYNAPTOMIND_SECRET', previousSecret],
     ['SYNAPTOMIND_SERVICE_TOKEN', previousServiceToken],
@@ -62,7 +61,7 @@ function chunked(bytes: number): ReadableStream<Uint8Array> {
 // The real app plus one echo route, so a request that gets past the cap is observable by whether
 // the handler ran and what it was handed.
 function probeApp(): { app: Hono; handlerRuns: () => number } {
-  const app = createApp()
+  const app = createApp(singleUser)
   let runs = 0
   app.post('/api/probe', async c => {
     runs++
@@ -146,7 +145,8 @@ describe('the /mcp surface keeps its own ordering', () => {
     try {
       const app = new Hono()
       app.onError(createErrorHandler('jsonrpc'))
-      for (const guard of createGuardedPipeline({ shape: 'jsonrpc' })) app.use('/mcp', guard)
+      for (const guard of createGuardedPipeline({ shape: 'jsonrpc', config: singleUser }))
+        app.use('/mcp', guard)
       app.all(
         '/mcp',
         createMcpRouteHandler({

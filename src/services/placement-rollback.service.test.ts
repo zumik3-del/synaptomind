@@ -5,7 +5,7 @@ import { closeDb, getDb } from '../db'
 import { getEdgePairBetween } from '../db/edges'
 import { insertProposal } from '../db/placement-proposals'
 import { getThoughtRow } from '../db/thoughts'
-import { createTestDb, seedThought } from '../test/helpers'
+import { configFixture, createTestDb, seedThought } from '../test/helpers'
 import {
   assertAccepted,
   assertRolledBack,
@@ -26,14 +26,8 @@ const DAY_MS = 86_400_000
 const DEFAULT_TTL_DAYS = 30
 const ANCIENT = '2000-01-01T00:00:00.000Z'
 
-function withPlacementConfig(overrides: Partial<typeof config.placement>, fn: () => void): void {
-  const saved = config.placement
-  config.placement = { ...saved, ...overrides }
-  try {
-    fn()
-  } finally {
-    config.placement = saved
-  }
+function placementConfig(overrides: Partial<typeof config.placement>) {
+  return configFixture({ placement: { ...config.placement, ...overrides } })
 }
 
 function cutoffFor(now: string, ttlDays = config.placement.proposalTtlDays): string {
@@ -286,14 +280,17 @@ describe('F-14 AC-6: proposalTtlDays < 0 disables the guard', () => {
     expect(guarded.items[0].action).toBe('refused')
     expect(edgeHeld(db, pair)).toBe(true)
 
-    withPlacementConfig({ proposalTtlDays: -1 }, () => {
-      const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(
+      RUN_ID,
+      { confirm: true, now: NOW_LATER },
+      db,
+      placementConfig({ proposalTtlDays: -1 })
+    )
 
-      expect(itemFor(report, pair.rowId).action).toBe('reverted')
-      expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 0 })
-      expect(edgeHeld(db, pair)).toBe(false)
-      assertRolledBack(db, pair.rowId)
-    })
+    expect(itemFor(report, pair.rowId).action).toBe('reverted')
+    expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 0 })
+    expect(edgeHeld(db, pair)).toBe(false)
+    assertRolledBack(db, pair.rowId)
   })
 
   test('proposalTtlDays === 0 is the valid extreme: only decided_at >= now survives', () => {
@@ -303,15 +300,18 @@ describe('F-14 AC-6: proposalTtlDays < 0 disables the guard', () => {
     setDecidedAt(db, older.rowId, beforeCutoffFor(NOW_LATER, 0))
     setDecidedAt(db, exact.rowId, NOW_LATER)
 
-    withPlacementConfig({ proposalTtlDays: 0 }, () => {
-      const report = rollbackService(RUN_ID, { confirm: true, now: NOW_LATER }, db)
+    const report = rollbackService(
+      RUN_ID,
+      { confirm: true, now: NOW_LATER },
+      db,
+      placementConfig({ proposalTtlDays: 0 })
+    )
 
-      expect(itemFor(report, older.rowId).action).toBe('refused')
-      expect(itemFor(report, exact.rowId).action).toBe('reverted')
-      expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 1 })
-      expect(edgeHeld(db, older)).toBe(true)
-      expect(edgeHeld(db, exact)).toBe(false)
-    })
+    expect(itemFor(report, older.rowId).action).toBe('refused')
+    expect(itemFor(report, exact.rowId).action).toBe('reverted')
+    expect(report.summary).toEqual({ reverted: 1, skipped: 0, refused: 1 })
+    expect(edgeHeld(db, older)).toBe(true)
+    expect(edgeHeld(db, exact)).toBe(false)
   })
 })
 

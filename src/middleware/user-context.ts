@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import type { Context, Next } from 'hono'
 import { resolveUser, type UserRef } from '../auth'
+import { type Config, config } from '../config'
 import { als, getDb, getUserDb } from '../db'
 
 declare module 'hono' {
@@ -20,8 +21,8 @@ function resolveDatabase(ref: UserRef): Database | undefined {
   }
 }
 
-export async function bindUserContext(c: Context, next: Next) {
-  const ref = resolveUser(c.req.header('Authorization'))
+export async function bindUserContext(c: Context, next: Next, cfg: Config = config) {
+  const ref = resolveUser(c.req.header('Authorization'), cfg)
   if (!ref) return c.json({ error: 'Unauthorized' }, 401)
 
   const db = resolveDatabase(ref)

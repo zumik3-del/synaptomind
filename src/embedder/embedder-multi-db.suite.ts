@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { config } from '../config'
 import { openDatabase } from '../db/init'
 import { vec0Path } from '../runtime-mode'
+import { EMBEDDER_USERS_ENV } from './spawn-scope'
 
 const root = mkdtempSync(join(tmpdir(), 'synaptomind-multi-db-'))
 const healthyPath = join(root, 'healthy.db')
@@ -33,14 +34,12 @@ function seedUserDb(path: string, contents: string[]): void {
 mkdirSync(brokenPath)
 seedUserDb(healthyPath, ['healthy-private-marker-1', 'healthy-private-marker-2'])
 
-config.users = [
-  { id: 'broken', dbPath: brokenPath, tokenSha256: '0'.repeat(64) },
-  { id: 'healthy', dbPath: healthyPath, tokenSha256: '1'.repeat(64) }
-]
-config.embedder.pollIntervalMs = 10
-config.embedder.batchSize = 10
-config.embedder.precache = true
-config.embedder.idleTimeoutMs = 60_000
+// The parent hands the child its user list through the spawn-scope env seam; the poll interval,
+// batch size, precache and idle timeout come from the config the wrapper loads (the object is frozen).
+process.env[EMBEDDER_USERS_ENV] = JSON.stringify([
+  { id: 'broken', dbPath: brokenPath },
+  { id: 'healthy', dbPath: healthyPath }
+])
 
 let poll: (() => void) | undefined
 let now = 0
@@ -101,6 +100,7 @@ function counts(path: string): Counts {
 }
 
 afterAll(() => {
+  delete process.env[EMBEDDER_USERS_ENV]
   Date.now = originalNow
   globalThis.setInterval = originalInterval
   rmSync(root, { recursive: true, force: true })

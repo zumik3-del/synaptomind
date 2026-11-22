@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from 'hono'
+import type { Config } from '../config'
 import { authMiddleware } from './auth'
 import { MAX_REQUEST_BODY_BYTES, bodyTooLargeResponse, type ErrorShape } from './http-errors'
 import { createRateLimitMiddleware } from './rate-limit'
@@ -6,6 +7,8 @@ import { bindUserContext } from './user-context'
 
 export interface GuardedPipelineOptions {
   shape: ErrorShape
+  /** The config the guards authenticate against; the frozen global when absent. */
+  config?: Config
 }
 
 // Auth, user-database binding, rate limiting and the cheap body guard, in that order for both HTTP
@@ -19,11 +22,16 @@ export interface GuardedPipelineOptions {
 // right behind this pipeline, and `/mcp` counts inside its route handler, which must answer 415 for
 // a non-JSON media type before it touches the body.
 export function createGuardedPipeline(options: GuardedPipelineOptions): MiddlewareHandler[] {
+  const cfg = options.config
+  const auth: MiddlewareHandler = cfg ? (c, next) => authMiddleware(c, next, cfg) : authMiddleware
+  const userContext: MiddlewareHandler = cfg
+    ? (c, next) => bindUserContext(c, next, cfg)
+    : bindUserContext
   const declaredBodyCap: MiddlewareHandler = async (c, next) => {
     const declared = Number(c.req.header('content-length') ?? '0')
     if (declared > MAX_REQUEST_BODY_BYTES) return bodyTooLargeResponse(options.shape)
     return next()
   }
 
-  return [authMiddleware, bindUserContext, createRateLimitMiddleware(), declaredBodyCap]
+  return [auth, userContext, createRateLimitMiddleware(), declaredBodyCap]
 }

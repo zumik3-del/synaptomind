@@ -7,7 +7,7 @@ import { closeDb, getDb } from '../db'
 import { getEdgePairBetween } from '../db/edges'
 import { getThoughtRow } from '../db/thoughts'
 import { insertProposal, type PlacementProposalRow } from '../db/placement-proposals'
-import { createTestDb, seedEdge, seedThought } from '../test/helpers'
+import { configFixture, createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { NotFoundError } from '../errors'
 import {
   applyBatchService,
@@ -23,14 +23,8 @@ afterEach(closeDb)
 const NOW = '2026-01-01T00:00:00.000Z'
 const NOW_LATER = '2026-02-01T00:00:00.000Z'
 
-function withPlacementConfig(overrides: Partial<typeof config.placement>, fn: () => void): void {
-  const saved = config.placement
-  config.placement = { ...saved, ...overrides }
-  try {
-    fn()
-  } finally {
-    config.placement = saved
-  }
+function placementConfig(overrides: Partial<typeof config.placement>) {
+  return configFixture({ placement: { ...config.placement, ...overrides } })
 }
 
 function pairFingerprint(db: Database, sourceId: string, targetId: string): string {
@@ -339,14 +333,17 @@ describe('conflict matrix', () => {
       is_cluster: 1
     })
     const m = seedThought({ id: 'cm-clap-m', content: 'new member', created_at: NOW_LATER })
-    withPlacementConfig({ maxClusterSize: 2 }, () => {
-      seedEdge(cl, seedThought({ content: 'm1', created_at: NOW_LATER }), 'cluster')
-      seedEdge(cl, seedThought({ content: 'm2', created_at: NOW_LATER }), 'cluster')
-      const row = pendingEdgeRow(db, cl, m, 'cluster')
-      const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
-      expect(out.status).toBe('stale')
-      assertStale(db, row.id)
-    })
+    seedEdge(cl, seedThought({ content: 'm1', created_at: NOW_LATER }), 'cluster')
+    seedEdge(cl, seedThought({ content: 'm2', created_at: NOW_LATER }), 'cluster')
+    const row = pendingEdgeRow(db, cl, m, 'cluster')
+    const out = applyProposalService(
+      row.id,
+      { confirm: true, now: NOW },
+      db,
+      placementConfig({ maxClusterSize: 2 })
+    )
+    expect(out.status).toBe('stale')
+    assertStale(db, row.id)
   })
 
   test('unknown proposal id throws NotFoundError', () => {
@@ -622,13 +619,16 @@ describe('gates re-checked at apply', () => {
       is_cluster: 1
     })
     const m = seedThought({ id: 'gate-cl-m', content: 'gate member', created_at: NOW_LATER })
-    withPlacementConfig({ maxClusterSize: 1 }, () => {
-      seedEdge(cl, seedThought({ content: 'gate m1', created_at: NOW_LATER }), 'cluster')
-      const row = pendingEdgeRow(db, cl, m, 'cluster')
-      const out = applyProposalService(row.id, { confirm: true, now: NOW }, db)
-      expect(out.status).toBe('stale')
-      assertStale(db, row.id)
-    })
+    seedEdge(cl, seedThought({ content: 'gate m1', created_at: NOW_LATER }), 'cluster')
+    const row = pendingEdgeRow(db, cl, m, 'cluster')
+    const out = applyProposalService(
+      row.id,
+      { confirm: true, now: NOW },
+      db,
+      placementConfig({ maxClusterSize: 1 })
+    )
+    expect(out.status).toBe('stale')
+    assertStale(db, row.id)
   })
 
   test('project isolation gate: source/target in different projects → stale', () => {

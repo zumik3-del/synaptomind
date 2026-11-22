@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { Database } from 'bun:sqlite'
-import { config } from '../config'
+import { config, type Config } from '../config'
 import { MS_PER_DAY } from '../utils'
 import { getEdgePairBetween } from '../db/edges'
 import type {
@@ -85,8 +85,8 @@ export function toItemKey(row: PlacementProposalRow): string {
   })
 }
 
-export function proposalExpiry(now: string): string | null {
-  const ttlDays = config.placement.proposalTtlDays
+export function proposalExpiry(now: string, cfg: Config = config): string | null {
+  const ttlDays = cfg.placement.proposalTtlDays
   if (ttlDays < 0) return null
   return new Date(Date.parse(now) + ttlDays * MS_PER_DAY).toISOString()
 }

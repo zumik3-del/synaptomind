@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { createTestDb, seedThought } from '../test/helpers'
+import { configFixture, createTestDb, seedThought } from '../test/helpers'
 import { closeDb, getDb } from '../db'
 import { config } from '../config'
 import { getSlots, SLOT_NAMES } from './slots.service'
@@ -48,111 +48,89 @@ test('getSlots architecture_decisions content from primers', () => {
 })
 
 test('getSlots architecture_decisions renders only the topN primers', () => {
-  const original = config.primer.topN
-  config.primer.topN = 2
-  try {
-    const db = getDb()
-    const now = new Date().toISOString()
-    const top = seedThought({ content: 'top hit decision' })
-    const middle = seedThought({ content: 'middle hit decision' })
-    const low = seedThought({ content: 'low hit decision' })
-    const insert = db.prepare(
-      'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
-    )
-    insert.run(top, 30, now)
-    insert.run(middle, 20, now)
-    insert.run(low, 10, now)
+  const cfg = configFixture({ primer: { ...config.primer, topN: 2 } })
+  const db = getDb()
+  const now = new Date().toISOString()
+  const top = seedThought({ content: 'top hit decision' })
+  const middle = seedThought({ content: 'middle hit decision' })
+  const low = seedThought({ content: 'low hit decision' })
+  const insert = db.prepare(
+    'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
+  )
+  insert.run(top, 30, now)
+  insert.run(middle, 20, now)
+  insert.run(low, 10, now)
 
-    const slots = getSlots({ names: ['architecture_decisions'] })
-    const bullets = slots[0].content.split('\n')
-    expect(bullets).toHaveLength(2)
-    expect(bullets[0]).toBe('- top hit decision')
-    expect(bullets[1]).toBe('- middle hit decision')
-    expect(slots[0].content).not.toContain('low hit decision')
-  } finally {
-    config.primer.topN = original
-  }
+  const slots = getSlots({ names: ['architecture_decisions'] }, undefined, cfg)
+  const bullets = slots[0].content.split('\n')
+  expect(bullets).toHaveLength(2)
+  expect(bullets[0]).toBe('- top hit decision')
+  expect(bullets[1]).toBe('- middle hit decision')
+  expect(slots[0].content).not.toContain('low hit decision')
 })
 
-// The whole `config.primer` section is swapped (not `config.primer.topN`
-// patched in place): with an empty config.json the merged config shares the
-// DEFAULTS object, so an in-place patch would poison the defaults the slot
-// falls back to — and the case would measure the wrong thing.
+// The whole `primer` section is replaced in the fixture: the loaded config is frozen and shares its
+// untouched sections with DEFAULTS, so the case measures the value it declares and nothing else.
 test('getSlots architecture_decisions renders ONE bullet when the configured topN is negative', () => {
-  const original = config.primer
-  config.primer = { ...original, topN: -1 }
-  try {
-    const db = getDb()
-    const now = new Date().toISOString()
-    const top = seedThought({ content: 'top hit decision' })
-    const middle = seedThought({ content: 'middle hit decision' })
-    const low = seedThought({ content: 'low hit decision' })
-    const insert = db.prepare(
-      'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
-    )
-    insert.run(top, 30, now)
-    insert.run(middle, 20, now)
-    insert.run(low, 10, now)
+  const cfg = configFixture({ primer: { ...config.primer, topN: -1 } })
+  const db = getDb()
+  const now = new Date().toISOString()
+  const top = seedThought({ content: 'top hit decision' })
+  const middle = seedThought({ content: 'middle hit decision' })
+  const low = seedThought({ content: 'low hit decision' })
+  const insert = db.prepare(
+    'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
+  )
+  insert.run(top, 30, now)
+  insert.run(middle, 20, now)
+  insert.run(low, 10, now)
 
-    const slots = getSlots({ names: ['architecture_decisions'] })
-    const bullets = slots[0].content.split('\n')
-    expect(bullets).toHaveLength(1)
-    expect(bullets[0]).toBe('- top hit decision')
-    expect(slots[0].content).not.toContain('middle hit decision')
-    expect(slots[0].content).not.toContain('low hit decision')
-  } finally {
-    config.primer = original
-  }
+  const slots = getSlots({ names: ['architecture_decisions'] }, undefined, cfg)
+  const bullets = slots[0].content.split('\n')
+  expect(bullets).toHaveLength(1)
+  expect(bullets[0]).toBe('- top hit decision')
+  expect(slots[0].content).not.toContain('middle hit decision')
+  expect(slots[0].content).not.toContain('low hit decision')
 })
 
 test('getSlots architecture_decisions renders ONE bullet when the configured topN is zero', () => {
-  const original = config.primer
-  config.primer = { ...original, topN: 0 }
-  try {
-    const db = getDb()
-    const now = new Date().toISOString()
-    const top = seedThought({ content: 'top hit decision' })
-    const low = seedThought({ content: 'low hit decision' })
-    const insert = db.prepare(
-      'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
-    )
-    insert.run(top, 30, now)
-    insert.run(low, 10, now)
+  const cfg = configFixture({ primer: { ...config.primer, topN: 0 } })
+  const db = getDb()
+  const now = new Date().toISOString()
+  const top = seedThought({ content: 'top hit decision' })
+  const low = seedThought({ content: 'low hit decision' })
+  const insert = db.prepare(
+    'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
+  )
+  insert.run(top, 30, now)
+  insert.run(low, 10, now)
 
-    const slots = getSlots({ names: ['architecture_decisions'] })
-    // The exact content, not just the bullet count: an EMPTY slot also splits
-    // into one element, and "no primer at all" is not the contract.
-    expect(slots[0].content).toBe('- top hit decision')
-    expect(slots[0].content.split('\n')).toHaveLength(1)
-  } finally {
-    config.primer = original
-  }
+  const slots = getSlots({ names: ['architecture_decisions'] }, undefined, cfg)
+  // The exact content, not just the bullet count: an EMPTY slot also splits
+  // into one element, and "no primer at all" is not the contract.
+  expect(slots[0].content).toBe('- top hit decision')
+  expect(slots[0].content.split('\n')).toHaveLength(1)
 })
 
 test('getSlots architecture_decisions renders the default 3 bullets when the configured topN is not a number', () => {
-  const original = config.primer
-  config.primer = { ...original, topN: Number.NaN }
-  try {
-    const db = getDb()
-    const now = new Date().toISOString()
-    const insert = db.prepare(
-      'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
-    )
-    for (const [content, hits] of [
-      ['one', 50],
-      ['two', 40],
-      ['three', 30],
-      ['four', 20],
-      ['five', 10]
-    ] as const) {
-      insert.run(seedThought({ content }), hits, now)
-    }
-
-    const slots = getSlots({ names: ['architecture_decisions'] })
-    expect(slots[0].content.split('\n')).toHaveLength(3)
-  } finally {
-    config.primer = original
+  const cfg = configFixture({ primer: { ...config.primer, topN: Number.NaN } })
+  const db = getDb()
+  const now = new Date().toISOString()
+  const insert = db.prepare(
+    'INSERT INTO primers (thought_id, hit_count, created_at) VALUES (?, ?, ?)'
+  )
+  for (const [content, hits] of [
+    ['one', 50],
+    ['two', 40],
+    ['three', 30],
+    ['four', 20],
+    ['five', 10]
+  ] as const) {
+    insert.run(seedThought({ content }), hits, now)
   }
+
+  const slots = getSlots({ names: ['architecture_decisions'] }, undefined, cfg)
+  expect(slots[0].content.split('\n')).toHaveLength(3)
 })
 
 test('getSlots pending_items slot is empty when no pending thoughts', () => {

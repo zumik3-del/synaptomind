@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { config } from '../config'
 import {
   EMBEDDER_BATCH_WORKER_ENV,
   EMBEDDER_USERS_ENV,
@@ -31,14 +30,9 @@ describe('processOwnsBackgroundJobs', () => {
     expect(processOwnsBackgroundJobs(['--stdio', '--stdio-standalone'])).toBe(true)
   })
 
-  test('config.mcp.stdioStandalone keeps a stdio session local', () => {
-    const standalone = config.mcp.stdioStandalone
-    config.mcp.stdioStandalone = true
-    try {
-      expect(processOwnsBackgroundJobs(['--stdio'])).toBe(true)
-    } finally {
-      config.mcp.stdioStandalone = standalone
-    }
+  test('a configured standalone stdio session keeps a stdio session local', () => {
+    expect(processOwnsBackgroundJobs(['--stdio'], true)).toBe(true)
+    expect(processOwnsBackgroundJobs(['--stdio'], false)).toBe(false)
   })
 })
 

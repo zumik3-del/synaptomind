@@ -5,11 +5,6 @@ import { getDb } from '../db'
 import { closeDb } from '../db/init'
 import { seedThought } from '../test/helpers'
 
-config.embedder.pollIntervalMs = 600_000
-config.embedder.batchSize = 8
-config.embedder.precache = true
-config.embedder.idleTimeoutMs = 0
-
 const realInitFns = { ...(await import('../db/init')) }
 const realQueueFns = { ...(await import('../db/pending-embeddings')) }
 

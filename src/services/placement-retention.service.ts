@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { config } from '../config'
+import { type Config, config } from '../config'
 import { getDb } from '../db'
 import { deleteExpired } from '../db/placement-proposals'
 import { deleteExpiredPreviewTokens } from '../db/preview-tokens'
@@ -12,8 +12,11 @@ export interface PlacementRetentionResult {
   tokens: number
 }
 
-export function cleanupPlacementProposals(d: Database = getDb()): PlacementRetentionResult {
-  const ttlDays = config.placement.proposalTtlDays
+export function cleanupPlacementProposals(
+  d: Database = getDb(),
+  cfg: Config = config
+): PlacementRetentionResult {
+  const ttlDays = cfg.placement.proposalTtlDays
 
   let proposals = 0
   if (ttlDays >= 0) {

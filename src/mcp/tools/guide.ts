@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/server'
+import { type Config, config } from '../../config'
 import { getThoughtLimitsDB } from '../../config.thought-limits'
 import { toolOutputShape } from './utils'
 
@@ -89,7 +90,7 @@ memory_status action=propose returns a read-only plan (placement, edges[], lifec
 memory_reflect reflect writes thoughts, it is not read-only: decisions create active thoughts tagged decision + reflect; pending create draft thoughts tagged pending + reflect (surface after wake_days, default 7). The reflect tag marks every thought reflect created, so they can be filtered (search tag=reflect) or cleaned up without touching hand-created ones. summary appends to project_context; goals_add adds goals and goals_remove removes stored goal lines using case-insensitive substring matching. Retired goals_delta fails with a hint to use goals_add/goals_remove. memory_reflect action=timeline is the paginated thought list (status, cwd, limit, offset, compact, fields, include_url_links) — the same reader as memory_recall action=list, so compact defaults to true and fields selects columns — as {items, meta}; meta.counts carries the applied limit and offset beside total, returned and filtered_out.`
 }
 
-export function registerMemoryGuide(server: McpServer) {
+export function registerMemoryGuide(server: McpServer, cfg: Config = config) {
   server.registerTool(
     'memory_guide',
     {
@@ -97,7 +98,7 @@ export function registerMemoryGuide(server: McpServer) {
       outputSchema: toolOutputShape
     },
     async () => {
-      const softLimit = getThoughtLimitsDB().softLimit
+      const softLimit = getThoughtLimitsDB(cfg).softLimit
       const text = buildGuideText(softLimit)
       return { content: [{ type: 'text' as const, text }], structuredContent: { result: { text } } }
     }

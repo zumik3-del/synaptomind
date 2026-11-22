@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { config, hashUserToken } from '../config'
+import { hashUserToken } from '../config'
 import { createApp } from '../api/router'
 import { closeDb } from '../db/init'
 import { MAX_REQUEST_BODY_BYTES } from '../middleware/http-errors'
-import { createTestDb } from '../test/helpers'
+import { configFixture, createTestDb } from '../test/helpers'
 import { startMcpHttpServer, type McpHttpHandle } from './http-transport'
 
 // Task #2602: the two HTTP surfaces mount one guarded pipeline but keep two wire shapes. This file
@@ -20,7 +20,6 @@ const BODY_TOO_LARGE = 'Request body too large (max 5MB)'
 const previousSecret = process.env.SYNAPTOMIND_SECRET
 const previousServiceToken = process.env.SYNAPTOMIND_SERVICE_TOKEN
 const previousInsecure = process.env.SYNAPTOMIND_ALLOW_INSECURE
-const originalUsers = config.users
 
 process.env.SYNAPTOMIND_SECRET = SECRET
 delete process.env.SYNAPTOMIND_SERVICE_TOKEN
@@ -112,7 +111,6 @@ beforeEach(createTestDb)
 afterAll(async () => {
   await mcpServer?.stop()
   closeDb()
-  config.users = originalUsers
   for (const [key, value] of [
     ['SYNAPTOMIND_SECRET', previousSecret],
     ['SYNAPTOMIND_SERVICE_TOKEN', previousServiceToken],
@@ -151,17 +149,21 @@ describe('body cap parity', () => {
 
 describe('database-unavailable parity', () => {
   test('a configured user without a database answers the identical 503 on both surfaces', async () => {
-    config.users = [
-      {
-        id: USER_ID,
-        dbPath: '/tmp/opencode/t2602-absent.db',
-        tokenSha256: hashUserToken(USER_TOKEN)
-      }
-    ]
+    const cfg = configFixture({
+      users: [
+        {
+          id: USER_ID,
+          dbPath: '/tmp/opencode/t2602-absent.db',
+          tokenSha256: hashUserToken(USER_TOKEN)
+        }
+      ]
+    })
+    const port = await freePort()
+    const multiUserServer = startMcpHttpServer('127.0.0.1', port, { config: cfg })
     try {
       const [apiRes, mcpRes] = await Promise.all([
-        apiSurface().request('/api/health-check', { headers: bearer(USER_TOKEN) }),
-        mcpSurface().request('/mcp', { headers: bearer(USER_TOKEN) })
+        createApp(cfg).request('/api/health-check', { headers: bearer(USER_TOKEN) }),
+        fetch(`http://127.0.0.1:${port}/mcp`, { headers: bearer(USER_TOKEN) })
       ])
 
       expect(apiRes.status).toBe(503)
@@ -177,7 +179,7 @@ describe('database-unavailable parity', () => {
       // shape-differentiated: an MCP client sees the same bare JSON error as an /api caller.
       expect(JSON.parse(mcpText)).not.toHaveProperty('jsonrpc')
     } finally {
-      config.users = []
+      await multiUserServer.stop()
     }
   })
 })

@@ -1,4 +1,4 @@
-import { config } from '../config'
+import { config, type Config } from '../config'
 import { clamp01 } from '../utils'
 import type { SearchServiceOptions, SupersessionMode } from './search.service'
 
@@ -49,7 +49,10 @@ export interface NormalizedSearchOptions {
   recencyHalfLifeDays: number
 }
 
-export function normalizeSearchOptions(options: SearchServiceOptions): NormalizedSearchOptions {
+export function normalizeSearchOptions(
+  options: SearchServiceOptions,
+  cfg: Config = config
+): NormalizedSearchOptions {
   const topK = clampTopK(options.topK)
   const minImportance = clampMinImportance(options.minImportance)
   const supersessionMode = options.supersessionMode ?? 'flag'
@@ -58,8 +61,8 @@ export function normalizeSearchOptions(options: SearchServiceOptions): Normalize
       ? DEFAULT_MIN_RELEVANCE
       : clampUnitInterval(options.minRelevance)
   // Both floors arrive validated: config.search.confidence is schema-checked at load, so no clamp.
-  const confidenceFloor = options.confidenceFloor ?? config.search.confidence.vectorFloor
-  const unrelatedFloor = config.search.confidence.unrelatedFloor
+  const confidenceFloor = options.confidenceFloor ?? cfg.search.confidence.vectorFloor
+  const unrelatedFloor = cfg.search.confidence.unrelatedFloor
   const candidateK =
     supersessionMode === 'suppress' || minRelevance > 0
       ? Math.min(SEARCH_MAX_TOP_K, topK * SUPPRESSION_OVERFETCH_FACTOR)

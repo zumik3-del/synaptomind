@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { config } from '../config'
+import { config, type Config } from '../config'
 import { getDb } from '../db'
 import {
   countProposals,
@@ -69,7 +69,8 @@ export function listAcceptedProposalsByRunService(
 export function enqueuePlanService(
   plan: PlacementPlan,
   options: EnqueuePlanOptions = {},
-  d: Database = getDb()
+  d: Database = getDb(),
+  cfg: Config = config
 ): EnqueueOutcome {
   const source = getThoughtRow(d, plan.thought_id)
   if (plan.thought_id === DRAFT_THOUGHT_ID || !source) {
@@ -95,8 +96,8 @@ export function enqueuePlanService(
   const cappedItems = items.slice(0, maxPerEnqueue)
   if (cappedItems.length === 0) return { proposals: [], skipped, skipped_kinds: skippedKinds }
 
-  const maxPending = config.placement.maxPendingProposals
-  const expiresAt = proposalExpiry(now)
+  const maxPending = cfg.placement.maxPendingProposals
+  const expiresAt = proposalExpiry(now, cfg)
   const projectId = source.project_id ?? null
 
   const run = d.transaction(() => {

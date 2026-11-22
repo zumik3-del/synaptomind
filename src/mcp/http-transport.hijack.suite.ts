@@ -2,7 +2,7 @@ import { beforeAll, afterAll, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { openDatabase } from '../db/init'
 import { clearDb, clearRegistry, register } from '../db'
-import { config, hashUserToken } from '../config'
+import { type Config, config, hashUserToken } from '../config'
 import { upsertSlot } from '../db/slots'
 
 const ALICE_TOKEN = 'alice-token'
@@ -24,6 +24,8 @@ const LIST_MESSAGE = { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }
 
 let dbA: Database
 let dbB: Database
+let multiUser: Config
+const legacy = { ...config, users: [] }
 
 // Lazy import to allow env setup first.
 let startMcpHttpServer: any
@@ -109,11 +111,15 @@ beforeAll(async () => {
   const mod = await import('./http-transport')
   startMcpHttpServer = mod.startMcpHttpServer
 
-  config.users = [
-    { id: 'alice', dbPath: '/tmp/alice-hijack.db', tokenSha256: hashUserToken(ALICE_TOKEN) },
-    { id: 'bob', dbPath: '/tmp/bob-hijack.db', tokenSha256: hashUserToken(BOB_TOKEN) },
-    { id: 'charlie', dbPath: '/tmp/charlie-hijack.db', tokenSha256: hashUserToken(CHARLIE_TOKEN) }
-  ]
+  // The server takes the config it authenticates against: the frozen global carries no users here.
+  multiUser = {
+    ...config,
+    users: [
+      { id: 'alice', dbPath: '/tmp/alice-hijack.db', tokenSha256: hashUserToken(ALICE_TOKEN) },
+      { id: 'bob', dbPath: '/tmp/bob-hijack.db', tokenSha256: hashUserToken(BOB_TOKEN) },
+      { id: 'charlie', dbPath: '/tmp/charlie-hijack.db', tokenSha256: hashUserToken(CHARLIE_TOKEN) }
+    ]
+  }
 
   clearRegistry()
   dbA = openDatabase({ dbPath: ':memory:', runMigrations: true })
@@ -142,7 +148,7 @@ afterAll(() => {})
 describe('hijack matrix (multi-user)', () => {
   test('POST/GET/DELETE with a different token returns 403 and leaves the session intact', async () => {
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: multiUser })
     const base = `http://127.0.0.1:${port}`
     try {
       const aliceSession = await initialize(base, ALICE_TOKEN)
@@ -189,7 +195,7 @@ describe('hijack matrix (multi-user)', () => {
 
   test('per-user isolation through a real tool (memory_status slots)', async () => {
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: multiUser })
     const base = `http://127.0.0.1:${port}`
     try {
       const aSession = await initialize(base, ALICE_TOKEN)
@@ -224,7 +230,7 @@ describe('hijack matrix (multi-user)', () => {
 
   test('interleaved A/B/A keeps per-user data isolated', async () => {
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: multiUser })
     const base = `http://127.0.0.1:${port}`
     try {
       const aSession = await initialize(base, ALICE_TOKEN)
@@ -264,7 +270,7 @@ describe('hijack matrix (multi-user)', () => {
 
   test('503 fail-closed when the resolved user has no registered DB', async () => {
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: multiUser })
     const base = `http://127.0.0.1:${port}`
     try {
       const before = server.getSessions().size
@@ -287,7 +293,6 @@ describe('hijack matrix (multi-user)', () => {
 
 describe('legacy single-user regression', () => {
   test('legacy mode: initialize + tool call still work', async () => {
-    config.users = []
     clearRegistry()
     const { createTestDb } = await import('../test/helpers')
     createTestDb()
@@ -295,7 +300,7 @@ describe('legacy single-user regression', () => {
     process.env.SYNAPTOMIND_SECRET = LEGACY_SECRET
 
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: legacy })
     const base = `http://127.0.0.1:${port}`
     try {
       const session = await initialize(base, LEGACY_SECRET)
@@ -308,13 +313,12 @@ describe('legacy single-user regression', () => {
   })
 
   test('legacy mode can initialize with an unavailable database', async () => {
-    config.users = []
     clearRegistry()
     clearDb()
     process.env.SYNAPTOMIND_SECRET = LEGACY_SECRET
 
     const port = await freePort()
-    const server = startMcpHttpServer('127.0.0.1', port)
+    const server = startMcpHttpServer('127.0.0.1', port, { config: legacy })
     const base = `http://127.0.0.1:${port}`
     try {
       const session = await initialize(base, LEGACY_SECRET)
