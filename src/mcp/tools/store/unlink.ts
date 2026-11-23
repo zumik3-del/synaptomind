@@ -1,6 +1,4 @@
-import { deleteEdgeService } from '../../../services/edges.service'
-import { getDb } from '../../../db'
-import { findEdge } from '../../../db/edges'
+import { deleteEdgeService, getEdgeService } from '../../../services/edges.service'
 import { fingerprintOf, runGuarded } from '../../../services/confirm-gate.service'
 import { guardedEnvelope, itemEnvelope } from '../envelope'
 import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
@@ -12,7 +10,7 @@ export const unlinkHandler: ActionHandler = {
   }),
   async run(args: ActionArgs) {
     const edgeId = args.edge_id as string
-    const edge = findEdge(getDb(), edgeId)
+    const edge = getEdgeService(edgeId)
     if (!edge) return itemEnvelope('unlink', { status: 'not_found', edge_id: edgeId })
 
     const outcome = await runGuarded(args, {

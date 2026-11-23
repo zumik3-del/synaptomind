@@ -191,6 +191,10 @@ export function createEdgesBatchService(
   return { linked, failed: errors.length, errors }
 }
 
+export function getEdgeService(edgeId: string, d: Database = getDb()): Edge | null {
+  return findEdge(d, edgeId) ?? null
+}
+
 export function deleteEdgeService(edgeId: string, d: Database = getDb()): boolean {
   return deleteEdge(d, edgeId)
 }
@@ -309,6 +313,10 @@ export function deleteEdgesBatchService(
   removeAll()
 
   return outcome()
+}
+
+export function retypeEdgeService(edgeId: string, newType: string, d: Database = getDb()): Edge {
+  return retypeEdge(d, edgeId, newType)
 }
 
 export function validateRetypeService(
