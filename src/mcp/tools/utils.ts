@@ -26,7 +26,7 @@ export function jsonResult(data: unknown): {
   }
 }
 
-export interface ErrorEnvelopeMeta {
+interface ErrorEnvelopeMeta {
   statusCode?: number
   retryable?: boolean
 }

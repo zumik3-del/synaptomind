@@ -9,7 +9,7 @@ import { jaccard, normalise } from './text-similarity.service'
 import { MS_PER_DAY } from '../utils'
 import type { Database } from 'bun:sqlite'
 
-export interface ReflectInput {
+interface ReflectInput {
   project_id?: string | null
   summary?: string
   goals_add?: string[]
@@ -19,7 +19,7 @@ export interface ReflectInput {
   wake_days?: number
 }
 
-export interface ReflectResult {
+interface ReflectResult {
   summary_appended: boolean
   goals_added: number
   goals_removed: number

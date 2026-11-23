@@ -3,18 +3,18 @@ import { config, type Config } from '../config'
 import { vec0Path } from '../runtime-mode'
 import { runHealthCheckService, type HealthReport } from '../services/health-check.service'
 
-export interface OpsHealthCheckOptions {
+interface OpsHealthCheckOptions {
   user?: string
 }
 
-export interface OpsHealthCheckUserResult {
+interface OpsHealthCheckUserResult {
   userId: string
   status: 'ok' | 'degraded'
   error?: string
   report?: HealthReport
 }
 
-export interface OpsHealthCheckResult {
+interface OpsHealthCheckResult {
   users: OpsHealthCheckUserResult[]
   aggregate: 'ok' | 'degraded'
 }

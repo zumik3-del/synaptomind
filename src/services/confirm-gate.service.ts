@@ -3,13 +3,7 @@ import { getDb } from '../db'
 import { ValidationError } from '../errors'
 import { createPreviewTokenService, consumePreviewTokenService } from './preview-tokens.service'
 
-export type FingerprintPart =
-  | string
-  | number
-  | boolean
-  | null
-  | undefined
-  | readonly FingerprintPart[]
+type FingerprintPart = string | number | boolean | null | undefined | readonly FingerprintPart[]
 
 function fingerprintPart(part: FingerprintPart): string {
   if (Array.isArray(part)) return part.map(fingerprintPart).join(',')
@@ -21,7 +15,7 @@ export function fingerprintOf(...parts: readonly FingerprintPart[]): string {
   return parts.map(fingerprintPart).join('|')
 }
 
-export interface GateRequest {
+interface GateRequest {
   confirm?: unknown
   preview_token?: unknown
 }

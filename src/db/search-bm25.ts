@@ -19,7 +19,7 @@ function toFtsQuery(query: string): string {
   return tokens.length ? tokens.join(' OR ') : ''
 }
 
-export interface ScoredId {
+interface ScoredId {
   id: string
   score: number
 }

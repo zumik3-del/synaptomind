@@ -1,6 +1,6 @@
 import { insertLog } from './logging'
 
-export interface IntervalJobOptions {
+interface IntervalJobOptions {
   name: string
   intervalMs: number
   guard?: () => boolean
@@ -8,7 +8,7 @@ export interface IntervalJobOptions {
   unref?: boolean
 }
 
-export interface IntervalJob {
+interface IntervalJob {
   start: () => void
   stop: () => Promise<void>
 }

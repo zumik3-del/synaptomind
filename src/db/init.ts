@@ -24,7 +24,7 @@ function loadVecExtension(database: Database, isMemory: boolean): void {
   }
 }
 
-export interface InitOptions {
+interface InitOptions {
   dbPath?: string
   runMigrations?: boolean
   /** The resolved config to read paths, dimensions and the dead-letter switch from. */
@@ -35,7 +35,7 @@ const VEC_DIMENSIONS_KEY = 'vec_dimensions'
 const VEC_REBUILD_AT_KEY = 'vec_rebuild_at'
 const LEGACY_DIMENSIONS_KEY = 'embedder_dimensions'
 
-export interface VecIndexState {
+interface VecIndexState {
   dimensions: number | null
   rebuiltAt: string | null
 }

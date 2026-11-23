@@ -21,7 +21,7 @@ export interface PlacementDecision {
   reason: string
 }
 
-export interface PlacementOptions {
+interface PlacementOptions {
   projectId?: string
   maxClusterSize?: number
   minSimilarity?: number
@@ -49,7 +49,7 @@ export function resolvePlacementBaseOptions(
   }
 }
 
-export interface PlacementDeps {
+interface PlacementDeps {
   embed?: (texts: string[]) => Promise<Float32Array[]>
   searchNeighbors?: SearchNeighborsFn
 }

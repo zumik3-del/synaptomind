@@ -1,12 +1,12 @@
 import type { Database } from 'bun:sqlite'
 
-export interface RetentionReviewCandidateFilters {
+interface RetentionReviewCandidateFilters {
   cutoff: string
   importanceFloor: number
   now: string
 }
 
-export interface RetentionReviewCandidateRow {
+interface RetentionReviewCandidateRow {
   id: string
   content: string
   status: string
@@ -43,11 +43,11 @@ export interface RetentionReviewDependentCounts {
   total: number
 }
 
-export interface RetentionReviewExistingThought {
+interface RetentionReviewExistingThought {
   id: string
 }
 
-export interface RetentionReviewCreatedSummaryState {
+interface RetentionReviewCreatedSummaryState {
   status: string
   is_protected: number
 }

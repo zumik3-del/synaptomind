@@ -60,7 +60,7 @@ export interface UpdateThoughtInput {
   surface_after?: string | null
 }
 
-export interface ThoughtListFilters {
+interface ThoughtListFilters {
   status?: string
   project_id?: string
   tag?: string

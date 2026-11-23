@@ -7,7 +7,7 @@ import { insertLog } from '../logging/log'
 import { MS_PER_DAY } from '../utils'
 import { createIntervalJob, jobDatabases } from './jobs.service'
 
-export interface PlacementRetentionResult {
+interface PlacementRetentionResult {
   proposals: number
   tokens: number
 }

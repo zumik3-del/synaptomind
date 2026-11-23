@@ -28,7 +28,7 @@ export const VEC0_FILENAME = 'vec0.so'
 /** Where a resolved extension file came from. */
 type Vec0Source = 'cwd' | 'repo-root' | 'main-checkout'
 
-export interface Vec0Resolution {
+interface Vec0Resolution {
   path: string
   source: Vec0Source
 }

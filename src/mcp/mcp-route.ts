@@ -21,7 +21,7 @@ export interface Session {
   userId: string
 }
 
-export interface SessionPair {
+interface SessionPair {
   server: McpServer
   transport: WebStandardStreamableHTTPServerTransport
 }
@@ -106,7 +106,7 @@ export class SessionRegistry {
   }
 }
 
-export interface McpRouteDeps {
+interface McpRouteDeps {
   registry: SessionRegistry
   modern: McpHttpHandler
   maxRequestBodyBytes: number

@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { MS_PER_DAY } from '../utils'
 
-export interface ThoughtImportance {
+interface ThoughtImportance {
   thought_id: string
   importance: number
   hit_count: number

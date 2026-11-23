@@ -1,6 +1,6 @@
-export const COMPACT_FIELDS = ['id', 'content', 'status', 'tags', 'project'] as const
+const COMPACT_FIELDS = ['id', 'content', 'status', 'tags', 'project'] as const
 
-export interface UrlLinkView {
+interface UrlLinkView {
   text: string
   url: string
   label: string
@@ -15,7 +15,7 @@ export interface ShapeOptions {
   urlLinks?: BatchUrlLinks
 }
 
-export function toStringArray(value: unknown): string[] {
+function toStringArray(value: unknown): string[] {
   if (value === undefined || value === null) return []
   if (Array.isArray(value)) return value.map(v => String(v).trim()).filter(v => v.length > 0)
   if (typeof value === 'string') {

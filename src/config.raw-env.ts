@@ -7,16 +7,9 @@
  * Imports nothing on purpose: the logging, embedder and runtime modules import this table.
  */
 
-export type RawEnvKind =
-  | 'flag'
-  | 'positive-int'
-  | 'path'
-  | 'path-list'
-  | 'file'
-  | 'secret'
-  | 'secret-list'
+type RawEnvKind = 'flag' | 'positive-int' | 'path' | 'path-list' | 'file' | 'secret' | 'secret-list'
 
-export interface RawEnvEntry {
+interface RawEnvEntry {
   env: string
   kind: RawEnvKind
   /** The value the reader falls back to when the variable is unset or unusable. */

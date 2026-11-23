@@ -50,7 +50,7 @@ export let EMBEDDER_START_TIMEOUT_MS = rawEnvFallbackNumber('EMBEDDER_START_TIME
 const MAX_BACKOFF_MS = 30_000
 const BACKOFF_BASE_MS = rawEnvFallbackNumber('EMBEDDER_BACKOFF_BASE_MS')
 
-export function sleepUnref(ms: number): Promise<void> {
+function sleepUnref(ms: number): Promise<void> {
   return new Promise<void>(r => {
     const t = setTimeout(r, ms)
     t.unref?.()

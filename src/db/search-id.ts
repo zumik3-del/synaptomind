@@ -4,7 +4,7 @@ import type { SearchResult } from '../types/search'
 import { getThoughtTagsBatch } from './tags'
 import { rowToThought, THOUGHT_ROW_COLUMNS, THOUGHT_ROW_FROM, type ThoughtRow } from './thoughts'
 
-export interface ThoughtIdQuery {
+interface ThoughtIdQuery {
   pattern: string
   exact: boolean
 }

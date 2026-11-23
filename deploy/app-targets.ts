@@ -59,7 +59,7 @@ export interface AppTarget {
   appEnvPath: string
 }
 
-export interface TargetResolution {
+interface TargetResolution {
   /** Targets that exist and carry both app.env and install.sh, in request order. */
   resolved: AppTarget[]
   /** Every label named in DEPLOY_APP_ENVS, resolved or not. */

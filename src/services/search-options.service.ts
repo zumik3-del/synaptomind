@@ -19,7 +19,7 @@ export function parseContradictionMode(raw: string | undefined): ContradictionMo
   throw new ValidationError(`invalid contradiction_mode '${raw}'; expected off|flag`)
 }
 
-export interface SearchOptionsParams {
+interface SearchOptionsParams {
   query: string
   topK: number
   status?: string

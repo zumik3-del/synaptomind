@@ -71,7 +71,7 @@ export interface InsertProposalInput {
   run_id?: string | null
 }
 
-export interface ProposalFilterOptions {
+interface ProposalFilterOptions {
   state?: ProposalState
   project_id?: string
   item_kind?: StoredProposalItemKind
@@ -89,7 +89,7 @@ export interface ListProposalsOptions extends ProposalFilterOptions {
   limit?: number
 }
 
-export interface UpdateProposalStateInput {
+interface UpdateProposalStateInput {
   state: ProposalState
   decided_at?: string | null
   decided_by?: string | null

@@ -35,7 +35,7 @@
 import type { EvalQuery, EvalScenario, EvalThought } from './types'
 
 export const DILUTION_QUERY = 'brass lantern wick trim schedule'
-export const DILUTION_CONTROL_QUERY = 'harbour foghorn interval'
+const DILUTION_CONTROL_QUERY = 'harbour foghorn interval'
 
 export const DILUTION_PROJECTS = {
   big: 'fleet',
@@ -46,7 +46,7 @@ export const DILUTION_PROJECTS = {
 export const DILUTION_RELEVANT = ['lh-target-0', 'lh-target-1', 'lh-target-2']
 export const DILUTION_CONTROL_RELEVANT = ['lh-control-0', 'lh-control-1']
 
-export interface DilutionCorpusSizes {
+interface DilutionCorpusSizes {
   /** Rows in the largest project; each one ranks nearer than any ground truth. */
   big?: number
   /** Rows in the middle project; each one also ranks nearer than any ground truth. */
@@ -67,7 +67,7 @@ export const DILUTION_CORPUS: Required<DilutionCorpusSizes> = { big: 700, mid: 2
  * at any k; a project-scoped leg ranks inside the partition and recovers.
  */
 export const DILUTION_OVER_CAP_1200: Required<DilutionCorpusSizes> = { big: 900, mid: 300 }
-export const DILUTION_OVER_CAP_10000: Required<DilutionCorpusSizes> = { big: 8000, mid: 2000 }
+const DILUTION_OVER_CAP_10000: Required<DilutionCorpusSizes> = { big: 8000, mid: 2000 }
 
 export const DILUTION_OVER_CAP_CORPORA: Array<{
   label: string
@@ -160,7 +160,7 @@ function dilutedQueries(): EvalQuery[] {
   ]
 }
 
-export interface DilutionScenarioOptions extends DilutionCorpusSizes {
+interface DilutionScenarioOptions extends DilutionCorpusSizes {
   /** Scenario name; defaults to `multi-project-pool-dilution`. */
   name?: string
 }
