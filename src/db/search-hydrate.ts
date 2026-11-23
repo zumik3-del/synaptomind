@@ -15,7 +15,7 @@ function recencyDecay(createdAt: string, nowMs: number, halfLifeDays: number): n
   return 0.5 ** (ageDays / halfLifeDays)
 }
 
-export interface SearchHydrationContext {
+interface SearchHydrationContext {
   vecSimById: Map<string, number>
   bm25ScoreById: Map<string, number>
   rrfScoreById: Map<string, number>

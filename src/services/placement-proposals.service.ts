@@ -40,7 +40,6 @@ import {
 } from './placement-proposals.helpers.service'
 
 export { computeFingerprint, pairFingerprint } from './placement-proposals.mapping.service'
-export type { FingerprintInput } from './placement-proposals.mapping.service'
 export { isLegacyItemKind } from '../db/placement-proposals'
 export type { PlacementProposalRow } from '../db/placement-proposals'
 
@@ -180,7 +179,7 @@ export function listPlacementProposalsService(
   })
 }
 
-export interface PlacementProposalPage {
+interface PlacementProposalPage {
   items: PlacementProposalRow[]
   /** Un-paged rows matching the filters (the retired kinds excluded unless `includeRetired`). */
   total: number

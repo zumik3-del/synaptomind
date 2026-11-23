@@ -313,7 +313,7 @@ export function hashUserToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }
 
-export function validateUsers(input: unknown, source = 'config.json'): UserConfig[] {
+function validateUsers(input: unknown, source = 'config.json'): UserConfig[] {
   let raw: unknown = input
   if (raw === undefined || raw === null) raw = []
   if (isPlainObject(raw) && Array.isArray((raw as Record<string, unknown>).users)) {

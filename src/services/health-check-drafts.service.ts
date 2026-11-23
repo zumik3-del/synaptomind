@@ -4,7 +4,7 @@ import { listThoughts, type Thought } from '../db/thoughts'
 import { findMergeTarget } from './placement/lifecycle'
 import { buildCandidatePool } from './placement/placement'
 
-export interface DuplicateDraft {
+interface DuplicateDraft {
   draft_id: string
   duplicate_of: string
   overlap: number

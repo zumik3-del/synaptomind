@@ -5,7 +5,7 @@ import { MAX_REQUEST_BODY_BYTES, bodyTooLargeResponse, type ErrorShape } from '.
 import { createRateLimitMiddleware } from './rate-limit'
 import { bindUserContext } from './user-context'
 
-export interface GuardedPipelineOptions {
+interface GuardedPipelineOptions {
   shape: ErrorShape
   /** The config the guards authenticate against; the frozen global when absent. */
   config?: Config

@@ -22,7 +22,7 @@ import { join } from 'node:path'
 
 const REPO_ROOT = join(import.meta.dir, '..', '..')
 
-export interface FingerprintDeclaration {
+interface FingerprintDeclaration {
   /** The token scope the action declares (`unlink`, `apply_batch`, ...). */
   kind: string
   /** The `src/`-relative module holding the declaration. */
@@ -32,13 +32,13 @@ export interface FingerprintDeclaration {
 }
 
 /** One probe key resolved onto the declared part it identifies. */
-export interface PartBinding {
+interface PartBinding {
   part: string
   key: string
 }
 
 /** Collapse the line breaks and indentation a multi-line argument arrives with. */
-export function normalizePart(text: string): string {
+function normalizePart(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
 }
 

@@ -2,7 +2,7 @@ import { NotFoundError } from '../../../errors'
 import { getChainService, type ChainResult } from '../../../services/graph.service'
 import { loadUrlLinks, shapeChain, type ShapeOptions } from '../utils'
 
-export interface ChainViewOptions extends ShapeOptions {
+interface ChainViewOptions extends ShapeOptions {
   direction?: 'upstream' | 'downstream' | 'both'
   maxDegree?: number
   includeUrlLinks?: boolean

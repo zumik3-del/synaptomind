@@ -6,7 +6,7 @@ import {
 } from '../db/search-id'
 import type { SearchResult } from '../db/search'
 
-export type SearchOutcomeReason = 'id_not_found'
+type SearchOutcomeReason = 'id_not_found'
 
 export interface SearchOutcome {
   items: SearchResult[]

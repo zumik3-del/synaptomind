@@ -1,7 +1,7 @@
 import { readRequestBody } from '@modelcontextprotocol/server'
 import { jsonRpcError } from '../middleware/http-errors'
 
-export type BoundedJsonBody = { tooLarge: true } | { tooLarge: false; body: unknown }
+type BoundedJsonBody = { tooLarge: true } | { tooLarge: false; body: unknown }
 
 export function unsupportedMediaTypeResponse(): Response {
   return jsonRpcError(415, -32000, 'Unsupported Media Type: Content-Type must be application/json')
@@ -26,7 +26,7 @@ export async function readJsonBody(request: Request, maxBytes: number): Promise<
 // request: 'abandoned' tells the caller to close the connection instead.
 export const DRAIN_BODY_BYTES = 65_536
 
-export type DrainOutcome = 'consumed' | 'abandoned'
+type DrainOutcome = 'consumed' | 'abandoned'
 
 export async function drainRejectedBody(request: Request): Promise<DrainOutcome> {
   const body = request.body

@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 
-export interface PreviewTokenRow {
+interface PreviewTokenRow {
   token: string
   kind: string
   target_id: string

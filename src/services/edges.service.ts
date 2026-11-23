@@ -141,7 +141,7 @@ interface LinkBatchError {
   error: string
 }
 
-export interface LinkBatchResult {
+interface LinkBatchResult {
   linked: number
   failed: number
   errors: LinkBatchError[]
@@ -213,7 +213,7 @@ interface UnlinkBatchError {
   error: string
 }
 
-export interface UnlinkBatchResult {
+interface UnlinkBatchResult {
   deleted: number
   preview: number
   failed: number

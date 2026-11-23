@@ -6,7 +6,7 @@ const INFO_OCCURRENCE_PENALTY = 0.25
 
 const INFO_CHECKS_NOT_SCORED: ReadonlySet<string> = new Set(['island_thoughts'])
 
-export interface HealthScoreSummary {
+interface HealthScoreSummary {
   health_score: number
   critical: number
   warning: number

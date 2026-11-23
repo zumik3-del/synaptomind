@@ -17,7 +17,7 @@ export interface LifecycleSteps {
   closeLogger: () => void
 }
 
-export interface LifecycleConfig {
+interface LifecycleConfig {
   ownsBackgroundJobs: boolean
   embedderEnabled: boolean
   log?: ProcessLogFn

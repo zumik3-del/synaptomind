@@ -21,18 +21,18 @@ import {
 } from './merge-helpers.service'
 import { getThoughtByIdService } from './thoughts.service'
 
-export interface MergePreview {
+interface MergePreview {
   mode: 'preview'
   source: Thought & { edges: EdgeView[] }
   target: Thought
 }
 
-export interface MergeResult {
+interface MergeResult {
   target: Thought
   transferredEdges: number
 }
 
-export interface MergeThoughtsOptions {
+interface MergeThoughtsOptions {
   targetId: string
   sourceId: string
   mergedContent?: string

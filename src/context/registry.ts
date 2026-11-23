@@ -15,7 +15,7 @@ export function clearUnavailable(): void {
   unavailable.clear()
 }
 
-export interface BootFanOutResult {
+interface BootFanOutResult {
   registered: string[]
   unavailable: Array<{ userId: string; error: string }>
 }

@@ -9,7 +9,7 @@ function isInsecureMode(): boolean {
   return process.env.SYNAPTOMIND_ALLOW_INSECURE === 'true'
 }
 
-export type UserKind = 'user' | 'legacy'
+type UserKind = 'user' | 'legacy'
 
 export interface UserRef {
   userId: string

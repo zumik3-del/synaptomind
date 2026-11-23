@@ -60,7 +60,7 @@ export function extractThoughtSignals(thought: Thought): ThoughtSignals {
   }
 }
 
-export interface PairSignalOptions {
+interface PairSignalOptions {
   now?: string
   embeddingSimilarity?: number
   embedding?: Float32Array

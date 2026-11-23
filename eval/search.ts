@@ -34,14 +34,14 @@ type Searcher = (
  * bookkeeping, so a pass that enables the gate can say how many rows it dropped
  * (`SearchOutcome.filtered_out`) rather than inferring it from a set difference.
  */
-export interface SearcherOutput {
+interface SearcherOutput {
   hits: SearchResult[]
   /** Rows the relevance gate dropped for this query (`0` when the gate is off). */
   filteredOut: number
 }
 
 /** Searcher variant that also reports the gate bookkeeping (see `SearcherOutput`). */
-export type OutcomeSearcher = (
+type OutcomeSearcher = (
   query: string,
   topK: number,
   projectFilter?: string,

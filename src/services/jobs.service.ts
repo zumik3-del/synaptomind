@@ -2,9 +2,8 @@ import type { Database } from 'bun:sqlite'
 import { getDb, listUserDatabases } from '../db'
 
 export { createIntervalJob } from '../interval-job'
-export type { IntervalJob, IntervalJobOptions } from '../interval-job'
 
-export interface JobDatabase {
+interface JobDatabase {
   userId: string
   db: Database
 }

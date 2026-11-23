@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { computeContentHash } from '../utils'
 
-export interface DecisionCandidate {
+interface DecisionCandidate {
   id: string
   content: string
 }

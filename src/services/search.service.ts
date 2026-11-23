@@ -18,7 +18,7 @@ import { normalizeSearchOptions, type NormalizedSearchOptions } from './search-n
 import { applyGraphStanding } from './search-standing.service'
 import { calibrateRelevance } from './text-similarity.service'
 
-export type { SearchOutcome, SearchOutcomeReason } from './search-outcome.service'
+export type { SearchOutcome } from './search-outcome.service'
 
 const EMBEDDING_TIMEOUT_MS = 5_000
 

@@ -52,7 +52,7 @@ export function requeueEmbeddings(db: Database, ids: string[]): void {
   tx()
 }
 
-export interface EmbeddedRow {
+interface EmbeddedRow {
   id: string
   contentHash: string
 }
