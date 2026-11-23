@@ -174,10 +174,12 @@ A non-mutating preview answer is marked in `meta.preview`; an executed answer ca
 | `consequence` | What confirming would do, in one sentence (where the action has one) |
 | `instruction` | The exact call that confirms this preview (where the action phrases one) |
 
-A single-object preview keeps its `status: "preview"`, `consequence` and `instruction` **inside
-`item`**; the token itself never does — single-object and collection previews carry it only in
-`meta.preview`, which is also where a collection preview keeps the consequence and instruction,
-because the batch rows in `items` already carry their own per-row status.
+A single-object preview keeps its preview fields **inside `item`** — `status: "preview"` (where the
+action uses that marker: `memory_manage action=delete` reports `action: "preview"` and
+`edge_review action=apply` `status: "dry_run"`), plus `consequence` and `instruction` where the
+action phrases them. The token never does: single-object and collection previews carry it only in
+`meta.preview`, which is also where a collection preview keeps the `consequence` and `instruction`
+it phrases, because the batch rows in `items` already carry their own per-row status.
 
 ## Wire envelope
 
@@ -451,14 +453,16 @@ The former `POST`/`DELETE /api/thoughts/:id/links` routes went with the rest of 
 
 ## Dry-run / confirm pattern
 
-Every destructive action — `memory_store` `unlink` and `retype`, `memory_supersede` `archive`,
-`archive_batch` and `merge`, `memory_manage action=delete`, `edge_review` (`apply`/`apply_batch`/`rollback`),
-`memory_primers action=delete`, `memory_crystallize action=auto_cluster`, and
-`retention_review action=delete` — follows the same two-step pattern:
+Every destructive action — `memory_store` `unlink`, `unlink_batch` and `retype`,
+`memory_supersede` `archive`, `archive_batch` and `merge`, `memory_manage action=delete`,
+`edge_review` (`apply`/`apply_batch`/`rollback`), `memory_primers action=delete`,
+`memory_crystallize action=auto_cluster`, and `retention_review` `delete` and `compact` — follows
+the same two-step pattern:
 
 - **Preview (default).** `confirm` is absent or `false`. Nothing is written: the answer carries
-  `meta.preview` (token, `destructive: true`, consequence, instruction) and, for a single-object
-  action, `status: "preview"` inside `item`.
+  `meta.preview` (token, `destructive: true`, and, where the action phrases them, `consequence` and
+  `instruction`) and, for a single-object action, its preview marker inside `item` (see
+  **Preview metadata**).
 - **Execute.** `confirm: true` performs the write and returns an executed answer with no
   `meta.preview`.
 
@@ -941,8 +945,9 @@ runs in its own nested transaction inside the batch's.
 
 All three actions preview when `confirm` is omitted or `false`; only `confirm: true` executes.
 Execution re-reads/revalidates current state, so previews can become stale. Preview responses carry
-a token in `meta.preview.token` (stored in DB, ~5 min TTL) for every destructive action (unlink,
-retype, archive, archive_batch, merge, delete, auto_cluster, apply, apply_batch, rollback);
+a token in `meta.preview.token` (stored in DB, ~5 min TTL) for every destructive action (`unlink`,
+`retype`, `archive`, `archive_batch`, `merge`, `memory_manage` `delete`, `memory_primers` `delete`,
+`auto_cluster`, `apply`, `apply_batch`, `rollback`, `retention_review` `delete`);
 `confirm: true` requires that token as a `preview_token` argument and fails when it is missing or
 stale — except when the target does not exist: an `archive` or `merge` preview of a missing
 thought has nothing to fingerprint, answers `token: null` with `outcome: "not_found"`, and needs no
@@ -1123,8 +1128,8 @@ so a single call can narrow eligibility or page without reconfiguring anything
 - `protect` → `{ item: <protect report>, meta }`.
 - `delete` → `{ item: <delete report>, meta }`; the preview `item` carries
   `status: "preview"`, `action: "preview"`, `deleted: false`, `preview: true`, `confirm: false`,
-  `thought_id`, `dependents` and `instruction`, and `meta.preview` carries the token (with the
-  instruction as its `consequence`). Confirming requires the token.
+  `thought_id`, `dependents` and `instruction`, and `meta.preview` carries the token and the
+  instruction (the action phrases no `consequence`). Confirming requires the token.
 - `compact` → `{ item, meta }`; input is a non-empty `source_ids` array (1–1000 ids) plus a
   `summary` object (`content` required, `tags` and `project_id` optional). The preview `item`
   carries `status: "preview"`, `preview: true`, `confirm: false`, `source_ids` and `instruction`,

@@ -10,7 +10,7 @@ export const isProfileRefusal = z
   .never({ error: 'is_profile is retired; remove this field. There is no replacement.' })
   .optional()
 
-export function createItemShape(contentMessage: string) {
+function createItemShape(contentMessage: string) {
   return {
     content: requiredString(contentMessage),
     tags: z.array(z.string()).optional(),
@@ -22,7 +22,7 @@ export function createItemShape(contentMessage: string) {
   }
 }
 
-export const bulkCreateItemSchema = z.strictObject({
+const bulkCreateItemSchema = z.strictObject({
   ...createItemShape('each thought requires a non-empty content'),
   project_id: z
     .string()

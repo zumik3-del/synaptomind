@@ -66,7 +66,7 @@ export function createThoughtWithParentService(
   return { ...thought, content_language: cfg.contentLanguage }
 }
 
-export interface UpdateThoughtOptions {
+interface UpdateThoughtOptions {
   urlLinks?: UrlLink[]
 }
 
@@ -124,7 +124,7 @@ interface ArchiveBatchError {
   error: string
 }
 
-export interface ArchiveBatchResult {
+interface ArchiveBatchResult {
   archived: number
   failed: number
   errors: ArchiveBatchError[]
@@ -169,7 +169,7 @@ export function archiveThoughtsBatchService(
   return { archived, failed: errors.length, errors }
 }
 
-export interface ThoughtPage {
+interface ThoughtPage {
   thoughts: Thought[]
   total: number
   limit: number | null

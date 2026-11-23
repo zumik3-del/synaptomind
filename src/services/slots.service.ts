@@ -101,4 +101,4 @@ export function getSlots(
   return views
 }
 
-export { type ReflectInput, reflectSessionService } from './session-reflection.service'
+export { reflectSessionService } from './session-reflection.service'

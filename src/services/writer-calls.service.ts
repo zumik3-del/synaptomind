@@ -1,7 +1,7 @@
 import type { PlacementProposalRow } from '../db/placement-proposals'
 import type { PlannedEdge } from './apply-gates.service'
 
-export type WriterDirection = 'apply' | 'rollback'
+type WriterDirection = 'apply' | 'rollback'
 
 export type WriterCall =
   | { writer: 'createEdgeService'; args: { sourceId: string; targetId: string; type: string } }

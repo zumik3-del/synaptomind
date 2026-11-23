@@ -33,9 +33,20 @@ describe('tool-layer layering guard', () => {
   const FORBIDDEN_SPECIFIER = /^(?:\.\.\/)+(?:db|logging)(?:\/|$)|^bun:sqlite$/
 
   function productionToolFiles(): string[] {
-    return readdirSync(TOOLS_DIR)
-      .filter(f => f.endsWith('.ts') && !f.endsWith('.test.ts') && !f.endsWith('.suite.ts'))
-      .sort()
+    const files: string[] = []
+    const walk = (dir: string, prefix: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+        if (entry.isDirectory()) walk(join(dir, entry.name), rel)
+        else if (isProductionToolFile(entry.name)) files.push(rel)
+      }
+    }
+    walk(TOOLS_DIR, '')
+    return files.sort()
+  }
+
+  function isProductionToolFile(name: string): boolean {
+    return name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.suite.ts')
   }
 
   function importSpecifiers(source: string): string[] {
@@ -61,6 +72,13 @@ describe('tool-layer layering guard', () => {
     expect(files).toContain('guide.ts')
     expect(files).toContain('primers.ts')
     expect(files).toContain('status.ts')
+  })
+
+  test('nested tool modules are covered by the guard scan', () => {
+    const files = productionToolFiles()
+    expect(files).toContain('store/unlink.ts')
+    expect(files).toContain('store/retype.ts')
+    expect(files).toContain('recall/get.ts')
   })
 })
 

@@ -135,7 +135,7 @@ interface ContextResult {
   degraded?: boolean
 }
 
-export interface ContextServiceOptions {
+interface ContextServiceOptions {
   maxDegree?: number
   projectFilter?: string
   minRelevance?: number

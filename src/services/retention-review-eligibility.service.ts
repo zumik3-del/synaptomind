@@ -18,7 +18,7 @@ export function resolveNow(opts: { now?: string }): string {
   return opts.now ?? new Date().toISOString()
 }
 
-export function resolveMinAge(opts: RetentionReviewEligibilityOptions): number {
+function resolveMinAge(opts: RetentionReviewEligibilityOptions): number {
   const v = asNumber(opts.minAgeDays)
   const resolved = v === undefined ? config.retentionReview.minAgeDays : v
   if (!Number.isFinite(resolved) || resolved <= 0) {
@@ -27,7 +27,7 @@ export function resolveMinAge(opts: RetentionReviewEligibilityOptions): number {
   return resolved
 }
 
-export function resolveFloor(opts: RetentionReviewEligibilityOptions): number {
+function resolveFloor(opts: RetentionReviewEligibilityOptions): number {
   const v = asNumber(opts.importanceFloor)
   const resolved = v === undefined ? config.retentionReview.importanceFloor : v
   if (!Number.isFinite(resolved) || resolved < 0 || resolved > 1) {
@@ -36,7 +36,7 @@ export function resolveFloor(opts: RetentionReviewEligibilityOptions): number {
   return resolved
 }
 
-export interface EligibilityDetail {
+interface EligibilityDetail {
   eligible: boolean
   reasons: string[]
   thought: RetentionReviewEligibilityThought

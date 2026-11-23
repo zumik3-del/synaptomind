@@ -1,7 +1,7 @@
 import { shapeEntity, type BatchUrlLinks } from '../utils'
 import type { GroupedResult, SearchResult } from '../../../services/search.service'
 
-export interface SearchScores {
+interface SearchScores {
   similarity?: number
   distance?: number
   rrf_score?: number
@@ -14,7 +14,7 @@ export interface SearchScores {
 // Safety annotations (`standing` when not `current`, `superseded_by`, `contradicted_by`,
 // `low_confidence: true`) must survive any `compact`/`fields` selection: a contested hit may never
 // look clean because the caller used the default output.
-export interface SearchItem {
+interface SearchItem {
   thought: unknown
   scores?: SearchScores
   standing?: string
@@ -24,7 +24,7 @@ export interface SearchItem {
   contradicted_by?: string[]
 }
 
-export interface GroupedSearchItem {
+interface GroupedSearchItem {
   cluster: GroupedResult['cluster']
   items: SearchItem[]
 }

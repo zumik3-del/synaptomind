@@ -42,7 +42,7 @@ export interface ScoreBreakdown {
   formula: string
 }
 
-export interface HealthSummary {
+interface HealthSummary {
   total_thoughts: number
   total_edges: number
   total_clusters: number

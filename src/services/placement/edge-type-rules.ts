@@ -8,7 +8,7 @@ import type {
   SignalKey
 } from './types'
 
-export interface EdgeTypeRule {
+interface EdgeTypeRule {
   id: RuleId
   type: SemanticEdgeType
   direction: EdgeDirection

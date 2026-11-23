@@ -5,7 +5,7 @@ import { runHealthCheckService, runHealthCheckView } from './health-check.servic
 import type { HealthReport, HealthView, Severity } from './health-check.service'
 import { createPreviewTokenService, consumePreviewTokenService } from './preview-tokens.service'
 
-export interface HealthRepairResult {
+interface HealthRepairResult {
   status: 'preview' | 'executed'
   action: 'repair'
   preview_token?: string

@@ -5,9 +5,9 @@ import { getEmbedderState, type EmbedderState } from '../embedder/client-core'
 import { insertLog } from '../logging'
 import { VERSION } from '../version'
 
-export const HEALTH_PROBE_TTL_MS = 30_000
+const HEALTH_PROBE_TTL_MS = 30_000
 
-export type DatabaseState = 'ok' | 'degraded'
+type DatabaseState = 'ok' | 'degraded'
 
 interface HealthCheckResult {
   status: 'ok' | 'degraded'
@@ -45,7 +45,7 @@ function invalidateCacheIfRegistryChanged(): void {
   }
 }
 
-export interface DbProbeResult {
+interface DbProbeResult {
   status: DatabaseState
   error?: string
 }
@@ -66,7 +66,7 @@ function recordProbeTransition(
   })
 }
 
-export function probeDatabase(
+function probeDatabase(
   db: Database,
   now: number = Date.now(),
   userId: string = 'default'

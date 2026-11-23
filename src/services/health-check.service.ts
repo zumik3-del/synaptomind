@@ -108,5 +108,3 @@ export function runHealthCheckView(
   }))
   return { summary: report.summary, categories }
 }
-
-export type { HealthRepairResult } from './health-check-repair.service'

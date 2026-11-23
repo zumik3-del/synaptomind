@@ -9,21 +9,21 @@ export interface EnvelopeScope {
 
 export type EnvelopeReason = 'no_match' | 'id_not_found' | 'ambiguous_id'
 
-export interface EnvelopeCounts {
+interface EnvelopeCounts {
   total: number
   returned: number
   filtered_out: number
   [count: string]: number
 }
 
-export interface EnvelopePreview {
+interface EnvelopePreview {
   token: string | null
   destructive: true
   consequence?: string
   instruction?: string
 }
 
-export interface EnvelopeMeta {
+interface EnvelopeMeta {
   action: string
   scope: EnvelopeScope | null
   counts: EnvelopeCounts
@@ -33,17 +33,17 @@ export interface EnvelopeMeta {
   preview?: EnvelopePreview
 }
 
-export interface CollectionEnvelope<T> {
+interface CollectionEnvelope<T> {
   items: T[]
   meta: EnvelopeMeta
 }
 
-export interface ItemEnvelope<T> {
+interface ItemEnvelope<T> {
   item: T | null
   meta: EnvelopeMeta
 }
 
-export interface EnvelopeOptions {
+interface EnvelopeOptions {
   scope?: EnvelopeScope | null
   total?: number
   filtered_out?: number

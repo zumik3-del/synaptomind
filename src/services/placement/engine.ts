@@ -22,13 +22,13 @@ import type { EdgeProposal, PlacementPlan, PlacementProposal } from './types'
 
 export const DRAFT_THOUGHT_ID = '(draft)'
 
-export interface PlacementPlanInput {
+interface PlacementPlanInput {
   thoughtId?: string
   content?: string
   projectId?: string
 }
 
-export interface PlacementPlanOptions {
+interface PlacementPlanOptions {
   now?: string
   projectId?: string
   maxClusterSize?: number
@@ -38,7 +38,7 @@ export interface PlacementPlanOptions {
   maxProposals?: number
 }
 
-export interface PlacementPlanDeps {
+interface PlacementPlanDeps {
   embed?: (texts: string[]) => Promise<Float32Array[]>
   searchNeighbors?: SearchNeighborsFn
 }

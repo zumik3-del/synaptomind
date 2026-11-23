@@ -13,4 +13,4 @@ export {
   setMultiUserMode,
   type UserContext
 } from './handle'
-export { initDb, openDatabase, closeDb, type InitOptions } from './init'
+export { initDb, openDatabase, closeDb } from './init'

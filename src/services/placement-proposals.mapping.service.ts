@@ -12,7 +12,7 @@ import type {
 import { getThoughtRow, type Thought } from '../db/thoughts'
 import type { EdgeProposal, PlacementPlan } from './placement/types'
 
-export interface FingerprintInput {
+interface FingerprintInput {
   sourceId: string
   sourceUpdatedAt: string
   sourceStatus: string
@@ -35,12 +35,12 @@ interface MappedItem {
   fingerprint: string
 }
 
-export interface SkippedPlanItem {
+interface SkippedPlanItem {
   kind: LegacyProposalItemKind
   reason: string
 }
 
-export interface MappedPlan {
+interface MappedPlan {
   items: MappedItem[]
   skipped: SkippedPlanItem[]
 }

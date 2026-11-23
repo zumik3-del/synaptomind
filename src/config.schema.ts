@@ -86,12 +86,12 @@ function withinBounds(value: number, entry: SchemaEntry): boolean {
   return true
 }
 
-export function isValidValue(value: unknown, entry: SchemaEntry): boolean {
+function isValidValue(value: unknown, entry: SchemaEntry): boolean {
   if (!matchesType(value, entry.type)) return false
   return typeof value === 'number' ? withinBounds(value, entry) : true
 }
 
-export function expectedText(entry: SchemaEntry): string {
+function expectedText(entry: SchemaEntry): string {
   const base = TYPE_TEXT[entry.type]
   if (entry.min !== undefined && entry.max !== undefined)
     return `${base} in [${entry.min},${entry.max}]`
@@ -107,7 +107,7 @@ export function describeValue(value: unknown): string {
   return JSON.stringify(value) ?? String(value)
 }
 
-export type ParsedEnvValue = { ok: true; value: unknown } | { ok: false }
+type ParsedEnvValue = { ok: true; value: unknown } | { ok: false }
 
 export function parseEnvValue(raw: string, type: EnvType): ParsedEnvValue {
   const text = raw.trim()
@@ -139,7 +139,7 @@ export function parseEnvValue(raw: string, type: EnvType): ParsedEnvValue {
   }
 }
 
-export function reportInvalid(
+function reportInvalid(
   path: string,
   value: unknown,
   expected: string,

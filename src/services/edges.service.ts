@@ -141,7 +141,7 @@ interface LinkBatchError {
   error: string
 }
 
-export interface LinkBatchResult {
+interface LinkBatchResult {
   linked: number
   failed: number
   errors: LinkBatchError[]
@@ -191,6 +191,10 @@ export function createEdgesBatchService(
   return { linked, failed: errors.length, errors }
 }
 
+export function getEdgeService(edgeId: string, d: Database = getDb()): Edge | null {
+  return findEdge(d, edgeId) ?? null
+}
+
 export function deleteEdgeService(edgeId: string, d: Database = getDb()): boolean {
   return deleteEdge(d, edgeId)
 }
@@ -209,7 +213,7 @@ interface UnlinkBatchError {
   error: string
 }
 
-export interface UnlinkBatchResult {
+interface UnlinkBatchResult {
   deleted: number
   preview: number
   failed: number
@@ -309,6 +313,10 @@ export function deleteEdgesBatchService(
   removeAll()
 
   return outcome()
+}
+
+export function retypeEdgeService(edgeId: string, newType: string, d: Database = getDb()): Edge {
+  return retypeEdge(d, edgeId, newType)
 }
 
 export function validateRetypeService(

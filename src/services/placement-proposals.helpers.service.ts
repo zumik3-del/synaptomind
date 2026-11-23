@@ -1,8 +1,8 @@
 import { config, DEFAULTS } from '../config'
 import type { EnqueuePlanOptions, EnqueueThoughtOptions } from './placement-proposals.types'
 
-export const DEFAULT_LIST_LIMIT = 100
-export const MAX_LIST_LIMIT = 1000
+const DEFAULT_LIST_LIMIT = 100
+const MAX_LIST_LIMIT = 1000
 
 export function resolveMaxProposalsPerEnqueue(
   options: EnqueuePlanOptions | EnqueueThoughtOptions = {}

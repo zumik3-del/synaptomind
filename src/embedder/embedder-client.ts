@@ -1,7 +1,7 @@
 import { EmbedderUnavailableError } from '../errors'
 import { EmbedderSupervisor, type EmbedderClientDeps, DEFAULT_DEPS } from './embedder-supervisor'
 
-export { EMBEDDER_START_TIMEOUT_MS, sleepUnref } from './embedder-supervisor'
+export { EMBEDDER_START_TIMEOUT_MS } from './embedder-supervisor'
 export type { EmbedderClientDeps, EmbedderState } from './embedder-supervisor'
 
 export const EMBEDDER_BATCH_CHUNK = 64

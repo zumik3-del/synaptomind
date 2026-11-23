@@ -64,7 +64,7 @@ interface RunOptions {
  * regression list or the exit code, it only makes the production gate's recall
  * cost visible next to the ungated measurement.
  */
-export interface EvalPasses {
+interface EvalPasses {
   /** Ungated pass (`minRelevance: 0`); the one thresholds and the exit code gate on. */
   ungated: RunResult
   /** Report-only pass with the gate production resolves. */

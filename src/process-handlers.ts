@@ -13,7 +13,7 @@ export interface ProcessHandlerBinder {
   on(event: 'unhandledRejection', listener: (reason: unknown) => void): unknown
 }
 
-export interface ProcessHandlerOptions {
+interface ProcessHandlerOptions {
   process?: ProcessHandlerBinder
   log?: ProcessLogFn
 }

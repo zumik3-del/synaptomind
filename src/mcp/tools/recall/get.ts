@@ -1,9 +1,8 @@
 import { NotFoundError } from '../../../errors'
-import { getThoughtByIdService } from '../../../services/thoughts.service'
+import { getThoughtByIdService, type Thought } from '../../../services/thoughts.service'
 import { getChainService } from '../../../services/graph.service'
 import { shapeEntity, loadUrlLinks } from '../utils'
 import { itemEnvelope } from '../envelope'
-import type { Thought } from '../../../db/thoughts'
 import { actionInput, requiredString, type ActionArgs, type ActionHandler } from '../action-tool'
 import { RECALL_ARGS } from './args'
 

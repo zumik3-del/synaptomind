@@ -30,7 +30,7 @@ export function createTag(db: Database, name: string): Tag {
   return { id, name: canonical }
 }
 
-export interface TagNameMatch {
+interface TagNameMatch {
   key: string
   id: string
 }
@@ -53,7 +53,7 @@ export function matchTagIdsByFoldedName(db: Database, names: string[]): TagNameM
   return matches
 }
 
-export interface TagFilterFragment {
+interface TagFilterFragment {
   sql: string
   params: SQLQueryBindings[]
 }
