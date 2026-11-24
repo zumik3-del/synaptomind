@@ -1,13 +1,5 @@
 # Changelog
 
-## v0.26.4
-
-> November 24, 2026
-
-- [`71c74d83`](https://github.com/zumik3-del/synaptomind/commit/71c74d8332c2dbe04f4939b3846a4b881c2c35bc): ci: gate tool definitions on TDQS lint
-- [`39560029`](https://github.com/zumik3-del/synaptomind/commit/395600290ded1d922c00c11a7923a2abadef1f01): feat(mcp): advertise MCP annotations on every tool
-- [`198d088e`](https://github.com/zumik3-del/synaptomind/commit/198d088e5728487c43eb9a0a946cdb0e4f92b88d): feat(mcp): mark memory_guide read-only and clarify both descriptions
-
 ## v0.26.3
 
 > November 24, 2026
