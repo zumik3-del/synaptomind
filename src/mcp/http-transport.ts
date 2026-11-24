@@ -28,6 +28,11 @@ interface McpHttpOptions {
 // Unknown errors must never surface as Hono's non-JSON 500: MCP clients parse JSON-RPC.
 export const mcpErrorHandler = createErrorHandler('jsonrpc')
 
+// Upper bound on the graceful half of `stop()`: a request Bun still counts as in flight gets this
+// long to finish before the connection is closed under it.
+const STOP_DRAIN_TIMEOUT_MS = 5_000
+const STOP_POLL_INTERVAL_MS = 10
+
 export function startMcpHttpServer(
   host: string,
   port: number,
@@ -113,7 +118,15 @@ export function startMcpHttpServer(
     async stop() {
       stopSweep()
       await Promise.allSettled([registry.disposeAll(), modern.close()])
-      await server.stop()
+      // A connection whose body Bun stopped reading keeps the graceful stop pending until the idle
+      // timeout, yet `pendingRequests` already reports it as gone. Wait only for what Bun still
+      // counts, then force-close the leftovers: a request past the drain deadline is abandoned too.
+      const graceful = server.stop()
+      const deadline = Date.now() + STOP_DRAIN_TIMEOUT_MS
+      while (server.pendingRequests > 0 && Date.now() < deadline)
+        await Bun.sleep(STOP_POLL_INTERVAL_MS)
+      server.stop(true)
+      await graceful
     },
     getSessions() {
       return registry.view
