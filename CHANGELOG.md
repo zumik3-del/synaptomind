@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.26.3
+
+> November 24, 2026
+
+- [`198d088e`](https://github.com/zumik3-del/synaptomind/commit/198d088e5728487c43eb9a0a946cdb0e4f92b88d): feat(mcp): mark memory_guide read-only and clarify both descriptions
+
 ## v0.26.2
 
 > November 24, 2026

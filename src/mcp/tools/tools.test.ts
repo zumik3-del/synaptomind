@@ -895,6 +895,12 @@ describe('memory_guide', () => {
     expect(length > 5_000 && length < 10_000, `guide is ${length} chars`).toBe(true)
   })
 
+  test('advertises itself as read-only so a client may call it freely', async () => {
+    const { tools } = await client.listTools()
+    const guide = tools.find(tool => tool.name === 'memory_guide')
+    expect(guide?.annotations?.readOnlyHint).toBe(true)
+  })
+
   test('advertises the effective soft limit resolved at call time', async () => {
     const fresh = await setupClient(
       configFixture({ thoughts: { ...config.thoughts, softLimit: 123 } })
