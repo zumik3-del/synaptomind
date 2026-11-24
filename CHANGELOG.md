@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.26.1
+
+> November 24, 2026
+
+- [`a8205475`](https://github.com/zumik3-del/synaptomind/commit/a8205475afb6e067b1f0c70242d54e1eafa37a1d): chore(distribution): add MCP registry and Glama metadata
+- [`4f4bf8d4`](https://github.com/zumik3-del/synaptomind/commit/4f4bf8d46bca7cb48da29c73132f21076d889279): build(docker): run server as entrypoint and label image for MCP registry
+- [`9b9b97d0`](https://github.com/zumik3-del/synaptomind/commit/9b9b97d0465e5554a0623d9f78dfe3285d870953): chore(brand): add 256px logo for marketplace listing
+
 ## v0.26.0
 
 > November 24, 2026

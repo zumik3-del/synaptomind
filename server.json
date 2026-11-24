@@ -1,0 +1,27 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.zumik3-del/synaptomind",
+  "title": "SynaptoMind",
+  "description": "Local persistent memory for AI agents: a SQLite knowledge graph with semantic recall over MCP.",
+  "version": "0.26.1",
+  "repository": {
+    "url": "https://github.com/zumik3-del/synaptomind",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/zumik3-del/synaptomind:0.26.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "docker",
+      "runtimeArguments": [
+        { "type": "named", "name": "-i" },
+        { "type": "named", "name": "--rm" },
+        { "type": "named", "name": "-v", "value": "synaptomind-data:/app/data" }
+      ],
+      "packageArguments": [{ "type": "positional", "value": "--stdio" }]
+    }
+  ]
+}
