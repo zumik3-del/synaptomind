@@ -66,10 +66,10 @@ registered user databases, else the default one, and returns an empty list only 
 (no user database registered and `getDb()` throwing), so those jobs simply have nothing to run.
 The positional form passes `d: Database` as a required positional (not trailing) where the call
 must receive the caller's transaction handle or the function is a pure helper: `apply-gates.service.ts`,
-`health-check-drafts.service.ts`, `health.service.ts`, `placement-proposals.mapping.service.ts`,
-`search-outcome.service.ts`, `search-standing.service.ts`, `placement/placement.ts`, and
-`retention-review-eligibility.service.ts` (`evaluateEligibility(id, d, opts, now)` — the options
-follow the handle). `candidate-embeddings.service.ts resolveCandidateEmbeddings(candidates, embed,
+`batch-run.service.ts`, `health-check-drafts.service.ts`, `health.service.ts`,
+`placement-proposals.mapping.service.ts`, `search-outcome.service.ts`, `search-standing.service.ts`,
+`placement/placement.ts`, and `retention-review-eligibility.service.ts` (`evaluateEligibility(id, d,
+opts, now)` — the options follow the handle). `candidate-embeddings.service.ts resolveCandidateEmbeddings(candidates, embed,
 db)` takes a required **trailing** handle instead.
 The `options` form inserts an `options` argument before `d`: `thoughts.service.ts
 updateThoughtByIdService(id, data, options, d)`, because `UpdateThoughtInput` whitelists columns and
