@@ -41,6 +41,12 @@
       "description": "The action appends the CLI value to the image name, so keep it a tag: no digest suffix",
       "matchDepNames": ["ghcr.io/renovatebot/renovate"],
       "pinDigests": false
+    },
+    {
+      "description": "scripts/release.sh owns the stdio base pin (it moves the tag on every release); a digest pin here would silently outvote the new tag",
+      "matchFileNames": ["deploy/mcp/Dockerfile"],
+      "matchDepNames": ["ghcr.io/zumik3-del/synaptomind"],
+      "enabled": false
     }
   ]
 }

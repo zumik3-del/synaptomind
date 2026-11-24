@@ -13,7 +13,7 @@
 #      guard, which made the old version of this harness "pass" while mutating
 #      the checkout). $SCRIPT_DIR is therefore read/copy only.
 #   2. $SCRIPT_DIR (the repo under test) is only ever READ: it is cloned and its
-#      scripts are copied. Section 8 fingerprints its package.json and
+#      scripts are copied. Section 9 fingerprints its package.json and
 #      CHANGELOG.md before the first test and asserts they are byte-identical at
 #      the end, failing loudly (non-zero exit) otherwise.
 #   3. The versions under test are DERIVED from the tags of the repo under test
@@ -238,7 +238,9 @@ echo ""
 echo "=== 2. release.sh: idempotent re-run (after commit) ==="
 
 # Commit the changes from run 1 so the tree is clean for run 2.
-git -C "$SCRATCH" add package.json CHANGELOG.md
+# -A, not a path list: release.sh rewrites package.json, CHANGELOG.md, server.json
+# and deploy/mcp/Dockerfile, and a partial commit leaves the tree dirty.
+git -C "$SCRATCH" add -A
 git -C "$SCRATCH" commit -m "chore: bump version to $TEST_VER" --no-verify >/dev/null 2>&1
 
 BEFORE_COMMIT_COUNT2=$(git -C "$SCRATCH" rev-list --count HEAD)
@@ -445,7 +447,8 @@ CUR_VER_DIRTY=$(read_version "$SCRATCH2")
   fail "clean-tree run left package.json at $CUR_VER_DIRTY (expected $TEST_VER2)"
 
 # Restore a clean tree so the refusal below can only come from the injected dirt.
-git -C "$SCRATCH2" add package.json CHANGELOG.md
+# -A for the same reason as section 2: release.sh writes four paths, not two.
+git -C "$SCRATCH2" add -A
 git -C "$SCRATCH2" commit -m "chore: bump version to $TEST_VER2" --no-verify >/dev/null 2>&1
 CLEAN_AFTER_COMMIT=$(git -C "$SCRATCH2" status --porcelain | wc -l)
 [ "$CLEAN_AFTER_COMMIT" -eq 0 ] && \
@@ -473,12 +476,106 @@ PKG_HASH_POST_REFUSAL=$(md5_of "$SCRATCH2/package.json")
   fail "refused run rewrote package.json ($PKG_HASH_PRE_REFUSAL -> $PKG_HASH_POST_REFUSAL)"
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 7. release.yml structural guard: structural assertions on .github/workflows/release.yml
+# 7. release.sh: the stdio base pin is rewritten to exactly the release tag
+#    A digest Renovate pinned must be dropped (never carried across the bump),
+#    and a pin the rewrite cannot normalise must be refused loudly.
+# ═════════════════════════════════════════════════════════════════════════════
+
+echo ""
+echo "=== 7. release.sh: stdio base pin (digest dropped, residue refused) ==="
+
+PIN_REPO="ghcr.io/zumik3-del/synaptomind"
+PIN_DIGEST="$(printf 'c8be%.0s' {1..16})"
+
+# Replace the ARG BASE line of a scratch's deploy/mcp/Dockerfile and commit it,
+# so the dirty-tree guard cannot be what refuses (or accepts) the run below.
+seed_base_pin() {
+  local s="$1" value="$2"
+  sed -i -E "s|^ARG BASE=.*|ARG BASE=$value|" "$s/deploy/mcp/Dockerfile"
+  git -C "$s" add deploy/mcp/Dockerfile
+  if ! git -C "$s" commit -m "test: seed the stdio base pin" --no-verify >/dev/null 2>&1; then
+    fail "could not commit the seeded base pin in $s"
+  fi
+}
+
+base_pin_of() { grep -m1 '^ARG BASE=' "$1/deploy/mcp/Dockerfile" || true; }
+
+# 7a. A tag+digest pin (the shape Renovate's pinDigests produced) becomes the
+#     bare release tag: digest dropped, nothing after it.
+SCRATCH_PIN=$(setup_scratch)
+SCRATCHES+=("$SCRATCH_PIN")
+PIN_VERSION="$(read_version "$SCRATCH_PIN")"
+seed_base_pin "$SCRATCH_PIN" "${PIN_REPO}:${PIN_VERSION}@sha256:${PIN_DIGEST}"
+
+PIN_SEEDED="$(base_pin_of "$SCRATCH_PIN")"
+case "$PIN_SEEDED" in
+  *@sha256:*) pass "seeded a tag+digest base pin ($PIN_SEEDED)" ;;
+  *) fail "could not seed a tag+digest base pin (found: $PIN_SEEDED)" ;;
+esac
+
+RC7=0
+in_scratch "$SCRATCH_PIN" bash scripts/release.sh "$TEST_VER" > /tmp/release-pin.log 2>&1 || RC7=$?
+[ "$RC7" -eq 0 ] && \
+  pass "release.sh accepted a tag+digest base pin (exit 0)" || \
+  fail "release.sh exited $RC7 on a tag+digest base pin (log: $(tail -3 /tmp/release-pin.log))"
+
+EXPECT_PIN="ARG BASE=${PIN_REPO}:${TEST_VER}"
+PIN_AFTER="$(base_pin_of "$SCRATCH_PIN")"
+[ "$PIN_AFTER" = "$EXPECT_PIN" ] && \
+  pass "base pin is exactly '$EXPECT_PIN'" || \
+  fail "base pin is '$PIN_AFTER' (expected '$EXPECT_PIN')"
+
+case "$PIN_AFTER" in
+  *@sha256:*) fail "base pin still carries a digest: $PIN_AFTER" ;;
+  *) pass "base pin carries no digest" ;;
+esac
+
+PIN_LINE_COUNT=$(grep -c '^ARG BASE=' "$SCRATCH_PIN/deploy/mcp/Dockerfile" || true)
+[ "$PIN_LINE_COUNT" -eq 1 ] && \
+  pass "exactly one ARG BASE line remains" || \
+  fail "$PIN_LINE_COUNT ARG BASE lines remain (expected 1)"
+
+# 7b. The ordinary tag-only pin (the shape the repo carries today) still moves.
+git -C "$SCRATCH_PIN" add -A
+git -C "$SCRATCH_PIN" commit -m "chore: bump version to $TEST_VER" --no-verify >/dev/null 2>&1
+seed_base_pin "$SCRATCH_PIN" "${PIN_REPO}:${PIN_VERSION}"
+
+RC7B=0
+in_scratch "$SCRATCH_PIN" bash scripts/release.sh "$TEST_VER2" > /tmp/release-pin-tag.log 2>&1 || RC7B=$?
+[ "$RC7B" -eq 0 ] && \
+  pass "release.sh moved a tag-only base pin (exit 0)" || \
+  fail "release.sh exited $RC7B on a tag-only base pin (log: $(tail -3 /tmp/release-pin-tag.log))"
+
+PIN_TAG_AFTER="$(base_pin_of "$SCRATCH_PIN")"
+[ "$PIN_TAG_AFTER" = "ARG BASE=${PIN_REPO}:${TEST_VER2}" ] && \
+  pass "tag-only base pin moved to exactly '$TEST_VER2'" || \
+  fail "tag-only base pin is '$PIN_TAG_AFTER' (expected 'ARG BASE=${PIN_REPO}:${TEST_VER2}')"
+
+# 7c. A pin the rewrite cannot normalise (characters after the tag) is refused
+#     loudly instead of being reported as a successful bump.
+SCRATCH_RESIDUE=$(setup_scratch)
+SCRATCHES+=("$SCRATCH_RESIDUE")
+seed_base_pin "$SCRATCH_RESIDUE" "${PIN_REPO}:${PIN_VERSION}@sha256:${PIN_DIGEST} # pinned"
+
+RC7C=0
+in_scratch "$SCRATCH_RESIDUE" bash scripts/release.sh "$TEST_VER" > /tmp/release-pin-residue.log 2>&1 || RC7C=$?
+[ "$RC7C" -ne 0 ] && \
+  pass "release.sh refused a base pin with characters after the tag (exit $RC7C)" || \
+  fail "release.sh accepted a base pin with characters after the tag (exit 0)"
+
+if grep -q 'ARG BASE=' /tmp/release-pin-residue.log; then
+  pass "refusal names the expected base pin"
+else
+  fail "refusal does not cite the base pin (output: $(head -3 /tmp/release-pin-residue.log))"
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 8. release.yml structural guard: structural assertions on .github/workflows/release.yml
 #    (issue #873/#874 follow-up — guard the fixes from regressing)
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
-echo "=== 7. release.yml structural assertions ==="
+echo "=== 8. release.yml structural assertions ==="
 
 YML="$SCRIPT_DIR/.github/workflows/release.yml"
 [ -f "$YML" ] && pass "release.yml exists" || { fail "release.yml missing"; YML=""; }
@@ -567,11 +664,11 @@ if [ -n "$YML" ]; then
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 8. Safety net: the repo under test must be byte-identical
+# 9. Safety net: the repo under test must be byte-identical
 # ═════════════════════════════════════════════════════════════════════════════
 
 echo ""
-echo "=== 8. safety net: repo under test untouched ==="
+echo "=== 9. safety net: repo under test untouched ==="
 
 REAL_PKG_MD5_AFTER="$(md5_of "$REAL_PKG")"
 REAL_CHANGELOG_MD5_AFTER="$(md5_of "$REAL_CHANGELOG")"
