@@ -41,6 +41,16 @@ jobs:
       - name: "Setup: bun install"
         run: bun install --frozen-lockfile
 
+      # Blocking, and fail-closed: a HIGH/CRITICAL advisory in the resolved tree fails the
+      # job before any test runs. `--audit-level=high` filters the report AND gates the exit
+      # code (verified on Bun 1.4.2: moderate-only findings exit 0, a HIGH finding exits 1),
+      # so moderate/low stay visible without blocking. A registry outage also exits 1 with an
+      # explicit `error: POST .../security/advisories/bulk` line — distinct from advisory
+      # output, and deliberate: an unreachable advisory database must not read as "clean".
+      # Reads bun.lock, so it needs no node_modules beyond the install above.
+      - name: "Audit: dependencies (bun audit, blocking)"
+        run: bun audit --audit-level=high
+
       # Lint is advisory — tests are the real gate. If lint fails but tests pass, the build proceeds.
       - name: "Lint: biome (non-blocking)"
         continue-on-error: true
