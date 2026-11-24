@@ -112,12 +112,10 @@ function seedQueued(content: string, hash: string): string {
   return id
 }
 
-function queueRow(
-  id: string
-): { attempts: number; is_error: number; last_error: string | null } | null {
+function queueRow(id: string): { attempts: number; is_error: number } | null {
   const found = getDb()
-    .prepare('SELECT attempts, is_error, last_error FROM pending_embeddings WHERE thought_id = ?')
-    .get(id) as { attempts: number; is_error: number; last_error: string | null } | undefined
+    .prepare('SELECT attempts, is_error FROM pending_embeddings WHERE thought_id = ?')
+    .get(id) as { attempts: number; is_error: number } | undefined
   return found ?? null
 }
 
@@ -202,13 +200,16 @@ test('AC6 (real loop): an all-failed batch drives the backoff, and the store fau
   await waitFor('the all-failed backoff log', () => backoffLogs().length > 0)
 
   const row = queueRow(failedId)
-  expect(row?.last_error).toBe('boom')
   expect(row?.attempts).toBeGreaterThanOrEqual(5)
 
   const allFailedLog = logRows().find(
     r => r.type === 'embedding' && r.message.startsWith('Batch failed: all')
   )
   expect(allFailedLog).toBeDefined()
+  const metadata = JSON.parse(allFailedLog?.metadata ?? '{}') as {
+    errors?: { id: string; error: string }[]
+  }
+  expect(metadata.errors).toContainEqual({ id: failedId, error: 'boom' })
 }, 20_000)
 
 test('AC2/AC5/AC6/AC8 (real loop): a skipped row never reaches the retire path, is logged, and does not advance the backoff', async () => {
@@ -240,7 +241,6 @@ test('AC2/AC5/AC6/AC8 (real loop): a skipped row never reaches the retire path, 
   expect(skipped).not.toBeNull()
   expect(skipped?.attempts).toBeGreaterThanOrEqual(1)
   expect(skipped?.is_error).toBe(0)
-  expect(skipped?.last_error).toBe(realQueueFns.CONTENT_CHANGED_REASON)
 
   const skipRow = skipLogs().at(-1)!
   const metadata = JSON.parse(skipRow.metadata ?? '{}') as {

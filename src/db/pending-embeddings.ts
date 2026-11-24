@@ -79,18 +79,20 @@ export function handleFailedItem(db: Database, id: string, error: string) {
   const nextAttempt = (row?.attempts ?? 0) + 1
 
   if (nextAttempt >= MAX_ATTEMPTS) {
-    db.prepare(
-      'UPDATE pending_embeddings SET attempts = ?, last_error = ?, is_error = 1, error = ? WHERE thought_id = ?'
-    ).run(nextAttempt, error, error, id)
+    db.prepare('UPDATE pending_embeddings SET attempts = ?, is_error = 1 WHERE thought_id = ?').run(
+      nextAttempt,
+      id
+    )
     insertLog('warning', 'embedding', `Thought ${id} dead-lettered after ${nextAttempt} attempts`, {
       thought_id: id,
       attempts: nextAttempt,
       error
     })
   } else {
-    db.prepare(
-      'UPDATE pending_embeddings SET attempts = ?, last_error = ? WHERE thought_id = ?'
-    ).run(nextAttempt, error, id)
+    db.prepare('UPDATE pending_embeddings SET attempts = ? WHERE thought_id = ?').run(
+      nextAttempt,
+      id
+    )
   }
 }
 

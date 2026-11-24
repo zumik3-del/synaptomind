@@ -100,7 +100,7 @@ carved out of `db/` keeps a db-first signature with no wrapper when that is all 
 
 - Helpers: `src/test/helpers.ts` — `createTestDb()`, `seedThought()`, `seedEdge()`, `seedEmbedding()`
 - Fresh DB per suite: `beforeEach(createTestDb)` — a `Database.deserialize` copy of one migrated
-  `:memory:` image per test process (~0.1 ms, not a 43-migration run), so a migration is only
+  `:memory:` image per test process (~0.1 ms, not a 44-migration run), so a migration is only
   exercised by the migration tests themselves
 - Config load-time guards: `src/test/fresh-config.ts` (`loadFreshConfig`) re-evaluates `config.ts`
   in-process with a scratch env/`config.json`; never spawn `bun -e` for one assertion

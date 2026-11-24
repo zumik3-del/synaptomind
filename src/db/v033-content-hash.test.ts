@@ -80,6 +80,7 @@ test('v033 adds the lookup index the dedupe guard needs, and is replayable', () 
     const indexes = (db.prepare(`PRAGMA index_list('thoughts')`).all() as { name: string }[]).map(
       row => row.name
     )
+    // Scoped to v033 alone: v050 reclaims this index at the head (schema-reclamation-v050.test.ts).
     expect(indexes).toContain('idx_thoughts_content_hash')
     expect(hashes(db)).toEqual(first)
   } finally {

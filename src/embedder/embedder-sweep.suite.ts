@@ -157,9 +157,7 @@ test('a dead-lettered queue row alone does not suppress the sweep', () => {
   // `hasPendingEmbeddings` counts only retryable rows: a poison row never leaves
   // the dead-letter state without an opt-in reset, so counting it would silently
   // disable the safety net forever.
-  getDb()
-    .prepare('UPDATE pending_embeddings SET is_error = 1, error = ? WHERE thought_id = ?')
-    .run('boom', bootOrphan)
+  getDb().prepare('UPDATE pending_embeddings SET is_error = 1 WHERE thought_id = ?').run(bootOrphan)
   expect(realQueueFns.hasPendingEmbeddings(getDb())).toBe(false)
 
   const before = sweepQueries()

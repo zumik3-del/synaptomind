@@ -190,7 +190,7 @@ export function openDatabase(dbPathOrOptions?: string | InitOptions): Database {
     // Dead letters are not reset on boot by default: a permanently poisonous thought would get
     // MAX_ATTEMPTS fresh tries on every restart and loop forever.
     if (cfg.embedder.resetDeadLetters) {
-      d.run(`UPDATE pending_embeddings SET is_error = 0, error = NULL WHERE is_error = 1`)
+      d.run(`UPDATE pending_embeddings SET is_error = 0 WHERE is_error = 1`)
     }
 
     const defaultMeta = d

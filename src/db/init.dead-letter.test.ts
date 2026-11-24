@@ -24,17 +24,15 @@ function deadLetterConfig(resetDeadLetters: boolean) {
 function seedDeadLetter(): string {
   const id = seedThought({ content: 'poison' })
   getDb()
-    .prepare(
-      'UPDATE pending_embeddings SET is_error = 1, attempts = 10, error = ? WHERE thought_id = ?'
-    )
-    .run('boom', id)
+    .prepare('UPDATE pending_embeddings SET is_error = 1, attempts = 10 WHERE thought_id = ?')
+    .run(id)
   return id
 }
 
-function deadLetterRow(id: string): { is_error: number; error: string | null } {
+function deadLetterRow(id: string): { is_error: number } {
   return getDb()
-    .prepare('SELECT is_error, error FROM pending_embeddings WHERE thought_id = ?')
-    .get(id) as { is_error: number; error: string | null }
+    .prepare('SELECT is_error FROM pending_embeddings WHERE thought_id = ?')
+    .get(id) as { is_error: number }
 }
 
 test('dead letters are NOT reset on boot by default (#113)', () => {
@@ -47,7 +45,6 @@ test('dead letters are NOT reset on boot by default (#113)', () => {
 
   const row = deadLetterRow(id)
   expect(row.is_error).toBe(1)
-  expect(row.error).toBe('boom')
 })
 
 test('dead letters ARE reset when resetDeadLetters is enabled', () => {
@@ -60,5 +57,4 @@ test('dead letters ARE reset when resetDeadLetters is enabled', () => {
 
   const row = deadLetterRow(id)
   expect(row.is_error).toBe(0)
-  expect(row.error).toBeNull()
 })
