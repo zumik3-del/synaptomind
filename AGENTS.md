@@ -61,14 +61,14 @@ DB for vec0). Never mock `Database`.
 Three deviations resolve the connection lazily inside the body: `health.service.ts
 getHealthService(d?)` must observe db unavailability instead of throwing; `decay.service.ts
 runDecayJob(d?)` also runs before the handle is guaranteed; and `jobs.service.ts jobDatabases()`
-— the resolver both interval jobs go through (`decay`, `placement-retention`) — reports the
+— the resolver both interval jobs go through (`decay`, `preview-token-retention`) — reports the
 registered user databases, else the default one, and returns an empty list only when it has neither
 (no user database registered and `getDb()` throwing), so those jobs simply have nothing to run.
 The positional form passes `d: Database` as a required positional (not trailing) where the call
-must receive the caller's transaction handle or the function is a pure helper: `apply-gates.service.ts`,
-`batch-run.service.ts`, `health-check-drafts.service.ts`, `health.service.ts`,
-`placement-proposals.mapping.service.ts`, `search-outcome.service.ts`, `search-standing.service.ts`,
-`placement/placement.ts`, and `retention-review-eligibility.service.ts` (`evaluateEligibility(id, d,
+must receive the caller's transaction handle or the function is a pure helper: `batch-run.service.ts`,
+`health-check-drafts.service.ts`, `health.service.ts`,
+`search-outcome.service.ts`, `search-standing.service.ts`,
+and `retention-review-eligibility.service.ts` (`evaluateEligibility(id, d,
 opts, now)` — the options follow the handle). `candidate-embeddings.service.ts resolveCandidateEmbeddings(candidates, embed,
 db)` takes a required **trailing** handle instead.
 The `options` form inserts an `options` argument before `d`: `thoughts.service.ts
@@ -100,7 +100,7 @@ carved out of `db/` keeps a db-first signature with no wrapper when that is all 
 
 - Helpers: `src/test/helpers.ts` — `createTestDb()`, `seedThought()`, `seedEdge()`, `seedEmbedding()`
 - Fresh DB per suite: `beforeEach(createTestDb)` — a `Database.deserialize` copy of one migrated
-  `:memory:` image per test process (~0.1 ms, not a 44-migration run), so a migration is only
+  `:memory:` image per test process (~0.1 ms, not a 45-migration run), so a migration is only
   exercised by the migration tests themselves
 - Config load-time guards: `src/test/fresh-config.ts` (`loadFreshConfig`) re-evaluates `config.ts`
   in-process with a scratch env/`config.json`; never spawn `bun -e` for one assertion

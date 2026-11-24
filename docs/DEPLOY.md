@@ -414,8 +414,8 @@ its vector inside the caller's transaction, while the embedder child writes that
 table from its own process. WAL admits one writer, so the child's writes queue
 behind the server's transaction instead of conflicting: they run in autocommit,
 so a write starts its own transaction and consults `busy_timeout`
-(`src/db/pending-embeddings.ts:160-181`, called from
-`src/embedder/embedder-process.ts:104-112`). The one exception is the server's
+(`src/db/pending-embeddings.ts:63-97`, called from
+`src/embedder/embedder-process.ts:130-134`). The one exception is the server's
 own read→write upgrade, the first window below. A move never fails *because of*
 the repartition — the trigger's statements run under the write lock the caller's
 `UPDATE thoughts` already holds, so they add cost (0.25 ms/row in a bulk move)

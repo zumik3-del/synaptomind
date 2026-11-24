@@ -176,8 +176,8 @@ The process serves one default database or one database per configured user, nev
 
 ## Code tiers: Core, Pillar, Scaffolding
 
-The tier map is not restated here. It is an ADR with fourteen disjoint rows, four placement tests and
-a per-tier verification floor:
+The tier map is not restated here. It is an ADR with fourteen disjoint rows and a per-tier
+verification floor:
 
 - [`synaptomind/adr/2026-11-12-code-tiers-core-pillars-scaffolding.md`](https://forgejo.home.lan/authelia/artifacts/src/commit/6371e9cf501628236e84aea7be68eefa85df3fe2/synaptomind/adr/2026-11-12-code-tiers-core-pillars-scaffolding.md)
 - machine reference:

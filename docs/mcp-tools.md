@@ -619,7 +619,7 @@ truth; it is still the best available answer. A search reports it for three dist
 - **A leg was unavailable** — the embedder failed or timed out, so the query ran without a vector
   leg (and on the hybrid path fell back to BM25), or the vector/BM25 query raised
   (`src/services/search.service.ts:25-46`, `src/db/search.ts:85-91`,
-  `src/db/search.ts:134-142`).
+  `src/db/search.ts:113-119`).
 - **A filtered vector leg was cut short by the candidate pool** — status, cluster and importance
   are post-KNN filters, so the leg can deliver fewer rows than the width it requested while the
   scoped filters match more embedded thoughts than it delivered (`countFilteredVectors`,
