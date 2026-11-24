@@ -16,22 +16,10 @@ beforeEach(() => {
 
 afterEach(closeDb)
 
-function pendingRow(id: string): {
-  attempts: number
-  is_error: number
-  last_error: string | null
-  error: string | null
-} {
+function pendingRow(id: string): { attempts: number; is_error: number } {
   return getDb()
-    .prepare(
-      'SELECT attempts, is_error, last_error, error FROM pending_embeddings WHERE thought_id = ?'
-    )
-    .get(id) as {
-    attempts: number
-    is_error: number
-    last_error: string | null
-    error: string | null
-  }
+    .prepare('SELECT attempts, is_error FROM pending_embeddings WHERE thought_id = ?')
+    .get(id) as { attempts: number; is_error: number }
 }
 
 function setAttempts(id: string, n: number): void {
@@ -47,14 +35,7 @@ describe('mutation matrix: handleFailedItem outcomes x attempts-before', () => {
 
       const row = pendingRow(id)
       expect(row.attempts).toBe(before + 1)
-      if (before + 1 >= MAX_ATTEMPTS) {
-        expect(row.is_error).toBe(1)
-        expect(row.error).toBe('boom')
-      } else {
-        expect(row.is_error).toBe(0)
-        expect(row.error).toBeNull()
-        expect(row.last_error).toBe('boom')
-      }
+      expect(row.is_error).toBe(before + 1 >= MAX_ATTEMPTS ? 1 : 0)
     })
   }
 
@@ -66,13 +47,7 @@ describe('mutation matrix: handleFailedItem outcomes x attempts-before', () => {
 
       const row = pendingRow(id)
       expect(row.attempts).toBe(before + 1)
-      expect(row.last_error).toBe(CONTENT_CHANGED_REASON)
-      if (before + 1 >= MAX_ATTEMPTS) {
-        expect(row.is_error).toBe(1)
-      } else {
-        expect(row.is_error).toBe(0)
-        expect(row.error).toBeNull()
-      }
+      expect(row.is_error).toBe(before + 1 >= MAX_ATTEMPTS ? 1 : 0)
     })
   }
 })
@@ -92,7 +67,6 @@ describe('backoff isolation (skipped rows do not advance failure counter)', () =
     const row = pendingRow(id)
     expect(row.is_error).toBe(0)
     expect(row.attempts).toBe(1)
-    expect(row.last_error).toBe(CONTENT_CHANGED_REASON)
   })
 })
 

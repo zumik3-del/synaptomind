@@ -11,14 +11,11 @@ interface QueueRow {
   thought_id: string
   attempts: number
   is_error: number
-  error: string | null
 }
 
 function queueRow(id: string): QueueRow | null {
   return getDb()
-    .prepare(
-      `SELECT thought_id, attempts, is_error, error FROM pending_embeddings WHERE thought_id = ?`
-    )
+    .prepare(`SELECT thought_id, attempts, is_error FROM pending_embeddings WHERE thought_id = ?`)
     .get(id) as QueueRow | null
 }
 
@@ -37,14 +34,12 @@ test('requeueEmbeddings queues every thought that has no queue row yet', () => {
 test('requeueEmbeddings never resets the attempts or the dead letter of an existing row', () => {
   const id = seedThought({ content: 'dead letter' })
   getDb()
-    .prepare(
-      `UPDATE pending_embeddings SET attempts = 9, is_error = 1, error = 'boom' WHERE thought_id = ?`
-    )
+    .prepare(`UPDATE pending_embeddings SET attempts = 9, is_error = 1 WHERE thought_id = ?`)
     .run(id)
 
   requeueEmbeddings(getDb(), [id])
 
-  expect(queueRow(id)).toEqual({ thought_id: id, attempts: 9, is_error: 1, error: 'boom' })
+  expect(queueRow(id)).toEqual({ thought_id: id, attempts: 9, is_error: 1 })
 })
 
 test('requeueEmbeddings of no ids writes nothing', () => {

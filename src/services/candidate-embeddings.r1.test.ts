@@ -92,7 +92,7 @@ describe('R1 freshness — a pending candidate is embedded live, never scored fr
       storeVec(id, vec(1))
       editContent(id, 'NEW content')
       db.prepare(
-        `UPDATE pending_embeddings SET attempts = 10, last_error = 'boom', is_error = 1, error = 'boom' WHERE thought_id = ?`
+        `UPDATE pending_embeddings SET attempts = 10, is_error = 1 WHERE thought_id = ?`
       ).run(id)
 
       const row = db
@@ -221,7 +221,7 @@ describe('AC5 getPendingEmbeddingIds degradation (fail-closed AND available)', (
       const dead = seedThought({ content: 'dead lettered' })
       const live = seedThought({ content: 'queued' })
       db.prepare(
-        `UPDATE pending_embeddings SET attempts = 10, is_error = 1, error = 'boom' WHERE thought_id = ?`
+        `UPDATE pending_embeddings SET attempts = 10, is_error = 1 WHERE thought_id = ?`
       ).run(dead)
       expect(getPendingEmbeddingIds(db, [dead, live])).toEqual(new Set([dead, live]))
       expect(getPendingEmbeddingIds(db, [dead])).toEqual(new Set([dead]))

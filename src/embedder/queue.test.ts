@@ -33,22 +33,10 @@ function enqueue(id: string, createdAt: string): void {
     .run(id, createdAt)
 }
 
-function pendingRow(id: string): {
-  attempts: number
-  is_error: number
-  last_error: string | null
-  error: string | null
-} {
+function pendingRow(id: string): { attempts: number; is_error: number } {
   return getDb()
-    .prepare(
-      'SELECT attempts, is_error, last_error, error FROM pending_embeddings WHERE thought_id = ?'
-    )
-    .get(id) as {
-    attempts: number
-    is_error: number
-    last_error: string | null
-    error: string | null
-  }
+    .prepare('SELECT attempts, is_error FROM pending_embeddings WHERE thought_id = ?')
+    .get(id) as { attempts: number; is_error: number }
 }
 
 test('findPendingEmbeddings returns non-error rows ordered by created_at', () => {
@@ -150,8 +138,6 @@ test('handleFailedItem increments attempts and stays queued below MAX_ATTEMPTS',
   const row = pendingRow(id)
   expect(row.attempts).toBe(MAX_ATTEMPTS - 1)
   expect(row.is_error).toBe(0)
-  expect(row.error).toBeNull()
-  expect(row.last_error).toBe(`boom ${MAX_ATTEMPTS - 2}`)
 })
 
 test(`handleFailedItem dead-letters on attempt ${MAX_ATTEMPTS}`, () => {
@@ -165,10 +151,27 @@ test(`handleFailedItem dead-letters on attempt ${MAX_ATTEMPTS}`, () => {
   const row = pendingRow(id)
   expect(row.attempts).toBe(MAX_ATTEMPTS)
   expect(row.is_error).toBe(1)
-  expect(row.error).toBe('boom')
-  expect(row.last_error).toBe('boom')
 
   expect(findPendingEmbeddings(db, 10).map(p => p.id)).not.toContain(id)
+})
+
+test('handleFailedItem dead-letters the failure text to the log, which is the only place left', () => {
+  const db = getDb()
+  const id = seedThought({ content: 'poison' })
+  const written: string[] = []
+  const stderrWrite = process.stderr.write
+  process.stderr.write = ((chunk: string) => {
+    written.push(String(chunk))
+    return true
+  }) as typeof process.stderr.write
+  try {
+    for (let i = 0; i < MAX_ATTEMPTS; i++) handleFailedItem(db, id, `boom ${i}`)
+  } finally {
+    process.stderr.write = stderrWrite
+  }
+
+  const deadLetter = written.find(line => line.includes(`dead-lettered after ${MAX_ATTEMPTS}`))
+  expect(deadLetter).toContain(`error="boom ${MAX_ATTEMPTS - 1}"`)
 })
 
 test('insertEmbedding rejects a stale hash and writes nothing', () => {

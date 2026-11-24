@@ -152,16 +152,11 @@ function vecMarker(id: string): number | undefined {
 function pendingRowOrNull(id: string): {
   attempts: number
   is_error: number
-  last_error: string | null
   content_hash: string | null
 } | null {
   const found = getDb()
-    .prepare(
-      'SELECT attempts, is_error, last_error, content_hash FROM pending_embeddings WHERE thought_id = ?'
-    )
-    .get(id) as
-    | { attempts: number; is_error: number; last_error: string | null; content_hash: string | null }
-    | undefined
+    .prepare('SELECT attempts, is_error, content_hash FROM pending_embeddings WHERE thought_id = ?')
+    .get(id) as { attempts: number; is_error: number; content_hash: string | null } | undefined
   return found ?? null
 }
 
@@ -279,7 +274,6 @@ describe('delete-only-succeeded invariant (#1572)', () => {
     expect(pendingRowOrNull(id)).toMatchObject({
       attempts: 1,
       is_error: 0,
-      last_error: CONTENT_CHANGED_REASON,
       content_hash: newHash
     })
     expect(vecMarker(id)).toBe(1)
@@ -362,10 +356,7 @@ describe('delete-only-succeeded invariant (#1572)', () => {
     expect(outcome.contentChanged).toEqual([skippedId])
     expect(pendingRowOrNull(storedId)).toBeNull()
     expect(vecMarker(storedId)).toBe(42)
-    expect(pendingRowOrNull(skippedId)).toMatchObject({
-      attempts: 1,
-      last_error: CONTENT_CHANGED_REASON
-    })
+    expect(pendingRowOrNull(skippedId)).toMatchObject({ attempts: 1, is_error: 0 })
     expect(vecMarker(skippedId)).toBe(7)
   })
 
