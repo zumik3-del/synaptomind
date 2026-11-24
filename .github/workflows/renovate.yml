@@ -22,13 +22,13 @@ jobs:
     timeout-minutes: 30
     env:
       RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
-      # The platform PAT is scoped to this repo only: github-tags/github-digest lookups for actions/* need a github.com-wide token.
-      GITHUB_COM_TOKEN: ${{ secrets.GITHUB_COM_TOKEN }}
+      # Renovate reads this as GITHUB_COM_TOKEN; the secret cannot be named GITHUB_* (reserved prefix).
+      GITHUB_COM_TOKEN: ${{ secrets.RENOVATE_COM_TOKEN }}
     steps:
       - name: "Notice: Renovate secrets are not configured"
         if: env.RENOVATE_TOKEN == '' || env.GITHUB_COM_TOKEN == ''
         run: |
-          echo "::notice::Skipping Renovate — the RENOVATE_TOKEN or GITHUB_COM_TOKEN repository secret is not set, so no dependency PRs are opened. Create a fine-grained PAT (contents: read/write, pull requests: read/write, workflows: read/write on this repository) for RENOVATE_TOKEN, plus a github.com PAT with public repository read access for GITHUB_COM_TOKEN, to enable the weekly run."
+          echo "::notice::Skipping Renovate — the RENOVATE_TOKEN or RENOVATE_COM_TOKEN repository secret is not set, so no dependency PRs are opened. Create a fine-grained PAT (contents: read/write, pull requests: read/write, workflows: read/write on this repository) for RENOVATE_TOKEN, plus a github.com PAT with public repository read access for RENOVATE_COM_TOKEN, to enable the weekly run."
 
       # CLI pinned to the validated release; the regex manager in renovate.json tracks it.
       - name: "Renovate: self-hosted run"
