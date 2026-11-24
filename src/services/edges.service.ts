@@ -21,6 +21,7 @@ import { getDb } from '../db'
 import { NotFoundError, ValidationError } from '../errors'
 import { BATCH_ITEMS_MAX } from '../validation'
 import type { Database } from 'bun:sqlite'
+import { runTolerantBatch } from './batch-run.service'
 
 export { EDGE_TYPES, type EdgeType, type EdgeView } from '../db/edges'
 
@@ -160,35 +161,23 @@ export function createEdgesBatchService(
     )
   }
 
-  let linked = 0
-  const errors: LinkBatchError[] = []
-
-  const linkItem = d.transaction((link: LinkBatchItem) => {
-    if (!link?.source) throw new ValidationError('source is required')
-    if (!link.target) throw new ValidationError('target is required')
-    createEdgeService(link.source, link.target, link.type, d)
-  })
-  // One run-level transaction, a savepoint per link: the savepoint is the isolation contract.
-  const runLinks = d.transaction(() => {
-    links.forEach((link, index) => {
-      try {
-        linkItem(link)
-        linked++
-      } catch (err) {
-        // A trigger can RAISE(ROLLBACK) the whole run; continuing would autocommit the rest.
-        if (!d.inTransaction) throw err
-        errors.push({
-          index,
-          source: link?.source,
-          target: link?.target,
-          error: err instanceof Error ? err.message : String(err)
-        })
-      }
+  const { results, errors } = runTolerantBatch(
+    d,
+    links,
+    (link, _index, db) => {
+      if (!link?.source) throw new ValidationError('source is required')
+      if (!link.target) throw new ValidationError('target is required')
+      createEdgeService(link.source, link.target, link.type, db)
+    },
+    ({ item, index, message }) => ({
+      index,
+      source: item?.source,
+      target: item?.target,
+      error: message
     })
-  })
-  runLinks()
+  )
 
-  return { linked, failed: errors.length, errors }
+  return { linked: results.length, failed: errors.length, errors }
 }
 
 export function getEdgeService(edgeId: string, d: Database = getDb()): Edge | null {

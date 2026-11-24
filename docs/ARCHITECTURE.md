@@ -151,9 +151,9 @@ Non-default shapes that are deliberate, not forgotten:
   (`src/services/thoughts.service.ts:85`), because `UpdateThoughtInput` whitelists columns and
   `url_links` is not one; riding in `data`, it would be dropped silently.
 - **Required positional `d`** where the call must receive the caller's transaction handle or the
-  function is a pure helper: `apply-gates.service.ts`, `health-check-drafts.service.ts`,
-  `health.service.ts`, `placement-proposals.mapping.service.ts`, `search-outcome.service.ts`,
-  `search-standing.service.ts`, `placement/placement.ts`, and
+  function is a pure helper: `apply-gates.service.ts`, `batch-run.service.ts`,
+  `health-check-drafts.service.ts`, `health.service.ts`, `placement-proposals.mapping.service.ts`,
+  `search-outcome.service.ts`, `search-standing.service.ts`, `placement/placement.ts`, and
   `retention-review-eligibility.service.ts` (`evaluateEligibility(id, d, opts, now)`).
 - **Required trailing `db: Database`** — `resolveCandidateEmbeddings(candidates, embed, db)` in
   `src/services/candidate-embeddings.service.ts:8`.
