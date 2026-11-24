@@ -8,6 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://ghcr.io/zumik3-del/synaptomind)
 [![Bun](https://img.shields.io/badge/bun-runtime-%23000000?logo=bun)](https://bun.sh)
+[![zumik3-del/synaptomind MCP server](https://glama.ai/mcp/servers/zumik3-del/synaptomind/badges/score.svg)](https://glama.ai/mcp/servers/zumik3-del/synaptomind)
 
 **Local persistent memory for AI agents.** Your agent remembers decisions, goals, and context across sessions — over MCP (stdio or HTTP). Data stays on your machine. The HTTP listener on port 3005 is an ops plane (health and graph repair), not a second agent API.
 
