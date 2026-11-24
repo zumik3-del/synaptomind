@@ -2,11 +2,17 @@ name: Renovate
 
 # Config lives at .github/renovate.json (repository config discovery). No checkout
 # step: Renovate clones via the API. RENOVATE_TOKEN instead of GITHUB_TOKEN because
-# GITHUB_TOKEN-created PRs do not run CI; without the secret the job skips.
+# GITHUB_TOKEN-created PRs do not run CI; without the secrets the job skips.
 on:
   schedule:
     - cron: "0 4 * * 1"
   workflow_dispatch:
+    inputs:
+      log_level:
+        description: "Renovate LOG_LEVEL"
+        type: choice
+        options: [info, debug]
+        default: info
 
 permissions:
   contents: read
@@ -21,20 +27,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      # Global-only at startup: the platform warns about the Mend default before repo config loads.
+      RENOVATE_GIT_AUTHOR: "zumik3-del <zumik3@gmail.com>"
       RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+      # Renovate reads this as GITHUB_COM_TOKEN; the secret cannot be named GITHUB_* (reserved prefix).
+      GITHUB_COM_TOKEN: ${{ secrets.COM_TOKEN }}
     steps:
-      - name: "Notice: RENOVATE_TOKEN is not configured"
-        if: env.RENOVATE_TOKEN == ''
+      - name: "Notice: Renovate secrets are not configured"
+        if: env.RENOVATE_TOKEN == '' || env.GITHUB_COM_TOKEN == ''
         run: |
-          echo "::notice::Skipping Renovate — the RENOVATE_TOKEN repository secret is not set, so no dependency PRs are opened. Create a fine-grained PAT (contents: read/write, pull requests: read/write, workflows: read/write on this repository) and store it as the RENOVATE_TOKEN secret to enable the weekly run."
+          echo "::notice::Skipping Renovate — the RENOVATE_TOKEN or COM_TOKEN repository secret is not set, so no dependency PRs are opened. Create a fine-grained PAT (contents: read/write, pull requests: read/write, workflows: read/write on this repository) for RENOVATE_TOKEN, plus a github.com PAT with public repository read access for COM_TOKEN, to enable the weekly run."
 
       # CLI pinned to the validated release; the regex manager in renovate.json tracks it.
       - name: "Renovate: self-hosted run"
-        if: env.RENOVATE_TOKEN != ''
+        if: env.RENOVATE_TOKEN != '' && env.GITHUB_COM_TOKEN != ''
         uses: renovatebot/github-action@ebcbb513d07ead4d9c0c2139064301db05e84a3e # v46.3.15
         with:
           # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate
           renovate-version: "44.261.1"
         env:
-          LOG_LEVEL: info
+          LOG_LEVEL: ${{ inputs.log_level || 'info' }}
           RENOVATE_REPOSITORIES: ${{ github.repository }}
