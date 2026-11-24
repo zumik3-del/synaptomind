@@ -1,115 +1,5 @@
 [
   {
-    "name": "edge_review",
-    "cwdContract": [
-      "OPTIONAL for \"enqueue\" and \"list\".",
-      "ACCEPTED AND IGNORED for \"apply\", \"apply_batch\", \"rollback\", \"reject\"."
-    ],
-    "inputSchema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "properties": {
-        "action": {
-          "enum": [
-            "enqueue",
-            "list",
-            "apply",
-            "apply_batch",
-            "rollback",
-            "reject"
-          ],
-          "type": "string"
-        },
-        "confirm": {
-          "type": "boolean"
-        },
-        "created_after": {
-          "format": "date-time",
-          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-          "type": "string"
-        },
-        "cwd": {
-          "type": "string"
-        },
-        "include_retired": {
-          "type": "boolean"
-        },
-        "item_kind": {
-          "enum": [
-            "edge",
-            "placement",
-            "lifecycle",
-            "triage_activate",
-            "triage_archive"
-          ],
-          "type": "string"
-        },
-        "limit": {
-          "maximum": 1000,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "max_items": {
-          "not": {}
-        },
-        "max_proposals": {
-          "maximum": 9007199254740991,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "preview_token": {
-          "type": "string"
-        },
-        "project_id": {
-          "not": {}
-        },
-        "proposal_id": {
-          "type": "string"
-        },
-        "proposal_ids": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "run_id": {
-          "type": "string"
-        },
-        "source_thought_id": {
-          "type": "string"
-        },
-        "state": {
-          "enum": [
-            "pending",
-            "accepted",
-            "rejected",
-            "expired",
-            "stale",
-            "rolled_back"
-          ],
-          "type": "string"
-        },
-        "thought_id": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "action"
-      ],
-      "type": "object"
-    },
-    "outputSchema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "result": {}
-      },
-      "required": [
-        "result"
-      ],
-      "type": "object"
-    }
-  },
-  {
     "name": "memory_crystallize",
     "cwdContract": [
       "OPTIONAL for \"graph\" and \"cluster\" (always pass for those; auto_cluster operates globally).",
@@ -592,7 +482,7 @@
   {
     "name": "memory_status",
     "cwdContract": [
-      "OPTIONAL for \"slots\", \"frontier\" and \"propose\": omitting it leaves meta.scope null and is noted in meta.warnings (an unregistered path raises a global scope and its own warning).",
+      "OPTIONAL for \"slots\" and \"frontier\": omitting it leaves meta.scope null and is noted in meta.warnings (an unregistered path raises a global scope and its own warning).",
       "ACCEPTED AND IGNORED for \"config\", \"health\"."
     ],
     "inputSchema": {
@@ -603,15 +493,8 @@
             "slots",
             "frontier",
             "config",
-            "health",
-            "propose"
+            "health"
           ],
-          "type": "string"
-        },
-        "compact": {
-          "type": "boolean"
-        },
-        "content": {
           "type": "string"
         },
         "cwd": {
@@ -629,20 +512,12 @@
         "include_details": {
           "type": "boolean"
         },
-        "include_signals": {
-          "type": "boolean"
-        },
         "k": {
           "not": {}
         },
         "limit": {
           "maximum": 50,
           "minimum": 1,
-          "type": "integer"
-        },
-        "max_edges": {
-          "maximum": 9007199254740991,
-          "minimum": 0,
           "type": "integer"
         },
         "names": {
@@ -671,9 +546,6 @@
           "maximum": 1000,
           "minimum": 1,
           "type": "integer"
-        },
-        "thought_id": {
-          "type": "string"
         }
       },
       "required": [

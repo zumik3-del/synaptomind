@@ -138,7 +138,6 @@ time this integration was written, it consists of:
 - `memory_crystallize`
 - `memory_reflect`
 - `memory_primers`
-- `edge_review`
 - `retention_review`
 - `memory_guide`
 

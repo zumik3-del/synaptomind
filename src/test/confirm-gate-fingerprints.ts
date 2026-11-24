@@ -19,7 +19,7 @@
  * argument therefore cannot expose).
  *
  * The rows are split by token scope so each module stays readable:
- * `confirm-gate-fingerprints.edges.ts` (edges, runs, placement proposals),
+ * `confirm-gate-fingerprints.edges.ts` (edges),
  * `confirm-gate-fingerprints.thoughts.ts` (thoughts and the merge pair) and
  * `confirm-gate-fingerprints.pools.ts` (the cluster candidate pool, a project,
  * the primer set); `confirm-gate-fingerprints.types.ts` holds the probe shape
@@ -37,7 +37,7 @@ export type {
   RefusalReading
 } from './confirm-gate-fingerprints.types'
 
-/** Every declared fingerprint input of the 12 converted actions, with its probes. */
+/** Every declared fingerprint input of the nine converted actions, with its probes. */
 export const FINGERPRINT_CASES: readonly FingerprintCase[] = [
   ...EDGE_FINGERPRINT_CASES,
   ...THOUGHT_FINGERPRINT_CASES,

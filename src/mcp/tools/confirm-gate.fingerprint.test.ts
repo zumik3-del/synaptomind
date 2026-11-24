@@ -82,12 +82,12 @@ beforeAll(async () => {
 })
 
 describe('fingerprint declaration coverage', () => {
-  test('the fingerprint matrix drives the same 12 actions as the contract matrix', () => {
+  test('the fingerprint matrix drives the same nine actions as the contract matrix', () => {
     expect(FINGERPRINT_CASES.map(entry => entry.label).sort()).toEqual(
       GATE_CASES.map(entry => entry.label).sort()
     )
-    expect(new Set(FINGERPRINT_CASES.map(entry => entry.kind)).size).toBe(12)
-    expect(new Set(FINGERPRINT_CASES.map(entry => entry.label)).size).toBe(12)
+    expect(new Set(FINGERPRINT_CASES.map(entry => entry.kind)).size).toBe(9)
+    expect(new Set(FINGERPRINT_CASES.map(entry => entry.label)).size).toBe(9)
   })
 
   test('every declared fingerprint input has exactly one probe, in both directions', () => {

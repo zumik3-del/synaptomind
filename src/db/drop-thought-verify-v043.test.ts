@@ -92,6 +92,6 @@ test('v043: a fresh DB and a v042 -> v043 migrated DB produce the same table set
   }
 })
 
-test('v050: registered as the head migration version', () => {
-  expect(MIGRATIONS.at(-1)?.version).toBe(50)
+test('v051: registered as the head migration version', () => {
+  expect(MIGRATIONS.at(-1)?.version).toBe(51)
 })

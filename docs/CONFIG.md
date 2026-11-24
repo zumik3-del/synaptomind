@@ -271,9 +271,7 @@ that file and its size — it is never deleted, because a switch back reuses it.
 
 ## Retention review
 
-Archived and draft thoughts are not deleted by an age-based background cleanup. This
-statement concerns thought deletion; the separate placement-proposal queue has its own
-scheduled expiry and pruning job (see [Placement](#placement)). The
+Archived and draft thoughts are not deleted by an age-based background cleanup. The
 `retention_review` tool (`action=list`) lists eligible candidates; an operator must explicitly protect,
 delete, or compact them. Candidate defaults are:
 
@@ -329,8 +327,9 @@ The standalone verification subsystem and its settings are retired, together wit
 its data: migration `v043` drops the table that held the per-thought results. Search
 no longer excludes anything on that basis, so previously flagged thoughts may appear
 in default results; `exclude_flagged` is an ordinary, ignored query parameter. A
-configuration file that still carries the retired section loads unchanged and
-ignores it. [CHANGELOG.md](../CHANGELOG.md) lists every removal per release.
+configuration file that still carries a retired section or key loads unchanged and ignores it, and
+no environment variable sets a retired key. [CHANGELOG.md](../CHANGELOG.md) lists every removal per
+release.
 
 ---
 
@@ -346,45 +345,19 @@ Batch grouping by embedding proximity.
 
 ---
 
-## Neighbour search (edge detection bounds)
+## Edge detection bounds
 
-These four keys bound the neighbour search behind edge proposals. The placement
-engine (`memory_status action=propose`) reads all four:
-`minSimilarity` sets the recall floor for embedding neighbours, `topK` the neighbour
-width, `maxCandidates` the candidate pool loaded for one run, and `maxProposals`
-the cap on emitted edge proposals. The draft health check reuses the candidate-pool
-bound only.
-
-No standalone detection route or `memory_status` action exists any more: a candidate
-is only ever a proposal, produced by the read-only placement engine. An edge can
-be created directly with `memory_store action=link`, or by applying a queued
-proposal with `edge_review action=apply` or `apply_batch` and explicit confirmation.
+One key bounds the candidate pool the draft-duplicate finding loads. `duplicate_drafts`
+(health check, warning; `findDuplicateDrafts` in `src/services/health-check-drafts.service.ts`)
+compares every non-cluster draft — skipping a scheduled reminder — with the active thoughts of
+its own project, newest first, and loads at most `maxCandidates` of them for one draft. A pair
+whose normalized-text overlap reaches 0.6 is reported. Nothing here writes the graph: the finding
+reports the pair, merging is an explicit `memory_supersede action=merge`, and an edge is created
+directly with `memory_store action=link`.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `edgeDetect.minSimilarity` | `SYNAPTOMIND_EDGE_DETECT_MIN_SIMILARITY` | `0.75` | Min embedding similarity for a neighbour pair to become a candidate |
-| `edgeDetect.topK` | `SYNAPTOMIND_EDGE_DETECT_TOP_K` | `10` | Max nearest neighbours considered per thought |
-| `edgeDetect.maxCandidates` | `SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES` | `100` | Max candidate thoughts loaded for one run |
-| `edgeDetect.maxProposals` | `SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS` | `20` | Cap on emitted edge proposals; the review queue applies `placement.maxProposalsPerEnqueue` on top |
-
----
-
-## Placement
-
-Read-only cluster placement proposed by `memory_status action=propose` (see ADR 2026-09-28), plus the persisted review queue they feed (`edge_review` — see [mcp-tools.md](./mcp-tools.md#edge_review--placement-proposals)). The engine never writes the graph: `maxClusterSize` only suppresses a proposal, it never mutates; queued proposals are applied only on an explicit `confirm:true`. `proposalTtlDays` sets proposal expiry, controls the daily placement-retention job that expires/prunes queue rows, and bounds the rollback window. This job prunes proposal records, not thoughts.
-
-| Setting | Env Var | Default | Description |
-|---------|---------|---------|-------------|
-| `placement.maxClusterSize` | `SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE` | `50` | Skip a cluster placement proposal when the target cluster already holds this many members (`>=`). Re-checked against the live count at apply time. Prevents routing new thoughts into an oversized mega-cluster (lessons #934/#928) |
-| `placement.proposalTtlDays` | `SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS` | `30` | Proposal expiry interval and rollback window. Newly enqueued/refreshed `pending` rows receive `expires_at`; apply rejects expired rows. The daily placement-retention job marks overdue pending rows expired and prunes terminal proposal rows after this interval; rollback also refuses accepted rows decided outside this window. This retention applies to proposal-queue rows, not thoughts. `0` expires immediately and the job prunes terminal rows at the current cutoff; a negative value disables proposal expiry, the job, and the rollback-window guard |
-| `placement.maxPendingProposals` | `SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS` | `500` | Cap on live `pending` proposals. Enqueueing a *new* item at the cap throws a validation error; refreshing an existing live row is unaffected |
-| `placement.maxProposalsPerEnqueue` | `SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS_PER_ENQUEUE` | `5` | Cap on the number of proposals generated for one thought (enqueue/propose). A caller-supplied `max_proposals` overrides it |
-
-**Note:** The review queue stores `edge` items only. A plan's `placement` and
-`lifecycle` items are not queued; `edge_review action=enqueue` returns them
-in `skipped` / `skipped_kinds`. Rows
-written by retired subsystems may still exist in an upgraded install — they stay
-listable and filterable, but neither apply nor rollback can act on them.
+| `edgeDetect.maxCandidates` | `SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES` | `100` | Max active thoughts of the draft's project loaded as duplicate candidates for one draft |
 
 ---
 
@@ -683,11 +656,7 @@ The declared table lives in `src/config.raw-env.ts`.
     "minAgeDays": 3, "minSimilarity": 0.09,
     "minMembers": 3
   },
-  "edgeDetect": {
-    "minSimilarity": 0.75, "topK": 10,
-    "maxCandidates": 100, "maxProposals": 20
-  },
-  "placement": { "maxClusterSize": 50, "proposalTtlDays": 30, "maxPendingProposals": 500, "maxProposalsPerEnqueue": 5 },
+  "edgeDetect": { "maxCandidates": 100 },
   "slots": { "defaultMaxChars": 2000 },
   "graph": { "maxDegree": 50 },
   "search": { "confidence": { "vectorFloor": 0.9, "unrelatedFloor": 0.8 } },

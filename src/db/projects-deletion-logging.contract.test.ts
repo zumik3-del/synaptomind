@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test'
 // The project-deletion logging suite (projects-deletion-logging.suite.ts) mock.modules
 // ../logging/log so `insertLog` can be spied — insertLog routes to stdout/stderr sinks in
 // tests. bun cannot unmock modules, so the suite must run in a child bun process with a
-// clean module registry (AGENTS.md §8; same recipe as placement-apply-runid-logging).
+// clean module registry (AGENTS.md §8; same recipe as retention-review.audit).
 test('project deletion logging suite (isolated process)', async () => {
   const proc = Bun.spawn(['bun', 'test', './src/db/projects-deletion-logging.suite.ts'], {
     cwd: `${import.meta.dir}/../..`,

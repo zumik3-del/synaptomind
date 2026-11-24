@@ -4,7 +4,6 @@ import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { registerAllMemoryTools } from './index'
 
 const EXPECTED_TOOLS = [
-  'edge_review',
   'memory_crystallize',
   'memory_guide',
   'memory_manage',

@@ -148,8 +148,8 @@ function staleIds(db: Database): string[] {
     .map(thought => thought.id)
 }
 
-test('v050 is registered after v049', () => {
-  expect(MIGRATIONS.at(-1)?.version).toBe(50)
+test('v051 is the head migration version', () => {
+  expect(MIGRATIONS.at(-1)?.version).toBe(51)
 })
 
 test('upgrading a v048 database recomputes every stale hash', () => {
@@ -173,7 +173,7 @@ test('upgrading a v048 database recomputes every stale hash', () => {
 
   openRaw(path, db => {
     expect(staleIds(db)).toEqual([])
-    expect(schemaVersion(db)).toBe('50')
+    expect(schemaVersion(db)).toBe('51')
     const byId = new Map(thoughtRows(db).map(thought => [thought.id, thought]))
     expect(byId.get('th-active')?.content_hash).toBe(computeContentHash('alpha', 'proj-a'))
     expect(byId.get('th-draft')?.content_hash).toBe(computeContentHash('beta', 'proj-a'))
@@ -235,7 +235,7 @@ test('a second upgrade run is a no-op', () => {
   upgrade(path)
 
   openRaw(path, db => {
-    expect(schemaVersion(db)).toBe('50')
+    expect(schemaVersion(db)).toBe('51')
     expect(thoughtRows(db)).toEqual(repaired)
   })
 })
@@ -258,7 +258,7 @@ test('upgrading a healthy v048 database touches no thought', () => {
   upgrade(path)
 
   openRaw(path, db => {
-    expect(schemaVersion(db)).toBe('50')
+    expect(schemaVersion(db)).toBe('51')
     expect(thoughtRows(db)).toEqual(before)
   })
 })

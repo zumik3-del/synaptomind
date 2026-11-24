@@ -31,7 +31,7 @@ describe('the removed memory_telemetry tool', () => {
 
     expect(names).not.toContain('memory_telemetry')
     expect(names).toContain('memory_primers')
-    expect(tools.length).toBe(11)
+    expect(tools.length).toBe(10)
   })
 
   test('calling memory_telemetry answers with the SDK unknown-tool error', async () => {

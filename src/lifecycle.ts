@@ -4,9 +4,9 @@ import { closeLogging, insertLog } from './logging'
 import type { ProcessLogFn } from './process-handlers'
 import { startDecayJob, stopDecayJob } from './services/decay.service'
 import {
-  startPlacementRetentionJob,
-  stopPlacementRetentionJob
-} from './services/placement-retention.service'
+  startPreviewTokenRetentionJob,
+  stopPreviewTokenRetentionJob
+} from './services/preview-token-retention.service'
 
 export interface LifecycleSteps {
   startEmbedder: () => void
@@ -42,11 +42,11 @@ const DEFAULT_STEPS: LifecycleSteps = {
   stopEmbedder: () => stopEmbedderProcess(),
   startBackgroundJobs: () => {
     startDecayJob()
-    startPlacementRetentionJob()
+    startPreviewTokenRetentionJob()
   },
   stopBackgroundJobs: async () => {
     await stopDecayJob()
-    await stopPlacementRetentionJob()
+    await stopPreviewTokenRetentionJob()
   },
   closeDatabases: () => {
     for (const { userId, db } of listUserDatabases()) {

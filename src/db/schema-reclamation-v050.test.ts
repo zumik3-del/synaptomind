@@ -10,6 +10,7 @@ import { BASELINE_TABLE_DDL, META_DDL } from './schema/baseline-schema'
 
 const MEM_OPTS = { isMemory: true, dimensions: 384 }
 const V049 = 49
+const V050 = 50
 const DROPPED_OBJECTS = [
   'index:idx_preview_tokens_target',
   'index:idx_thoughts_content_hash',
@@ -65,8 +66,12 @@ function untilV049(): Migration[] {
   return MIGRATIONS.filter(migration => migration.version <= V049)
 }
 
-test('v050 is the head migration version', () => {
-  expect(MIGRATIONS.at(-1)?.version).toBe(50)
+function untilV050(): Migration[] {
+  return MIGRATIONS.filter(migration => migration.version <= V050)
+}
+
+test('v051 is the head migration version', () => {
+  expect(MIGRATIONS.at(-1)?.version).toBe(51)
 })
 
 test('v050: a migrated DB carries none of the four reclaimed objects', () => {
@@ -104,7 +109,7 @@ test('v050: apply() drops both indexes and both columns, and a second run is a n
 })
 
 test('v050: a fresh DB and a v049 -> v050 upgraded DB have the same schema shape', () => {
-  const fresh = buildSchema(MIGRATIONS)
+  const fresh = buildSchema(untilV050())
   const upgraded = buildSchema(untilV049())
   try {
     const freshShape = schemaShape(fresh)

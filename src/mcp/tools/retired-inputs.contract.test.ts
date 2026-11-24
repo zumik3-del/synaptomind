@@ -42,7 +42,6 @@ test('advertises retired-input tombstones with actionable descriptions', async (
     ['memory_recall', 'top_k', 'Removed; use limit.'],
     ['memory_recall', 'cluster', 'Removed; use is_cluster.'],
     ['memory_status', 'k', 'Removed; use limit.'],
-    ['edge_review', 'max_items', 'Removed; use max_proposals.'],
     ['memory_crystallize', 'dry_run', 'Removed; use confirm.'],
     ['memory_reflect', 'goals_delta', 'Removed; use goals_add / goals_remove.'],
     ['memory_store', 'is_profile', 'Retired: remove this field; there is no replacement.']
@@ -66,9 +65,8 @@ test('rejects retired recall arguments with replacement guidance', async () => {
   await rejected('memory_recall', { action: 'list', cluster: true }, 'is_cluster')
 })
 
-test('rejects retired status, review, crystallize, reflect, and store arguments with guidance', async () => {
+test('rejects retired status, crystallize, reflect, and store arguments with guidance', async () => {
   await rejected('memory_status', { action: 'slots', k: 1 }, 'limit')
-  await rejected('edge_review', { action: 'list', max_items: 1 }, 'max_proposals')
   await rejected('memory_crystallize', { action: 'graph', dry_run: true }, 'confirm')
   await rejected(
     'memory_reflect',

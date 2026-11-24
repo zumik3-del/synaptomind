@@ -5,12 +5,19 @@ import { join } from 'node:path'
 import { DEFAULTS, ENV_MAPPINGS } from './config'
 import { loadFreshConfig } from './test/fresh-config'
 
-const REMOVED_SECTIONS = ['autoLink', 'triage', 'ttl']
+const REMOVED_SECTIONS = ['autoLink', 'triage', 'ttl', 'placement']
 const REMOVED_PATHS = [
   'decay.archiveThreshold',
   'decay.archiveMinAgeDays',
+  'placement.maxClusterSize',
+  'placement.proposalTtlDays',
+  'placement.maxPendingProposals',
+  'placement.maxProposalsPerEnqueue',
   'placement.maxProposals',
   'placement.maxItemsPerEnqueue',
+  'edgeDetect.minSimilarity',
+  'edgeDetect.topK',
+  'edgeDetect.maxProposals',
   'slots.hardLimit',
   'autoCluster.dryRun'
 ]
@@ -28,6 +35,13 @@ const REMOVED_ENV_VARS = [
   'SYNAPTOMIND_ARCHIVE_MIN_AGE_DAYS',
   'SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS',
   'SYNAPTOMIND_PLACEMENT_MAX_ITEMS_PER_ENQUEUE',
+  'SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE',
+  'SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS',
+  'SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS',
+  'SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS_PER_ENQUEUE',
+  'SYNAPTOMIND_EDGE_DETECT_MIN_SIMILARITY',
+  'SYNAPTOMIND_EDGE_DETECT_TOP_K',
+  'SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS',
   'SYNAPTOMIND_ARCHIVED_TTL_DAYS',
   'SYNAPTOMIND_CLEANUP_INTERVAL_MS',
   'SYNAPTOMIND_SLOTS_HARD_LIMIT',
@@ -169,19 +183,11 @@ describe('config surface — every mapping targets a real default', () => {
     expect({ missing, mistyped }).toEqual({ missing: [], mistyped: [] })
   })
 
-  test('the kept placement and edge-detect knobs are still declared', () => {
-    for (const path of [
-      'placement.maxClusterSize',
-      'placement.proposalTtlDays',
-      'placement.maxPendingProposals',
-      'placement.maxProposalsPerEnqueue',
-      'edgeDetect.minSimilarity',
-      'edgeDetect.topK',
-      'edgeDetect.maxCandidates',
-      'edgeDetect.maxProposals'
-    ]) {
-      expect(readPath(DEFAULTS, path)).toBeDefined()
-    }
+  test('edgeDetect keeps only its one live knob', () => {
+    expect(DEFAULTS.edgeDetect).toEqual({ maxCandidates: 100 })
+    expect(
+      ENV_MAPPINGS.filter(mapping => mapping.path.startsWith('edgeDetect.')).map(m => m.env)
+    ).toEqual(['SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES'])
   })
 })
 
@@ -191,7 +197,15 @@ describe('config load — a config.json carrying removed keys', () => {
     autoLink: { minSimilarity: 0.5, maxEdgesPerRun: 7, dryRun: true },
     triage: { enabled: false, maxItemsPerRun: 3 },
     decay: { archiveThreshold: 0.42, archiveMinAgeDays: 5 },
-    placement: { maxProposals: 2, maxItemsPerEnqueue: 1 },
+    placement: {
+      maxProposals: 2,
+      maxItemsPerEnqueue: 1,
+      maxClusterSize: 40,
+      proposalTtlDays: 14,
+      maxPendingProposals: 100,
+      maxProposalsPerEnqueue: 3
+    },
+    edgeDetect: { minSimilarity: 0.5, topK: 5, maxProposals: 9 },
     slots: { hardLimit: 900 },
     autoCluster: { dryRun: true }
   }
@@ -231,7 +245,12 @@ describe('config load — a config.json carrying removed keys', () => {
     const cwd = scratchDir()
     writeFileSync(
       join(cwd, 'config.json'),
-      JSON.stringify({ slots: { hardLimit: 900 }, autoCluster: { dryRun: true } })
+      JSON.stringify({
+        slots: { hardLimit: 900 },
+        autoCluster: { dryRun: true },
+        placement: { maxClusterSize: 40, proposalTtlDays: 14 },
+        edgeDetect: { minSimilarity: 0.5, topK: 5, maxProposals: 9 }
+      })
     )
 
     const res = await loadConfig(cwd)
@@ -241,10 +260,14 @@ describe('config load — a config.json carrying removed keys', () => {
     expect(resolved).not.toBeNull()
     expect(readPath(resolved, 'slots.hardLimit')).toBe(900)
     expect(readPath(resolved, 'autoCluster.dryRun')).toBe(true)
-    for (const path of ['slots.hardLimit', 'autoCluster.dryRun'])
+    expect(readPath(resolved, 'placement.maxClusterSize')).toBe(40)
+    expect(readPath(resolved, 'edgeDetect.minSimilarity')).toBe(0.5)
+    for (const path of ['slots.hardLimit', 'autoCluster.dryRun', 'placement.maxClusterSize']) {
       expect(readPath(defaults, path)).toBeUndefined()
+    }
     expect(readPath(resolved, 'slots.defaultMaxChars')).toBe(DEFAULTS.slots.defaultMaxChars)
     expect(readPath(resolved, 'autoCluster.minMembers')).toBe(DEFAULTS.autoCluster.minMembers)
+    expect(readPath(resolved, 'edgeDetect.maxCandidates')).toBe(DEFAULTS.edgeDetect.maxCandidates)
   })
 
   test('the removed knobs cannot be set from the environment', async () => {
@@ -277,9 +300,7 @@ describe('config load — a config.json carrying removed keys', () => {
     const a = parsedLine(res.out, 'RESOLVED=')
     const b = parsedLine(controlled.out, 'RESOLVED=')
     for (const path of REMOVED_PATHS) expect(readPath(b, path)).toBeUndefined()
-    expect(readPath(a, 'placement.maxProposalsPerEnqueue')).toBe(
-      readPath(b, 'placement.maxProposalsPerEnqueue')
-    )
+    expect(readPath(a, 'edgeDetect.maxCandidates')).toBe(readPath(b, 'edgeDetect.maxCandidates'))
     expect(readPath(a, 'decay.rate')).toBe(readPath(b, 'decay.rate'))
   })
 })

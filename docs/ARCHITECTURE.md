@@ -71,7 +71,7 @@ One Bun process per mode; the embedder is the only child.
 | MCP stdio | `synaptomind --stdio` (`src/index.ts:39`) | `StdioServerTransport`; stdout is the JSON-RPC channel, so `console.log`/`info`/`debug` are redirected to stderr. With `users[]` configured it binds the legacy database through `als.enterWith({ userId: 'stdio-legacy' })` — and refuses to start at all when it also owns the background jobs |
 | MCP HTTP | `startMcpHttpServer` in `src/mcp/http-transport.ts:31` | `app.all('/mcp', …)` on `config.mcp.httpPort` (3006) → `createMcpRouteHandler` in `src/mcp/mcp-route.ts:135`; sessions, CORS and lifecycle are the transport's own concern |
 | Embedder child | `synaptomind --embedder` (`src/index.ts:17`, imported before any server bootstrap) | `src/embedder/embedder-process.ts`: the `embedder-poll` interval job (`config.embedder.pollIntervalMs`, default 7000) and the `embedder-sweep` interval job (`SWEEP_INTERVAL_MS`, one hour). Spawned and supervised by `startEmbedderProcess` (`src/embedder/client-core.ts:15`) through `EmbedderSupervisor` (`src/embedder/embedder-supervisor.ts`) |
-| Parent background jobs | `createLifecycle(...)` in `src/index.ts:97` | `src/lifecycle.ts` `startBackgroundJobs` → `startDecayJob` (`src/services/decay.service.ts`) and `startPlacementRetentionJob`; only when `processOwnsBackgroundJobs()` (`src/embedder/spawn-scope.ts:15`) says this process owns them |
+| Parent background jobs | `createLifecycle(...)` in `src/index.ts:97` | `src/lifecycle.ts` `startBackgroundJobs` → `startDecayJob` (`src/services/decay.service.ts`) and `startPreviewTokenRetentionJob` (`src/services/preview-token-retention.service.ts`); only when `processOwnsBackgroundJobs()` (`src/embedder/spawn-scope.ts:15`) says this process owns them |
 
 ## A read, traced: `memory_recall` with `action=search`
 
@@ -108,9 +108,9 @@ One Bun process per mode; the embedder is the only child.
    `validateStatus`, `validateContentLength` against the configured limits, its own `d.transaction`,
    then `dbCreateThought` and `createEdge` for the parent — an `EdgeAlreadyExistsError` is logged and
    tolerated rather than failing the write.
-4. `createThought` (`src/db/thoughts.ts:108`) computes `content_hash` and inserts with
+4. `createThought` (`src/db/thoughts.ts:126`) computes `content_hash` and inserts with
    `ON CONFLICT (content_hash, project_id) WHERE status IN ('draft', 'active') DO NOTHING`
-   (`src/db/thoughts.ts:124`): a duplicate under the same project in a live status returns the
+   (`src/db/thoughts.ts:142`): a duplicate under the same project in a live status returns the
    existing id instead of creating a second row.
 5. The enqueue for embedding is **data-layer**: the `trg_thoughts_insert_pending` and
    `trg_thoughts_update_pending` triggers (rebuilt in `src/db/migrations/v035-pending-embeddings-hash.ts`)
@@ -143,20 +143,19 @@ Three service functions resolve the handle lazily, and each for a stated reason:
 | --- | --- | --- |
 | `getHealthService` (`src/services/health.service.ts:112`) | `(d?: Database, cfg?: Config)` | The probe must report database unavailability instead of throwing |
 | `runDecayJob` (`src/services/decay.service.ts:7`) | `(d?: Database)` | It runs before the handle is guaranteed; without an argument it fans out over `jobDatabases()` |
-| `jobDatabases` (`src/services/jobs.service.ts:12`) | `()` | The resolver both interval jobs go through: registered user databases, else the default one, else an empty list when it has neither |
+| `jobDatabases` (`src/services/jobs.service.ts:11`) | `()` | The resolver both interval jobs go through: registered user databases, else the default one, else an empty list when it has neither |
 
 Non-default shapes that are deliberate, not forgotten:
 
 - **`options` before `d`** — `updateThoughtByIdService(id, data, options, d, cfg)`
-  (`src/services/thoughts.service.ts:85`), because `UpdateThoughtInput` whitelists columns and
+  (`src/services/thoughts.service.ts:86`), because `UpdateThoughtInput` whitelists columns and
   `url_links` is not one; riding in `data`, it would be dropped silently.
 - **Required positional `d`** where the call must receive the caller's transaction handle or the
-  function is a pure helper: `apply-gates.service.ts`, `batch-run.service.ts`,
-  `health-check-drafts.service.ts`, `health.service.ts`, `placement-proposals.mapping.service.ts`,
-  `search-outcome.service.ts`, `search-standing.service.ts`, `placement/placement.ts`, and
+  function is a pure helper: `batch-run.service.ts`, `health-check-drafts.service.ts`,
+  `health.service.ts`, `search-outcome.service.ts`, `search-standing.service.ts`, and
   `retention-review-eligibility.service.ts` (`evaluateEligibility(id, d, opts, now)`).
 - **Required trailing `db: Database`** — `resolveCandidateEmbeddings(candidates, embed, db)` in
-  `src/services/candidate-embeddings.service.ts:8`.
+  `src/services/candidate-embeddings.service.ts:9`.
 
 ## The per-user model
 
@@ -177,8 +176,8 @@ The process serves one default database or one database per configured user, nev
 
 ## Code tiers: Core, Pillar, Scaffolding
 
-The tier map is not restated here. It is an ADR with fourteen disjoint rows, four placement tests and
-a per-tier verification floor:
+The tier map is not restated here. It is an ADR with fourteen disjoint rows and a per-tier
+verification floor:
 
 - [`synaptomind/adr/2026-11-12-code-tiers-core-pillars-scaffolding.md`](https://forgejo.home.lan/authelia/artifacts/src/commit/6371e9cf501628236e84aea7be68eefa85df3fe2/synaptomind/adr/2026-11-12-code-tiers-core-pillars-scaffolding.md)
 - machine reference:

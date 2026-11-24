@@ -3,16 +3,15 @@
  * shape, the change helpers every probe builds on, and the second objects an
  * identity probe addresses instead of the fixture's own.
  *
- * The probe data lives in `confirm-gate-fingerprints.edges.ts` (edge rows, runs
- * and placement proposals) and `confirm-gate-fingerprints.thoughts.ts`
- * (thoughts, clusters, projects, primers). Test-only.
+ * The probe data lives in `confirm-gate-fingerprints.edges.ts` (edge rows) and
+ * `confirm-gate-fingerprints.thoughts.ts` (thoughts, clusters, projects,
+ * primers). Test-only.
  */
 import type { Database } from 'bun:sqlite'
 import { getDb } from '../db'
 import { promoteThoughtToPrimer } from '../db/primers'
 import { createProjectService } from '../services/projects.service'
 import { seedEdge, seedThought } from './helpers'
-import { edgeProposal } from './confirm-gate-cases.types'
 
 /** A timestamp no fixture state is created with. */
 export const DRIFTED_AT = '2000-01-01T00:00:00.000Z'
@@ -31,7 +30,7 @@ export interface FingerprintProbe {
 }
 
 export interface FingerprintCase {
-  /** The contract-matrix label this action is driven through (12↔12 binding). */
+  /** The contract-matrix label this action is driven through (9↔9 binding). */
   label: string
   /** The token scope the action declares on its `runGuarded` call. */
   kind: string
@@ -66,10 +65,7 @@ export function update(sql: string, ...values: Array<string | number>): void {
 }
 
 /** Age a row's `created_at`/`updated_at` so a fingerprint that folds it moves. */
-export function age(
-  table: 'thoughts' | 'edges' | 'placement_proposals' | 'primers',
-  column: string
-) {
+export function age(table: 'thoughts' | 'edges' | 'primers', column: string) {
   return (id: string) => update(`UPDATE ${table} SET ${column} = ? WHERE id = ?`, DRIFTED_AT, id)
 }
 
@@ -93,10 +89,6 @@ export function anotherArchivedThought(): string {
   return seedThought({ content: 'gate fingerprint bound retention', status: 'archived' })
 }
 
-export function anotherProposal(): string {
-  return edgeProposal(freshThought('bound proposal source'), freshThought('bound proposal target'))
-}
-
 export function anotherProject(): string {
   return createProjectService({
     name: `Gate fingerprint ${Bun.randomUUIDv7()}`,
@@ -113,20 +105,4 @@ export function autoClusterMembers(): string[] {
       )
       .all() as Array<{ id: string }>
   ).map(row => row.id)
-}
-
-/** One accepted proposal of the rollback fixture's run, oldest first. */
-export function acceptedRowId(runId: string): string {
-  const row = db()
-    .prepare(
-      "SELECT id FROM placement_proposals WHERE run_id = ? AND state = 'accepted' ORDER BY created_at, id LIMIT 1"
-    )
-    .get(runId) as { id: string } | null
-  if (row === null) throw new Error(`no accepted proposal in run ${runId}`)
-  return row.id
-}
-
-/** A proposal column change, applied to one row of a batch or a single row. */
-export function proposalColumn(column: string, value: string): (id: string) => void {
-  return id => update(`UPDATE placement_proposals SET ${column} = ? WHERE id = ?`, value, id)
 }

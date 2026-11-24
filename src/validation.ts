@@ -26,14 +26,6 @@ export const timelineLimitSchema = z.coerce
 
 export const BATCH_ITEMS_MAX = 1000
 
-const PROPOSALS_LIMIT_MIN = 1
-const PROPOSALS_LIMIT_MAX = 1000
-export const proposalsLimitSchema = z.coerce
-  .number()
-  .int()
-  .min(PROPOSALS_LIMIT_MIN)
-  .max(PROPOSALS_LIMIT_MAX)
-
 export const isoDateTimeSchema = z.iso.datetime()
 
 export function validateStatus(status: string | undefined): void {

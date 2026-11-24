@@ -5,7 +5,7 @@ import { generateEmbeddings } from '../embedder/client'
 import { insertLog } from '../logging/log'
 import { resolveCandidateEmbeddings } from './candidate-embeddings.service'
 import { createClusterService } from './cluster.service'
-import { buildInMemoryDistanceLookup } from './edge-candidates.service'
+import { buildInMemoryDistanceLookup } from './embedding-neighbors.service'
 import type { Database } from 'bun:sqlite'
 
 export interface AutoClusterOptions {

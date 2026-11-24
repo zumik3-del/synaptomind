@@ -102,14 +102,11 @@ describe('confirm-gate matrix over the converted actions', () => {
 })
 
 describe('matrix inventory', () => {
-  test('covers all 12 converted sites and all four token scopes', () => {
-    expect(GATE_CASES).toHaveLength(12)
+  test('covers all nine converted sites and all four token scopes', () => {
+    expect(GATE_CASES).toHaveLength(9)
     expect(GATE_CASES.map((c: GateCase) => c.label)).toEqual([
       'memory_store action=unlink',
       'memory_store action=retype',
-      'edge_review action=rollback',
-      'edge_review action=apply',
-      'edge_review action=apply_batch',
       'memory_crystallize action=auto_cluster',
       'memory_manage action=delete',
       'memory_supersede action=archive',

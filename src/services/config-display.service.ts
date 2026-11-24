@@ -32,8 +32,7 @@ const SECTION_LABELS: Record<string, string> = {
   autoCluster: 'Auto Cluster',
   edgeDetect: 'Edge Detect',
   slots: 'Slots',
-  search: 'Search',
-  placement: 'Placement'
+  search: 'Search'
 }
 
 const SENSITIVE_PATH_KEYS = new Set([

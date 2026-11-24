@@ -132,7 +132,7 @@ sequenceDiagram
 - **Local embeddings** — `@huggingface/transformers`, no API keys
 - **MCP server** — stdio + HTTP transport
 - **Auto-clustering** — batch grouping by embedding proximity
-- **Background jobs** — decay, proposal retention
+- **Background jobs** — decay, preview-token retention
 
 </details>
 
@@ -234,7 +234,7 @@ For clients that prefer stdio:
 
 By default the stdio process is a **single-owner client**: it opens an MCP
 session against the shared database but does **not** start its own embedder
-child process or the decay / proposal-retention jobs at startup. The standalone
+child process or the decay / preview-token-retention jobs at startup. The standalone
 HTTP server owns the scheduled jobs. An embedding request can still start a
 local child on demand; stdio does not reuse the HTTP server's embedder process.
 
@@ -393,22 +393,19 @@ curl "http://127.0.0.1:3005/api/health-check?severity=warning" \
 | Recall | `memory_recall` (search, get, context, chain, clusters, list) |
 | Store | `memory_store` (create, update, link, link_batch, unlink, unlink_batch, retype, bulk_create) |
 | Supersede | `memory_supersede` (archive, archive_batch, merge) |
-| Status | `memory_status` (slots, frontier, config, health, propose) |
+| Status | `memory_status` (slots, frontier, config, health) |
 | Projects | `memory_manage` (list, create, update, delete, resolve) |
 | Consolidate | `memory_crystallize` (graph, cluster, auto_cluster) |
 | Reflect | `memory_reflect` (reflect, timeline) |
 | Primers | `memory_primers` (list, delete) |
-| Review | `edge_review` (enqueue, list, apply, apply_batch, rollback, reject) |
 | Retention | `retention_review` (list, protect, delete, compact) |
 | Guide | `memory_guide` |
 
 Every action answers in one response envelope — `{ items, meta }` for collections, `{ item, meta }`
 for single objects — and the project-scoped actions take an optional `cwd` that narrows an answer
 to one project: without it a read answers across every project and says so in `meta`, while a
-created thought lands in the default project. `memory_status action=propose` is the exception
-among the readers: its plan stays pinned to the project of the thought it addresses. For
-action-level detail (parameters, the dry-run/confirm pattern, examples), see
-[docs/mcp-tools.md](docs/mcp-tools.md).
+created thought lands in the default project. For action-level detail (parameters, the
+dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
 
 **Breaking 0.x changes:** this release prunes several 0.x subsystems from the MCP tools,
 the HTTP surface and the configuration surface. The 0.20 release shrinks HTTP to the three

@@ -65,18 +65,7 @@ export interface Config {
     minSimilarity: number
     minMembers: number
   }
-  edgeDetect: {
-    minSimilarity: number
-    topK: number
-    maxCandidates: number
-    maxProposals: number
-  }
-  placement: {
-    maxClusterSize: number
-    proposalTtlDays: number
-    maxPendingProposals: number
-    maxProposalsPerEnqueue: number
-  }
+  edgeDetect: { maxCandidates: number }
   slots: { defaultMaxChars: number }
   graph: { maxDegree: number }
   search: { confidence: { vectorFloor: number; unrelatedFloor: number } }
@@ -123,18 +112,7 @@ export const DEFAULTS: Config = {
     minSimilarity: 0.09,
     minMembers: 3
   },
-  edgeDetect: {
-    minSimilarity: 0.75,
-    topK: 10,
-    maxCandidates: 100,
-    maxProposals: 20
-  },
-  placement: {
-    maxClusterSize: 50,
-    proposalTtlDays: 30,
-    maxPendingProposals: 500,
-    maxProposalsPerEnqueue: 5
-  },
+  edgeDetect: { maxCandidates: 100 },
   slots: { defaultMaxChars: 2000 },
   graph: { maxDegree: 50 },
   search: { confidence: { vectorFloor: 0.9, unrelatedFloor: 0.8 } },
@@ -208,15 +186,7 @@ export const ENV_MAPPINGS: EnvMapping[] = [
   M('SYNAPTOMIND_AUTO_CLUSTER_MIN_SIMILARITY', 'autoCluster.minSimilarity', 'float'),
   M('SYNAPTOMIND_AUTO_CLUSTER_MIN_MEMBERS', 'autoCluster.minMembers', 'int'),
 
-  M('SYNAPTOMIND_EDGE_DETECT_MIN_SIMILARITY', 'edgeDetect.minSimilarity', 'float'),
-  M('SYNAPTOMIND_EDGE_DETECT_TOP_K', 'edgeDetect.topK', 'int'),
   M('SYNAPTOMIND_EDGE_DETECT_MAX_CANDIDATES', 'edgeDetect.maxCandidates', 'int'),
-  M('SYNAPTOMIND_EDGE_DETECT_MAX_PROPOSALS', 'edgeDetect.maxProposals', 'int'),
-
-  M('SYNAPTOMIND_PLACEMENT_MAX_CLUSTER_SIZE', 'placement.maxClusterSize', 'int'),
-  M('SYNAPTOMIND_PLACEMENT_PROPOSAL_TTL_DAYS', 'placement.proposalTtlDays', 'int'),
-  M('SYNAPTOMIND_PLACEMENT_MAX_PENDING_PROPOSALS', 'placement.maxPendingProposals', 'int'),
-  M('SYNAPTOMIND_PLACEMENT_MAX_PROPOSALS_PER_ENQUEUE', 'placement.maxProposalsPerEnqueue', 'int'),
 
   M('SYNAPTOMIND_SLOTS_MAX_CHARS', 'slots.defaultMaxChars', 'int'),
 

@@ -54,7 +54,7 @@ test('the shipped jobs all schedule through this one runner', () => {
   expect(decay.match(/createIntervalJob\(/g)).toHaveLength(1)
   expect(decay).toContain("name: 'decay'")
 
-  const placement = source('./services/placement-retention.service.ts')
-  expect(placement.match(/createIntervalJob\(/g)).toHaveLength(1)
-  expect(placement).toContain("name: 'placement-retention'")
+  const retention = source('./services/preview-token-retention.service.ts')
+  expect(retention.match(/createIntervalJob\(/g)).toHaveLength(1)
+  expect(retention).toContain("name: 'preview-token-retention'")
 })

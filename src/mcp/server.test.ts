@@ -13,7 +13,6 @@ const EXPECTED_TOOLS = [
   'memory_crystallize',
   'memory_reflect',
   'memory_primers',
-  'edge_review',
   'retention_review',
   'memory_guide'
 ]
@@ -38,7 +37,7 @@ describe('MCP surface is tools-only (F12)', () => {
     expect(caps?.prompts).toBeUndefined()
   })
 
-  test('listTools exposes exactly the eleven action tools', async () => {
+  test('listTools exposes exactly the ten action tools', async () => {
     const { tools } = await client.listTools()
     expect(tools.map(t => t.name).sort()).toEqual([...EXPECTED_TOOLS].sort())
   })

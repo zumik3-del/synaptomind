@@ -350,13 +350,7 @@ test('a pre-baseline database still upgrades to the current version', () => {
   const before = fileState(dbPath)
   expect(before.meta).toEqual([])
   const names = before.schema.map(object => object.name)
-  const postBaseline = [
-    'pending_embeddings',
-    'placement_proposals',
-    'tags',
-    'thought_tags',
-    'vec_thoughts'
-  ]
+  const postBaseline = ['pending_embeddings', 'primers', 'tags', 'thought_tags', 'vec_thoughts']
   expect(names.filter(name => postBaseline.includes(name))).toEqual([])
 
   initDb({ dbPath, runMigrations: true })

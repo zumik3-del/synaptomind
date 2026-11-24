@@ -1,13 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { Database } from 'bun:sqlite'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
 import { getDb, closeDb } from '../../db'
-import { getEdgePairBetween } from '../../db/edges'
-import { getThoughtRow } from '../../db/thoughts'
 import { resolveDefaultProjectId } from '../../db/projects'
-import { insertProposal } from '../../db/placement-proposals'
-import { computeFingerprint } from '../../services/placement-proposals.service'
 import { createTestDb, seedEdge, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
@@ -73,38 +68,11 @@ interface Fixture {
   other: string
   edgeId: string
   retention: string
-  proposalId: string
 }
 
 let fx: Fixture
 
 const OLD_ISO = '2020-01-01T00:00:00.000Z'
-
-function insertPendingEdge(db: Database, src: string, tgt: string): string {
-  const source = getThoughtRow(db, src)
-  const target = getThoughtRow(db, tgt)
-  if (!source || !target) throw new Error('fixture thoughts missing')
-  const fp = computeFingerprint({
-    sourceId: src,
-    sourceUpdatedAt: source.updated_at,
-    sourceStatus: source.status,
-    targetId: tgt,
-    targetUpdatedAt: target.updated_at,
-    targetStatus: target.status,
-    existingEdgeType: getEdgePairBetween(db, src, tgt)?.type ?? null
-  })
-  return insertProposal(db, {
-    source_thought_id: src,
-    item_kind: 'edge',
-    target_id: tgt,
-    edge_type: 'related',
-    confidence: 0.8,
-    rationale: 'envelope conformance fixture',
-    payload: '{}',
-    fingerprint: fp,
-    direction: 'symmetric'
-  }).id
-}
 
 function seedFixture(): void {
   const db = getDb()
@@ -133,8 +101,7 @@ function seedFixture(): void {
     target,
     other,
     edgeId: seedEdge(source, other, 'supports'),
-    retention,
-    proposalId: insertPendingEdge(db, source, target)
+    retention
   }
 }
 
@@ -255,13 +222,6 @@ const CASES: ActionCase[] = [
   { tool: 'memory_status', action: 'frontier', args: () => ({}), slot: 'items', cwd: true },
   { tool: 'memory_status', action: 'config', args: () => ({}), slot: 'item', noMirror: true },
   { tool: 'memory_status', action: 'health', args: () => ({}), slot: 'item' },
-  {
-    tool: 'memory_status',
-    action: 'propose',
-    args: f => ({ thought_id: f.source }),
-    slot: 'item',
-    cwd: true
-  },
   { tool: 'memory_manage', action: 'list', args: () => ({}), slot: 'items', cwd: true },
   {
     tool: 'memory_manage',
@@ -322,41 +282,6 @@ const CASES: ActionCase[] = [
     args: () => ({ primer_id: 'missing-primer' }),
     slot: 'item'
   },
-  {
-    tool: 'edge_review',
-    action: 'enqueue',
-    args: f => ({ thought_id: f.source }),
-    slot: 'item',
-    cwd: true
-  },
-  { tool: 'edge_review', action: 'list', args: () => ({}), slot: 'items', cwd: true },
-  {
-    tool: 'edge_review',
-    action: 'apply',
-    args: f => ({ proposal_id: f.proposalId }),
-    slot: 'item',
-    preview: true
-  },
-  {
-    tool: 'edge_review',
-    action: 'apply_batch',
-    args: f => ({ proposal_ids: [f.proposalId] }),
-    slot: 'items',
-    preview: true
-  },
-  {
-    tool: 'edge_review',
-    action: 'rollback',
-    args: () => ({ run_id: 'auto-conformance-run' }),
-    slot: 'items',
-    preview: true
-  },
-  {
-    tool: 'edge_review',
-    action: 'reject',
-    args: f => ({ proposal_id: f.proposalId }),
-    slot: 'item'
-  },
   { tool: 'retention_review', action: 'list', args: () => ({}), slot: 'items' },
   {
     tool: 'retention_review',
@@ -381,7 +306,6 @@ const CASES: ActionCase[] = [
 ]
 
 const ACTION_TOOLS = [
-  'edge_review',
   'memory_crystallize',
   'memory_manage',
   'memory_primers',
@@ -618,41 +542,6 @@ for (const c of CASES) {
   })
 }
 
-const ITEMS_PHRASE = '{ items, meta } for '
-const ITEM_PHRASE = '{ item, meta } for '
-
-function envelopeClause(description: string, phrase: string, otherPhrase: string): string {
-  const start = description.indexOf(phrase)
-  if (start < 0) return ''
-  const body = description.slice(start + phrase.length)
-  const cuts = [body.indexOf('; '), body.indexOf('. '), body.indexOf(otherPhrase)].filter(
-    i => i >= 0
-  )
-  return body.slice(0, cuts.length > 0 ? Math.min(...cuts) : body.length).replace(/[,\s]+$/, '')
-}
-
-function assertEdgeReviewDescription(description: string): void {
-  const itemsClause = envelopeClause(description, ITEMS_PHRASE, ITEM_PHRASE)
-  const itemClause = envelopeClause(description, ITEM_PHRASE, ITEMS_PHRASE)
-  expect(itemsClause).not.toBe('')
-  expect(itemClause).not.toBe('')
-
-  const mentions = (clause: string, action: string) =>
-    new RegExp(`(^|[^a-z_])${action}([^a-z_]|$)`).test(clause)
-  for (const c of CASES.filter(c => c.tool === 'edge_review')) {
-    const documented = c.slot === 'item' ? itemClause : itemsClause
-    const other = c.slot === 'item' ? itemsClause : itemClause
-    expect({ action: c.action, documented: mentions(documented, c.action) }).toEqual({
-      action: c.action,
-      documented: true
-    })
-    expect({ action: c.action, wrongClause: mentions(other, c.action) }).toEqual({
-      action: c.action,
-      wrongClause: false
-    })
-  }
-}
-
 describe('action table completeness', () => {
   test('every action of every action tool is in the table, and nothing extra', async () => {
     const tools = await advertisedTools()
@@ -668,30 +557,6 @@ describe('action table completeness', () => {
         .sort()
       expect(covered).toEqual(advertised)
     }
-  })
-
-  test('the edge_review description maps every action to the envelope shape it really answers', async () => {
-    const tool = (await advertisedTools()).find(t => t.name === 'edge_review')
-    assertEdgeReviewDescription(tool?.description ?? '')
-  })
-
-  test('the clause cut runs past the dot inside meta.counts and stops at the next phrase', () => {
-    const description =
-      'Answers the shared envelope: { items, meta } for list/apply_batch/rollback (aggregate in meta.counts), ' +
-      '{ item, meta } for enqueue/apply/reject; a preview sets meta.preview={token,destructive:true}. Actions: enqueue.'
-
-    expect(envelopeClause(description, ITEMS_PHRASE, ITEM_PHRASE)).toBe(
-      'list/apply_batch/rollback (aggregate in meta.counts)'
-    )
-    expect(envelopeClause(description, ITEM_PHRASE, ITEMS_PHRASE)).toBe('enqueue/apply/reject')
-  })
-
-  test('the description check has teeth: a period before the action list is caught', () => {
-    const doctored =
-      'Answers the shared envelope: { items, meta } for collections. list, apply_batch and rollback use that shape, ' +
-      '{ item, meta } for enqueue, apply and reject; a preview sets meta.preview={token,destructive:true}.'
-
-    expect(() => assertEdgeReviewDescription(doctored)).toThrow()
   })
 
   test('the graph exception is documented on memory_crystallize', async () => {
@@ -787,118 +652,8 @@ describe('cwd is optional: a call without it answers with no scope', () => {
   })
 })
 
-const PROPOSE_THOUGHT_PIN =
-  'propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to'
-const PROPOSE_DRAFT_PIN =
-  'propose is not cross-project: the plan is restricted to the default project (draft content)'
-const PROPOSE_THOUGHT_WARNING = `no cwd — ${PROPOSE_THOUGHT_PIN}`
-const PROPOSE_DRAFT_WARNING = `no cwd — ${PROPOSE_DRAFT_PIN}`
-
 const UNREGISTERED_CWD = '/tmp/opencode/unregistered-project'
-const UNKNOWN_PATH_CAUSE = `cwd "${UNREGISTERED_CWD}" matches no known project (check it with memory_manage action=resolve)`
-const PROPOSE_THOUGHT_UNREGISTERED_WARNING = `${UNKNOWN_PATH_CAUSE} — ${PROPOSE_THOUGHT_PIN}`
-const PROPOSE_DRAFT_UNREGISTERED_WARNING = `${UNKNOWN_PATH_CAUSE} — ${PROPOSE_DRAFT_PIN}`
 const SPANS_EVERY_PROJECT_CLAIM = 'the answer spans every project'
-
-async function proposeTargets(
-  args: Record<string, unknown>,
-  cwd?: string
-): Promise<{ targets: string[]; meta: Record<string, unknown> }> {
-  const { payload, isError, text } = readResult(
-    await client.callTool({
-      name: 'memory_status',
-      arguments: { action: 'propose', ...args, ...(cwd === undefined ? {} : { cwd }) }
-    } as never)
-  )
-  if (isError) throw new Error(`memory_status propose answered isError: ${text}`)
-  const body = payload as {
-    item: { edges: Array<{ target_id: string }> }
-    meta: Record<string, unknown>
-  }
-  return { targets: body.item.edges.map(edge => edge.target_id), meta: body.meta }
-}
-
-describe('memory_status action=propose without cwd reports the scope it used', () => {
-  test('a draft plans against the default project, not every project', async () => {
-    const text = 'propose-scope default twin'
-    const defaultTwin = seedThought({
-      content: text,
-      project_id: resolveDefaultProjectId(getDb())
-    })
-    const otherTwin = seedThought({ content: text, project_id: OTHER_PROJECT })
-
-    const { targets, meta } = await proposeTargets({ content: text })
-    expect(meta.scope).toBeNull()
-    expect(meta.warnings).toEqual([PROPOSE_DRAFT_WARNING])
-    expect(meta.warnings).not.toContain(NO_CWD_WARNING)
-    expect(targets).toEqual([defaultTwin])
-    expect(targets).not.toContain(otherTwin)
-  })
-
-  test('a thought_id plans against that thought’s project', async () => {
-    const text = 'propose-scope owned twin'
-    const source = seedThought({ content: text, project_id: PROJECT })
-    const scopedTwin = seedThought({ content: text, project_id: PROJECT })
-    const otherTwin = seedThought({ content: text, project_id: OTHER_PROJECT })
-
-    const { targets, meta } = await proposeTargets({ thought_id: source })
-    expect(meta.scope).toBeNull()
-    expect(meta.warnings).toEqual([PROPOSE_THOUGHT_WARNING])
-    expect(meta.warnings).not.toContain(NO_CWD_WARNING)
-    expect(targets).toEqual([scopedTwin])
-    expect(targets).not.toContain(otherTwin)
-  })
-
-  test('with cwd the envelope keeps its pre-#2445 shape: scope resolved, no warning', async () => {
-    const source = seedThought({ content: 'propose-scope cited thought', project_id: PROJECT })
-
-    const { meta } = await proposeTargets({ thought_id: source }, CWD)
-    expect(meta.scope).toEqual({
-      project: PROJECT,
-      project_name: 'Conformance',
-      global: false
-    })
-    expect(meta.warnings).toEqual([])
-  })
-})
-
-describe('memory_status action=propose with an unregistered cwd answers one accurate note', () => {
-  test('a thought_id note names the unknown path and its pinning clause', async () => {
-    const text = 'propose-unregistered owned twin'
-    const source = seedThought({ content: text, project_id: PROJECT })
-    const scopedTwin = seedThought({ content: text, project_id: PROJECT })
-    const otherTwin = seedThought({ content: text, project_id: OTHER_PROJECT })
-
-    const absentCwd = await proposeTargets({ thought_id: source })
-    const { targets, meta } = await proposeTargets({ thought_id: source }, UNREGISTERED_CWD)
-    const warnings = meta.warnings as string[]
-    expect(meta.scope).toEqual({ project: null, project_name: null, global: true })
-    expect(warnings).toEqual([PROPOSE_THOUGHT_UNREGISTERED_WARNING])
-    expect(warnings.join('\n')).not.toContain(SPANS_EVERY_PROJECT_CLAIM)
-    expect(targets).toEqual(absentCwd.targets)
-    expect(targets).toEqual([scopedTwin])
-    expect(targets).not.toContain(otherTwin)
-  })
-
-  test('a draft note names the unknown path and its draft pinning clause', async () => {
-    const text = 'propose-unregistered draft twin'
-    const defaultTwin = seedThought({
-      content: text,
-      project_id: resolveDefaultProjectId(getDb())
-    })
-    const otherTwin = seedThought({ content: text, project_id: OTHER_PROJECT })
-
-    const absentCwd = await proposeTargets({ content: text })
-    const { targets, meta } = await proposeTargets({ content: text }, UNREGISTERED_CWD)
-    const warnings = meta.warnings as string[]
-    expect(meta.scope).toEqual({ project: null, project_name: null, global: true })
-    expect(warnings).toEqual([PROPOSE_DRAFT_UNREGISTERED_WARNING])
-    expect(warnings.join('\n')).not.toContain(SPANS_EVERY_PROJECT_CLAIM)
-    expect(targets).toEqual(absentCwd.targets)
-    expect(targets).toEqual([defaultTwin])
-    expect(targets).not.toContain(otherTwin)
-  })
-})
 
 describe('memory_reflect action=reflect without cwd writes to the default project', () => {
   test('decisions and pending land there with scope null and no warning', async () => {
@@ -1299,15 +1054,11 @@ const CWD_IGNORE_CLAUSE: Record<string, { clause: string; scopes: string }> = {
   },
   memory_status: {
     clause: 'ACCEPTED AND IGNORED for "config", "health".',
-    scopes: 'OPTIONAL for "slots", "frontier" and "propose"'
+    scopes: 'OPTIONAL for "slots" and "frontier"'
   },
   memory_crystallize: {
     clause: 'ACCEPTED AND IGNORED for "auto_cluster".',
     scopes: 'OPTIONAL for "graph" and "cluster"'
-  },
-  edge_review: {
-    clause: 'ACCEPTED AND IGNORED for "apply", "apply_batch", "rollback", "reject".',
-    scopes: 'OPTIONAL for "enqueue" and "list"'
   },
   memory_manage: {
     clause: 'ACCEPTED AND IGNORED for all other actions.',
@@ -1388,7 +1139,6 @@ describe('every action of every tool accepts cwd', () => {
 })
 
 const REFUSAL_SWEEP: Array<{ tool: string; args: Record<string, unknown> }> = [
-  { tool: 'edge_review', args: { action: 'not_an_action' } },
   { tool: 'memory_crystallize', args: { action: 'not_an_action' } },
   { tool: 'memory_manage', args: { action: 'not_an_action' } },
   { tool: 'memory_primers', args: { action: 'not_an_action' } },
@@ -1552,8 +1302,7 @@ describe('a preview token lives only in meta.preview', () => {
       args: f => ({ source_id: f.target, target_id: f.source })
     },
     { tool: 'memory_manage', action: 'delete', args: () => ({ project_id: PROJECT }) },
-    { tool: 'retention_review', action: 'delete', args: f => ({ thought_id: f.retention }) },
-    { tool: 'edge_review', action: 'apply', args: f => ({ proposal_id: f.proposalId }) }
+    { tool: 'retention_review', action: 'delete', args: f => ({ thought_id: f.retention }) }
   ]
 
   for (const c of PREVIEW_TOKEN_ACTIONS) {
