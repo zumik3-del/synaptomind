@@ -11,7 +11,13 @@ import {
   isDefaultProjectService,
   DEFAULT_PROJECT_DELETE_MESSAGE
 } from '../../services/projects.service'
-import { actionInput, registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import {
+  DESTRUCTIVE,
+  actionInput,
+  registerActionTool,
+  requiredString,
+  type ActionArgs
+} from './action-tool'
 import { shapeEntity } from './utils'
 import { collectionEnvelope, itemEnvelope } from './envelope'
 import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
@@ -171,7 +177,8 @@ const handlers = {
 export function registerMemoryManage(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_manage',
-    description: `Manage projects (CRUD). Every action answers in one envelope: list returns { items, meta }, the single-project actions return { item, meta }. Actions: list, create, update, delete (preview→confirm), resolve (resolve project from cwd/path). Every action refuses an argument that belongs to another one.`,
+    annotations: DESTRUCTIVE,
+    description: `Manage projects — the containers thoughts belong to; the thoughts themselves are memory_recall and their writes memory_store. Every action answers in one envelope: list returns { items, meta }, the single-project actions return { item, meta }. Actions: list, create, update, delete (preview→confirm), resolve (resolve project from cwd/path). Every action refuses an argument that belongs to another one.`,
     inputSchema: {
       action: z.enum(['list', 'create', 'update', 'delete', 'resolve']).describe('Action'),
       ...MANAGE_ARGS

@@ -7,7 +7,13 @@ import {
 } from '../../services/primers.service'
 import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 import { collectionEnvelope, itemEnvelope } from './envelope'
-import { actionInput, registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import {
+  DESTRUCTIVE,
+  actionInput,
+  registerActionTool,
+  requiredString,
+  type ActionArgs
+} from './action-tool'
 
 const PRIMERS_ARGS = {
   primer_id: z
@@ -89,11 +95,12 @@ const handlers = {
 export function registerMemoryPrimers(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_primers',
-    description: `The always-at-hand set — thoughts recalled often enough to be injected into every conversation — and the only tool that reviews or removes them. Answers the shared envelope ({ items, meta } for list, { item, meta } for delete) and refuses an argument that belongs to the other action.
+    annotations: DESTRUCTIVE,
+    description: `The always-at-hand set — thoughts recalled often enough to be injected into every conversation — and the only tool that reviews or removes them. list answers { items, meta }, delete { item, meta }; each refuses the other's arguments.
 
-Primers are created automatically, never by this tool: a thought is promoted on the search path once its hit count reaches primer.promoteThreshold (default 5). list returns them most-hit first (up to 500) as { id, thought_id, hit_count, promoted_at, created_at } — read a primer's text with memory_recall action=get thought_id=<primer.thought_id>, project context and active goals with memory_status action=slots, and clusters with memory_crystallize.
+Primers are created automatically, never by this tool: a thought is promoted on the search path once its hit count reaches primer.promoteThreshold (default 5). list returns them most-hit first (up to 500) as { id, thought_id, hit_count, promoted_at, created_at }; read the thought itself with memory_recall action=get.
 
-delete removes the primer record only: the thought, its edges and its history stay. It is preview-first — without confirm=true it answers a preview carrying consequence, instruction and meta.preview.token, and confirm=true must echo that token back; a missing, stale or mismatched token fails with an error and needs a fresh preview. Deletion is not permanent: the same thought is promoted again the next time it is recalled while its hit count still reaches the threshold. An unknown primer_id answers status=not_found as an ordinary item rather than an error.`,
+delete removes the primer record only — the thought, its edges and its history stay — and is preview-first: without confirm=true it answers a preview carrying consequence, instruction and meta.preview.token, and confirm=true must echo that token back, since a missing, stale or mismatched one fails and needs a fresh preview. It is not permanent: the same thought is promoted again on its next recall while its hit count still reaches the threshold. An unknown primer_id answers status=not_found as an ordinary item, not an error.`,
     inputSchema: {
       action: z.enum(['list', 'delete']).describe('Action'),
       ...PRIMERS_ARGS

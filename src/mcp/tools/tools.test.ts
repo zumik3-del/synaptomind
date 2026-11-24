@@ -901,6 +901,26 @@ describe('memory_guide', () => {
     expect(guide?.annotations?.readOnlyHint).toBe(true)
   })
 
+  test('every tool advertises the four MCP annotation hints', async () => {
+    const { tools } = await client.listTools()
+    for (const tool of tools) {
+      const hints = (tool.annotations ?? {}) as Record<string, unknown>
+      expect({
+        tool: tool.name,
+        readOnly: typeof hints.readOnlyHint,
+        destructive: typeof hints.destructiveHint,
+        idempotent: typeof hints.idempotentHint,
+        openWorld: hints.openWorldHint
+      }).toEqual({
+        tool: tool.name,
+        readOnly: 'boolean',
+        destructive: 'boolean',
+        idempotent: 'boolean',
+        openWorld: false
+      })
+    }
+  })
+
   test('advertises the effective soft limit resolved at call time', async () => {
     const fresh = await setupClient(
       configFixture({ thoughts: { ...config.thoughts, softLimit: 123 } })

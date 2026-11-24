@@ -62,6 +62,14 @@ jobs:
       - name: "Lint: docs (no dead ai-workdir references)"
         run: bun run lint:docs
 
+      # Blocking: a tool definition is the only thing an agent reads before it picks a
+      # tool, so it gets the same treatment as formatting. TDQS lint is the deterministic
+      # half of the rubric Glama grades the published card with: no model, no key, no
+      # network — it boots the stdio server and reads the real tools/list. Pinned to a
+      # rubric version, because an unpinned resolve would let a spec release move a gate.
+      - name: "Lint: tool definitions (TDQS, blocking)"
+        run: bun run lint:tools
+
       # Advisory: duplication is a quality signal, NOT a merge gate. The step reports
       # clones and `--exitCode 1` marks it failed (0.13% at the 6-line floor), and
       # `continue-on-error` keeps the job green so every later step still runs. A

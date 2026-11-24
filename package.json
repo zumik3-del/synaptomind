@@ -1,6 +1,6 @@
 {
   "name": "synaptomind",
-  "version": "0.26.3",
+  "version": "0.26.4",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -25,6 +25,7 @@
     "format": "biome format --write src eval scripts deploy",
     "format:check": "biome format src eval scripts deploy",
     "lint:docs": "bun run scripts/check-doc-refs.ts",
+    "lint:tools": "SYNAPTOMIND_DB_PATH=/tmp/tdqs-lint.db bunx mcp-tdqs@0.2.0 lint --command 'bun run src/index.ts --stdio' --server-name synaptomind --fail-on warning",
     "lint:dup": "jscpd src --min-lines 6 --min-tokens 50 --threshold 0.01 --exitCode 1 --reporters console --ignore \"**/*.test.ts,**/*.suite.ts,**/__fixtures__/**,src/test/**\"",
     "smoke": "bash scripts/smoke-test.sh",
     "release": "bash scripts/release.sh",

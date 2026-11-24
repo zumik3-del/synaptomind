@@ -12,7 +12,13 @@ import {
 } from '../../services/retention-review-actions.service'
 import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 import { collectionEnvelope, itemEnvelope } from './envelope'
-import { actionInput, registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import {
+  DESTRUCTIVE,
+  actionInput,
+  registerActionTool,
+  requiredString,
+  type ActionArgs
+} from './action-tool'
 import { shapeEntity } from './utils'
 import { BATCH_ITEMS_MAX } from '../../validation'
 
@@ -191,6 +197,7 @@ const handlers = {
 export function registerRetentionReview(server: McpServer): void {
   registerActionTool(server, {
     name: 'retention_review',
+    annotations: DESTRUCTIVE,
     description:
       'Review retention candidates: list candidates, protect a thought, preview or confirm deletion, or compact candidates into a summary. Answers the shared envelope { items, meta } for list and { item, meta } for protect/delete/compact; a preview sets meta.preview={token,destructive:true}. Every action refuses an argument that belongs to another one.',
     inputSchema: {

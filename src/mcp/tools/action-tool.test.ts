@@ -9,6 +9,7 @@ import { registerAllMemoryTools } from '.'
 import {
   actionInput,
   type ActionToolConfig,
+  READ_ONLY,
   registerActionTool,
   requiredString
 } from './action-tool'
@@ -73,6 +74,7 @@ const DEMO_ARGS = {
 const demoConfig: ActionToolConfig = {
   name: 'memory_demo',
   description: 'dispatcher probe',
+  annotations: READ_ONLY,
   inputSchema: { action: z.string(), ...DEMO_ARGS },
   handlers: {
     echo: { input: actionInput(DEMO_ARGS, ['value']), run: args => ({ echoed: args.value }) },
@@ -137,6 +139,7 @@ describe('registerActionTool dispatch mechanics', () => {
       registerActionTool(server, {
         name: 'multi',
         description: 'validation probe',
+        annotations: READ_ONLY,
         inputSchema: { action: z.string() },
         handlers: {
           check: {
