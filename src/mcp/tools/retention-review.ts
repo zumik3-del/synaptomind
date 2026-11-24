@@ -199,7 +199,7 @@ export function registerRetentionReview(server: McpServer): void {
     name: 'retention_review',
     annotations: DESTRUCTIVE,
     description:
-      'Review retention candidates: list candidates, protect a thought, preview or confirm deletion, or compact candidates into a summary. Answers the shared envelope { items, meta } for list and { item, meta } for protect/delete/compact; a preview sets meta.preview={token,destructive:true}. Every action refuses an argument that belongs to another one.',
+      'Review retention candidates: list candidates, protect a thought, preview or confirm deletion, or compact candidates into a summary. Answers the shared envelope { items, meta } for list and { item, meta } for protect/delete/compact; a preview sets meta.preview={token,destructive:true}. Actions accept only their own arguments.',
     inputSchema: {
       action: z.enum(['list', 'protect', 'delete', 'compact']).describe('Action'),
       ...RETENTION_ARGS

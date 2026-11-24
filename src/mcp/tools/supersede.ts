@@ -295,7 +295,7 @@ export function registerMemorySupersede(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_supersede',
     annotations: DESTRUCTIVE,
-    description: `Version and supersede thoughts. Answers the shared envelope: { item, meta } for archive/merge, { items, meta } for archive_batch (one row per requested occurrence, aggregate in meta.counts.archived/failed); a preview sets meta.preview={token,destructive:true}. All actions preview by default; set confirm=true to execute. Actions: archive (idempotent), archive_batch (per-item partial results), merge (source→target; reports edges_transferred). Every action refuses an argument that belongs to another one.`,
+    description: `Retire a thought without deleting it: archive one, archive a batch, or merge one thought onto another and transfer its edges. This is the lifecycle path — reading is memory_recall, creating and linking memory_store, permanent removal retention_review. Actions: archive (idempotent), archive_batch (one row per requested occurrence), merge (source→target, reports edges_transferred). All actions preview by default and set meta.preview={token,destructive:true}; confirm=true executes after revalidating state. Answers { item, meta } for archive and merge, { items, meta } for archive_batch with the aggregate in meta.counts.archived/failed. Actions accept only their own arguments.`,
     inputSchema: {
       action: z.enum(['archive', 'archive_batch', 'merge']).describe('Action'),
       ...SUPERSEDE_ARGS
