@@ -18,6 +18,7 @@ LABEL org.opencontainers.image.source="https://github.com/zumik3-del/synaptomind
 # revision is only set when a source commit is provided (CI/tagged release).
 # For local builds COMMIT_SHA is empty — the label is omitted.
 LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
+LABEL io.modelcontextprotocol.server.name="io.github.zumik3-del/synaptomind"
 
 ENV NODE_ENV=production
 ENV SYNAPTOMIND_DB_PATH=/app/data/synaptomind.db
@@ -35,4 +36,4 @@ EXPOSE 3005 3006
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
   CMD curl -sf http://127.0.0.1:3005/health || exit 1
 
-CMD ["bun", "run", "src/index.ts"]
+ENTRYPOINT ["bun", "run", "src/index.ts"]

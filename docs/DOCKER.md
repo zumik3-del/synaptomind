@@ -41,6 +41,19 @@ services:
 docker compose pull && docker compose up -d
 ```
 
+### MCP server over stdio
+
+The image entrypoint is the server itself, so an MCP client can run the same
+image as a stdio server with persistent storage:
+
+```bash
+docker run -i --rm -v synaptomind-data:/app/data ghcr.io/zumik3-del/synaptomind:latest --stdio
+```
+
+stdio has no network surface, so no ports are published and no bearer token is
+needed. Without the `-v` volume every container start begins with an empty
+memory.
+
 ### Systemd install (not a container path)
 
 The `deploy/` framework installs the published binary under systemd by default
