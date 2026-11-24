@@ -3,7 +3,7 @@
   "name": "io.github.zumik3-del/synaptomind",
   "title": "SynaptoMind",
   "description": "Local persistent memory for AI agents: a SQLite knowledge graph with semantic recall over MCP.",
-  "version": "0.26.2",
+  "version": "0.26.3",
   "repository": {
     "url": "https://github.com/zumik3-del/synaptomind",
     "source": "github"
@@ -11,7 +11,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/zumik3-del/synaptomind:0.26.2-stdio",
+      "identifier": "ghcr.io/zumik3-del/synaptomind:0.26.3-stdio",
       "transport": {
         "type": "stdio"
       },
