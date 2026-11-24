@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "baseBranchPatterns": ["dev"],
+  "timezone": "UTC",
+  "schedule": ["before 6am on monday"],
+  "automerge": false,
+  "platformAutomerge": false,
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 5,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Renovate CLI of the self-hosted run: the workflow pins ghcr.io/renovatebot/renovate to 44.261.1, the current npm latest.",
+      "managerFilePatterns": ["/^\\.github/workflows/renovate\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+renovate-version: \"(?<currentValue>[^\"]+)\""
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "One PR for all dev dependency bumps",
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "dev dependencies"
+    },
+    {
+      "description": "One PR for Dockerfile and docker-compose base images",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "groupName": "docker base images"
+    },
+    {
+      "description": "The action appends the CLI value to the image name, so keep it a tag: no digest suffix",
+      "matchDepNames": ["ghcr.io/renovatebot/renovate"],
+      "pinDigests": false
+    }
+  ]
+}
