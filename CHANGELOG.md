@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.26.4
+
+> November 24, 2026
+
+- [`325dbbf8`](https://github.com/zumik3-del/synaptomind/commit/325dbbf8b702146f9a8bcbda7af4fb4f107e2d8b): docs(mcp): name memory_manage's siblings in its description
+- [`34263fb2`](https://github.com/zumik3-del/synaptomind/commit/34263fb2c636c929e8fa2b7a05e71a67e84a2d1e): docs(mcp): trim tool descriptions without dropping contract facts
+- [`a880af8e`](https://github.com/zumik3-del/synaptomind/commit/a880af8e3749ec26adc4ac8ab38c55300d5806fb): docs(mcp): close the TDQS gaps in four tool descriptions
+- [`ce2ca683`](https://github.com/zumik3-del/synaptomind/commit/ce2ca6839fb1051f4c44c5bae20d72604694b366): docs(agents): keep the TDQS key path out of the public file
+- [`b7461776`](https://github.com/zumik3-del/synaptomind/commit/b7461776381f444955d4d8c87e7b206372d8018c): docs(agents): tighten the TDQS rule
+- [`05b8ed93`](https://github.com/zumik3-del/synaptomind/commit/05b8ed93ff48319544bd8161cd3ae3b67c42b09a): docs(agents): ask before spending a TDQS score run
+- [`71c74d83`](https://github.com/zumik3-del/synaptomind/commit/71c74d8332c2dbe04f4939b3846a4b881c2c35bc): ci: gate tool definitions on TDQS lint
+- [`39560029`](https://github.com/zumik3-del/synaptomind/commit/395600290ded1d922c00c11a7923a2abadef1f01): feat(mcp): advertise MCP annotations on every tool
+- [`198d088e`](https://github.com/zumik3-del/synaptomind/commit/198d088e5728487c43eb9a0a946cdb0e4f92b88d): feat(mcp): mark memory_guide read-only and clarify both descriptions
+
 ## v0.26.3
 
 > November 24, 2026
