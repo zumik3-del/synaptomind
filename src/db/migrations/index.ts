@@ -43,6 +43,7 @@ import v046 from './v046-invariants'
 import v047 from './v047-clear-is-profile'
 import v048 from './v048-vec-scope'
 import v049 from './v049-content-hash-repair'
+import v050 from './v050-schema-reclamation'
 
 export interface Migration {
   version: number
@@ -92,5 +93,6 @@ export const MIGRATIONS: Migration[] = [
   v046,
   v047,
   v048,
-  v049
+  v049,
+  v050
 ].sort((a, b) => a.version - b.version)
