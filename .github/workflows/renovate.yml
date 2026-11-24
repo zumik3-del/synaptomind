@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      # Global-only at startup: the platform warns about the Mend default before repo config loads.
+      RENOVATE_GIT_AUTHOR: "zumik3-del <zumik3@gmail.com>"
       RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
       # Renovate reads this as GITHUB_COM_TOKEN; the secret cannot be named GITHUB_* (reserved prefix).
       GITHUB_COM_TOKEN: ${{ secrets.COM_TOKEN }}

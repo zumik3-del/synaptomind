@@ -5,7 +5,6 @@
     "docker:pinDigests",
     "helpers:pinGitHubActionDigests"
   ],
-  "gitAuthor": "zumik3-del <zumik3@gmail.com>",
   "baseBranchPatterns": ["dev"],
   "timezone": "UTC",
   "schedule": ["before 6am on monday"],
