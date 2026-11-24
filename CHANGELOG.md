@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.26.0
+
+> November 24, 2026
+
+- [`adbea2e1`](https://github.com/zumik3-del/synaptomind/commit/adbea2e17639dc212abf1ea6e251852179b856ec): docs: correct the agent guide and two stale citations after the removal
+- [`42d2e600`](https://github.com/zumik3-del/synaptomind/commit/42d2e600b3f163a5c134c1131b216639f29a1443): docs: drop the curation surface from the docs and examples
+- [`3dacceb5`](https://github.com/zumik3-del/synaptomind/commit/3dacceb5a0c541e8c34b10b7f595515796b9ab78): test: pin the preview-token retention fan-out and lifecycle
+- [`c3c6d1ac`](https://github.com/zumik3-del/synaptomind/commit/c3c6d1ac0104c5d529dbcc7da77f5cecb990a176): test: pin the bounded HTTP stop after a refused upload
+- [`cd546dad`](https://github.com/zumik3-del/synaptomind/commit/cd546dad96fc9451fc0b41c0286bf7d6388141cf): test: pin the curation removal and the v051 drop
+- [`d72a0b05`](https://github.com/zumik3-del/synaptomind/commit/d72a0b05e9b02091c3e8ea370145e2ff4a4fc6bc): fix(mcp): bound the HTTP stop when a refused upload keeps the socket open
+- [`30b384f2`](https://github.com/zumik3-del/synaptomind/commit/30b384f22043f65f74aee2f328b64988accbf125): feat!: remove the placement and review curation subsystem
+- [`daf2696a`](https://github.com/zumik3-del/synaptomind/commit/daf2696a7972695ea2924c0cdb042c7319c1616d): test: make dtype-drift and app-env-sandbox visible to the gates
+- [`ae7864ff`](https://github.com/zumik3-del/synaptomind/commit/ae7864ffeb2e09dc17cefb5bc4b5865ead4d794b): docs(agents): the test image now runs 44 migrations
+- [`5f539209`](https://github.com/zumik3-del/synaptomind/commit/5f5392093d10ecca10d966e52c5b2b16451eed00): test(db): pin the v050 reclamation and move the head-50 pins
+- [`f13a9b1a`](https://github.com/zumik3-del/synaptomind/commit/f13a9b1a6a791845c61cec3fd6e8fbd24ec9afed): feat(db): v050 reclaims two unused indexes and two write-only columns
+- [`377db9a8`](https://github.com/zumik3-del/synaptomind/commit/377db9a860daf26baacbac17cfcc7a0193ecd65e): docs(agents): name batch-run.service.ts in the positional-d list
+- [`d23aedd3`](https://github.com/zumik3-del/synaptomind/commit/d23aedd3771f03b7d820ee3fb50ba362a514bb0d): test(services): pin the tolerant-batch seam and its call sites
+- [`ae9236b1`](https://github.com/zumik3-del/synaptomind/commit/ae9236b155238417b744bbe1f43bc1bcd91501e9): refactor(services): extract runTolerantBatch for the four batch loops
+- [`52d58a9e`](https://github.com/zumik3-del/synaptomind/commit/52d58a9ec3392f868c85b257547679510852ce99): refactor: drop unnecessary export keywords (inventory section 5)
+- [`b29fb823`](https://github.com/zumik3-del/synaptomind/commit/b29fb823d57bed1555f26b02231a164c4243db65): docs(mcp): fix retention_review preview metadata and token enumeration
+- [`76b14d51`](https://github.com/zumik3-del/synaptomind/commit/76b14d51cd675d2c3b6eac74668dde7518c02ef7): test(mcp): scan nested tool modules in the layering guard
+- [`a1150334`](https://github.com/zumik3-del/synaptomind/commit/a115033472209a92a98a6f12b2a43f5fd61d29a2): chore(deps): bump hono to 4.13.20 and fast-uri override to 3.1.9
+- [`84535f7f`](https://github.com/zumik3-del/synaptomind/commit/84535f7f0cbfd2da5bf6210f7f9c525ed798e5af): test(mcp): pin the guide text length
+- [`39bcebf5`](https://github.com/zumik3-del/synaptomind/commit/39bcebf524dd3bf9e5eb55f92f2414506c947b38): docs(mcp): compress the in-band guide to half its size
+- [`4ea9e0bc`](https://github.com/zumik3-del/synaptomind/commit/4ea9e0bc41e404c6110b06b6fea8a72c80461835): test(mcp): pin the tokenless preview rule and its failure case
+- [`b1f8e941`](https://github.com/zumik3-del/synaptomind/commit/b1f8e941544dc90d189348838867279d3300b130): fix(mcp): guide text no longer claims a not-found preview executes
+- [`0f93c436`](https://github.com/zumik3-del/synaptomind/commit/0f93c436e66c0d639193763c26f1033deb6cf672): test(ci): pin bun.lock dependency classification against package.json
+- [`a9be588a`](https://github.com/zumik3-del/synaptomind/commit/a9be588a8bcd1cc413d0208650be4ae954592d54): fix(mcp): guide text states the preview token exception
+- [`c0efb36b`](https://github.com/zumik3-del/synaptomind/commit/c0efb36bbac24c470e913a8ea0624ddad0eac8be): docs(mcp): preview token is null when the target cannot be fingerprinted
+- [`acd67954`](https://github.com/zumik3-del/synaptomind/commit/acd67954a194371e22df929425d33d8c8f8a6b5b): fix(deps): record @modelcontextprotocol/client as a dev dependency in bun.lock
+- [`2b4faae3`](https://github.com/zumik3-del/synaptomind/commit/2b4faae3c21e3e19c4492591c537cb951275bdfe): test(wave): pin dead-code deletions, envelope guard and scope resolver
+- [`18258099`](https://github.com/zumik3-del/synaptomind/commit/182580993af8e3d5e250fb4a6bbe5b1b3838aede): refactor(mcp): guarded envelope seam and single cwd scope resolver
+- [`69db625c`](https://github.com/zumik3-del/synaptomind/commit/69db625c069072e8098278081a94ee812c3b2d1d): refactor(search): one ThoughtRow projection, one FilterOptions owner, single recency default
+- [`54a884b2`](https://github.com/zumik3-del/synaptomind/commit/54a884b232fa38acd38bcbbd60f03964cb88e536): chore(dead-code): remove confirmed dead symbols, unused params and test-only exports
+
 ## v0.25.1
 
 > November 22, 2026
