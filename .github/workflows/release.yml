@@ -254,6 +254,33 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             COMMIT_SHA=${{ github.sha }}
 
+      - name: Compute stdio image tags
+        id: stdio-tags
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="ghcr.io/${{ github.repository }}"
+          TAGS="${REPO}:${VERSION}-stdio"
+          if [ "${{ steps.prerelease.outputs.prerelease }}" = "false" ]; then
+            TAGS=$(printf '%s\n%s' "$TAGS" "${REPO}:stdio")
+          fi
+          {
+            echo "tags<<EOF"
+            echo "$TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push stdio image
+        # Derived from the image published in the step above: same layers, only
+        # CMD differs, so runners that start a container without arguments get
+        # the MCP stdio transport instead of the HTTP server.
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # docker/build-push-action@v5
+        with:
+          context: deploy/mcp
+          push: true
+          tags: ${{ steps.stdio-tags.outputs.tags }}
+          build-args: |
+            BASE=ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
+
   publish-tarball:
     # ADR 0001 §2.1/§2.7/§3.1 — the self-contained tarball as a release asset.
     #
