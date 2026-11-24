@@ -43,8 +43,16 @@ docker compose pull && docker compose up -d
 
 ### MCP server over stdio
 
-The image entrypoint is the server itself, so an MCP client can run the same
-image as a stdio server with persistent storage:
+The `-stdio` tag starts the MCP stdio transport with no arguments — that is what
+third-party runners (Glama, Docker MCP Catalog) and clients that only know
+`docker run -i <image>` expect:
+
+```bash
+docker run -i --rm -v synaptomind-data:/app/data ghcr.io/zumik3-del/synaptomind:stdio
+```
+
+The main image runs the HTTP server instead; to use it as a stdio server, pass the
+flag yourself:
 
 ```bash
 docker run -i --rm -v synaptomind-data:/app/data ghcr.io/zumik3-del/synaptomind:latest --stdio

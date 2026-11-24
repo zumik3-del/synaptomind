@@ -8,6 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://ghcr.io/zumik3-del/synaptomind)
 [![Bun](https://img.shields.io/badge/bun-runtime-%23000000?logo=bun)](https://bun.sh)
+[![zumik3-del/synaptomind MCP server](https://glama.ai/mcp/servers/zumik3-del/synaptomind/badges/score.svg)](https://glama.ai/mcp/servers/zumik3-del/synaptomind)
 
 **Local persistent memory for AI agents.** Your agent remembers decisions, goals, and context across sessions — over MCP (stdio or HTTP). Data stays on your machine. The HTTP listener on port 3005 is an ops plane (health and graph repair), not a second agent API.
 
@@ -488,8 +489,9 @@ from commit types.
 
 1. From a clean `dev` tree, prepare the bump:
    `bash scripts/release.sh <version>` (or `bun run release <version>`) — bumps
-   `version` in `package.json` and regenerates the pending `CHANGELOG.md`
-   section. It does not create a tag, commit, or push.
+   `version` in `package.json`, the version and image tag in `server.json`, and
+   regenerates the pending `CHANGELOG.md` section. It does not create a tag,
+   commit, or push.
 2. Commit the bump + changelog, push, and open a PR `dev` → `main`.
 3. Merging the PR triggers `.github/workflows/release.yml` on `main`: it
    verifies the tree (`tsc` + `bun test`), creates the annotated tag

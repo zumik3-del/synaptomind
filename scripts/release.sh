@@ -35,13 +35,52 @@ fi
 
 echo "Bumped package.json to $VERSION."
 
+# ── Bump server.json (MCP Registry record) ──────────────────────────────────
+# The registry record pins both the version and the OCI image tag, so it has to
+# move with package.json or the published entry keeps pointing at a stale image.
+if [[ -f server.json ]]; then
+	# Preserve a variant suffix the record already carries (`-stdio`), so the
+	# published entry keeps pointing at the image shape it chose.
+	TAG_SUFFIX=""
+	if grep -qE '"identifier": "[^"]*-stdio"' server.json; then
+		TAG_SUFFIX="-stdio"
+	fi
+	sed -i -E "s/^  \"version\": \"[^\"]*\"/  \"version\": \"$VERSION\"/" server.json
+	sed -i -E "s#^([[:space:]]*\"identifier\": \"[^\"]*):[^\"]*\"#\\1:$VERSION$TAG_SUFFIX\"#" server.json
+	SRV_VERSION=$(grep -o '"version": *"[^"]*"' server.json | head -1 | sed 's/"version": *"//;s/"//')
+	if [[ "$SRV_VERSION" != "$VERSION" ]]; then
+		echo "ERROR: server.json version did not update to $VERSION"
+		exit 1
+	fi
+	if ! grep -q ":$VERSION$TAG_SUFFIX\"" server.json; then
+		if grep -q '"identifier"' server.json; then
+			echo "ERROR: server.json image tag did not update to $VERSION$TAG_SUFFIX"
+			exit 1
+		fi
+	fi
+	echo "Bumped server.json to $VERSION$TAG_SUFFIX."
+fi
+
+# ── Bump the stdio variant's pinned base image ──────────────────────────────
+# deploy/mcp/Dockerfile pins BASE to a release so a plain `docker build deploy/mcp`
+# is reproducible; CI passes the image it just built instead.
+STDIO_DOCKERFILE="deploy/mcp/Dockerfile"
+if [[ -f "$STDIO_DOCKERFILE" ]]; then
+	sed -i -E "s#^(ARG BASE=ghcr\.io/[^:]+:).*#\\1$VERSION#" "$STDIO_DOCKERFILE"
+	if ! grep -qE "^ARG BASE=.*:$VERSION$" "$STDIO_DOCKERFILE"; then
+		echo "ERROR: $STDIO_DOCKERFILE base tag did not update to $VERSION"
+		exit 1
+	fi
+	echo "Bumped $STDIO_DOCKERFILE base tag to $VERSION."
+fi
+
 # ── Regenerate CHANGELOG (pending section only) ─────────────────────────────
 bun run scripts/changelog.ts
 
 # ── Next steps ───────────────────────────────────────────────────────────────
 echo ""
 echo "Next steps:"
-echo "  git add package.json CHANGELOG.md"
+echo "  git add package.json CHANGELOG.md server.json deploy/mcp/Dockerfile"
 echo "  git commit -m \"chore: bump version to $VERSION\""
 echo "  git push"
 echo "  open PR dev → main"
