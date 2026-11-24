@@ -19,6 +19,7 @@ import {
 import { insertLog } from '../logging/log'
 import { evaluateGates, plannedEdge } from './apply-gates.service'
 import { resolveApplyRunId, resolveBatchRunId } from './apply-run-envelope.service'
+import { runTolerantBatch } from './batch-run.service'
 import { createEdgeService } from './edges.service'
 import type {
   AcceptedApplyResult,
@@ -305,28 +306,13 @@ export function applyBatchService(
 
   const batchRunId = resolveBatchRunId(rows, options)
 
-  const results: ApplyResult[] = []
-  const errors: ApplyBatchOutcome['errors'] = []
-
-  const applyItem = d.transaction((proposalId: string) =>
-    applyProposalService(proposalId, { ...options, runId: batchRunId }, d, cfg)
+  const { results, errors } = runTolerantBatch(
+    d,
+    proposalIds,
+    (proposalId, _index, db) =>
+      applyProposalService(proposalId, { ...options, runId: batchRunId }, db, cfg),
+    ({ item, message }) => ({ proposal_id: item, error: message })
   )
-  // One run-level transaction, a savepoint per item: the savepoint is the isolation contract.
-  const applyRun = d.transaction(() => {
-    for (const proposalId of proposalIds) {
-      try {
-        results.push(applyItem(proposalId))
-      } catch (err) {
-        // A trigger can RAISE(ROLLBACK) the whole run; continuing would autocommit the rest.
-        if (!d.inTransaction) throw err
-        errors.push({
-          proposal_id: proposalId,
-          error: err instanceof Error ? err.message : String(err)
-        })
-      }
-    }
-  })
-  applyRun()
 
   const joinedRun =
     batchRunId !== undefined &&

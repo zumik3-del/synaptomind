@@ -3,6 +3,7 @@ import { getDb } from '../db'
 import type { Thought } from '../db/thoughts'
 import type { ThoughtStatus } from '../types/thought'
 import { ValidationError } from '../errors'
+import { runTolerantBatch } from './batch-run.service'
 import { createThoughtWithUrlLinksService, type UrlLink } from './url_links.service'
 
 export const BULK_ITEMS_MAX = 10000
@@ -37,37 +38,27 @@ export function bulkCreateThoughtsService(
     throw new ValidationError(`Maximum ${BULK_ITEMS_MAX} thoughts per bulk request`)
   }
 
-  const created: BulkCreateResult['created'] = []
-  const errors: BulkCreateResult['errors'] = []
-
-  const createItem = d.transaction((t: BulkCreateItem) =>
-    createThoughtWithUrlLinksService(
-      {
-        content: t.content,
-        status: t.status,
-        tags: t.tags,
-        source: t.source,
-        project_id: t.project_id ?? defaultProjectId,
-        is_protected: t.is_protected,
-        is_global: t.is_global
-      },
-      { parentId: t.parent_id, relation: t.relation, urlLinks: t.url_links },
-      d
-    )
+  const { results: created, errors } = runTolerantBatch(
+    d,
+    items,
+    (t, index, db) => ({
+      index,
+      thought: createThoughtWithUrlLinksService(
+        {
+          content: t.content,
+          status: t.status,
+          tags: t.tags,
+          source: t.source,
+          project_id: t.project_id ?? defaultProjectId,
+          is_protected: t.is_protected,
+          is_global: t.is_global
+        },
+        { parentId: t.parent_id, relation: t.relation, urlLinks: t.url_links },
+        db
+      )
+    }),
+    ({ index, message }) => ({ index, error: message })
   )
-  // One run-level transaction, a savepoint per item: the savepoint is the isolation contract.
-  const runBulk = d.transaction(() => {
-    for (let i = 0; i < items.length; i++) {
-      try {
-        created.push({ index: i, thought: createItem(items[i]) })
-      } catch (err) {
-        // A trigger can RAISE(ROLLBACK) the whole run; continuing would autocommit the rest.
-        if (!d.inTransaction) throw err
-        errors.push({ index: i, error: err instanceof Error ? err.message : String(err) })
-      }
-    }
-  })
-  runBulk()
 
   return { created, errors }
 }

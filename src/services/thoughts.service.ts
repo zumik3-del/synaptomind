@@ -27,6 +27,7 @@ import {
   isoDateTimeSchema
 } from '../validation'
 import { EdgeAlreadyExistsError, NotFoundError, ValidationError } from '../errors'
+import { runTolerantBatch } from './batch-run.service'
 
 export function getThoughtByIdService(id: string, d: Database = getDb()): Thought | null {
   return dbGetThought(d, id) ?? null
@@ -143,30 +144,18 @@ export function archiveThoughtsBatchService(
     )
   }
 
-  let archived = 0
-  const errors: ArchiveBatchError[] = []
+  const { results, errors } = runTolerantBatch(
+    d,
+    ids,
+    (id, _index, db) => {
+      const existing = dbGetThought(db, id)
+      if (!existing) throw new NotFoundError(`Thought '${id}' not found`)
+      if (existing.status !== 'archived') archiveThoughtByIdService(id, db)
+    },
+    ({ item, message }) => ({ thought_id: item, error: message })
+  )
 
-  const archiveItem = d.transaction((id: string) => {
-    const existing = dbGetThought(d, id)
-    if (!existing) throw new NotFoundError(`Thought '${id}' not found`)
-    if (existing.status !== 'archived') archiveThoughtByIdService(id, d)
-  })
-  // One run-level transaction, a savepoint per id: the savepoint is the isolation contract.
-  const runArchive = d.transaction(() => {
-    for (const id of ids) {
-      try {
-        archiveItem(id)
-        archived++
-      } catch (err) {
-        // A trigger can RAISE(ROLLBACK) the whole run; continuing would autocommit the rest.
-        if (!d.inTransaction) throw err
-        errors.push({ thought_id: id, error: err instanceof Error ? err.message : String(err) })
-      }
-    }
-  })
-  runArchive()
-
-  return { archived, failed: errors.length, errors }
+  return { archived: results.length, failed: errors.length, errors }
 }
 
 interface ThoughtPage {
