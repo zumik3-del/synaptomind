@@ -39,20 +39,26 @@ echo "Bumped package.json to $VERSION."
 # The registry record pins both the version and the OCI image tag, so it has to
 # move with package.json or the published entry keeps pointing at a stale image.
 if [[ -f server.json ]]; then
+	# Preserve a variant suffix the record already carries (`-stdio`), so the
+	# published entry keeps pointing at the image shape it chose.
+	TAG_SUFFIX=""
+	if grep -qE '"identifier": "[^"]*-stdio"' server.json; then
+		TAG_SUFFIX="-stdio"
+	fi
 	sed -i -E "s/^  \"version\": \"[^\"]*\"/  \"version\": \"$VERSION\"/" server.json
-	sed -i -E "s#^([[:space:]]*\"identifier\": \"[^\"]*):[^\"]*\"#\\1:$VERSION\"#" server.json
+	sed -i -E "s#^([[:space:]]*\"identifier\": \"[^\"]*):[^\"]*\"#\\1:$VERSION$TAG_SUFFIX\"#" server.json
 	SRV_VERSION=$(grep -o '"version": *"[^"]*"' server.json | head -1 | sed 's/"version": *"//;s/"//')
 	if [[ "$SRV_VERSION" != "$VERSION" ]]; then
 		echo "ERROR: server.json version did not update to $VERSION"
 		exit 1
 	fi
-	if ! grep -q ":$VERSION\"" server.json; then
+	if ! grep -q ":$VERSION$TAG_SUFFIX\"" server.json; then
 		if grep -q '"identifier"' server.json; then
-			echo "ERROR: server.json image tag did not update to $VERSION"
+			echo "ERROR: server.json image tag did not update to $VERSION$TAG_SUFFIX"
 			exit 1
 		fi
 	fi
-	echo "Bumped server.json to $VERSION."
+	echo "Bumped server.json to $VERSION$TAG_SUFFIX."
 fi
 
 # ── Regenerate CHANGELOG (pending section only) ─────────────────────────────
