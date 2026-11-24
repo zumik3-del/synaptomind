@@ -35,9 +35,9 @@ paths, the DI convention and the code-tier map: `docs/ARCHITECTURE.md`.
 - tool definitions: `bun run lint:tools` — TDQS lint, the deterministic half of the rubric Glama
   grades the card with (no model, no key, no network); blocking in CI
 - TDQS `score` spends one of 30 daily calls: after any MCP tool change (name, description, schemas,
-  annotations) ask the user first — never unprompted. Key `~/.config/opencode/secrets/tdqs.key`
-  (chmod 600, never committed or echoed):
-  `TDQS_API_KEY=$(cat ~/.config/opencode/secrets/tdqs.key) bunx mcp-tdqs@0.2.0 score --command 'bun run src/index.ts --stdio' --hosted https://tdqs.dev`
+  annotations) ask the user first — never unprompted. The key is machine-local, never in the repo
+  (the global `AGENTS.md` records where it lives):
+  `TDQS_API_KEY=<local key> bunx mcp-tdqs@0.2.0 score --command 'bun run src/index.ts --stdio' --hosted https://tdqs.dev`
 
 ## 4. Code conventions
 
