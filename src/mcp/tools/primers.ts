@@ -7,7 +7,13 @@ import {
 } from '../../services/primers.service'
 import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 import { collectionEnvelope, itemEnvelope } from './envelope'
-import { actionInput, registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import {
+  DESTRUCTIVE,
+  actionInput,
+  registerActionTool,
+  requiredString,
+  type ActionArgs
+} from './action-tool'
 
 const PRIMERS_ARGS = {
   primer_id: z
@@ -89,6 +95,7 @@ const handlers = {
 export function registerMemoryPrimers(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_primers',
+    annotations: DESTRUCTIVE,
     description: `The always-at-hand set — thoughts recalled often enough to be injected into every conversation — and the only tool that reviews or removes them. Answers the shared envelope ({ items, meta } for list, { item, meta } for delete) and refuses an argument that belongs to the other action.
 
 Primers are created automatically, never by this tool: a thought is promoted on the search path once its hit count reaches primer.promoteThreshold (default 5). list returns them most-hit first (up to 500) as { id, thought_id, hit_count, promoted_at, created_at } — read a primer's text with memory_recall action=get thought_id=<primer.thought_id>, project context and active goals with memory_status action=slots, and clusters with memory_crystallize.

@@ -1,7 +1,8 @@
 import type {
   McpServer,
   CallToolResult,
-  StandardSchemaWithJSON
+  StandardSchemaWithJSON,
+  ToolAnnotations
 } from '@modelcontextprotocol/server'
 import { z } from 'zod/v4'
 import { formatZodIssues } from '../../zod-utils'
@@ -18,10 +19,35 @@ export interface ActionHandler {
 export interface ActionToolConfig {
   name: string
   description: string
+  // MCP hints: what a client may assume before it decides on a confirmation prompt.
+  annotations: ToolAnnotations
   // The MCP SDK cannot advertise a discriminated-union schema (it serializes to an empty object), so the advertised
   // shape stays flat and each action's `input` narrows it.
   inputSchema: Record<string, z.ZodType>
   handlers: Record<string, ActionHandler>
+}
+
+// Every tool here serves the local graph only, so openWorldHint is always false and the
+// three mutation shapes are the only thing worth naming.
+export const READ_ONLY: ToolAnnotations = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false
+}
+// Writes rows (thoughts, edges, clusters, hit counts) but never deletes or overwrites one.
+export const ADDS_ONLY: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false
+}
+// Can remove or overwrite stored data: unlink, archive, merge, delete.
+export const DESTRUCTIVE: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false
 }
 
 // `cwd` is the universal envelope argument: every action accepts it, and only the schema of an action that reads it
@@ -96,6 +122,7 @@ export function registerActionTool(server: McpServer, config: ActionToolConfig):
     config.name,
     {
       description: config.description,
+      annotations: config.annotations,
       inputSchema: advertisedArgsSchema(config.inputSchema),
       // The SDK's typed overload pairs a schema `inputSchema` with a schema `outputSchema`.
       outputSchema: z.object(toolOutputShape)

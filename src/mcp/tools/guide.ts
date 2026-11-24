@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/server'
 import { type Config, config } from '../../config'
 import { getThoughtLimitsDB } from '../../config.thought-limits'
+import { READ_ONLY } from './action-tool'
 import { toolOutputShape } from './utils'
 
 function buildGuideText(softLimit: number): string {
@@ -77,7 +78,7 @@ export function registerMemoryGuide(server: McpServer, cfg: Config = config) {
 Covers every tool's action list, the { items, meta } and { item, meta } envelopes plus the error shape, cwd scoping, which operations are preview-to-confirm and how preview_token is consumed, thought fields and statuses, edge types and their direction, search modes and filters (min_relevance, recency, supersession and contradiction modes), retention and decay with the scheduled jobs, health-check scoring and remediation, and reflection semantics.
 
 Call it first in a session, or whenever a name, an argument or an envelope field is uncertain — one call is cheaper than a rejected one. It explains how the pieces fit together rather than reporting state: memory_status action=config gives the effective configuration and action=health the server's own diagnostics, memory_recall the thoughts, and memory_primers the always-at-hand set.`,
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
       outputSchema: toolOutputShape
     },
     async () => {

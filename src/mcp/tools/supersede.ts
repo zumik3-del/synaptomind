@@ -12,7 +12,13 @@ import { validateMergePreconditions } from '../../services/merge-helpers.service
 import { BATCH_ITEMS_MAX } from '../../validation'
 import { guardedCollectionEnvelope, guardedEnvelope, writeEnvelopeScope } from './envelope'
 import { shapeEntity } from './utils'
-import { actionInput, registerActionTool, requiredString, type ActionArgs } from './action-tool'
+import {
+  DESTRUCTIVE,
+  actionInput,
+  registerActionTool,
+  requiredString,
+  type ActionArgs
+} from './action-tool'
 
 const MERGE_PREVIEW_EDGE_LIMIT = 50
 
@@ -288,6 +294,7 @@ const handlers = {
 export function registerMemorySupersede(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_supersede',
+    annotations: DESTRUCTIVE,
     description: `Version and supersede thoughts. Answers the shared envelope: { item, meta } for archive/merge, { items, meta } for archive_batch (one row per requested occurrence, aggregate in meta.counts.archived/failed); a preview sets meta.preview={token,destructive:true}. All actions preview by default; set confirm=true to execute. Actions: archive (idempotent), archive_batch (per-item partial results), merge (source→target; reports edges_transferred). Every action refuses an argument that belongs to another one.`,
     inputSchema: {
       action: z.enum(['archive', 'archive_batch', 'merge']).describe('Action'),

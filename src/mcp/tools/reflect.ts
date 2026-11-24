@@ -4,7 +4,7 @@ import { reflectSessionService } from '../../services/slots.service'
 import { thoughtStatusSchema, timelineLimitSchema } from '../../validation'
 import { itemEnvelope, writeEnvelopeScope } from './envelope'
 import { resolveProjectId } from './utils'
-import { actionInput, registerActionTool, type ActionArgs } from './action-tool'
+import { ADDS_ONLY, actionInput, registerActionTool, type ActionArgs } from './action-tool'
 import { listPage } from './list-page'
 
 const REFLECT_ARGS = {
@@ -134,6 +134,7 @@ const handlers = {
 export function registerMemoryReflect(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_reflect',
+    annotations: ADDS_ONLY,
     description: `Session management. Every action answers { items, meta } (timeline) or { item, meta } (reflect); meta = { action, scope, counts, degraded, warnings }. cwd is optional for both actions: reflect treats it as a write scope (omitted, decisions/pending land in the default project and meta.scope is null), while timeline reads across every project when it is omitted and says so in meta.warnings. Actions: reflect (summary, decisions, pending, goals), timeline (paginated thought inventory with the shared read-surface hygiene; limit/offset/total ride in meta.counts, never in a row; rows are compact by default — compact=false returns the whole row and fields selects columns; include_url_links adds the url links of every row, default false). Every action refuses an argument that belongs to another one.`,
     inputSchema: {
       action: z.enum(['reflect', 'timeline']).describe('Action'),

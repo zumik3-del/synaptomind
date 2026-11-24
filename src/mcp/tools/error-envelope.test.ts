@@ -9,7 +9,7 @@ import {
   EmbedderTimeoutError,
   EmbedderUnavailableError
 } from '../../errors'
-import { type ActionToolConfig, registerActionTool } from './action-tool'
+import { type ActionToolConfig, READ_ONLY, registerActionTool } from './action-tool'
 import { errorResult } from './utils'
 
 type ToolResult = {
@@ -44,6 +44,7 @@ const NO_ARGS = z.object({})
 const classifiedConfig: ActionToolConfig = {
   name: 'memory_demo',
   description: 'envelope probe',
+  annotations: READ_ONLY,
   inputSchema: { action: z.string() },
   handlers: {
     timeout: {
