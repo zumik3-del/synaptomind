@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.26.2
+
+> November 24, 2026
+
+- [`6b29e8b6`](https://github.com/zumik3-del/synaptomind/commit/6b29e8b6e349e0f5b5d3c18d6207ac59be4dbb48): build(release): preserve the image tag suffix in server.json
+- [`5cf63150`](https://github.com/zumik3-del/synaptomind/commit/5cf63150188178774a5850e5d6e994bddd76ab02): build(docker): publish a stdio-default image variant for MCP runners
+- [`f80f4620`](https://github.com/zumik3-del/synaptomind/commit/f80f4620efdd5d03bac95443ea84f7455b72473b): docs: add Glama badge
+- [`27ecbdec`](https://github.com/zumik3-del/synaptomind/commit/27ecbdec98aed6bdfcc81540cdc4703a12c28b11): build(release): bump server.json with package.json
+- [`a8205475`](https://github.com/zumik3-del/synaptomind/commit/a8205475afb6e067b1f0c70242d54e1eafa37a1d): chore(distribution): add MCP registry and Glama metadata
+- [`4f4bf8d4`](https://github.com/zumik3-del/synaptomind/commit/4f4bf8d46bca7cb48da29c73132f21076d889279): build(docker): run server as entrypoint and label image for MCP registry
+- [`9b9b97d0`](https://github.com/zumik3-del/synaptomind/commit/9b9b97d0465e5554a0623d9f78dfe3285d870953): chore(brand): add 256px logo for marketplace listing
+
 ## v0.26.1
 
 > November 24, 2026
