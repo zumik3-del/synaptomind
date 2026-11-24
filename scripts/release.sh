@@ -61,13 +61,26 @@ if [[ -f server.json ]]; then
 	echo "Bumped server.json to $VERSION$TAG_SUFFIX."
 fi
 
+# ── Bump the stdio variant's pinned base image ──────────────────────────────
+# deploy/mcp/Dockerfile pins BASE to a release so a plain `docker build deploy/mcp`
+# is reproducible; CI passes the image it just built instead.
+STDIO_DOCKERFILE="deploy/mcp/Dockerfile"
+if [[ -f "$STDIO_DOCKERFILE" ]]; then
+	sed -i -E "s#^(ARG BASE=ghcr\.io/[^:]+:).*#\\1$VERSION#" "$STDIO_DOCKERFILE"
+	if ! grep -qE "^ARG BASE=.*:$VERSION$" "$STDIO_DOCKERFILE"; then
+		echo "ERROR: $STDIO_DOCKERFILE base tag did not update to $VERSION"
+		exit 1
+	fi
+	echo "Bumped $STDIO_DOCKERFILE base tag to $VERSION."
+fi
+
 # ── Regenerate CHANGELOG (pending section only) ─────────────────────────────
 bun run scripts/changelog.ts
 
 # ── Next steps ───────────────────────────────────────────────────────────────
 echo ""
 echo "Next steps:"
-echo "  git add package.json CHANGELOG.md server.json"
+echo "  git add package.json CHANGELOG.md server.json deploy/mcp/Dockerfile"
 echo "  git commit -m \"chore: bump version to $VERSION\""
 echo "  git push"
 echo "  open PR dev → main"
