@@ -1,0 +1,38 @@
+name: Dependency submission
+
+# GitHub's dependency graph cannot read `bun.lock`: on a Bun project it only sees the
+# versions written in `package.json`, so Dependabot alerts miss every transitive
+# dependency and everything declared through `catalog:`. This workflow submits the
+# resolved tree from `bun.lock` through the dependency submission API, which is what
+# makes those alerts real. Complements the blocking `bun audit` gate in ci.yml: that one
+# fails a build, this one keeps the alert feed current.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bun.lock"
+      - "package.json"
+  workflow_dispatch:
+
+# The submission API needs contents: write; nothing here reads anything else.
+permissions:
+  contents: write
+
+concurrency:
+  group: dependency-submission-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  submit:
+    name: "Submit · bun.lock dependency graph"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # actions/checkout@v5
+
+      # Parses bun.lock directly — no `bun install` needed, so this cannot fail on a
+      # registry hiccup. Defaults are kept on purpose: `include-exact-pins` stays false
+      # because GitHub already alerts on dependencies a package.json pins exactly, and the
+      # default correlator means each run replaces the previous snapshot instead of
+      # accumulating stale ones.
+      - name: "Submit: resolved bun.lock tree"
+        uses: charpeni/bun-lock-submission@a03085a531255ea928590ac0d76d53383a026bdf # charpeni/bun-lock-submission@v1.0.0
