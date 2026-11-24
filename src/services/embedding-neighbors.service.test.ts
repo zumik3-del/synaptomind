@@ -35,3 +35,21 @@ test('the distance lookup guards zero-norm vectors and ranks the unknown id as n
   ])
   expect(buildInMemoryDistanceLookup(candidates, [zero, unit])('not-a-candidate', 5)).toEqual([])
 })
+
+test('each candidate is ranked from its own row, nearest first when topK is below the pool', () => {
+  const candidates = [
+    { id: 'A', content: 'A' },
+    { id: 'B', content: 'B' },
+    { id: 'C', content: 'C' }
+  ]
+  const embeddings = [unitAt(0), unitAt(Math.acos(0.75)), unitAt(Math.acos(0.25))]
+  const lookup = buildInMemoryDistanceLookup(candidates, embeddings)
+
+  const nearestToA = lookup('A', 1)
+  expect(nearestToA.map(neighbor => neighbor.id)).toEqual(['B'])
+  expect(nearestToA[0]!.distance).toBeCloseTo(0.25, 5)
+
+  const nearestToB = lookup('B', 1)
+  expect(nearestToB.map(neighbor => neighbor.id)).toEqual(['C'])
+  expect(nearestToB[0]!.distance).toBeCloseTo(0.1721, 3)
+})

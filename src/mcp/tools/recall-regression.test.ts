@@ -20,7 +20,7 @@ const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 const CWD_ACTIONS: Record<string, string[]> = {
   memory_recall: ['search', 'clusters', 'list', 'context'],
-  memory_status: ['slots', 'frontier', 'propose'],
+  memory_status: ['slots', 'frontier'],
   memory_reflect: ['reflect', 'timeline'],
   memory_primers: ['list'],
   memory_manage: ['list', 'create', 'update', 'delete', 'resolve']

@@ -105,6 +105,34 @@ describe('findDuplicateDrafts: detecting a duplicate', () => {
     expect(findings[0].duplicate_of).not.toBe(weaker)
   })
 
+  test('equal overlap resolves to the lower id, so the target is deterministic', () => {
+    const db = getDb()
+    seedThought({ id: 'tie-b', content: 'same shared wording here', status: 'active' })
+    seedThought({ id: 'tie-a', content: 'same shared wording here', status: 'active' })
+    const draft = seedThought({
+      id: 'tie-draft',
+      content: 'same shared wording here',
+      status: 'draft'
+    })
+
+    const findings = findDuplicateDrafts(db, NOW)
+
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({ draft_id: draft, duplicate_of: 'tie-a' })
+  })
+
+  test('an overlap of exactly 0.6 is a duplicate (the threshold is inclusive)', () => {
+    const db = getDb()
+    const active = seedThought({ content: 'alpha beta gamma epsilon', status: 'active' })
+    const draft = seedThought({ content: 'alpha beta gamma delta', status: 'draft' })
+
+    const findings = findDuplicateDrafts(db, NOW)
+
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({ draft_id: draft, duplicate_of: active })
+    expect(findings[0].overlap).toBeCloseTo(0.6, 10)
+  })
+
   test('two drafts each duplicating an active thought yield one finding per draft', () => {
     const db = getDb()
     seedThought({ content: 'one shared statement about cats', status: 'active' })
