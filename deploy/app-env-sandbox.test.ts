@@ -52,7 +52,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { readAppEnvValues, sandboxAppEnvText } from './app-env-targets'
-import { guardProductionPaths, resolveTargets } from './app-targets'
+import { checkCoverage, guardProductionPaths, resolveTargets } from './app-targets'
 import { guardRealStateDir, installCleanup, isolatedEnv, mkTempTree } from './tmp-fixtures'
 
 installCleanup()
@@ -65,6 +65,28 @@ const TARGETS = resolveTargets()
 // See guardProductionPaths for why the check lives at process exit and why the
 // live tracker's own data directory is excluded from the watch list.
 guardProductionPaths(TARGETS.resolved)
+
+/**
+ * Every test below is seeded from `TARGETS.resolved`, so a host with no
+ * `DEPLOY_APP_ENVS` (this one, and CI) used to register NOTHING: the file reported
+ * "Ran 0 tests across 1 file" — indistinguishable from a suite that was never
+ * wired up, and green either way. It is now a named skip.
+ *
+ * Skipping is only honest while it cannot hide a mistake, so the gate below always
+ * runs: `resolveTargets()` tolerates "this machine has no such app" and refuses a
+ * path that was named but resolved to nothing, and `checkCoverage()` turns the
+ * second case into a failure here as well — a typo in DEPLOY_APP_ENVS must not
+ * come back as "nothing to do".
+ */
+const NO_TARGETS_NOTE =
+  TARGETS.resolved.length > 0
+    ? ''
+    : ' — SKIPPED, NOT RUN: DEPLOY_APP_ENVS names no app whose deploy/ carries both app.env ' +
+      'and install.sh, so this host has no lifecycle to sandbox. This whole file DID NOT RUN: ' +
+      'it is the install → health gate → update → rollback lifecycle of the apps that vendor ' +
+      'this framework. Re-run as ' +
+      'DEPLOY_APP_ENVS="label=/absolute/path/to/that/app/deploy" bun test deploy (see ' +
+      'deploy/app-targets.ts for why a missing target is a skip and a wrong one is a failure).'
 
 /** The /health body both new apps answer with (ADR §3d). */
 const HEALTHY_BODY = '{"ok":true}'
@@ -432,7 +454,46 @@ function serveHealth(sb: Sandbox, body: string): void {
  */
 const BUDGET_MS = 120_000
 
-describe('deploy/sandbox — install, health gate, update, rollback', () => {
+/**
+ * The gate on this file, and the only part of it that always runs.
+ *
+ * Both tests are about the SKIP being honest rather than about a lifecycle: the
+ * block below is skipped on a host with no external app.env, so these two decide
+ * whether this file measured what it claims to.
+ */
+describe('deploy/sandbox — the gate on this file', () => {
+  test('a target DEPLOY_APP_ENVS named was exercised below, never dropped as "to do"', () => {
+    checkCoverage(
+      TARGETS,
+      TARGETS.resolved.map(target => target.label)
+    )
+  })
+
+  test('the skip below is decided by resolveTargets(), and says so when it is taken', () => {
+    if (TARGETS.resolved.length > 0) {
+      expect(NO_TARGETS_NOTE).toBe('')
+      return
+    }
+    // Nothing was requested, so the empty target list is "this host has no such
+    // app" rather than a path that silently resolved to nothing.
+    expect(TARGETS.requested).toEqual([])
+    expect(NO_TARGETS_NOTE).toContain('SKIPPED, NOT RUN')
+  })
+})
+
+// `describe.skipIf(…)(…)` would nest the whole lifecycle block one level deeper and
+// re-indent ~200 untouched lines; the alias decides the same thing at declaration
+// time and keeps the diff to the lines that changed.
+const lifecycle = TARGETS.resolved.length === 0 ? describe.skip : describe
+
+lifecycle(`deploy/sandbox — install, health gate, update, rollback${NO_TARGETS_NOTE}`, () => {
+  // With no resolved target the loop below registers nothing, so the skip would be
+  // invisible in the summary — the old silent zero by another name. This test only
+  // exists in that case, and the skipped lifecycle block below never runs it.
+  if (TARGETS.resolved.length === 0) {
+    test('one sandboxed lifecycle per DEPLOY_APP_ENVS target', () => {})
+  }
+
   for (const target of TARGETS.resolved) {
     const values = readAppEnvValues(target.appEnvPath)
 
