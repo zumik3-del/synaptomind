@@ -50,7 +50,8 @@ This project uses [Conventional Commits](https://www.conventionalcommits.org/). 
 | `chore`, `docs`, `refactor`, `test`, `ci`, `build` | Maintenance |
 
 Commit types no longer determine the version. A release is prepared explicitly
-with `bash scripts/release.sh <version>` (bumps `package.json`), and CI tags and
+with `bash scripts/release.sh <version>` (bumps `package.json` and the
+`server.json` registry record), and CI tags and
 publishes it when the version-bump merge lands on `main` (see
 [AGENTS.md](AGENTS.md) §6). Types still group the generated GitHub Release notes
 into Features / Fixes / Other.

@@ -35,13 +35,33 @@ fi
 
 echo "Bumped package.json to $VERSION."
 
+# ── Bump server.json (MCP Registry record) ──────────────────────────────────
+# The registry record pins both the version and the OCI image tag, so it has to
+# move with package.json or the published entry keeps pointing at a stale image.
+if [[ -f server.json ]]; then
+	sed -i -E "s/^  \"version\": \"[^\"]*\"/  \"version\": \"$VERSION\"/" server.json
+	sed -i -E "s#^([[:space:]]*\"identifier\": \"[^\"]*):[^\"]*\"#\\1:$VERSION\"#" server.json
+	SRV_VERSION=$(grep -o '"version": *"[^"]*"' server.json | head -1 | sed 's/"version": *"//;s/"//')
+	if [[ "$SRV_VERSION" != "$VERSION" ]]; then
+		echo "ERROR: server.json version did not update to $VERSION"
+		exit 1
+	fi
+	if ! grep -q ":$VERSION\"" server.json; then
+		if grep -q '"identifier"' server.json; then
+			echo "ERROR: server.json image tag did not update to $VERSION"
+			exit 1
+		fi
+	fi
+	echo "Bumped server.json to $VERSION."
+fi
+
 # ── Regenerate CHANGELOG (pending section only) ─────────────────────────────
 bun run scripts/changelog.ts
 
 # ── Next steps ───────────────────────────────────────────────────────────────
 echo ""
 echo "Next steps:"
-echo "  git add package.json CHANGELOG.md"
+echo "  git add package.json CHANGELOG.md server.json"
 echo "  git commit -m \"chore: bump version to $VERSION\""
 echo "  git push"
 echo "  open PR dev → main"
