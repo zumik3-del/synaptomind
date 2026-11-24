@@ -32,6 +32,16 @@ paths, the DI convention and the code-tier map: `docs/ARCHITECTURE.md`.
 - format: `bun run format` rewrites `src/ eval/ scripts/ deploy/` in place; `bun run format:check`
   (same paths, no writes) is a **blocking** CI gate (`Format: biome (blocking)`)
 - typecheck: `bun run tsc --noEmit`
+- tool definitions: `bun run lint:tools` — TDQS **lint** (deterministic half of the rubric Glama
+  grades the published card with: no model, no key, no network) against the real `tools/list` of the
+  stdio server; pinned to `mcp-tdqs@0.2.0` and a **blocking** CI gate (`Lint: tool definitions`)
+- TDQS **score** — the model-judged half — is spent, not free: one report costs one call against the
+  account's 30/day allowance, so it is **never run unprompted**. After any change to an MCP tool
+  (name, description, input/output schema, annotations) ask the user first, even when the lint is
+  green; run it only on an explicit yes:
+  `TDQS_API_KEY=$(cat ~/.config/opencode/secrets/tdqs.key) bunx mcp-tdqs@0.2.0 score --command 'bun run src/index.ts --stdio' --hosted https://tdqs.dev --format markdown`
+  The key is machine-local (`chmod 600`, outside the repo) — never commit it, echo it, paste it into
+  an issue or PR, or copy it into a worktree.
 
 ## 4. Code conventions
 
