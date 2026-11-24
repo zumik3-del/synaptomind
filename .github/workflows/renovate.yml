@@ -7,6 +7,12 @@ on:
   schedule:
     - cron: "0 4 * * 1"
   workflow_dispatch:
+    inputs:
+      log_level:
+        description: "Renovate LOG_LEVEL"
+        type: choice
+        options: [info, debug]
+        default: info
 
 permissions:
   contents: read
@@ -38,5 +44,5 @@ jobs:
           # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate
           renovate-version: "44.261.1"
         env:
-          LOG_LEVEL: info
+          LOG_LEVEL: ${{ inputs.log_level || 'info' }}
           RENOVATE_REPOSITORIES: ${{ github.repository }}
