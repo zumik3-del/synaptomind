@@ -46,9 +46,6 @@ describe('source guard: the tools layer cannot re-implement the handshake', () =
       'crystallize/auto-cluster.ts',
       'manage.ts',
       'supersede.ts',
-      'review.ts',
-      'review/apply.ts',
-      'review/rollback.ts',
       'retention-review.ts',
       'primers.ts'
     ]

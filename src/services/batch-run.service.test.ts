@@ -4,11 +4,9 @@ import { getDb } from '../db'
 import { closeDb } from '../db/init'
 import { ValidationError } from '../errors'
 import { createTestDb } from '../test/helpers'
-import { NOW } from '../test/proposal-apply-helpers'
 import { runTolerantBatch } from './batch-run.service'
 import { bulkCreateThoughtsService } from './bulk.service'
 import { createEdgesBatchService } from './edges.service'
-import { applyBatchService } from './placement-apply.service'
 import { archiveThoughtsBatchService } from './thoughts.service'
 
 beforeEach(createTestDb)
@@ -203,5 +201,4 @@ test('runTolerantBatch does not validate emptiness; each batch service keeps its
   expect(() => bulkCreateThoughtsService([])).toThrow(ValidationError)
   expect(() => archiveThoughtsBatchService([])).toThrow(ValidationError)
   expect(() => createEdgesBatchService([])).toThrow(ValidationError)
-  expect(applyBatchService([], { now: NOW }, db)).toEqual({ results: [], errors: [] })
 })

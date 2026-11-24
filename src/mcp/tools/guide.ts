@@ -14,9 +14,8 @@ Full action reference: docs/mcp-tools.md. HTTP ops endpoints (health, health-che
 | memory_recall | search, get, context, chain, clusters, list |
 | memory_store | create, update, link, link_batch, unlink, unlink_batch, retype, bulk_create |
 | memory_supersede | archive, archive_batch, merge |
-| memory_status | slots, frontier, config, health, propose |
+| memory_status | slots, frontier, config, health |
 | memory_manage | list, create, update, delete, resolve |
-| edge_review | enqueue, list, apply, apply_batch, rollback, reject |
 | memory_crystallize | graph, cluster, auto_cluster |
 | memory_reflect | reflect, timeline |
 | memory_primers | list, delete |
@@ -29,10 +28,10 @@ meta: action, scope, counts, degraded, warnings, plus reason (no_match, id_not_f
 A failure is not an envelope: isError: true with {error: {message, statusCode?, retryable?}} and the same message in content[].text — the shape of every action-layer refusal, retryable true only for 503.
 
 ## Working directory (cwd)
-cwd is optional everywhere except memory_manage resolve, which requires it; it scopes memory_recall search/clusters/list/context, memory_status slots/frontier/propose, memory_reflect reflect/timeline, memory_crystallize graph/cluster and edge_review list. A reader with no resolved project answers across every project (scope null plus a warning, global: true for an unknown path) — except propose, which pins the plan to the addressed thought's project (the default project for draft content) and warns so, even for an unknown path; slots also warns that the project-scoped overrides went unapplied. A write never widens or warns: a create lands in the project the path names, else the default project; an id-addressed write keeps its row's project; an unknown path leaves only {project: null, global: true}. reflect is a write here.
+cwd is optional everywhere except memory_manage resolve, which requires it; it scopes memory_recall search/clusters/list/context, memory_status slots/frontier, memory_reflect reflect/timeline and memory_crystallize graph/cluster. A reader with no resolved project answers across every project (scope null plus a warning, global: true for an unknown path); slots also warns that the project-scoped overrides went unapplied. A write never widens or warns: a create lands in the project the path names, else the default project; an id-addressed write keeps its row's project; an unknown path leaves only {project: null, global: true}. reflect is a write here.
 
 ## Destructive operations (preview by default)
-memory_store unlink/retype/unlink_batch, memory_supersede archive/archive_batch/merge, memory_manage delete, edge_review apply/apply_batch/rollback, memory_primers delete, memory_crystallize auto_cluster and retention_review delete/compact preview first; confirm:true executes and revalidates state, so a preview can go stale. meta.preview carries {token, destructive: true, consequence?, instruction?} with a ~5 min TTL, and confirm:true must send it back as preview_token.
+memory_store unlink/retype/unlink_batch, memory_supersede archive/archive_batch/merge, memory_manage delete, memory_primers delete, memory_crystallize auto_cluster and retention_review delete/compact preview first; confirm:true executes and revalidates state, so a preview can go stale. meta.preview carries {token, destructive: true, consequence?, instruction?} with a ~5 min TTL, and confirm:true must send it back as preview_token.
 Nothing to fingerprint means token null: unlink_batch, retention_review compact and an archive/merge preview of a thought that does not exist — confirming one takes no token, but a missing archive/merge target still fails with an error. merge previews eligibility, effects and at most 50 source edges.
 
 ## Thoughts
@@ -55,7 +54,7 @@ min_relevance gates cosine-only hits on the calibrated 0-1 scale (0.8 → 0, 0.9
 recency_weight (default 0) with recency_half_life_days (default 30) adds recency and final scores above 0; supersession_mode (off/flag/suppress, default suppress) and contradiction_mode (off/flag, default flag) set how superseded and contradicted rows are annotated.
 
 ## Lifecycle and scheduled jobs
-Importance decays by decay.rate (default 0.95) per decay.intervalMs (default 24 h) and decay never archives; archiving is explicit, and only retention_review delete hard-deletes. decay and placement-retention run only in the process that owns background jobs; auto_cluster is on demand, never scheduled.
+Importance decays by decay.rate (default 0.95) per decay.intervalMs (default 24 h) and decay never archives; archiving is explicit, and only retention_review delete hard-deletes. decay and preview-token-retention run only in the process that owns background jobs; auto_cluster is on demand, never scheduled.
 
 ## Projects, clusters and primers
 One project per thought; a cluster is an is_cluster=1 thought whose cluster edges point at its members, and clusters never enter the frontier. crystallize graph pages nodes by cwd, offset (default 0) and limit (default 500, max 2000); cluster turns thought_ids into a cluster thought plus cluster edges; auto_cluster previews unless confirm:true.
@@ -64,9 +63,6 @@ A recalled thought whose hit count reaches primer.promoteThreshold (default 5) b
 ## Health check
 memory_status action=health reports findings by severity (read-only; repair is POST /api/health-check/repair with preview then confirm). Score: 100 - criticalCategories×40 - warningCategories×15 - scoredInfoOccurrences×0.25, clamped [0,100], with critical, warning and info beside score_breakdown.
 contradiction_in_cluster remediation: unlink the contradicts edge, retype it to supports/related, or archive the cluster thought — dry-run then confirm=true.
-
-## Placement proposal and review
-memory_status action=propose returns a read-only plan (placement, edges[], lifecycle). edge_review enqueue/list/apply/apply_batch/rollback/reject: apply is a dry run unless confirm=true and re-checks staleness; the queue takes edge items only, so placement and lifecycle items are skipped.
 
 ## Session reflection
 reflect writes: decisions create active thoughts tagged decision + reflect, pending create draft ones tagged pending + reflect, surfaced after wake_days (default 7). summary appends to project_context, and goals_add/goals_remove edit goals by case-insensitive substring (goals_delta is retired). slots: only project_context/active_goals are stored rows; pending_items derives from thoughts tagged pending, architecture_decisions from primers, so editing them means editing a thought. timeline is the paginated thought list (status, cwd, limit, offset, compact, fields, include_url_links), the same reader as memory_recall list.`

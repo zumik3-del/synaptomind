@@ -1,10 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server'
-import { getDb } from '../../db'
 import { closeDb } from '../../db/init'
-import { insertProposal } from '../../db/placement-proposals'
-import { createProjectService, resolveProjectService } from '../../services/projects.service'
+import { createProjectService } from '../../services/projects.service'
 import { createTestDb, seedThought } from '../../test/helpers'
 import { registerAllMemoryTools } from '.'
 
@@ -48,25 +46,6 @@ function seedTwoProjects(): { scopedId: string; otherId: string; projectId: stri
   }
 }
 
-function seedPendingProposal(
-  projectId: string,
-  sourceId: string,
-  targetId: string,
-  fingerprint: string
-): void {
-  insertProposal(getDb(), {
-    project_id: projectId,
-    source_thought_id: sourceId,
-    item_kind: 'edge',
-    target_id: targetId,
-    edge_type: 'related',
-    confidence: 0.8,
-    rationale: 'read-scope-warnings fixture',
-    payload: '{}',
-    fingerprint
-  })
-}
-
 describe('memory_crystallize action=graph — scope is reported', () => {
   test('a cwd-less call answers every project with scope null and a warning', async () => {
     const { scopedId, otherId } = seedTwoProjects()
@@ -96,46 +75,6 @@ describe('memory_crystallize action=graph — scope is reported', () => {
     expect(data.meta.scope).toEqual({
       project: projectId,
       project_name: 'ReadScopeProject',
-      global: false
-    })
-    expect(data.meta.warnings).toEqual([])
-  })
-})
-
-describe('edge_review action=list — scope is reported', () => {
-  test('a cwd-less call answers every project with scope null and a warning', async () => {
-    const { scopedId, otherId, projectId } = seedTwoProjects()
-    const extra = seedThought({ content: 'PROPOSAL_TARGET marker', project_id: 'default' })
-    seedPendingProposal(projectId, scopedId, scopedId, 'fp-scoped')
-    seedPendingProposal('default', otherId, extra, 'fp-other')
-
-    const { data, isError } = parseResult(
-      await client.callTool({ name: 'edge_review', arguments: { action: 'list' } })
-    )
-
-    expect(isError).toBe(false)
-    expect(data.items).toHaveLength(2)
-    expect(data.meta.scope).toBeNull()
-    expect(data.meta.warnings).toContain('no cwd — the answer spans every project')
-  })
-
-  test('a registered cwd restricts the answer and raises no warning', async () => {
-    const { scopedId, otherId, projectId } = seedTwoProjects()
-    const extra = seedThought({ content: 'PROPOSAL_TARGET marker', project_id: 'default' })
-    seedPendingProposal(projectId, scopedId, scopedId, 'fp-scoped')
-    seedPendingProposal('default', otherId, extra, 'fp-other')
-    const project = resolveProjectService(CWD)
-
-    const { data, isError } = parseResult(
-      await client.callTool({ name: 'edge_review', arguments: { action: 'list', cwd: CWD } })
-    )
-
-    expect(isError).toBe(false)
-    expect(data.items).toHaveLength(1)
-    expect(data.items[0].project_id).toBe(projectId)
-    expect(data.meta.scope).toEqual({
-      project: project!.id,
-      project_name: project!.name,
       global: false
     })
     expect(data.meta.warnings).toEqual([])

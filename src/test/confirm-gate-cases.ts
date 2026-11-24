@@ -9,7 +9,7 @@
  * own not-found answer stands).
  *
  * The rows are split by token scope so each module stays readable:
- * `confirm-gate-cases.edges.ts` (edge/proposal/batch ids) and
+ * `confirm-gate-cases.edges.ts` (edge ids) and
  * `confirm-gate-cases.thoughts.ts` (thoughts, the cluster pool, projects,
  * primers); `confirm-gate-cases.types.ts` holds the shape and the DB probes.
  * All test-only, under `src/test/` so neither `bun:test` nor the fixtures reach
@@ -21,5 +21,5 @@ import type { GateCase } from './confirm-gate-cases.types'
 
 export type { GateCase, GateKind } from './confirm-gate-cases.types'
 
-/** Every converted preview/confirm site (12 actions over 10 tool modules). */
+/** Every converted preview/confirm site (nine actions over six tool modules). */
 export const GATE_CASES: readonly GateCase[] = [...EDGE_GATE_CASES, ...THOUGHT_GATE_CASES]

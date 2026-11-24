@@ -19,7 +19,7 @@ const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 const CWD_ACTIONS: Record<string, string[]> = {
   memory_recall: ['search', 'clusters', 'list', 'context'],
-  memory_status: ['slots', 'frontier', 'propose'],
+  memory_status: ['slots', 'frontier'],
   memory_reflect: ['reflect', 'timeline'],
   memory_primers: ['list'],
   memory_manage: ['list', 'create', 'update', 'delete', 'resolve']
@@ -381,7 +381,7 @@ describe('structuredContent mirrors the text payload', () => {
 
   test('every registered tool advertises the shared output envelope', async () => {
     const { tools } = await client.listTools()
-    expect(tools.length).toBe(11)
+    expect(tools.length).toBe(10)
     for (const tool of tools) {
       const outputSchema = tool.outputSchema as
         | { required?: string[]; properties?: Record<string, unknown> }
@@ -442,10 +442,6 @@ describe('no bare-string tool results (#2135)', () => {
       {
         label: 'memory_status config',
         call: () => callTool({ name: 'memory_status', arguments: { action: 'config' } })
-      },
-      {
-        label: 'edge_review list',
-        call: () => callTool({ name: 'edge_review', arguments: { action: 'list' } })
       },
       {
         label: 'retention_review list',

@@ -171,7 +171,7 @@ describe('MCP stdio runtime', () => {
 
     expect(exitCode).toBe(0)
     assertPureJsonRpcLines(stdout)
-    expect(toolsFrom(stdout).length).toBe(11)
+    expect(toolsFrom(stdout).length).toBe(10)
     expect(stderr).toContain('background jobs delegated to the shared server')
   }, 30_000)
 
@@ -180,7 +180,7 @@ describe('MCP stdio runtime', () => {
 
     expect(exitCode).toBe(0)
     assertPureJsonRpcLines(stdout)
-    expect(toolsFrom(stdout).length).toBe(11)
+    expect(toolsFrom(stdout).length).toBe(10)
     expect(stderr).not.toContain('background jobs delegated to the shared server')
   }, 30_000)
 })

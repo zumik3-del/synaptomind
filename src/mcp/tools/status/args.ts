@@ -41,39 +41,7 @@ export const STATUS_ARGS = {
     .string()
     .optional()
     .describe(
-      'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for "slots", "frontier" and "propose": omitting it leaves meta.scope null and is noted in meta.warnings (an unregistered path raises a global scope and its own warning). Without a registered scope, "slots" reads only the global slot rows and does not apply the project-scoped overrides, "frontier" answers across every project, and "propose" is never cross-project: the plan stays confined to the addressed thought\'s own project, or to the default project for a draft. ACCEPTED AND IGNORED for "config", "health".'
-    ),
-  thought_id: z
-    .string()
-    .optional()
-    .describe(
-      'Existing thought to analyse (provide this or content). OPTIONAL for "propose". REJECTED for all other actions.'
-    ),
-  content: z
-    .string()
-    .optional()
-    .describe(
-      'Draft content to analyse when the thought is not persisted yet (provide this or thought_id). OPTIONAL for "propose". REJECTED for all other actions.'
-    ),
-  compact: z
-    .boolean()
-    .optional()
-    .describe(
-      'Compact propose output (top 3 edges, no signals). Default true; pass false (or include_signals=true) for full output. OPTIONAL for "propose". REJECTED for all other actions.'
-    ),
-  max_edges: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .optional()
-    .describe(
-      'Cap the number of proposed edges (maps to engine maxProposals). Default: 3 (slim) unless full output is requested. OPTIONAL for "propose". REJECTED for all other actions.'
-    ),
-  include_signals: z
-    .boolean()
-    .optional()
-    .describe(
-      'Include per-edge signals in the output. Default false (slim); true restores full output. OPTIONAL for "propose". REJECTED for all other actions.'
+      'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for "slots" and "frontier": omitting it leaves meta.scope null and is noted in meta.warnings (an unregistered path raises a global scope and its own warning). Without a registered scope, "slots" reads only the global slot rows and does not apply the project-scoped overrides, and "frontier" answers across every project. ACCEPTED AND IGNORED for "config", "health".'
     ),
   severity: severitySchema
     .optional()

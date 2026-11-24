@@ -21,7 +21,7 @@ const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 const CWD_ACTIONS: Record<string, string[]> = {
   memory_recall: ['search', 'clusters', 'list', 'context'],
-  memory_status: ['slots', 'frontier', 'propose'],
+  memory_status: ['slots', 'frontier'],
   memory_reflect: ['reflect', 'timeline'],
   memory_primers: ['list'],
   memory_manage: ['list', 'create', 'update', 'delete', 'resolve']
@@ -65,7 +65,7 @@ beforeAll(async () => {
 })
 
 describe('tool registration', () => {
-  test('registers all 11 tools', async () => {
+  test('registers all 10 tools', async () => {
     const { tools } = await client.listTools()
     const names = tools.map(t => t.name)
     expect(names).toContain('memory_recall')
@@ -76,10 +76,9 @@ describe('tool registration', () => {
     expect(names).toContain('memory_crystallize')
     expect(names).toContain('memory_reflect')
     expect(names).toContain('memory_primers')
-    expect(names).toContain('edge_review')
     expect(names).toContain('retention_review')
     expect(names).toContain('memory_guide')
-    expect(tools.length).toBe(11)
+    expect(tools.length).toBe(10)
   })
 
   test('memory_store advertises the effective soft limit at registration', async () => {
@@ -199,8 +198,6 @@ describe('retention_review MCP', () => {
       })
     )
     expect(invalid.isError).toBe(true)
-    const edgeTools = (await client.listTools()).tools.filter(tool => tool.name === 'edge_review')
-    expect(edgeTools).toHaveLength(1)
   })
 
   test('retention-review compact rejects more than 1000 IDs through MCP validation', async () => {

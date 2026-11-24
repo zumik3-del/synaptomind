@@ -75,7 +75,6 @@ const WEIGHTS: Readonly<Record<string, number>> = {
   'src/mcp/http-transport.modern.test.ts': 3,
   'src/mcp/http-transport.test.ts': 2,
   'src/mcp/stdio-runtime.test.ts': 6,
-  'src/mcp/tools/propose-degraded.contract.test.ts': 2,
   'src/mcp/tools/recall-context-semantic.contract.test.ts': 2,
   'src/mcp/tools/recall-degraded.contract.test.ts': 3,
   'src/shutdown-closeDb.test.ts': 3

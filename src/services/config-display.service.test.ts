@@ -80,15 +80,16 @@ describe('buildConfigDisplay removed sections', () => {
     expect(out).not.toContain('triage.')
   })
 
-  test('renders no decay auto-archive or placement alias knob', () => {
+  test('renders no decay auto-archive knob and no placement section', () => {
     const out = buildConfigDisplay()
 
     expect(out).not.toContain('decay.archiveThreshold')
     expect(out).not.toContain('decay.archiveMinAgeDays')
-    expect(out).not.toContain('placement.maxProposals ')
-    expect(out).not.toContain('placement.maxItemsPerEnqueue')
+    expect(out).not.toContain('--- Placement ---')
+    expect(out).not.toContain('placement.')
+    expect(out).not.toContain('edgeDetect.minSimilarity')
     expect(out).toContain('decay.rate')
-    expect(out).toContain('placement.maxProposalsPerEnqueue')
+    expect(out).toContain('edgeDetect.maxCandidates')
   })
   test('an inert section copied from a legacy config.json is not advertised', () => {
     const legacy = {

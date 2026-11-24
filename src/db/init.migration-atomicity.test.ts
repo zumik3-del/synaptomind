@@ -92,7 +92,7 @@ function rewindToV35(): void {
 
 test('a crash after v036 apply but before its stamp rolls back; the next boot replays cleanly (#1751)', () => {
   initDb({ dbPath, runMigrations: true })
-  expect(schemaVersion()).toBe('50')
+  expect(schemaVersion()).toBe('51')
   closeDb()
   rewindToV35()
   installStampFailureTrigger()
@@ -106,7 +106,7 @@ test('a crash after v036 apply but before its stamp rolls back; the next boot re
 
   dropStampFailureTrigger()
   initDb({ dbPath, runMigrations: true })
-  expect(schemaVersion()).toBe('50')
+  expect(schemaVersion()).toBe('51')
   const cols = thoughtColumns()
   expect(cols).toContain('archived_at')
   expect(cols).toContain('is_protected')

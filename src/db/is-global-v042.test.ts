@@ -29,11 +29,11 @@ test('v042: is_global is INTEGER NOT NULL DEFAULT 0', () => {
   expect(col!.dflt_value).toBe('0')
 })
 
-test('v042: schema_version is 50 after fresh init', () => {
+test('v042: schema_version is 51 after fresh init', () => {
   const row = getDb().prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
     | { value: string }
     | undefined
-  expect(row?.value).toBe('50')
+  expect(row?.value).toBe('51')
 })
 
 test('v042: a row inserted without is_global defaults to 0', () => {
@@ -84,5 +84,5 @@ test('v042: re-running init on the same DB keeps is_global and schema_version 50
   const row = db2.prepare(`SELECT value FROM _meta WHERE key = 'schema_version'`).get() as
     | { value: string }
     | undefined
-  expect(row?.value).toBe('50')
+  expect(row?.value).toBe('51')
 })
