@@ -1,18 +1,18 @@
 > **Migration note (next release):** every MCP action now answers in one response envelope —
 > `{ items, meta }` for collections, `{ item, meta }` for single objects — a failure answers one
 > structured error shape, `cwd` is optional on the project-scoped actions (it narrows an answer to
-> one project; without it a read answers across every project and says so in `meta`, except
-> `memory_status action=propose`, whose plan stays project-pinned) and accepted-and-ignored on
-> every other action except `memory_manage action=resolve`, which takes it as its input, a preview
-> token rides only in `meta.preview`, and an id-shaped `query` resolves that thought directly.
+> one project; without it a read answers across every project and says so in `meta`) and
+> accepted-and-ignored on every other action except `memory_manage action=resolve`, which takes it
+> as its input, a preview token rides only in `meta.preview`, and an id-shaped `query` resolves
+> that thought directly.
 > See the **Migration notes (response envelope, cwd scope, id lookup)** section at the end of this
 > document for the full list of breaking changes.
 >
-> **Migration note (v0.19):** Project scoping on MCP tools uses `cwd` (working directory) instead of `project_id`. The exception is `memory_manage` actions `update` and `delete`, which require `project_id` to identify the project. See the **Migration notes (v0.19 MCP UX cleanup)** section at the end of this document for the full list (compact defaults, preview tokens, `edge_review` canonical keys, retired inputs).
+> **Migration note (v0.19):** Project scoping on MCP tools uses `cwd` (working directory) instead of `project_id`. The exception is `memory_manage` actions `update` and `delete`, which require `project_id` to identify the project. See the **Migration notes (v0.19 MCP UX cleanup)** section at the end of this document for the full list (compact defaults, preview tokens, retired inputs).
 
 # MCP Tools Reference
 
-SynaptoMind exposes its graph operations as 11 MCP tools, over both the stdio and HTTP
+SynaptoMind exposes its graph operations as 10 MCP tools, over both the stdio and HTTP
 transports. Each tool multiplexes several actions behind an `action` argument. This page is
 the detailed companion to the in-band `memory_guide` tool (`src/mcp/tools/guide.ts`), which
 returns a short quick map plus a pointer here at runtime.
@@ -30,9 +30,8 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 | `memory_recall` | search, get, context, chain, clusters, list | Find and retrieve thoughts (list = paginated inventory) |
 | `memory_store` | create, update, link, link_batch, unlink, unlink_batch, retype, bulk_create | Write, connect and edit thoughts |
 | `memory_supersede` | archive, archive_batch, merge | Version and supersede thoughts |
-| `memory_status` | slots, frontier, config, health, propose | Query system state |
+| `memory_status` | slots, frontier, config, health | Query system state |
 | `memory_manage` | list, create, update, delete, resolve | Project management |
-| `edge_review` | enqueue, list, apply, apply_batch, rollback, reject | Review and apply queued placement proposals |
 | `retention_review` | list, protect, delete, compact | Review retention candidates and take explicit retention actions |
 | `memory_crystallize` | graph, cluster, auto_cluster | Visualize and reorganize clusters |
 | `memory_reflect` | reflect, timeline | Session management |
@@ -72,15 +71,12 @@ The envelope is the payload of the wire envelope described in
 
 - `project` is the project id and `project_name` its display name;
 - `null` means the answer was not scoped to a project: the call omitted `cwd` (then `warnings`
-  carries a `no cwd` note — `no cwd — the answer spans every project` for the readers that widen,
-  the project-pinned note of [propose](#actionpropose) for that one) or the action is not
+  carries a `no cwd` note — `no cwd — the answer spans every project`) or the action is not
   project-scoped;
 - `global: true` with `project: null` means the answer spans every project although a `cwd` was
   given — it names a path that is not registered (then `warnings` carries a
-  `cwd "..." matches no known project` note). The call still succeeds; it just is not narrowed.
-  `memory_status action=propose` is the exception: its plan never widens, so the same path yields one
-  composed note that pairs the unknown-path fact with the pinning clause and never claims a
-  cross-project answer ([Working directory](#working-directory-cwd)).
+  `cwd "..." matches no known project` note). The call still succeeds; it just is not narrowed
+  ([Working directory](#working-directory-cwd)).
 
 `counts` always carries three shared keys plus whatever the action can report:
 
@@ -98,14 +94,13 @@ What the three keys count is per action:
 | `memory_recall` id lookup | the rows the id resolved, after the `limit` cap | `0` |
 | `memory_recall` `list`, `memory_reflect` `timeline`, `memory_crystallize` `graph` | the un-paged count matching the filters | the rows the page left out (`offset`/`limit`) |
 | `retention_review` `list` | the candidate count matching the filters, un-paged | `0` — the page remainder is unaccounted |
-| `edge_review` `list` | the un-paged row count matching the filters, retired kinds excluded unless `include_retired` | the rows the page `limit` left out |
 | `memory_crystallize` `auto_cluster` | the candidate count | `0` |
-| the batch writers (`link_batch`, `unlink_batch`, `bulk_create`, `archive_batch`, `apply_batch`) and the un-paged collections (`slots`, `frontier`, `memory_manage` `list`, `memory_primers` `list`, `rollback`) | the requested item count, or the rows in `items` | `0` |
-| a single-object action | `1` when an `item` came back, `0` when it did not — except `propose`, where it is the planned edge count | `0` |
+| the batch writers (`link_batch`, `unlink_batch`, `bulk_create`, `archive_batch`) and the un-paged collections (`slots`, `frontier`, `memory_manage` `list`, `memory_primers` `list`) | the requested item count, or the rows in `items` | `0` |
+| a single-object action | `1` when an `item` came back, `0` when it did not | `0` |
 
 So `total = returned + filtered_out` holds where the action accounts for every row it dropped —
 the un-paged collections (vacuously: nothing is dropped), `memory_recall` `list`, `memory_reflect`
-`timeline`, `memory_crystallize` `graph` and `edge_review` `list` — and it fails for the rest:
+`timeline` and `memory_crystallize` `graph` — and it fails for the rest:
 `search`/`clusters` leave the `limit` slice unaccounted, `retention_review` `list` reports
 `filtered_out: 0` while the page is bounded, and `auto_cluster` counts candidates against grouped
 items. **Known gap on the default search path**
@@ -117,8 +112,8 @@ a row is never a candidate.
 
 Action-specific counters sit beside them (`link_batch` → `linked`/`failed`; `archive_batch` →
 `archived`/`failed`; `retention_review` list, `memory_recall` list and `memory_reflect` timeline →
-`limit`/`offset`; `edge_review` list → `retired_count`; `graph` → `edges`; `cluster` →
-`members`/`edges`), so a caller never has to count `items` itself.
+`limit`/`offset`; `graph` → `edges`; `cluster` → `members`/`edges`), so a caller never has to
+count `items` itself.
 
 `reason` is present only when "nothing" is not the ordinary case:
 
@@ -175,11 +170,11 @@ A non-mutating preview answer is marked in `meta.preview`; an executed answer ca
 | `instruction` | The exact call that confirms this preview (where the action phrases one) |
 
 A single-object preview keeps its preview fields **inside `item`** — `status: "preview"` (where the
-action uses that marker: `memory_manage action=delete` reports `action: "preview"` and
-`edge_review action=apply` `status: "dry_run"`), plus `consequence` and `instruction` where the
-action phrases them. The token never does: single-object and collection previews carry it only in
-`meta.preview`, which is also where a collection preview keeps the `consequence` and `instruction`
-it phrases, because the batch rows in `items` already carry their own per-row status.
+action uses that marker: `memory_manage action=delete` reports `action: "preview"`), plus
+`consequence` and `instruction` where the action phrases them. The token never does: single-object
+and collection previews carry it only in `meta.preview`, which is also where a collection preview
+keeps the `consequence` and `instruction` it phrases, because the batch rows in `items` already
+carry their own per-row status.
 
 ## Wire envelope
 
@@ -232,9 +227,9 @@ per-action input failure and a domain error:
 - **Per-action arguments.** Each action validates against its own slice of the advertised schema,
   which is the single source for both the advertisement and the refusal. An argument the action
   does not read is refused — `<keys> is not applicable to <action> action` — instead of being
-  silently ignored: passing `thoughts` to `create`, or `confirm` to `edge_review list`, is an error,
-  and nothing is written. `action` and `cwd` are the only arguments every action tolerates; `cwd`
-  is validated only where an action declares it (`memory_manage action=resolve`).
+  silently ignored: passing `thoughts` to `create`, or `confirm` to `memory_recall list`, is an
+  error, and nothing is written. `action` and `cwd` are the only arguments every action tolerates;
+  `cwd` is validated only where an action declares it (`memory_manage action=resolve`).
 - **SDK-level refusals.** Two refusals never reach the action layer and answer text-only, with no
   `structuredContent`: the SDK's output-schema validation and its input-element cap, which is
   active only when the server configures one. Neither is reachable from a call this tool set
@@ -253,31 +248,29 @@ failure is a bad request and repeating it will not help.
 `cwd` is the **optional** scope argument of every project-scoped MCP action: it limits an answer to
 one project, and omitting it — or passing an empty string — is never an error: a reader answers
 across every project and declares that in `meta`, while a writer falls back to the default project.
-The one reader that never widens is `memory_status action=propose`, whose plan stays pinned to the
-project of the thought it addresses (see below). Every action accepts the argument, including the
-ones whose answer it does not scope: there it is simply ignored, never rejected.
+Every action accepts the argument, including the ones whose answer it does not scope: there it is
+simply ignored, never rejected.
 
 | Tool | Actions whose answer `cwd` scopes |
 |---|---|
 | `memory_recall` | `search`, `context`, `clusters`, `list` |
-| `memory_status` | `slots`, `frontier`, `propose` (pinned, never widened — see below) |
+| `memory_status` | `slots`, `frontier` |
 | `memory_reflect` | `reflect`, `timeline` |
 | `memory_crystallize` | `graph`, `cluster` |
-| `edge_review` | `list` |
 | `memory_manage` | `resolve` — the one action that requires it |
 
 The actions outside the table either address their rows by id (`get`, `chain`, `unlink`, `archive`,
 ...) or are global by design (`health`, `config`, `primers`, `crystallize auto_cluster`), so they
 scope nothing by `cwd` — every action still **accepts** it and simply ignores it there, and no call
 is rejected for carrying one. A write that creates a row takes it too and lands in the project the path names
-(`memory_store` `create`, `bulk_create` — per item when the item carries its own `project_id` —
-and `edge_review enqueue`). The id-addressed writes `memory_store action=update` and
+(`memory_store` `create`, `bulk_create` — per item when the item carries its own `project_id`).
+The id-addressed writes `memory_store action=update` and
 `memory_supersede action=merge` accept it as well, but only as the scope the answer reports: they
 never move the row they address.
 
-Except `propose` (below), a read that omits `cwd` succeeds and declares the widened answer in
+A read that omits `cwd` succeeds and declares the widened answer in
 `meta`: `scope` is `null` and `warnings` carries `no cwd — the answer spans every project`
-(`resolveEnvelopeScope`, `src/mcp/tools/envelope.ts:167-191`):
+(`resolveEnvelopeScope`, `src/mcp/tools/envelope.ts:140-157`):
 
 ```json
 {
@@ -300,44 +293,17 @@ a call without `cwd` fails with an `isError` envelope naming the argument
 
 `memory_status action=slots` adds a second warning whenever no project resolved — `cwd` omitted,
 blank or naming no project — because only the global slot rows are read and the project-scoped
-overrides stay unapplied (`src/mcp/tools/status/slots.ts:11-12`, `:35-38`).
-
-`memory_status action=propose` is the one read that never widens: `cwd` scopes its candidate pool to
-one project, and without it — or with a path that resolves to no project — the plan stays pinned to
-the project the addressed thought belongs to, or to the default project for draft `content`
-(`src/services/placement/engine.ts:84-112`, `:151-156`; `src/services/placement/placement.ts:92-93`;
-`src/mcp/tools/status/propose.ts:6-36`).
-A cwd-less call replaces the broadening note with one of two pinning notes:
-
-`no cwd — propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to`
-
-with draft content it is
-`no cwd — propose is not cross-project: the plan is restricted to the default project (draft content)`.
-
-A path that resolves to no project gets **one** composed warning instead of the generic broadening
-one (`src/mcp/tools/status/propose.ts:33-35`): the unknown-path fact with its resolve hint, then the
-same pinning clause, and no `the answer spans every project` claim anywhere in it:
-
-`cwd "<path>" matches no known project (check it with memory_manage action=resolve) — propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to`
-
-with draft content it is
-`cwd "<path>" matches no known project (check it with memory_manage action=resolve) — propose is not cross-project: the plan is restricted to the default project (draft content)`.
-
-So the plan is still pinned, never widened, while `scope` stays the unresolved
-`{ project: null, project_name: null, global: true }`: the warning, not the scope, states the project
-the plan really used.
+overrides stay unapplied (`src/mcp/tools/status/slots.ts:7-8`, `:33-35`).
 
 A write action resolves `cwd` the same way but never widens, so it raises no scope warning in any
 shape. A write that creates a row lands in the project the path names, or in the default project when
 `cwd` is absent, blank or names no project; an id-addressed write (`memory_store update`,
 `memory_supersede`) leaves its row's project untouched. An unregistered path therefore keeps only the
 unresolved `{ project: null, project_name: null, global: true }` scope as the trace that it scoped
-nothing (`writeEnvelopeScope`, `src/mcp/tools/envelope.ts:222-228`). `memory_reflect action=reflect`
+nothing (`writeEnvelopeScope`, `src/mcp/tools/envelope.ts:168-173`). `memory_reflect action=reflect`
 is a write in this sense; its own section below spells out where each of its outputs lands. Likewise,
 a read given a path that is not registered is never an error: it reports `scope.global: true` plus a
-warning and answers across every project — `propose` excepted: its plan is always pinned, so the same
-path yields the single composed note above, which pairs the unknown-path fact with the pinning clause
-instead of claiming a cross-project answer.
+warning and answers across every project.
 
 There is no HTTP counterpart to that rule: the HTTP listener serves only `/health` and the
 `/api/health-check` pair, so a REST client cannot reach a thought at all
@@ -381,8 +347,6 @@ Which surfaces take the controls:
 - **Whole rows, `fields` only.** `memory_status action=slots`, `memory_manage action=list` and
   `memory_crystallize action=graph` advertise no `compact`: slots and projects answer their own
   row shape, the graph answers nodes and edges, and all three narrow by `fields` alone.
-- `memory_status action=propose` keeps its own compact switch for the *plan* (top 3 edges, no
-  signals); pass `compact: false` or `include_signals: true` (or `max_edges`) for full output.
 
 Explicit `fields` always take precedence over `compact` on every tool.
 
@@ -455,7 +419,7 @@ The former `POST`/`DELETE /api/thoughts/:id/links` routes went with the rest of 
 
 Every destructive action — `memory_store` `unlink`, `unlink_batch` and `retype`,
 `memory_supersede` `archive`, `archive_batch` and `merge`, `memory_manage action=delete`,
-`edge_review` (`apply`/`apply_batch`/`rollback`), `memory_primers action=delete`,
+`memory_primers action=delete`,
 `memory_crystallize action=auto_cluster`, and `retention_review` `delete` and `compact` — follows
 the same two-step pattern:
 
@@ -479,8 +443,8 @@ response and does not necessarily contain the server's migration text. When a ca
 retired input reaches the server, invocation validation returns a migration error. Tool
 descriptions identify the supported replacements: recall `top_k` → `limit`, `cluster` →
 `is_cluster`, `mode` → `hybrid`; status `k` → `limit`, `dry_run` → `confirm`; crystallize `dry_run` → `confirm`;
-store link `thought_id` → `source_id`; reflect `goals_delta` → `goals_add` / `goals_remove`;
-review enqueue `max_items` → `max_proposals`. `memory_store.is_profile` has no replacement:
+store link `thought_id` → `source_id`; reflect `goals_delta` → `goals_add` / `goals_remove`.
+`memory_store.is_profile` has no replacement:
 remove the field from requests. Retired names are not accepted aliases.
 
 ## `memory_recall` — finding and retrieving thoughts
@@ -947,7 +911,7 @@ All three actions preview when `confirm` is omitted or `false`; only `confirm: t
 Execution re-reads/revalidates current state, so previews can become stale. Preview responses carry
 a token in `meta.preview.token` (stored in DB, ~5 min TTL) for every destructive action (`unlink`,
 `retype`, `archive`, `archive_batch`, `merge`, `memory_manage` `delete`, `memory_primers` `delete`,
-`auto_cluster`, `apply`, `apply_batch`, `rollback`, `retention_review` `delete`);
+`auto_cluster`, `retention_review` `delete`);
 `confirm: true` requires that token as a `preview_token` argument and fails when it is missing or
 stale — except when the target does not exist: an `archive` or `merge` preview of a missing
 thought has nothing to fingerprint, answers `token: null` with `outcome: "not_found"`, and needs no
@@ -1063,34 +1027,6 @@ it — the run is global.
 Despite the name, `min_similarity` is a maximum cosine **distance**, not a minimum similarity:
 neighbours qualify when their distance is strictly below the threshold. Lower values are tighter.
 
-## `edge_review` — placement proposals
-
-The placement review queue, owned end to end by MCP (`edge_review`). Actions: `enqueue`, `list`,
-`apply`, `apply_batch`, `rollback`, `reject`. `enqueue` requires a persisted, `active`
-`thought_id`; `apply`/`apply_batch`/`rollback` are preview-first and require a `preview_token`
-on `confirm: true`.
-
-- `enqueue` → `{ item: <enqueue outcome>, meta }`, with `meta.counts.proposals` and
-  `meta.counts.skipped`.
-- `list` → `{ items, meta }`: `items` are the rows matching the filters for the page, ordered
-  `created_at` newest first and bounded by `limit` — the retired kinds hidden unless
-  `include_retired`. Page and count run the same predicates in SQL (pending liveness and the
-  retired-kind exclusion included), so `returned + filtered_out = total` always holds and a page is
-  short only when fewer rows match. `meta.counts.total` is that un-paged `COUNT(*)`, so it never
-  stops at the page cap; `filtered_out` is the rows the `limit` left out; `meta.counts.retired_count`
-  is the retired (legacy) rows the default filter hid, which sit in neither `total` nor
-  `filtered_out`. The retired aliases (`proposals`, `results`, `rows`,
-  `count`, `visible_count`, `returned_count`, `retired`, `retiredCount`, `hidden_retired`,
-  `breakdown`) are gone; read the canonical keys above.
-- `apply` → `{ item: <apply report>, meta }`; the report's `status` is `dry_run` (preview),
-  `accepted`, `stale`, `failed` or `refused`, and a preview sets `meta.preview`.
-- `apply_batch` → `{ items, meta }`: one row per proposal (`status` per row, failures folded in as
-  `{ proposal_id, status: "failed", reason }`), with one counter per status plus `failed` in
-  `meta.counts`. A run-level refusal is reported in `meta.warnings`.
-- `rollback` → `{ items, meta }`: the per-row report is `items` and its summary
-  (`reverted`/`skipped`/`refused`) is `meta.counts`; a preview sets `meta.preview`.
-- `reject` → `{ item: <reject report>, meta }`.
-
 ## `retention_review` — retention candidates
 
 Retention review is a manual workflow, not a scheduled deletion policy: nothing is archived or
@@ -1181,7 +1117,7 @@ is project-scoped only when a project resolved,
 `src/services/session-reflection.service.ts:106`), while `decisions` and `pending` thoughts are
 created in the default project (`src/services/session-reflection.service.ts:171-186`,
 `:198-207`). The answer reports `meta.scope: null` and raises no warning, like every other write
-(`writeEnvelopeScope`, `src/mcp/tools/envelope.ts:222-228`). With a registered `cwd`, all of them
+(`writeEnvelopeScope`, `src/mcp/tools/envelope.ts:168-173`). With a registered `cwd`, all of them
 land in that project instead; a path no project owns behaves like an absent one (rows for the default
 project, slot edits global) and still raises no warning.
 
@@ -1237,8 +1173,8 @@ Without one only the **global** rows are read, and `meta.warnings` adds a second
 
 That warning follows the resolved project, not the argument: it fires without `cwd`, with a blank
 one and with a path no project owns, but never with a registered path
-(`src/mcp/tools/status/slots.ts:11-12`, `:35-38`; the read is
-`src/services/slots.service.ts:94-97`). Answers `{ items, meta }` with one item per slot
+(`src/mcp/tools/status/slots.ts:7-8`, `:33-35`; the read is
+`src/services/slots.service.ts:86-88`). Answers `{ items, meta }` with one item per slot
 (`{ name, scope, virtual, content, truncated, max_chars, updated_at }`). Slots are **read-only**
 through this tool: it never writes. `pending_items` is derived from thoughts tagged `pending` (the
 same set the frontier surfaces); `architecture_decisions` from primers (most-hit first);
@@ -1259,38 +1195,6 @@ Both are read-only and ignore the `cwd` they accept. `config` answers the raw-te
 [Wire envelope](#wire-envelope) — `content[].text` verbatim, `structuredContent.result.item.text`
 the same string. `health` answers `{ item: <report>, meta }`; pass `include_details: true` for the
 per-check detail arrays (omitted, and content fields shortened, by default).
-
-### `action=propose`
-
-Read-only placement plan (placement, edges, lifecycle); never writes. `cwd` is optional, but this
-reader never widens: with it the plan is restricted to that project, and without it — or with a path
-that resolves to no project — the plan stays pinned to the project of the thought it addresses
-(`thought_id`), or to the default project for draft `content`.
-
-A cwd-less call says so in `meta.warnings`, in place of the `no cwd — the answer spans every project`
-note:
-
-`no cwd — propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to`
-
-and, for draft content,
-`no cwd — propose is not cross-project: the plan is restricted to the default project (draft content)`.
-
-A path that resolves to no project gets **one** composed warning instead of the generic note, so
-`meta.warnings` holds a single string — the unknown-path fact with its resolve hint, then the pinning
-clause, and no `the answer spans every project` claim:
-
-`cwd "<path>" matches no known project (check it with memory_manage action=resolve) — propose is not cross-project: the plan is restricted to the project the addressed thought (thought_id) belongs to`
-
-and, for draft content,
-`cwd "<path>" matches no known project (check it with memory_manage action=resolve) — propose is not cross-project: the plan is restricted to the default project (draft content)`.
-
-`meta.scope` stays the unresolved `{ project: null, project_name: null, global: true }` in that case:
-the warning, not the scope, records that the plan stayed inside one project
-(`src/mcp/tools/status/propose.ts:24-36`).
-
-Answers `{ item: <plan>, meta }`; default output is slim (top 3 edges, no signals) — pass
-`include_signals=true` or `compact=false` for full output. `meta.counts.total` is the number of
-planned edges and `meta.degraded` mirrors the plan's degraded flag.
 
 ## `memory_manage` — projects
 
@@ -1337,7 +1241,7 @@ see [API.md](API.md)):
 1. **One response envelope.** Collections answer `{ items, meta }`, single objects
    `{ item, meta }`; `meta` carries `action`, `scope`, `counts`, `degraded`, `warnings` and,
    where applicable, `reason` and `preview`. Per-action payload keys are gone: the read array
-   used to arrive under `thoughts`, `proposals` or as a bare array, and write answers used to
+   used to arrive under a tool-specific key or as a bare array, and write answers used to
    carry their own top-level keys (`linked`/`failed`, `archived`, `status` at the root, ...).
    Read `items`/`item` and `meta.counts` instead. Write-side answers that used to be a bare
    object now nest it under `item`. The one exception is
@@ -1346,17 +1250,10 @@ see [API.md](API.md)):
    action=resolve`, where the path is the input rather than a scope. `memory_recall`
    `search`/`clusters`/`list`, `memory_status` `slots`/`frontier` and `memory_reflect`
    `reflect`/`timeline` (plus the older optional readers `memory_recall context`,
-   `memory_crystallize graph`/`cluster` and `edge_review list`) answer across every project when
+   `memory_crystallize graph`/`cluster`) answer across every project when
    `cwd` is absent, with `meta.scope: null` and a `no cwd — the answer spans every project`
    warning; `memory_status action=slots` adds that only the global slot rows were read. An
    unknown-but-present `cwd` keeps answering globally, with its own warning.
-   `memory_status action=propose` is the exception among the readers: it takes `cwd` but never
-   widens, and a cwd-less call keeps the plan pinned to the addressed thought's project (or to the
-   default project for a draft) with a `no cwd — propose is not cross-project: ...` warning instead
-   of the broadening note. An unknown-but-present `cwd` gets a single composed warning instead — one
-   string that carries the unknown-path fact and then the pinning clause,
-   `cwd "..." matches no known project (check it with memory_manage action=resolve) — propose is
-   not cross-project: ...` — so nothing claims the answer spans every project.
    `memory_reflect action=reflect` is a write: without `cwd` its `decisions`/`pending` thoughts go
    to the default project and its `summary`/`goals` to the global slots, with no warning.
 3. **Preview gate moved.** A preview answer always sets
@@ -1413,24 +1310,19 @@ Breaking changes for MCP clients:
    `memory_manage` is an exception: its `update` and `delete` actions require
    `project_id` to identify the project.
 2. **Compact defaults.** `memory_recall` now defaults to compact output; pass
-   `compact: false` for full thoughts. `memory_status` `propose` defaults to the
-   slim plan (top 3 edges, no signals); pass `compact: false` or
-   `include_signals: true`. The other read tools defaulted to full rows at this
+   `compact: false` for full thoughts. The other read tools defaulted to full rows at this
    release; the next-release note above turns `compact` on for every thought-shaped
    answer. Explicit `fields` always win.
 3. **Preview tokens required.** Every destructive action (`memory_store`
    `unlink`/`retype`, `memory_supersede` `archive`/`archive_batch`/`merge`,
-   `memory_manage` `delete`, `edge_review` `apply`/`apply_batch`/`rollback`,
+   `memory_manage` `delete`,
    `memory_primers` `delete`, `memory_crystallize` `auto_cluster`,
    `retention_review` `delete`) now returns a `preview_token` on preview and
    requires it (valid, unexpired) on `confirm: true`. Tokens live ~5 minutes.
    Current behaviour relaxes that for a preview with nothing to fingerprint: it
    answers `token: null` and confirms without a token (see **Preview metadata**).
-4. **`edge_review` list trimmed.** Response uses canonical keys only:
-   `items`, `total`, `returned`, `retired_count`, `all_total`. Retired aliases were
-   removed.
-5. **Retired inputs.** `top_k`→`limit`, `cluster`→`is_cluster`, `k`→`limit`,
+4. **Retired inputs.** `top_k`→`limit`, `cluster`→`is_cluster`, `k`→`limit`,
    `dry_run`→`confirm`, `thought_id` (link)→`source_id`, `goals_delta`→
-   `goals_add`/`goals_remove`, `max_items`→`max_proposals`, `mode`→`hybrid`.
+   `goals_add`/`goals_remove`, `mode`→`hybrid`.
    `is_profile` has no replacement — remove the field. Retired names are not
    accepted aliases.

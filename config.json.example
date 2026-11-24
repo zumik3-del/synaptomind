@@ -57,22 +57,13 @@
     "minMembers": 3
   },
   "edgeDetect": {
-    "minSimilarity": 0.75,
-    "topK": 10,
-    "maxCandidates": 100,
-    "maxProposals": 20
+    "maxCandidates": 100
   },
   "slots": {
     "defaultMaxChars": 2000
   },
   "graph": {
     "maxDegree": 50
-  },
-  "placement": {
-    "maxClusterSize": 50,
-    "proposalTtlDays": 30,
-    "maxPendingProposals": 500,
-    "maxProposalsPerEnqueue": 5
   },
   "search": {
     "confidence": {

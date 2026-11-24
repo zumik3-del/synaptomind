@@ -11,7 +11,7 @@ see [CONFIG.md](CONFIG.md)). Exactly three routes are mounted:
 | `POST` | `/api/health-check/repair` | Preview/confirm graph repair |
 
 **Everything else is MCP.** Thoughts, edges, search, clusters, projects, tags, primers,
-slots, proposals and reflection are served by the MCP tools over stdio
+slots and reflection are served by the MCP tools over stdio
 (`synaptomind --stdio`) or HTTP (`POST /mcp` on port 3006). The route-by-route map of the
 endpoints removed in 0.20 is in [Removed routes](#removed-routes-020), and the tool
 reference is [docs/mcp-tools.md](mcp-tools.md). The two surfaces are sibling adapters over
@@ -163,7 +163,8 @@ Findings about *live* claims deliberately ignore `archived` endpoints. Archiving
 ## Removed routes (0.20)
 
 The 43 `/api/*` routes that 0.20 removed, and the MCP action that answers the same
-question. `—` means the capability was **dropped**, not moved: see
+question. `—` means the capability was **dropped**, not moved — with 0.20 itself, or later
+with the curation cut, for the six review routes that had an MCP twin in between: see
 [Dropped capabilities](#dropped-capabilities). Arguments, response shapes and examples for
 every replacement live in [docs/mcp-tools.md](mcp-tools.md).
 
@@ -180,7 +181,7 @@ every replacement live in [docs/mcp-tools.md](mcp-tools.md).
 | `DELETE` | `/api/thoughts/:id` | `memory_supersede action=archive` |
 | `GET` | `/api/thoughts/:id/edges` | `memory_recall action=chain` |
 | `GET` | `/api/thoughts/members/:id` | — (dropped) |
-| `POST` | `/api/thoughts/propose` | `memory_status action=propose` |
+| `POST` | `/api/thoughts/propose` | — (dropped) |
 | `POST` | `/api/thoughts/:targetId/merge` | `memory_supersede action=merge` (preview, then `confirm: true`) |
 
 ### Retention review
@@ -234,11 +235,11 @@ sending the set you want, and a content write never touches the links. Shape and
 
 | Method | Path | Use instead |
 |---|---|---|
-| `GET` | `/api/proposals` | `edge_review action=list` |
-| `POST` | `/api/proposals` | `edge_review action=enqueue` |
-| `POST` | `/api/proposals/:id/apply` | `edge_review action=apply` (preview, then `confirm: true`) |
-| `POST` | `/api/proposals/rollback` | `edge_review action=rollback` (preview, then `confirm: true`) |
-| `POST` | `/api/proposals/:id/reject` | `edge_review action=reject` |
+| `GET` | `/api/proposals` | — (dropped) |
+| `POST` | `/api/proposals` | — (dropped) |
+| `POST` | `/api/proposals/:id/apply` | — (dropped) |
+| `POST` | `/api/proposals/rollback` | — (dropped) |
+| `POST` | `/api/proposals/:id/reject` | — (dropped) |
 
 ### Projects
 
@@ -288,6 +289,17 @@ documentation example called them):
 URL-link delete and URL-link upsert are **not** in this list: they were a capability gap
 when 0.20 shipped, and `memory_store action=update` took them over with replace-set
 semantics ([URL links](#url-links)).
+
+Six further routes answer `—` for a different reason: 0.20 moved them onto a review tool
+of their own, and that tool was removed with the curation subsystem (migration `v051` drops
+the table behind its queue). The capabilities are gone, not moved:
+
+- **A review queue for staged writes.** Edges are written directly with `memory_store
+  action=link`, and clusters with `memory_crystallize action=cluster`; nothing stages a
+  write for later approval.
+- **A planning read.** A draft that duplicates a live thought of its project is still
+  reported — by `memory_status action=health` (`duplicate_drafts`, with the pair's
+  `overlap`), and remediation is the ordinary `memory_supersede action=merge` preview.
 
 ## Migration notes (v0.20 HTTP shrink)
 
