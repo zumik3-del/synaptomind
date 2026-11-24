@@ -16,7 +16,7 @@ export function registerMemoryCrystallize(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_crystallize',
     annotations: ADDS_ONLY,
-    description: `Read and maintain the cluster graph — cluster thoughts plus the cluster edges that point at their members. Additive only: nothing is deleted or overwritten, so a bad call costs stray rows, not data. Answers the shared envelope { item, meta } / { items, meta } (aggregate in meta.counts; a preview sets meta.preview={token,destructive:true}), with one documented exception: action=graph answers { items: nodes, edges, meta } because a graph is two collections. Actions: graph, cluster, auto_cluster (Union-Find; preview→confirm — clusters are created only with confirm: true). Reading existing clusters is memory_recall action=clusters; this is the tool that creates them. Every action refuses an argument that belongs to another one.`,
+    description: `Read and maintain the cluster graph: cluster thoughts plus the cluster edges pointing at their members. Additive only: nothing is deleted or overwritten. Answers { item, meta } / { items, meta } (counters in meta.counts; a preview sets meta.preview={token,destructive:true}), with one documented exception: action=graph answers { items: nodes, edges, meta }, because a graph is two collections. Actions: graph, cluster, auto_cluster (Union-Find; preview→confirm, clusters created only with confirm: true). memory_recall action=clusters reads them; this tool creates them. Every action refuses an argument that belongs to another one.`,
     inputSchema: {
       action: z.enum(['graph', 'cluster', 'auto_cluster']).describe('Action'),
       ...CRYSTALLIZE_ARGS
