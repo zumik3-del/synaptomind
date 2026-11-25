@@ -25,6 +25,7 @@
     "format": "biome format --write src eval scripts deploy",
     "format:check": "biome format src eval scripts deploy",
     "lint:docs": "bun run scripts/check-doc-refs.ts",
+    "lint:overrides": "bun run scripts/check-overrides.ts",
     "lint:tools": "SYNAPTOMIND_DB_PATH=/tmp/tdqs-lint.db bunx mcp-tdqs@0.2.0 lint --command 'bun run src/index.ts --stdio' --server-name synaptomind --fail-on warning",
     "lint:dup": "jscpd src --min-lines 6 --min-tokens 50 --threshold 0.01 --exitCode 1 --reporters console --ignore \"**/*.test.ts,**/*.suite.ts,**/__fixtures__/**,src/test/**\"",
     "smoke": "bash scripts/smoke-test.sh",
@@ -41,9 +42,7 @@
   },
   "overrides": {
     "adm-zip": "0.6.1",
-    "body-parser": "2.4.0",
     "fast-uri": "4.2.4",
-    "proxy-addr": "2.0.8",
     "sharp": "0.35.5",
     "zod": "4.6.7"
   },

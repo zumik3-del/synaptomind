@@ -28,6 +28,13 @@
   ],
   "packageRules": [
     {
+      "description": "An overrides entry is a forced version with no consumer range check on Renovate's side (it reads the manifest, not the consumers): a major bump must be approved in the dashboard, never merged reflexively — #275 forced fast-uri 4.2.4 under ajv's ^3.0.1",
+      "matchDepTypes": ["overrides"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "addLabels": ["deps:override-major"]
+    },
+    {
       "description": "One PR for all dev dependency bumps",
       "matchDepTypes": ["devDependencies"],
       "groupName": "dev dependencies"

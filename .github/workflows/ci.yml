@@ -51,6 +51,12 @@ jobs:
       - name: "Audit: dependencies (bun audit, blocking)"
         run: bun audit --audit-level=high
 
+      # Blocking counterpart of the audit above: Renovate reads only the manifest, so an
+      # `overrides` entry can force a version outside its consumer's range (#275). Exceptions
+      # live in scripts/check-overrides.ts and are printed as ALLOWED with their reason.
+      - name: "Audit: overrides honour consumer ranges (blocking)"
+        run: bun run lint:overrides
+
       # Lint is advisory — tests are the real gate. If lint fails but tests pass, the build proceeds.
       - name: "Lint: biome (non-blocking)"
         continue-on-error: true
