@@ -93,6 +93,14 @@ jobs:
       - name: "Lint: tool definitions (TDQS, blocking)"
         run: bun run lint:tools
 
+      # Blocking guard around the advisory step below, and in this job so the two move
+      # together: when v5 renamed `--exitCode`, nothing noticed and duplication
+      # detection was off on a green job (#2681). Reads `lint:dup` from package.json
+      # and asserts every long flag it passes is still listed by the installed jscpd,
+      # plus the advisory-contract flags. Needs only the install above, no network.
+      - name: "Test: lint:dup flags exist in installed jscpd (blocking)"
+        run: bun test scripts/lint-dup-flags.test.ts
+
       # Advisory: duplication is a quality signal, NOT a merge gate. There is no
       # baseline, no allowlist and no `jscpd:ignore` escape hatch by design, and test
       # files are excluded (they alone measure 7.04% under v5). `--exit-code 1`
