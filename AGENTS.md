@@ -34,10 +34,6 @@ paths, the DI convention and the code-tier map: `docs/ARCHITECTURE.md`.
 - typecheck: `bun run tsc --noEmit`
 - tool definitions: `bun run lint:tools` — TDQS lint, the deterministic half of the rubric Glama
   grades the card with (no model, no key, no network); blocking in CI
-- dependency gates: `bun audit --audit-level=high`, plus `bun run lint:overrides` — fails when a
-  `package.json` `overrides` entry forces a version outside the range the requiring package declares
-  (Renovate reads only the manifest, so it cannot see consumers); both blocking in CI. The gate's
-  own test is `bun test scripts/check-overrides.test.ts`, run in the same CI job
 - TDQS `score` spends one of 30 daily calls: after any MCP tool change (name, description, schemas,
   annotations) ask the user first — never unprompted. The key is machine-local, never in the repo
   (the global `AGENTS.md` records where it lives):
