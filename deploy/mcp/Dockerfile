@@ -8,7 +8,7 @@
 # BASE is pinned to a release so a plain `docker build deploy/mcp` is
 # reproducible; CI overrides it with the image it just built. scripts/release.sh
 # moves the pin together with the version.
-ARG BASE=ghcr.io/zumik3-del/synaptomind:0.26.4@sha256:c8be0754a6a5d12c2adbecd328e7be02d6e3f477f3a9ecc1373ae6b162313fad
+ARG BASE=ghcr.io/zumik3-del/synaptomind:0.26.5
 FROM ${BASE}
 
 # Inherited from the base, repeated so a standalone Dockerfile scan sees it.
