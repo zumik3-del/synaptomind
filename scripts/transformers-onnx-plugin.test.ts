@@ -14,7 +14,9 @@ import { dirname, join } from 'node:path'
 // pin them: the build aborts when the plugin's onLoad never runs (proven by
 // stubbing `Bun.build`, so no artifact is compiled), and a backend the rewrite
 // cannot finish — mixed static + dynamic, or an occurrence `String.replace`
-// leaves behind — aborts instead of being skipped.
+// leaves behind — aborts instead of being skipped. #2690 pins the wrapped callee
+// (`(0, requireFromHere)(...)`, and spaced/newline-wrapped variants) the residual
+// check now catches, and that a comment merely naming the package still skips.
 //
 // Fixtures must be named `.../dist/transformers.node.mjs`: both the onLoad filter
 // and the path guard are keyed on that filename.
@@ -301,6 +303,28 @@ describe('fixture backends', () => {
     expect(message).toContain('dead embedder')
   })
 
+  test('a static backend with comment-only mentions of onnxruntime-node skips cleanly', async () => {
+    // The 4.3.2 backend really carries `// onnxruntime-web/onnxruntime-node` (line 120); the 4.2.0
+    // shape has the same comment around a static import. Neither comment may look like a residual
+    // call, or widening the check to a bare substring would abort a healthy backend.
+    const backend = writeNodeBackend(
+      [
+        'const env = {',
+        '  backends: {',
+        '    // onnxruntime-web/onnxruntime-node',
+        '    onnx: {}',
+        '  }',
+        '};',
+        '// 4.3 reaches onnxruntime-node through requireFromHere; 4.2.0 imports it statically',
+        STATIC_BACKEND.trim(),
+        ''
+      ].join('\n')
+    )
+    const plugin = transformersOnnxPlugin(backend)
+    expect(await setupHook(plugin).load({ path: backend })).toBeUndefined()
+    expect(plugin.onLoadCount()).toBe(1)
+  })
+
   test('refuses a transformers entry that is not the node backend', () => {
     const web = join(dirname(installedBackend()), 'transformers.web.js')
     const { message } = thrownBy(() => transformersOnnxPlugin(web))
@@ -330,6 +354,32 @@ describe('backends the rewrite cannot finish', () => {
   test('a second occurrence the single rewrite leaves behind aborts', () => {
     const backend = writeNodeBackend(
       `${DYNAMIC_BACKEND}var ort2 = requireFromHere("onnxruntime-node");\n`
+    )
+    const { message } = thrownBy(() => transformersOnnxPlugin(backend))
+    expect(message).toContain('after the rewrite')
+    expect(message).toContain('dead embedder')
+  })
+
+  test('a wrapped call beside a static import aborts instead of skipping the rewrite', () => {
+    const backend = writeNodeBackend(
+      `${STATIC_BACKEND}var ort2 = (0, requireFromHere)("onnxruntime-node");\n`
+    )
+    const { message } = thrownBy(() => transformersOnnxPlugin(backend))
+    expect(message).toContain('mixes a static import')
+    expect(message).toContain('dead embedder')
+  })
+
+  test('a spaced and newline-wrapped call beside a static import aborts too', () => {
+    const backend = writeNodeBackend(
+      `${STATIC_BACKEND}var ort2 = ( 0 , requireFromHere )\n  (\n    'onnxruntime-node'\n  );\n`
+    )
+    const { message } = thrownBy(() => transformersOnnxPlugin(backend))
+    expect(message).toContain('mixes a static import')
+  })
+
+  test('a wrapped second occurrence the single rewrite leaves behind aborts', () => {
+    const backend = writeNodeBackend(
+      `${DYNAMIC_BACKEND}var ort2 = (0, requireFromHere)("onnxruntime-node");\n`
     )
     const { message } = thrownBy(() => transformersOnnxPlugin(backend))
     expect(message).toContain('after the rewrite')
