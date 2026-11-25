@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.26.5
+
+> November 25, 2026
+
+- [`41292090`](https://github.com/zumik3-del/synaptomind/commit/4129209024653ac3121e99e31608f7324560bb25): test(ci): catch a lint:dup flag that left the jscpd CLI
+- [`8e655adb`](https://github.com/zumik3-del/synaptomind/commit/8e655adb69e290ee78102d3e0871ece1e05cd734): fix(ci): restore the duplication check on jscpd v5
+- [`a1938e8d`](https://github.com/zumik3-del/synaptomind/commit/a1938e8da54b91169029f9b6cd33d6d1b1ef00a8): chore(deps): update dependency jscpd to v5
+- [`377a601d`](https://github.com/zumik3-del/synaptomind/commit/377a601dc0445630930d8f03474bc2d342d266f2): revert: drop the dependency gates bullet from AGENTS.md
+- [`88fe41bf`](https://github.com/zumik3-del/synaptomind/commit/88fe41bf6b19ca4b7c1679da02c4058af4d959b5): docs(agents): record the dependency gates in the verification list
+- [`33bae80b`](https://github.com/zumik3-del/synaptomind/commit/33bae80b844bf03108ecf39f60274f7c43a69ad5): test(scripts): prove the overrides gate fails when it should
+- [`7e42636f`](https://github.com/zumik3-del/synaptomind/commit/7e42636f406462237b903771341e9e0a5ae96ba5): ci(deps): fail when an overrides entry violates a consumer range
+- [`f5ea3d9d`](https://github.com/zumik3-del/synaptomind/commit/f5ea3d9d56ab9a2e1cba3878fe0fa926b58d3b55): ci(security): pin the Trivy binary and let Renovate track it
+- [`a484078a`](https://github.com/zumik3-del/synaptomind/commit/a484078ae1db4459d7d6230db76422ab21c53109): chore(release): give the stdio base pin a single owner
+- [`ff3335c0`](https://github.com/zumik3-del/synaptomind/commit/ff3335c0aa7ca361e710b7971ebfd60e029332a4): chore(deps): lock file maintenance
+- [`3570387b`](https://github.com/zumik3-del/synaptomind/commit/3570387b6c268033e1304f15e4e07dbb80063d12): chore(deps): update docker/login-action action to v4
+- [`3e95345f`](https://github.com/zumik3-del/synaptomind/commit/3e95345fb193a632477f88d6c3dc7715a4c3131f): chore(deps): update docker/build-push-action action to v7
+- [`9cb2a535`](https://github.com/zumik3-del/synaptomind/commit/9cb2a535c03f61040c707d0ca39648b605cc02a0): chore(deps): update dependency fast-uri to v4
+- [`2e80bb04`](https://github.com/zumik3-del/synaptomind/commit/2e80bb04b64890a65a31925cc85d19084a807592): chore(deps): update actions/upload-artifact action to v7
+- [`d9db9341`](https://github.com/zumik3-del/synaptomind/commit/d9db9341bfb4984f1577be8881bfe97841698be7): chore(deps): update actions/github-script action to v9
+- [`16f060dd`](https://github.com/zumik3-del/synaptomind/commit/16f060dd1274b4c85254826db64eb913952a81fa): chore(deps): update actions/checkout action to v7
+- [`53423c69`](https://github.com/zumik3-del/synaptomind/commit/53423c695ed42cd3a39c291ca7a63771a0916ef2): chore(deps): update actions/cache action to v6
+- [`2c241cdf`](https://github.com/zumik3-del/synaptomind/commit/2c241cdf174495a628921bf5d94117d88bd05ed4): chore(deps): update github/codeql-action digest to 915412f
+- [`4f8ee4d9`](https://github.com/zumik3-del/synaptomind/commit/4f8ee4d9ec0a083b448a78e8277d511a2f79bf65): chore(deps): update aquasecurity/trivy-action digest to ed142fd
+- [`12b9402c`](https://github.com/zumik3-del/synaptomind/commit/12b9402cb8746abc977814b515f7995970157789): chore(deps): pin dependencies
+- [`36236be9`](https://github.com/zumik3-del/synaptomind/commit/36236be9688228535c7575ed5bef62b9523f5776): ci(renovate): set the commit author through the global env, not repo config
+- [`c2d02a66`](https://github.com/zumik3-del/synaptomind/commit/c2d02a661b9513bd570388f9ae51a3abfe3590e5): ci(actions): normalise pin comments to the form Renovate parses
+- [`bcd26638`](https://github.com/zumik3-del/synaptomind/commit/bcd26638d591c56c9461b582fdc78c5e2100380b): ci(renovate): allow a debug log level on manual dispatch
+- [`fc98b26e`](https://github.com/zumik3-del/synaptomind/commit/fc98b26e7e64fd699b08c393463cdd93d55ab84e): ci(renovate): read the github.com token from the COM_TOKEN secret
+- [`a097133e`](https://github.com/zumik3-del/synaptomind/commit/a097133eb5b3a9d3674c008e17bdab8682f0f41e): ci(renovate): name the github.com token secret RENOVATE_COM_TOKEN
+- [`242be919`](https://github.com/zumik3-del/synaptomind/commit/242be919cf86be5b157dd88202b8925859b50267): ci(renovate): fix action digest lookups and commit author
+- [`c82caab4`](https://github.com/zumik3-del/synaptomind/commit/c82caab456003ca3bcca485b8766f0cbf36a9f69): ci(renovate): add self-hosted Renovate run and config
+- [`3e425084`](https://github.com/zumik3-del/synaptomind/commit/3e4250842dc753958a3feb5715641ef809a4b058): ci(deps): add bun audit gate and bun.lock dependency submission
+- [`e6a56531`](https://github.com/zumik3-del/synaptomind/commit/e6a56531968e6e6714aef94f7566161551c02269): docs(mcp): lead status, supersede and reflect with routing guidance
+
 ## v0.26.4
 
 > November 24, 2026
