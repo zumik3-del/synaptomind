@@ -25,8 +25,9 @@
     "format": "biome format --write src eval scripts deploy",
     "format:check": "biome format src eval scripts deploy",
     "lint:docs": "bun run scripts/check-doc-refs.ts",
+    "lint:overrides": "bun run scripts/check-overrides.ts",
     "lint:tools": "SYNAPTOMIND_DB_PATH=/tmp/tdqs-lint.db bunx mcp-tdqs@0.2.0 lint --command 'bun run src/index.ts --stdio' --server-name synaptomind --fail-on warning",
-    "lint:dup": "jscpd src --min-lines 6 --min-tokens 50 --threshold 0.01 --exitCode 1 --reporters console --ignore \"**/*.test.ts,**/*.suite.ts,**/__fixtures__/**,src/test/**\"",
+    "lint:dup": "jscpd src --min-lines 6 --min-tokens 50 --threshold 0.01 --exit-code 1 --fail-on-empty --reporters console --ignore \"**/*.test.ts,**/*.suite.ts,**/__fixtures__/**,src/test/**\"",
     "smoke": "bash scripts/smoke-test.sh",
     "release": "bash scripts/release.sh",
     "changelog": "bun run scripts/changelog.ts",
@@ -41,9 +42,7 @@
   },
   "overrides": {
     "adm-zip": "0.6.1",
-    "body-parser": "2.4.0",
-    "fast-uri": "3.1.9",
-    "proxy-addr": "2.0.8",
+    "fast-uri": "4.2.4",
     "sharp": "0.35.5",
     "zod": "4.6.7"
   },
@@ -54,7 +53,7 @@
     "@modelcontextprotocol/client": "^2.4.0",
     "@types/bun": "^1.4.0",
     "husky": "^9.1.7",
-    "jscpd": "^3.5.10",
+    "jscpd": "^5.0.0",
     "typescript": "^7.0.2"
   }
 }

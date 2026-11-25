@@ -18,7 +18,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
@@ -33,7 +33,7 @@ jobs:
     name: "Test · Bun suite + lint"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: "Setup: install bun"
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -50,6 +50,19 @@ jobs:
       # Reads bun.lock, so it needs no node_modules beyond the install above.
       - name: "Audit: dependencies (bun audit, blocking)"
         run: bun audit --audit-level=high
+
+      # Blocking counterpart of the audit above: Renovate reads only the manifest, so an
+      # `overrides` entry can force a version outside its consumer's range (#275). Exceptions
+      # live in scripts/check-overrides.ts and are printed as ALLOWED with their reason.
+      - name: "Audit: overrides honour consumer ranges (blocking)"
+        run: bun run lint:overrides
+
+      # Proof that the gate above can fail at all (#2680). The cases drive the real
+      # script over throwaway fixture trees (temp root + synthetic node_modules), so
+      # they need no install of their own; each was mutation-tested against a broken
+      # copy of the script (inverted comparison, removed non-semver classifier, …).
+      - name: "Test: overrides gate regression (blocking)"
+        run: bun test scripts/check-overrides.test.ts
 
       # Lint is advisory — tests are the real gate. If lint fails but tests pass, the build proceeds.
       - name: "Lint: biome (non-blocking)"
@@ -80,19 +93,37 @@ jobs:
       - name: "Lint: tool definitions (TDQS, blocking)"
         run: bun run lint:tools
 
-      # Advisory: duplication is a quality signal, NOT a merge gate. The step reports
-      # clones and `--exitCode 1` marks it failed (0.13% at the 6-line floor), and
-      # `continue-on-error` keeps the job green so every later step still runs. A
-      # genuine hit is fixed by extracting the shared code — there is no baseline, no
-      # allowlist and no `jscpd:ignore` escape hatch by design: a suppression would
-      # hide exactly the copies this is meant to surface. Test files are excluded
-      # because they legitimately repeat fixtures/assertion blocks (they alone
-      # measure 2.28%). `--exitCode 1` supplements the 0.01% threshold: as src/ grows,
-      # a single clone can fall under that percentage and must still be reported.
-      # Mirrors the local `bun run lint:dup`; jscpd is pinned to v3 by the lockfile.
+      # Blocking guard around the advisory step below, and in this job so the two move
+      # together: when v5 renamed `--exitCode`, nothing noticed and duplication
+      # detection was off on a green job (#2681). Reads `lint:dup` from package.json
+      # and asserts every long flag it passes is still listed by the installed jscpd,
+      # plus the advisory-contract flags. Needs only the install above, no network.
+      - name: "Test: lint:dup flags exist in installed jscpd (blocking)"
+        run: bun test scripts/lint-dup-flags.test.ts
+
+      # Advisory: duplication is a quality signal, NOT a merge gate. There is no
+      # baseline, no allowlist and no `jscpd:ignore` escape hatch by design, and test
+      # files are excluded (they alone measure 7.04% under v5). `--exit-code 1`
+      # supplements the 0.01% threshold: as src/ grows, a single clone can fall under
+      # that percentage and must still be reported. Mirrors `bun run lint:dup`.
+      #
+      # The policy lives in the body, not in `continue-on-error`: that flag treats every
+      # failure as "clones found", so when v5 renamed `--exitCode`, the usage error
+      # (exit 2) turned the step amber while detection stayed off on a green job. Only
+      # "exit 1 with a reported clone" is downgraded to a warning; a usage error, a
+      # crash and an empty scan all fail the step.
       - name: "Lint: duplication (jscpd, advisory)"
-        continue-on-error: true
-        run: bun run lint:dup
+        run: |
+          set +e
+          output=$(bun run lint:dup 2>&1)
+          rc=$?
+          printf '%s\n' "$output"
+          if [ "$rc" -eq 0 ]; then exit 0; fi
+          if [ "$rc" -eq 1 ] && printf '%s' "$output" | grep -q 'Clone found'; then
+            echo "::warning title=duplication::jscpd reported clones (advisory)"
+            exit 0
+          fi
+          exit "$rc"
 
       - name: "Type-check: tsc"
         run: bun run tsc --noEmit
@@ -213,7 +244,7 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: "Setup: install bun"
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
