@@ -18,15 +18,47 @@
  * Usage: bun run scripts/artifact-health-check.ts dist/<asset>.tar.gz
  *
  *   ARTIFACT_HEALTH_TIMEOUT_MS   bounded wait for checks.embedder = "ok"
- *                                (default 300000 — generous enough for a cold
- *                                model download, and a crashing child still
- *                                fails in about a second)
+ *                                (default 300000 — sized to cover a cold model
+ *                                download, and a crashing child still fails in
+ *                                about a second). A malformed value aborts the
+ *                                check instead of silently running with the
+ *                                default.
  *   SYNAPTOMIND_EMBEDDER_CACHE_DIR
  *                                model cache handed to the artifact
  *                                (default <repo>/data/huggingface)
+ *
+ * A cold cache is not a product failure. With no model weights on disk the
+ * artifact downloads the model into the cache directory itself
+ * (src/embedder/model-validator.ts ensureModelFiles) inside the wait above,
+ * which is what the 300 s default is sized for — so the first release after a
+ * cache eviction, or the first run after this gate was added (no job had saved
+ * the cache yet), still measures the artifact instead of failing on a missing
+ * directory. If a cold run does not end in "ok", how far it got decides the
+ * verdict: a run that started fetching model files (the child logs one line per
+ * file, or weights appeared on disk) is reported as an infrastructure error
+ * (exit 2, "cold model cache") because its window went to the download, and CI
+ * saves what it fetched, so a re-run starts warm and decides. A cold run whose
+ * child never touched the model failed before any download — that is the v0.26.5
+ * shape (module resolution), so it stays a regression (exit 1), and so does an
+ * artifact process that exits before answering.
+ *
+ * What `checks.embedder = "ok"` proves, and what it does not: the artifact's
+ * import graph, the onnxruntime-node native binding, libonnxruntime.so.1 and the
+ * model files on disk. It does NOT prove a live inference session — the
+ * extractor is created lazily on the first request
+ * (src/embedder/model.ts:33-56), so a model that passes the file checks but
+ * fails when the session is built can still answer "ok" here.
  */
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync
+} from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
@@ -46,6 +78,8 @@ interface Health {
 }
 
 class CheckFailure extends Error {}
+/** Not a verdict on the product: exit 2 tells the caller to re-run against a warm cache. */
+class InfraFailure extends Error {}
 
 type Subprocess = ReturnType<typeof Bun.spawn>
 
@@ -55,8 +89,24 @@ function fail(message: string): never {
 
 function positiveIntEnv(name: string, fallback: number): number {
   const raw = (process.env[name] ?? '').trim()
-  const value = Number(raw)
-  return raw !== '' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
+  if (raw === '') return fallback
+  if (!/^\d+$/.test(raw) || Number(raw) <= 0) {
+    fail(
+      `${name}=${JSON.stringify(raw)} is not a positive integer; ` +
+        `refusing to guess ${fallback} ms — unset it or pass a positive integer`
+    )
+  }
+  return Number(raw)
+}
+
+/** No weights on disk means this run must download them, which is not a product signal. */
+function hasModelWeights(cacheDir: string): boolean {
+  if (!existsSync(cacheDir)) return false
+  try {
+    return readdirSync(cacheDir, { recursive: true }).some(entry => String(entry).endsWith('.onnx'))
+  } catch {
+    return false
+  }
 }
 
 function freePort(): Promise<number> {
@@ -137,6 +187,7 @@ function artifactEnv(
 
 class OutputRelay {
   private readonly lines: string[] = []
+  private downloadSeen = false
 
   constructor(private readonly label: string) {}
 
@@ -168,8 +219,14 @@ class OutputRelay {
     const line = raw.trimEnd()
     if (line === '') return
     console.error(`${this.label} ${line}`)
+    if (line.includes('[embedder] downloading ')) this.downloadSeen = true
     this.lines.push(line)
     if (this.lines.length > RELAY_LINES_KEPT) this.lines.shift()
+  }
+
+  /** True once the child began fetching model files, so it got past module resolution. */
+  sawModelDownload(): boolean {
+    return this.downloadSeen
   }
 
   tail(): string {
@@ -215,8 +272,14 @@ async function main(): Promise<void> {
   const timeoutMs = positiveIntEnv('ARTIFACT_HEALTH_TIMEOUT_MS', DEFAULT_TIMEOUT_MS)
   const cacheOverride = (process.env.SYNAPTOMIND_EMBEDDER_CACHE_DIR ?? '').trim()
   const cacheDir = cacheOverride === '' ? join(ROOT, 'data', 'huggingface') : resolve(cacheOverride)
-  if (!existsSync(cacheDir)) {
-    fail(`no model cache at ${cacheDir}; CI restores it with the eval-real.yml cache key`)
+  const cold = !hasModelWeights(cacheDir)
+  if (cold) {
+    mkdirSync(cacheDir, { recursive: true })
+    console.error(
+      `[artifact-health] no model weights under ${cacheDir} — the artifact downloads them ` +
+        `inside the ${timeoutMs} ms wait; a run that ends while doing so is infrastructure, ` +
+        'not a product failure'
+    )
   }
 
   const scratch = mkdtempSync(join(tmpdir(), 'synaptomind-artifact-'))
@@ -287,12 +350,21 @@ async function main(): Promise<void> {
       embedder === 'failed'
         ? 'the embedder child failed to start'
         : `checks.embedder never became "ok" within ${timeoutMs} ms`
+    const details = `last sample: ${lastSample || '(no /health answer)'}\nartifact output:\n${relay.tail()}`
+    if (cold && (relay.sawModelDownload() || hasModelWeights(cacheDir))) {
+      throw new InfraFailure(
+        `COLD MODEL CACHE — ${cause} on a run that had to download the model into ${cacheDir}.\n` +
+          `${details}\n` +
+          'The window went to the download, not to the product, so this is not a verdict on it. ' +
+          'Re-run: CI saves what this run fetched under the shared HuggingFace cache key, so the ' +
+          'next attempt starts warm and decides. Escalate only if it stays red on a warm cache.'
+      )
+    }
     fail(
       `ARTIFACT EMBEDDER REGRESSION — ${cause}.\n` +
-        `last sample: ${lastSample || '(no /health answer)'}\n` +
+        `${details}\n` +
         'A binary install of this artifact would serve without embeddings (v0.26.5 reported ' +
-        'checks.embedder="failed" with "Cannot find package \'onnxruntime-node\'").\n' +
-        `artifact output:\n${relay.tail()}`
+        'checks.embedder="failed" with "Cannot find package \'onnxruntime-node\'").'
     )
   } finally {
     if (child !== null) await teardown(child)
@@ -302,6 +374,11 @@ async function main(): Promise<void> {
 
 main().catch(err => {
   const message = err instanceof Error ? err.message : String(err)
+  if (err instanceof InfraFailure) {
+    console.error(`::error title=artifact-health: cold model cache::${message.split('\n')[0]}`)
+    console.error(`artifact-health-check: ${message}`)
+    process.exit(2)
+  }
   console.error(`artifact-health-check: ${message}`)
   process.exit(1)
 })
