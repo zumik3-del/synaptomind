@@ -18,7 +18,8 @@ const NODE_BACKEND = /[/\\]transformers\.node\.mjs$/
 const DYNAMIC_REQUIRE =
   /^(?:var|let|const) ([A-Za-z_$][\w$]*) = requireFromHere\(["']onnxruntime-node["']\);?$/m
 const STATIC_IMPORT = /^import \* as [A-Za-z_$][\w$]* from ["']onnxruntime-node["'];?$/m
-const RESIDUAL_REQUIRE = /requireFromHere\(\s*['"]onnxruntime-node['"]\s*\)/
+// The callee may be wrapped or spaced before its argument list: `(0, requireFromHere)("…")`.
+const RESIDUAL_REQUIRE = /requireFromHere[\s().?]*\(\s*['"]onnxruntime-node['"]\s*\)/
 
 /** The plugin plus the evidence that Bun actually routed the node backend through `onLoad`. */
 export interface TransformersOnnxPlugin extends Bun.BunPlugin {
