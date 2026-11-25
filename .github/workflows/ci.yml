@@ -57,6 +57,13 @@ jobs:
       - name: "Audit: overrides honour consumer ranges (blocking)"
         run: bun run lint:overrides
 
+      # Proof that the gate above can fail at all (#2680). The cases drive the real
+      # script over throwaway fixture trees (temp root + synthetic node_modules), so
+      # they need no install of their own; each was mutation-tested against a broken
+      # copy of the script (inverted comparison, removed non-semver classifier, …).
+      - name: "Test: overrides gate regression (blocking)"
+        run: bun test scripts/check-overrides.test.ts
+
       # Lint is advisory — tests are the real gate. If lint fails but tests pass, the build proceeds.
       - name: "Lint: biome (non-blocking)"
         continue-on-error: true
