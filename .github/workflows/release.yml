@@ -292,10 +292,24 @@ jobs:
     #
     # NON-GATING, like publish-docker: nothing in this job can block or fail
     # the canonical GitHub Release. It depends on `release` (the asset needs a
-    # Release to attach to), never the other way round.
+    # Release to attach to), never the other way round — so when the boot check
+    # below runs, the tag and the (still asset-less) Release object already
+    # exist. A pre-upload failure therefore leaves the tag, the Release object,
+    # the release notes and the registry images standing with no tarball
+    # attached: an install that needs the tarball cannot happen, and nothing
+    # broken is published. A POST-upload failure would be the worse order — an
+    # asset attached to a public Release is what `deploy/install.sh` resolves by
+    # name, so users could install the bad build before anyone notices, and only
+    # a re-run could replace it (`--clobber`). Hence the boot check gates the
+    # upload instead of following it.
     needs: [detect, verify, release]
     if: ${{ needs.detect.outputs.should_release == 'true' }}
     runs-on: ubuntu-latest
+    # The boot check waits up to 300 s for checks.embedder = "ok" (a cold model
+    # cache downloads inside that window); the rest is one compile, one pack and
+    # one upload. A bounded job beats the 360 minute job default, which a wedged
+    # artifact process or the child's retry loop would otherwise get.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -304,6 +318,19 @@ jobs:
 
       - name: "Setup: bun install"
         run: bun install --frozen-lockfile
+
+      # Same key as eval-real.yml (both jobs), so one cache entry serves the
+      # weekly regression net and this gate: a warm cache means the artifact
+      # validates the model files instead of downloading ~465 MB. On a miss the
+      # post-step saves what the boot check downloaded, so the next release is
+      # warm even if no weekly run has filled the cache yet.
+      - name: Cache HuggingFace model (~465M)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/huggingface/Xenova/multilingual-e5-small
+          key: hf-model-multilingual-e5-small-${{ runner.os }}
+          restore-keys: |
+            hf-model-multilingual-e5-small-
 
       - name: "Setup: vec0.so (checksum-verified download)"
         # bun install already runs this via postinstall; the explicit call keeps
@@ -333,6 +360,16 @@ jobs:
           ls -la "$DEST/$ROOT_DIR" "$DEST/$ROOT_DIR/lib"
           BIN="$DEST/$ROOT_DIR/synaptomind"
           "$BIN" --version
+
+      - name: "Boot: artifact /health must report checks.embedder = ok"
+        # The v0.26.5 shape (a binary whose embedder child cannot resolve
+        # onnxruntime-node) passed `--version` above and would have been
+        # uploaded. This is the only check that starts the shipped artifact, so
+        # it runs on the exact bytes about to be attached — before the upload,
+        # never after: see the comment on the job.
+        env:
+          ASSET: ${{ steps.pack.outputs.ASSET_NAME }}
+        run: bun run scripts/artifact-health-check.ts "dist/$ASSET"
 
       - name: Upload the tarball to the GitHub Release
         env:

@@ -64,6 +64,17 @@ jobs:
       - name: "Test: overrides gate regression (blocking)"
         run: bun test scripts/check-overrides.test.ts
 
+      # Blocking, and an explicit step like the other two scripts-level guards in this job:
+      # `bun run test` shards `src/**/*.test.ts` only (`allTestFiles()` in src/test/lanes.ts
+      # roots a Glob at src/), so a guard in scripts/ never runs in the local "done" gate;
+      # the whole-tree `bun test` below does, but as one line among thousands, while this
+      # step makes the failure name the file. Covers scripts/transformers-onnx-plugin.ts —
+      # the rewrite that keeps the compiled artifact's embedder alive (`Cannot find package
+      # 'onnxruntime-node'`, v0.26.5, #2683) — and fails closed: a missing file exits 1
+      # rather than reporting zero tests.
+      - name: "Test: transformers onnx plugin guard (blocking)"
+        run: bun test scripts/transformers-onnx-plugin.test.ts
+
       # Lint is advisory — tests are the real gate. If lint fails but tests pass, the build proceeds.
       - name: "Lint: biome (non-blocking)"
         continue-on-error: true
