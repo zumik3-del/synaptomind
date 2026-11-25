@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.26.6
+
+> November 25, 2026
+
+- [`65c1edab`](https://github.com/zumik3-del/synaptomind/commit/65c1edaba62adb64fea1295fcb88aed80c3c71da): test(build): pin the wrapped requireFromHere abort
+- [`3b6b9100`](https://github.com/zumik3-del/synaptomind/commit/3b6b9100dcd762b3488f39bf448cc60105eeff99): fix(build): catch a wrapped requireFromHere call in the residual check
+- [`979ff899`](https://github.com/zumik3-del/synaptomind/commit/979ff8994a71a763f9bb07e7670026dd8e19a6fd): test(build): pin the build's fail-closed rewrite paths
+- [`dfba619d`](https://github.com/zumik3-del/synaptomind/commit/dfba619d47248ffc767c6e58017bd3146f99dfab): ci(release): boot the tarball before uploading it
+- [`85d72c07`](https://github.com/zumik3-del/synaptomind/commit/85d72c0768ef266e04ad1bbd9ceb89621d61b707): fix(build): fail when the onnxruntime rewrite never ran
+- [`22862121`](https://github.com/zumik3-del/synaptomind/commit/228621212d15304286458d81a35cff7b55831d5b): ci: run the transformers onnx guard as a blocking step
+- [`39f62759`](https://github.com/zumik3-del/synaptomind/commit/39f62759e97ba518d24e52256cd08d9c67bda2c6): test(build): pin the onnxruntime-node rewrite the compiled artifact needs
+- [`d982f6e9`](https://github.com/zumik3-del/synaptomind/commit/d982f6e9d2371b7bbe44457084d95a9cd77b6f79): ci(release): boot the compiled artifact's embedder before shipping
+- [`bf384ba4`](https://github.com/zumik3-del/synaptomind/commit/bf384ba49ea7b33bcd06ee6d939d23efee70f197): fix(build): bundle onnxruntime-node statically for the compiled artifact
+
 ## v0.26.5
 
 > November 25, 2026
