@@ -44,9 +44,9 @@ a new project.
 ### 2. Search before answering
 
 Before answering questions about the project, architecture, or past decisions,
-search SynaptoMind first. Use `memory_recall` (action=search),
-`memory_recall` (action=context), or `memory_recall` (action=clusters) to
-check if this was discussed before. Do not guess when you can look it up.
+search SynaptoMind first. Use `memory_recall` (action=search) or
+`memory_recall` (action=context) to check if this was discussed before.
+Do not guess when you can look it up.
 
 ### 3. Save when decisions are made
 
