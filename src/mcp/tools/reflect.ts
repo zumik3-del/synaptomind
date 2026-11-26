@@ -89,7 +89,7 @@ export function registerMemoryReflect(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_reflect',
     annotations: ADDS_ONLY,
-    description: `Close a session: write down its decisions, pending items and goals. reflect is the session-level write path — row-level CRUD is memory_store, clustering memory_crystallize, retiring a thought memory_supersede. Actions: reflect (summary, decisions, pending, goals). cwd is a write scope: omitted, decisions/pending land in the default project and meta.scope is null. Answers { item, meta }; meta = { action, scope, counts, degraded, warnings }. Actions accept only their own arguments. The session's thought inventory is memory_recall action=list.`,
+    description: `Close a session: write down its decisions, pending items and goals. Reflect is the session-level write path — row-level CRUD is memory_store, clustering memory_crystallize, retiring a thought memory_supersede. Actions: reflect (summary, decisions, pending, goals). cwd is a write scope: omitted, decisions/pending land in the default project and meta.scope is null. Answers { item, meta }.`,
     inputSchema: {
       action: z.enum(['reflect']).describe('Action'),
       ...REFLECT_ARGS

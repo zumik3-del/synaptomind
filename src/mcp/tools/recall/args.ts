@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import { thoughtStatusSchema, timelineLimitSchema } from '../../../validation'
+import { thoughtStatusSchema, pageLimitSchema } from '../../../validation'
 
 export const RECALL_ARGS = {
   query: z
@@ -117,7 +117,7 @@ export const RECALL_ARGS = {
     .describe(
       'Max edges to return for chain/context/get (default 50, 1-200). REJECTED for search/list.'
     ),
-  limit: timelineLimitSchema
+  limit: pageLimitSchema
     .optional()
     .describe(
       'Max results for search (default 10) or list page size (default 50). REJECTED for get/context/chain.'
