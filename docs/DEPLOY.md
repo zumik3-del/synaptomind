@@ -173,7 +173,8 @@ not already root.
 
 There is no automatic age-based deletion of thoughts. Retention review is an
 operator-driven workflow: inspect candidates with `retention_review action=list`,
-then explicitly protect, delete (preview, then `confirm: true`), or compact them.
+then explicitly mark a thought protected (`memory_store action=update` with
+`is_protected=true`), delete it (preview, then `confirm: true`), or compact it.
 Configure candidate age, importance threshold, and page size with
 `retentionReview.*` settings; see [CONFIG.md](CONFIG.md#retention-review) and
 [docs/mcp-tools.md](mcp-tools.md#retention_review--retention-candidates)

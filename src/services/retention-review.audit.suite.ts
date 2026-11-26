@@ -13,11 +13,8 @@ mock.module('../logging/log', () => ({
     entries.push({ level: args[0], type: args[1], message: args[2], metadata: args[3] })
 }))
 const { getDb } = await import('../db')
-const {
-  deleteRetentionReviewCandidateService,
-  protectRetentionReviewCandidateService,
-  compactRetentionReviewCandidatesService
-} = await import('./retention-review-actions.service')
+const { deleteRetentionReviewCandidateService, compactRetentionReviewCandidatesService } =
+  await import('./retention-review-actions.service')
 const now = '2026-10-23T00:00:00.000Z'
 function candidate(content: string) {
   const id = seedThought({
@@ -38,7 +35,7 @@ beforeEach(() => {
   entries.length = 0
 })
 afterEach(closeDb)
-test('logs once only after confirmed delete, protect, and compact with required metadata', () => {
+test('logs once only after confirmed delete and compact with required metadata', () => {
   const del = candidate('delete')
   deleteRetentionReviewCandidateService(
     del,
@@ -50,18 +47,6 @@ test('logs once only after confirmed delete, protect, and compact with required 
     level: 'info',
     type: 'retention-review',
     metadata: { thought_id: del }
-  })
-  const protectedId = candidate('protect')
-  protectRetentionReviewCandidateService(
-    protectedId,
-    { now, minAgeDays: 30, importanceFloor: 0.5 },
-    getDb()
-  )
-  expect(entries).toHaveLength(2)
-  expect(entries[1]).toMatchObject({
-    level: 'info',
-    type: 'retention-review',
-    metadata: { thought_id: protectedId }
   })
   const source = candidate('compact')
   const result = compactRetentionReviewCandidatesService(
@@ -75,8 +60,8 @@ test('logs once only after confirmed delete, protect, and compact with required 
     },
     getDb()
   )
-  expect(entries).toHaveLength(3)
-  expect(entries[2]).toMatchObject({
+  expect(entries).toHaveLength(2)
+  expect(entries[1]).toMatchObject({
     level: 'info',
     type: 'retention-review',
     metadata: { summary_id: result.summary?.id, source_ids: [source] }

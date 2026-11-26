@@ -115,7 +115,7 @@ describe('memory_recall search — id lookup on the wire (task #2186)', () => {
   })
 })
 
-describe('memory_recall clusters — the id lookup honours the cluster invariant (task #2190)', () => {
+describe('memory_recall is_cluster — the id lookup honours the cluster invariant (task #2190)', () => {
   test('a non-cluster id answers nothing instead of leaking a non-cluster row', async () => {
     const pid = projectId()
     seedThought({ id: A, content: 'PLAIN_ROW marker', project_id: pid, is_cluster: 0 })
@@ -123,7 +123,7 @@ describe('memory_recall clusters — the id lookup honours the cluster invariant
     const { data, isError } = parseResult(
       await client.callTool({
         name: 'memory_recall',
-        arguments: { action: 'clusters', query: A, cwd: CWD }
+        arguments: { action: 'search', query: A, is_cluster: true, cwd: CWD }
       })
     )
 
@@ -139,7 +139,7 @@ describe('memory_recall clusters — the id lookup honours the cluster invariant
     const { data, isError } = parseResult(
       await client.callTool({
         name: 'memory_recall',
-        arguments: { action: 'clusters', query: B, cwd: CWD }
+        arguments: { action: 'search', query: B, is_cluster: true, cwd: CWD }
       })
     )
 

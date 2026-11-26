@@ -4,21 +4,15 @@ import {
   type RetentionReviewDependentCounts
 } from '../db/retention-review'
 import { getDb } from '../db'
-import { deleteThought, updateThought } from '../db/thoughts'
+import { deleteThought } from '../db/thoughts'
 import { RetentionReviewIneligibleError } from '../errors'
 import { insertLog } from '../logging/log'
 import type { RetentionReviewQueryOptions } from './retention-review.service'
-import {
-  evaluateEligibility,
-  resolveNow,
-  type RetentionReviewEligibilityOptions
-} from './retention-review-eligibility.service'
+import { evaluateEligibility, resolveNow } from './retention-review-eligibility.service'
 
 export interface RetentionReviewDeleteOptions extends RetentionReviewQueryOptions {
   confirm?: boolean
 }
-
-export type RetentionReviewProtectOptions = RetentionReviewEligibilityOptions
 
 export function deleteRetentionReviewCandidateService(
   id: string,
@@ -81,46 +75,5 @@ export function deleteRetentionReviewCandidateService(
     confirm: true,
     thought_id: id,
     dependents
-  }
-}
-
-export function protectRetentionReviewCandidateService(
-  id: string,
-  opts: RetentionReviewProtectOptions = {},
-  d: Database = getDb()
-): {
-  status: string
-  action: string
-  protected: boolean
-  thought_id: string
-} {
-  const deleteOptions: RetentionReviewDeleteOptions = opts
-  const now = resolveNow(opts)
-  const eligibility = evaluateEligibility(id, d, deleteOptions, now)
-  if (!eligibility.eligible) {
-    throw new RetentionReviewIneligibleError(
-      `Thought ${id} is not an eligible retention-review candidate: ${eligibility.reasons.join(', ')}`
-    )
-  }
-
-  d.transaction(() => {
-    const latest = evaluateEligibility(id, d, deleteOptions, now)
-    if (!latest.eligible) {
-      throw new RetentionReviewIneligibleError(
-        `Thought ${id} is no longer an eligible retention-review candidate: ${latest.reasons.join(', ')}`
-      )
-    }
-    updateThought(d, id, { is_protected: true })
-  })()
-
-  insertLog('info', 'retention-review', `Protected retention-review thought ${id}`, {
-    thought_id: id
-  })
-
-  return {
-    status: 'protected',
-    action: 'protected',
-    protected: true,
-    thought_id: id
   }
 }

@@ -25,6 +25,9 @@ export interface ActionToolConfig {
   // shape stays flat and each action's `input` narrows it.
   inputSchema: Record<string, z.ZodType>
   handlers: Record<string, ActionHandler>
+  // Actions this tool no longer serves: the name maps to the surviving path that replaces it, so a
+  // caller following an older reference gets the redirect instead of a bare enum error.
+  retiredActions?: Record<string, string>
 }
 
 // Every tool here serves the local graph only, so openWorldHint is always false and the
@@ -128,6 +131,8 @@ export function registerActionTool(server: McpServer, config: ActionToolConfig):
       outputSchema: z.object(toolOutputShape)
     },
     async args => {
+      const retired = config.retiredActions?.[String(args.action)]
+      if (retired !== undefined) return errorResult(retired)
       const parsedArgs = argsSchema.safeParse(args)
       if (!parsedArgs.success) return errorResult(formatArgsIssues(config.name, parsedArgs.error))
       const parsed = parsedArgs.data as ActionArgs

@@ -1,6 +1,5 @@
 import { z } from 'zod/v4'
 import type { McpServer } from '@modelcontextprotocol/server'
-import { ValidationError } from '../../errors'
 import { thoughtStatusSchema } from '../../validation'
 import { groupResultsByCluster, searchThoughtsOutcome } from '../../services/search.service'
 import {
@@ -76,7 +75,6 @@ function searchUrlLinks(
 }
 
 function finalizeSearchAction(
-  action: 'search' | 'clusters',
   outcome: SearchOutcome,
   args: ActionArgs,
   scope: ReturnType<typeof readEnvelopeScope>['scope'],
@@ -93,7 +91,7 @@ function finalizeSearchAction(
   const items = hits.map((r: SearchResult | GroupedResult) =>
     shapeSearchItem(r, compact, fields, urlLinks)
   )
-  return collectionEnvelope(action, items, {
+  return collectionEnvelope('search', items, {
     scope,
     warnings: [...warnings, ...(outcome.warnings ?? [])],
     degraded,
@@ -136,14 +134,7 @@ const handlers = {
         minRelevance: args.min_relevance as number | undefined
       })
       const outcome = await searchThoughtsOutcome(baseOptions)
-      return finalizeSearchAction(
-        'search',
-        outcome,
-        args,
-        scope,
-        warnings,
-        args.group_by_cluster === true
-      )
+      return finalizeSearchAction(outcome, args, scope, warnings, args.group_by_cluster === true)
     }
   },
 
@@ -157,56 +148,6 @@ const handlers = {
     ),
     run(args: ActionArgs) {
       return itemEnvelope('chain', chainView(args.thought_id as string, chainOptions(args)))
-    }
-  },
-
-  clusters: {
-    input: actionInput(
-      RECALL_ARGS,
-      [
-        'query',
-        'status',
-        'cwd',
-        'tag',
-        'is_cluster',
-        'min_importance',
-        'hybrid',
-        'recency_weight',
-        'recency_half_life_days',
-        'min_relevance',
-        'limit',
-        'compact',
-        'fields',
-        'include_url_links'
-      ],
-      {
-        query: requiredString('query is required for clusters action'),
-        status: thoughtStatusSchema.default('active')
-      }
-    ),
-    async run(args: ActionArgs) {
-      const { limit, scope, warnings, projectId } = queryActionPreamble(args)
-      if (args.is_cluster === false) {
-        throw new ValidationError(
-          'the clusters action lists cluster thoughts; is_cluster=false conflicts'
-        )
-      }
-      const outcome = await searchThoughtsOutcome(
-        buildSearchOptions({
-          query: args.query as string,
-          topK: limit,
-          status: args.status as string | undefined,
-          projectFilter: projectId,
-          tagFilter: args.tag as string | undefined,
-          clusterFilter: 'only',
-          minImportance: args.min_importance as number | undefined,
-          hybrid: args.hybrid as boolean | undefined,
-          recencyWeight: args.recency_weight as number | undefined,
-          recencyHalfLifeDays: args.recency_half_life_days as number | undefined,
-          minRelevance: args.min_relevance as number | undefined
-        })
-      )
-      return finalizeSearchAction('clusters', outcome, args, scope, warnings, false)
     }
   },
 
@@ -227,7 +168,7 @@ const handlers = {
       { status: z.enum(['draft', 'active', 'archived', 'all']).default('all') }
     ),
     run(args: ActionArgs) {
-      return listPage('list', args)
+      return listPage(args)
     }
   }
 }
@@ -236,11 +177,14 @@ export function registerMemoryRecall(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_recall',
     annotations: ADDS_ONLY,
-    description: `Search and retrieve thoughts. One envelope per action: collections answer { items, meta }, single objects { item, meta }, with meta = { action, scope, counts: { total, returned, filtered_out }, degraded, warnings } and an optional reason (no_match, ambiguous_id, id_not_found). Id lookup runs before both search legs: a full UUID is an explicit reference and ignores status/cwd/tag/min_importance, while a hex prefix of 13+ characters is only a timestamp window, so it takes the status/cwd/tag/min_importance scope of the call like any other query, falling back to the ordinary search when it addresses nothing inside it. An id hit never widens to other rows and is never suppressed — standing, superseded_by and contradicted_by stay annotated, and low_confidence keeps its retrieval meaning (no BM25 anchor, cosine below the floor). A prefix that addresses several rows answers every one of them, at most limit, with reason ambiguous_id; a prefix addressing none is not an answer, so the same text is searched and the reply carries an id_not_found warning (reason id_not_found when that found nothing either), keeping hex-looking words searchable. is_cluster is a shape constraint, not a scope, so clusters never answers a non-cluster row. Actions: search (hybrid RRF by default, vector-only with hybrid=false; may mutate via primer promotion/hit count), get, context, chain, clusters (reads cluster thoughts; memory_crystallize creates them), list (inventory without query: status/cwd/tag/is_cluster, limit/offset with the total in meta.counts, never in a row — the same reader memory_reflect action=timeline exposes). Status defaults: search/clusters active, list all. cwd is optional for search, clusters, list and context: it scopes to one project, and omitted it answers across every project with a meta.warnings note; get/chain accept and ignore it, since an id-addressed read keeps its own project. Output: compact (default) gives id, content, status, tags, project; compact=false or fields widen it. context answers chain's view ({ thought, upstream, downstream }) from a query or a thought_id.`,
+    description: `Search and retrieve thoughts. One envelope per action: collections answer { items, meta }, single objects { item, meta }, with meta = { action, scope, counts: { total, returned, filtered_out }, degraded, warnings } and an optional reason (no_match, ambiguous_id, id_not_found). Id lookup runs before both search legs: a full UUID is an explicit reference and ignores status/cwd/tag/min_importance, while a hex prefix of 13+ characters is only a timestamp window, so it takes the status/cwd/tag/min_importance scope of the call like any other query, falling back to the ordinary search when it addresses nothing inside it. An id hit never widens to other rows and is never suppressed — standing, superseded_by and contradicted_by stay annotated, and low_confidence keeps its retrieval meaning (no BM25 anchor, cosine below the floor). A prefix that addresses several rows answers every one of them, at most limit, with reason ambiguous_id; a prefix addressing none is not an answer, so the same text is searched and the reply carries an id_not_found warning (reason id_not_found when that found nothing either), keeping hex-looking words searchable. is_cluster is a shape constraint, not a scope, so a cluster-only search never answers a non-cluster row. Actions: search (hybrid RRF by default, vector-only with hybrid=false; is_cluster=true is the cluster-only preset, and the cluster thoughts themselves are created by memory_crystallize; may mutate via primer promotion/hit count), get, context, chain, list (inventory without query: status/cwd/tag/is_cluster, limit/offset with the total in meta.counts, never in a row). Status defaults: search active, list all. cwd is optional for search, list and context: it scopes to one project, and omitted it answers across every project with a meta.warnings note; get/chain accept and ignore it, since an id-addressed read keeps its own project. Output: compact (default) gives id, content, status, tags, project; compact=false or fields widen it. context answers chain's view ({ thought, upstream, downstream }) from a query or a thought_id.`,
     inputSchema: {
-      action: z.enum(['search', 'get', 'context', 'chain', 'clusters', 'list']).describe('Action'),
+      action: z.enum(['search', 'get', 'context', 'chain', 'list']).describe('Action'),
       ...RECALL_ARGS
     },
-    handlers
+    handlers,
+    retiredActions: {
+      clusters: 'clusters was removed; use search with is_cluster=true'
+    }
   })
 }

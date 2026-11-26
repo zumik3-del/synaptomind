@@ -134,13 +134,6 @@ const CASES: ActionCase[] = [
     cwd: true
   },
   { tool: 'memory_recall', action: 'chain', args: f => ({ thought_id: f.source }), slot: 'item' },
-  {
-    tool: 'memory_recall',
-    action: 'clusters',
-    args: () => ({ query: 'conformance cluster' }),
-    slot: 'items',
-    cwd: true
-  },
   { tool: 'memory_recall', action: 'list', args: () => ({}), slot: 'items', cwd: true },
   {
     tool: 'memory_store',
@@ -245,7 +238,6 @@ const CASES: ActionCase[] = [
     cwd: true,
     preview: true
   },
-  { tool: 'memory_manage', action: 'resolve', args: () => ({}), slot: 'item', cwd: true },
   { tool: 'memory_crystallize', action: 'graph', args: () => ({}), slot: 'graph', cwd: true },
   {
     tool: 'memory_crystallize',
@@ -268,13 +260,6 @@ const CASES: ActionCase[] = [
     slot: 'item',
     cwd: true
   },
-  {
-    tool: 'memory_reflect',
-    action: 'timeline',
-    args: () => ({}),
-    slot: 'items',
-    cwd: true
-  },
   { tool: 'memory_primers', action: 'list', args: () => ({}), slot: 'items' },
   {
     tool: 'memory_primers',
@@ -283,12 +268,6 @@ const CASES: ActionCase[] = [
     slot: 'item'
   },
   { tool: 'retention_review', action: 'list', args: () => ({}), slot: 'items' },
-  {
-    tool: 'retention_review',
-    action: 'protect',
-    args: f => ({ thought_id: f.retention }),
-    slot: 'item'
-  },
   {
     tool: 'retention_review',
     action: 'delete',
@@ -585,12 +564,6 @@ const CWD_OPTIONAL: CwdContractCase[] = [
     args: () => ({ query: 'conformance source alpha' }),
     warns: true
   },
-  {
-    tool: 'memory_recall',
-    action: 'clusters',
-    args: () => ({ query: 'conformance cluster' }),
-    warns: true
-  },
   { tool: 'memory_recall', action: 'list', args: () => ({}), warns: true },
   { tool: 'memory_status', action: 'slots', args: () => ({}), warns: true },
   { tool: 'memory_status', action: 'frontier', args: () => ({}), warns: true },
@@ -599,8 +572,7 @@ const CWD_OPTIONAL: CwdContractCase[] = [
     action: 'reflect',
     args: () => ({ summary: 'conformance cwd-less reflect' }),
     warns: false
-  },
-  { tool: 'memory_reflect', action: 'timeline', args: () => ({}), warns: true }
+  }
 ]
 
 async function cwdContractMeta(c: CwdContractCase, cwd?: string): Promise<Record<string, unknown>> {
@@ -782,29 +754,6 @@ describe('a cwd-less list spans every project', () => {
   })
 })
 
-describe('a cwd-less timeline spans every project', () => {
-  test('both projects’ rows are listed without cwd, and only project A’s with one', async () => {
-    const { scopedId, otherId } = seedCrossProjectRows()
-
-    const all = await crossProjectRows('memory_reflect', 'timeline', {})
-    expect(all).toEqual(expect.arrayContaining([scopedId, otherId]))
-
-    const scoped = await crossProjectRows('memory_reflect', 'timeline', {}, CWD)
-    expect(scoped).toContain(scopedId)
-    expect(scoped).not.toContain(otherId)
-  })
-})
-
-describe('memory_manage action=resolve still requires cwd', () => {
-  test('a cwd-less resolve is rejected with the actionable message', async () => {
-    const { isError, text } = readResult(
-      await client.callTool({ name: 'memory_manage', arguments: { action: 'resolve' } } as never)
-    )
-    expect(isError).toBe(true)
-    expect(text).toContain('cwd is required for resolve action')
-  })
-})
-
 describe('fields selection drops scoring metadata', () => {
   test('search with fields=[id,content] returns exactly those columns plus the envelope', async () => {
     const { payload, isError } = readResult(
@@ -892,7 +841,7 @@ describe('empty and ambiguous search pass a reason through meta', () => {
   })
 })
 
-const UNKNOWN_CWD_WARNING = `cwd "${UNREGISTERED_CWD}" matches no known project — the answer spans every project (check it with memory_manage action=resolve)`
+const UNKNOWN_CWD_WARNING = `cwd "${UNREGISTERED_CWD}" matches no known project — the answer spans every project (check it with memory_manage action=list)`
 
 describe('memory_status action=slots keys its overrides note on the resolved project', () => {
   const slotsMeta = (cwd?: string) =>
@@ -1046,7 +995,7 @@ const CWD_IGNORE_CLAUSE: Record<string, { clause: string; scopes: string }> = {
   },
   memory_recall: {
     clause: 'ACCEPTED AND IGNORED for get/chain.',
-    scopes: 'OPTIONAL for search/clusters/list/context'
+    scopes: 'OPTIONAL for search/list/context'
   },
   memory_supersede: {
     clause: 'ACCEPTED AND IGNORED for "archive" and "archive_batch".',
@@ -1059,10 +1008,6 @@ const CWD_IGNORE_CLAUSE: Record<string, { clause: string; scopes: string }> = {
   memory_crystallize: {
     clause: 'ACCEPTED AND IGNORED for "auto_cluster".',
     scopes: 'OPTIONAL for "graph" and "cluster"'
-  },
-  memory_manage: {
-    clause: 'ACCEPTED AND IGNORED for all other actions.',
-    scopes: 'REQUIRED for "resolve"'
   }
 }
 
@@ -1167,8 +1112,10 @@ function actionEnum(tool: { inputSchema?: unknown }): string[] {
 }
 
 function unknownActionRefusal(tool: string, enumValues: string[]): string {
+  const prefix = `Input validation error: Invalid arguments for tool ${tool}: action: `
+  if (enumValues.length === 1) return `${prefix}Invalid input: expected "${enumValues[0]}"`
   const quoted = enumValues.map(value => `"${value}"`).join('|')
-  return `Input validation error: Invalid arguments for tool ${tool}: action: Invalid option: expected one of ${quoted}`
+  return `${prefix}Invalid option: expected one of ${quoted}`
 }
 
 describe('every registered tool refuses a bad argument in the structured error envelope', () => {
@@ -1211,7 +1158,7 @@ const PINNED_REFUSALS = [
     tool: 'memory_recall',
     args: { action: 'nope' },
     message:
-      'Input validation error: Invalid arguments for tool memory_recall: action: Invalid option: expected one of "search"|"get"|"context"|"chain"|"clusters"|"list"'
+      'Input validation error: Invalid arguments for tool memory_recall: action: Invalid option: expected one of "search"|"get"|"context"|"chain"|"list"'
   },
   {
     label: 'a retired tombstone',
@@ -1229,9 +1176,9 @@ const PINNED_REFUSALS = [
   },
   {
     label: 'a missing required argument',
-    tool: 'memory_manage',
-    args: { action: 'resolve' },
-    message: 'cwd is required for resolve action'
+    tool: 'memory_recall',
+    args: { action: 'chain' },
+    message: 'thought_id is required for chain action'
   }
 ]
 
@@ -1271,9 +1218,9 @@ describe('every failure answers the structured error envelope', () => {
 
   test('a per-action input failure carries its message', async () => {
     const error = structuredError(
-      await client.callTool({ name: 'memory_manage', arguments: { action: 'resolve' } } as never)
+      await client.callTool({ name: 'memory_recall', arguments: { action: 'chain' } } as never)
     )
-    expect(error.message).toContain('cwd is required for resolve action')
+    expect(error.message).toContain('thought_id is required for chain action')
   })
 
   test('a domain failure carries its status code', async () => {
