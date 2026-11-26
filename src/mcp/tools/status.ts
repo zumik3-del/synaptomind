@@ -18,7 +18,7 @@ export function registerMemoryStatus(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_status',
     annotations: READ_ONLY,
-    description: `Read-only system state — what the store holds and how it is configured, not the thoughts (memory_recall) or their writes (memory_store). Actions: slots (project_context and active_goals as stored rows; pending_items and architecture_decisions are derived), frontier (next actions ranked, limit 1-50), config, health. cwd is optional for slots and frontier: it scopes to one project, and omitted it leaves meta.scope null with a meta.warnings note — slots then reads only the global rows. Answers { items, meta } for slots and frontier, { item, meta } for config and health.`,
+    description: `Read-only system state — what the store holds and how it is configured, not the thoughts (memory_recall) or their writes (memory_store). Actions: slots (project_context and active_goals as stored rows; pending_items derive from pending thoughts and architecture_decisions from primers), frontier (next actions ranked, limit 1-50), config, health. cwd is optional for slots and frontier: it scopes to one project, and omitted it leaves meta.scope null with a meta.warnings note — slots then reads only the global rows. Answers { items, meta } for slots and frontier, { item, meta } for config and health.`,
     inputSchema: {
       action: z.enum(['slots', 'frontier', 'config', 'health']).describe('Action'),
       ...STATUS_ARGS

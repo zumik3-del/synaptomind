@@ -96,7 +96,7 @@ export function registerMemoryPrimers(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_primers',
     annotations: DESTRUCTIVE,
-    description: `The always-at-hand set — thoughts recalled often enough to be injected into every conversation — and the only tool that reviews or removes them. list answers { items, meta }, delete { item, meta}. Primers are created automatically on the search path, never by this tool; list returns them most-hit first (up to 500). delete removes the primer record only (the thought and its edges stay) and is preview-first: confirm=true must echo the meta.preview.token back, and a missing, stale or mismatched one needs a fresh preview. Deletion is not permanent: the thought is promoted again on its next recall while its hit count still reaches the threshold.`,
+    description: `The always-at-hand set — thoughts recalled often enough to be injected into every conversation — and the only tool that reviews or removes them. list answers { items, meta }, delete { item, meta}. Primers are created automatically on the search path, never by this tool; list returns them most-hit first (up to 500); read the thought itself with memory_recall action=get. delete removes the primer record only (the thought and its edges stay) and is preview-first: confirm=true must echo the meta.preview.token back, and a missing, stale or mismatched one needs a fresh preview. Deletion is not permanent: the thought is promoted again on its next recall while its hit count still reaches the threshold.`,
     inputSchema: {
       action: z.enum(['list', 'delete']).describe('Action'),
       ...PRIMERS_ARGS
