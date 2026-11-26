@@ -125,10 +125,6 @@
   },
   {
     "name": "memory_manage",
-    "cwdContract": [
-      "REQUIRED for \"resolve\": the working directory path to resolve.",
-      "ACCEPTED AND IGNORED for all other actions."
-    ],
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -137,16 +133,12 @@
             "list",
             "create",
             "update",
-            "delete",
-            "resolve"
+            "delete"
           ],
           "type": "string"
         },
         "confirm": {
           "type": "boolean"
-        },
-        "cwd": {
-          "type": "string"
         },
         "fields": {
           "items": {
@@ -226,7 +218,7 @@
   {
     "name": "memory_recall",
     "cwdContract": [
-      "OPTIONAL for search/clusters/list/context: omitting it (or passing no registered path) answers across every project and says so in meta.warnings.",
+      "OPTIONAL for search/list/context: omitting it (or passing no registered path) answers across every project and says so in meta.warnings.",
       "ACCEPTED AND IGNORED for get/chain."
     ],
     "inputSchema": {
@@ -238,7 +230,6 @@
             "get",
             "context",
             "chain",
-            "clusters",
             "list"
           ],
           "type": "string"
@@ -378,31 +369,21 @@
   {
     "name": "memory_reflect",
     "cwdContract": [
-      "OPTIONAL for both actions: reflect writes to the resolved project, or to the default project when it is absent; timeline answers across every project when it is absent and says so in meta.warnings."
+      "OPTIONAL for \"reflect\": it is a write scope, so decisions/pending land in the resolved project, or in the default project when it is absent (meta.scope is then null)."
     ],
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "action": {
           "enum": [
-            "reflect",
-            "timeline"
+            "reflect"
           ],
           "type": "string"
-        },
-        "compact": {
-          "type": "boolean"
         },
         "cwd": {
           "type": "string"
         },
         "decisions": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "fields": {
           "items": {
             "type": "string"
           },
@@ -423,19 +404,6 @@
           },
           "type": "array"
         },
-        "include_url_links": {
-          "type": "boolean"
-        },
-        "limit": {
-          "maximum": 500,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "offset": {
-          "maximum": 1000000,
-          "minimum": 0,
-          "type": "integer"
-        },
         "pending": {
           "items": {
             "type": "string"
@@ -444,14 +412,6 @@
         },
         "project_id": {
           "not": {}
-        },
-        "status": {
-          "enum": [
-            "draft",
-            "active",
-            "archived"
-          ],
-          "type": "string"
         },
         "summary": {
           "type": "string"
@@ -917,7 +877,6 @@
         "action": {
           "enum": [
             "list",
-            "protect",
             "delete",
             "compact"
           ],

@@ -12,7 +12,7 @@ import { computeContentHash } from '../utils'
 import { BATCH_ITEMS_MAX } from '../validation'
 import { insertLog } from '../logging/log'
 import { evaluateEligibility, resolveNow } from './retention-review-eligibility.service'
-import type { RetentionReviewDeleteOptions } from './retention-review-delete-protect.service'
+import type { RetentionReviewDeleteOptions } from './retention-review-delete.service'
 
 export interface RetentionReviewCompactOptions extends RetentionReviewDeleteOptions {
   source_ids: string[]

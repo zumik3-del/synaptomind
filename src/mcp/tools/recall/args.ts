@@ -6,12 +6,12 @@ export const RECALL_ARGS = {
     .string()
     .optional()
     .describe(
-      'Search query (REQUIRED for search/clusters; accepted by context as an alternative to thought_id). REJECTED for get/chain/list.'
+      'Search query (REQUIRED for search; accepted by context as an alternative to thought_id). REJECTED for get/chain/list.'
     ),
   status: thoughtStatusSchema
     .optional()
     .describe(
-      'Filter by status (search/clusters default: active; list default: all). REJECTED for get/context/chain.'
+      'Filter by status (search default: active; list default: all). REJECTED for get/context/chain.'
     ),
   project_id: z
     .never({ error: 'project_id was removed; use cwd' })
@@ -21,17 +21,17 @@ export const RECALL_ARGS = {
     .string()
     .optional()
     .describe(
-      'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for search/clusters/list/context: omitting it (or passing no registered path) answers across every project and says so in meta.warnings. ACCEPTED AND IGNORED for get/chain.'
+      'Working directory — resolves the project scope reported in meta.scope. OPTIONAL for search/list/context: omitting it (or passing no registered path) answers across every project and says so in meta.warnings. ACCEPTED AND IGNORED for get/chain.'
     ),
   tag: z
     .string()
     .optional()
-    .describe('Filter by tag (search/clusters/list). REJECTED for get/context/chain.'),
+    .describe('Filter by tag (search/list). REJECTED for get/context/chain.'),
   is_cluster: z
     .boolean()
     .optional()
     .describe(
-      'Cluster filter: true = cluster thoughts only, false = exclude cluster thoughts (search/clusters/list). REJECTED for get/context/chain.'
+      'Cluster filter: true = cluster thoughts only, false = exclude cluster thoughts (search/list). REJECTED for get/context/chain.'
     ),
   group_by_cluster: z.boolean().optional().describe('Group results by cluster (search only).'),
   min_importance: z.coerce
@@ -39,12 +39,12 @@ export const RECALL_ARGS = {
     .min(0)
     .max(1)
     .optional()
-    .describe('Minimum importance (0-1) (search/clusters only).'),
+    .describe('Minimum importance (0-1) (search only).'),
   hybrid: z
     .boolean()
     .optional()
     .describe(
-      'Hybrid search: true (default) fuses the vector and BM25 legs via RRF; false restricts results to the vector (embedding) leg only. (search/clusters only).'
+      'Hybrid search: true (default) fuses the vector and BM25 legs via RRF; false restricts results to the vector (embedding) leg only. (search only).'
     ),
   mode: z
     .never({ error: 'mode was removed; use hybrid' })
@@ -56,7 +56,7 @@ export const RECALL_ARGS = {
     .max(1)
     .optional()
     .describe(
-      'Opt-in recency boost weight (0-1). 0/default preserves relevance-only ranking; >0 adds recency_weight × 0.5^(ageDays/halfLifeDays) to the relevance score and returns recency_score + final_score (search/clusters only).'
+      'Opt-in recency boost weight (0-1). 0/default preserves relevance-only ranking; >0 adds recency_weight × 0.5^(ageDays/halfLifeDays) to the relevance score and returns recency_score + final_score (search only).'
     ),
   recency_half_life_days: z.coerce
     .number()
@@ -64,7 +64,7 @@ export const RECALL_ARGS = {
     .max(3650)
     .optional()
     .describe(
-      'Recency decay half-life in days (default 30, 1-3650); only used when recency_weight > 0 (search/clusters only).'
+      'Recency decay half-life in days (default 30, 1-3650); only used when recency_weight > 0 (search only).'
     ),
   min_relevance: z.coerce
     .number()
@@ -72,7 +72,7 @@ export const RECALL_ARGS = {
     .max(1)
     .optional()
     .describe(
-      'Relevance gate on the calibrated relevance scale (0-1). Omitted = the measured default 0.4 (a raw cosine of 0.84): cosine-only hits below the threshold are dropped, while BM25-anchored and explicit-id rows are never gated. An explicit 0 disables the gate and restores the fail-open result set. Dropped rows appear as meta.counts.filtered_out, not as a reason (search/clusters only; memory_recall action=context is exempt from the default gate and keeps its pre-gate best match, so a gate there is a service-level opt-in).'
+      'Relevance gate on the calibrated relevance scale (0-1). Omitted = the measured default 0.4 (a raw cosine of 0.84): cosine-only hits below the threshold are dropped, while BM25-anchored and explicit-id rows are never gated. An explicit 0 disables the gate and restores the fail-open result set. Dropped rows appear as meta.counts.filtered_out, not as a reason (search only; memory_recall action=context is exempt from the default gate and keeps its pre-gate best match, so a gate there is a service-level opt-in).'
     ),
   supersession_mode: z
     .enum(['off', 'flag', 'suppress'])
@@ -90,7 +90,7 @@ export const RECALL_ARGS = {
     .string()
     .optional()
     .describe(
-      'REQUIRED for "get" and "chain"; also accepted by "context" (alternative to query). REJECTED for "search", "clusters", "list".'
+      'REQUIRED for "get" and "chain"; also accepted by "context" (alternative to query). REJECTED for "search", "list".'
     ),
   include_edges: z
     .boolean()
@@ -115,12 +115,12 @@ export const RECALL_ARGS = {
     .max(200)
     .optional()
     .describe(
-      'Max edges to return for chain/context/get (default 50, 1-200). REJECTED for search/clusters/list.'
+      'Max edges to return for chain/context/get (default 50, 1-200). REJECTED for search/list.'
     ),
   limit: timelineLimitSchema
     .optional()
     .describe(
-      'Max results for search/clusters (default 10) or list page size (default 50). REJECTED for get/context/chain.'
+      'Max results for search (default 10) or list page size (default 50). REJECTED for get/context/chain.'
     ),
   offset: z.coerce
     .number()

@@ -214,7 +214,7 @@ describe('an unknown action is refused by every registered action tool', () => {
       const result = (await handler({ action: 'definitely_not_an_action' })) as ToolResult
 
       expect(result.isError).toBe(true)
-      expect(result.content[0].text).toContain('Invalid option')
+      expect(result.content[0].text).toMatch(/action: Invalid (option|input)/)
       expect(result.structuredContent?.result).toEqual({
         error: { message: result.content[0].text }
       })
@@ -271,9 +271,9 @@ const KNOWN_ACTION_CASES: Array<{
     args: () => ({ action: 'graph' })
   },
   {
-    label: 'memory_reflect timeline',
+    label: 'memory_reflect reflect',
     tool: 'memory_reflect',
-    args: () => ({ action: 'timeline', cwd: '/tmp/mcp-unscoped' })
+    args: () => ({ action: 'reflect', cwd: '/tmp/mcp-unscoped', summary: 'dispatch probe' })
   },
   { label: 'memory_primers list', tool: 'memory_primers', args: () => ({ action: 'list' }) }
 ]
@@ -336,12 +336,6 @@ const REQUIRED_FIELD_CASES: Array<{
     message: 'thought_id is required for chain action'
   },
   {
-    label: 'recall clusters',
-    tool: 'memory_recall',
-    args: { action: 'clusters' },
-    message: 'query is required for clusters action'
-  },
-  {
     label: 'store create',
     tool: 'memory_store',
     args: { action: 'create' },
@@ -390,10 +384,10 @@ const REQUIRED_FIELD_CASES: Array<{
     message: 'project_id is required for delete action'
   },
   {
-    label: 'manage resolve',
-    tool: 'memory_manage',
-    args: { action: 'resolve' },
-    message: 'cwd is required for resolve action'
+    label: 'retention delete',
+    tool: 'retention_review',
+    args: { action: 'delete' },
+    message: 'thought_id is required for delete action'
   },
   {
     label: 'crystallize cluster',

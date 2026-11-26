@@ -4,7 +4,5 @@ export {
 } from './retention-review-compact-merge.service'
 export {
   deleteRetentionReviewCandidateService,
-  protectRetentionReviewCandidateService,
-  type RetentionReviewDeleteOptions,
-  type RetentionReviewProtectOptions
-} from './retention-review-delete-protect.service'
+  type RetentionReviewDeleteOptions
+} from './retention-review-delete.service'

@@ -18,11 +18,10 @@ let client: Client
 const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 const CWD_ACTIONS: Record<string, string[]> = {
-  memory_recall: ['search', 'clusters', 'list', 'context'],
+  memory_recall: ['search', 'list', 'context'],
   memory_status: ['slots', 'frontier'],
-  memory_reflect: ['reflect', 'timeline'],
-  memory_primers: ['list'],
-  memory_manage: ['list', 'create', 'update', 'delete', 'resolve']
+  memory_reflect: ['reflect'],
+  memory_primers: ['list']
 }
 
 function callTool(request: { name: string; arguments?: Record<string, unknown> }) {
@@ -119,15 +118,15 @@ const invalidNumericCases: Array<{
     param: 'max_degree'
   },
   {
-    label: 'negative timeline limit',
-    name: 'memory_reflect',
-    args: { action: 'timeline', limit: -5 },
+    label: 'negative list limit',
+    name: 'memory_recall',
+    args: { action: 'list', limit: -5 },
     param: 'limit'
   },
   {
-    label: 'non-integer timeline limit',
-    name: 'memory_reflect',
-    args: { action: 'timeline', limit: 1.5 },
+    label: 'non-integer list limit',
+    name: 'memory_recall',
+    args: { action: 'list', limit: 1.5 },
     param: 'limit'
   },
   {
@@ -198,8 +197,8 @@ describe('shared request contract parity (audit M8)', () => {
     expect(schema.properties.dry_run.not).toEqual({})
   })
 
-  test('memory_reflect advertises the shared timeline limit range', async () => {
-    const schema = await inputSchemaOf('memory_reflect')
+  test('memory_recall list advertises the shared page limit range', async () => {
+    const schema = await inputSchemaOf('memory_recall')
     expect(schema.properties.limit.minimum).toBe(1)
     expect(schema.properties.limit.maximum).toBe(500)
     expect(schema.properties.status.enum).toEqual(['draft', 'active', 'archived'])
@@ -242,24 +241,24 @@ describe('shared request contract parity (audit M8)', () => {
     expect(ok.isError).toBe(false)
   })
 
-  test('memory_reflect timeline rejects a limit above 500 but accepts 500', async () => {
+  test('memory_recall list rejects a limit above 500 but accepts 500', async () => {
     const over = await callTool({
-      name: 'memory_reflect',
-      arguments: { action: 'timeline', limit: 501 }
+      name: 'memory_recall',
+      arguments: { action: 'list', limit: 501 }
     })
     expect(parseResult(over).isError).toBe(true)
 
     const atMax = await callTool({
-      name: 'memory_reflect',
-      arguments: { action: 'timeline', limit: 500 }
+      name: 'memory_recall',
+      arguments: { action: 'list', limit: 500 }
     })
     expect(parseResult(atMax).isError).toBe(false)
   })
 
-  test('memory_reflect timeline coerces a numeric-string limit (shared coerce schema)', async () => {
+  test('memory_recall list coerces a numeric-string limit (shared coerce schema)', async () => {
     const result = await callTool({
-      name: 'memory_reflect',
-      arguments: { action: 'timeline', limit: '50' }
+      name: 'memory_recall',
+      arguments: { action: 'list', limit: '50' }
     })
     expect(parseResult(result).isError).toBe(false)
   })
@@ -428,8 +427,9 @@ describe('no bare-string tool results (#2135)', () => {
         call: () => callTool({ name: 'memory_primers', arguments: { action: 'list' } })
       },
       {
-        label: 'memory_reflect timeline',
-        call: () => callTool({ name: 'memory_reflect', arguments: { action: 'timeline' } })
+        label: 'memory_reflect reflect',
+        call: () =>
+          callTool({ name: 'memory_reflect', arguments: { action: 'reflect', summary: 'probe' } })
       },
       {
         label: 'memory_crystallize graph',

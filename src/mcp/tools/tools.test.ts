@@ -20,11 +20,10 @@ let client: Client
 const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 const CWD_ACTIONS: Record<string, string[]> = {
-  memory_recall: ['search', 'clusters', 'list', 'context'],
+  memory_recall: ['search', 'list', 'context'],
   memory_status: ['slots', 'frontier'],
-  memory_reflect: ['reflect', 'timeline'],
-  memory_primers: ['list'],
-  memory_manage: ['list', 'create', 'update', 'delete', 'resolve']
+  memory_reflect: ['reflect'],
+  memory_primers: ['list']
 }
 
 function callTool(request: { name: string; arguments?: Record<string, unknown> }) {
@@ -92,7 +91,7 @@ describe('tool registration', () => {
 })
 
 describe('retention_review MCP', () => {
-  test('maps list pagination and summarizes protection candidates', async () => {
+  test('maps list pagination and protects a candidate through memory_store update', async () => {
     const id = seedThought({
       content: 'MCP retention candidate',
       status: 'archived',
@@ -113,7 +112,10 @@ describe('retention_review MCP', () => {
     expect(listed.isError).toBe(false)
     expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(id)
     const protectedResult = parseResult(
-      await callTool({ name: 'retention_review', arguments: { action: 'protect', thought_id: id } })
+      await callTool({
+        name: 'memory_store',
+        arguments: { action: 'update', thought_id: id, is_protected: true }
+      })
     )
     expect(protectedResult.isError).toBe(false)
     expect(getDb().prepare('SELECT is_protected FROM thoughts WHERE id = ?').get(id)).toEqual({
@@ -448,7 +450,7 @@ describe('memory_recall', () => {
     expect(isError).toBe(true)
   })
 
-  test('clusters returns only cluster thoughts', async () => {
+  test('search with is_cluster returns only cluster thoughts', async () => {
     await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'regular thought' }
@@ -464,12 +466,32 @@ describe('memory_recall', () => {
 
     const result = await callTool({
       name: 'memory_recall',
-      arguments: { action: 'clusters', query: 'cluster', limit: 5 }
+      arguments: { action: 'search', query: 'cluster', is_cluster: true, limit: 5 }
     })
     const { data, isError } = parseResult(result)
     expect(isError).toBe(false)
     expect(Array.isArray(data.items)).toBe(true)
     expect(data.items.every((r: any) => r.thought?.is_cluster === true)).toBe(true)
+  })
+
+  test('list returns the created thoughts', async () => {
+    await callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'list item 1' }
+    })
+    await callTool({
+      name: 'memory_store',
+      arguments: { action: 'create', content: 'list item 2' }
+    })
+
+    const result = await callTool({
+      name: 'memory_recall',
+      arguments: { action: 'list', limit: 5 }
+    })
+    const { data, isError } = parseResult(result)
+    expect(isError).toBe(false)
+    expect(Array.isArray(data.items)).toBe(true)
+    expect(data.items.length).toBeGreaterThanOrEqual(2)
   })
 
   test('search without query returns error', async () => {
@@ -490,16 +512,6 @@ describe('memory_recall', () => {
     const { data, isError } = parseResult(result)
     expect(isError).toBe(true)
     expect(data).toContain('query or thought_id is required for context action')
-  })
-
-  test('clusters without query returns error', async () => {
-    const result = await callTool({
-      name: 'memory_recall',
-      arguments: { action: 'clusters' }
-    })
-    const { data, isError } = parseResult(result)
-    expect(isError).toBe(true)
-    expect(data).toContain('query is required for clusters action')
   })
 })
 
@@ -639,7 +651,7 @@ describe('memory_manage', () => {
     expect(data.items.length).toBeGreaterThanOrEqual(1)
   })
 
-  test('create and resolve project', async () => {
+  test('create project', async () => {
     const create = await callTool({
       name: 'memory_manage',
       arguments: { action: 'create', name: 'TestProject', local_path: '/tmp/test-project' }
@@ -647,14 +659,6 @@ describe('memory_manage', () => {
     const { data: created, isError: createErr } = parseResult(create)
     expect(createErr).toBe(false)
     expect(created.item.name).toBe('TestProject')
-
-    const resolve = await callTool({
-      name: 'memory_manage',
-      arguments: { action: 'resolve', cwd: '/tmp/test-project' }
-    })
-    const { data: resolved, isError: resolveErr } = parseResult(resolve)
-    expect(resolveErr).toBe(false)
-    expect(resolved.item.name).toBe('TestProject')
   })
 
   test('advertises no compact option (#2201: the manage projection never read it)', async () => {
@@ -700,26 +704,6 @@ describe('memory_reflect', () => {
     })
     const { isError } = parseResult(result)
     expect(isError).toBe(false)
-  })
-
-  test('timeline lists thoughts', async () => {
-    await callTool({
-      name: 'memory_store',
-      arguments: { action: 'create', content: 'timeline item 1' }
-    })
-    await callTool({
-      name: 'memory_store',
-      arguments: { action: 'create', content: 'timeline item 2' }
-    })
-
-    const result = await callTool({
-      name: 'memory_reflect',
-      arguments: { action: 'timeline', limit: 5 }
-    })
-    const { data, isError } = parseResult(result)
-    expect(isError).toBe(false)
-    expect(Array.isArray(data.items)).toBe(true)
-    expect(data.items.length).toBeGreaterThanOrEqual(2)
   })
 })
 
@@ -1367,7 +1351,7 @@ describe('memory_recall low_confidence + min_relevance', () => {
     expect(isError).toBe(false)
   })
 
-  test('clusters action accepts min_relevance argument', async () => {
+  test('search with is_cluster accepts min_relevance argument', async () => {
     await callTool({
       name: 'memory_store',
       arguments: { action: 'create', content: 'LC_CLUST marker cluster content', status: 'active' }
@@ -1376,8 +1360,9 @@ describe('memory_recall low_confidence + min_relevance', () => {
     const result = await callTool({
       name: 'memory_recall',
       arguments: {
-        action: 'clusters',
+        action: 'search',
         query: 'LC_CLUST marker cluster content',
+        is_cluster: true,
         min_relevance: 0.5
       }
     })

@@ -79,17 +79,6 @@ describe('memory_reflect project resolution failure', () => {
     })
   })
 
-  test('timeline with a cwd whose project resolution throws returns the isError envelope', async () => {
-    const handler = captureTool(registerMemoryReflect)
-    const result = (await handler({
-      action: 'timeline',
-      cwd: '/tmp/resolution-failure'
-    })) as ToolResult
-
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toBe(RESOLUTION_FAILURE)
-  })
-
   test('reflect without cwd writes to the default project instead of being rejected', async () => {
     const handler = captureTool(registerMemoryReflect)
     const decision = 'cwd-less reflect decision'

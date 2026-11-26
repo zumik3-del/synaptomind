@@ -3,9 +3,8 @@ import { collectionEnvelope, readEnvelopeScope } from './envelope'
 import { loadUrlLinks, shapeEntity } from './utils'
 import type { ActionArgs } from './action-tool'
 
-// memory_recall action=list and memory_reflect action=timeline are the same paginated inventory;
-// each tool advertises its own argument subset, so the reader is shared.
-export function listPage(action: 'list' | 'timeline', args: ActionArgs) {
+// The paginated thought inventory behind memory_recall action=list.
+export function listPage(args: ActionArgs) {
   const { scope, warnings, projectId } = readEnvelopeScope(args.cwd)
   const page = listThoughtsPageService({
     status: args.status as 'draft' | 'active' | 'archived' | 'all' | undefined,
@@ -19,7 +18,7 @@ export function listPage(action: 'list' | 'timeline', args: ActionArgs) {
   const items = page.thoughts.map((t: Thought) =>
     shapeEntity(t, { compact: args.compact !== false, fields: args.fields, urlLinks })
   )
-  return collectionEnvelope(action, items, {
+  return collectionEnvelope('list', items, {
     scope,
     warnings,
     total: page.total,

@@ -4,14 +4,14 @@ import { closeDb } from '../db/init'
 import {
   getThoughtByIdService,
   archiveThoughtByIdService,
-  archiveThoughtsBatchService
+  archiveThoughtsBatchService,
+  updateThoughtByIdService
 } from './thoughts.service'
 import { mergeThoughtsService } from './merge.service'
 import { validateMergePreconditions } from './merge-helpers.service'
 import { getThoughtRow } from '../db/thoughts'
 import { createTestDb, seedEdge, seedThought } from '../test/helpers'
 import { listRetentionReviewCandidatesService } from './retention-review.service'
-import { protectRetentionReviewCandidateService } from './retention-review-actions.service'
 
 const now = '2026-10-23T00:00:00.000Z'
 const old = '2026-09-01T00:00:00.000Z'
@@ -104,7 +104,7 @@ test('a legacy-flagged archived thought is a retention-review candidate and stay
   expect(listed.candidates.map(row => row.id)).toEqual([id])
   expect(listed.total).toBe(1)
 
-  protectRetentionReviewCandidateService(id, options, getDb())
+  updateThoughtByIdService(id, { is_protected: true }, {}, getDb())
   expect(getDb().prepare('SELECT is_protected FROM thoughts WHERE id = ?').get(id)).toEqual({
     is_protected: 1
   })
