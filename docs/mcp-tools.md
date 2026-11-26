@@ -1,4 +1,4 @@
-> **Migration note (next release):** every MCP action now answers in one response envelope —
+> **Migration note:** every MCP action now answers in one response envelope —
 > `{ items, meta }` for collections, `{ item, meta }` for single objects — a failure answers one
 > structured error shape, `cwd` is optional on the project-scoped actions (it narrows an answer to
 > one project; without it a read answers across every project and says so in `meta`) and
@@ -181,8 +181,8 @@ carry their own per-row status.
 ## Wire envelope
 
 Every tool declares the same output shape, `{ result: <payload> }` (`toolOutputShape`,
-`src/mcp/tools/utils.ts:12`). A successful action returns that payload in `structuredContent.result`
-mirroring the JSON in `content[].text` (`jsonResult`, `src/mcp/tools/utils.ts:14-22`).
+`src/mcp/tools/utils.ts`). A successful action returns that payload in `structuredContent.result`
+mirroring the JSON in `content[].text` (`jsonResult`, `src/mcp/tools/utils.ts`).
 Bare string payloads are wrapped as `{ text: string }` so no action ever returns a bare string in
 `result`; arrays and objects pass through unchanged.
 
@@ -217,7 +217,7 @@ per-action input failure and a domain error:
 
 - **Nesting.** The metadata sits under `result` — the key the declared output schema expects. The
   SDK client validates `structuredContent` against that schema whenever the key is present, so
-  putting it anywhere else would fail the check (`src/mcp/tools/utils.ts:40-42`).
+  putting it anywhere else would fail the check (`src/mcp/tools/utils.ts`).
 - **Classified vs unclassified.** `message` is always present; `statusCode` and `retryable` ride
   along only when the failure carries them. A plain `Error` answers
   `{ "error": { "message": <error.message> } }` with no `statusCode`, while a non-`Error` throw
@@ -276,7 +276,7 @@ never move the row they address.
 
 A read that omits `cwd` succeeds and declares the widened answer in
 `meta`: `scope` is `null` and `warnings` carries `no cwd — the answer spans every project`
-(`resolveEnvelopeScope`, `src/mcp/tools/envelope.ts:140-157`):
+(`resolveEnvelopeScope`, `src/mcp/tools/envelope.ts`):
 
 ```json
 {
@@ -295,14 +295,14 @@ A read that omits `cwd` succeeds and declares the widened answer in
 
 `memory_status action=slots` adds a second warning whenever no project resolved — `cwd` omitted,
 blank or naming no project — because only the global slot rows are read and the project-scoped
-overrides stay unapplied (`src/mcp/tools/status/slots.ts:7-8`, `:33-35`).
+overrides stay unapplied (`src/mcp/tools/status/slots.ts`).
 
 A write action resolves `cwd` the same way but never widens, so it raises no scope warning in any
 shape. A write that creates a row lands in the project the path names, or in the default project when
 `cwd` is absent, blank or names no project; an id-addressed write (`memory_store update`,
 `memory_supersede`) leaves its row's project untouched. An unregistered path therefore keeps only the
 unresolved `{ project: null, project_name: null, global: true }` scope as the trace that it scoped
-nothing (`writeEnvelopeScope`, `src/mcp/tools/envelope.ts:168-173`). `memory_reflect action=reflect`
+nothing (`writeEnvelopeScope`, `src/mcp/tools/envelope.ts`). `memory_reflect action=reflect`
 is a write in this sense; its own section below spells out where each of its outputs lands. Likewise,
 a read given a path that is not registered is never an error: it reports `scope.global: true` plus a
 warning and answers across every project.
@@ -504,7 +504,7 @@ BM25 legs (`src/db/search-id.ts`, `src/services/search-outcome.service.ts`):
   `01a172b4-ebd5-7` and `01A172B4EBD57` address the same prefix.
 - **Scope.** The two id forms do not share a scope (`findThoughtsByIdQuery`,
   `src/db/search-id.ts`; the filters the search path hands it are
-  `src/services/search.service.ts:79-87`). A **full UUID** is an explicit reference: the lookup
+  `src/services/search.service.ts`). A **full UUID** is an explicit reference: the lookup
   applies only the cluster-shape constraint, so it ignores `status`, `cwd` (project), `tag` and
   `min_importance`, never widens to other rows, and is never touched by the relevance gate. A
   **prefix** is a timestamp window, not a reference — its first 12 hex digits are the UUIDv7
@@ -620,16 +620,16 @@ truth; it is still the best available answer. A search reports it for three dist
 
 - **A leg was unavailable** — the embedder failed or timed out, so the query ran without a vector
   leg (and on the hybrid path fell back to BM25), or the vector/BM25 query raised
-  (`src/services/search.service.ts:25-46`, `src/db/search.ts:85-91`,
-  `src/db/search.ts:113-119`).
+  (`src/services/search.service.ts`, `src/db/search.ts`,
+  `src/db/search.ts`).
 - **A filtered vector leg was cut short by the candidate pool** — status, cluster and importance
   are post-KNN filters, so the leg can deliver fewer rows than the width it requested while the
   scoped filters match more embedded thoughts than it delivered (`countFilteredVectors`,
-  `src/db/search-vector.ts:18`; the comparison is `src/db/search.ts:96-102`).
+  `src/db/search-vector.ts`; the comparison is `src/db/search.ts`).
 - **The addressed project was shut out of a full answer** — no delivered row belongs to that
   project, yet the project has embedded rows matching the same residual filters, because nearer
   `__global__` rows consumed the whole partition walk (`addressedProjectShutOut`,
-  `src/db/search-vector.ts:78`; `src/db/search.ts:107-113`).
+  `src/db/search-vector.ts`; `src/db/search.ts`).
 
 The third case belongs to the vector leg rather than to the fused answer. It fires when that leg
 delivers no row of the addressed project while the project has embedded rows matching the same
@@ -659,7 +659,7 @@ A degraded query with no best match answers `item: null` with `meta.reason: "no_
 throwing. The query path is **not** gated: `context` asks for the single best match, so the
 default `min_relevance` gate of `search` would turn a weak-but-real neighbourhood into
 `no_match`. `getContextService` therefore runs with `minRelevance: 0` unless a caller opts in
-(`src/services/graph.service.ts:161`), and the `min_relevance` argument applies to
+(`src/services/graph.service.ts`), and the `min_relevance` argument applies to
 `search` only.
 
 `chain` walks a parent/develops chain: `{ item: { thought, upstream, downstream }, meta }`;
@@ -672,7 +672,7 @@ cluster constraint applied to both forms — a prefix is scoped by
 `status`/`cwd`/`tag`/`min_importance` and the cluster shape, while a full UUID ignores those
 filters but still only answers a cluster thought: a non-cluster id answers nothing (the ordinary
 search fallback runs, and `meta.reason` explains the empty answer) instead of leaking a row the
-constraint exists to exclude (`src/mcp/tools/recall-id-lookup.test.ts:140-172`).
+constraint exists to exclude (`src/mcp/tools/recall-id-lookup.test.ts`).
 
 ### `action=list`
 
@@ -1121,10 +1121,9 @@ surface time are unchanged, and no read path keys off it.
 A `cwd`-less `reflect` is a write without a project scope, and its outputs split: `summary`
 and `goals_add`/`goals_remove` land in the **global** `project_context`/`active_goals` rows (a slot
 is project-scoped only when a project resolved,
-`src/services/session-reflection.service.ts:106`), while `decisions` and `pending` thoughts are
-created in the default project (`src/services/session-reflection.service.ts:171-186`,
-`:198-207`). The answer reports `meta.scope: null` and raises no warning, like every other write
-(`writeEnvelopeScope`, `src/mcp/tools/envelope.ts:168-173`). With a registered `cwd`, all of them
+`src/services/session-reflection.service.ts`), while `decisions` and `pending` thoughts are
+created in the default project (same service). The answer reports `meta.scope: null` and raises no warning, like every other write
+(`writeEnvelopeScope`, `src/mcp/tools/envelope.ts`). With a registered `cwd`, all of them
 land in that project instead; a path no project owns behaves like an absent one (rows for the default
 project, slot edits global) and still raises no warning.
 
@@ -1179,8 +1178,8 @@ Without one only the **global** rows are read, and `meta.warnings` adds a second
 
 That warning follows the resolved project, not the argument: it fires without `cwd`, with a blank
 one and with a path no project owns, but never with a registered path
-(`src/mcp/tools/status/slots.ts:7-8`, `:33-35`; the read is
-`src/services/slots.service.ts:86-88`). Answers `{ items, meta }` with one item per slot
+(`src/mcp/tools/status/slots.ts`; the read is
+`src/services/slots.service.ts`). Answers `{ items, meta }` with one item per slot
 (`{ name, scope, virtual, content, truncated, max_chars, updated_at }`). Slots are **read-only**
 through this tool: it never writes. `pending_items` is derived from thoughts tagged `pending` (the
 same set the frontier surfaces); `architecture_decisions` from primers (most-hit first);

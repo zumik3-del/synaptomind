@@ -95,7 +95,7 @@ src/
 
 ```bash
 bun install
-bun run test                # canonical fast suite (src/)
+bun run test                # canonical suite (src/), sharded across processes
 bun run test:all            # full suite
 bun run test:deploy         # deploy shell integration
 bun run test:eval           # retrieval quality gates

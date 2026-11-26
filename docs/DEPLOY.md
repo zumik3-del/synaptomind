@@ -128,7 +128,7 @@ needs no root itself.
 ```bash
 bash ${HOME}/.synaptomind/scripts/updater.sh                    # interactive: pick from stable releases
 bash ${HOME}/.synaptomind/scripts/updater.sh --yes              # non-interactive: newest stable
-bash ${HOME}/.synaptomind/scripts/updater.sh --version v0.9.0   # pin a stable tag
+bash ${HOME}/.synaptomind/scripts/updater.sh --version v0.26.6  # pin a stable tag
 bash ${HOME}/.synaptomind/scripts/updater.sh --help
 ```
 
@@ -217,7 +217,7 @@ see Channels):
 
 ```bash
 bash ${HOME}/.synaptomind/scripts/update.sh                  # target from CHECKOUT_POLICY
-bash ${HOME}/.synaptomind/scripts/update.sh --version v0.9.0
+bash ${HOME}/.synaptomind/scripts/update.sh --version v0.26.6
 bash ${HOME}/.synaptomind/scripts/update.sh --yes            # non-interactive (required for downgrades)
 ```
 
@@ -263,12 +263,12 @@ assuming the health check repaired it.
 ### Pre-update backup
 
 The backup is taken by the code every update fetches, not by the installed
-hook. `deploy/update.sh:954` calls `backup_databases`
-(`deploy/lib/common.sh:2637`) before the pre-update hook and before the release
+hook. `deploy/update.sh` calls `backup_databases`
+(`deploy/lib/common.sh`) before the pre-update hook and before the release
 payload is downloaded or swapped; a failure aborts the run, so no code moves
 without a copy. On the default path that is the **target release's** own copy of
 both files: the frozen bootstrap stages `update.sh`, `lib/common.sh` and your
-`app.env` from the tag it is installing (`deploy/updater.sh:116-118`).
+`app.env` from the tag it is installing (`deploy/updater.sh`).
 
 **What is covered.** Every database the service actually opens: `db.path`, each
 `users[].dbPath`, `SYNAPTOMIND_DB_PATH`, any `SYNAPTOMIND_CONFIG` /
@@ -317,11 +317,11 @@ anything older you mean to keep before that first update.
 `${HOOKS_DIR}/pre-update` after the built-in backup and still treats a non-zero
 exit as fatal, but the guarantee does not depend on it: `update.sh` never
 installs or refreshes hooks (`install_hook_scripts()` is called only from
-`deploy/install.sh:856`), so an existing host keeps whatever hook it installed —
+`deploy/install.sh`), so an existing host keeps whatever hook it installed —
 possibly a release-old copy with its own `grep`-based resolver. The shipped hook
 exits 0 with `pre-update: built-in backup already performed` when
-`APP_BACKUP_ALREADY_DONE=1` (`deploy/hooks/pre-update:118`), which
-`backup_databases` and `deploy/update.sh:957` export before the hook runs. A
+`APP_BACKUP_ALREADY_DONE=1` (`deploy/hooks/pre-update`), which
+`backup_databases` and `deploy/update.sh` export before the hook runs. A
 custom hook that backs up on its own should honour that variable as well;
 otherwise it adds a second set of copies, subject to the same retention.
 Re-running `install.sh` is what refreshes the installed hook.
@@ -362,7 +362,7 @@ installed copy does.
 
 ### Rollback
 
-Schema migrations are **forward-only** (`src/db/init.ts:166`): the server applies
+Schema migrations are **forward-only** (`src/db/init.ts`): the server applies
 every migration it has not seen and never reverses one. Running an older binary
 against a database that a newer version has already migrated is therefore
 **unsafe**. The pre-update backup ([above](#pre-update-backup)) has already
@@ -415,8 +415,8 @@ its vector inside the caller's transaction, while the embedder child writes that
 table from its own process. WAL admits one writer, so the child's writes queue
 behind the server's transaction instead of conflicting: they run in autocommit,
 so a write starts its own transaction and consults `busy_timeout`
-(`src/db/pending-embeddings.ts:63-97`, called from
-`src/embedder/embedder-process.ts:130-134`). The one exception is the server's
+(`src/db/pending-embeddings.ts`, called from
+`src/embedder/embedder-process.ts`). The one exception is the server's
 own read→write upgrade, the first window below. A move never fails *because of*
 the repartition — the trigger's statements run under the write lock the caller's
 `UPDATE thoughts` already holds, so they add cost (0.25 ms/row in a bulk move)
@@ -431,12 +431,12 @@ only widens the second:
   *immediately* if the embedder child holds the write lock at that instant
   (measured 0.07 ms with a 40 ms timeout). That is the shape of a `content`,
   `status` or `project_id` change — the pre-check `SELECT` at
-  `src/db/thoughts.ts:256-258` runs before the `UPDATE` at `:280`, inside the
-  deferred transaction at `:207` — and of a tag *merge*, which reads the current
-  tags first (`src/db/tags.ts:34`). Nothing is half-applied and a retry
+  `src/db/thoughts.ts` runs before the `UPDATE`, inside the
+  deferred transaction — and of a tag *merge*, which reads the current
+  tags first (`src/db/tags.ts`). Nothing is half-applied and a retry
   succeeds; this predates v048 and applies to those updates, not only to a
-  project move. A tag *replace* starts with its own write (`src/db/tags.ts:40`,
-  reached from `src/db/thoughts.ts:215-221`), as does an attribute-only edit
+  project move. A tag *replace* starts with its own write (`src/db/tags.ts`,
+  reached from `src/db/thoughts.ts`), as does an attribute-only edit
   (`is_protected`, `is_global`, `archived_at`, …): those consult `busy_timeout`
   and wait instead of failing at once.
 - **A bulk move is the one long write window.** Deleting a project reassigns

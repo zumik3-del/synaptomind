@@ -215,6 +215,22 @@ ownership with either:
 
 ---
 
+## Logging
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `log.level` | `SYNAPTOMIND_LOG_LEVEL` | `info` | Minimum level written: `debug`, `info`, `warning` or `error`. An unknown value falls back to `info` |
+| `log.file` | `SYNAPTOMIND_LOG_FILE` | `""` | Optional log file. Without it, info/debug go to stdout and warning/error to stderr |
+| `log.format` | `SYNAPTOMIND_LOG_FORMAT` | `text` | `text` or `json`; any other value renders `text` |
+| `log.fileMaxBytes` | `SYNAPTOMIND_LOG_FILE_MAX_BYTES` | `10485760` | Rotate before a line would push the file past this size (10 MB) |
+| `log.fileMaxFiles` | `SYNAPTOMIND_LOG_FILE_MAX_FILES` | `3` | Rotated copies kept beside the live file (`.1` … `.N`) |
+
+A failed file write disables the file sink (one stderr note) instead of breaking the process; the
+stdio sinks keep working. Debug records have their own gate: they are written only when
+`SYNAPTOMIND_DEBUG=true`, whatever `log.level` says (see [Debug logging](#debug-logging)).
+
+---
+
 ## Embedder
 
 Local embedding model for semantic search. No API keys required.
@@ -223,10 +239,10 @@ Local embedding model for semantic search. No API keys required.
 |---------|---------|---------|-------------|
 | `embedder.enabled` | `SYNAPTOMIND_EMBEDDER_ENABLED` | `true` | Enable/disable local embeddings. Disabled = vector search unavailable |
 | `embedder.model` | `SYNAPTOMIND_EMBEDDER_MODEL` | `Xenova/multilingual-e5-small` | HuggingFace model name |
-| `embedder.dtype` | `SYNAPTOMIND_EMBEDDER_DTYPE` | `q8` | ONNX precision of the local model. `q8` downloads `onnx/model_quantized.onnx` (~113 MB), `fp32` downloads `onnx/model.onnx` (~449 MB). An unknown value fails at startup. Switching needs **no** corpus re-embed (measured fp32↔q8 cosine drift ≤0.0061); an offline host holding only an fp32 cache recovers with `SYNAPTOMIND_EMBEDDER_DTYPE=fp32` — see the note below |
+| `embedder.dtype` | `SYNAPTOMIND_EMBEDDER_DTYPE` | `q8` | ONNX precision of the local model: `q8` (~113 MB) or `fp32` (~449 MB). An unknown value fails at startup. Switching needs **no** corpus re-embed, and an offline host holding only an fp32 cache recovers with `SYNAPTOMIND_EMBEDDER_DTYPE=fp32` — see the notes below |
 | `embedder.dimensions` | `SYNAPTOMIND_EMBEDDER_DIMENSIONS` | `384` | Embedding vector dimensions |
 | `embedder.pollIntervalMs` | `SYNAPTOMIND_EMBEDDER_POLL_INTERVAL` | `7000` | How often to check for pending embeddings (ms) |
-| `embedder.cacheDir` | `SYNAPTOMIND_EMBEDDER_CACHE_DIR` | `./data/huggingface` | Model cache directory (~449 MB with `fp32`, ~113 MB with `q8`, after first load) |
+| `embedder.cacheDir` | `SYNAPTOMIND_EMBEDDER_CACHE_DIR` | `./data/huggingface` | Model cache directory |
 | `embedder.idleTimeoutMs` | `SYNAPTOMIND_EMBEDDER_IDLE_TIMEOUT` | `600000` | Unload after this idle time (ms): the embedder process exits and the next request starts a new one. A queue poll that finds pending embeddings or an IPC request resets the countdown. `0` = never unload, the same effect as `embedder.precache` |
 | `embedder.precache` | `SYNAPTOMIND_EMBEDDER_PRECACHE` | `false` | When `true`, keeps the embedder process resident instead of letting it unload after `embedder.idleTimeoutMs` (same effect as `idleTimeoutMs: 0`), so the model stays loaded and the first request after a quiet period pays no reload. It does not download or preload anything at startup: model files are fetched on the first process start either way, and the ONNX session still loads on the first embedding request |
 | `embedder.resetDeadLetters` | `SYNAPTOMIND_RESET_DEAD_LETTER` | `false` | Re-queue dead-lettered embeddings on startup. Off by default: a poisonous thought would otherwise get fresh attempts on every restart. Enable after fixing an embedding bug to retry failed items |
@@ -639,6 +655,10 @@ The declared table lives in `src/config.raw-env.ts`.
     "maxSubscriptions": 128
   },
   "db": { "path": "./data/synaptomind.db", "busyTimeout": 5000 },
+  "log": {
+    "level": "info", "file": "", "format": "text",
+    "fileMaxBytes": 10485760, "fileMaxFiles": 3
+  },
   "embedder": {
     "enabled": true,
     "model": "Xenova/multilingual-e5-small",

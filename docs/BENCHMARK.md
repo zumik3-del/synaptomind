@@ -2,7 +2,10 @@
 
 **Date**: 2026-09-05 · **Version**: 0.5.0 · **Env**: Debian 12, 4 cores, 8GB RAM
 
-> Measurements were taken on v0.5.0 as released. Current release: 0.9.0. The default embedder interval (`embedder.pollIntervalMs`) is now 7000 ms (7s) — the "interval=3s" row below reflects the configuration used at measurement time, not the current default.
+> Measurements were taken on v0.5.0 as released (2026-09-05) and are historical, not a current
+> baseline. The default embedder interval is now 7000 ms (7 s), so the "interval=3s" row reflects
+> the configuration used at measurement time. Current retrieval-quality gates live in
+> [EVAL.md](EVAL.md); for current latency, run `bun run test:perf`.
 
 ---
 
