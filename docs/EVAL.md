@@ -177,18 +177,18 @@ say `degraded: true`. The structural fix (#2494, ADR 2026-11-12) gives
 The KNN now ranks inside the addressed partition, so `k` is a width *within the
 project* and other projects' rows no longer set the reach. Starvation is reduced,
 not gone: after the scope change `degraded: true` covers three cases
-(`src/db/search.ts:85-113`). A leg that failed sets it (the vector or BM25 query
-raised, `src/db/search.ts:85-91` / `134-142`). Status/cluster/importance are
+(`src/db/search.ts`). A leg that failed sets it (the vector or BM25 query
+raised, `src/db/search.ts`). Status/cluster/importance are
 still post-KNN filters, so a filtered leg can come back shorter than its width
 while the scoped filters match more embedded rows than it delivered —
-`countFilteredVectors` (`src/db/search-vector.ts:18`) counts those rows and the
+`countFilteredVectors` (`src/db/search-vector.ts`) counts those rows and the
 leg compares the count against what it actually delivered
-(`src/db/search.ts:96-102`). `__global__` rows also share the addressed
+(`src/db/search.ts`). `__global__` rows also share the addressed
 partition, so a full `topK` of nearer globals can consume the whole walk and
 leave the project out of an answer that claims to be project-scoped —
-`addressedProjectShutOut` (`src/db/search-vector.ts:78`) probes the project
+`addressedProjectShutOut` (`src/db/search-vector.ts`) probes the project
 itself and degrades when no delivered row belongs to it
-(`src/db/search.ts:107-113`).
+(`src/db/search.ts`).
 
 The scenario seeds three deliberately unequal projects and asks the query inside
 the smallest one. Every row of the two larger projects ranks nearer the query than
@@ -238,12 +238,12 @@ end-to-end (p50 / p95, this host, 384 dimensions):
 | `vector-k10` | 1.10 ms | 1.49 ms | ≤ 5.65 ms |
 | `hybrid-k10` | 7.51 ms | 8.38 ms | ≤ 8.57 ms |
 
-These numbers predate the project shut-out probe (`src/db/search.ts:107-113`,
-`src/db/search-vector.ts:78-102`) and do not price it: a project-scoped search
+These numbers predate the project shut-out probe (`src/db/search.ts`,
+`src/db/search-vector.ts`) and do not price it: a project-scoped search
 now runs one `COUNT` over the ids the leg delivered
-(`src/db/search-vector.ts:84-89`) and, only when none of them belongs to the
+(`src/db/search-vector.ts`) and, only when none of them belongs to the
 addressed project, one further project-index probe
-(`src/db/search-vector.ts:91-101`). Both arms above are project-filtered, so
+(`src/db/search-vector.ts`). Both arms above are project-filtered, so
 their current cost is the p50/p95 shown plus that count. No re-measurement is
 recorded after the probe landed, the harness scores recall and precision rather
 than wall time, and no test drives the 4 505-row corpus, so these are one-off
@@ -262,9 +262,9 @@ queried project, raw SQL against a partitioned `vec_thoughts`):
 The scoped leg is flat in corpus size, which is the point: cost follows the
 addressed partition. An unscoped search keeps the old global walk and its cost.
 
-The last row prices `countFilteredVectors` (`src/db/search-vector.ts:18-61`),
+The last row prices `countFilteredVectors` (`src/db/search-vector.ts`),
 the probe a short filtered leg runs; the shut-out probe
-(`src/db/search-vector.ts:78-102`) is a second check on the same path and is not
+(`src/db/search-vector.ts`) is a second check on the same path and is not
 timed here.
 
 The probe is a measurement, not a floor: it stays `measureOnly`, contributes no

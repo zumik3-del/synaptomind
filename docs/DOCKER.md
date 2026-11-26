@@ -43,9 +43,9 @@ docker compose pull && docker compose up -d
 
 ### MCP server over stdio
 
-The `-stdio` tag starts the MCP stdio transport with no arguments — that is what
-third-party runners (Glama, Docker MCP Catalog) and clients that only know
-`docker run -i <image>` expect:
+The `:stdio` image tag (`:stdio`, plus `<version>-stdio` on a tagged release) starts the MCP
+stdio transport with no arguments — that is what third-party runners (Glama, Docker MCP Catalog)
+and clients that only know `docker run -i <image>` expect:
 
 ```bash
 docker run -i --rm -v synaptomind-data:/app/data ghcr.io/zumik3-del/synaptomind:stdio
@@ -150,9 +150,10 @@ The compose file resolves the image via `SYNAPTOMIND_IMAGE` (see `docker-compose
 
 ```bash
 cd /opt/synaptomind
+VERSION=0.26.6                  # the release tag you are deploying, without the leading v
 git fetch --tags -f origin
-git checkout -f v0.6.1          # force: discard diverged tracked files
-export SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:0.6.1
+git checkout -f "v${VERSION}"   # force: discard diverged tracked files
+export SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:${VERSION}
 # optional: persist for later manual `docker compose up` runs
 grep -q '^SYNAPTOMIND_IMAGE=' .env && sed -i "s|^SYNAPTOMIND_IMAGE=.*|SYNAPTOMIND_IMAGE=${SYNAPTOMIND_IMAGE}|" .env || echo "SYNAPTOMIND_IMAGE=${SYNAPTOMIND_IMAGE}" >> .env
 sudo chown -R 10001:10001 data   # required once when upgrading from root-run images
@@ -162,7 +163,7 @@ docker compose up -d
 
 ### Rollback
 
-Schema migrations are **forward-only** (`src/db/init.ts:127`): the server applies
+Schema migrations are **forward-only** (`src/db/init.ts`): the server applies
 every migration it has not seen yet and never reverses one. Running an older tag
 against a database that a newer version has already migrated is therefore
 **unsafe** — the old code cannot undo the schema change and may operate on
@@ -186,15 +187,15 @@ docker compose stop
 cp data/synaptomind.db.preupgrade data/synaptomind.db
 rm -f data/synaptomind.db-wal data/synaptomind.db-shm
 git fetch --tags -f origin
-git checkout -f v0.6.0
-SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:0.6.0 docker compose pull && docker compose up -d
+git checkout -f v0.26.5
+SYNAPTOMIND_IMAGE=ghcr.io/zumik3-del/synaptomind:0.26.5 docker compose pull && docker compose up -d
 ```
 
 ### Check running version
 
 ```bash
 curl -s http://127.0.0.1:3005/health | jq -r .version
-# {"status":"ok","version":"0.6.1","checks":{"database":"ok","embedder":"ok"}}
+# {"status":"ok","version":"<version>","checks":{"database":"ok","embedder":"ok"},"databases":["ok"]}
 ```
 
 ---
@@ -229,11 +230,10 @@ cp data/synaptomind.db data/synaptomind.db.bak
 docker compose start
 ```
 
-Or hot backup without stopping:
+Or hot backup without stopping, from the host (the image ships no `sqlite3` binary):
 
 ```bash
-docker compose exec synaptomind sqlite3 /app/data/synaptomind.db ".backup '/app/data/backup.db'"
-docker compose cp synaptomind:/app/data/backup.db ./backup.db
+sqlite3 ./data/synaptomind.db ".backup './data/backup.db'"
 ```
 
 ---
@@ -249,11 +249,12 @@ Response:
 ```json
 {
   "status": "ok",
-  "version": "0.6.1",
+  "version": "<version>",
   "checks": {
     "database": "ok",
     "embedder": "ok"
-  }
+  },
+  "databases": ["ok"]
 }
 ```
 
@@ -345,6 +346,7 @@ services:
     env_file:
       - .env
     environment:
+      - SYNAPTOMIND_HOST=0.0.0.0
       - SYNAPTOMIND_DB_PATH=/app/data/synaptomind.db
       - SYNAPTOMIND_EMBEDDER_CACHE_DIR=/app/data/huggingface
     healthcheck:

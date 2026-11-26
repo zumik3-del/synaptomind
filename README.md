@@ -165,28 +165,14 @@ to end, the DI convention and the Core/Pillar/Scaffolding map: [docs/ARCHITECTUR
 
 ## Connecting MCP Clients
 
-<details>
-<summary><strong>Claude Desktop</strong></summary>
+The same server entry works for every client that speaks MCP over HTTP — only the config file
+differs:
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "synaptomind": {
-      "url": "http://127.0.0.1:3006/mcp",
-      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Cursor</strong></summary>
-
-Add to `.cursor/mcp.json` in your project or global config:
+| Client | Config file |
+|---|---|
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Cursor | `.cursor/mcp.json` (project) or the global equivalent |
+| OpenCode | `~/.config/opencode/opencode.json` (under the `mcp` key, with `"type": "remote"`) |
 
 ```json
 {
@@ -198,27 +184,6 @@ Add to `.cursor/mcp.json` in your project or global config:
   }
 }
 ```
-
-</details>
-
-<details>
-<summary><strong>OpenCode</strong></summary>
-
-Add to `~/.config/opencode/opencode.json`:
-
-```json
-{
-  "mcp": {
-    "synaptomind": {
-      "type": "remote",
-      "url": "http://127.0.0.1:3006/mcp",
-      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
-    }
-  }
-}
-```
-
-</details>
 
 <details>
 <summary><strong>Stdio transport</strong></summary>
@@ -270,9 +235,8 @@ and the security boundary.
 All settings in `config.json`. Priority: env vars > config.json > defaults.
 
 The HTTP listener port resolves in that order too: `SYNAPTOMIND_PORT` overrides
-`config.json` `server.port`, which overrides the built-in `3005`
-(default `src/config.ts:58`, env mapping `src/config.ts:138`, applied in
-`applyEnvOverrides()` `src/config.ts:283-301`).
+`config.json` `server.port`, which overrides the built-in `3005` (`DEFAULTS`,
+`ENV_MAPPINGS` and `applyEnvOverrides()` in `src/config.ts`).
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -408,8 +372,8 @@ to one project: without it a read answers across every project and says so in `m
 created thought lands in the default project. For action-level detail (parameters, the
 dry-run/confirm pattern, examples), see [docs/mcp-tools.md](docs/mcp-tools.md).
 
-**Breaking 0.x changes:** this release prunes several 0.x subsystems from the MCP tools,
-the HTTP surface and the configuration surface. The 0.20 release shrinks HTTP to the three
+**Breaking 0.x changes:** the 0.x line pruned several subsystems from the MCP tools,
+the HTTP surface and the configuration surface. The 0.20 release shrank HTTP to the three
 ops endpoints: every `/api/*` thought route is gone and answers `404`, with the route → MCP
 tool map and the dropped capabilities in [docs/API.md](docs/API.md#removed-routes-020).
 [CHANGELOG.md](CHANGELOG.md) records every removal per release; the pages linked here

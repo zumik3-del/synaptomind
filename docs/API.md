@@ -66,7 +66,7 @@ curl http://127.0.0.1:3005/health
 ```
 
 ```json
-{"status": "ok", "version": "0.19.1", "checks": {"database": "ok", "embedder": "ok"}}
+{"status": "ok", "version": "<version>", "checks": {"database": "ok", "embedder": "ok"}, "databases": ["ok"]}
 ```
 
 `version` is the running package version (`src/version.ts`, inlined from `package.json` at
@@ -77,9 +77,10 @@ first load (model download), and the deploy/update gate fetches `/health` with `
 a `503` there would discard the very payload that explains the failure
 (`src/services/health.service.ts`).
 
-When `users` is configured, each user has a separate SQLite database
-(`users[].dbPath`); `/health` reports only the primary `db.path` database. See
-[CONFIG.md](CONFIG.md#users-multi-user).
+`databases` carries one `ok`/`degraded` state per database the process serves. With
+`users: []` that is the single `db.path` database; with a `users` list it is every
+registered user database, and a configured user whose database could not be opened counts
+as degraded. See [CONFIG.md](CONFIG.md#users-multi-user).
 
 ### GET /api/health-check
 
