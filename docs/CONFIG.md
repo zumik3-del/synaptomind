@@ -272,8 +272,9 @@ that file and its size — it is never deleted, because a switch back reuses it.
 ## Retention review
 
 Archived and draft thoughts are not deleted by an age-based background cleanup. The
-`retention_review` tool (`action=list`) lists eligible candidates; an operator must explicitly protect,
-delete, or compact them. Candidate defaults are:
+`retention_review` tool (`action=list`) lists eligible candidates; an operator must explicitly mark a
+thought protected (`memory_store action=update` with `is_protected=true`), delete it, or compact it.
+Candidate defaults are:
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
@@ -289,7 +290,8 @@ retention-review workflow; they do not enable age-based thought TTL cleanup.
 
 `retention_review action=list` accepts `min_age_days` and `importance_floor` to
 override these defaults per call, so candidate eligibility is set here and refined at
-the request; the preview-first protect/delete/compact actions are documented in
+the request; the preview-first delete/compact actions and the `memory_store` protection write are
+documented in
 [mcp-tools.md](./mcp-tools.md#retention_review--retention-candidates).
 
 ---
@@ -396,7 +398,7 @@ unrelated pairs reach p50 0.7627, p95 0.8002, max 0.8355.
 (`DEFAULT_MIN_RELEVANCE` in `src/services/search-normalize.service.ts`, a raw similarity of 0.84 on the
 default scale). A row with a lexical (BM25) anchor or an id is never gated. The threshold is not a
 config file setting and has no environment variable: it is overridden per request —
-`min_relevance` on the MCP `memory_recall` `search`/`clusters` actions — where `0`
+`min_relevance` on the MCP `memory_recall` `search` action — where `0`
 disables the gate and keeps the pre-calibration fail-open result set.
 
 ---

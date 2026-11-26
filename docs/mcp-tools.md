@@ -2,11 +2,13 @@
 > `{ items, meta }` for collections, `{ item, meta }` for single objects — a failure answers one
 > structured error shape, `cwd` is optional on the project-scoped actions (it narrows an answer to
 > one project; without it a read answers across every project and says so in `meta`) and
-> accepted-and-ignored on every other action except `memory_manage action=resolve`, which takes it
-> as its input, a preview token rides only in `meta.preview`, and an id-shaped `query` resolves
-> that thought directly.
-> See the **Migration notes (response envelope, cwd scope, id lookup)** section at the end of this
-> document for the full list of breaking changes.
+> accepted-and-ignored on every other action — no action takes it as its input any more — a
+> preview token rides only in `meta.preview`, and an id-shaped `query` resolves that thought
+> directly. Four duplicated actions are gone — `memory_reflect action=timeline`,
+> `memory_recall action=clusters`, `memory_manage action=resolve` and
+> `retention_review action=protect` — and each replacement is listed in the **Migration notes
+> (response envelope, cwd scope, id lookup)** section at the end of this document.
+> See that section for the full list of breaking changes.
 >
 > **Migration note (v0.19):** Project scoping on MCP tools uses `cwd` (working directory) instead of `project_id`. The exception is `memory_manage` actions `update` and `delete`, which require `project_id` to identify the project. See the **Migration notes (v0.19 MCP UX cleanup)** section at the end of this document for the full list (compact defaults, preview tokens, retired inputs).
 
@@ -27,14 +29,14 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 
 | Tool | Actions | Purpose |
 |---|---|---|
-| `memory_recall` | search, get, context, chain, clusters, list | Find and retrieve thoughts (list = paginated inventory) |
+| `memory_recall` | search, get, context, chain, list | Find and retrieve thoughts (list = paginated inventory) |
 | `memory_store` | create, update, link, link_batch, unlink, unlink_batch, retype, bulk_create | Write, connect and edit thoughts |
 | `memory_supersede` | archive, archive_batch, merge | Version and supersede thoughts |
 | `memory_status` | slots, frontier, config, health | Query system state |
-| `memory_manage` | list, create, update, delete, resolve | Project management |
-| `retention_review` | list, protect, delete, compact | Review retention candidates and take explicit retention actions |
+| `memory_manage` | list, create, update, delete | Project management (list is how a path is resolved) |
+| `retention_review` | list, delete, compact | Review retention candidates and take explicit retention actions |
 | `memory_crystallize` | graph, cluster, auto_cluster | Visualize and reorganize clusters |
-| `memory_reflect` | reflect, timeline | Session management |
+| `memory_reflect` | reflect | Session management |
 | `memory_primers` | list, delete | Manage the always-at-hand set (primers) |
 | `memory_guide` | (no action) | In-band reference text |
 
@@ -82,7 +84,7 @@ The envelope is the payload of the wire envelope described in
 
 | Key | Description |
 |---|---|
-| `total` | Rows the action considered: the candidate pool of a query (`search`, `clusters`, an id lookup), the un-paged count of a paged inventory, or the requested item count of a batch |
+| `total` | Rows the action considered: the candidate pool of a query (`search`, an id lookup), the un-paged count of a paged inventory, or the requested item count of a batch |
 | `returned` | Rows in `items`, or `1`/`0` for a single `item` |
 | `filtered_out` | Rows the action accounts for as dropped — not necessarily every row it dropped |
 
@@ -90,18 +92,18 @@ What the three keys count is per action:
 
 | Action | `total` | `filtered_out` |
 |---|---|---|
-| `memory_recall` `search`, `clusters` | candidates surviving the scope (status, project), tag and standing filters | the rows the relevance gate dropped |
+| `memory_recall` `search` | candidates surviving the scope (status, project), tag and standing filters | the rows the relevance gate dropped |
 | `memory_recall` id lookup | the rows the id resolved, after the `limit` cap | `0` |
-| `memory_recall` `list`, `memory_reflect` `timeline`, `memory_crystallize` `graph` | the un-paged count matching the filters | the rows the page left out (`offset`/`limit`) |
+| `memory_recall` `list`, `memory_crystallize` `graph` | the un-paged count matching the filters | the rows the page left out (`offset`/`limit`) |
 | `retention_review` `list` | the candidate count matching the filters, un-paged | `0` — the page remainder is unaccounted |
 | `memory_crystallize` `auto_cluster` | the candidate count | `0` |
 | the batch writers (`link_batch`, `unlink_batch`, `bulk_create`, `archive_batch`) and the un-paged collections (`slots`, `frontier`, `memory_manage` `list`, `memory_primers` `list`) | the requested item count, or the rows in `items` | `0` |
 | a single-object action | `1` when an `item` came back, `0` when it did not | `0` |
 
 So `total = returned + filtered_out` holds where the action accounts for every row it dropped —
-the un-paged collections (vacuously: nothing is dropped), `memory_recall` `list`, `memory_reflect`
-`timeline` and `memory_crystallize` `graph` — and it fails for the rest:
-`search`/`clusters` leave the `limit` slice unaccounted, `retention_review` `list` reports
+the un-paged collections (vacuously: nothing is dropped), `memory_recall` `list` and
+`memory_crystallize` `graph` — and it fails for the rest:
+`search` leaves the `limit` slice unaccounted, `retention_review` `list` reports
 `filtered_out: 0` while the page is bounded, and `auto_cluster` counts candidates against grouped
 items. **Known gap on the default search path**
 (audit #2521, Medium 1, not fixed here): the rows the `limit` slice cut are in neither `returned`
@@ -111,7 +113,7 @@ search adds nothing to either key for a thought that matched the query but not t
 a row is never a candidate.
 
 Action-specific counters sit beside them (`link_batch` → `linked`/`failed`; `archive_batch` →
-`archived`/`failed`; `retention_review` list, `memory_recall` list and `memory_reflect` timeline →
+`archived`/`failed`; `retention_review` list and `memory_recall` list →
 `limit`/`offset`; `graph` → `edges`; `cluster` → `members`/`edges`), so a caller never has to
 count `items` itself.
 
@@ -229,7 +231,8 @@ per-action input failure and a domain error:
   does not read is refused — `<keys> is not applicable to <action> action` — instead of being
   silently ignored: passing `thoughts` to `create`, or `confirm` to `memory_recall list`, is an
   error, and nothing is written. `action` and `cwd` are the only arguments every action tolerates;
-  `cwd` is validated only where an action declares it (`memory_manage action=resolve`).
+  `cwd` scopes the answer where an action reads it and is accepted and ignored everywhere else —
+  no action takes it as an input path (see [Working directory](#working-directory-cwd)).
 - **SDK-level refusals.** Two refusals never reach the action layer and answer text-only, with no
   `structuredContent`: the SDK's output-schema validation and its input-element cap, which is
   active only when the server configures one. Neither is reachable from a call this tool set
@@ -253,11 +256,14 @@ simply ignored, never rejected.
 
 | Tool | Actions whose answer `cwd` scopes |
 |---|---|
-| `memory_recall` | `search`, `context`, `clusters`, `list` |
+| `memory_recall` | `search`, `context`, `list` |
 | `memory_status` | `slots`, `frontier` |
-| `memory_reflect` | `reflect`, `timeline` |
+| `memory_reflect` | `reflect` |
 | `memory_crystallize` | `graph`, `cluster` |
-| `memory_manage` | `resolve` — the one action that requires it |
+
+No `memory_manage` action reads `cwd`: `list`, `create`, `update` and `delete` accept it and
+ignore it, like every other unscoped action. A path is resolved to a project with
+`memory_manage action=list`, matching the returned `local_path`.
 
 The actions outside the table either address their rows by id (`get`, `chain`, `unlink`, `archive`,
 ...) or are global by design (`health`, `config`, `primers`, `crystallize auto_cluster`), so they
@@ -286,10 +292,6 @@ A read that omits `cwd` succeeds and declares the widened answer in
   }
 }
 ```
-
-`memory_manage action=resolve` is the exception: there the path is the input rather than a scope, so
-a call without `cwd` fails with an `isError` envelope naming the argument
-(`src/mcp/tools/manage.ts:109`).
 
 `memory_status action=slots` adds a second warning whenever no project resolved — `cwd` omitted,
 blank or naming no project — because only the global slot rows are read and the project-scoped
@@ -338,7 +340,7 @@ booleans (`src/mcp/tools/field-selection.ts`, `shapeEntity` — the one projecti
 
 Which surfaces take the controls:
 
-- **Compact by default.** `memory_recall` (all six actions), `memory_reflect action=timeline`,
+- **Compact by default.** `memory_recall` (all five actions),
   `retention_review action=list`, and the write answers that return thought rows
   (`memory_store` `create`/`update`/`bulk_create`, `memory_supersede` `archive`/`merge`,
   `memory_crystallize` `cluster`). Nothing to opt into — a caller who wants the whole row passes
@@ -354,7 +356,7 @@ Explicit `fields` always take precedence over `compact` on every tool.
 
 A thought's url links ride on the thought output behind one boolean argument,
 `include_url_links` (default `false`). It is accepted by `memory_recall` `search`,
-`clusters`, `list`, `get`, `context` and `chain`, and by `memory_reflect action=timeline`.
+`list`, `get`, `context` and `chain`.
 
 - **Shape.** `url_links: [{ text, url, label }]`, ordered by `sort_order` then creation
   time. `text` is the link's key — the `text` it was written with — so an item read from memory
@@ -511,8 +513,8 @@ BM25 legs (`src/db/search-id.ts`, `src/services/search-outcome.service.ts`):
   scope is an id miss and falls back to the ordinary search (see **None**). `meta.scope` reports
   what `cwd` resolved to either way.
 - **Cluster shape.** `is_cluster` is a shape constraint of the requested collection, not a
-  scope, so it applies to both forms (`findThoughtsByIdQuery`, `src/db/search-id.ts`): `clusters`
-  never answers a non-cluster row, and `search` with `is_cluster: true` / `false` filters an id hit
+  scope, so it applies to both forms (`findThoughtsByIdQuery`, `src/db/search-id.ts`): `search`
+  with `is_cluster: true` never answers a non-cluster row, and `is_cluster: false` filters an id hit
   the same way even for a full UUID.
 - **Hits.** Each hit carries `match_source: ["id"]` and no `relevance`, because an id has no
   cosine scale. Standing is annotated exactly as on any other hit — `standing`,
@@ -646,7 +648,7 @@ Pass `include_edges: true` to return incident edges inline (`upstream`/`downstre
 edge and its thought); edges are not thought columns, so `compact`/`fields` shape the thoughts
 inside them but never remove the edge lists. A missing id fails with a `404` error envelope.
 
-### `action=context` / `action=chain` / `action=clusters`
+### `action=context` / `action=chain`
 
 `context` returns one chain view: `{ item: { thought, upstream, downstream }, meta }`. It accepts a
 text `query` (best match + its chain; `cwd` scopes the query path when given) or a `thought_id`
@@ -658,19 +660,19 @@ throwing. The query path is **not** gated: `context` asks for the single best ma
 default `min_relevance` gate of `search` would turn a weak-but-real neighbourhood into
 `no_match`. `getContextService` therefore runs with `minRelevance: 0` unless a caller opts in
 (`src/services/graph.service.ts:161`), and the `min_relevance` argument applies to
-`search`/`clusters` only.
+`search` only.
 
 `chain` walks a parent/develops chain: `{ item: { thought, upstream, downstream }, meta }`;
 `max_degree` bounds chain/context traversal and is distinct from `limit`, which caps returned
-results. `clusters` is a cluster-only search: `{ items, meta }` of search items, with `cwd`
-optional like `search` (omitted, it searches every project and says so in `meta.warnings`);
-an explicit `is_cluster: false` is rejected, because it contradicts what the action is. An
-id-shaped query goes through the same id lookup as `search`
-([Id lookup](#id-lookup)), with the cluster constraint applied to both forms — a prefix is
-scoped by `status`/`cwd`/`tag`/`min_importance` and the cluster shape, while a full UUID ignores
-those filters but still only answers a cluster thought: a non-cluster id answers nothing (the
-ordinary search fallback runs, and `meta.reason` explains the empty answer) instead of leaking a
-row the action exists to exclude (`src/mcp/tools/recall-id-lookup.test.ts:140-172`).
+results. A cluster-only search is `action=search` with `is_cluster: true`: it answers
+`{ items, meta }` of search items, `cwd` is optional like any search (omitted, it searches every
+project and says so in `meta.warnings`), and `group_by_cluster: true` groups the hits by cluster.
+An id-shaped query goes through the same id lookup as `search` ([Id lookup](#id-lookup)), with the
+cluster constraint applied to both forms — a prefix is scoped by
+`status`/`cwd`/`tag`/`min_importance` and the cluster shape, while a full UUID ignores those
+filters but still only answers a cluster thought: a non-cluster id answers nothing (the ordinary
+search fallback runs, and `meta.reason` explains the empty answer) instead of leaking a row the
+constraint exists to exclude (`src/mcp/tools/recall-id-lookup.test.ts:140-172`).
 
 ### `action=list`
 
@@ -1061,7 +1063,6 @@ so a single call can narrow eligibility or page without reconfiguring anything
   (`compact: false` returns the whole row) and `fields` narrows them like every other shaped
   thought. The query spans every project — no `cwd` narrows the list, and a candidate reports its
   project through the derived `project` key.
-- `protect` → `{ item: <protect report>, meta }`.
 - `delete` → `{ item: <delete report>, meta }`; the preview `item` carries
   `status: "preview"`, `action: "preview"`, `deleted: false`, `preview: true`, `confirm: false`,
   `thought_id`, `dependents` and `instruction`, and `meta.preview` carries the token and the
@@ -1075,10 +1076,13 @@ so a single call can narrow eligibility or page without reconfiguring anything
   summary is created `active` and protected, and every source is merged into it — archived with its
   edges transferred, not hard-deleted (`src/services/retention-review-actions.service.ts`).
 
+To keep a thought instead of deleting it, call `memory_store action=update` with
+`is_protected=true`: the thought is marked protected and drops out of the candidate list.
+
 ## `memory_reflect` — session reflection
 
-`cwd` is optional for both actions, though the two use it differently. `action=reflect` is **not
-read-only**: it writes slots and thoughts, and answers `{ item: <counts>, meta }`.
+`cwd` is optional for `action=reflect`. The action is **not read-only**: it writes slots and
+thoughts, and answers `{ item: <counts>, meta }`.
 
 - `summary` is appended (with a timestamp) to the `project_context` slot.
 - `goals_add` adds goals to `active_goals`; `goals_remove` removes stored goal lines when the
@@ -1121,13 +1125,12 @@ created in the default project (`src/services/session-reflection.service.ts:171-
 land in that project instead; a path no project owns behaves like an absent one (rows for the default
 project, slot edits global) and still raises no warning.
 
-`action=timeline` is the plain paginated thought list (`status`, `cwd`, `limit`, `offset`,
-`compact`, `fields`, `include_url_links`) as `{ items, meta }`; it is the same reader as
-`memory_recall action=list` (`src/mcp/tools/list-page.ts`), so the two answer one shape. `cwd`
-scopes it to one project, and omitted, it lists every project with the standard `no cwd` warning.
-`meta.counts` carries the `limit` and `offset` that actually ran (defaults applied) beside the
-shared `total`/`returned`/`filtered_out`. Rows are compact by default: `compact: false` returns the
-whole thought, and `fields` selects columns.
+The paginated thought inventory lives in `memory_recall action=list` (`status`, `cwd`, `limit`,
+`offset`, `compact`, `fields`, `include_url_links`) and answers the same `{ items, meta }` shape;
+`cwd` scopes it to one project, and omitted, it lists every project with the standard `no cwd`
+warning. `meta.counts` carries the `limit` and `offset` that actually ran (defaults applied) beside
+the shared `total`/`returned`/`filtered_out`. Rows are compact by default: `compact: false` returns
+the whole thought, and `fields` selects columns.
 
 ## `memory_primers` — the always-at-hand set
 
@@ -1198,9 +1201,10 @@ per-check detail arrays (omitted, and content fields shortened, by default).
 
 ## `memory_manage` — projects
 
-CRUD over projects plus resolution from a path.
+CRUD over projects; `list` is also how a path is resolved to its project.
 
-- `list` → `{ items: <projects>, meta }` (`fields` narrows each project row).
+- `list` → `{ items: <projects>, meta }` (`fields` narrows each project row; match a project's
+  `local_path` to resolve a working directory to it).
 - `create` → `{ item: <project>, meta }`.
 - `update` requires `project_id` → `{ item: { success: true, project_id }, meta }`.
 - `delete` requires `project_id` and is preview-first: the preview `item` carries
@@ -1210,7 +1214,6 @@ CRUD over projects plus resolution from a path.
   live row per content survives, whichever side it came from; the executed `item` carries
   `action: "deleted"`, `project`, `thoughts_moved`, `moved_to`, `thoughts_archived` and
   `archived_thought_ids`.
-- `resolve` → `{ item: { id, name, local_path }, meta }`.
 
 ## Health-check remediation: `contradiction_in_cluster`
 
@@ -1246,16 +1249,16 @@ see [API.md](API.md)):
    Read `items`/`item` and `meta.counts` instead. Write-side answers that used to be a bare
    object now nest it under `item`. The one exception is
    `memory_crystallize action=graph` (nodes in `items`, edges beside them).
-2. **`cwd` is optional.** No action rejects a call without `cwd` except `memory_manage
-   action=resolve`, where the path is the input rather than a scope. `memory_recall`
-   `search`/`clusters`/`list`, `memory_status` `slots`/`frontier` and `memory_reflect`
-   `reflect`/`timeline` (plus the older optional readers `memory_recall context`,
+2. **`cwd` is optional.** No action rejects a call without `cwd`. `memory_recall`
+   `search`/`list`, `memory_status` `slots`/`frontier` and `memory_reflect`
+   `reflect` (plus the older optional readers `memory_recall context`,
    `memory_crystallize graph`/`cluster`) answer across every project when
    `cwd` is absent, with `meta.scope: null` and a `no cwd — the answer spans every project`
    warning; `memory_status action=slots` adds that only the global slot rows were read. An
    unknown-but-present `cwd` keeps answering globally, with its own warning.
    `memory_reflect action=reflect` is a write: without `cwd` its `decisions`/`pending` thoughts go
    to the default project and its `summary`/`goals` to the global slots, with no warning.
+   `memory_manage` accepts `cwd` and ignores it in every action.
 3. **Preview gate moved.** A preview answer always sets
    `meta.preview = { token, destructive: true, consequence?, instruction? }` (token `null` when
    there is nothing to fingerprint — `unlink_batch`, `retention_review` `compact`, and an
@@ -1300,6 +1303,13 @@ see [API.md](API.md)):
     source for per-action validation: an argument the action does not read now fails with
     `<keys> is not applicable to <action> action` instead of being ignored. `action` and `cwd`
     stay universal.
+11. **Four duplicated actions removed.** Each has a surviving replacement, and calling a removed
+    action answers a migration error naming it:
+    - `memory_reflect action=timeline` → `memory_recall action=list` (the same paginated inventory).
+    - `memory_recall action=clusters` → `memory_recall action=search` with `is_cluster=true`.
+    - `memory_manage action=resolve` → `memory_manage action=list`, matching the returned
+      `local_path`.
+    - `retention_review action=protect` → `memory_store action=update` with `is_protected=true`.
 
 ## Migration notes (v0.19 MCP UX cleanup)
 
