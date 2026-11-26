@@ -16,13 +16,9 @@ const GRAPH_OFFSET_MIN = 0
 const GRAPH_OFFSET_MAX = 1_000_000
 export const graphOffsetSchema = z.coerce.number().int().min(GRAPH_OFFSET_MIN).max(GRAPH_OFFSET_MAX)
 
-const TIMELINE_LIMIT_MIN = 1
-const TIMELINE_LIMIT_MAX = 500
-export const timelineLimitSchema = z.coerce
-  .number()
-  .int()
-  .min(TIMELINE_LIMIT_MIN)
-  .max(TIMELINE_LIMIT_MAX)
+const PAGE_LIMIT_MIN = 1
+const PAGE_LIMIT_MAX = 500
+export const pageLimitSchema = z.coerce.number().int().min(PAGE_LIMIT_MIN).max(PAGE_LIMIT_MAX)
 
 export const BATCH_ITEMS_MAX = 1000
 
