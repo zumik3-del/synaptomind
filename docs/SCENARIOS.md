@@ -127,7 +127,7 @@ search path → promotes frequently-hit thoughts to primers once hit_count reach
               primer.promoteThreshold (default 5)
 ```
 
-`exclude_flagged` is an ordinary query parameter: `memory_recall` search/clusters ignore it
+`exclude_flagged` is an ordinary query parameter: `memory_recall` search ignores it
 (it is no longer part of the MCP schema), so previously flagged thoughts may appear in
 default search results. Removals from earlier
 releases, including the retired verification job and its data, are listed in

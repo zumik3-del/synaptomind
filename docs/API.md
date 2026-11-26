@@ -172,8 +172,8 @@ every replacement live in [docs/mcp-tools.md](mcp-tools.md).
 
 | Method | Path | Use instead |
 |---|---|---|
-| `GET` | `/api/thoughts/search` | `memory_recall action=search` (or `clusters`) |
-| `GET` | `/api/thoughts/timeline` | `memory_reflect action=timeline` |
+| `GET` | `/api/thoughts/search` | `memory_recall action=search` (cluster-only: `is_cluster: true`) |
+| `GET` | `/api/thoughts/timeline` | `memory_recall action=list` |
 | `POST` | `/api/thoughts` | `memory_store action=create` |
 | `POST` | `/api/thoughts/bulk` | `memory_store action=bulk_create` |
 | `GET` | `/api/thoughts/:id` | `memory_recall action=get` |
@@ -190,7 +190,7 @@ every replacement live in [docs/mcp-tools.md](mcp-tools.md).
 |---|---|---|
 | `GET` | `/api/thoughts/retention-review` | `retention_review action=list` |
 | `POST` | `/api/thoughts/retention-review/compact` | `retention_review action=compact` |
-| `POST` | `/api/thoughts/:id/retention-review/protect` | `retention_review action=protect` |
+| `POST` | `/api/thoughts/:id/retention-review/protect` | `memory_store action=update` with `is_protected=true` |
 | `POST` | `/api/thoughts/:id/retention-review/delete` | `retention_review action=delete` (preview, then `confirm: true`) |
 
 ### URL links
@@ -198,7 +198,7 @@ every replacement live in [docs/mcp-tools.md](mcp-tools.md).
 | Method | Path | Use instead |
 |---|---|---|
 | `GET` | `/api/thoughts/:id/links` | `memory_recall` with `include_url_links: true` |
-| `GET` | `/api/thoughts/links/batch` | `memory_recall` with `include_url_links: true` (any page: `search`/`clusters`/`list`) |
+| `GET` | `/api/thoughts/links/batch` | `memory_recall` with `include_url_links: true` (any page: `search`/`list`) |
 | `POST` | `/api/thoughts/:id/links` | `memory_store action=update` with the whole `url_links` set (replace-set: send the list you want) |
 | `DELETE` | `/api/thoughts/:id/links/:key` | `memory_store action=update` with the set minus that link (`[]` clears them all) |
 
@@ -246,7 +246,7 @@ sending the set you want, and a content write never touches the links. Shape and
 | Method | Path | Use instead |
 |---|---|---|
 | `GET` | `/api/projects` | `memory_manage action=list` |
-| `GET` | `/api/projects/resolve` | `memory_manage action=resolve` |
+| `GET` | `/api/projects/resolve` | `memory_manage action=list` (match `local_path`) |
 | `POST` | `/api/projects` | `memory_manage action=create` |
 | `PATCH` | `/api/projects/:id` | `memory_manage action=update` |
 | `GET` | `/api/projects/:id` | `memory_manage action=list` (there is no id-scoped read) |
@@ -312,10 +312,9 @@ the table behind its queue). The capabilities are gone, not moved:
 3. **Auth and rate limiting are unchanged** for the two `/api` survivors; `/health` stays
    unauthenticated and unrated. The 5 MB body guard still protects the repair route.
 4. **URL links** are read through `memory_recall` with `include_url_links: true` (any of
-   `search`/`clusters`/`list`/`get`/`context`/`chain`) and `memory_reflect
-   action=timeline`; they are written by `memory_store` (`action=create` sets the initial
-   list, `action=update` replaces the whole set) and transferred by `memory_supersede
-   action=merge`. See [docs/mcp-tools.md](mcp-tools.md#opt-in-url-links).
+   `search`/`list`/`get`/`context`/`chain`); they are written by `memory_store` (`action=create`
+   sets the initial list, `action=update` replaces the whole set) and transferred by
+   `memory_supersede action=merge`. See [docs/mcp-tools.md](mcp-tools.md#opt-in-url-links).
 5. **Dropped without replacement:** tag list/rename/delete, explicit slot write
    (`PUT /api/slots/:name`), cluster-member listing — see
    [Dropped capabilities](#dropped-capabilities).
