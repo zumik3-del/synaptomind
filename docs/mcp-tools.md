@@ -1077,7 +1077,10 @@ so a single call can narrow eligibility or page without reconfiguring anything
   edges transferred, not hard-deleted (`src/services/retention-review-actions.service.ts`).
 
 To keep a thought instead of deleting it, call `memory_store action=update` with
-`is_protected=true`: the thought is marked protected and drops out of the candidate list.
+`is_protected=true`: the thought is marked protected and drops out of the candidate list (the
+candidate query requires `is_protected = 0`). That replacement is a plain row update, not the
+removed `protect` action: it does not check the eligibility rules above, so any thought can be
+protected whether or not it is a candidate, and it writes no `retention-review` audit log entry.
 
 ## `memory_reflect` — session reflection
 
@@ -1309,7 +1312,9 @@ see [API.md](API.md)):
     - `memory_recall action=clusters` → `memory_recall action=search` with `is_cluster=true`.
     - `memory_manage action=resolve` → `memory_manage action=list`, matching the returned
       `local_path`.
-    - `retention_review action=protect` → `memory_store action=update` with `is_protected=true`.
+    - `retention_review action=protect` → `memory_store action=update` with `is_protected=true`;
+      unlike the removed action it skips the candidate eligibility check and the audit log (see
+      [`retention_review`](#retention_review--retention-candidates)).
 
 ## Migration notes (v0.19 MCP UX cleanup)
 
