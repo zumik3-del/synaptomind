@@ -52,10 +52,6 @@ function recall(args: Record<string, unknown>): Promise<Envelope> {
   return callTool('memory_recall', args)
 }
 
-function timeline(args: Record<string, unknown> = {}): Promise<Envelope> {
-  return callTool('memory_reflect', { action: 'timeline', cwd: UNSCOPED_CWD, ...args })
-}
-
 function addLink(
   thoughtId: string,
   key: string,
@@ -84,7 +80,7 @@ beforeEach(async () => {
 })
 
 describe('include_url_links is absent unless asked', () => {
-  test('every recall action and reflect timeline omit the key by default', async () => {
+  test('every recall action omits the key by default', async () => {
     const head = seedLinked(`${QUERY} head`)
     const neighbour = seedLinked(`${QUERY} neighbour`)
     createEdge(getDb(), head, neighbour, 'related')
@@ -100,8 +96,7 @@ describe('include_url_links is absent unless asked', () => {
         await recall({ action: 'get', thought_id: head, include_edges: true, compact: false })
       ],
       ['chain', await recall({ action: 'chain', thought_id: head, compact: false })],
-      ['context', await recall({ action: 'context', thought_id: head, compact: false })],
-      ['timeline', await timeline({ compact: false })]
+      ['context', await recall({ action: 'context', thought_id: head, compact: false })]
     ]
 
     for (const [action, answer] of answers) {
@@ -132,9 +127,13 @@ describe('include_url_links: true with no links answers []', () => {
     expect(get.item?.url_links).toEqual([])
   })
 
-  test('timeline rows carry an empty array too', async () => {
+  test('list rows carry an empty array too', async () => {
     seedThought({ content: `${QUERY} unlinked page row` })
-    const page = await timeline({ include_url_links: true })
+    const page = await recall({
+      action: 'list',
+      cwd: UNSCOPED_CWD,
+      include_url_links: true
+    })
     expect(page.items?.[0]?.url_links).toEqual([])
   })
 })
@@ -432,14 +431,12 @@ describe('memory_store action=update owns the write side', () => {
 })
 
 describe('the argument surface', () => {
-  test('both tools advertise include_url_links as a boolean', async () => {
+  test('memory_recall advertises include_url_links as a boolean', async () => {
     const { tools } = await client.listTools()
-    for (const name of ['memory_recall', 'memory_reflect']) {
-      const tool = tools.find(t => t.name === name)
-      const properties = (
-        tool?.inputSchema as { properties?: Record<string, { type?: string }> } | undefined
-      )?.properties
-      expect(properties?.include_url_links?.type).toBe('boolean')
-    }
+    const tool = tools.find(t => t.name === 'memory_recall')
+    const properties = (
+      tool?.inputSchema as { properties?: Record<string, { type?: string }> } | undefined
+    )?.properties
+    expect(properties?.include_url_links?.type).toBe('boolean')
   })
 })

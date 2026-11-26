@@ -7,7 +7,6 @@ import {
   updateProjectService,
   deleteProjectService,
   getProjectService,
-  resolveProjectService,
   isDefaultProjectService,
   DEFAULT_PROJECT_DELETE_MESSAGE
 } from '../../services/projects.service'
@@ -26,24 +25,22 @@ const MANAGE_ARGS = {
   project_id: z
     .string()
     .optional()
-    .describe('REQUIRED ONLY for "update" and "delete". REJECTED for "list", "create", "resolve".'),
+    .describe('REQUIRED ONLY for "update" and "delete". REJECTED for "list" and "create".'),
   name: z
     .string()
     .optional()
-    .describe(
-      'REQUIRED for "create". OPTIONAL for "update". REJECTED for "list", "delete", "resolve".'
-    ),
+    .describe('REQUIRED for "create". OPTIONAL for "update". REJECTED for "list" and "delete".'),
   description: z
     .string()
     .optional()
     .describe(
-      'Project description. OPTIONAL for "create" and "update". REJECTED for "list", "delete", "resolve".'
+      'Project description. OPTIONAL for "create" and "update". REJECTED for "list" and "delete".'
     ),
   local_path: z
     .string()
     .optional()
     .describe(
-      'Local filesystem path. OPTIONAL for "create" and "update". REJECTED for "list", "delete", "resolve".'
+      'Local filesystem path. OPTIONAL for "create" and "update". REJECTED for "list" and "delete".'
     ),
   confirm: z
     .boolean()
@@ -56,12 +53,6 @@ const MANAGE_ARGS = {
     .optional()
     .describe(
       'OPTIONAL preview token returned by a prior preview. CONSUMED by "delete" (true executes with token validation; missing/stale fails). REJECTED for all other actions.'
-    ),
-  cwd: z
-    .string()
-    .optional()
-    .describe(
-      'REQUIRED for "resolve": the working directory path to resolve. ACCEPTED AND IGNORED for all other actions.'
     ),
   fields: z
     .array(z.string())
@@ -156,21 +147,6 @@ const handlers = {
 
       return outcome.value
     }
-  },
-
-  resolve: {
-    input: actionInput(MANAGE_ARGS, ['cwd'], {
-      cwd: requiredString('cwd is required for resolve action')
-    }),
-    run(args: ActionArgs) {
-      const project = resolveProjectService(args.cwd as string)
-      if (!project) throw new NotFoundError(`No project found for path: ${args.cwd}`)
-      return itemEnvelope('resolve', {
-        id: project.id,
-        name: project.name,
-        local_path: project.local_path
-      })
-    }
   }
 }
 
@@ -178,11 +154,14 @@ export function registerMemoryManage(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_manage',
     annotations: DESTRUCTIVE,
-    description: `Manage projects — the containers thoughts belong to; the thoughts themselves are memory_recall and their writes memory_store. Every action answers in one envelope: list returns { items, meta }, the single-project actions return { item, meta }. Actions: list, create, update, delete (preview→confirm), resolve (resolve project from cwd/path). Actions accept only their own arguments.`,
+    description: `Manage projects — the containers thoughts belong to; the thoughts themselves are memory_recall and their writes memory_store. Every action answers in one envelope: list returns { items, meta }, the single-project actions return { item, meta }. Actions: list (each project's id, name, description and local_path — the way to resolve a path to its project), create, update, delete (preview→confirm). Actions accept only their own arguments.`,
     inputSchema: {
-      action: z.enum(['list', 'create', 'update', 'delete', 'resolve']).describe('Action'),
+      action: z.enum(['list', 'create', 'update', 'delete']).describe('Action'),
       ...MANAGE_ARGS
     },
-    handlers
+    handlers,
+    retiredActions: {
+      resolve: 'resolve was removed; use action=list and match local_path'
+    }
   })
 }

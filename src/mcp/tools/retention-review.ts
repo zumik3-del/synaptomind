@@ -7,8 +7,7 @@ import {
 import { getThoughtByIdService } from '../../services/thoughts.service'
 import {
   compactRetentionReviewCandidatesService,
-  deleteRetentionReviewCandidateService,
-  protectRetentionReviewCandidateService
+  deleteRetentionReviewCandidateService
 } from '../../services/retention-review-actions.service'
 import { fingerprintOf, runGuarded } from '../../services/confirm-gate.service'
 import { collectionEnvelope, itemEnvelope } from './envelope'
@@ -66,14 +65,12 @@ const RETENTION_ARGS = {
   thought_id: z
     .string()
     .optional()
-    .describe(
-      'Thought ID. REQUIRED for "protect" and "delete". REJECTED for "list" and "compact".'
-    ),
+    .describe('Thought ID. REQUIRED for "delete". REJECTED for "list" and "compact".'),
   preview_token: z
     .string()
     .optional()
     .describe(
-      'OPTIONAL preview token returned by a prior preview. CONSUMED by "delete" (true executes with token validation; missing/stale fails). REJECTED for "list", "protect" and "compact".'
+      'OPTIONAL preview token returned by a prior preview. CONSUMED by "delete" (true executes with token validation; missing/stale fails). REJECTED for "list" and "compact".'
     ),
   source_ids: z
     .array(z.string())
@@ -94,7 +91,7 @@ const RETENTION_ARGS = {
     .boolean()
     .optional()
     .describe(
-      'CONSUMED by "delete" and "compact" (true executes; false/omitted previews). REJECTED for "list" and "protect".'
+      'CONSUMED by "delete" and "compact" (true executes; false/omitted previews). REJECTED for "list".'
     )
 }
 
@@ -123,17 +120,6 @@ const handlers = {
         total: result.total,
         counts: { limit: result.limit, offset: result.offset }
       })
-    }
-  },
-  protect: {
-    input: actionInput(RETENTION_ARGS, ['thought_id'], {
-      thought_id: requiredString('thought_id is required for protect action')
-    }),
-    run(args: ActionArgs) {
-      return itemEnvelope(
-        'protect',
-        protectRetentionReviewCandidateService(args.thought_id as string)
-      )
     }
   },
   delete: {
@@ -199,11 +185,14 @@ export function registerRetentionReview(server: McpServer): void {
     name: 'retention_review',
     annotations: DESTRUCTIVE,
     description:
-      'Review retention candidates: list candidates, protect a thought, preview or confirm deletion, or compact candidates into a summary. Answers the shared envelope { items, meta } for list and { item, meta } for protect/delete/compact; a preview sets meta.preview={token,destructive:true}. Actions accept only their own arguments.',
+      'Review retention candidates: list candidates, preview or confirm deletion, or compact candidates into a summary. To keep a thought instead of deleting it, call memory_store action=update with is_protected=true (which also drops it out of the candidate list). Answers the shared envelope { items, meta } for list and { item, meta } for delete/compact; a preview sets meta.preview={token,destructive:true}. Actions accept only their own arguments.',
     inputSchema: {
-      action: z.enum(['list', 'protect', 'delete', 'compact']).describe('Action'),
+      action: z.enum(['list', 'delete', 'compact']).describe('Action'),
       ...RETENTION_ARGS
     },
-    handlers
+    handlers,
+    retiredActions: {
+      protect: 'protect was removed; use memory_store action=update with is_protected=true'
+    }
   })
 }

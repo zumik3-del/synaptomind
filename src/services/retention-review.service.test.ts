@@ -6,9 +6,9 @@ import { computeContentHash } from '../utils'
 import { RetentionReviewIneligibleError } from '../errors'
 import {
   compactRetentionReviewCandidatesService,
-  deleteRetentionReviewCandidateService,
-  protectRetentionReviewCandidateService
+  deleteRetentionReviewCandidateService
 } from './retention-review-actions.service'
+import { updateThoughtByIdService } from './thoughts.service'
 import { listRetentionReviewCandidatesService } from './retention-review.service'
 
 const now = '2026-10-23T00:00:00.000Z'
@@ -243,7 +243,7 @@ test('delete rejects missing, protected and no-longer-eligible thoughts', () => 
       getDb()
     )
   ).toThrow()
-  protectRetentionReviewCandidateService(id, {}, getDb())
+  updateThoughtByIdService(id, { is_protected: true }, {}, getDb())
   expect(() =>
     deleteRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1 }, getDb())
   ).toThrow(RetentionReviewIneligibleError)
@@ -402,15 +402,4 @@ test('compact confirmation rolls back summary and earlier source mutations when 
   expect(
     getDb().prepare("SELECT id FROM thoughts WHERE content = 'rollback summary'").all()
   ).toEqual([])
-})
-
-test('protect rejects thoughts that are no longer retention-review candidates', () => {
-  const id = candidate('not eligible for protection')
-  getDb().prepare('UPDATE thought_importance SET hit_count = 1 WHERE thought_id = ?').run(id)
-  expect(() =>
-    protectRetentionReviewCandidateService(id, { now, minAgeDays: 30, importanceFloor: 1 }, getDb())
-  ).toThrow(RetentionReviewIneligibleError)
-  expect(getDb().prepare('SELECT is_protected FROM thoughts WHERE id = ?').get(id)).toEqual({
-    is_protected: 0
-  })
 })

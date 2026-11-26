@@ -145,10 +145,10 @@ Web ChatGPT does not have a reliable local filesystem working directory. It
 should call `memory_manage` with `action=list`, select the intended project's
 registered `local_path`, and pass that server-side path as `cwd` for scoped
 operations. If the project has no registered path, an operator must register
-one first. Verify it with `memory_manage action=resolve`: an unknown path can
-make scoped searches fall back to all projects with a warning. Do not pass
-`project_id` to thought or scoped-memory actions; it remains an identifier for
-`memory_manage` project update and delete operations.
+one first. Verify it by matching that `local_path` in the same `action=list`
+answer: an unknown path can make scoped searches fall back to all projects with
+a warning. Do not pass `project_id` to thought or scoped-memory actions; it
+remains an identifier for `memory_manage` project update and delete operations.
 
 ## Security boundary
 

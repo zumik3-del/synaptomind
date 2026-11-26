@@ -391,15 +391,15 @@ curl "http://127.0.0.1:3005/api/health-check?severity=warning" \
 
 | Category | Tools |
 |----------|-------|
-| Recall | `memory_recall` (search, get, context, chain, clusters, list) |
+| Recall | `memory_recall` (search, get, context, chain, list) |
 | Store | `memory_store` (create, update, link, link_batch, unlink, unlink_batch, retype, bulk_create) |
 | Supersede | `memory_supersede` (archive, archive_batch, merge) |
 | Status | `memory_status` (slots, frontier, config, health) |
-| Projects | `memory_manage` (list, create, update, delete, resolve) |
+| Projects | `memory_manage` (list, create, update, delete) |
 | Consolidate | `memory_crystallize` (graph, cluster, auto_cluster) |
-| Reflect | `memory_reflect` (reflect, timeline) |
+| Reflect | `memory_reflect` (reflect) |
 | Primers | `memory_primers` (list, delete) |
-| Retention | `retention_review` (list, protect, delete, compact) |
+| Retention | `retention_review` (list, delete, compact) |
 | Guide | `memory_guide` |
 
 Every action answers in one response envelope — `{ items, meta }` for collections, `{ item, meta }`

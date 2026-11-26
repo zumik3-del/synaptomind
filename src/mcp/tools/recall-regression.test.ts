@@ -19,11 +19,10 @@ let client: Client
 const UNSCOPED_CWD = '/tmp/mcp-unscoped'
 
 const CWD_ACTIONS: Record<string, string[]> = {
-  memory_recall: ['search', 'clusters', 'list', 'context'],
+  memory_recall: ['search', 'list', 'context'],
   memory_status: ['slots', 'frontier'],
-  memory_reflect: ['reflect', 'timeline'],
-  memory_primers: ['list'],
-  memory_manage: ['list', 'create', 'update', 'delete', 'resolve']
+  memory_reflect: ['reflect'],
+  memory_primers: ['list']
 }
 
 function callTool(request: { name: string; arguments?: Record<string, unknown> }) {
@@ -73,20 +72,21 @@ describe('memory_recall schema after exclude_flagged retirement', () => {
     expect(props).not.toHaveProperty('exclude_flagged')
   })
 
-  for (const action of ['search', 'clusters'] as const) {
-    test(`${action} treats the retired exclude_flagged argument as an unknown key`, async () => {
+  for (const clusterOnly of [false, true]) {
+    test(`search (cluster-only=${clusterOnly}) ignores the retired exclude_flagged key`, async () => {
       const id = seedThought({
         content: 'RECALL_RETIRED_MARKER unique content',
         status: 'active',
-        ...(action === 'clusters' ? { is_cluster: 1 } : {})
+        ...(clusterOnly ? { is_cluster: 1 } : {})
       })
       const result = await callTool({
         name: 'memory_recall',
         arguments: {
-          action,
+          action: 'search',
           query: 'RECALL_RETIRED_MARKER',
           exclude_flagged: true,
-          status: 'active'
+          status: 'active',
+          ...(clusterOnly ? { is_cluster: true } : {})
         }
       })
       const parsed = parseResult(result)
@@ -502,7 +502,7 @@ describe('memory_recall — is_global is always included in a project-scoped sea
     expect(ids).toContain(global)
   })
 
-  test('the clusters action also includes global thoughts', async () => {
+  test('the cluster-only search also includes global thoughts', async () => {
     const localCluster = seedThought({
       content: `${QUERY} local cluster`,
       project_id: P1,
@@ -523,7 +523,13 @@ describe('memory_recall — is_global is always included in a project-scoped sea
     const scoped = parseResult(
       await callTool({
         name: 'memory_recall',
-        arguments: { action: 'clusters', query: QUERY, limit: 10, cwd: `/tmp/${P1}` }
+        arguments: {
+          action: 'search',
+          query: QUERY,
+          is_cluster: true,
+          limit: 10,
+          cwd: `/tmp/${P1}`
+        }
       })
     )
     expect(idsOf(scoped.data)).toContain(localCluster)

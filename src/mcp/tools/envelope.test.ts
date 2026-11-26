@@ -93,7 +93,7 @@ test('a cwd that matches no project resolves to a global scope with a warning', 
   expect(scope).toEqual({ project: null, project_name: null, global: true })
   expect(warnings).toHaveLength(1)
   expect(warnings[0]).toContain('matches no known project')
-  expect(warnings[0]).toContain('memory_manage action=resolve')
+  expect(warnings[0]).toContain('memory_manage action=list')
 })
 
 test('a known cwd scopes the answer to its project without a warning', () => {

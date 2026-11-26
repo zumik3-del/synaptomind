@@ -6,7 +6,8 @@ import { join, relative } from 'node:path'
 // so a second one cannot quietly reappear beside it.
 const TOOLS_DIR = import.meta.dir
 const ENVELOPE = 'envelope.ts'
-// `memory_manage action=resolve` takes the path as its INPUT (docs/mcp-tools.md), not as a scope.
+// The retired `memory_manage action=resolve` took the path as its INPUT (docs/mcp-tools.md) rather
+// than as a scope; no tool takes a bare path any more.
 const INPUT_RESOLVER = 'manage.ts'
 
 function productionToolFiles(dir: string = TOOLS_DIR): string[] {
@@ -24,22 +25,16 @@ function sourceOf(file: string): string {
 }
 
 describe('one cwd→scope resolver in the tools layer', () => {
-  test('only envelope.ts resolves a cwd for scope, plus the resolve action that takes it as input', () => {
+  test('only envelope.ts resolves a cwd for scope', () => {
     const callers = productionToolFiles()
       .filter(file => /resolveProjectService\s*[(,}]/.test(sourceOf(file)))
       .sort()
 
-    expect(callers).toEqual([ENVELOPE, INPUT_RESOLVER])
+    expect(callers).toEqual([ENVELOPE])
   })
 
-  test('the resolve action resolves the path it was given, not a scope', () => {
-    const source = sourceOf(INPUT_RESOLVER)
-    const handlerStart = source.indexOf('  resolve: {')
-
-    expect(handlerStart).toBeGreaterThan(-1)
-    for (const match of source.matchAll(/resolveProjectService\s*\(/g)) {
-      expect(match.index).toBeGreaterThan(handlerStart)
-    }
+  test('memory_manage carries no input-path resolver (action=resolve is retired)', () => {
+    expect(sourceOf(INPUT_RESOLVER)).not.toContain('resolveProjectService')
   })
 
   test('the tool seam reaches the resolver through envelope.ts, never through the service module', () => {

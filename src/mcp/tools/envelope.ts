@@ -149,7 +149,7 @@ export function resolveEnvelopeScope(cwd: string | undefined): {
     return {
       scope,
       warnings: [
-        `cwd "${cwd}" matches no known project — the answer spans every project (check it with memory_manage action=resolve)`
+        `cwd "${cwd}" matches no known project — the answer spans every project (check it with memory_manage action=list)`
       ]
     }
   }
