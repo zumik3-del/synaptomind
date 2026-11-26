@@ -154,7 +154,7 @@ export function registerMemoryManage(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_manage',
     annotations: DESTRUCTIVE,
-    description: `Manage projects — the containers thoughts belong to; the thoughts themselves are memory_recall and their writes memory_store. Every action answers in one envelope: list returns { items, meta }, the single-project actions return { item, meta }. Actions: list (each project's id, name, description and local_path — the way to resolve a path to its project), create, update, delete (preview→confirm). Actions accept only their own arguments.`,
+    description: `Manage projects — the containers thoughts belong to; the thoughts themselves are memory_recall and their writes memory_store. Every action answers in one envelope: list returns { items, meta }, the single-project actions return { item, meta }. Actions: list (each project's id, name, description and local_path — the way to resolve a path to its project), create, update, delete (preview→confirm).`,
     inputSchema: {
       action: z.enum(['list', 'create', 'update', 'delete']).describe('Action'),
       ...MANAGE_ARGS

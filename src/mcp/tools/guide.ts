@@ -73,11 +73,7 @@ export function registerMemoryGuide(server: McpServer, cfg: Config = config) {
   server.registerTool(
     'memory_guide',
     {
-      description: `Read the built-in reference instead of guessing an action, a parameter or a response shape. Read-only and parameterless: one text document, no writes.
-
-Covers every tool's actions, the { items, meta } and { item, meta } envelopes plus the error shape, cwd scoping, preview-to-confirm and how preview_token is consumed, thought fields and statuses, edge types and their direction, search modes and filters (min_relevance, recency, supersession, contradiction), retention and decay with the scheduled jobs, health-check scoring and remediation, and reflection semantics.
-
-Call it first in a session, or whenever a name, an argument or an envelope field is uncertain — one call is cheaper than a rejected one. It explains how the pieces fit together, not current state: memory_status action=config and action=health report configuration and diagnostics, memory_recall the thoughts, memory_primers the always-at-hand set.`,
+      description: `Read the built-in reference instead of guessing an action, a parameter or a response shape. Read-only and parameterless: one text document, no writes. Call it first in a session, or whenever a name, an argument or an envelope field is uncertain — one call is cheaper than a rejected one. It covers every tool's actions, the shared envelopes and error shape, cwd scoping, preview/confirm, thought fields and statuses, edge types, search modes and filters, retention and decay, health-check scoring and reflection semantics. For current state use memory_status action=config or action=health, memory_recall and memory_primers.`,
       annotations: READ_ONLY,
       outputSchema: toolOutputShape
     },
