@@ -108,11 +108,11 @@ describe('matrix inventory', () => {
       'memory_store action=unlink',
       'memory_store action=retype',
       'memory_crystallize action=auto_cluster',
-      'memory_manage action=delete',
+      'memory_projects action=delete',
       'memory_supersede action=archive',
       'memory_supersede action=archive_batch',
       'memory_supersede action=merge',
-      'retention_review action=delete',
+      'memory_retention action=delete',
       'memory_primers action=delete'
     ])
     expect(new Set(GATE_CASES.map(c => c.kind))).toEqual(

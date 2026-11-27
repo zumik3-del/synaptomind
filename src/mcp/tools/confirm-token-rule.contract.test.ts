@@ -148,7 +148,7 @@ describe('pin 2: the genuinely tokenless previews still execute on confirm alone
     expect(getDb().prepare('SELECT id FROM edges WHERE id = ?').get(edge)).toBeNull()
   })
 
-  test('retention_review compact previews with token null and confirm alone writes the summary', async () => {
+  test('memory_retention compact previews with token null and confirm alone writes the summary', async () => {
     const source = seedRetentionCandidate('compact source without a token')
     const args = {
       action: 'compact',
@@ -156,7 +156,7 @@ describe('pin 2: the genuinely tokenless previews still execute on confirm alone
       summary: { content: 'compact summary without a token' }
     }
 
-    const preview = await call('retention_review', args)
+    const preview = await call('memory_retention', args)
     expect(preview.isError).toBe(false)
     expect(preview.body?.item?.status).toBe('preview')
     expect(preview.body?.meta.preview).toMatchObject({ token: null, destructive: true })
@@ -166,7 +166,7 @@ describe('pin 2: the genuinely tokenless previews still execute on confirm alone
         .get()
     ).toBeNull()
 
-    const confirmed = await call('retention_review', { ...args, confirm: true })
+    const confirmed = await call('memory_retention', { ...args, confirm: true })
     expect(confirmed.isError).toBe(false)
     expect(confirmed.body?.item?.status).toBe('compacted')
     expect(confirmed.body?.item?.summary).toBeTruthy()
@@ -190,7 +190,7 @@ describe('pin 3: the guide states the token rule without universalising tokenles
 
     expect(section).toMatch(/token null/)
     expect(section).toMatch(/unlink_batch/)
-    expect(section).toMatch(/retention_review compact/)
+    expect(section).toMatch(/memory_retention compact/)
     expect(section).toMatch(/archive[/ ]merge/)
     expect(section).toMatch(/(does not exist|missing|not_found)/)
     expect(section).toMatch(/(still fails|fails with an error)/)

@@ -9,11 +9,11 @@ const EXPECTED_TOOLS = [
   'memory_store',
   'memory_supersede',
   'memory_status',
-  'memory_manage',
+  'memory_projects',
   'memory_crystallize',
   'memory_reflect',
   'memory_primers',
-  'retention_review',
+  'memory_retention',
   'memory_guide'
 ]
 

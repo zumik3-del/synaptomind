@@ -5,12 +5,12 @@
 > accepted-and-ignored on every other action — no action takes it as its input any more — a
 > preview token rides only in `meta.preview`, and an id-shaped `query` resolves that thought
 > directly. Four duplicated actions are gone — `memory_reflect action=timeline`,
-> `memory_recall action=clusters`, `memory_manage action=resolve` and
-> `retention_review action=protect` — and each replacement is listed in the **Migration notes
+> `memory_recall action=clusters`, `memory_projects action=resolve` and
+> `memory_retention action=protect` — and each replacement is listed in the **Migration notes
 > (response envelope, cwd scope, id lookup)** section at the end of this document.
 > See that section for the full list of breaking changes.
 >
-> **Migration note (v0.19):** Project scoping on MCP tools uses `cwd` (working directory) instead of `project_id`. The exception is `memory_manage` actions `update` and `delete`, which require `project_id` to identify the project. See the **Migration notes (v0.19 MCP UX cleanup)** section at the end of this document for the full list (compact defaults, preview tokens, retired inputs).
+> **Migration note (v0.19):** Project scoping on MCP tools uses `cwd` (working directory) instead of `project_id`. The exception is `memory_projects` actions `update` and `delete`, which require `project_id` to identify the project. See the **Migration notes (v0.19 MCP UX cleanup)** section at the end of this document for the full list (compact defaults, preview tokens, retired inputs).
 
 # MCP Tools Reference
 
@@ -33,8 +33,8 @@ between releases are recorded in [CHANGELOG.md](../CHANGELOG.md).
 | `memory_store` | create, update, link, link_batch, unlink, unlink_batch, retype, bulk_create | Write, connect and edit thoughts |
 | `memory_supersede` | archive, archive_batch, merge | Version and supersede thoughts |
 | `memory_status` | slots, frontier, config, health | Query system state |
-| `memory_manage` | list, create, update, delete | Project management (list is how a path is resolved) |
-| `retention_review` | list, delete, compact | Review retention candidates and take explicit retention actions |
+| `memory_projects` | list, create, update, delete | Project management (list is how a path is resolved) |
+| `memory_retention` | list, delete, compact | Review retention candidates and take explicit retention actions |
 | `memory_crystallize` | graph, cluster, auto_cluster | Visualize and reorganize clusters |
 | `memory_reflect` | reflect | Session management |
 | `memory_primers` | list, delete | Manage the always-at-hand set (primers) |
@@ -95,15 +95,15 @@ What the three keys count is per action:
 | `memory_recall` `search` | candidates surviving the scope (status, project), tag and standing filters | the rows the relevance gate dropped |
 | `memory_recall` id lookup | the rows the id resolved, after the `limit` cap | `0` |
 | `memory_recall` `list`, `memory_crystallize` `graph` | the un-paged count matching the filters | the rows the page left out (`offset`/`limit`) |
-| `retention_review` `list` | the candidate count matching the filters, un-paged | `0` — the page remainder is unaccounted |
+| `memory_retention` `list` | the candidate count matching the filters, un-paged | `0` — the page remainder is unaccounted |
 | `memory_crystallize` `auto_cluster` | the candidate count | `0` |
-| the batch writers (`link_batch`, `unlink_batch`, `bulk_create`, `archive_batch`) and the un-paged collections (`slots`, `frontier`, `memory_manage` `list`, `memory_primers` `list`) | the requested item count, or the rows in `items` | `0` |
+| the batch writers (`link_batch`, `unlink_batch`, `bulk_create`, `archive_batch`) and the un-paged collections (`slots`, `frontier`, `memory_projects` `list`, `memory_primers` `list`) | the requested item count, or the rows in `items` | `0` |
 | a single-object action | `1` when an `item` came back, `0` when it did not | `0` |
 
 So `total = returned + filtered_out` holds where the action accounts for every row it dropped —
 the un-paged collections (vacuously: nothing is dropped), `memory_recall` `list` and
 `memory_crystallize` `graph` — and it fails for the rest:
-`search` leaves the `limit` slice unaccounted, `retention_review` `list` reports
+`search` leaves the `limit` slice unaccounted, `memory_retention` `list` reports
 `filtered_out: 0` while the page is bounded, and `auto_cluster` counts candidates against grouped
 items. **Known gap on the default search path**
 (audit #2521, Medium 1, not fixed here): the rows the `limit` slice cut are in neither `returned`
@@ -113,7 +113,7 @@ search adds nothing to either key for a thought that matched the query but not t
 a row is never a candidate.
 
 Action-specific counters sit beside them (`link_batch` → `linked`/`failed`; `archive_batch` →
-`archived`/`failed`; `retention_review` list and `memory_recall` list →
+`archived`/`failed`; `memory_retention` list and `memory_recall` list →
 `limit`/`offset`; `graph` → `edges`; `cluster` → `members`/`edges`), so a caller never has to
 count `items` itself.
 
@@ -166,13 +166,13 @@ A non-mutating preview answer is marked in `meta.preview`; an executed answer ca
 
 | Key | Description |
 |---|---|
-| `token` | Token the confirm call must send back; `null` when there is nothing to fingerprint — the two tokenless actions (`unlink_batch`, `retention_review` `compact`) and an `archive`/`merge` preview whose thought does not exist |
+| `token` | Token the confirm call must send back; `null` when there is nothing to fingerprint — the two tokenless actions (`unlink_batch`, `memory_retention` `compact`) and an `archive`/`merge` preview whose thought does not exist |
 | `destructive` | Always `true` — confirming this answer writes to the graph |
 | `consequence` | What confirming would do, in one sentence (where the action has one) |
 | `instruction` | The exact call that confirms this preview (where the action phrases one) |
 
 A single-object preview keeps its preview fields **inside `item`** — `status: "preview"` (where the
-action uses that marker: `memory_manage action=delete` reports `action: "preview"`), plus
+action uses that marker: `memory_projects action=delete` reports `action: "preview"`), plus
 `consequence` and `instruction` where the action phrases them. The token never does: single-object
 and collection previews carry it only in `meta.preview`, which is also where a collection preview
 keeps the `consequence` and `instruction` it phrases, because the batch rows in `items` already
@@ -261,9 +261,9 @@ simply ignored, never rejected.
 | `memory_reflect` | `reflect` |
 | `memory_crystallize` | `graph`, `cluster` |
 
-No `memory_manage` action reads `cwd`: `list`, `create`, `update` and `delete` accept it and
+No `memory_projects` action reads `cwd`: `list`, `create`, `update` and `delete` accept it and
 ignore it, like every other unscoped action. A path is resolved to a project with
-`memory_manage action=list`, matching the returned `local_path`.
+`memory_projects action=list`, matching the returned `local_path`.
 
 The actions outside the table either address their rows by id (`get`, `chain`, `unlink`, `archive`,
 ...) or are global by design (`health`, `config`, `primers`, `crystallize auto_cluster`), so they
@@ -341,12 +341,12 @@ booleans (`src/mcp/tools/field-selection.ts`, `shapeEntity` — the one projecti
 Which surfaces take the controls:
 
 - **Compact by default.** `memory_recall` (all five actions),
-  `retention_review action=list`, and the write answers that return thought rows
+  `memory_retention action=list`, and the write answers that return thought rows
   (`memory_store` `create`/`update`/`bulk_create`, `memory_supersede` `archive`/`merge`,
   `memory_crystallize` `cluster`). Nothing to opt into — a caller who wants the whole row passes
   `compact: false`, and a caller who read the row back with `memory_recall compact=false` sees the
   same thing.
-- **Whole rows, `fields` only.** `memory_status action=slots`, `memory_manage action=list` and
+- **Whole rows, `fields` only.** `memory_status action=slots`, `memory_projects action=list` and
   `memory_crystallize action=graph` advertise no `compact`: slots and projects answer their own
   row shape, the graph answers nodes and edges, and all three narrow by `fields` alone.
 
@@ -420,9 +420,9 @@ The former `POST`/`DELETE /api/thoughts/:id/links` routes went with the rest of 
 ## Dry-run / confirm pattern
 
 Every destructive action — `memory_store` `unlink`, `unlink_batch` and `retype`,
-`memory_supersede` `archive`, `archive_batch` and `merge`, `memory_manage action=delete`,
+`memory_supersede` `archive`, `archive_batch` and `merge`, `memory_projects action=delete`,
 `memory_primers action=delete`,
-`memory_crystallize action=auto_cluster`, and `retention_review` `delete` and `compact` — follows
+`memory_crystallize action=auto_cluster`, and `memory_retention` `delete` and `compact` — follows
 the same two-step pattern:
 
 - **Preview (default).** `confirm` is absent or `false`. Nothing is written: the answer carries
@@ -433,7 +433,7 @@ the same two-step pattern:
   `meta.preview`.
 
 Two destructive actions take no token — `memory_store action=unlink_batch` and
-`retention_review action=compact` — their preview answers `meta.preview.token: null`. A preview
+`memory_retention action=compact` — their preview answers `meta.preview.token: null`. A preview
 whose target does not exist has nothing to fingerprint either: `memory_supersede` `archive` and
 `merge` answer `token: null` alongside `outcome: "not_found"`, and confirming such a preview needs
 no `preview_token`.
@@ -912,8 +912,8 @@ runs in its own nested transaction inside the batch's.
 All three actions preview when `confirm` is omitted or `false`; only `confirm: true` executes.
 Execution re-reads/revalidates current state, so previews can become stale. Preview responses carry
 a token in `meta.preview.token` (stored in DB, ~5 min TTL) for every destructive action (`unlink`,
-`retype`, `archive`, `archive_batch`, `merge`, `memory_manage` `delete`, `memory_primers` `delete`,
-`auto_cluster`, `retention_review` `delete`);
+`retype`, `archive`, `archive_batch`, `merge`, `memory_projects` `delete`, `memory_primers` `delete`,
+`auto_cluster`, `memory_retention` `delete`);
 `confirm: true` requires that token as a `preview_token` argument and fails when it is missing or
 stale — except when the target does not exist: an `archive` or `merge` preview of a missing
 thought has nothing to fingerprint, answers `token: null` with `outcome: "not_found"`, and needs no
@@ -1029,7 +1029,7 @@ it — the run is global.
 Despite the name, `min_similarity` is a maximum cosine **distance**, not a minimum similarity:
 neighbours qualify when their distance is strictly below the threshold. Lower values are tighter.
 
-## `retention_review` — retention candidates
+## `memory_retention` — retention candidates
 
 Retention review is a manual workflow, not a scheduled deletion policy: nothing is archived or
 deleted until a caller runs `delete` or `compact`. A thought is a candidate only when every signal
@@ -1201,7 +1201,7 @@ Both are read-only and ignore the `cwd` they accept. `config` answers the raw-te
 the same string. `health` answers `{ item: <report>, meta }`; pass `include_details: true` for the
 per-check detail arrays (omitted, and content fields shortened, by default).
 
-## `memory_manage` — projects
+## `memory_projects` — projects
 
 CRUD over projects; `list` is also how a path is resolved to its project.
 
@@ -1260,10 +1260,10 @@ see [API.md](API.md)):
    unknown-but-present `cwd` keeps answering globally, with its own warning.
    `memory_reflect action=reflect` is a write: without `cwd` its `decisions`/`pending` thoughts go
    to the default project and its `summary`/`goals` to the global slots, with no warning.
-   `memory_manage` accepts `cwd` and ignores it in every action.
+   `memory_projects` accepts `cwd` and ignores it in every action.
 3. **Preview gate moved.** A preview answer always sets
    `meta.preview = { token, destructive: true, consequence?, instruction? }` (token `null` when
-   there is nothing to fingerprint — `unlink_batch`, `retention_review` `compact`, and an
+   there is nothing to fingerprint — `unlink_batch`, `memory_retention` `compact`, and an
    `archive`/`merge` preview whose thought does not exist). The token lives only in `meta.preview`:
    no preview carries a `preview_token` inside `item` or at the top level, single-object and
    collection alike.
@@ -1309,11 +1309,11 @@ see [API.md](API.md)):
     action answers a migration error naming it:
     - `memory_reflect action=timeline` → `memory_recall action=list` (the same paginated inventory).
     - `memory_recall action=clusters` → `memory_recall action=search` with `is_cluster=true`.
-    - `memory_manage action=resolve` → `memory_manage action=list`, matching the returned
+    - `memory_projects action=resolve` → `memory_projects action=list`, matching the returned
       `local_path`.
-    - `retention_review action=protect` → `memory_store action=update` with `is_protected=true`;
+    - `memory_retention action=protect` → `memory_store action=update` with `is_protected=true`;
       unlike the removed action it skips the candidate eligibility check and the audit log (see
-      [`retention_review`](#retention_review--retention-candidates)).
+      [`memory_retention`](#memory_retention--retention-candidates)).
 
 ## Migration notes (v0.19 MCP UX cleanup)
 
@@ -1321,7 +1321,7 @@ Breaking changes for MCP clients:
 
 1. **Project scoping uses `cwd`.** Tools that removed their `project_id` scope
    argument reject it with `project_id was removed; use cwd`; pass `cwd` instead.
-   `memory_manage` is an exception: its `update` and `delete` actions require
+   `memory_projects` is an exception: its `update` and `delete` actions require
    `project_id` to identify the project.
 2. **Compact defaults.** `memory_recall` now defaults to compact output; pass
    `compact: false` for full thoughts. The other read tools defaulted to full rows at this
@@ -1329,9 +1329,9 @@ Breaking changes for MCP clients:
    answer. Explicit `fields` always win.
 3. **Preview tokens required.** Every destructive action (`memory_store`
    `unlink`/`retype`, `memory_supersede` `archive`/`archive_batch`/`merge`,
-   `memory_manage` `delete`,
+   `memory_projects` `delete`,
    `memory_primers` `delete`, `memory_crystallize` `auto_cluster`,
-   `retention_review` `delete`) now returns a `preview_token` on preview and
+   `memory_retention` `delete`) now returns a `preview_token` on preview and
    requires it (valid, unexpired) on `confirm: true`. Tokens live ~5 minutes.
    Current behaviour relaxes that for a preview with nothing to fingerprint: it
    answers `token: null` and confirms without a token (see **Preview metadata**).

@@ -6,7 +6,7 @@ import { join, relative } from 'node:path'
 // so a second one cannot quietly reappear beside it.
 const TOOLS_DIR = import.meta.dir
 const ENVELOPE = 'envelope.ts'
-// The retired `memory_manage action=resolve` took the path as its INPUT (docs/mcp-tools.md) rather
+// The retired `memory_projects action=resolve` took the path as its INPUT (docs/mcp-tools.md) rather
 // than as a scope; no tool takes a bare path any more.
 const INPUT_RESOLVER = 'manage.ts'
 
@@ -33,7 +33,7 @@ describe('one cwd→scope resolver in the tools layer', () => {
     expect(callers).toEqual([ENVELOPE])
   })
 
-  test('memory_manage carries no input-path resolver (action=resolve is retired)', () => {
+  test('memory_projects carries no input-path resolver (action=resolve is retired)', () => {
     expect(sourceOf(INPUT_RESOLVER)).not.toContain('resolveProjectService')
   })
 

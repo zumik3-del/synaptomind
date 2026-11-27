@@ -189,10 +189,10 @@ every replacement live in [docs/mcp-tools.md](mcp-tools.md).
 
 | Method | Path | Use instead |
 |---|---|---|
-| `GET` | `/api/thoughts/retention-review` | `retention_review action=list` |
-| `POST` | `/api/thoughts/retention-review/compact` | `retention_review action=compact` |
+| `GET` | `/api/thoughts/retention-review` | `memory_retention action=list` |
+| `POST` | `/api/thoughts/retention-review/compact` | `memory_retention action=compact` |
 | `POST` | `/api/thoughts/:id/retention-review/protect` | `memory_store action=update` with `is_protected=true` |
-| `POST` | `/api/thoughts/:id/retention-review/delete` | `retention_review action=delete` (preview, then `confirm: true`) |
+| `POST` | `/api/thoughts/:id/retention-review/delete` | `memory_retention action=delete` (preview, then `confirm: true`) |
 
 ### URL links
 
@@ -246,12 +246,12 @@ sending the set you want, and a content write never touches the links. Shape and
 
 | Method | Path | Use instead |
 |---|---|---|
-| `GET` | `/api/projects` | `memory_manage action=list` |
-| `GET` | `/api/projects/resolve` | `memory_manage action=list` (match `local_path`) |
-| `POST` | `/api/projects` | `memory_manage action=create` |
-| `PATCH` | `/api/projects/:id` | `memory_manage action=update` |
-| `GET` | `/api/projects/:id` | `memory_manage action=list` (there is no id-scoped read) |
-| `DELETE` | `/api/projects/:id` | `memory_manage action=delete` (preview, then `confirm: true`) |
+| `GET` | `/api/projects` | `memory_projects action=list` |
+| `GET` | `/api/projects/resolve` | `memory_projects action=list` (match `local_path`) |
+| `POST` | `/api/projects` | `memory_projects action=create` |
+| `PATCH` | `/api/projects/:id` | `memory_projects action=update` |
+| `GET` | `/api/projects/:id` | `memory_projects action=list` (there is no id-scoped read) |
+| `DELETE` | `/api/projects/:id` | `memory_projects action=delete` (preview, then `confirm: true`) |
 
 ### Primers and slots
 

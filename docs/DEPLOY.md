@@ -172,12 +172,12 @@ not already root.
 ### Data retention
 
 There is no automatic age-based deletion of thoughts. Retention review is an
-operator-driven workflow: inspect candidates with `retention_review action=list`,
+operator-driven workflow: inspect candidates with `memory_retention action=list`,
 then explicitly mark a thought protected (`memory_store action=update` with
 `is_protected=true`), delete it (preview, then `confirm: true`), or compact it.
 Configure candidate age, importance threshold, and page size with
 `retentionReview.*` settings; see [CONFIG.md](CONFIG.md#retention-review) and
-[docs/mcp-tools.md](mcp-tools.md#retention_review--retention-candidates)
+[docs/mcp-tools.md](mcp-tools.md#memory_retention--retention-candidates)
 (the HTTP routes that used to expose this went with the 0.20 ops-plane shrink —
 [API.md](API.md)).
 The database migration installs indexes used by candidate lookup.

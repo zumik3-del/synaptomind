@@ -295,7 +295,7 @@ export function registerMemorySupersede(server: McpServer) {
   registerActionTool(server, {
     name: 'memory_supersede',
     annotations: DESTRUCTIVE,
-    description: `Retire a thought without deleting it: archive one, archive a batch, or merge one thought onto another and transfer its edges. Reading is memory_recall, creating and linking memory_store, permanent removal retention_review. Actions: archive (idempotent), archive_batch (one row per requested occurrence), merge (source→target, reports edges_transferred). All actions preview by default and set meta.preview={token,destructive:true}; confirm=true executes after revalidating state. Answers { item, meta } for archive and merge, { items, meta } for archive_batch with the aggregate in meta.counts.archived/failed.`,
+    description: `Retire a thought without deleting it: archive one, archive a batch, or merge one thought onto another and transfer its edges. Reading is memory_recall, creating and linking memory_store, permanent removal memory_retention. Actions: archive (idempotent), archive_batch (one row per requested occurrence), merge (source→target, reports edges_transferred). All actions preview by default and set meta.preview={token,destructive:true}; confirm=true executes after revalidating state. Answers { item, meta } for archive and merge, { items, meta } for archive_batch with the aggregate in meta.counts.archived/failed.`,
     inputSchema: {
       action: z.enum(['archive', 'archive_batch', 'merge']).describe('Action'),
       ...SUPERSEDE_ARGS

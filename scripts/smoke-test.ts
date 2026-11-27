@@ -12,6 +12,16 @@ const MARKER = `SMOKE_MARKER_${Date.now()}`
  */
 const CWD = process.cwd()
 
+// The transport forwards only an allowlist (HOME, PATH, ...) unless given an env,
+// so the wrapper's SYNAPTOMIND_* scratch settings would never reach the child.
+function childEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[key] = value
+  }
+  return env
+}
+
 function text(result: unknown): { text: string; isError: boolean } {
   const r = result as { content: Array<{ type: string; text: string }>; isError?: boolean }
   return { text: r.content?.[0]?.text ?? '', isError: r.isError === true }
@@ -21,6 +31,7 @@ async function main() {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ['run', 'src/index.ts', '--stdio'],
+    env: childEnv(),
     stderr: 'pipe'
   })
 
@@ -38,15 +49,23 @@ async function main() {
     console.log(`[smoke] tools: ${names.join(', ')}`)
 
     // A fresh database has no project for this checkout, and `cwd` is required
-    // by every project-scoped read — register it once (idempotent: resolve
-    // first, create only when the path is unknown).
-    const resolved = await client.callTool({
-      name: 'memory_manage',
-      arguments: { action: 'resolve', cwd: CWD }
+    // by every project-scoped read — register it once (idempotent: match
+    // local_path in the project list, create only when the path is unknown).
+    const listed = await client.callTool({
+      name: 'memory_projects',
+      arguments: { action: 'list' }
     })
-    if (text(resolved).isError) {
+    if (text(listed).isError) {
+      console.error(`[smoke] project listing failed: ${text(listed).text}`)
+      process.exit(1)
+    }
+    const projects = JSON.parse(text(listed).text) as {
+      items?: Array<{ local_path?: string }>
+    }
+    const registered = (projects.items ?? []).some(p => p.local_path === CWD)
+    if (!registered) {
       const created = await client.callTool({
-        name: 'memory_manage',
+        name: 'memory_projects',
         arguments: { action: 'create', name: 'synaptomind-smoke', local_path: CWD }
       })
       if (text(created).isError) {
