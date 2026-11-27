@@ -12,6 +12,16 @@ const MARKER = `SMOKE_MARKER_${Date.now()}`
  */
 const CWD = process.cwd()
 
+// The transport forwards only an allowlist (HOME, PATH, ...) unless given an env,
+// so the wrapper's SYNAPTOMIND_* scratch settings would never reach the child.
+function childEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[key] = value
+  }
+  return env
+}
+
 function text(result: unknown): { text: string; isError: boolean } {
   const r = result as { content: Array<{ type: string; text: string }>; isError?: boolean }
   return { text: r.content?.[0]?.text ?? '', isError: r.isError === true }
@@ -21,6 +31,7 @@ async function main() {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ['run', 'src/index.ts', '--stdio'],
+    env: childEnv(),
     stderr: 'pipe'
   })
 
