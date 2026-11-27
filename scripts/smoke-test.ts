@@ -38,13 +38,21 @@ async function main() {
     console.log(`[smoke] tools: ${names.join(', ')}`)
 
     // A fresh database has no project for this checkout, and `cwd` is required
-    // by every project-scoped read — register it once (idempotent: resolve
-    // first, create only when the path is unknown).
-    const resolved = await client.callTool({
+    // by every project-scoped read — register it once (idempotent: match
+    // local_path in the project list, create only when the path is unknown).
+    const listed = await client.callTool({
       name: 'memory_projects',
-      arguments: { action: 'resolve', cwd: CWD }
+      arguments: { action: 'list' }
     })
-    if (text(resolved).isError) {
+    if (text(listed).isError) {
+      console.error(`[smoke] project listing failed: ${text(listed).text}`)
+      process.exit(1)
+    }
+    const projects = JSON.parse(text(listed).text) as {
+      items?: Array<{ local_path?: string }>
+    }
+    const registered = (projects.items ?? []).some(p => p.local_path === CWD)
+    if (!registered) {
       const created = await client.callTool({
         name: 'memory_projects',
         arguments: { action: 'create', name: 'synaptomind-smoke', local_path: CWD }
