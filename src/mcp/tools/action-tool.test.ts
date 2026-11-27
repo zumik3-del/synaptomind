@@ -17,7 +17,7 @@ import { registerMemoryRecall } from './recall'
 import { registerMemoryStore } from './store'
 import { registerMemorySupersede } from './supersede'
 import { registerMemoryStatus } from './status'
-import { registerMemoryManage } from './manage'
+import { registerMemoryProjects } from './manage'
 import { registerMemoryCrystallize } from './crystallize'
 import { registerMemoryReflect } from './reflect'
 import { registerMemoryPrimers } from './primers'
@@ -201,7 +201,7 @@ const ACTION_REGISTRARS: Array<{ name: string; register: (server: McpServer) => 
   { name: 'memory_store', register: registerMemoryStore },
   { name: 'memory_supersede', register: registerMemorySupersede },
   { name: 'memory_status', register: registerMemoryStatus },
-  { name: 'memory_manage', register: registerMemoryManage },
+  { name: 'memory_projects', register: registerMemoryProjects },
   { name: 'memory_crystallize', register: registerMemoryCrystallize },
   { name: 'memory_reflect', register: registerMemoryReflect },
   { name: 'memory_primers', register: registerMemoryPrimers }
@@ -264,7 +264,7 @@ const KNOWN_ACTION_CASES: Array<{
     tool: 'memory_status',
     args: () => ({ action: 'slots', cwd: '/tmp/mcp-unscoped' })
   },
-  { label: 'memory_manage list', tool: 'memory_manage', args: () => ({ action: 'list' }) },
+  { label: 'memory_projects list', tool: 'memory_projects', args: () => ({ action: 'list' }) },
   {
     label: 'memory_crystallize graph',
     tool: 'memory_crystallize',
@@ -367,25 +367,25 @@ const REQUIRED_FIELD_CASES: Array<{
   },
   {
     label: 'manage create',
-    tool: 'memory_manage',
+    tool: 'memory_projects',
     args: { action: 'create' },
     message: 'name is required for create action'
   },
   {
     label: 'manage update',
-    tool: 'memory_manage',
+    tool: 'memory_projects',
     args: { action: 'update' },
     message: 'project_id is required for update action'
   },
   {
     label: 'manage delete',
-    tool: 'memory_manage',
+    tool: 'memory_projects',
     args: { action: 'delete' },
     message: 'project_id is required for delete action'
   },
   {
     label: 'retention delete',
-    tool: 'retention_review',
+    tool: 'memory_retention',
     args: { action: 'delete' },
     message: 'thought_id is required for delete action'
   },

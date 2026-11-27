@@ -134,21 +134,21 @@ time this integration was written, it consists of:
 - `memory_store`
 - `memory_supersede`
 - `memory_status`
-- `memory_manage`
+- `memory_projects`
 - `memory_crystallize`
 - `memory_reflect`
 - `memory_primers`
-- `retention_review`
+- `memory_retention`
 - `memory_guide`
 
 Web ChatGPT does not have a reliable local filesystem working directory. It
-should call `memory_manage` with `action=list`, select the intended project's
+should call `memory_projects` with `action=list`, select the intended project's
 registered `local_path`, and pass that server-side path as `cwd` for scoped
 operations. If the project has no registered path, an operator must register
 one first. Verify it by matching that `local_path` in the same `action=list`
 answer: an unknown path can make scoped searches fall back to all projects with
 a warning. Do not pass `project_id` to thought or scoped-memory actions; it
-remains an identifier for `memory_manage` project update and delete operations.
+remains an identifier for `memory_projects` project update and delete operations.
 
 ## Security boundary
 

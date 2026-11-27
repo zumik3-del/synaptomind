@@ -278,7 +278,7 @@ describe('memory_recall context honors project_id', () => {
     })
 
     const proj = await callTool({
-      name: 'memory_manage',
+      name: 'memory_projects',
       arguments: {
         action: 'create',
         name: 'ContextScopeEmpty',
@@ -306,7 +306,7 @@ describe('memory_recall context honors project_id', () => {
 
   test('scopes the best match to the requested project', async () => {
     const proj = await callTool({
-      name: 'memory_manage',
+      name: 'memory_projects',
       arguments: { action: 'create', name: 'ContextScopeHit', local_path: '/tmp/context-scope-hit' }
     })
     const { data: project } = parseResult(proj)
@@ -368,8 +368,8 @@ describe('structuredContent mirrors the text payload', () => {
     expect(envelope.meta.action).toBe('config')
   })
 
-  test('memory_manage list', async () => {
-    const result = await callTool({ name: 'memory_manage', arguments: { action: 'list' } })
+  test('memory_projects list', async () => {
+    const result = await callTool({ name: 'memory_projects', arguments: { action: 'list' } })
     assertStructuredMatchesText(result)
   })
 
@@ -419,8 +419,8 @@ describe('no bare-string tool results (#2135)', () => {
         call: () => callTool({ name: 'memory_recall', arguments: { action: 'search', query: 'x' } })
       },
       {
-        label: 'memory_manage list',
-        call: () => callTool({ name: 'memory_manage', arguments: { action: 'list' } })
+        label: 'memory_projects list',
+        call: () => callTool({ name: 'memory_projects', arguments: { action: 'list' } })
       },
       {
         label: 'memory_primers list',
@@ -444,8 +444,8 @@ describe('no bare-string tool results (#2135)', () => {
         call: () => callTool({ name: 'memory_status', arguments: { action: 'config' } })
       },
       {
-        label: 'retention_review list',
-        call: () => callTool({ name: 'retention_review', arguments: { action: 'list' } })
+        label: 'memory_retention list',
+        call: () => callTool({ name: 'memory_retention', arguments: { action: 'list' } })
       },
       { label: 'memory_guide', call: () => callTool({ name: 'memory_guide', arguments: {} }) },
       {

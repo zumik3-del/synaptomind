@@ -6,14 +6,14 @@ import { registerAllMemoryTools } from './index'
 const EXPECTED_TOOLS = [
   'memory_crystallize',
   'memory_guide',
-  'memory_manage',
   'memory_primers',
+  'memory_projects',
   'memory_recall',
   'memory_reflect',
+  'memory_retention',
   'memory_status',
   'memory_store',
-  'memory_supersede',
-  'retention_review'
+  'memory_supersede'
 ]
 
 async function listToolNames(): Promise<string[]> {

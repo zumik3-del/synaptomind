@@ -6,7 +6,7 @@ example, replace `/path/to/project` with the project's registered server-side pa
 ## Scenario 1: Creating a New Project
 
 ```
-1. memory_manage(action=create, name="my-app", description="Project description", local_path="/path/to/project")
+1. memory_projects(action=create, name="my-app", description="Project description", local_path="/path/to/project")
    → project created, bound to a local path
 
 2. memory_status(action=slots, cwd="/path/to/project")

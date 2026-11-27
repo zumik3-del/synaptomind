@@ -124,7 +124,7 @@
     }
   },
   {
-    "name": "memory_manage",
+    "name": "memory_projects",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -870,7 +870,7 @@
     }
   },
   {
-    "name": "retention_review",
+    "name": "memory_retention",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

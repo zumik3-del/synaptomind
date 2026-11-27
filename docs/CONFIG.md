@@ -288,7 +288,7 @@ that file and its size — it is never deleted, because a switch back reuses it.
 ## Retention review
 
 Archived and draft thoughts are not deleted by an age-based background cleanup. The
-`retention_review` tool (`action=list`) lists eligible candidates; an operator must explicitly mark a
+`memory_retention` tool (`action=list`) lists eligible candidates; an operator must explicitly mark a
 thought protected (`memory_store action=update` with `is_protected=true`), delete it, or compact it.
 Candidate defaults are:
 
@@ -296,7 +296,7 @@ Candidate defaults are:
 |---------|---------|---------|-------------|
 | `retentionReview.minAgeDays` | `SYNAPTOMIND_RETENTION_REVIEW_MIN_AGE_DAYS` | `30` | Minimum age, measured from `archived_at` or (when absent) `created_at` |
 | `retentionReview.importanceFloor` | `SYNAPTOMIND_RETENTION_REVIEW_IMPORTANCE_FLOOR` | `0.3` | Candidate importance must be below this threshold |
-| `retentionReview.pageSize` | `SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE` | `20` | Default candidate page size (the `retention_review` `limit` argument accepts 1–100) |
+| `retentionReview.pageSize` | `SYNAPTOMIND_RETENTION_REVIEW_PAGE_SIZE` | `20` | Default candidate page size (the `memory_retention` `limit` argument accepts 1–100) |
 
 Configuration loading validates these values like every other setting: a `pageSize` outside `1–100`,
 an `importanceFloor` outside `0–1` and a `minAgeDays` below `1` fall back to the defaults above with
@@ -304,11 +304,11 @@ one warning. `importanceFloor=0` is accepted (every candidate qualifies); `minAg
 the retention-review queries require a positive age. These settings govern the manual
 retention-review workflow; they do not enable age-based thought TTL cleanup.
 
-`retention_review action=list` accepts `min_age_days` and `importance_floor` to
+`memory_retention action=list` accepts `min_age_days` and `importance_floor` to
 override these defaults per call, so candidate eligibility is set here and refined at
 the request; the preview-first delete/compact actions and the `memory_store` protection write are
 documented in
-[mcp-tools.md](./mcp-tools.md#retention_review--retention-candidates).
+[mcp-tools.md](./mcp-tools.md#memory_retention--retention-candidates).
 
 ---
 

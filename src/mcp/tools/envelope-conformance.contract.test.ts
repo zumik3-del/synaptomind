@@ -215,23 +215,23 @@ const CASES: ActionCase[] = [
   { tool: 'memory_status', action: 'frontier', args: () => ({}), slot: 'items', cwd: true },
   { tool: 'memory_status', action: 'config', args: () => ({}), slot: 'item', noMirror: true },
   { tool: 'memory_status', action: 'health', args: () => ({}), slot: 'item' },
-  { tool: 'memory_manage', action: 'list', args: () => ({}), slot: 'items', cwd: true },
+  { tool: 'memory_projects', action: 'list', args: () => ({}), slot: 'items', cwd: true },
   {
-    tool: 'memory_manage',
+    tool: 'memory_projects',
     action: 'create',
     args: () => ({ name: 'Conformance Created', local_path: '/tmp/opencode/conformance-created' }),
     slot: 'item',
     cwd: true
   },
   {
-    tool: 'memory_manage',
+    tool: 'memory_projects',
     action: 'update',
     args: () => ({ project_id: PROJECT, name: 'Conformance renamed' }),
     slot: 'item',
     cwd: true
   },
   {
-    tool: 'memory_manage',
+    tool: 'memory_projects',
     action: 'delete',
     args: () => ({ project_id: PROJECT }),
     slot: 'item',
@@ -267,16 +267,16 @@ const CASES: ActionCase[] = [
     args: () => ({ primer_id: 'missing-primer' }),
     slot: 'item'
   },
-  { tool: 'retention_review', action: 'list', args: () => ({}), slot: 'items' },
+  { tool: 'memory_retention', action: 'list', args: () => ({}), slot: 'items' },
   {
-    tool: 'retention_review',
+    tool: 'memory_retention',
     action: 'delete',
     args: f => ({ thought_id: f.retention }),
     slot: 'item',
     preview: true
   },
   {
-    tool: 'retention_review',
+    tool: 'memory_retention',
     action: 'compact',
     args: f => ({ source_ids: [f.retention], summary: { content: 'conformance summary' } }),
     slot: 'item',
@@ -286,14 +286,14 @@ const CASES: ActionCase[] = [
 
 const ACTION_TOOLS = [
   'memory_crystallize',
-  'memory_manage',
   'memory_primers',
+  'memory_projects',
   'memory_recall',
   'memory_reflect',
+  'memory_retention',
   'memory_status',
   'memory_store',
-  'memory_supersede',
-  'retention_review'
+  'memory_supersede'
 ]
 
 const LEGACY_KEYS = ['thoughts', 'nodes', 'best_match', 'text', 'results', 'clusters', 'edges']
@@ -841,7 +841,7 @@ describe('empty and ambiguous search pass a reason through meta', () => {
   })
 })
 
-const UNKNOWN_CWD_WARNING = `cwd "${UNREGISTERED_CWD}" matches no known project — the answer spans every project (check it with memory_manage action=list)`
+const UNKNOWN_CWD_WARNING = `cwd "${UNREGISTERED_CWD}" matches no known project — the answer spans every project (check it with memory_projects action=list)`
 
 describe('memory_status action=slots keys its overrides note on the resolved project', () => {
   const slotsMeta = (cwd?: string) =>
@@ -1085,14 +1085,14 @@ describe('every action of every tool accepts cwd', () => {
 
 const REFUSAL_SWEEP: Array<{ tool: string; args: Record<string, unknown> }> = [
   { tool: 'memory_crystallize', args: { action: 'not_an_action' } },
-  { tool: 'memory_manage', args: { action: 'not_an_action' } },
+  { tool: 'memory_projects', args: { action: 'not_an_action' } },
   { tool: 'memory_primers', args: { action: 'not_an_action' } },
   { tool: 'memory_recall', args: { action: 'not_an_action' } },
   { tool: 'memory_reflect', args: { action: 'not_an_action' } },
   { tool: 'memory_status', args: { action: 'not_an_action' } },
   { tool: 'memory_store', args: { action: 'not_an_action' } },
   { tool: 'memory_supersede', args: { action: 'not_an_action' } },
-  { tool: 'retention_review', args: { action: 'not_an_action' } }
+  { tool: 'memory_retention', args: { action: 'not_an_action' } }
 ]
 
 function refusal(result: unknown): { message: string; text: string } {
@@ -1248,8 +1248,8 @@ describe('a preview token lives only in meta.preview', () => {
       action: 'merge',
       args: f => ({ source_id: f.target, target_id: f.source })
     },
-    { tool: 'memory_manage', action: 'delete', args: () => ({ project_id: PROJECT }) },
-    { tool: 'retention_review', action: 'delete', args: f => ({ thought_id: f.retention }) }
+    { tool: 'memory_projects', action: 'delete', args: () => ({ project_id: PROJECT }) },
+    { tool: 'memory_retention', action: 'delete', args: f => ({ thought_id: f.retention }) }
   ]
 
   for (const c of PREVIEW_TOKEN_ACTIONS) {
@@ -1288,7 +1288,7 @@ describe('a preview token lives only in meta.preview', () => {
   })
 })
 
-const TOKENLESS_PREVIEWS = new Set(['memory_store.unlink_batch', 'retention_review.compact'])
+const TOKENLESS_PREVIEWS = new Set(['memory_store.unlink_batch', 'memory_retention.compact'])
 
 describe('no action envelope carries preview_token outside meta.preview', () => {
   for (const c of CASES) {

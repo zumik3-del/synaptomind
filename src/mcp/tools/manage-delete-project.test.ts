@@ -5,14 +5,14 @@ import { getDb } from '../../db'
 import { closeDb } from '../../db/init'
 import { createProject, resolveDefaultProjectId } from '../../db/projects'
 import { createTestDb, seedThought } from '../../test/helpers'
-import { registerMemoryManage } from './manage'
+import { registerMemoryProjects } from './manage'
 
 const OLDER = '2026-01-01T00:00:00.000Z'
 const NEWER = '2026-01-02T00:00:00.000Z'
 
 async function setupClient(): Promise<Client> {
   const server = new McpServer({ name: 'test', version: '0.0.0' })
-  registerMemoryManage(server)
+  registerMemoryProjects(server)
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   const client = new Client({ name: 'test-client', version: '0.0.0' })
@@ -33,7 +33,7 @@ function parseResult(result: unknown): { data: any; isError: boolean } {
 async function previewDeletion(client: Client, projectId: string) {
   return parseResult(
     await client.callTool({
-      name: 'memory_manage',
+      name: 'memory_projects',
       arguments: { action: 'delete', project_id: projectId }
     })
   ).data
@@ -42,7 +42,7 @@ async function previewDeletion(client: Client, projectId: string) {
 async function confirmDeletion(client: Client, projectId: string, token: string) {
   return parseResult(
     await client.callTool({
-      name: 'memory_manage',
+      name: 'memory_projects',
       arguments: { action: 'delete', project_id: projectId, confirm: true, preview_token: token }
     })
   ).data
@@ -51,7 +51,7 @@ async function confirmDeletion(client: Client, projectId: string, token: string)
 beforeEach(createTestDb)
 afterEach(closeDb)
 
-describe('memory_manage delete of a project holding collisions', () => {
+describe('memory_projects delete of a project holding collisions', () => {
   test('the preview names the archiving that the confirmed answer reports', async () => {
     const client = await setupClient()
     const db = getDb()
@@ -80,7 +80,7 @@ describe('memory_manage delete of a project holding collisions', () => {
   })
 })
 
-describe('memory_manage delete of a project without collisions', () => {
+describe('memory_projects delete of a project without collisions', () => {
   test('the answer keeps every field a thoughts_moved client reads, plus zero archived', async () => {
     const client = await setupClient()
     const db = getDb()

@@ -56,7 +56,7 @@ describe('read and write scope resolution — one resolver, four cases', () => {
     expect(read.warnings).toHaveLength(1)
     expect(read.warnings[0]).toContain(UNKNOWN)
     expect(read.warnings[0]).toContain(
-      'the answer spans every project (check it with memory_manage'
+      'the answer spans every project (check it with memory_projects'
     )
   })
 

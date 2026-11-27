@@ -228,7 +228,7 @@ export const THOUGHT_FINGERPRINT_CASES: readonly FingerprintCase[] = [
     probes: MERGE_PROBES
   },
   {
-    label: 'retention_review action=delete',
+    label: 'memory_retention action=delete',
     kind: 'retention_delete',
     module: 'src/mcp/tools/retention-review.ts',
     probes: RETENTION_DELETE_PROBES

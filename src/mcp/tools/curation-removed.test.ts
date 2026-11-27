@@ -31,14 +31,14 @@ const ALLOWED_FILES = new Set([
 const SURVIVING_TOOLS = [
   'memory_crystallize',
   'memory_guide',
-  'memory_manage',
   'memory_primers',
+  'memory_projects',
   'memory_recall',
   'memory_reflect',
+  'memory_retention',
   'memory_status',
   'memory_store',
-  'memory_supersede',
-  'retention_review'
+  'memory_supersede'
 ]
 const STATUS_ACTIONS = ['slots', 'frontier', 'config', 'health']
 

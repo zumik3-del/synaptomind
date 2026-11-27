@@ -41,12 +41,12 @@ async function main() {
     // by every project-scoped read — register it once (idempotent: resolve
     // first, create only when the path is unknown).
     const resolved = await client.callTool({
-      name: 'memory_manage',
+      name: 'memory_projects',
       arguments: { action: 'resolve', cwd: CWD }
     })
     if (text(resolved).isError) {
       const created = await client.callTool({
-        name: 'memory_manage',
+        name: 'memory_projects',
         arguments: { action: 'create', name: 'synaptomind-smoke', local_path: CWD }
       })
       if (text(created).isError) {

@@ -45,9 +45,9 @@ function autoClusterCase(): GateCase {
 function manageDeleteCase(): GateCase {
   let projectId = ''
   return {
-    label: 'memory_manage action=delete',
+    label: 'memory_projects action=delete',
     kind: 'other',
-    tool: 'memory_manage',
+    tool: 'memory_projects',
     replay: 'domain',
     setup() {
       projectId = createProjectService({
@@ -141,9 +141,9 @@ function mergeCase(): GateCase {
 function retentionDeleteCase(): GateCase {
   let id = ''
   return {
-    label: 'retention_review action=delete',
+    label: 'memory_retention action=delete',
     kind: 'thought',
-    tool: 'retention_review',
+    tool: 'memory_retention',
     replay: 'domain',
     setup() {
       id = seedThought({

@@ -71,11 +71,11 @@ describe('tool registration', () => {
     expect(names).toContain('memory_store')
     expect(names).toContain('memory_supersede')
     expect(names).toContain('memory_status')
-    expect(names).toContain('memory_manage')
+    expect(names).toContain('memory_projects')
     expect(names).toContain('memory_crystallize')
     expect(names).toContain('memory_reflect')
     expect(names).toContain('memory_primers')
-    expect(names).toContain('retention_review')
+    expect(names).toContain('memory_retention')
     expect(names).toContain('memory_guide')
     expect(tools.length).toBe(10)
   })
@@ -90,7 +90,7 @@ describe('tool registration', () => {
   })
 })
 
-describe('retention_review MCP', () => {
+describe('memory_retention MCP', () => {
   test('maps list pagination and protects a candidate through memory_store update', async () => {
     const id = seedThought({
       content: 'MCP retention candidate',
@@ -105,7 +105,7 @@ describe('retention_review MCP', () => {
     getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
     const listed = parseResult(
       await callTool({
-        name: 'retention_review',
+        name: 'memory_retention',
         arguments: { action: 'list', min_age_days: 1, importance_floor: 1, limit: 1, offset: 0 }
       })
     )
@@ -136,16 +136,16 @@ describe('retention_review MCP', () => {
       .run('2026-09-01T00:00:00.000Z', id)
     getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
     const preview = parseResult(
-      await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } })
+      await callTool({ name: 'memory_retention', arguments: { action: 'delete', thought_id: id } })
     )
     expect(preview.data.item.preview).toBe(true)
     expect(getDb().prepare('SELECT id FROM thoughts WHERE id = ?').get(id)).toBeTruthy()
     const deletePreview = parseResult(
-      await callTool({ name: 'retention_review', arguments: { action: 'delete', thought_id: id } })
+      await callTool({ name: 'memory_retention', arguments: { action: 'delete', thought_id: id } })
     )
     const deleted = parseResult(
       await callTool({
-        name: 'retention_review',
+        name: 'memory_retention',
         arguments: {
           action: 'delete',
           thought_id: id,
@@ -179,7 +179,7 @@ describe('retention_review MCP', () => {
       }
     }
     const compactPreview = parseResult(
-      await callTool({ name: 'retention_review', arguments: args })
+      await callTool({ name: 'memory_retention', arguments: args })
     )
     expect(compactPreview.data.item.status).toBe('preview')
     expect(
@@ -188,14 +188,14 @@ describe('retention_review MCP', () => {
         .get()
     ).toBeNull()
     const compacted = parseResult(
-      await callTool({ name: 'retention_review', arguments: { ...args, confirm: true } })
+      await callTool({ name: 'memory_retention', arguments: { ...args, confirm: true } })
     )
     expect(compacted.isError).toBe(false)
     expect(compacted.data.item.summary.project).toBe('Default')
     expect(compacted.data.item.summary.tags).toContain('mcp-tag')
     const invalid = parseResult(
       await callTool({
-        name: 'retention_review',
+        name: 'memory_retention',
         arguments: { action: 'compact', source_ids: [], summary: { content: 'invalid' } }
       })
     )
@@ -204,7 +204,7 @@ describe('retention_review MCP', () => {
 
   test('retention-review compact rejects more than 1000 IDs through MCP validation', async () => {
     const result = await callTool({
-      name: 'retention_review',
+      name: 'memory_retention',
       arguments: {
         action: 'compact',
         source_ids: Array.from({ length: 1001 }, (_, i) => `id-${i}`),
@@ -234,7 +234,7 @@ describe('retention_review MCP', () => {
       getDb().prepare('UPDATE thought_importance SET importance = 0.1 WHERE thought_id = ?').run(id)
     }
     const listed = parseResult(
-      await callTool({ name: 'retention_review', arguments: { action: 'list' } })
+      await callTool({ name: 'memory_retention', arguments: { action: 'list' } })
     )
     expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(first)
     expect(listed.data.items.map((row: { id: string }) => row.id)).toContain(second)
@@ -244,7 +244,7 @@ describe('retention_review MCP', () => {
   test('retention-review compact accepts 1000 source IDs through MCP schema validation', async () => {
     const result = parseResult(
       await callTool({
-        name: 'retention_review',
+        name: 'memory_retention',
         arguments: {
           action: 'compact',
           source_ids: Array.from({ length: 1000 }, (_, i) => `missing-${i}`),
@@ -639,10 +639,10 @@ describe('memory_supersede', () => {
   })
 })
 
-describe('memory_manage', () => {
+describe('memory_projects', () => {
   test('list returns projects array', async () => {
     const result = await callTool({
-      name: 'memory_manage',
+      name: 'memory_projects',
       arguments: { action: 'list' }
     })
     const { data, isError } = parseResult(result)
@@ -653,7 +653,7 @@ describe('memory_manage', () => {
 
   test('create project', async () => {
     const create = await callTool({
-      name: 'memory_manage',
+      name: 'memory_projects',
       arguments: { action: 'create', name: 'TestProject', local_path: '/tmp/test-project' }
     })
     const { data: created, isError: createErr } = parseResult(create)
@@ -663,7 +663,7 @@ describe('memory_manage', () => {
 
   test('advertises no compact option (#2201: the manage projection never read it)', async () => {
     const { tools } = await client.listTools()
-    const manage = tools.find(t => t.name === 'memory_manage')
+    const manage = tools.find(t => t.name === 'memory_projects')
     const props =
       (manage?.inputSchema as { properties?: Record<string, { description?: string }> } | undefined)
         ?.properties ?? {}
@@ -682,7 +682,7 @@ describe('memory_manage', () => {
   test('fields still trims the project rows (the surviving selector works)', async () => {
     const trimmed = parseResult(
       await callTool({
-        name: 'memory_manage',
+        name: 'memory_projects',
         arguments: { action: 'list', fields: ['name'] }
       })
     )
@@ -690,7 +690,7 @@ describe('memory_manage', () => {
     expect(Object.keys(trimmed.data.items[0])).toEqual(['name'])
 
     const full = parseResult(
-      await callTool({ name: 'memory_manage', arguments: { action: 'list' } })
+      await callTool({ name: 'memory_projects', arguments: { action: 'list' } })
     )
     expect(Object.keys(full.data.items[0]).length).toBeGreaterThan(1)
   })
@@ -1135,7 +1135,7 @@ describe('memory_store link edge types', () => {
 describe('search with project scope', () => {
   test('projectFilter scopes search results', async () => {
     const proj = await callTool({
-      name: 'memory_manage',
+      name: 'memory_projects',
       arguments: { action: 'create', name: 'SearchScopeTest', local_path: '/tmp/search-scope' }
     })
     const { data: project } = parseResult(proj)

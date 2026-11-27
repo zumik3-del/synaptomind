@@ -127,7 +127,7 @@ const handlers = {
                   ? `${project.thought_count} thought(s) will be moved to the Default project before deletion; any whose content is already live there will be archived, not kept live.`
                   : 'Project has no thoughts — safe to delete.',
               instruction:
-                'Call memory_manage again with action=delete, project_id=..., confirm=true to proceed.'
+                'Call memory_projects again with action=delete, project_id=..., confirm=true to proceed.'
             },
             { preview: { token } }
           ),
@@ -150,9 +150,9 @@ const handlers = {
   }
 }
 
-export function registerMemoryManage(server: McpServer) {
+export function registerMemoryProjects(server: McpServer) {
   registerActionTool(server, {
-    name: 'memory_manage',
+    name: 'memory_projects',
     annotations: DESTRUCTIVE,
     description: `Manage projects — the containers thoughts belong to; the thoughts themselves are memory_recall and their writes memory_store. Every action answers in one envelope: list returns { items, meta }, the single-project actions return { item, meta }. Actions: list (each project's id, name, description and local_path — the way to resolve a path to its project), create, update, delete (preview→confirm).`,
     inputSchema: {

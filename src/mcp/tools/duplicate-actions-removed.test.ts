@@ -16,21 +16,21 @@ const LOCAL_PATH = '/tmp/t2693-local-path'
 const SURVIVING_TOOLS = [
   'memory_crystallize',
   'memory_guide',
-  'memory_manage',
   'memory_primers',
+  'memory_projects',
   'memory_recall',
   'memory_reflect',
+  'memory_retention',
   'memory_status',
   'memory_store',
-  'memory_supersede',
-  'retention_review'
+  'memory_supersede'
 ]
 
 const REDUCED_ENUMS: Record<string, string[]> = {
   memory_recall: ['search', 'get', 'context', 'chain', 'list'],
   memory_reflect: ['reflect'],
-  memory_manage: ['list', 'create', 'update', 'delete'],
-  retention_review: ['list', 'delete', 'compact']
+  memory_projects: ['list', 'create', 'update', 'delete'],
+  memory_retention: ['list', 'delete', 'compact']
 }
 
 const CUT_ACTIONS = [
@@ -45,12 +45,12 @@ const CUT_ACTIONS = [
     hint: 'timeline was removed; use memory_recall action=list'
   },
   {
-    tool: 'memory_manage',
+    tool: 'memory_projects',
     action: 'resolve',
     hint: 'resolve was removed; use action=list and match local_path'
   },
   {
-    tool: 'retention_review',
+    tool: 'memory_retention',
     action: 'protect',
     hint: 'protect was removed; use memory_store action=update with is_protected=true'
   }
@@ -356,9 +356,9 @@ describe('the moved capability survives on the replacement path', () => {
     )
   })
 
-  test('resolve reader: memory_manage list exposes local_path, so a path resolves by match', async () => {
+  test('resolve reader: memory_projects list exposes local_path, so a path resolves by match', async () => {
     const project = createProjectService({ name: 'CutResolveProject', local_path: LOCAL_PATH })
-    const { text, isError } = readResult(await callTool('memory_manage', { action: 'list' }))
+    const { text, isError } = readResult(await callTool('memory_projects', { action: 'list' }))
     const listed = JSON.parse(text)
 
     expect(isError).toBe(false)
@@ -376,7 +376,7 @@ describe('the moved capability survives on the replacement path', () => {
       line.includes('matches no known project')
     )
 
-    expect(warning).toContain('check it with memory_manage action=list')
+    expect(warning).toContain('check it with memory_projects action=list')
     expect(page.meta.scope).toEqual({ project: null, project_name: null, global: true })
   })
 
@@ -394,7 +394,7 @@ describe('the moved capability survives on the replacement path', () => {
 
     const before = JSON.parse(
       toolText(
-        await callTool('retention_review', {
+        await callTool('memory_retention', {
           action: 'list',
           min_age_days: 1,
           importance_floor: 1,
@@ -418,7 +418,7 @@ describe('the moved capability survives on the replacement path', () => {
 
     const after = JSON.parse(
       toolText(
-        await callTool('retention_review', {
+        await callTool('memory_retention', {
           action: 'list',
           min_age_days: 1,
           importance_floor: 1,

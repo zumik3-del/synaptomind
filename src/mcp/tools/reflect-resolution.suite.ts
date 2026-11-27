@@ -8,7 +8,7 @@ import { registerMemoryReflect } from './reflect'
 // This suite mocks.module('../../services/projects.service') globally — a
 // singleton every MCP tool shares — and bun cannot unmock a module, so it must
 // run in a child bun process with a clean module registry (task #1932: the leak
-// made the full suite's memory_manage / project-scoped recall tests fail
+// made the full suite's memory_projects / project-scoped recall tests fail
 // depending on file order). The wrapper is reflect-resolution.contract.test.ts.
 
 mock.module('../../embedder/client', () => ({

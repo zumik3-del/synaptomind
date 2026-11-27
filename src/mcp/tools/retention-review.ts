@@ -180,9 +180,9 @@ const handlers = {
   }
 }
 
-export function registerRetentionReview(server: McpServer): void {
+export function registerMemoryRetention(server: McpServer): void {
   registerActionTool(server, {
-    name: 'retention_review',
+    name: 'memory_retention',
     annotations: DESTRUCTIVE,
     description:
       'Review retention candidates: list candidates, preview or confirm deletion, or compact candidates into a summary. To keep a thought instead of deleting it, call memory_store action=update with is_protected=true (which also drops it out of the candidate list). Answers the shared envelope { items, meta } for list and { item, meta } for delete/compact; a preview sets meta.preview={token,destructive:true}.',

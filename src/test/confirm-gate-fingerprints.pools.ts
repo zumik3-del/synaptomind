@@ -158,7 +158,7 @@ export const POOL_FINGERPRINT_CASES: readonly FingerprintCase[] = [
     probes: AUTO_CLUSTER_PROBES
   },
   {
-    label: 'memory_manage action=delete',
+    label: 'memory_projects action=delete',
     kind: 'manage_delete',
     module: 'src/mcp/tools/manage.ts',
     probes: MANAGE_DELETE_PROBES
