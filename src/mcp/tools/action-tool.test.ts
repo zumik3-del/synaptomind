@@ -366,19 +366,19 @@ const REQUIRED_FIELD_CASES: Array<{
     message: 'source_id is required for merge action'
   },
   {
-    label: 'manage create',
+    label: 'projects create',
     tool: 'memory_projects',
     args: { action: 'create' },
     message: 'name is required for create action'
   },
   {
-    label: 'manage update',
+    label: 'projects update',
     tool: 'memory_projects',
     args: { action: 'update' },
     message: 'project_id is required for update action'
   },
   {
-    label: 'manage delete',
+    label: 'projects delete',
     tool: 'memory_projects',
     args: { action: 'delete' },
     message: 'project_id is required for delete action'

@@ -661,16 +661,19 @@ describe('memory_projects', () => {
     expect(created.item.name).toBe('TestProject')
   })
 
-  test('advertises no compact option (#2201: the manage projection never read it)', async () => {
+  test('advertises no compact option (#2201: the projects projection never read it)', async () => {
     const { tools } = await client.listTools()
-    const manage = tools.find(t => t.name === 'memory_projects')
+    const projects = tools.find(t => t.name === 'memory_projects')
     const props =
-      (manage?.inputSchema as { properties?: Record<string, { description?: string }> } | undefined)
-        ?.properties ?? {}
+      (
+        projects?.inputSchema as
+          | { properties?: Record<string, { description?: string }> }
+          | undefined
+      )?.properties ?? {}
 
     expect(Object.keys(props)).not.toContain('compact')
-    expect(JSON.stringify(manage?.inputSchema)).not.toContain('compact')
-    expect(manage?.description ?? '').not.toContain('compact')
+    expect(JSON.stringify(projects?.inputSchema)).not.toContain('compact')
+    expect(projects?.description ?? '').not.toContain('compact')
     expect(props.fields).toBeDefined()
     const recall = tools.find(t => t.name === 'memory_recall')
     const recallProps =
